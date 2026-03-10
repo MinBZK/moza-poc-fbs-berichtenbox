@@ -1,0 +1,87 @@
+publiccodeYmlVersion: "0.5"
+name: PoC MOZa Berichtenbox
+url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+landingURL: https://mijnoverheidzakelijk.nl
+platforms:
+  - web
+categories:
+  - digital-citizenship
+organisation:
+  uri: https://www.rijksoverheid.nl/ministeries/ministerie-van-binnenlandse-zaken-en-koninkrijksrelaties
+  name: Ministerie van Binnenlandse Zaken en Koninkrijksrelaties
+fundedBy:
+  - name: Ministerie van Binnenlandse Zaken en Koninkrijksrelaties
+    uri: https://www.rijksoverheid.nl/ministeries/ministerie-van-binnenlandse-zaken-en-koninkrijksrelaties
+developmentStatus: development
+softwareType: standalone/web
+intendedAudience:
+  countries:
+    - NL
+  scope:
+    - government
+description:
+  nl:
+    localisedName: MOZa Berichtenbox
+    shortDescription: >-
+      PoC Berichtenbox voor MijnOverheid Zakelijk (MOZa) binnen het
+      Federatief Berichtenstelsel.
+    longDescription: >
+      De MOZa Berichtenbox is een Proof of Concept voor het ontvangen,
+      opslaan en ophalen van berichten binnen MijnOverheid Zakelijk. De
+      Berichtenbox is onderdeel van het Federatief Berichtenstelsel (FBS)
+      en bestaat uit de volgende onderdelen:
+
+      - Berichtenlijst
+
+      - Berichtenmagazijn
+
+      - Berichtnotificatieprofiel
+
+
+      Deze repository bevat de broncode van de PoC Berichtenbox. Het
+      MOZa-project bestaat uit meerdere repositories binnen de MinBZK
+      organisatie, te herkennen aan de moza- prefix of het topic
+      mijnoverheidzakelijk.
+    features:
+      - Ontvangen en opslaan van berichten
+      - Ophalen en weergeven van berichtenlijst
+      - Beheer van berichtnotificatieprofielen
+  en:
+    shortDescription: >-
+      PoC Berichtenbox for "MijnOverheid Zakelijk" (MOZa) within the
+      Federatief Berichtenstelsel (Federated Messaging System).
+    longDescription: >
+      The MOZa Berichtenbox is a Proof of Concept for receiving, storing
+      and retrieving messages within "MijnOverheid Zakelijk". The
+      Berichtenbox is part of the Federatief Berichtenstelsel (FBS,
+      Federated Messaging System) and consists of the following
+      components:
+
+      - Message list
+
+      - Message store
+
+      - Message notification profile
+
+
+      This repository contains the source code of the PoC Berichtenbox.
+      The MOZa project consists of multiple repositories within the
+      MinBZK organisation, identifiable by the moza- prefix or the
+      mijnoverheidzakelijk topic.
+    features:
+      - Receiving and storing messages
+      - Retrieving and displaying message lists
+      - Management of message notification profiles
+legal:
+  license: EUPL-1.2
+  mainCopyrightOwner: Ministerie van Binnenlandse Zaken en Koninkrijksrelaties
+maintenance:
+  type: internal
+  contacts:
+    - name: MijnOverheid Zakelijk Team
+      email: moza@minbzk.nl
+      affiliation: Ministerie van Binnenlandse Zaken en Koninkrijksrelaties
+localisation:
+  localisationReady: false
+  availableLanguages:
+    - nl
