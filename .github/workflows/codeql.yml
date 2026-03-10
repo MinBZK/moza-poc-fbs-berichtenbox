@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: []
+        language: ['kotlin']
         # Voeg hier je talen toe / Add your languages here
         # Bijvoorbeeld / For example: ['java', 'javascript', 'python']
     steps:
