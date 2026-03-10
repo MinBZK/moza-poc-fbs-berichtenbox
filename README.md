@@ -12,7 +12,8 @@ TODO: verder aanvullen/wijzigen
 
 ## Doel
 
-Dit Open Source project is opgezet als PoC voor het ontvangen, opslaan en ophalen van berichten binnen MijnOverheid Zakelijk. De Berichtenbox bestaat uit de volgende onderdelen:
+Dit Open Source project is opgezet als PoC voor het ontvangen, opslaan en ophalen van berichten binnen MijnOverheid Zakelijk.
+De Berichtenbox bestaat uit de volgende onderdelen:
 
 - **Berichtenlijst** - Ophalen en weergeven van berichten
 - **Berichtenmagazijn** - Opslaan van berichten
@@ -33,10 +34,6 @@ Dit Open Source project is opgezet als PoC voor het ontvangen, opslaan en ophale
 ```properties
 # Configuratie voorbeeld
 ```
-
-## Bijdragen
-
-Bijdragen zijn welkom! Zie de [CONTRIBUTING.md](CONTRIBUTING.md) voor richtlijnen over hoe je kunt bijdragen aan dit project.
 
 ## Licentie
 
