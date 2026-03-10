@@ -1,7 +1,5 @@
 # Governance
 
-De governance van dit project is centraal beschreven in de hoofdrepository:
+Deze repository maakt deel uit van het [MijnOverheid Zakelijk (MOZa)](https://github.com/MinBZK/MijnOverheidZakelijk) project.
 
-**[GOVERNANCE.md — MinBZK/MijnOverheidZakelijk](https://github.com/MinBZK/MijnOverheidZakelijk/blob/main/GOVERNANCE.md)**
-
-Daar vind je informatie over de governance-structuur, projectorganisatie, besluitvorming en hoe je kunt bijdragen.
+Voor de governancestructuur, rollen, besluitvorming en richtlijnen voor bijdragen, zie [GOVERNANCE.md](https://github.com/MinBZK/MijnOverheidZakelijk/blob/main/GOVERNANCE.md) in de hoofdrepository van MijnOverheidZakelijk.

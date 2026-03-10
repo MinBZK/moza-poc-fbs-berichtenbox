@@ -23,8 +23,7 @@ description:
   nl:
     localisedName: MOZa Berichtenbox
     shortDescription: >-
-      PoC Berichtenbox voor MijnOverheid Zakelijk (MOZa) binnen het
-      Federatief Berichtenstelsel.
+      PoC Berichtenbox voor MijnOverheid Zakelijk (MOZa).
     longDescription: >
       De MOZa Berichtenbox is een Proof of Concept voor het ontvangen,
       opslaan en ophalen van berichten binnen MijnOverheid Zakelijk. De
@@ -48,8 +47,7 @@ description:
       - Beheer van berichtnotificatieprofielen
   en:
     shortDescription: >-
-      PoC Berichtenbox for "MijnOverheid Zakelijk" (MOZa) within the
-      Federatief Berichtenstelsel (Federated Messaging System).
+      PoC Berichtenbox for "MijnOverheid Zakelijk" (MOZa).
     longDescription: >
       The MOZa Berichtenbox is a Proof of Concept for receiving, storing
       and retrieving messages within "MijnOverheid Zakelijk". The

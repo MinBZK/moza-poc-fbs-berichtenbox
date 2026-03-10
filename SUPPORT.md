@@ -1,7 +1,5 @@
 # Ondersteuning
 
-De ondersteuning voor dit project is centraal beschreven in de hoofdrepository:
+Deze repository maakt deel uit van het [MijnOverheid Zakelijk (MOZa)](https://github.com/MinBZK/MijnOverheidZakelijk) project.
 
-**[SUPPORT.md — MinBZK/MijnOverheidZakelijk](https://github.com/MinBZK/MijnOverheidZakelijk/blob/main/SUPPORT.md)**
-
-Daar vind je informatie over hoe en waar je hulp kunt krijgen, bugs kunt melden, features kunt aanvragen en hoe je kunt bijdragen.
+Voor ondersteuning, het melden van bugs, feature requests en contactinformatie, zie [SUPPORT.md](https://github.com/MinBZK/MijnOverheidZakelijk/blob/main/SUPPORT.md) in de hoofdrepository van MijnOverheidZakelijk.

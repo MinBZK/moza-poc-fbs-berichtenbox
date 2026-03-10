@@ -6,7 +6,9 @@ Proof of Concept Berichtenbox voor MijnOverheid Zakelijk (MOZa) binnen het Feder
 
 ## Inleiding
 
-Vanuit het programma MijnOverheid Zakelijk sluiten we zoveel mogelijk aan op de standaarden uit het stelsel Generieke Digitale Infrastructuur: https://www.digitaleoverheid.nl/mido/generieke-digitale-infrastructuur-gdi/. Dit project is een Proof of Concept voor de Berichtenbox binnen het Federatief Berichtenstelsel.
+Dit project is een Proof of Concept voor de Berichtenbox binnen het Federatief Berichtenstelsel, 
+beschreven op https://www.logius.nl/onze-dienstverlening/interactie/federatief-berichten-stelsel.
+TODO: verder aanvullen/wijzigen
 
 ## Doel
 
