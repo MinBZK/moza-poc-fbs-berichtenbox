@@ -1,0 +1,54 @@
+name: Architecture Site
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/architecture/**'
+  pull_request:
+    paths:
+      - 'docs/architecture/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Generate static site
+        run: |
+          mkdir -p _site
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v ${{ github.workspace }}/docs/architecture:/var/model:ro \
+            -v ${{ github.workspace }}/_site:/var/output \
+            ghcr.io/avisi-cloud/structurizr-site-generatr:1.5.2 \
+            generate-site -w workspace.dsl --output-dir /var/output
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: _site
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
