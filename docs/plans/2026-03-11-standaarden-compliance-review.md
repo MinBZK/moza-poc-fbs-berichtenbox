@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 **Datum:** 2026-03-11
 
 # Compliancebeoordeling PR: feature/multi-magazijn-aggregatie
@@ -13,12 +13,12 @@ Dit is een Proof of Concept voor het Federatief Berichtenstelsel (FBS).
 | Authenticatie | ⚪ Buiten scope | ls-iam, don-security | Bewust buiten POC-scope; geen OAuth/JWT |
 | Digikoppeling/FSC | ⚪ Buiten scope | ls-dk, ls-fsc | Bewust buiten POC-scope; plain HTTP naar magazijnen |
 | Logboek Dataverwerkingen | ✅ Geïmplementeerd | ls-logboek, don-data | Via moza-logboekdataverwerking wrapper |
-| CloudEvents | 🟡 Medium | ls-notif | EventForwarder is TODO |
-| OpenAPI locatie | 🟡 Medium | ls-api, don-apis | `/q/openapi` i.p.v. vereist `/openapi.json` |
-| Zoeken-pad | 🟡 Medium | ls-api, don-apis | `/berichten/zoeken` → ADR vereist `/berichten/_zoeken` |
-| Open source bestanden | 🟡 Medium | don-open-source | README, CONTRIBUTING, publiccode.yml ontbreken |
-| Security headers | 🟢 Laag | inet-web, don-security | Ontbreken op app-niveau (kan op infra/gateway) |
-| Contact in OpenAPI spec | 🟢 Laag | ls-api | Controleren of `info.contact` aanwezig is |
+| CloudEvents | ✅ Geïmplementeerd | ls-notif | EventForwarder met NL GOV CloudEvents profiel v1.1 |
+| OpenAPI locatie | ✅ Geïmplementeerd | ls-api, don-apis | Geconfigureerd op `/openapi.json` |
+| Zoeken-pad | ✅ Geïmplementeerd | ls-api, don-apis | Aangepast naar `/berichten/_zoeken` |
+| Open source bestanden | ✅ Geïmplementeerd | don-open-source | README, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, LICENSE, publiccode.yml |
+| Security headers | ✅ Geïmplementeerd | inet-web, don-security | Via ApiVersionFilter op app-niveau |
+| Contact in OpenAPI spec | ✅ Geïmplementeerd | ls-api | `info.contact` met name, email en url |
 
 ## Niet van toepassing (POC context)
 
@@ -65,88 +65,58 @@ Dit is een Proof of Concept voor het Federatief Berichtenstelsel (FBS).
 
 ---
 
-### 🟡 4. CloudEvents forwarding is TODO (ls-notif)
+### ✅ 4. CloudEvents forwarding — geïmplementeerd (ls-notif)
 
-**Bestand:** `services/berichtenlijst/src/main/kotlin/nl/rijksoverheid/moz/berichtenlijst/notificatie/EventForwarder.kt:12`
-
-```kotlin
-// TODO: Implementeer CloudEvents forwarding naar Notificatie Service
-```
-
-**Vereiste per NL GOV CloudEvents profiel v1.1:**
-- `source`: `urn:nld:oin:<OIN>:systeem:berichtenlijst`
-- `type`: bijv. `nl.fbs.bericht-ontvangen`
+**Implementatie in** `EventForwarder.kt`:
+- Structured content mode (`application/cloudevents+json`)
+- `source`: `urn:nld:oin:00000000000000000000:systeem:berichtenlijst` (OIN is placeholder)
+- `type`: `nl.fbs.bericht-ontvangen`
 - `specversion`: `"1.0"`
-- POST naar Notificatie Service met `Content-Type: application/cloudevents+json`
+- POST naar Notificatie Service URL uit configuratie
+- Error handling met logging bij fouten
 
 ---
 
-### 🟡 5. OpenAPI spec niet op vereist pad (ls-api, don-apis)
+### ✅ 5. OpenAPI spec op vereist pad — geïmplementeerd (ls-api, don-apis)
 
-**Huidig gedrag:** Quarkus serveert OpenAPI op `/q/openapi`.
-
-**ADR vereiste:** Spec MOET beschikbaar zijn op `/openapi.json` (verplicht).
-
-**Fix in `application.properties`:**
-
-```properties
-quarkus.smallrye-openapi.path=/openapi.json
-```
+Geconfigureerd in `application.properties`: `quarkus.smallrye-openapi.path=/openapi.json`
 
 ---
 
-### 🟡 6. Zoek-endpoint pad niet ADR-conform (ls-api, don-apis)
+### ✅ 6. Zoek-endpoint pad ADR-conform — geïmplementeerd (ls-api, don-apis)
 
-**Huidig:** `GET /api/v1/berichten/zoeken`
-
-**ADR-regel:** Sub-resources die acties uitdrukken krijgen een `_` prefix als laatste padsegment.
-
-**Correct:** `GET /api/v1/berichten/_zoeken`
-
-Aanpassen in `berichtenlijst-api.yaml`; de gegenereerde interface werkt automatisch mee.
+Aangepast in `berichtenlijst-api.yaml`: `/berichten/zoeken` → `/berichten/_zoeken`
 
 ---
 
-### 🟡 7. Open source bestanden ontbreken (don-open-source)
+### ✅ 7. Open source bestanden — geïmplementeerd (don-open-source)
 
-**Ontbrekend in repo root:**
-- `README.md` — projectbeschrijving, installatie-instructies
-- `CONTRIBUTING.md` — bijdragerichtlijnen
-- `CODE_OF_CONDUCT.md`
-- `publiccode.yml` — verplicht voor overheidsprojecten
-- `LICENSE` — licentiebestand (bij voorkeur EUPL-1.2)
-- `SECURITY.md` / `security.txt`
+Aanwezig in repo root:
+- `README.md` — projectbeschrijving met installatie-instructies
+- `CONTRIBUTING.md` — verwijst naar hoofdrepository
+- `CODE_OF_CONDUCT.md` — verwijst naar hoofdrepository
+- `SECURITY.md` — verwijst naar hoofdrepository
+- `publiccode.yml` — compleet met NL en EN beschrijvingen
+- `LICENSE` — EUPL-1.2
+- `GOVERNANCE.md` — verwijst naar hoofdrepository
+- `SUPPORT.md` — verwijst naar hoofdrepository
 
 ---
 
-### 🟢 8. Security headers (inet-web, don-security)
+### ✅ 8. Security headers — geïmplementeerd (inet-web, don-security)
 
-**Huidig:** Niet geconfigureerd op applicatieniveau.
-
-**ADR/inet-web vereiste:**
+Toegevoegd aan `ApiVersionFilter` (ContainerResponseFilter):
 - `Strict-Transport-Security: max-age=31536000`
 - `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
 - `Content-Security-Policy: frame-ancestors 'none'`
 - `Cache-Control: no-store`
 
-**Aanpak:** Toevoegen aan de bestaande `ApiVersionFilter` (is al een `ContainerResponseFilter`).
-Alternatief: via een API Gateway/reverse proxy buiten de applicatie.
-
 ---
 
-### 🟢 9. Contact info in OpenAPI spec (ls-api)
+### ✅ 9. Contact info in OpenAPI spec — geïmplementeerd (ls-api)
 
-**Te controleren in `berichtenlijst-api.yaml`:**
-
-```yaml
-info:
-  contact:
-    name: FBS Berichtenlijst
-    email: support@example.nl
-```
-
-ADR vereist dat `info.contact` aanwezig is met `name` en `email`.
+Toegevoegd aan `berichtenlijst-api.yaml`: `info.contact` met `name`, `email` en `url`.
 
 ---
 
@@ -167,13 +137,13 @@ ADR vereist dat `info.contact` aanwezig is met `name` en `email`.
 
 ## Aanbevolen actieplan
 
-| Prioriteit | Actie | Effort |
+| Prioriteit | Actie | Status |
 |-----------|-------|--------|
-| ✅ POC-scope vastgelegd | Auth en DK/FSC bewust buiten POC-scope | Gedaan |
+| ⚪ Auth en DK/FSC | Bewust buiten POC-scope | Buiten scope |
 | ✅ Logboek | Via moza-logboekdataverwerking wrapper | Gedaan |
-| 🟡 CloudEvents | EventForwarder implementeren | Medium |
-| 🟡 OpenAPI pad | `quarkus.smallrye-openapi.path=/openapi.json` | Klein |
-| 🟡 Zoeken pad | `/berichten/zoeken` → `/berichten/_zoeken` | Klein |
-| 🟡 Open source | README, LICENSE, publiccode.yml toevoegen | Medium |
-| 🟢 Security headers | Uitbreiden ApiVersionFilter | Klein |
-| 🟢 Contact info | Toevoegen aan OpenAPI spec | Klein |
+| ✅ CloudEvents | EventForwarder met NL GOV profiel v1.1 | Gedaan |
+| ✅ OpenAPI pad | `/openapi.json` | Gedaan |
+| ✅ Zoeken pad | `/berichten/_zoeken` | Gedaan |
+| ✅ Open source | README, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY | Gedaan |
+| ✅ Security headers | Via ApiVersionFilter | Gedaan |
+| ✅ Contact info | `info.contact` met name, email, url | Gedaan |

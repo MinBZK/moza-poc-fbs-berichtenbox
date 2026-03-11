@@ -7,6 +7,8 @@ info:
   version: 0.1.0
   contact:
     name: MOZA Team
+    email: moza@minbzk.nl
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
   license:
     name: EUPL-1.2
     url: https://eupl.eu/1.2/nl/
@@ -105,7 +107,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /berichten/zoeken:
+  /berichten/_zoeken:
     get:
       operationId: zoekBerichten
       summary: Zoeken in berichten

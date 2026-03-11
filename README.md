@@ -6,9 +6,8 @@ Proof of Concept Berichtenbox voor MijnOverheid Zakelijk (MOZa) binnen het Feder
 
 ## Inleiding
 
-Dit project is een Proof of Concept voor de Berichtenbox binnen het Federatief Berichtenstelsel, 
+Dit project is een Proof of Concept voor de Berichtenbox binnen het Federatief Berichtenstelsel,
 beschreven op https://www.logius.nl/onze-dienstverlening/interactie/federatief-berichten-stelsel.
-TODO: verder aanvullen/wijzigen
 
 ## Doel
 
@@ -19,20 +18,41 @@ De Berichtenbox bestaat uit de volgende onderdelen:
 - **Berichtenmagazijn** - Opslaan van berichten
 - **Berichtnotificatieprofiel** - Beheer van notificatievoorkeuren
 
-## Hoe te gebruiken
+## Vereisten
 
-[Beschrijf stap voor stap hoe het project gebruikt kan worden.]
+- Java 21+
+- Maven 3.9+ (of gebruik de meegeleverde Maven wrapper `./mvnw`)
+- Docker (voor lokale services: Redis, WireMock, ClickHouse)
 
-### Installatie
+## Snel starten
 
 ```bash
-# Installatie commando's
+# Start lokale services (Redis, WireMock magazijnen, ClickHouse)
+docker compose up -d
+
+# Compileer en start de berichtenlijst service in dev mode
+./mvnw quarkus:dev -pl services/berichtenlijst
+```
+
+De API is beschikbaar op `http://localhost:8080/api/v1/berichten`.
+De OpenAPI specificatie staat op `http://localhost:8080/openapi.json`.
+
+### Tests draaien
+
+```bash
+./mvnw test -pl services/berichtenlijst
 ```
 
 ### Configuratie
 
+De belangrijkste configuratie staat in `services/berichtenlijst/src/main/resources/application.properties`:
+
 ```properties
-# Configuratie voorbeeld
+# Magazijnen waarmee de berichtenlijst communiceert
+magazijnen.instances.magazijn-a.url=http://localhost:8081
+magazijnen.instances.magazijn-a.naam=Magazijn A
+magazijnen.instances.magazijn-b.url=http://localhost:8082
+magazijnen.instances.magazijn-b.naam=Magazijn B
 ```
 
 ## Licentie
