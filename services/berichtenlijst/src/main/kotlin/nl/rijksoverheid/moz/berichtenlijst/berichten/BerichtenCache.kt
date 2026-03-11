@@ -16,7 +16,6 @@ interface BerichtenCache {
 
     companion object {
         fun cacheKey(ontvanger: String?) = "berichtenlijst:v1:${ontvanger ?: "all"}"
-        fun searchCacheKey(q: String, ontvanger: String?) = "berichtenlijst:v1:zoeken:$q:${ontvanger ?: "all"}"
     }
 }
 
@@ -44,6 +43,7 @@ class RedisBerichtenCache(
             .chain { _ -> keyCommands.expire(listKey, TTL) }
             .replaceWithVoid()
             .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache key=%s", berichten.size, key) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis store mislukt voor key=%s", key) }
     }
 
     override fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
@@ -51,12 +51,14 @@ class RedisBerichtenCache(
         val json = objectMapper.writeValueAsString(status)
         return redis.value(String::class.java).setex(statusKey, TTL.seconds, json)
             .replaceWithVoid()
+            .onFailure().invoke { e -> log.errorf(e, "Redis storeAggregationStatus mislukt voor key=%s", key) }
     }
 
     override fun getAggregationStatus(key: String): Uni<AggregationStatus?> {
         val statusKey = statusKey(key)
         return redis.value(String::class.java).get(statusKey)
             .map { json -> json?.let { objectMapper.readValue(it, AggregationStatus::class.java) } }
+            .onFailure().invoke { e -> log.errorf(e, "Redis getAggregationStatus mislukt voor key=%s", key) }
     }
 
     override fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?> {
@@ -88,12 +90,14 @@ class RedisBerichtenCache(
                     }
             }
         }
+        .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
     override fun getAll(key: String): Uni<List<Bericht>> {
         val listKey = listKey(key)
         return redis.list(String::class.java).lrange(listKey, 0, -1)
             .map { jsonList -> jsonList.map { objectMapper.readValue(it, Bericht::class.java) } }
+            .onFailure().invoke { e -> log.errorf(e, "Redis getAll mislukt voor key=%s", key) }
     }
 
     companion object {
@@ -108,7 +112,13 @@ data class AggregationStatus(
     val totaalMagazijnen: Int = 0,
     val geslaagd: Int = 0,
     val mislukt: Int = 0,
-)
+) {
+    init {
+        require(geslaagd >= 0) { "geslaagd mag niet negatief zijn" }
+        require(mislukt >= 0) { "mislukt mag niet negatief zijn" }
+        require(geslaagd + mislukt <= totaalMagazijnen) { "geslaagd + mislukt mag niet groter zijn dan totaalMagazijnen" }
+    }
+}
 
 enum class OphalenStatus {
     BEZIG,

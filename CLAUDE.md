@@ -16,7 +16,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Taal:** Kotlin (JVM 21, all-open plugin voor CDI/JAX-RS)
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
-- **Caching:** Quarkus Cache (Caffeine, 60s TTL)
+- **Caching:** Redis (60s TTL) via `BerichtenCache` interface
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
 
@@ -25,7 +25,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **OpenAPI-first:** De OpenAPI spec (`berichtenlijst-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze.
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`.
-- **Cache alleen succesvolle responses:** Error handling in de resource, niet in de service, zodat `@CacheResult` geen foutresultaten cachet.
+- **Cache alleen succesvolle responses:** Error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
 - **ExceptionMappers:** `ProblemExceptionMapper` (WebApplicationException) en `ConstraintViolationExceptionMapper` voor consistente Problem JSON responses.
 
 ## Conventies
@@ -34,7 +34,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Packages:** `nl.rijksoverheid.moz.berichtenlijst.*`
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
-- **Tests:** Mock externe clients via `@Mock @RestClient` in test-package
+- **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
 
 ## Build & test commando's
 

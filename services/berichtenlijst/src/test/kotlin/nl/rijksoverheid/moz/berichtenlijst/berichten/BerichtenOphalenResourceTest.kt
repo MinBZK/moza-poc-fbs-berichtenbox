@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.berichtenlijst.berichten
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import org.hamcrest.CoreMatchers.`is`
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -13,6 +14,8 @@ class BerichtenOphalenResourceTest {
     fun setUp() {
         MockMagazijnClientFactory.shouldFailA = false
         MockMagazijnClientFactory.shouldFailB = false
+        MockMagazijnClientFactory.shouldTimeoutA = false
+        MockMagazijnClientFactory.shouldTimeoutB = false
     }
 
     @Test
@@ -24,10 +27,10 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        assert(response.contains("\"event\":\"magazijn-status\"")) { "Verwacht magazijn-status events in: $response" }
-        assert(response.contains("\"event\":\"ophalen-gereed\"")) { "Verwacht ophalen-gereed event in: $response" }
-        assert(response.contains("\"status\":\"BEZIG\"")) { "Verwacht BEZIG status in: $response" }
-        assert(response.contains("\"status\":\"OK\"")) { "Verwacht OK status in: $response" }
+        assertTrue(response.contains("\"event\":\"magazijn-status\""), "Verwacht magazijn-status events in: $response")
+        assertTrue(response.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed event in: $response")
+        assertTrue(response.contains("\"status\":\"BEZIG\""), "Verwacht BEZIG status in: $response")
+        assertTrue(response.contains("\"status\":\"OK\""), "Verwacht OK status in: $response")
     }
 
     @Test
@@ -42,8 +45,8 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        assert(response.contains("\"status\":\"FOUT\"")) { "Verwacht FOUT status in: $response" }
-        assert(response.contains("\"mislukt\":2")) { "Verwacht mislukt=2 in: $response" }
+        assertTrue(response.contains("\"status\":\"FOUT\""), "Verwacht FOUT status in: $response")
+        assertTrue(response.contains("\"mislukt\":2"), "Verwacht mislukt=2 in: $response")
     }
 
     @Test
@@ -52,14 +55,12 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = true
         val ontvanger = "fout-test-${System.nanoTime()}"
 
-        // Ophalen met fout
         given()
             .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/ophalen")
             .then()
             .statusCode(200)
 
-        // Berichten ophalen — status is GEREED maar lijst is leeg
         given()
             .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten")
@@ -80,9 +81,10 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        assert(sseResponse.contains("\"event\":\"ophalen-gereed\"")) {
-            "SSE response bevat geen ophalen-gereed event: $sseResponse"
-        }
+        assertTrue(
+            sseResponse.contains("\"event\":\"ophalen-gereed\""),
+            "SSE response bevat geen ophalen-gereed event: $sseResponse",
+        )
 
         val berichtenResponse = given()
             .queryParam("ontvanger", "cache-test")
@@ -91,9 +93,10 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        assert(berichtenResponse.contains("\"totalElements\":4")) {
-            "Berichten response had niet de verwachte berichten: $berichtenResponse\nSSE was: $sseResponse"
-        }
+        assertTrue(
+            berichtenResponse.contains("\"totalElements\":4"),
+            "Berichten response had niet de verwachte berichten: $berichtenResponse\nSSE was: $sseResponse",
+        )
     }
 
     @Test
@@ -105,8 +108,8 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        assert(response.contains("\"totaalMagazijnen\":2")) { "Verwacht totaalMagazijnen=2 in: $response" }
-        assert(response.contains("\"geslaagd\":2")) { "Verwacht geslaagd=2 in: $response" }
+        assertTrue(response.contains("\"totaalMagazijnen\":2"), "Verwacht totaalMagazijnen=2 in: $response")
+        assertTrue(response.contains("\"geslaagd\":2"), "Verwacht geslaagd=2 in: $response")
     }
 
     @Test
@@ -120,8 +123,8 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        assert(response.contains("\"totaalMagazijnen\":2")) { "Verwacht totaalMagazijnen=2 in: $response" }
-        assert(response.contains("\"geslaagd\":1")) { "Verwacht geslaagd=1 in: $response" }
-        assert(response.contains("\"mislukt\":1")) { "Verwacht mislukt=1 in: $response" }
+        assertTrue(response.contains("\"totaalMagazijnen\":2"), "Verwacht totaalMagazijnen=2 in: $response")
+        assertTrue(response.contains("\"geslaagd\":1"), "Verwacht geslaagd=1 in: $response")
+        assertTrue(response.contains("\"mislukt\":1"), "Verwacht mislukt=1 in: $response")
     }
 }

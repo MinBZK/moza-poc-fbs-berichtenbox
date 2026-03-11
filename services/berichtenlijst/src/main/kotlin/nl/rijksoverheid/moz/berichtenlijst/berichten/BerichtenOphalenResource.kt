@@ -36,7 +36,6 @@ class BerichtenOphalenResource(
         val geslaagd = AtomicInteger(0)
         val mislukt = AtomicInteger(0)
 
-        // Markeer ophalen als BEZIG
         val bezigStatus = AggregationStatus(
             status = OphalenStatus.BEZIG,
             totaalMagazijnen = clients.size,
@@ -45,6 +44,7 @@ class BerichtenOphalenResource(
         val initStream = berichtenCache.storeAggregationStatus(cacheKey, bezigStatus)
             .replaceWith(Multi.createFrom().empty<MagazijnStatusEvent>())
             .toMulti().flatMap { it }
+            .onFailure().recoverWithCompletion()
 
         val magazijnStreams = clients.map { (magazijnId, client) ->
             val naam = clientFactory.getNaam(magazijnId)
@@ -64,6 +64,7 @@ class BerichtenOphalenResource(
                     MagazijnResult.Success(magazijnId, naam, response.berichten)
                 }
                 .onFailure(Exception::class.java).recoverWithItem { error ->
+                    log.warnf(error, "Magazijn %s (%s) ophalen mislukt", magazijnId, naam)
                     MagazijnResult.Failure(magazijnId, naam, error)
                 }
 

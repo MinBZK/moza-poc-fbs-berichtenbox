@@ -35,6 +35,9 @@ class BerichtenlijstService(
                 val bericht = client.getBerichtById(berichtId.toString())
                 heeftSuccessvolAntwoord = true
                 if (bericht != null) return bericht
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw e
             } catch (e: Exception) {
                 log.warnf(e, "Magazijn %s gaf fout voor bericht %s", magazijnId, berichtId)
             }

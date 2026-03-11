@@ -3,16 +3,16 @@ package nl.rijksoverheid.moz.berichtenlijst.berichten
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonValue
 
-enum class EventType(val value: String) {
+enum class EventType(@get:JsonValue val value: String) {
     MAGAZIJN_STATUS("magazijn-status"),
-    OPHALEN_GEREED("ophalen-gereed");
-
-    @JsonValue
-    override fun toString() = value
+    OPHALEN_GEREED("ophalen-gereed"),
 }
 
-enum class MagazijnStatus {
-    BEZIG, OK, FOUT, TIMEOUT
+enum class MagazijnStatus(@get:JsonValue val value: String) {
+    BEZIG("BEZIG"),
+    OK("OK"),
+    FOUT("FOUT"),
+    TIMEOUT("TIMEOUT"),
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)

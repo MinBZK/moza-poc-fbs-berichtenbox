@@ -4,7 +4,6 @@ import io.smallrye.common.annotation.Blocking
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
-import nl.rijksoverheid.moz.berichtenlijst.api.BerichtenApi
 import nl.rijksoverheid.moz.berichtenlijst.api.model.AggregationStatus as ApiAggregationStatus
 import nl.rijksoverheid.moz.berichtenlijst.api.model.BerichtLinks
 import nl.rijksoverheid.moz.berichtenlijst.api.model.BerichtResponse
@@ -19,7 +18,7 @@ import java.util.UUID
 @Path("/api/v1/berichten")
 class BerichtenlijstResource(
     private val berichtenlijstService: BerichtenlijstService,
-) : BerichtenApi {
+) : nl.rijksoverheid.moz.berichtenlijst.api.BerichtenApi {
 
     private val log = Logger.getLogger(BerichtenlijstResource::class.java)
 
@@ -30,7 +29,7 @@ class BerichtenlijstResource(
         afzender: String?,
     ): BerichtenlijstResponse {
         val aggregation = berichtenlijstService.getAggregationStatus(ontvanger)
-            .await().atMost(Duration.ofSeconds(5))
+            .await().atMost(TIMEOUT)
 
         if (aggregation == null) {
             throw WebApplicationException(
@@ -49,10 +48,11 @@ class BerichtenlijstResource(
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = berichtenlijstService.getBerichten(p, ps, ontvanger, afzender)
-            .await().atMost(Duration.ofSeconds(5))
-        return toBerichtenlijstResponse(result, aggregation)
+            .await().atMost(TIMEOUT)
+        return toBerichtenlijstResponse(result, aggregation, ontvanger)
     }
 
+    // getBerichtById is blocking: het bevraagt magazijnen synchroon in een loop
     @Blocking
     override fun getBerichtById(berichtId: UUID): BerichtResponse {
         val bericht = berichtenlijstService.getBerichtById(berichtId)
@@ -71,11 +71,15 @@ class BerichtenlijstResource(
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = berichtenlijstService.zoekBerichten(q, p, ps, ontvanger, afzender)
-            .await().atMost(Duration.ofSeconds(5))
-        return toBerichtenlijstResponse(result, null)
+            .await().atMost(TIMEOUT)
+        return toBerichtenlijstResponse(result, null, ontvanger)
     }
 
-    private fun toBerichtenlijstResponse(result: BerichtenPage, aggregation: AggregationStatus?): BerichtenlijstResponse {
+    private fun toBerichtenlijstResponse(
+        result: BerichtenPage,
+        aggregation: AggregationStatus?,
+        ontvanger: String?,
+    ): BerichtenlijstResponse {
         val response = BerichtenlijstResponse()
         response.berichten = result.berichten.map { toApiBericht(it) }
         response.page = result.page
@@ -90,17 +94,18 @@ class BerichtenlijstResource(
                 mislukt = aggregation.mislukt
             }
         }
+        val ontvangerParam = ontvanger?.let { "&ontvanger=$it" } ?: ""
         response.links = PaginationLinks().apply {
-            self = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page}&pageSize=${result.pageSize}") }
-            first = Link().apply { href = URI.create("/api/v1/berichten?page=0&pageSize=${result.pageSize}") }
+            self = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page}&pageSize=${result.pageSize}$ontvangerParam") }
+            first = Link().apply { href = URI.create("/api/v1/berichten?page=0&pageSize=${result.pageSize}$ontvangerParam") }
             if (result.totalPages > 0) {
-                last = Link().apply { href = URI.create("/api/v1/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}") }
+                last = Link().apply { href = URI.create("/api/v1/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}$ontvangerParam") }
             }
             if (result.page > 0) {
-                prev = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page - 1}&pageSize=${result.pageSize}") }
+                prev = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page - 1}&pageSize=${result.pageSize}$ontvangerParam") }
             }
             if (result.page < result.totalPages - 1) {
-                next = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page + 1}&pageSize=${result.pageSize}") }
+                next = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page + 1}&pageSize=${result.pageSize}$ontvangerParam") }
             }
         }
         return response
@@ -132,5 +137,9 @@ class BerichtenlijstResource(
             self = Link().apply { href = URI.create("/api/v1/berichten/${bericht.berichtId}") }
         }
         return response
+    }
+
+    companion object {
+        private val TIMEOUT = Duration.ofSeconds(5)
     }
 }

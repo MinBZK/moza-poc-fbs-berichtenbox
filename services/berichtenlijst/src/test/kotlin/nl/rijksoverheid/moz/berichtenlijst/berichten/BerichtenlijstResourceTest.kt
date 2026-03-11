@@ -5,6 +5,7 @@ import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.CoreMatchers.containsString
+import org.hamcrest.CoreMatchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -18,6 +19,8 @@ class BerichtenlijstResourceTest {
     fun setUp() {
         MockMagazijnClientFactory.shouldFailA = false
         MockMagazijnClientFactory.shouldFailB = false
+        MockMagazijnClientFactory.shouldTimeoutA = false
+        MockMagazijnClientFactory.shouldTimeoutB = false
     }
 
     @Test
@@ -37,7 +40,6 @@ class BerichtenlijstResourceTest {
         val ontvanger = "bezig-test-${System.nanoTime()}"
         val key = BerichtenCache.cacheKey(ontvanger)
 
-        // Simuleer een lopend ophaalproces door BEZIG status in cache te zetten
         berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
             .await().indefinitely()
 
@@ -53,14 +55,12 @@ class BerichtenlijstResourceTest {
 
     @Test
     fun `GET berichten retourneert gepagineerde resultaten na ophalen`() {
-        // Eerst ophalen om cache te vullen
         given()
             .queryParam("ontvanger", "test-paginering")
             .`when`().get("/api/v1/berichten/ophalen")
             .then()
             .statusCode(200)
 
-        // Dan berichten ophalen met paginering (4 berichten totaal: 3 van magazijn-a + 1 van magazijn-b)
         given()
             .queryParam("ontvanger", "test-paginering")
             .queryParam("page", 0)
@@ -75,18 +75,21 @@ class BerichtenlijstResourceTest {
             .body("totalElements", `is`(4))
             .body("totalPages", `is`(2))
             .body("_aggregatie.status", `is`("GEREED"))
+            .body("_links.self.href", containsString("page=0"))
+            .body("_links.self.href", containsString("ontvanger=test-paginering"))
+            .body("_links.first.href", notNullValue())
+            .body("_links.last.href", notNullValue())
+            .body("_links.next.href", containsString("page=1"))
     }
 
     @Test
     fun `GET berichten paginering page 1 geeft andere resultaten`() {
-        // Eerst ophalen om cache te vullen
         given()
             .queryParam("ontvanger", "test-page1")
             .`when`().get("/api/v1/berichten/ophalen")
             .then()
             .statusCode(200)
 
-        // Page 1 met pageSize 2 geeft 2 resultaten (4 berichten totaal)
         given()
             .queryParam("ontvanger", "test-page1")
             .queryParam("page", 1)
@@ -155,14 +158,12 @@ class BerichtenlijstResourceTest {
     fun `GET zoeken retourneert gefilterde resultaten`() {
         val ontvanger = "zoek-test-${System.nanoTime()}"
 
-        // Eerst ophalen om cache te vullen
         given()
             .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/ophalen")
             .then()
             .statusCode(200)
 
-        // Zoek op "bericht 1" → 1 resultaat
         given()
             .queryParam("q", "bericht 1")
             .queryParam("ontvanger", ontvanger)
@@ -171,6 +172,27 @@ class BerichtenlijstResourceTest {
             .statusCode(200)
             .body("berichten.size()", `is`(1))
             .body("totalElements", `is`(1))
+    }
+
+    @Test
+    fun `GET zoeken op afzender retourneert gefilterde resultaten`() {
+        val ontvanger = "zoek-afzender-${System.nanoTime()}"
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/ophalen")
+            .then()
+            .statusCode(200)
+
+        // Zoek op afzender OIN van magazijn-b bericht
+        given()
+            .queryParam("q", "00000005555555550000")
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/zoeken")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(1))
+            .body("berichten[0].magazijnId", `is`("magazijn-b"))
     }
 
     @Test
@@ -184,5 +206,29 @@ class BerichtenlijstResourceTest {
             .statusCode(502)
             .contentType("application/problem+json")
             .body("status", `is`(502))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert bericht als magazijn-a faalt maar magazijn-b slaagt`() {
+        MockMagazijnClientFactory.shouldFailA = true
+
+        given()
+            .`when`().get("/api/v1/berichten/44444444-4444-4444-4444-444444444444")
+            .then()
+            .statusCode(200)
+            .body("berichtId", `is`("44444444-4444-4444-4444-444444444444"))
+            .body("magazijnId", `is`("magazijn-b"))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 404 als magazijn-a faalt en bericht niet in magazijn-b`() {
+        MockMagazijnClientFactory.shouldFailA = true
+
+        given()
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("status", `is`(404))
     }
 }

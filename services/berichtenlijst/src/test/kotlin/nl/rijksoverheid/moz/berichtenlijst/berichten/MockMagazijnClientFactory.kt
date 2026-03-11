@@ -57,6 +57,8 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
 
         var shouldFailA = false
         var shouldFailB = false
+        var shouldTimeoutA = false
+        var shouldTimeoutB = false
 
         // Backwards-compatible alias
         var shouldFail: Boolean
@@ -66,8 +68,8 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
 
     override fun getAllClients(): Map<String, MagazijnClient> {
         return mapOf(
-            "magazijn-a" to createProxy(testBerichtenA, { shouldFailA }),
-            "magazijn-b" to createProxy(testBerichtenB, { shouldFailB }),
+            "magazijn-a" to createProxy(testBerichtenA, { shouldFailA }, { shouldTimeoutA }),
+            "magazijn-b" to createProxy(testBerichtenB, { shouldFailB }, { shouldTimeoutB }),
         )
     }
 
@@ -77,10 +79,11 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
         else -> null
     }
 
-    private fun createProxy(berichten: List<Bericht>, shouldFail: () -> Boolean): MagazijnClient {
+    private fun createProxy(berichten: List<Bericht>, shouldFail: () -> Boolean, shouldTimeout: () -> Boolean): MagazijnClient {
         val handler = InvocationHandler { _, method, args ->
             when (method.name) {
                 "getBerichten" -> {
+                    if (shouldTimeout()) Thread.sleep(15_000)
                     if (shouldFail()) throw RuntimeException("Magazijn niet beschikbaar")
                     MagazijnBerichtenResponse(
                         berichten = berichten,

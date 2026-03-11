@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.berichtenlijst.berichten
+package nl.rijksoverheid.moz.berichtenlijst
 
 import jakarta.validation.ConstraintViolationException
 import jakarta.ws.rs.core.MediaType
@@ -6,11 +6,16 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.berichtenlijst.api.model.Problem
+import org.jboss.logging.Logger
 
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {
 
+    private val log = Logger.getLogger(ConstraintViolationExceptionMapper::class.java)
+
     override fun toResponse(exception: ConstraintViolationException): Response {
+        log.debugf("Validatiefout: %s", exception.constraintViolations)
+
         val problem = Problem()
         problem.status = 400
         problem.title = "Bad Request"

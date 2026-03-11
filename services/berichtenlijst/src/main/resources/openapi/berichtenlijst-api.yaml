@@ -96,6 +96,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '502':
+          description: Geen enkel magazijn bereikbaar
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -103,7 +109,8 @@ paths:
     get:
       operationId: zoekBerichten
       summary: Zoeken in berichten
-      description: Zoekt in berichtrecords op basis van vrije tekst en filters.
+      description: |
+        Zoekt in gecachte berichtrecords op basis van vrije tekst (onderwerp en afzender).
       tags:
         - berichten
       parameters:

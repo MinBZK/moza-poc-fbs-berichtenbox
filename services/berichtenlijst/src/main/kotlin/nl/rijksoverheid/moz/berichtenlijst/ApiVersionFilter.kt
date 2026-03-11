@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.berichtenlijst.berichten
+package nl.rijksoverheid.moz.berichtenlijst
 
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerResponseContext
