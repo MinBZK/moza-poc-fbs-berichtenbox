@@ -50,10 +50,10 @@ class BerichtenOphalenResource(
             val naam = clientFactory.getNaam(magazijnId)
 
             val bezigEvent = MagazijnStatusEvent(
-                event = "magazijn-status",
+                event = EventType.MAGAZIJN_STATUS,
                 magazijnId = magazijnId,
                 naam = naam,
-                status = "BEZIG",
+                status = MagazijnStatus.BEZIG,
             )
 
             val resultUni = Uni.createFrom().item { client }
@@ -73,10 +73,10 @@ class BerichtenOphalenResource(
                         alleBerichten.addAll(result.berichten)
                         geslaagd.incrementAndGet()
                         MagazijnStatusEvent(
-                            event = "magazijn-status",
+                            event = EventType.MAGAZIJN_STATUS,
                             magazijnId = magazijnId,
                             naam = naam,
-                            status = "OK",
+                            status = MagazijnStatus.OK,
                             aantalBerichten = result.berichten.size,
                         )
                     }
@@ -84,11 +84,11 @@ class BerichtenOphalenResource(
                         mislukt.incrementAndGet()
                         val isTimeout = result.error is io.smallrye.mutiny.TimeoutException
                         MagazijnStatusEvent(
-                            event = "magazijn-status",
+                            event = EventType.MAGAZIJN_STATUS,
                             magazijnId = magazijnId,
                             naam = naam,
-                            status = if (isTimeout) "TIMEOUT" else "FOUT",
-                            foutmelding = result.error.message,
+                            status = if (isTimeout) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
+                            foutmelding = result.error.message ?: result.error::class.simpleName,
                         )
                     }
                 }
@@ -120,13 +120,24 @@ class BerichtenOphalenResource(
                         }
                         .map { _ ->
                             MagazijnStatusEvent(
-                                event = "ophalen-gereed",
+                                event = EventType.OPHALEN_GEREED,
                                 totaalBerichten = alleBerichten.size,
                                 geslaagd = geslaagd.get(),
                                 mislukt = mislukt.get(),
                                 totaalMagazijnen = clients.size,
                             )
                         }
+                }
+                .onFailure(Exception::class.java).recoverWithItem { error ->
+                    log.errorf(error, "Fout bij opslaan in cache na aggregatie")
+                    MagazijnStatusEvent(
+                        event = EventType.OPHALEN_GEREED,
+                        totaalBerichten = alleBerichten.size,
+                        geslaagd = geslaagd.get(),
+                        mislukt = mislukt.get(),
+                        totaalMagazijnen = clients.size,
+                        foutmelding = "Cache-opslag mislukt: ${error.message}",
+                    )
                 }
                 .toMulti()
         )

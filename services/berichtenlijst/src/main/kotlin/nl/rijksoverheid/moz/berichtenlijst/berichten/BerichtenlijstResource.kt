@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.berichtenlijst.api.model.BerichtLinks
 import nl.rijksoverheid.moz.berichtenlijst.api.model.BerichtResponse
 import nl.rijksoverheid.moz.berichtenlijst.api.model.BerichtenlijstResponse
 import nl.rijksoverheid.moz.berichtenlijst.api.model.Link
+import nl.rijksoverheid.moz.berichtenlijst.api.model.PaginationLinks
 import org.jboss.logging.Logger
 import java.net.URI
 import java.time.Duration
@@ -44,6 +45,7 @@ class BerichtenlijstResource(
             )
         }
 
+        // TODO: Implementeer filtering op afzender (PoC)
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = berichtenlijstService.getBerichten(p, ps, ontvanger, afzender)
@@ -65,6 +67,7 @@ class BerichtenlijstResource(
         ontvanger: String?,
         afzender: String?,
     ): BerichtenlijstResponse {
+        // TODO: Implementeer filtering op afzender (PoC)
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = berichtenlijstService.zoekBerichten(q, p, ps, ontvanger, afzender)
@@ -85,6 +88,19 @@ class BerichtenlijstResource(
                 totaalMagazijnen = aggregation.totaalMagazijnen
                 geslaagd = aggregation.geslaagd
                 mislukt = aggregation.mislukt
+            }
+        }
+        response.links = PaginationLinks().apply {
+            self = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page}&pageSize=${result.pageSize}") }
+            first = Link().apply { href = URI.create("/api/v1/berichten?page=0&pageSize=${result.pageSize}") }
+            if (result.totalPages > 0) {
+                last = Link().apply { href = URI.create("/api/v1/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}") }
+            }
+            if (result.page > 0) {
+                prev = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page - 1}&pageSize=${result.pageSize}") }
+            }
+            if (result.page < result.totalPages - 1) {
+                next = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page + 1}&pageSize=${result.pageSize}") }
             }
         }
         return response
