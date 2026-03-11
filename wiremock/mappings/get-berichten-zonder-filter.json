@@ -1,0 +1,18 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v1/berichten"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "berichten": [],
+      "totalElements": 0,
+      "totalPages": 0
+    }
+  }
+}
