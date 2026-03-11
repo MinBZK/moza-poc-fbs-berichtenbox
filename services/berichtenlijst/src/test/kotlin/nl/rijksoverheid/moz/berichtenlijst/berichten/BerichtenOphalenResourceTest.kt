@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.berichtenlijst.berichten
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import org.hamcrest.CoreMatchers.`is`
-import org.hamcrest.CoreMatchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -12,7 +11,8 @@ class BerichtenOphalenResourceTest {
 
     @BeforeEach
     fun setUp() {
-        MockMagazijnClientFactory.shouldFail = false
+        MockMagazijnClientFactory.shouldFailA = false
+        MockMagazijnClientFactory.shouldFailB = false
     }
 
     @Test
@@ -32,7 +32,8 @@ class BerichtenOphalenResourceTest {
 
     @Test
     fun `GET ophalen bij fout toont FOUT status`() {
-        MockMagazijnClientFactory.shouldFail = true
+        MockMagazijnClientFactory.shouldFailA = true
+        MockMagazijnClientFactory.shouldFailB = true
 
         val response = given()
             .queryParam("ontvanger", "999993653")
@@ -42,12 +43,13 @@ class BerichtenOphalenResourceTest {
             .extract().body().asString()
 
         assert(response.contains("\"status\":\"FOUT\"")) { "Verwacht FOUT status in: $response" }
-        assert(response.contains("\"mislukt\":1")) { "Verwacht mislukt=1 in: $response" }
+        assert(response.contains("\"mislukt\":2")) { "Verwacht mislukt=2 in: $response" }
     }
 
     @Test
     fun `GET berichten na mislukt ophalen retourneert 200 met GEREED status en lege lijst`() {
-        MockMagazijnClientFactory.shouldFail = true
+        MockMagazijnClientFactory.shouldFailA = true
+        MockMagazijnClientFactory.shouldFailB = true
         val ontvanger = "fout-test-${System.nanoTime()}"
 
         // Ophalen met fout
@@ -65,13 +67,12 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .body("berichten.size()", `is`(0))
             .body("_aggregatie.status", `is`("GEREED"))
-            .body("_aggregatie.mislukt", `is`(1))
+            .body("_aggregatie.mislukt", `is`(2))
             .body("_aggregatie.geslaagd", `is`(0))
     }
 
     @Test
     fun `berichten in cache na ophalen`() {
-        // Eerst ophalen om cache te vullen
         val sseResponse = given()
             .queryParam("ontvanger", "cache-test")
             .`when`().get("/api/v1/berichten/ophalen")
@@ -79,12 +80,10 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        // Verifieer dat ophalen-gereed event is ontvangen (cache is gevuld)
         assert(sseResponse.contains("\"event\":\"ophalen-gereed\"")) {
             "SSE response bevat geen ophalen-gereed event: $sseResponse"
         }
 
-        // Dan berichten ophalen uit cache
         val berichtenResponse = given()
             .queryParam("ontvanger", "cache-test")
             .`when`().get("/api/v1/berichten")
@@ -92,9 +91,37 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        // Debug output bij falen
-        assert(berichtenResponse.contains("\"totalElements\":3")) {
+        assert(berichtenResponse.contains("\"totalElements\":4")) {
             "Berichten response had niet de verwachte berichten: $berichtenResponse\nSSE was: $sseResponse"
         }
+    }
+
+    @Test
+    fun `GET ophalen multi-magazijn aggregatie beide OK`() {
+        val response = given()
+            .queryParam("ontvanger", "multi-ok-${System.nanoTime()}")
+            .`when`().get("/api/v1/berichten/ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assert(response.contains("\"totaalMagazijnen\":2")) { "Verwacht totaalMagazijnen=2 in: $response" }
+        assert(response.contains("\"geslaagd\":2")) { "Verwacht geslaagd=2 in: $response" }
+    }
+
+    @Test
+    fun `GET ophalen partial failure magazijn-a OK magazijn-b faalt`() {
+        MockMagazijnClientFactory.shouldFailB = true
+
+        val response = given()
+            .queryParam("ontvanger", "partial-fail-${System.nanoTime()}")
+            .`when`().get("/api/v1/berichten/ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assert(response.contains("\"totaalMagazijnen\":2")) { "Verwacht totaalMagazijnen=2 in: $response" }
+        assert(response.contains("\"geslaagd\":1")) { "Verwacht geslaagd=1 in: $response" }
+        assert(response.contains("\"mislukt\":1")) { "Verwacht mislukt=1 in: $response" }
     }
 }

@@ -5,7 +5,6 @@ import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.CoreMatchers.containsString
-import org.hamcrest.CoreMatchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -17,7 +16,8 @@ class BerichtenlijstResourceTest {
 
     @BeforeEach
     fun setUp() {
-        MockMagazijnClientFactory.shouldFail = false
+        MockMagazijnClientFactory.shouldFailA = false
+        MockMagazijnClientFactory.shouldFailB = false
     }
 
     @Test
@@ -60,7 +60,7 @@ class BerichtenlijstResourceTest {
             .then()
             .statusCode(200)
 
-        // Dan berichten ophalen met paginering
+        // Dan berichten ophalen met paginering (4 berichten totaal: 3 van magazijn-a + 1 van magazijn-b)
         given()
             .queryParam("ontvanger", "test-paginering")
             .queryParam("page", 0)
@@ -72,7 +72,7 @@ class BerichtenlijstResourceTest {
             .body("berichten.size()", `is`(2))
             .body("page", `is`(0))
             .body("pageSize", `is`(2))
-            .body("totalElements", `is`(3))
+            .body("totalElements", `is`(4))
             .body("totalPages", `is`(2))
             .body("_aggregatie.status", `is`("GEREED"))
     }
@@ -86,7 +86,7 @@ class BerichtenlijstResourceTest {
             .then()
             .statusCode(200)
 
-        // Page 1 met pageSize 2 geeft 1 resultaat (3 berichten totaal)
+        // Page 1 met pageSize 2 geeft 2 resultaten (4 berichten totaal)
         given()
             .queryParam("ontvanger", "test-page1")
             .queryParam("page", 1)
@@ -94,7 +94,7 @@ class BerichtenlijstResourceTest {
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
-            .body("berichten.size()", `is`(1))
+            .body("berichten.size()", `is`(2))
             .body("page", `is`(1))
     }
 
@@ -136,5 +136,53 @@ class BerichtenlijstResourceTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("status", `is`(400))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert bericht met correcte velden`() {
+        given()
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("berichtId", `is`("11111111-1111-1111-1111-111111111111"))
+            .body("afzender", `is`("00000001234567890000"))
+            .body("ontvanger", `is`("999993653"))
+            .body("onderwerp", `is`("Test bericht 1"))
+            .body("magazijnId", `is`("magazijn-a"))
+    }
+
+    @Test
+    fun `GET zoeken retourneert gefilterde resultaten`() {
+        val ontvanger = "zoek-test-${System.nanoTime()}"
+
+        // Eerst ophalen om cache te vullen
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/ophalen")
+            .then()
+            .statusCode(200)
+
+        // Zoek op "bericht 1" → 1 resultaat
+        given()
+            .queryParam("q", "bericht 1")
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/zoeken")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(1))
+            .body("totalElements", `is`(1))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 502 als alle magazijnen falen`() {
+        MockMagazijnClientFactory.shouldFailA = true
+        MockMagazijnClientFactory.shouldFailB = true
+
+        given()
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(502)
+            .contentType("application/problem+json")
+            .body("status", `is`(502))
     }
 }
