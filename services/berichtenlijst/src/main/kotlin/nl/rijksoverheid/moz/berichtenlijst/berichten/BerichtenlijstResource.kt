@@ -1,9 +1,13 @@
 package nl.rijksoverheid.moz.berichtenlijst.berichten
 
+import io.opentelemetry.api.trace.StatusCode
 import io.smallrye.common.annotation.Blocking
+import jakarta.inject.Inject
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.berichtenlijst.api.model.AggregationStatus as ApiAggregationStatus
 import nl.rijksoverheid.moz.berichtenlijst.api.model.BerichtLinks
 import nl.rijksoverheid.moz.berichtenlijst.api.model.BerichtResponse
@@ -24,12 +28,25 @@ class BerichtenlijstResource(
 
     private val log = Logger.getLogger(BerichtenlijstResource::class.java)
 
+    @Inject
+    lateinit var logboekContext: LogboekContext
+
+    @Logboek(
+        name = "ophalen-berichtenlijst",
+        processingActivityId = "https://register.example.com/verwerkingen/berichtenlijst-ophalen",
+    )
     override fun getBerichten(
         page: Int?,
         pageSize: Int?,
         ontvanger: String?,
         afzender: String?,
     ): BerichtenlijstResponse {
+        ontvanger?.let {
+            logboekContext.dataSubjectId = it
+            logboekContext.dataSubjectType = "ontvanger"
+        }
+        logboekContext.status = StatusCode.OK
+
         val aggregation = awaitOrServiceUnavailable {
             berichtenlijstService.getAggregationStatus(ontvanger)
         }
@@ -58,7 +75,15 @@ class BerichtenlijstResource(
 
     // @Blocking vereist: de service bevraagt magazijnen synchroon via REST clients (zie BerichtenlijstService.getBerichtById)
     @Blocking
+    @Logboek(
+        name = "ophalen-bericht-bij-id",
+        processingActivityId = "https://register.example.com/verwerkingen/bericht-ophalen",
+    )
     override fun getBerichtById(berichtId: UUID): BerichtResponse {
+        logboekContext.dataSubjectId = berichtId.toString()
+        logboekContext.dataSubjectType = "berichtId"
+        logboekContext.status = StatusCode.OK
+
         return when (val result = berichtenlijstService.getBerichtById(berichtId)) {
             is BerichtLookupResult.Found -> toBerichtResponse(result.bericht)
             is BerichtLookupResult.NotFound -> throw WebApplicationException(
@@ -70,6 +95,10 @@ class BerichtenlijstResource(
         }
     }
 
+    @Logboek(
+        name = "zoeken-berichten",
+        processingActivityId = "https://register.example.com/verwerkingen/berichten-zoeken",
+    )
     override fun zoekBerichten(
         q: String,
         page: Int?,
@@ -77,6 +106,12 @@ class BerichtenlijstResource(
         ontvanger: String?,
         afzender: String?,
     ): BerichtenlijstResponse {
+        ontvanger?.let {
+            logboekContext.dataSubjectId = it
+            logboekContext.dataSubjectType = "ontvanger"
+        }
+        logboekContext.status = StatusCode.OK
+
         val aggregation = awaitOrServiceUnavailable {
             berichtenlijstService.getAggregationStatus(ontvanger)
         }

@@ -3,11 +3,14 @@ package nl.rijksoverheid.moz.berichtenlijst.berichten
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.infrastructure.Infrastructure
+import jakarta.inject.Inject
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.core.MediaType
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnResult
 import org.jboss.logging.Logger
@@ -23,12 +26,25 @@ class BerichtenOphalenResource(
 ) {
     private val log = Logger.getLogger(BerichtenOphalenResource::class.java)
 
+    @Inject
+    lateinit var logboekContext: LogboekContext
+
     @GET
+    @Logboek(
+        name = "ophalen-berichten-uit-magazijnen",
+        processingActivityId = "https://register.example.com/verwerkingen/berichten-ophalen-aggregatie",
+    )
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     fun ophalenBerichten(
         @QueryParam("ontvanger") ontvanger: String?,
     ): Multi<MagazijnStatusEvent> {
+        ontvanger?.let {
+            logboekContext.dataSubjectId = it
+            logboekContext.dataSubjectType = "ontvanger"
+        }
+        logboekContext.status = io.opentelemetry.api.trace.StatusCode.OK
+
         val clients = clientFactory.getAllClients()
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
