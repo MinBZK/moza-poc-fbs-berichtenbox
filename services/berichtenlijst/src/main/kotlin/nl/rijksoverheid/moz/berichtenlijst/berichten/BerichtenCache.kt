@@ -27,10 +27,10 @@ class RedisBerichtenCache(
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
-        if (berichten.isEmpty()) {
-            return Uni.createFrom().voidItem()
-        }
         val listKey = listKey(key)
+        if (berichten.isEmpty()) {
+            return redis.key().del(listKey).replaceWithVoid()
+        }
         val listCommands = redis.list(String::class.java)
         val keyCommands = redis.key()
 
@@ -114,6 +114,7 @@ data class AggregationStatus(
     val mislukt: Int = 0,
 ) {
     init {
+        require(totaalMagazijnen >= 0) { "totaalMagazijnen mag niet negatief zijn" }
         require(geslaagd >= 0) { "geslaagd mag niet negatief zijn" }
         require(mislukt >= 0) { "mislukt mag niet negatief zijn" }
         require(geslaagd + mislukt <= totaalMagazijnen) { "geslaagd + mislukt mag niet groter zijn dan totaalMagazijnen" }

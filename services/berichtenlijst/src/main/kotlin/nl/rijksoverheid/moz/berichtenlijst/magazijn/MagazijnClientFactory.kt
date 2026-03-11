@@ -17,6 +17,11 @@ class MagazijnClientFactory(
     @PostConstruct
     fun init() {
         require(config.instances().isNotEmpty()) { "Geen magazijnen geconfigureerd" }
+        config.instances().forEach { (id, instance) ->
+            runCatching { URI.create(instance.url()) }.getOrElse {
+                throw IllegalStateException("Ongeldige URL voor magazijn '$id': ${instance.url()}", it)
+            }
+        }
         log.infof("Geconfigureerde magazijnen: %s", config.instances().keys)
     }
 

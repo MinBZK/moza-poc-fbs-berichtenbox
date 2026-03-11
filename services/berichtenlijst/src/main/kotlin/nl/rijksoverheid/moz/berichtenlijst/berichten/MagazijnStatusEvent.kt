@@ -27,4 +27,17 @@ data class MagazijnStatusEvent(
     val geslaagd: Int? = null,
     val mislukt: Int? = null,
     val totaalMagazijnen: Int? = null,
-)
+) {
+    init {
+        when (event) {
+            EventType.MAGAZIJN_STATUS -> {
+                requireNotNull(magazijnId) { "MAGAZIJN_STATUS vereist magazijnId" }
+                requireNotNull(status) { "MAGAZIJN_STATUS vereist status" }
+            }
+            EventType.OPHALEN_GEREED -> {
+                requireNotNull(totaalBerichten) { "OPHALEN_GEREED vereist totaalBerichten" }
+                requireNotNull(totaalMagazijnen) { "OPHALEN_GEREED vereist totaalMagazijnen" }
+            }
+        }
+    }
+}

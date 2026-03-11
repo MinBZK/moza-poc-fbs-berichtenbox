@@ -12,6 +12,8 @@ import nl.rijksoverheid.moz.berichtenlijst.api.model.Link
 import nl.rijksoverheid.moz.berichtenlijst.api.model.PaginationLinks
 import org.jboss.logging.Logger
 import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.UUID
 
@@ -28,8 +30,9 @@ class BerichtenlijstResource(
         ontvanger: String?,
         afzender: String?,
     ): BerichtenlijstResponse {
-        val aggregation = berichtenlijstService.getAggregationStatus(ontvanger)
-            .await().atMost(TIMEOUT)
+        val aggregation = awaitOrServiceUnavailable {
+            berichtenlijstService.getAggregationStatus(ontvanger)
+        }
 
         if (aggregation == null) {
             throw WebApplicationException(
@@ -44,20 +47,27 @@ class BerichtenlijstResource(
             )
         }
 
-        // TODO: Implementeer filtering op afzender (PoC)
+        // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
         val ps = pageSize ?: 20
-        val result = berichtenlijstService.getBerichten(p, ps, ontvanger, afzender)
-            .await().atMost(TIMEOUT)
+        val result = awaitOrServiceUnavailable {
+            berichtenlijstService.getBerichten(p, ps, ontvanger, afzender)
+        }
         return toBerichtenlijstResponse(result, aggregation, ontvanger)
     }
 
-    // getBerichtById is blocking: het bevraagt magazijnen synchroon in een loop
+    // @Blocking vereist: de service bevraagt magazijnen synchroon via REST clients (zie BerichtenlijstService.getBerichtById)
     @Blocking
     override fun getBerichtById(berichtId: UUID): BerichtResponse {
-        val bericht = berichtenlijstService.getBerichtById(berichtId)
-            ?: throw WebApplicationException(Response.Status.NOT_FOUND)
-        return toBerichtResponse(bericht)
+        return when (val result = berichtenlijstService.getBerichtById(berichtId)) {
+            is BerichtLookupResult.Found -> toBerichtResponse(result.bericht)
+            is BerichtLookupResult.NotFound -> throw WebApplicationException(
+                "Bericht $berichtId niet gevonden", Response.Status.NOT_FOUND,
+            )
+            is BerichtLookupResult.AllMagazijnenFailed -> throw WebApplicationException(
+                "Geen magazijn bereikbaar voor bericht $berichtId. Probeer het later opnieuw.", 502,
+            )
+        }
     }
 
     override fun zoekBerichten(
@@ -67,12 +77,38 @@ class BerichtenlijstResource(
         ontvanger: String?,
         afzender: String?,
     ): BerichtenlijstResponse {
-        // TODO: Implementeer filtering op afzender (PoC)
+        val aggregation = awaitOrServiceUnavailable {
+            berichtenlijstService.getAggregationStatus(ontvanger)
+        }
+
+        if (aggregation == null) {
+            throw WebApplicationException(
+                "Berichten zijn nog niet opgehaald. Roep eerst GET /api/v1/berichten/ophalen aan.",
+                Response.Status.CONFLICT,
+            )
+        }
+        if (aggregation.status == OphalenStatus.BEZIG) {
+            throw WebApplicationException(
+                "Berichten worden momenteel opgehaald. Wacht tot het ophalen is afgerond.",
+                Response.Status.CONFLICT,
+            )
+        }
+
+        // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
         val ps = pageSize ?: 20
-        val result = berichtenlijstService.zoekBerichten(q, p, ps, ontvanger, afzender)
-            .await().atMost(TIMEOUT)
-        return toBerichtenlijstResponse(result, null, ontvanger)
+        val result = awaitOrServiceUnavailable {
+            berichtenlijstService.zoekBerichten(q, p, ps, ontvanger, afzender)
+        }
+        return toBerichtenlijstResponse(result, aggregation, ontvanger)
+    }
+
+    private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {
+        try {
+            return block().await().atMost(TIMEOUT)
+        } catch (e: java.util.concurrent.TimeoutException) {
+            throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw.", 503)
+        }
     }
 
     private fun toBerichtenlijstResponse(
@@ -94,7 +130,7 @@ class BerichtenlijstResource(
                 mislukt = aggregation.mislukt
             }
         }
-        val ontvangerParam = ontvanger?.let { "&ontvanger=$it" } ?: ""
+        val ontvangerParam = ontvanger?.let { "&ontvanger=${URLEncoder.encode(it, StandardCharsets.UTF_8)}" } ?: ""
         response.links = PaginationLinks().apply {
             self = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page}&pageSize=${result.pageSize}$ontvangerParam") }
             first = Link().apply { href = URI.create("/api/v1/berichten?page=0&pageSize=${result.pageSize}$ontvangerParam") }

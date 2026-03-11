@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.berichtenlijst.berichten
 
 import io.quarkus.test.Mock
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.ProcessingException
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnClientFactory
@@ -59,11 +60,6 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
         var shouldFailB = false
         var shouldTimeoutA = false
         var shouldTimeoutB = false
-
-        // Backwards-compatible alias
-        var shouldFail: Boolean
-            get() = shouldFailA
-            set(value) { shouldFailA = value }
     }
 
     override fun getAllClients(): Map<String, MagazijnClient> {
@@ -84,7 +80,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
             when (method.name) {
                 "getBerichten" -> {
                     if (shouldTimeout()) Thread.sleep(15_000)
-                    if (shouldFail()) throw RuntimeException("Magazijn niet beschikbaar")
+                    if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
                     MagazijnBerichtenResponse(
                         berichten = berichten,
                         totalElements = berichten.size.toLong(),
@@ -92,12 +88,12 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                     )
                 }
                 "getBerichtById" -> {
-                    if (shouldFail()) throw RuntimeException("Magazijn niet beschikbaar")
+                    if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
                     val berichtId = args[0] as String
                     berichten.find { it.berichtId.toString() == berichtId }
                 }
                 "zoekBerichten" -> {
-                    if (shouldFail()) throw RuntimeException("Magazijn niet beschikbaar")
+                    if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
                     val q = args[0] as String
                     val results = berichten.filter { it.onderwerp.contains(q, ignoreCase = true) }
                     MagazijnBerichtenResponse(

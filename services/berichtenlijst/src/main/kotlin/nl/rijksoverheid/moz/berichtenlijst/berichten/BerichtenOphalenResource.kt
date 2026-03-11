@@ -44,6 +44,7 @@ class BerichtenOphalenResource(
         val initStream = berichtenCache.storeAggregationStatus(cacheKey, bezigStatus)
             .replaceWith(Multi.createFrom().empty<MagazijnStatusEvent>())
             .toMulti().flatMap { it }
+            .onFailure().invoke { e -> log.errorf(e, "Kon aggregatie-status BEZIG niet opslaan in cache voor key=%s", cacheKey) }
             .onFailure().recoverWithCompletion()
 
         val magazijnStreams = clients.map { (magazijnId, client) ->
@@ -64,7 +65,7 @@ class BerichtenOphalenResource(
                     MagazijnResult.Success(magazijnId, naam, response.berichten)
                 }
                 .onFailure(Exception::class.java).recoverWithItem { error ->
-                    log.warnf(error, "Magazijn %s (%s) ophalen mislukt", magazijnId, naam)
+                    log.errorf(error, "Magazijn %s (%s) ophalen mislukt", magazijnId, naam)
                     MagazijnResult.Failure(magazijnId, naam, error)
                 }
 
@@ -89,7 +90,7 @@ class BerichtenOphalenResource(
                             magazijnId = magazijnId,
                             naam = naam,
                             status = if (isTimeout) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
-                            foutmelding = result.error.message ?: result.error::class.simpleName,
+                            foutmelding = result.error.message ?: "Onbekende fout bij ophalen",
                         )
                     }
                 }
