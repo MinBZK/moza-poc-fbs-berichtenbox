@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.berichtenlijst.berichten
 
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnClientFactory
 import org.jboss.logging.Logger
 import java.util.UUID
@@ -27,15 +28,19 @@ class BerichtenlijstService(
 
     fun getBerichtById(berichtId: UUID): Bericht? {
         log.debugf("Ophalen bericht: %s", berichtId)
-        // Fan-out naar alle magazijnen
         val clients = clientFactory.getAllClients()
-        for ((_, client) in clients) {
+        var heeftSuccessvolAntwoord = false
+        for ((magazijnId, client) in clients) {
             try {
                 val bericht = client.getBerichtById(berichtId.toString())
+                heeftSuccessvolAntwoord = true
                 if (bericht != null) return bericht
             } catch (e: Exception) {
-                log.debugf(e, "Magazijn gaf fout voor bericht %s", berichtId)
+                log.warnf(e, "Magazijn %s gaf fout voor bericht %s", magazijnId, berichtId)
             }
+        }
+        if (!heeftSuccessvolAntwoord) {
+            throw WebApplicationException("Geen magazijn bereikbaar", 502)
         }
         return null
     }

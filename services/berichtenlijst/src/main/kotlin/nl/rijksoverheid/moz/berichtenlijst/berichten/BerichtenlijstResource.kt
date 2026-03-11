@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.berichtenlijst.berichten
 
+import io.smallrye.common.annotation.Blocking
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
@@ -49,14 +50,10 @@ class BerichtenlijstResource(
         return toBerichtenlijstResponse(result, aggregation)
     }
 
+    @Blocking
     override fun getBerichtById(berichtId: UUID): BerichtResponse {
-        val bericht = try {
-            berichtenlijstService.getBerichtById(berichtId)
-        } catch (e: Exception) {
-            log.errorf(e, "Fout bij ophalen bericht %s", berichtId)
-            null
-        } ?: throw WebApplicationException(Response.Status.NOT_FOUND)
-
+        val bericht = berichtenlijstService.getBerichtById(berichtId)
+            ?: throw WebApplicationException(Response.Status.NOT_FOUND)
         return toBerichtResponse(bericht)
     }
 
