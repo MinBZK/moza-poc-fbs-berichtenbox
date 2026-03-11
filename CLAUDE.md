@@ -1,0 +1,66 @@
+# CLAUDE.md - Projectcontext voor AI-assistentie
+
+## Project
+
+FBS Berichtenbox - Proof of Concept voor het Federatief Berichtenstelsel (FBS).
+Monorepo met Maven, Quarkus en Kotlin. Architectuurdocumentatie in Structurizr DSL (C4 model).
+
+## Taal
+
+Communicatie in het Nederlands. Code en technische termen in het Engels waar gangbaar.
+
+## Technische stack
+
+- **Build:** Maven monorepo (parent POM + modules), Maven wrapper (`./mvnw`)
+- **Runtime:** Quarkus 3.x, Java 21
+- **Taal:** Kotlin (JVM 21, all-open plugin voor CDI/JAX-RS)
+- **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
+- **REST:** RESTEasy Reactive + Jackson
+- **Caching:** Quarkus Cache (Caffeine, 60s TTL)
+- **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
+- **Test:** JUnit 5 + REST-assured + QuarkusTest
+
+## Architectuurprincipes
+
+- **OpenAPI-first:** De OpenAPI spec (`berichtenlijst-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze.
+- **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
+- **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`.
+- **Cache alleen succesvolle responses:** Error handling in de resource, niet in de service, zodat `@CacheResult` geen foutresultaten cachet.
+- **ExceptionMappers:** `ProblemExceptionMapper` (WebApplicationException) en `ConstraintViolationExceptionMapper` voor consistente Problem JSON responses.
+
+## Conventies
+
+- **GroupId:** `nl.rijksoverheid.moz`
+- **Packages:** `nl.rijksoverheid.moz.berichtenlijst.*`
+- **Monorepo structuur:** `services/<service-naam>/` als Maven module
+- **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
+- **Tests:** Mock externe clients via `@Mock @RestClient` in test-package
+
+## Build & test commando's
+
+```bash
+./mvnw compile -pl services/berichtenlijst          # Compileren
+./mvnw test -pl services/berichtenlijst              # Tests draaien
+./mvnw quarkus:dev -pl services/berichtenlijst       # Dev mode
+```
+
+## Belangrijke bestanden
+
+| Pad | Beschrijving |
+|-----|-------------|
+| `pom.xml` | Parent POM (Quarkus BOM, Kotlin plugin config) |
+| `services/berichtenlijst/pom.xml` | Module POM (OpenAPI generator, dependencies) |
+| `services/berichtenlijst/src/main/resources/openapi/berichtenlijst-api.yaml` | OpenAPI spec (bron van waarheid) |
+| `docs/architecture/` | C4 model (Structurizr DSL) |
+
+## Plannen
+
+Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
+- Formaat: `YYYY-MM-DD-korte-beschrijving.md` (bijv. `2026-03-11-monorepo-berichtenlijst.md`)
+- Bevat: context, structuur, stappen, ontwerpkeuzes, verificatie
+- Voeg `**Status:**` toe bovenaan (Concept / Uitgevoerd / Verworpen)
+- Sla elk plan op bij het afronden, zodat beslissingen traceerbaar blijven
+
+## Review-aanpak
+
+Bij code reviews classificeren we bevindingen op ernst (Hoog/Medium/Laag) met een samenvattingstabel. Hoge punten worden direct aangepakt, medium in overleg, laag later.
