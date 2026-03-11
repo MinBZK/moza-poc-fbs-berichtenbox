@@ -12,6 +12,7 @@ interface BerichtenCache {
     fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?>
+    fun getAll(key: String): Uni<List<Bericht>>
 
     companion object {
         fun cacheKey(ontvanger: String?) = "berichtenlijst:v1:${ontvanger ?: "all"}"
@@ -87,6 +88,12 @@ class RedisBerichtenCache(
                     }
             }
         }
+    }
+
+    override fun getAll(key: String): Uni<List<Bericht>> {
+        val listKey = listKey(key)
+        return redis.list(String::class.java).lrange(listKey, 0, -1)
+            .map { jsonList -> jsonList.map { objectMapper.readValue(it, Bericht::class.java) } }
     }
 
     companion object {

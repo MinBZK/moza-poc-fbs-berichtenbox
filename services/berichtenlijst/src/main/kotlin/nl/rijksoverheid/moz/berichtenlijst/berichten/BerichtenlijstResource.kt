@@ -12,6 +12,7 @@ import nl.rijksoverheid.moz.berichtenlijst.api.model.BerichtenlijstResponse
 import nl.rijksoverheid.moz.berichtenlijst.api.model.Link
 import org.jboss.logging.Logger
 import java.net.URI
+import java.time.Duration
 import java.util.UUID
 
 @Path("/api/v1/berichten")
@@ -28,7 +29,7 @@ class BerichtenlijstResource(
         afzender: String?,
     ): BerichtenlijstResponse {
         val aggregation = berichtenlijstService.getAggregationStatus(ontvanger)
-            .await().indefinitely()
+            .await().atMost(Duration.ofSeconds(5))
 
         if (aggregation == null) {
             throw WebApplicationException(
@@ -46,7 +47,7 @@ class BerichtenlijstResource(
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = berichtenlijstService.getBerichten(p, ps, ontvanger, afzender)
-            .await().indefinitely()
+            .await().atMost(Duration.ofSeconds(5))
         return toBerichtenlijstResponse(result, aggregation)
     }
 
@@ -67,7 +68,7 @@ class BerichtenlijstResource(
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = berichtenlijstService.zoekBerichten(q, p, ps, ontvanger, afzender)
-            .await().indefinitely()
+            .await().atMost(Duration.ofSeconds(5))
         return toBerichtenlijstResponse(result, null)
     }
 

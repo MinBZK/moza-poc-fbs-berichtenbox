@@ -27,6 +27,10 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(statuses["$key:status"])
     }
 
+    override fun getAll(key: String): Uni<List<Bericht>> {
+        return Uni.createFrom().item(lists["$key:list"] ?: emptyList())
+    }
+
     override fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?> {
         val berichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()
         val start = page * pageSize
