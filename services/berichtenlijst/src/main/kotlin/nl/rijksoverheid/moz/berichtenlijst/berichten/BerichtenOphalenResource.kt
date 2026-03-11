@@ -14,7 +14,7 @@ import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.RestStreamElementType
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentLinkedQueue
 
 @Path("/api/v1/berichten/ophalen")
 class BerichtenOphalenResource(
@@ -32,7 +32,7 @@ class BerichtenOphalenResource(
         val clients = clientFactory.getAllClients()
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
-        val alleBerichten = AtomicReference<MutableList<Bericht>>(mutableListOf())
+        val alleBerichten = ConcurrentLinkedQueue<Bericht>()
         val geslaagd = AtomicInteger(0)
         val mislukt = AtomicInteger(0)
 
@@ -63,14 +63,14 @@ class BerichtenOphalenResource(
                 .map<MagazijnResult> { response ->
                     MagazijnResult.Success(magazijnId, naam, response.berichten)
                 }
-                .onFailure().recoverWithItem { error ->
+                .onFailure(Exception::class.java).recoverWithItem { error ->
                     MagazijnResult.Failure(magazijnId, naam, error)
                 }
 
             val resultStream = resultUni.toMulti().map { result ->
                 when (result) {
                     is MagazijnResult.Success -> {
-                        alleBerichten.get().addAll(result.berichten)
+                        alleBerichten.addAll(result.berichten)
                         geslaagd.incrementAndGet()
                         MagazijnStatusEvent(
                             event = "magazijn-status",
@@ -107,7 +107,7 @@ class BerichtenOphalenResource(
             allMagazijnEvents,
             Uni.createFrom().item { Unit }
                 .chain { _ ->
-                    val berichten = alleBerichten.get().toList()
+                    val berichten = alleBerichten.toList()
                     berichtenCache.store(cacheKey, berichten)
                         .chain { _ ->
                             val status = AggregationStatus(
@@ -121,7 +121,7 @@ class BerichtenOphalenResource(
                         .map { _ ->
                             MagazijnStatusEvent(
                                 event = "ophalen-gereed",
-                                totaalBerichten = alleBerichten.get().size,
+                                totaalBerichten = alleBerichten.size,
                                 geslaagd = geslaagd.get(),
                                 mislukt = mislukt.get(),
                                 totaalMagazijnen = clients.size,
