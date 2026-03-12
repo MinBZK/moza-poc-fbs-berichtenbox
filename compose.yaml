@@ -17,3 +17,12 @@ services:
       - ./wiremock/mappings:/home/wiremock/mappings
       - ./wiremock/__files:/home/wiremock/__files
     command: ["--verbose"]
+
+  magazijn-b:
+    image: wiremock/wiremock:3.12.1
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./wiremock/mappings:/home/wiremock/mappings
+      - ./wiremock/__files:/home/wiremock/__files
+    command: ["--verbose"]

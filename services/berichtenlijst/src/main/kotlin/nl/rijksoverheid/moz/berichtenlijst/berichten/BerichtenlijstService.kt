@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.berichtenlijst.berichten
 
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnClientFactory
 import org.jboss.logging.Logger
@@ -26,7 +27,7 @@ class BerichtenlijstService(
         return berichtenCache.getAggregationStatus(key)
     }
 
-    fun getBerichtById(berichtId: UUID): Bericht? {
+    fun getBerichtById(berichtId: UUID): BerichtLookupResult {
         log.debugf("Ophalen bericht: %s", berichtId)
         val clients = clientFactory.getAllClients()
         var heeftSuccessvolAntwoord = false
@@ -34,18 +35,24 @@ class BerichtenlijstService(
             try {
                 val bericht = client.getBerichtById(berichtId.toString())
                 heeftSuccessvolAntwoord = true
-                if (bericht != null) return bericht
+                if (bericht != null) return BerichtLookupResult.Found(bericht)
+            } catch (e: WebApplicationException) {
+                if (e.response?.status == 404) {
+                    heeftSuccessvolAntwoord = true
+                } else {
+                    log.errorf(e, "Magazijn %s gaf HTTP %d voor bericht %s", magazijnId, e.response?.status, berichtId)
+                }
+            } catch (e: ProcessingException) {
+                log.errorf(e, "Magazijn %s niet bereikbaar voor bericht %s", magazijnId, berichtId)
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 throw e
-            } catch (e: Exception) {
-                log.warnf(e, "Magazijn %s gaf fout voor bericht %s", magazijnId, berichtId)
             }
         }
         if (!heeftSuccessvolAntwoord) {
-            throw WebApplicationException("Geen magazijn bereikbaar", 502)
+            log.errorf("Alle %d magazijnen onbereikbaar voor bericht %s", clients.size, berichtId)
         }
-        return null
+        return if (heeftSuccessvolAntwoord) BerichtLookupResult.NotFound else BerichtLookupResult.AllMagazijnenFailed
     }
 
     fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: String?, afzender: String?): Uni<BerichtenPage> {
@@ -65,10 +72,23 @@ class BerichtenlijstService(
     }
 }
 
+sealed class BerichtLookupResult {
+    data class Found(val bericht: Bericht) : BerichtLookupResult()
+    data object NotFound : BerichtLookupResult()
+    data object AllMagazijnenFailed : BerichtLookupResult()
+}
+
 data class BerichtenPage(
     val berichten: List<Bericht>,
     val page: Int,
     val pageSize: Int,
     val totalElements: Long,
     val totalPages: Int,
-)
+) {
+    init {
+        require(page >= 0) { "page mag niet negatief zijn" }
+        require(pageSize > 0) { "pageSize moet positief zijn" }
+        require(totalElements >= 0) { "totalElements mag niet negatief zijn" }
+        require(totalPages >= 0) { "totalPages mag niet negatief zijn" }
+    }
+}

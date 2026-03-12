@@ -196,6 +196,41 @@ class BerichtenlijstResourceTest {
     }
 
     @Test
+    fun `GET zoeken retourneert 409 als ophalen niet is aangeroepen`() {
+        given()
+            .queryParam("q", "test")
+            .queryParam("ontvanger", "onbekend-zoek-${System.nanoTime()}")
+            .`when`().get("/api/v1/berichten/zoeken")
+            .then()
+            .statusCode(409)
+            .contentType("application/problem+json")
+            .body("status", `is`(409))
+            .body("detail", containsString("nog niet opgehaald"))
+    }
+
+    @Test
+    fun `GET berichten paginering buiten bereik retourneert lege lijst`() {
+        val ontvanger = "page-range-${System.nanoTime()}"
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .queryParam("page", 999)
+            .queryParam("pageSize", 2)
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(0))
+            .body("totalElements", `is`(4))
+            .body("totalPages", `is`(2))
+    }
+
+    @Test
     fun `GET bericht by id retourneert 502 als alle magazijnen falen`() {
         MockMagazijnClientFactory.shouldFailA = true
         MockMagazijnClientFactory.shouldFailB = true
