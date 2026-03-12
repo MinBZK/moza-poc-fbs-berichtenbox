@@ -72,6 +72,12 @@ paths:
     get:
       operationId: getBerichtById
       summary: Enkel berichtrecord ophalen
+      description: |
+        Haalt een enkel berichtrecord op aan de hand van het unieke bericht-ID.
+        Alle aangesloten magazijnen worden parallel bevraagd. Het eerste magazijn
+        dat het bericht bevat, levert het resultaat. Retourneert 404 als geen
+        enkel bereikbaar magazijn het bericht kent, of 502 als geen enkel
+        magazijn bereikbaar is.
       tags:
         - berichten
       parameters:
