@@ -26,3 +26,12 @@ services:
       - ./wiremock/mappings:/home/wiremock/mappings
       - ./wiremock/__files:/home/wiremock/__files
     command: ["--verbose"]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3
+    ports:
+      - "8123:8123"
+    environment:
+      CLICKHOUSE_USER: ldv
+      CLICKHOUSE_PASSWORD: ldv
+      CLICKHOUSE_DB: ldv_logging

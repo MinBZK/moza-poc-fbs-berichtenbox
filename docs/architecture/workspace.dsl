@@ -76,13 +76,13 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         // Het Federatief Berichtenstelsel
         group "Federatief Berichtenstelsel" {
 
-            bboApi = softwareSystem "BBO API" "Centrale API voor burgers en ondernemers - routeert naar berichtenlijst en magazijnen" "FBS Dienst"
+            bboApi = softwareSystem "BBO API" "Centrale API voor burgers en ondernemers - routeert naar berichtensessiecache en magazijnen" "FBS Dienst"
 
-            berichtenlijst = softwareSystem "Berichtenlijst" "Aggregeert berichtrecords uit alle aangesloten magazijnen" "FBS Dienst" {
+            berichtensessiecache = softwareSystem "Berichtensessiecache" "Aggregeert berichtrecords uit alle aangesloten magazijnen" "FBS Dienst" {
                 blLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
-                blApp = container "Berichtenlijst API" "REST API voor geaggregeerde berichtrecords" "Quarkus / Kotlin" "Service" {
-                    blResource = component "Berichtenlijst API" "REST endpoints voor berichtenlijst en zoeken" "JAX-RS Resource"
-                    blService = component "BerichtenlijstService" "Aggregeert en cachet berichtrecords" "CDI Bean"
+                blApp = container "Berichtensessiecache API" "REST API voor geaggregeerde berichtrecords" "Quarkus / Kotlin" "Service" {
+                    blResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
+                    blService = component "BerichtensessiecacheService" "Aggregeert en cachet berichtrecords" "CDI Bean"
                     blCache = component "Cache" "In-memory cache voor berichtrecords (60s TTL)" "Caffeine"
                     blMagazijnClient = component "MagazijnClient" "REST client naar decentrale berichtenmagazijnen" "REST Client"
                     blLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
@@ -125,14 +125,14 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         interactielaag -> digitaleBereikbaarheid "Bereikbaarheidsvoorkeuren beheren" "REST API"
 
         // BBO API -> achterliggende diensten
-        bboApi -> blApp "Berichtenlijst, mappen, zoeken" "REST API"
+        bboApi -> blApp "Berichtensessiecache, mappen, zoeken" "REST API"
         bboApi -> dmApp "Berichten en bijlagen ophalen, verwijderen" "REST API"
         bboApi -> emailService "Stuurt berichten door" "SMTP / REST API"
 
         // Beheerder
         beheerder -> adViews "Beheert systeem via" "HTTPS (browser)"
 
-        // Berichtenlijst notificeert externe Notificatie Service
+        // Berichtensessiecache notificeert externe Notificatie Service
         blEventForwarder -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
 
         // Notificatie Service (extern) haalt contactgegevens op
@@ -147,7 +147,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         // Autorisatie (component-niveau)
         dmAutorisatie -> authzen "Evalueert access request" "AuthZEN REST API"
 
-        // Berichtenlijst -> decentrale magazijnen (alle gelijk behandeld)
+        // Berichtensessiecache -> decentrale magazijnen (alle gelijk behandeld)
         blMagazijnClient -> dmApp "Haalt berichtrecords op" "Digikoppeling REST API via FSC"
 
         // LDV Logboek (component-niveau)
@@ -172,7 +172,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        systemContext berichtenlijst "Berichtenlijst" "Context van de Berichtenlijst" {
+        systemContext berichtensessiecache "Berichtensessiecache" "Context van de Berichtensessiecache" {
             include *
             autoLayout
         }
@@ -182,7 +182,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        container berichtenlijst "BerichtenlijstContainers" "Containers binnen de Berichtenlijst" {
+        container berichtensessiecache "BerichtensessiecacheContainers" "Containers binnen de Berichtensessiecache" {
             include *
             autoLayout
         }
@@ -192,7 +192,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        component blApp "BerichtenlijstComponenten" "Componenten binnen de Berichtenlijst API" {
+        component blApp "BerichtensessiecacheComponenten" "Componenten binnen de Berichtensessiecache API" {
             include *
             autoLayout
         }
