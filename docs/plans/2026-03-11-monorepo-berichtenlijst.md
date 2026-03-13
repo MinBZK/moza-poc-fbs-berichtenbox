@@ -20,8 +20,8 @@ moza-poc-fbs-berichtenbox/
 │           ├── main/
 │           │   ├── kotlin/nl/rijksoverheid/moz/berichtenlijst/
 │           │   │   ├── berichten/              # Functioneel domein: berichten ophalen/aggregeren
-│           │   │   │   ├── BerichtenlijstResource.kt   # Implementeert gegenereerde API interface
-│           │   │   │   ├── BerichtenlijstService.kt
+│           │   │   │   ├── BerichtensessiecacheResource.kt   # Implementeert gegenereerde API interface
+│           │   │   │   ├── BerichtensessiecacheService.kt
 │           │   │   │   ├── Bericht.kt                  # Domain model
 │           │   │   │   ├── ApiVersionFilter.kt         # API-Version response header
 │           │   │   │   ├── ProblemExceptionMapper.kt    # Problem JSON (RFC 9457)
@@ -34,11 +34,11 @@ moza-poc-fbs-berichtenbox/
 │           │   └── resources/
 │           │       ├── application.properties
 │           │       └── openapi/
-│           │           └── berichtenlijst-api.yaml     # OpenAPI definitie (bron)
+│           │           └── berichtensessiecache-api.yaml     # OpenAPI definitie (bron)
 │           └── test/
 │               └── kotlin/nl/rijksoverheid/moz/berichtenlijst/
 │                   └── berichten/
-│                       ├── BerichtenlijstResourceTest.kt
+│                       ├── BerichtensessiecacheResourceTest.kt
 │                       └── MockMagazijnClient.kt
 ```
 
@@ -48,14 +48,14 @@ moza-poc-fbs-berichtenbox/
 
 - **`pom.xml`** (root) - Parent POM met:
   - `<packaging>pom</packaging>`
-  - `<modules>` met `services/berichtenlijst`
+  - `<modules>` met `services/berichtensessiecache`
   - Quarkus BOM in `<dependencyManagement>`
   - Kotlin compiler plugin config in `<pluginManagement>`
   - Gemeenschappelijke properties (Java 21, Kotlin versie, Quarkus versie)
 
 ### Stap 2: Berichtenlijst Quarkus module
 
-- **`services/berichtenlijst/pom.xml`**:
+- **`services/berichtensessiecache/pom.xml`**:
   - Parent verwijzing naar root POM
   - Quarkus Maven plugin
   - Kotlin Maven plugin (compileren voor JVM 21)
@@ -67,7 +67,7 @@ moza-poc-fbs-berichtenbox/
     - `quarkus-cache` (Caffeine caching)
     - `quarkus-hibernate-validator` (Bean Validation)
   - `openapi-generator-maven-plugin` voor server stub generatie:
-    - Input: `src/main/resources/openapi/berichtenlijst-api.yaml`
+    - Input: `src/main/resources/openapi/berichtensessiecache-api.yaml`
     - Generator: `jaxrs-spec`
     - `interfaceOnly=true` - alleen interfaces genereren
     - `generateSupportingFiles=false` - geen RestApplication/RestResourceRoot
@@ -75,7 +75,7 @@ moza-poc-fbs-berichtenbox/
 
 ### Stap 3: OpenAPI definitie conform NL API Design Rules
 
-Het bestand **`berichtenlijst-api.yaml`** volgt de [API Design Rules](https://gitdocumentatie.logius.nl/publicatie/api/adr/) van de overheid:
+Het bestand **`berichtensessiecache-api.yaml`** volgt de [API Design Rules](https://gitdocumentatie.logius.nl/publicatie/api/adr/) van de overheid:
 
 - **Versionering**: `/api/v1` prefix
 - **JSON**: `application/json` als standaard media type
@@ -96,7 +96,7 @@ Endpoints (afgeleid uit C4 model):
 In plaats van een technische structuur (`controller/`, `service/`, `repository/`) gebruiken we een **functionele** structuur:
 
 ```
-nl.rijksoverheid.moz.berichtenlijst
+nl.rijksoverheid.moz.berichtensessiecache
 ├── berichten/          # Kerndomein: berichtenlijst en zoeken
 ├── magazijn/           # Integratie met decentrale magazijnen
 └── notificatie/        # Event forwarding naar Notificatie Service
@@ -110,8 +110,8 @@ Elke package bevat alle lagen (resource, service, model) voor dat functionele do
 
 ### Stap 6: Basis-implementatie
 
-- **`BerichtenlijstResource.kt`**: Implementeert de gegenereerde OpenAPI interface, delegeert naar service, error handling
-- **`BerichtenlijstService.kt`**: Aggregeert records van magazijnen, cacht resultaten (Caffeine, 60s TTL)
+- **`BerichtensessiecacheResource.kt`**: Implementeert de gegenereerde OpenAPI interface, delegeert naar service, error handling
+- **`BerichtensessiecacheService.kt`**: Aggregeert records van magazijnen, cacht resultaten (Caffeine, 60s TTL)
 - **`MagazijnClient.kt`**: REST client interface (Quarkus REST Client)
 - **`MagazijnBerichtenResponse.kt`**: Response wrapper met paginering-metadata
 - **`Bericht.kt`**: Domain model voor berichtrecords
@@ -119,7 +119,7 @@ Elke package bevat alle lagen (resource, service, model) voor dat functionele do
 - **`ProblemExceptionMapper.kt`**: WebApplicationException → Problem JSON
 - **`ConstraintViolationExceptionMapper.kt`**: Validatiefouten → Problem JSON
 - **`EventForwarder.kt`**: Stuurt bericht-events door naar Notificatie Service (CloudEvents)
-- **`BerichtenlijstResourceTest.kt`**: REST-assured tests
+- **`BerichtensessiecacheResourceTest.kt`**: REST-assured tests
 - **`MockMagazijnClient.kt`**: Mock REST client voor tests
 
 ## Ontwerpkeuzes
@@ -133,7 +133,7 @@ Elke package bevat alle lagen (resource, service, model) voor dat functionele do
 
 ## Verificatie
 
-1. `./mvnw compile -pl services/berichtenlijst` - Compilatie slaagt
-2. `./mvnw test -pl services/berichtenlijst` - 6 tests slagen
+1. `./mvnw compile -pl services/berichtensessiecache` - Compilatie slaagt
+2. `./mvnw test -pl services/berichtensessiecache` - 6 tests slagen
 3. `curl http://localhost:8080/q/openapi` - OpenAPI spec beschikbaar
 4. `curl http://localhost:8080/api/v1/berichten` - Endpoint retourneert response met API-Version header

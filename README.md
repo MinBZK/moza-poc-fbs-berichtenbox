@@ -14,7 +14,7 @@ beschreven op https://www.logius.nl/onze-dienstverlening/interactie/federatief-b
 Dit Open Source project is opgezet als PoC voor het ontvangen, opslaan en ophalen van berichten binnen MijnOverheid Zakelijk.
 De Berichtenbox bestaat uit de volgende onderdelen:
 
-- **Berichtenlijst** - Ophalen en weergeven van berichten
+- **Berichtensessiecache** - Ophalen en weergeven van berichten
 - **Berichtenmagazijn** - Opslaan van berichten
 - **Berichtnotificatieprofiel** - Beheer van notificatievoorkeuren
 
@@ -30,8 +30,8 @@ De Berichtenbox bestaat uit de volgende onderdelen:
 # Start lokale services (Redis, WireMock magazijnen, ClickHouse)
 docker compose up -d
 
-# Compileer en start de berichtenlijst service in dev mode
-./mvnw quarkus:dev -pl services/berichtenlijst
+# Compileer en start de berichtensessiecache service in dev mode
+./mvnw quarkus:dev -pl services/berichtensessiecache
 ```
 
 De API is beschikbaar op `http://localhost:8080/api/v1/berichten`.
@@ -40,15 +40,15 @@ De OpenAPI specificatie staat op `http://localhost:8080/openapi.json`.
 ### Tests draaien
 
 ```bash
-./mvnw test -pl services/berichtenlijst
+./mvnw test -pl services/berichtensessiecache
 ```
 
 ### Configuratie
 
-De belangrijkste configuratie staat in `services/berichtenlijst/src/main/resources/application.properties`:
+De belangrijkste configuratie staat in `services/berichtensessiecache/src/main/resources/application.properties`:
 
 ```properties
-# Magazijnen waarmee de berichtenlijst communiceert
+# Magazijnen waarmee de berichtensessiecache communiceert
 magazijnen.instances.magazijn-a.url=http://localhost:8081
 magazijnen.instances.magazijn-a.naam=Magazijn A
 magazijnen.instances.magazijn-b.url=http://localhost:8082

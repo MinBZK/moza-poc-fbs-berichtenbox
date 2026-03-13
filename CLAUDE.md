@@ -22,7 +22,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 ## Architectuurprincipes
 
-- **OpenAPI-first:** De OpenAPI spec (`berichtenlijst-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze.
+- **OpenAPI-first:** De OpenAPI spec (`berichtensessiecache-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze.
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`.
 - **Cache alleen succesvolle responses:** Error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
@@ -31,7 +31,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 ## Conventies
 
 - **GroupId:** `nl.rijksoverheid.moz`
-- **Packages:** `nl.rijksoverheid.moz.berichtenlijst.*`
+- **Packages:** `nl.rijksoverheid.moz.berichtensessiecache.*`
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
@@ -39,9 +39,9 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 ## Build & test commando's
 
 ```bash
-./mvnw compile -pl services/berichtenlijst          # Compileren
-./mvnw test -pl services/berichtenlijst              # Tests draaien
-./mvnw quarkus:dev -pl services/berichtenlijst       # Dev mode
+./mvnw compile -pl services/berichtensessiecache          # Compileren
+./mvnw test -pl services/berichtensessiecache              # Tests draaien
+./mvnw quarkus:dev -pl services/berichtensessiecache       # Dev mode
 ```
 
 ## Belangrijke bestanden
@@ -49,14 +49,14 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 | Pad | Beschrijving |
 |-----|-------------|
 | `pom.xml` | Parent POM (Quarkus BOM, Kotlin plugin config) |
-| `services/berichtenlijst/pom.xml` | Module POM (OpenAPI generator, dependencies) |
-| `services/berichtenlijst/src/main/resources/openapi/berichtenlijst-api.yaml` | OpenAPI spec (bron van waarheid) |
+| `services/berichtensessiecache/pom.xml` | Module POM (OpenAPI generator, dependencies) |
+| `services/berichtensessiecache/src/main/resources/openapi/berichtensessiecache-api.yaml` | OpenAPI spec (bron van waarheid) |
 | `docs/architecture/` | C4 model (Structurizr DSL) |
 
 ## Plannen
 
 Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
-- Formaat: `YYYY-MM-DD-korte-beschrijving.md` (bijv. `2026-03-11-monorepo-berichtenlijst.md`)
+- Formaat: `YYYY-MM-DD-korte-beschrijving.md` (bijv. `2026-03-11-monorepo-berichtensessiecache.md`)
 - Bevat: context, structuur, stappen, ontwerpkeuzes, verificatie
 - Voeg `**Status:**` toe bovenaan (Concept / Uitgevoerd / Verworpen)
 - Sla elk plan op bij het afronden, zodat beslissingen traceerbaar blijven

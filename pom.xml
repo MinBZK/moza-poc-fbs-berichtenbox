@@ -13,7 +13,7 @@
     <description>Federatief Berichtenstelsel - Proof of Concept</description>
 
     <modules>
-        <module>services/berichtenlijst</module>
+        <module>services/berichtensessiecache</module>
     </modules>
 
     <properties>

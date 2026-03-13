@@ -85,7 +85,7 @@ Geconfigureerd in `application.properties`: `quarkus.smallrye-openapi.path=/open
 
 ### ✅ 6. Zoek-endpoint pad ADR-conform — geïmplementeerd (ls-api, don-apis)
 
-Aangepast in `berichtenlijst-api.yaml`: `/berichten/zoeken` → `/berichten/_zoeken`
+Aangepast in `berichtensessiecache-api.yaml`: `/berichten/zoeken` → `/berichten/_zoeken`
 
 ---
 
@@ -116,7 +116,7 @@ Toegevoegd aan `ApiVersionFilter` (ContainerResponseFilter):
 
 ### ✅ 9. Contact info in OpenAPI spec — geïmplementeerd (ls-api)
 
-Toegevoegd aan `berichtenlijst-api.yaml`: `info.contact` met `name`, `email` en `url`.
+Toegevoegd aan `berichtensessiecache-api.yaml`: `info.contact` met `name`, `email` en `url`.
 
 ---
 

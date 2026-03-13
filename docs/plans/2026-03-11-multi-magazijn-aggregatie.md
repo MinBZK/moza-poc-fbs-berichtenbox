@@ -15,7 +15,7 @@ De Berichtenlijst-service aggregeert berichten uit decentrale magazijnen. Vijf p
 
 ## UX-flow
 
-1. **Ophalen met live status (SSE):** `GET /berichten/ophalen?ontvanger=...` → SSE-stream met BEZIG/OK/FOUT/TIMEOUT events per magazijn, afgesloten met `ophalen-gereed`
+1. **Ophalen met live status (SSE):** `GET /berichten/_ophalen?ontvanger=...` → SSE-stream met BEZIG/OK/FOUT/TIMEOUT events per magazijn, afgesloten met `ophalen-gereed`
 2. **Pagineren over cache:** `GET /berichten?page=0&pageSize=20` → gepagineerde resultaten uit Redis cache
 
 ## Geïmplementeerde wijzigingen
@@ -29,15 +29,15 @@ De Berichtenlijst-service aggregeert berichten uit decentrale magazijnen. Vijf p
 | Nieuw | `berichten/BerichtenOphalenResource.kt` | SSE endpoint voor ophaalstatus |
 | Nieuw | `berichten/MagazijnStatusEvent.kt` | Data class voor SSE events |
 | Wijzig | `magazijn/MagazijnClient.kt` | Verwijder `@RegisterRestClient`, verwijder paginering params |
-| Wijzig | `berichten/BerichtenlijstService.kt` | Lees uit cache i.p.v. magazijn-calls |
-| Wijzig | `berichten/BerichtenlijstResource.kt` | Uni-based, aggregatiestatus in response |
-| Wijzig | `openapi/berichtenlijst-api.yaml` | AggregationStatus, MagazijnStatusEvent schemas |
+| Wijzig | `berichten/BerichtensessiecacheService.kt` | Lees uit cache i.p.v. magazijn-calls |
+| Wijzig | `berichten/BerichtensessiecacheResource.kt` | Uni-based, aggregatiestatus in response |
+| Wijzig | `openapi/berichtensessiecache-api.yaml` | AggregationStatus, MagazijnStatusEvent schemas |
 | Wijzig | `application.properties` | Magazijnen-config, Redis |
 | Wijzig | `pom.xml` (module) | `quarkus-redis-client` i.p.v. `quarkus-cache` |
 | Nieuw | `test/MockMagazijnClientFactory.kt` | JDK Proxy-based mock |
 | Nieuw | `test/MockBerichtenCache.kt` | In-memory cache mock |
 | Nieuw | `test/BerichtenOphalenResourceTest.kt` | SSE tests |
-| Wijzig | `test/BerichtenlijstResourceTest.kt` | Cache-based paginering tests |
+| Wijzig | `test/BerichtensessiecacheResourceTest.kt` | Cache-based paginering tests |
 | Verwijder | `test/MockMagazijnClient.kt` | Niet meer nodig |
 
 ## Ontwerpkeuzes
