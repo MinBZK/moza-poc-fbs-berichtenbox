@@ -1,6 +1,8 @@
 # PoC MOZa Berichtenbox
 
 ![Project Status](https://img.shields.io/badge/life_cycle-pre_alpha-red)
+[![CI](https://github.com/ericwout-overheid/moza-fbs-berichtenbox/actions/workflows/ci.yml/badge.svg)](https://github.com/ericwout-overheid/moza-fbs-berichtenbox/actions/workflows/ci.yml)
+![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/MinBZK/moza-poc-fbs-berichtenbox/badge)
 
 Proof of Concept Berichtenbox voor MijnOverheid Zakelijk (MOZa) binnen het Federatief Berichtenstelsel (FBS).
 
