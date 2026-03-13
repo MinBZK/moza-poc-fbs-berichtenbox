@@ -24,6 +24,16 @@ class BerichtenlijstResourceTest {
     }
 
     @Test
+    fun `GET berichten zonder ontvanger retourneert 400`() {
+        given()
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    @Test
     fun `GET berichten retourneert 409 als ophalen niet is aangeroepen`() {
         given()
             .queryParam("ontvanger", "onbekend-${System.nanoTime()}")
@@ -231,12 +241,34 @@ class BerichtenlijstResourceTest {
     }
 
     @Test
-    fun `GET bericht by id retourneert 502 als alle magazijnen falen`() {
+    fun `GET bericht by id uit cache na ophalen ook als magazijnen falen`() {
+        // Eerst ophalen zodat berichten in cache komen
+        given()
+            .queryParam("ontvanger", "cache-byid-${System.nanoTime()}")
+            .`when`().get("/api/v1/berichten/ophalen")
+            .then()
+            .statusCode(200)
+
+        // Maak magazijnen onbereikbaar — bericht moet uit cache komen
         MockMagazijnClientFactory.shouldFailA = true
         MockMagazijnClientFactory.shouldFailB = true
 
         given()
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("berichtId", `is`("11111111-1111-1111-1111-111111111111"))
+            .body("magazijnId", `is`("magazijn-a"))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 502 als alle magazijnen falen`() {
+        MockMagazijnClientFactory.shouldFailA = true
+        MockMagazijnClientFactory.shouldFailB = true
+
+        // Gebruik een ID dat niet in de cache zit, zodat de fallback naar magazijnen wordt getriggerd
+        given()
+            .`when`().get("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
             .then()
             .statusCode(502)
             .contentType("application/problem+json")
@@ -259,8 +291,9 @@ class BerichtenlijstResourceTest {
     fun `GET bericht by id retourneert 404 als magazijn-a faalt en bericht niet in magazijn-b`() {
         MockMagazijnClientFactory.shouldFailA = true
 
+        // Gebruik een ID dat niet in de cache zit en alleen in magazijn-a bestaat
         given()
-            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .`when`().get("/api/v1/berichten/bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
             .then()
             .statusCode(404)
             .contentType("application/problem+json")

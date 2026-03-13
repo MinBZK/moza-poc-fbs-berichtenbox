@@ -6,6 +6,7 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnClientFactory
 import org.jboss.logging.Logger
+import java.time.Duration
 import java.util.UUID
 
 @ApplicationScoped
@@ -14,6 +15,10 @@ class BerichtenlijstService(
     private val clientFactory: MagazijnClientFactory,
 ) {
     private val log = Logger.getLogger(BerichtenlijstService::class.java)
+
+    companion object {
+        private val CACHE_TIMEOUT = Duration.ofSeconds(5)
+    }
 
     fun getBerichten(page: Int, pageSize: Int, ontvanger: String?, afzender: String?): Uni<BerichtenPage> {
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d, ontvanger=%s", page, pageSize, ontvanger)
@@ -29,6 +34,17 @@ class BerichtenlijstService(
 
     fun getBerichtById(berichtId: UUID): BerichtLookupResult {
         log.debugf("Ophalen bericht: %s", berichtId)
+
+        // Probeer eerst uit de cache
+        val cached = berichtenCache.getById(berichtId)
+            .await().atMost(CACHE_TIMEOUT)
+        if (cached != null) {
+            log.debugf("Bericht %s gevonden in cache", berichtId)
+            return BerichtLookupResult.Found(cached)
+        }
+
+        // Fallback: bevraag de magazijnen
+        log.debugf("Bericht %s niet in cache, bevraag magazijnen", berichtId)
         val clients = clientFactory.getAllClients()
         var heeftSuccessvolAntwoord = false
         for ((magazijnId, client) in clients) {

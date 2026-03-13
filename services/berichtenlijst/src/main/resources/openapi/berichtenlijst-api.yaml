@@ -32,10 +32,12 @@ paths:
         - $ref: '#/components/parameters/PageSizeParam'
         - name: ontvanger
           in: query
-          description: Filter op ontvanger (BSN of KVK-nummer)
+          required: true
+          description: Ontvanger (BSN of KVK-nummer)
           x-todo: "Ontvanger tzt uit security-context halen"
           schema:
             type: string
+            minLength: 1
         - name: afzender
           in: query
           description: Filter op afzender (OIN)
@@ -74,10 +76,10 @@ paths:
       summary: Enkel berichtrecord ophalen
       description: |
         Haalt een enkel berichtrecord op aan de hand van het unieke bericht-ID.
-        Alle aangesloten magazijnen worden parallel bevraagd. Het eerste magazijn
-        dat het bericht bevat, levert het resultaat. Retourneert 404 als geen
-        enkel bereikbaar magazijn het bericht kent, of 502 als geen enkel
-        magazijn bereikbaar is.
+        Als het bericht in de cache zit (na een eerdere ophaalactie) wordt het
+        direct geretourneerd. Anders worden alle aangesloten magazijnen bevraagd.
+        Retourneert 404 als het bericht niet gevonden is, of 502 als geen enkel
+        magazijn bereikbaar is en het bericht niet in de cache zit.
       tags:
         - berichten
       parameters:
@@ -133,10 +135,12 @@ paths:
             minLength: 2
         - name: ontvanger
           in: query
-          description: Filter op ontvanger (BSN of KVK-nummer)
+          required: true
+          description: Ontvanger (BSN of KVK-nummer)
           x-todo: "Ontvanger tzt uit security-context halen"
           schema:
             type: string
+            minLength: 1
         - name: afzender
           in: query
           description: Filter op afzender (OIN)
@@ -158,11 +162,67 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '409':
+          description: |
+            Berichten zijn nog niet opgehaald of het ophalen is nog bezig.
+            Roep eerst GET /berichten/ophalen aan.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  # /berichten/ophalen is handmatig geïmplementeerd in BerichtenOphalenResource (SSE)
-  # en wordt niet via OpenAPI Generator gegenereerd.
+  /berichten/ophalen:
+    get:
+      operationId: ophalenBerichten
+      summary: Berichten ophalen uit alle magazijnen (SSE-stream)
+      description: |
+        Start het ophalen van berichten uit alle aangesloten magazijnen.
+        Retourneert een Server-Sent Events stream met voortgangsupdates per magazijn.
+
+        **Event types:**
+        - `magazijn-status` — Status per magazijn (BEZIG → OK / FOUT / TIMEOUT)
+        - `ophalen-gereed` — Afsluitend event met totaalresultaat
+
+        Na afloop zijn de opgehaalde berichten beschikbaar via `GET /berichten`.
+      tags:
+        - ophalen
+      parameters:
+        - name: ontvanger
+          in: query
+          required: true
+          description: Ontvanger (BSN of KVK-nummer)
+          x-todo: "Ontvanger tzt uit security-context halen"
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: SSE-stream met ophaalstatus per magazijn
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/MagazijnStatusEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: |
+            Berichten worden momenteel al opgehaald voor deze ontvanger.
+            Wacht tot het ophalen is afgerond.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
   parameters:

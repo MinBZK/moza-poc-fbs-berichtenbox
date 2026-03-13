@@ -8,7 +8,9 @@ import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.QueryParam
+import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.core.Response
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.berichtenlijst.magazijn.MagazijnClientFactory
@@ -39,14 +41,16 @@ class BerichtenOphalenResource(
     fun ophalenBerichten(
         @QueryParam("ontvanger") ontvanger: String?,
     ): Multi<MagazijnStatusEvent> {
-        ontvanger?.let {
-            logboekContext.dataSubjectId = it
-            logboekContext.dataSubjectType = "ontvanger"
+        if (ontvanger.isNullOrBlank()) {
+            throw WebApplicationException("Parameter 'ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
         }
-        logboekContext.status = io.opentelemetry.api.trace.StatusCode.OK
+
+        logboekContext.dataSubjectId = ontvanger
+        logboekContext.dataSubjectType = "ontvanger"
+
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
         val clients = clientFactory.getAllClients()
-        val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
         val alleBerichten = ConcurrentLinkedQueue<Bericht>()
         val geslaagd = AtomicInteger(0)
@@ -57,11 +61,29 @@ class BerichtenOphalenResource(
             totaalMagazijnen = clients.size,
         )
 
-        val initStream = berichtenCache.storeAggregationStatus(cacheKey, bezigStatus)
+        // Voorkom concurrent ophalen voor dezelfde ontvanger, dan sla BEZIG status op
+        val initStream = berichtenCache.getAggregationStatus(cacheKey)
+            .chain { huidigeStatus ->
+                if (huidigeStatus?.status == OphalenStatus.BEZIG) {
+                    Uni.createFrom().failure(
+                        WebApplicationException(
+                            "Berichten worden momenteel al opgehaald voor deze ontvanger. Wacht tot het ophalen is afgerond.",
+                            409,
+                        ),
+                    )
+                } else {
+                    berichtenCache.storeAggregationStatus(cacheKey, bezigStatus)
+                }
+            }
             .replaceWith(Multi.createFrom().empty<MagazijnStatusEvent>())
             .toMulti().flatMap { it }
-            .onFailure().invoke { e -> log.errorf(e, "Kon aggregatie-status BEZIG niet opslaan in cache voor key=%s", cacheKey) }
-            .onFailure().recoverWithCompletion()
+            .onFailure(WebApplicationException::class.java).invoke { _ -> /* laat WebApplicationException doorbubbelen */ }
+            .onFailure().invoke { e ->
+                if (e !is WebApplicationException) {
+                    log.errorf(e, "Kon aggregatie-status BEZIG niet opslaan in cache voor key=%s", cacheKey)
+                }
+            }
+            .onFailure { it !is WebApplicationException }.recoverWithCompletion()
 
         val magazijnStreams = clients.map { (magazijnId, client) ->
             val naam = clientFactory.getNaam(magazijnId)
@@ -106,7 +128,7 @@ class BerichtenOphalenResource(
                             magazijnId = magazijnId,
                             naam = naam,
                             status = if (isTimeout) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
-                            foutmelding = result.error.message ?: "Onbekende fout bij ophalen",
+                            foutmelding = if (isTimeout) "Magazijn reageerde niet binnen de timeout" else "Magazijn tijdelijk niet bereikbaar",
                         )
                     }
                 }
@@ -137,6 +159,11 @@ class BerichtenOphalenResource(
                             berichtenCache.storeAggregationStatus(cacheKey, status)
                         }
                         .map { _ ->
+                            logboekContext.status = if (mislukt.get() == 0) {
+                                io.opentelemetry.api.trace.StatusCode.OK
+                            } else {
+                                io.opentelemetry.api.trace.StatusCode.ERROR
+                            }
                             MagazijnStatusEvent(
                                 event = EventType.OPHALEN_GEREED,
                                 totaalBerichten = alleBerichten.size,
@@ -154,7 +181,7 @@ class BerichtenOphalenResource(
                         geslaagd = geslaagd.get(),
                         mislukt = mislukt.get(),
                         totaalMagazijnen = clients.size,
-                        foutmelding = "Cache-opslag mislukt: ${error.message}",
+                        foutmelding = "Interne fout bij opslaan van resultaten",
                     )
                 }
                 .toMulti()

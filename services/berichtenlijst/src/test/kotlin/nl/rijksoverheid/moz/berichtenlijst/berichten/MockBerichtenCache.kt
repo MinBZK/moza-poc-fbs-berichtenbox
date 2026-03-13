@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.berichtenlijst.berichten
 import io.quarkus.test.Mock
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 @Mock
@@ -11,10 +12,18 @@ class MockBerichtenCache : BerichtenCache {
 
     private val lists = ConcurrentHashMap<String, List<Bericht>>()
     private val statuses = ConcurrentHashMap<String, AggregationStatus>()
+    private val byId = ConcurrentHashMap<UUID, Bericht>()
+
+    fun clear() {
+        lists.clear()
+        statuses.clear()
+        byId.clear()
+    }
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
         val sorted = berichten.sortedByDescending { it.tijdstip }
         lists["$key:list"] = sorted
+        berichten.forEach { byId[it.berichtId] = it }
         return Uni.createFrom().voidItem()
     }
 
@@ -29,6 +38,10 @@ class MockBerichtenCache : BerichtenCache {
 
     override fun getAll(key: String): Uni<List<Bericht>> {
         return Uni.createFrom().item(lists["$key:list"] ?: emptyList())
+    }
+
+    override fun getById(berichtId: UUID): Uni<Bericht?> {
+        return Uni.createFrom().item(byId[berichtId])
     }
 
     override fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?> {

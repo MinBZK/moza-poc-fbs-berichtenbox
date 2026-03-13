@@ -7,6 +7,7 @@ import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.berichtenlijst.api.model.Problem
 import org.jboss.logging.Logger
+import java.net.URI
 
 @Provider
 class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
@@ -21,6 +22,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         }
 
         val problem = Problem()
+        problem.type = URI.create("about:blank")
         problem.status = status
         problem.title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         problem.detail = exception.message

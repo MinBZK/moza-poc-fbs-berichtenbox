@@ -7,6 +7,7 @@ import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.berichtenlijst.api.model.Problem
 import org.jboss.logging.Logger
+import java.net.URI
 
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {
@@ -17,6 +18,7 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
         log.debugf("Validatiefout: %s", exception.constraintViolations)
 
         val problem = Problem()
+        problem.type = URI.create("about:blank")
         problem.status = 400
         problem.title = "Bad Request"
         problem.detail = exception.constraintViolations.joinToString("; ") {

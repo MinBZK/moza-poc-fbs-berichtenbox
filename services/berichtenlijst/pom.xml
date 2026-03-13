@@ -106,6 +106,7 @@
                                 <returnResponse>false</returnResponse>
                                 <useJakartaEe>true</useJakartaEe>
                                 <useSwaggerAnnotations>false</useSwaggerAnnotations>
+                                <useTags>true</useTags>
                                 <dateLibrary>java8</dateLibrary>
                             </configOptions>
                             <typeMappings>

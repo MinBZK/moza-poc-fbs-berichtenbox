@@ -5,7 +5,9 @@ import io.smallrye.common.annotation.Blocking
 import jakarta.inject.Inject
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.berichtenlijst.api.model.AggregationStatus as ApiAggregationStatus
@@ -31,21 +33,23 @@ class BerichtenlijstResource(
     @Inject
     lateinit var logboekContext: LogboekContext
 
+    @Context
+    lateinit var uriInfo: UriInfo
+
     @Logboek(
         name = "ophalen-berichtenlijst",
         processingActivityId = "https://register.example.com/verwerkingen/berichtenlijst-ophalen",
     )
     override fun getBerichten(
+        ontvanger: String?,
         page: Int?,
         pageSize: Int?,
-        ontvanger: String?,
         afzender: String?,
     ): BerichtenlijstResponse {
         ontvanger?.let {
             logboekContext.dataSubjectId = it
             logboekContext.dataSubjectType = "ontvanger"
         }
-        logboekContext.status = StatusCode.OK
 
         val aggregation = awaitOrServiceUnavailable {
             berichtenlijstService.getAggregationStatus(ontvanger)
@@ -70,6 +74,7 @@ class BerichtenlijstResource(
         val result = awaitOrServiceUnavailable {
             berichtenlijstService.getBerichten(p, ps, ontvanger, afzender)
         }
+        logboekContext.status = StatusCode.OK
         return toBerichtenlijstResponse(result, aggregation, ontvanger)
     }
 
@@ -82,10 +87,12 @@ class BerichtenlijstResource(
     override fun getBerichtById(berichtId: UUID): BerichtResponse {
         logboekContext.dataSubjectId = berichtId.toString()
         logboekContext.dataSubjectType = "berichtId"
-        logboekContext.status = StatusCode.OK
 
         return when (val result = berichtenlijstService.getBerichtById(berichtId)) {
-            is BerichtLookupResult.Found -> toBerichtResponse(result.bericht)
+            is BerichtLookupResult.Found -> {
+                logboekContext.status = StatusCode.OK
+                toBerichtResponse(result.bericht)
+            }
             is BerichtLookupResult.NotFound -> throw WebApplicationException(
                 "Bericht $berichtId niet gevonden", Response.Status.NOT_FOUND,
             )
@@ -101,16 +108,15 @@ class BerichtenlijstResource(
     )
     override fun zoekBerichten(
         q: String,
+        ontvanger: String?,
         page: Int?,
         pageSize: Int?,
-        ontvanger: String?,
         afzender: String?,
     ): BerichtenlijstResponse {
         ontvanger?.let {
             logboekContext.dataSubjectId = it
             logboekContext.dataSubjectType = "ontvanger"
         }
-        logboekContext.status = StatusCode.OK
 
         val aggregation = awaitOrServiceUnavailable {
             berichtenlijstService.getAggregationStatus(ontvanger)
@@ -135,6 +141,7 @@ class BerichtenlijstResource(
         val result = awaitOrServiceUnavailable {
             berichtenlijstService.zoekBerichten(q, p, ps, ontvanger, afzender)
         }
+        logboekContext.status = StatusCode.OK
         return toBerichtenlijstResponse(result, aggregation, ontvanger)
     }
 
@@ -165,21 +172,29 @@ class BerichtenlijstResource(
                 mislukt = aggregation.mislukt
             }
         }
+        val basePath = uriInfo.baseUri.path.removeSuffix("/")
         val ontvangerParam = ontvanger?.let { "&ontvanger=${URLEncoder.encode(it, StandardCharsets.UTF_8)}" } ?: ""
         response.links = PaginationLinks().apply {
-            self = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page}&pageSize=${result.pageSize}$ontvangerParam") }
-            first = Link().apply { href = URI.create("/api/v1/berichten?page=0&pageSize=${result.pageSize}$ontvangerParam") }
+            self = Link().apply { href = URI.create("$basePath/berichten?page=${result.page}&pageSize=${result.pageSize}$ontvangerParam") }
+            first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${result.pageSize}$ontvangerParam") }
             if (result.totalPages > 0) {
-                last = Link().apply { href = URI.create("/api/v1/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                last = Link().apply { href = URI.create("$basePath/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}$ontvangerParam") }
             }
             if (result.page > 0) {
-                prev = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page - 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                prev = Link().apply { href = URI.create("$basePath/berichten?page=${result.page - 1}&pageSize=${result.pageSize}$ontvangerParam") }
             }
             if (result.page < result.totalPages - 1) {
-                next = Link().apply { href = URI.create("/api/v1/berichten?page=${result.page + 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                next = Link().apply { href = URI.create("$basePath/berichten?page=${result.page + 1}&pageSize=${result.pageSize}$ontvangerParam") }
             }
         }
         return response
+    }
+
+    private fun berichtLinks(berichtId: UUID): BerichtLinks {
+        val basePath = uriInfo.baseUri.path.removeSuffix("/")
+        return BerichtLinks().apply {
+            self = Link().apply { href = URI.create("$basePath/berichten/$berichtId") }
+        }
     }
 
     private fun toApiBericht(bericht: Bericht): nl.rijksoverheid.moz.berichtenlijst.api.model.Bericht {
@@ -190,9 +205,7 @@ class BerichtenlijstResource(
         apiBericht.onderwerp = bericht.onderwerp
         apiBericht.tijdstip = bericht.tijdstip
         apiBericht.magazijnId = bericht.magazijnId
-        apiBericht.links = BerichtLinks().apply {
-            self = Link().apply { href = URI.create("/api/v1/berichten/${bericht.berichtId}") }
-        }
+        apiBericht.links = berichtLinks(bericht.berichtId)
         return apiBericht
     }
 
@@ -204,9 +217,7 @@ class BerichtenlijstResource(
         response.onderwerp = bericht.onderwerp
         response.tijdstip = bericht.tijdstip
         response.magazijnId = bericht.magazijnId
-        response.links = BerichtLinks().apply {
-            self = Link().apply { href = URI.create("/api/v1/berichten/${bericht.berichtId}") }
-        }
+        response.links = berichtLinks(bericht.berichtId)
         return response
     }
 

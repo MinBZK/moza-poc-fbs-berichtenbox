@@ -6,6 +6,7 @@ import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 import org.jboss.logging.Logger
 import java.time.Duration
+import java.util.UUID
 
 interface BerichtenCache {
     fun store(key: String, berichten: List<Bericht>): Uni<Void>
@@ -13,9 +14,11 @@ interface BerichtenCache {
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?>
     fun getAll(key: String): Uni<List<Bericht>>
+    fun getById(berichtId: UUID): Uni<Bericht?>
 
     companion object {
         fun cacheKey(ontvanger: String?) = "berichtenlijst:v1:${ontvanger ?: "all"}"
+        fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
     }
 }
 
@@ -33,15 +36,22 @@ class RedisBerichtenCache(
         }
         val listCommands = redis.list(String::class.java)
         val keyCommands = redis.key()
+        val valueCommands = redis.value(String::class.java)
 
-        val jsonValues = berichten
-            .sortedByDescending { it.tijdstip }
-            .map { objectMapper.writeValueAsString(it) }
+        val sorted = berichten.sortedByDescending { it.tijdstip }
+        val jsonValues = sorted.map { objectMapper.writeValueAsString(it) }
 
         return keyCommands.del(listKey)
             .chain { _ -> listCommands.rpush(listKey, *jsonValues.toTypedArray()) }
             .chain { _ -> keyCommands.expire(listKey, TTL) }
-            .replaceWithVoid()
+            .chain { _ ->
+                // Sla elk bericht ook individueel op voor lookup by ID
+                val stores = sorted.zip(jsonValues).map { (bericht, json) ->
+                    val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
+                    valueCommands.setex(berichtKey, TTL.seconds, json).replaceWithVoid()
+                }
+                Uni.join().all(stores).andFailFast().replaceWithVoid()
+            }
             .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache key=%s", berichten.size, key) }
             .onFailure().invoke { e -> log.errorf(e, "Redis store mislukt voor key=%s", key) }
     }
@@ -98,6 +108,13 @@ class RedisBerichtenCache(
         return redis.list(String::class.java).lrange(listKey, 0, -1)
             .map { jsonList -> jsonList.map { objectMapper.readValue(it, Bericht::class.java) } }
             .onFailure().invoke { e -> log.errorf(e, "Redis getAll mislukt voor key=%s", key) }
+    }
+
+    override fun getById(berichtId: UUID): Uni<Bericht?> {
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        return redis.value(String::class.java).get(berichtKey)
+            .map { json -> json?.let { objectMapper.readValue(it, Bericht::class.java) } }
+            .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor berichtId=%s", berichtId) }
     }
 
     companion object {

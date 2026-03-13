@@ -19,6 +19,16 @@ class BerichtenOphalenResourceTest {
     }
 
     @Test
+    fun `GET ophalen zonder ontvanger retourneert 400`() {
+        given()
+            .`when`().get("/api/v1/berichten/ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    @Test
     fun `GET ophalen retourneert SSE-stream met magazijn events`() {
         val response = given()
             .queryParam("ontvanger", "999993653")

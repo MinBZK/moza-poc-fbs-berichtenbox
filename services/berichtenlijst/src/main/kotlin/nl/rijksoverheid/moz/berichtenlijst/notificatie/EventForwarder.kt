@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.berichtenlijst.notificatie
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.berichtenlijst.berichten.Bericht
 import org.eclipse.microprofile.config.inject.ConfigProperty
@@ -18,6 +19,7 @@ import java.util.UUID
 @ApplicationScoped
 class EventForwarder(
     @ConfigProperty(name = "notificatie.service.url") private val notificatieServiceUrl: String,
+    private val objectMapper: ObjectMapper,
 ) {
     private val log = Logger.getLogger(EventForwarder::class.java)
     private val httpClient = HttpClient.newBuilder()
@@ -51,26 +53,23 @@ class EventForwarder(
 
     private fun buildCloudEvent(bericht: Bericht): String {
         // NL GOV CloudEvents profiel v1.1: structured content mode
-        val id = UUID.randomUUID().toString()
-        val time = Instant.now().toString()
-        return """
-            {
-              "specversion": "1.0",
-              "id": "$id",
-              "source": "$SOURCE",
-              "type": "$EVENT_TYPE",
-              "subject": "${bericht.berichtId}",
-              "time": "$time",
-              "datacontenttype": "application/json",
-              "data": {
-                "berichtId": "${bericht.berichtId}",
-                "afzender": "${bericht.afzender}",
-                "ontvanger": "${bericht.ontvanger}",
-                "onderwerp": "${bericht.onderwerp}",
-                "magazijnId": "${bericht.magazijnId}"
-              }
-            }
-        """.trimIndent()
+        val event = mapOf(
+            "specversion" to "1.0",
+            "id" to UUID.randomUUID().toString(),
+            "source" to SOURCE,
+            "type" to EVENT_TYPE,
+            "subject" to bericht.berichtId.toString(),
+            "time" to Instant.now().toString(),
+            "datacontenttype" to "application/json",
+            "data" to mapOf(
+                "berichtId" to bericht.berichtId.toString(),
+                "afzender" to bericht.afzender,
+                "ontvanger" to bericht.ontvanger,
+                "onderwerp" to bericht.onderwerp,
+                "magazijnId" to bericht.magazijnId,
+            ),
+        )
+        return objectMapper.writeValueAsString(event)
     }
 
     companion object {
