@@ -30,7 +30,7 @@ description:
       Berichtenbox is onderdeel van het Federatief Berichtenstelsel (FBS)
       en bestaat uit de volgende onderdelen:
 
-      - Berichtenlijst
+      - Berichtensessiecache
 
       - Berichtenmagazijn
 
@@ -43,7 +43,7 @@ description:
       mijnoverheidzakelijk.
     features:
       - Ontvangen en opslaan van berichten
-      - Ophalen en weergeven van berichtenlijst
+      - Ophalen en weergeven van berichtensessiecache
       - Beheer van berichtnotificatieprofielen
   en:
     shortDescription: >-
