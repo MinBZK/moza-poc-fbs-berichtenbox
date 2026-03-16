@@ -12,12 +12,19 @@ class MockBerichtenCache : BerichtenCache {
 
     private val lists = ConcurrentHashMap<String, List<Bericht>>()
     private val statuses = ConcurrentHashMap<String, AggregationStatus>()
+    private val locks = ConcurrentHashMap.newKeySet<String>()
     private val byId = ConcurrentHashMap<UUID, Bericht>()
 
     fun clear() {
         lists.clear()
         statuses.clear()
+        locks.clear()
         byId.clear()
+    }
+
+    fun simuleerBezig(key: String) {
+        locks.add("$key:lock")
+        statuses["$key:status"] = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2)
     }
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
@@ -29,7 +36,16 @@ class MockBerichtenCache : BerichtenCache {
 
     override fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
         statuses["$key:status"] = status
+        locks.remove("$key:lock")
         return Uni.createFrom().voidItem()
+    }
+
+    override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {
+        val lockAcquired = locks.add("$key:lock")
+        if (lockAcquired) {
+            statuses["$key:status"] = status
+        }
+        return Uni.createFrom().item(lockAcquired)
     }
 
     override fun getAggregationStatus(key: String): Uni<AggregationStatus?> {

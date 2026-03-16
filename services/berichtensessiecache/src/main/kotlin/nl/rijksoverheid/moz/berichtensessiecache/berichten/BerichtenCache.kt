@@ -11,6 +11,7 @@ import java.util.UUID
 interface BerichtenCache {
     fun store(key: String, berichten: List<Bericht>): Uni<Void>
     fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
+    fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean>
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?>
     fun getAll(key: String): Uni<List<Bericht>>
@@ -60,8 +61,26 @@ class RedisBerichtenCache(
         val statusKey = statusKey(key)
         val json = objectMapper.writeValueAsString(status)
         return redis.value(String::class.java).setex(statusKey, TTL.seconds, json)
+            .chain { _ -> redis.key().del(lockKey(key)) }
             .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis storeAggregationStatus mislukt voor key=%s", key) }
+    }
+
+    override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {
+        val lockKey = lockKey(key)
+        val statusKey = statusKey(key)
+        val json = objectMapper.writeValueAsString(status)
+        return redis.value(String::class.java).setnx(lockKey, "1")
+            .chain { wasSet ->
+                if (wasSet) {
+                    redis.key().expire(lockKey, TTL)
+                        .chain { _ -> redis.value(String::class.java).setex(statusKey, TTL.seconds, json) }
+                        .replaceWith(true)
+                } else {
+                    Uni.createFrom().item(false)
+                }
+            }
+            .onFailure().invoke { e -> log.errorf(e, "Redis trySetAggregationStatus mislukt voor key=%s", key) }
     }
 
     override fun getAggregationStatus(key: String): Uni<AggregationStatus?> {
@@ -121,6 +140,7 @@ class RedisBerichtenCache(
         private val TTL = Duration.ofSeconds(60)
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"
+        private fun lockKey(key: String) = "$key:lock"
     }
 }
 

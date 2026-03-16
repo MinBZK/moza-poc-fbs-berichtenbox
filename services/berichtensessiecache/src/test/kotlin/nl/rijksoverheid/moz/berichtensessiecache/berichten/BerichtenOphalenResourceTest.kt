@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
+import jakarta.inject.Inject
 import org.hamcrest.CoreMatchers.`is`
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -10,12 +11,16 @@ import org.junit.jupiter.api.Test
 @QuarkusTest
 class BerichtenOphalenResourceTest {
 
+    @Inject
+    lateinit var berichtenCache: BerichtenCache
+
     @BeforeEach
     fun setUp() {
         MockMagazijnClientFactory.shouldFailA = false
         MockMagazijnClientFactory.shouldFailB = false
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
+        (berichtenCache as MockBerichtenCache).clear()
     }
 
     @Test
@@ -120,6 +125,21 @@ class BerichtenOphalenResourceTest {
 
         assertTrue(response.contains("\"totaalMagazijnen\":2"), "Verwacht totaalMagazijnen=2 in: $response")
         assertTrue(response.contains("\"geslaagd\":2"), "Verwacht geslaagd=2 in: $response")
+    }
+
+    @Test
+    fun `GET ophalen terwijl aggregatie al bezig is retourneert 409`() {
+        val ontvanger = "conflict-test-${System.nanoTime()}"
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+        (berichtenCache as MockBerichtenCache).simuleerBezig(cacheKey)
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(409)
+            .contentType("application/problem+json")
+            .body("status", `is`(409))
     }
 
     @Test

@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
+import io.smallrye.common.annotation.Blocking
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.infrastructure.Infrastructure
@@ -32,6 +33,7 @@ class BerichtenOphalenResource(
     lateinit var logboekContext: LogboekContext
 
     @GET
+    @Blocking
     @Logboek(
         name = "ophalen-berichten-uit-magazijnen",
         processingActivityId = "https://register.example.com/verwerkingen/berichten-ophalen-aggregatie",
@@ -61,29 +63,16 @@ class BerichtenOphalenResource(
             totaalMagazijnen = clients.size,
         )
 
-        // Voorkom concurrent ophalen voor dezelfde ontvanger, dan sla BEZIG status op
-        val initStream = berichtenCache.getAggregationStatus(cacheKey)
-            .chain { huidigeStatus ->
-                if (huidigeStatus?.status == OphalenStatus.BEZIG) {
-                    Uni.createFrom().failure(
-                        WebApplicationException(
-                            "Berichten worden momenteel al opgehaald voor deze ontvanger. Wacht tot het ophalen is afgerond.",
-                            409,
-                        ),
-                    )
-                } else {
-                    berichtenCache.storeAggregationStatus(cacheKey, bezigStatus)
-                }
-            }
-            .replaceWith(Multi.createFrom().empty<MagazijnStatusEvent>())
-            .toMulti().flatMap { it }
-            .onFailure(WebApplicationException::class.java).invoke { _ -> /* laat WebApplicationException doorbubbelen */ }
-            .onFailure().invoke { e ->
-                if (e !is WebApplicationException) {
-                    log.errorf(e, "Kon aggregatie-status BEZIG niet opslaan in cache voor key=%s", cacheKey)
-                }
-            }
-            .onFailure { it !is WebApplicationException }.recoverWithCompletion()
+        // Atomaire lock: voorkom concurrent ophalen voor dezelfde ontvanger (SETNX)
+        val wasSet = berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
+            .await().atMost(Duration.ofSeconds(5))
+
+        if (!wasSet) {
+            throw WebApplicationException(
+                "Berichten worden momenteel al opgehaald voor deze ontvanger. Wacht tot het ophalen is afgerond.",
+                409,
+            )
+        }
 
         val magazijnStreams = clients.map { (magazijnId, client) ->
             val naam = clientFactory.getNaam(magazijnId)
@@ -143,7 +132,6 @@ class BerichtenOphalenResource(
         val allMagazijnEvents = Multi.createBy().merging().streams(magazijnStreams)
 
         return Multi.createBy().concatenating().streams(
-            initStream,
             allMagazijnEvents,
             Uni.createFrom().item { Unit }
                 .chain { _ ->
