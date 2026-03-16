@@ -76,19 +76,8 @@ class BerichtensessiecacheService(
     }
 
     fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: String?, afzender: String?): Uni<BerichtenPage> {
-        log.debugf("Zoeken berichten uit cache: q=%s, page=%d, pageSize=%d", q, page, pageSize)
-        val key = BerichtenCache.cacheKey(ontvanger)
-        return berichtenCache.getAll(key)
-            .map { berichten ->
-                val gefilterd = berichten.filter {
-                    it.onderwerp.contains(q, ignoreCase = true) ||
-                        it.afzender.contains(q, ignoreCase = true)
-                }
-                val start = page * pageSize
-                val slice = gefilterd.drop(start).take(pageSize)
-                val totalPages = if (gefilterd.isEmpty()) 0 else (gefilterd.size + pageSize - 1) / pageSize
-                BerichtenPage(slice, page, pageSize, gefilterd.size.toLong(), totalPages)
-            }
+        log.debugf("Zoeken berichten via RediSearch: q=%s, page=%d, pageSize=%d", q, page, pageSize)
+        return berichtenCache.search(ontvanger, q, page, pageSize)
     }
 }
 

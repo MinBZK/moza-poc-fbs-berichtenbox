@@ -52,8 +52,17 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(statuses["$key:status"])
     }
 
-    override fun getAll(key: String): Uni<List<Bericht>> {
-        return Uni.createFrom().item(lists["$key:list"] ?: emptyList())
+    override fun search(ontvanger: String?, q: String, page: Int, pageSize: Int): Uni<BerichtenPage> {
+        val key = BerichtenCache.cacheKey(ontvanger)
+        val berichten = lists["$key:list"] ?: emptyList()
+        val gefilterd = berichten.filter {
+            it.onderwerp.contains(q, ignoreCase = true) ||
+                it.afzender.contains(q, ignoreCase = true)
+        }
+        val start = page * pageSize
+        val slice = gefilterd.drop(start).take(pageSize)
+        val totalPages = if (gefilterd.isEmpty()) 0 else (gefilterd.size + pageSize - 1) / pageSize
+        return Uni.createFrom().item(BerichtenPage(slice, page, pageSize, gefilterd.size.toLong(), totalPages))
     }
 
     override fun getById(berichtId: UUID): Uni<Bericht?> {

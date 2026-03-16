@@ -2,10 +2,15 @@ package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
+import io.quarkus.redis.datasource.search.CreateArgs
+import io.quarkus.redis.datasource.search.FieldType
+import io.quarkus.redis.datasource.search.QueryArgs
 import io.smallrye.mutiny.Uni
+import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import org.jboss.logging.Logger
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 
 interface BerichtenCache {
@@ -14,12 +19,14 @@ interface BerichtenCache {
     fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean>
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?>
-    fun getAll(key: String): Uni<List<Bericht>>
+    fun search(ontvanger: String?, q: String, page: Int, pageSize: Int): Uni<BerichtenPage>
     fun getById(berichtId: UUID): Uni<Bericht?>
 
     companion object {
         fun cacheKey(ontvanger: String?) = "berichtensessiecache:v1:${ontvanger ?: "all"}"
         fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
+        const val BERICHT_PREFIX = "bericht:v1:"
+        const val SEARCH_INDEX = "berichten-idx"
     }
 }
 
@@ -29,6 +36,27 @@ class RedisBerichtenCache(
     private val objectMapper: ObjectMapper,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
+
+    @PostConstruct
+    fun init() {
+        try {
+            val args = CreateArgs()
+                .onHash()
+                .prefixes(BerichtenCache.BERICHT_PREFIX)
+                .indexedField("onderwerp", FieldType.TEXT)
+                .indexedField("afzender", FieldType.TEXT)
+                .indexedField("ontvanger", FieldType.TAG)
+            redis.search().ftCreate(BerichtenCache.SEARCH_INDEX, args)
+                .await().atMost(Duration.ofSeconds(5))
+            log.infof("RediSearch index '%s' aangemaakt", BerichtenCache.SEARCH_INDEX)
+        } catch (e: Exception) {
+            if (e.message?.contains("Index already exists") == true) {
+                log.debugf("RediSearch index '%s' bestaat al", BerichtenCache.SEARCH_INDEX)
+            } else {
+                log.errorf(e, "Kon RediSearch index '%s' niet aanmaken", BerichtenCache.SEARCH_INDEX)
+            }
+        }
+    }
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
         val listKey = listKey(key)
@@ -40,20 +68,22 @@ class RedisBerichtenCache(
         val jsonValues = sorted.map { objectMapper.writeValueAsString(it) }
 
         // Gebruik een Redis transaction (MULTI/EXEC) zodat alle commands in één round-trip gaan
-        // i.p.v. N+3 losse round-trips (DEL + RPUSH + EXPIRE + N × SETEX)
         return redis.withTransaction { tx ->
             val txList = tx.list(String::class.java)
             val txKey = tx.key()
-            val txValue = tx.value(String::class.java)
+            val txHash = tx.hash(String::class.java)
 
             txKey.del(listKey)
                 .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
                 .chain { _ -> txKey.expire(listKey, TTL) }
                 .chain { _ ->
-                    // Sla elk bericht ook individueel op voor lookup by ID
-                    val stores = sorted.zip(jsonValues).map { (bericht, json) ->
+                    // Sla elk bericht op als Hash voor RediSearch full-text index en lookup by ID
+                    val stores = sorted.map { bericht ->
                         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
-                        txValue.setex(berichtKey, TTL.seconds, json).replaceWithVoid()
+                        val fields = berichtToHash(bericht)
+                        txHash.hset(berichtKey, fields)
+                            .chain { _ -> txKey.expire(berichtKey, TTL) }
+                            .replaceWithVoid()
                     }
                     Uni.join().all(stores).andFailFast().replaceWithVoid()
                 }
@@ -128,25 +158,75 @@ class RedisBerichtenCache(
         .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
-    override fun getAll(key: String): Uni<List<Bericht>> {
-        val listKey = listKey(key)
-        return redis.list(String::class.java).lrange(listKey, 0, -1)
-            .map { jsonList -> jsonList.map { objectMapper.readValue(it, Bericht::class.java) } }
-            .onFailure().invoke { e -> log.errorf(e, "Redis getAll mislukt voor key=%s", key) }
+    override fun search(ontvanger: String?, q: String, page: Int, pageSize: Int): Uni<BerichtenPage> {
+        val ontvangerFilter = ontvanger?.let { "@ontvanger:{${escapeTag(it)}}" } ?: ""
+        val escapedQ = escapeRedisSearch(q)
+        val query = "$ontvangerFilter (@onderwerp|afzender:$escapedQ)".trim()
+
+        val offset = page * pageSize
+        val queryArgs = QueryArgs()
+            .limit(offset, pageSize)
+            .sortByDescending("tijdstip")
+
+        return redis.search().ftSearch(BerichtenCache.SEARCH_INDEX, query, queryArgs)
+            .map { response ->
+                val berichten = response.documents().map { doc -> documentToBericht(doc) }
+                val total = response.count().toLong()
+                val totalPages = if (total == 0L) 0 else ((total + pageSize - 1) / pageSize).toInt()
+                BerichtenPage(berichten, page, pageSize, total, totalPages)
+            }
+            .onFailure().invoke { e -> log.errorf(e, "RediSearch query mislukt voor q=%s, ontvanger=%s", q, ontvanger) }
     }
 
     override fun getById(berichtId: UUID): Uni<Bericht?> {
         val berichtKey = BerichtenCache.berichtKey(berichtId)
-        return redis.value(String::class.java).get(berichtKey)
-            .map { json -> json?.let { objectMapper.readValue(it, Bericht::class.java) } }
+        return redis.hash(String::class.java).hgetall(berichtKey)
+            .map { fields -> if (fields.isEmpty()) null else hashToBericht(fields) }
             .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor berichtId=%s", berichtId) }
     }
+
+    private fun berichtToHash(bericht: Bericht): Map<String, String> = mapOf(
+        "berichtId" to bericht.berichtId.toString(),
+        "afzender" to bericht.afzender,
+        "ontvanger" to bericht.ontvanger,
+        "onderwerp" to bericht.onderwerp,
+        "tijdstip" to bericht.tijdstip.toString(),
+        "magazijnId" to bericht.magazijnId,
+    )
+
+    private fun hashToBericht(fields: Map<String, String>): Bericht = Bericht(
+        berichtId = UUID.fromString(fields["berichtId"]),
+        afzender = fields["afzender"]!!,
+        ontvanger = fields["ontvanger"]!!,
+        onderwerp = fields["onderwerp"]!!,
+        tijdstip = Instant.parse(fields["tijdstip"]),
+        magazijnId = fields["magazijnId"]!!,
+    )
+
+    private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht = Bericht(
+        berichtId = UUID.fromString(doc.property("berichtId").asString()),
+        afzender = doc.property("afzender").asString(),
+        ontvanger = doc.property("ontvanger").asString(),
+        onderwerp = doc.property("onderwerp").asString(),
+        tijdstip = Instant.parse(doc.property("tijdstip").asString()),
+        magazijnId = doc.property("magazijnId").asString(),
+    )
 
     companion object {
         private val TTL = Duration.ofSeconds(60)
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"
         private fun lockKey(key: String) = "$key:lock"
+
+        // Escape speciale tekens voor RediSearch full-text queries
+        private val SEARCH_SPECIAL = Regex("""[,.<>{}\[\]"':;!@#$%^&*()\-+=~\\/ ]""")
+        private fun escapeRedisSearch(text: String): String =
+            text.replace(SEARCH_SPECIAL) { "\\${it.value}" }
+
+        // Escape speciale tekens voor RediSearch TAG filter-waarden
+        private val TAG_SPECIAL = Regex("""[,.<>{}\[\]"':;!@#$%^&*()\-+=~\\/ ]""")
+        private fun escapeTag(value: String): String =
+            value.replace(TAG_SPECIAL) { "\\${it.value}" }
     }
 }
 
