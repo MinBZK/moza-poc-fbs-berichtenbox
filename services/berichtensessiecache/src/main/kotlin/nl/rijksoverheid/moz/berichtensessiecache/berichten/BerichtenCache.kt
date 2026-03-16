@@ -35,24 +35,30 @@ class RedisBerichtenCache(
         if (berichten.isEmpty()) {
             return redis.key().del(listKey).replaceWithVoid()
         }
-        val listCommands = redis.list(String::class.java)
-        val keyCommands = redis.key()
-        val valueCommands = redis.value(String::class.java)
 
         val sorted = berichten.sortedByDescending { it.tijdstip }
         val jsonValues = sorted.map { objectMapper.writeValueAsString(it) }
 
-        return keyCommands.del(listKey)
-            .chain { _ -> listCommands.rpush(listKey, *jsonValues.toTypedArray()) }
-            .chain { _ -> keyCommands.expire(listKey, TTL) }
-            .chain { _ ->
-                // Sla elk bericht ook individueel op voor lookup by ID
-                val stores = sorted.zip(jsonValues).map { (bericht, json) ->
-                    val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
-                    valueCommands.setex(berichtKey, TTL.seconds, json).replaceWithVoid()
+        // Gebruik een Redis transaction (MULTI/EXEC) zodat alle commands in één round-trip gaan
+        // i.p.v. N+3 losse round-trips (DEL + RPUSH + EXPIRE + N × SETEX)
+        return redis.withTransaction { tx ->
+            val txList = tx.list(String::class.java)
+            val txKey = tx.key()
+            val txValue = tx.value(String::class.java)
+
+            txKey.del(listKey)
+                .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
+                .chain { _ -> txKey.expire(listKey, TTL) }
+                .chain { _ ->
+                    // Sla elk bericht ook individueel op voor lookup by ID
+                    val stores = sorted.zip(jsonValues).map { (bericht, json) ->
+                        val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
+                        txValue.setex(berichtKey, TTL.seconds, json).replaceWithVoid()
+                    }
+                    Uni.join().all(stores).andFailFast().replaceWithVoid()
                 }
-                Uni.join().all(stores).andFailFast().replaceWithVoid()
-            }
+        }
+            .replaceWithVoid()
             .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache key=%s", berichten.size, key) }
             .onFailure().invoke { e -> log.errorf(e, "Redis store mislukt voor key=%s", key) }
     }
