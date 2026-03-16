@@ -75,11 +75,10 @@ paths:
       operationId: getBerichtById
       summary: Enkel berichtrecord ophalen
       description: |
-        Haalt een enkel berichtrecord op aan de hand van het unieke bericht-ID.
-        Als het bericht in de cache zit (na een eerdere ophaalactie) wordt het
-        direct geretourneerd. Anders worden alle aangesloten magazijnen bevraagd.
-        Retourneert 404 als het bericht niet gevonden is, of 502 als geen enkel
-        magazijn bereikbaar is en het bericht niet in de cache zit.
+        Haalt een enkel berichtrecord op aan de hand van het unieke bericht-ID
+        uit de cache. Berichten zijn beschikbaar na een eerdere ophaalactie via
+        `GET /berichten/_ophalen`. Retourneert 404 als het bericht niet in de
+        cache zit.
       tags:
         - berichten
       parameters:
@@ -106,12 +105,6 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-        '502':
-          description: Geen enkel magazijn bereikbaar
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/InternalServerError'
 

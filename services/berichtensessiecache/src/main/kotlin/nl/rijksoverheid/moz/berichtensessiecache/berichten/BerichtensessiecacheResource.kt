@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
 import io.opentelemetry.api.trace.StatusCode
-import io.smallrye.common.annotation.Blocking
 import jakarta.inject.Inject
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.WebApplicationException
@@ -84,8 +83,6 @@ class BerichtensessiecacheResource(
         return toBerichtensessiecacheResponse(result, aggregation, ontvanger)
     }
 
-    // @Blocking vereist: de service bevraagt magazijnen synchroon via REST clients (zie BerichtensessiecacheService.getBerichtById)
-    @Blocking
     @Logboek(
         name = "ophalen-bericht-bij-id",
         processingActivityId = "https://register.example.com/verwerkingen/bericht-ophalen",
@@ -94,18 +91,14 @@ class BerichtensessiecacheResource(
         logboekContext.dataSubjectId = berichtId.toString()
         logboekContext.dataSubjectType = "berichtId"
 
-        return when (val result = berichtensessiecacheService.getBerichtById(berichtId)) {
-            is BerichtLookupResult.Found -> {
-                logboekContext.status = StatusCode.OK
-                toBerichtResponse(result.bericht)
-            }
-            is BerichtLookupResult.NotFound -> throw WebApplicationException(
-                "Bericht $berichtId niet gevonden", Response.Status.NOT_FOUND,
-            )
-            is BerichtLookupResult.AllMagazijnenFailed -> throw WebApplicationException(
-                "Geen magazijn bereikbaar voor bericht $berichtId. Probeer het later opnieuw.", 502,
-            )
-        }
+        val bericht = awaitOrServiceUnavailable {
+            berichtensessiecacheService.getBerichtById(berichtId)
+        } ?: throw WebApplicationException(
+            "Bericht $berichtId niet gevonden", Response.Status.NOT_FOUND,
+        )
+
+        logboekContext.status = StatusCode.OK
+        return toBerichtResponse(bericht)
     }
 
     @Logboek(
