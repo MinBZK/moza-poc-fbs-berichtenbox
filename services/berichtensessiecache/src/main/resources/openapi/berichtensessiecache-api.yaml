@@ -186,6 +186,12 @@ paths:
         - `ophalen-gereed` — Afsluitend event met totaalresultaat
 
         Na afloop zijn de opgehaalde berichten beschikbaar via `GET /berichten`.
+
+        > **Implementatie-opmerking:** Dit endpoint wordt bewust niet via de OpenAPI generator
+        > gegenereerd (zie `apisToGenerate` in pom.xml). De `jaxrs-spec` generator kan geen
+        > SSE-endpoints genereren omdat het return-type `Multi<T>` (Mutiny reactive stream)
+        > niet uitgedrukt kan worden in een standaard JAX-RS interface-signatuur. De
+        > implementatie staat handmatig in `BerichtenOphalenResource.kt`.
       tags:
         - ophalen
       parameters:

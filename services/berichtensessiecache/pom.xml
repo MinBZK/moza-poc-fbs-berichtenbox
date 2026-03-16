@@ -112,6 +112,9 @@
                             <typeMappings>
                                 <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
                             </typeMappings>
+                            <!-- Alleen tag "berichten" genereren. Tag "ophalen" (SSE-endpoint) wordt
+                                 bewust uitgesloten: de jaxrs-spec generator kan geen Multi<T> (SSE)
+                                 return-types genereren. Zie BerichtenOphalenResource.kt. -->
                             <apisToGenerate>Berichten</apisToGenerate>
                             <generateSupportingFiles>false</generateSupportingFiles>
                             <generateApiTests>false</generateApiTests>
