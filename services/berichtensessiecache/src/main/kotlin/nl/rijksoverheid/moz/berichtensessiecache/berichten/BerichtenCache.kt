@@ -101,30 +101,30 @@ class RedisBerichtenCache(
         val start = page.toLong() * pageSize
         val stop = start + pageSize - 1
 
-        return redis.key().exists(listKey).chain { exists ->
-            if (!exists) {
-                Uni.createFrom().nullItem()
-            } else {
-                Uni.combine().all()
-                    .unis(
-                        redis.list(String::class.java).lrange(listKey, start, stop),
-                        redis.list(String::class.java).llen(listKey),
-                    ).asTuple()
-                    .map { tuple ->
-                        val jsonList = tuple.item1
-                        val total = tuple.item2
-                        val berichten = jsonList.map { objectMapper.readValue(it, Bericht::class.java) }
-                        val totalPages = if (total == 0L) 0 else ((total + pageSize - 1) / pageSize).toInt()
-                        BerichtenPage(
-                            berichten = berichten,
-                            page = page,
-                            pageSize = pageSize,
-                            totalElements = total,
-                            totalPages = totalPages,
-                        )
-                    }
+        // LRANGE op een niet-bestaande key retourneert een lege lijst, LLEN retourneert 0.
+        // Daarom is een aparte EXISTS check overbodig (bespaart één Redis round-trip).
+        return Uni.combine().all()
+            .unis(
+                redis.list(String::class.java).lrange(listKey, start, stop),
+                redis.list(String::class.java).llen(listKey),
+            ).asTuple()
+            .map { tuple ->
+                val jsonList = tuple.item1
+                val total = tuple.item2
+                if (total == 0L && jsonList.isEmpty()) {
+                    null
+                } else {
+                    val berichten = jsonList.map { objectMapper.readValue(it, Bericht::class.java) }
+                    val totalPages = ((total + pageSize - 1) / pageSize).toInt()
+                    BerichtenPage(
+                        berichten = berichten,
+                        page = page,
+                        pageSize = pageSize,
+                        totalElements = total,
+                        totalPages = totalPages,
+                    )
+                }
             }
-        }
         .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
