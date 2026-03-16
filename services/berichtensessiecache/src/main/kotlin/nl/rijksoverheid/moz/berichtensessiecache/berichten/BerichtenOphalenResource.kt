@@ -131,9 +131,10 @@ class BerichtenOphalenResource(
 
         val allMagazijnEvents = Multi.createBy().merging().streams(magazijnStreams)
 
-        return Multi.createBy().concatenating().streams(
+        // Aggregatie-pipeline: draait onafhankelijk van de SSE-client door tot voltooiing
+        val aggregation = Multi.createBy().concatenating().streams(
             allMagazijnEvents,
-            Uni.createFrom().item { Unit }
+            Uni.createFrom().voidItem()
                 .chain { _ ->
                     val berichten = alleBerichten.toList()
                     berichtenCache.store(cacheKey, berichten)
@@ -174,5 +175,18 @@ class BerichtenOphalenResource(
                 }
                 .toMulti()
         )
+
+        // SSE-stream is een observer: stuurt events door zolang de client verbonden is.
+        // Client disconnect stopt alleen de emitter, de aggregatie loopt onafhankelijk door.
+        return Multi.createFrom().emitter { emitter ->
+            aggregation.subscribe().with(
+                { event -> if (!emitter.isCancelled) emitter.emit(event) },
+                { error ->
+                    log.errorf(error, "Onverwachte fout in aggregatie-pipeline voor key=%s", cacheKey)
+                    if (!emitter.isCancelled) emitter.fail(error)
+                },
+                { if (!emitter.isCancelled) emitter.complete() },
+            )
+        }
     }
 }
