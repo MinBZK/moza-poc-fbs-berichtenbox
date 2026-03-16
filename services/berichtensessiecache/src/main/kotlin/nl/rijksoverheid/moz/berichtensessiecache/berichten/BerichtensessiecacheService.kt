@@ -35,9 +35,13 @@ class BerichtensessiecacheService(
     fun getBerichtById(berichtId: UUID): BerichtLookupResult {
         log.debugf("Ophalen bericht: %s", berichtId)
 
-        // Probeer eerst uit de cache
-        val cached = berichtenCache.getById(berichtId)
-            .await().atMost(CACHE_TIMEOUT)
+        // Probeer eerst uit de cache — bij fouten fallback naar magazijnen
+        val cached = try {
+            berichtenCache.getById(berichtId).await().atMost(CACHE_TIMEOUT)
+        } catch (e: Exception) {
+            log.warnf(e, "Cache-lookup mislukt voor %s, fallback naar magazijnen", berichtId)
+            null
+        }
         if (cached != null) {
             log.debugf("Bericht %s gevonden in cache", berichtId)
             return BerichtLookupResult.Found(cached)
