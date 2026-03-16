@@ -83,8 +83,6 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                     if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
                     MagazijnBerichtenResponse(
                         berichten = berichten,
-                        totalElements = berichten.size.toLong(),
-                        totalPages = 1,
                     )
                 }
                 "getBerichtById" -> {
@@ -98,8 +96,6 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                     val results = berichten.filter { it.onderwerp.contains(q, ignoreCase = true) }
                     MagazijnBerichtenResponse(
                         berichten = results,
-                        totalElements = results.size.toLong(),
-                        totalPages = 1,
                     )
                 }
                 else -> throw UnsupportedOperationException("Unexpected method: ${method.name}")
