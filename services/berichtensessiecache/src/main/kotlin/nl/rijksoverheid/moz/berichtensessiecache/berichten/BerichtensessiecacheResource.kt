@@ -161,7 +161,12 @@ class BerichtensessiecacheResource(
         try {
             return block().await().atMost(TIMEOUT)
         } catch (e: java.util.concurrent.TimeoutException) {
-            throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw.", 503)
+            throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
+        } catch (e: WebApplicationException) {
+            throw e
+        } catch (e: Exception) {
+            log.errorf(e, "Cache-operatie mislukt")
+            throw WebApplicationException("Cache niet bereikbaar.", 503)
         }
     }
 
