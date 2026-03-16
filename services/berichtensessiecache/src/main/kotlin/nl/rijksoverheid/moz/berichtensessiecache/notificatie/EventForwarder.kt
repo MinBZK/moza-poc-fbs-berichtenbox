@@ -18,7 +18,7 @@ import java.util.UUID
  */
 @ApplicationScoped
 class EventForwarder(
-    @ConfigProperty(name = "notificatie.service.url") private val notificatieServiceUrl: String,
+    @param:ConfigProperty(name = "notificatie.service.url") private val notificatieServiceUrl: String,
     private val objectMapper: ObjectMapper,
 ) {
     private val log = Logger.getLogger(EventForwarder::class.java)
@@ -26,11 +26,11 @@ class EventForwarder(
         .connectTimeout(Duration.ofSeconds(5))
         .build()
 
-    fun forwardBerichtOntvangen(bericht: Bericht) {
+    fun forwardBerichtOntvangen(bericht: Bericht): Boolean {
         val cloudEvent = buildCloudEvent(bericht)
         val url = "$notificatieServiceUrl/api/v1/notifications"
 
-        try {
+        return try {
             val request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/cloudevents+json")
@@ -42,12 +42,18 @@ class EventForwarder(
 
             if (response.statusCode() in 200..299) {
                 log.infof("CloudEvent verzonden voor bericht %s (status=%d)", bericht.berichtId, response.statusCode())
+                true
             } else {
                 log.errorf("CloudEvent verzenden mislukt voor bericht %s (status=%d, body=%s)",
                     bericht.berichtId, response.statusCode(), response.body())
+                false
             }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw e
         } catch (e: Exception) {
             log.errorf(e, "CloudEvent verzenden mislukt voor bericht %s naar %s", bericht.berichtId, url)
+            false
         }
     }
 
