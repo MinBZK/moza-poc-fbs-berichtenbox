@@ -149,22 +149,25 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
-    fun `GET bericht by ongeldig ID retourneert 404`() {
+    fun `GET bericht by id zonder ontvanger retourneert 400`() {
         given()
-            .`when`().get("/api/v1/berichten/niet-een-uuid")
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
-            .statusCode(404)
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
     }
 
     @Test
-    fun `GET bericht by onbekend ID retourneert 404 als problem json`() {
+    fun `GET bericht by id retourneert 409 als ophalen niet is aangeroepen`() {
         given()
+            .queryParam("ontvanger", "onbekend-byid-${System.nanoTime()}")
             .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
             .then()
-            .statusCode(404)
+            .statusCode(409)
             .contentType("application/problem+json")
-            .body("status", `is`(404))
-            .body("title", `is`("Not Found"))
+            .body("status", `is`(409))
+            .body("detail", containsString("nog niet opgehaald"))
     }
 
     @Test
@@ -190,14 +193,17 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert bericht uit cache met correcte velden`() {
+        val ontvanger = "byid-test-${System.nanoTime()}"
+
         // Eerst ophalen zodat berichten in cache komen
         given()
-            .queryParam("ontvanger", "byid-test-${System.nanoTime()}")
+            .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
+            .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
             .statusCode(200)
@@ -286,7 +292,17 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert 404 als bericht niet in cache zit`() {
+        val ontvanger = "byid-404-${System.nanoTime()}"
+
+        // Ophalen zodat aggregation status GEREED is
         given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
             .then()
             .statusCode(404)

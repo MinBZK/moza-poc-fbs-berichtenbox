@@ -87,9 +87,34 @@ class BerichtensessiecacheResource(
         name = "ophalen-bericht-bij-id",
         processingActivityId = "https://register.example.com/verwerkingen/bericht-ophalen",
     )
-    override fun getBerichtById(berichtId: UUID): BerichtResponse {
-        logboekContext.dataSubjectId = berichtId.toString()
-        logboekContext.dataSubjectType = "berichtId"
+    override fun getBerichtById(berichtId: UUID, ontvanger: String?): BerichtResponse {
+        ontvanger?.let {
+            logboekContext.dataSubjectId = it
+            logboekContext.dataSubjectType = "ontvanger"
+        }
+
+        val aggregation = awaitOrServiceUnavailable {
+            berichtensessiecacheService.getAggregationStatus(ontvanger)
+        }
+
+        if (aggregation == null) {
+            throw WebApplicationException(
+                "Berichten zijn nog niet opgehaald. Roep eerst GET /api/v1/berichten/_ophalen aan.",
+                Response.Status.CONFLICT,
+            )
+        }
+        if (aggregation.status == OphalenStatus.BEZIG) {
+            throw WebApplicationException(
+                "Berichten worden momenteel opgehaald. Wacht tot het ophalen is afgerond.",
+                Response.Status.CONFLICT,
+            )
+        }
+        if (aggregation.status == OphalenStatus.FOUT) {
+            throw WebApplicationException(
+                "Het ophalen van berichten is mislukt. Roep GET /api/v1/berichten/_ophalen opnieuw aan.",
+                Response.Status.INTERNAL_SERVER_ERROR,
+            )
+        }
 
         val bericht = awaitOrServiceUnavailable {
             berichtensessiecacheService.getBerichtById(berichtId)
