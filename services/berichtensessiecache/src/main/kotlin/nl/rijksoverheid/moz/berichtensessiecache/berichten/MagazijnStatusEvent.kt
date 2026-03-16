@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonValue
 enum class EventType(@get:JsonValue val value: String) {
     MAGAZIJN_STATUS("magazijn-status"),
     OPHALEN_GEREED("ophalen-gereed"),
+    OPHALEN_FOUT("ophalen-fout"),
 }
 
 enum class MagazijnStatus(@get:JsonValue val value: String) {
@@ -37,6 +38,10 @@ data class MagazijnStatusEvent(
             EventType.OPHALEN_GEREED -> {
                 requireNotNull(totaalBerichten) { "OPHALEN_GEREED vereist totaalBerichten" }
                 requireNotNull(totaalMagazijnen) { "OPHALEN_GEREED vereist totaalMagazijnen" }
+            }
+            EventType.OPHALEN_FOUT -> {
+                requireNotNull(foutmelding) { "OPHALEN_FOUT vereist foutmelding" }
+                requireNotNull(totaalMagazijnen) { "OPHALEN_FOUT vereist totaalMagazijnen" }
             }
         }
     }

@@ -64,6 +64,43 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
+    fun `GET berichten retourneert 500 als ophalen is mislukt`() {
+        val ontvanger = "fout-test-${System.nanoTime()}"
+        val key = BerichtenCache.cacheKey(ontvanger)
+
+        berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 2, mislukt = 2))
+            .await().indefinitely()
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(500)
+            .contentType("application/problem+json")
+            .body("status", `is`(500))
+            .body("detail", containsString("mislukt"))
+    }
+
+    @Test
+    fun `GET zoeken retourneert 500 als ophalen is mislukt`() {
+        val ontvanger = "fout-zoek-${System.nanoTime()}"
+        val key = BerichtenCache.cacheKey(ontvanger)
+
+        berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 2, mislukt = 2))
+            .await().indefinitely()
+
+        given()
+            .queryParam("q", "test")
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_zoeken")
+            .then()
+            .statusCode(500)
+            .contentType("application/problem+json")
+            .body("status", `is`(500))
+            .body("detail", containsString("mislukt"))
+    }
+
+    @Test
     fun `GET berichten retourneert gepagineerde resultaten na ophalen`() {
         given()
             .queryParam("ontvanger", "test-paginering")

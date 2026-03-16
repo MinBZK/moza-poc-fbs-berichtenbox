@@ -184,6 +184,7 @@ paths:
         **Event types:**
         - `magazijn-status` — Status per magazijn (BEZIG → OK / FOUT / TIMEOUT)
         - `ophalen-gereed` — Afsluitend event met totaalresultaat
+        - `ophalen-fout` — Afsluitend event bij interne fout (bijv. cache-opslag mislukt)
 
         Na afloop zijn de opgehaalde berichten beschikbaar via `GET /berichten`.
 
@@ -342,7 +343,7 @@ components:
       properties:
         status:
           type: string
-          enum: [BEZIG, GEREED]
+          enum: [BEZIG, GEREED, FOUT]
           description: Status van het ophaalproces
         totaalMagazijnen:
           type: integer

@@ -67,6 +67,12 @@ class BerichtensessiecacheResource(
                 Response.Status.CONFLICT,
             )
         }
+        if (aggregation.status == OphalenStatus.FOUT) {
+            throw WebApplicationException(
+                "Het ophalen van berichten is mislukt. Roep GET /api/v1/berichten/_ophalen opnieuw aan.",
+                Response.Status.INTERNAL_SERVER_ERROR,
+            )
+        }
 
         // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
@@ -132,6 +138,12 @@ class BerichtensessiecacheResource(
             throw WebApplicationException(
                 "Berichten worden momenteel opgehaald. Wacht tot het ophalen is afgerond.",
                 Response.Status.CONFLICT,
+            )
+        }
+        if (aggregation.status == OphalenStatus.FOUT) {
+            throw WebApplicationException(
+                "Het ophalen van berichten is mislukt. Roep GET /api/v1/berichten/_ophalen opnieuw aan.",
+                Response.Status.INTERNAL_SERVER_ERROR,
             )
         }
 

@@ -167,4 +167,5 @@ data class AggregationStatus(
 enum class OphalenStatus {
     BEZIG,
     GEREED,
+    FOUT,
 }

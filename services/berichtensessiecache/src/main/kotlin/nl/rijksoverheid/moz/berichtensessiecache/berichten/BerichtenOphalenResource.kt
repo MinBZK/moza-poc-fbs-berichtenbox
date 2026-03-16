@@ -170,16 +170,27 @@ class BerichtenOphalenResource(
                             )
                         }
                 }
-                .onFailure(Exception::class.java).recoverWithItem { error ->
+                .onFailure(Exception::class.java).recoverWithUni { error ->
                     log.errorf(error, "Fout bij opslaan in cache na aggregatie")
-                    MagazijnStatusEvent(
-                        event = EventType.OPHALEN_GEREED,
-                        totaalBerichten = alleBerichten.size,
+                    // Best-effort: status naar FOUT zodat de lock wordt gereleased
+                    val foutStatus = AggregationStatus(
+                        status = OphalenStatus.FOUT,
+                        totaalMagazijnen = clients.size,
                         geslaagd = geslaagd.get(),
                         mislukt = mislukt.get(),
-                        totaalMagazijnen = clients.size,
-                        foutmelding = "Interne fout bij opslaan van resultaten",
                     )
+                    berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
+                        .onFailure().invoke { e -> log.errorf(e, "Best-effort FOUT status opslaan ook mislukt") }
+                        .onFailure().recoverWithNull()
+                        .replaceWith(
+                            MagazijnStatusEvent(
+                                event = EventType.OPHALEN_FOUT,
+                                geslaagd = geslaagd.get(),
+                                mislukt = mislukt.get(),
+                                totaalMagazijnen = clients.size,
+                                foutmelding = "Interne fout bij opslaan van resultaten",
+                            )
+                        )
                 }
                 .toMulti()
         )
