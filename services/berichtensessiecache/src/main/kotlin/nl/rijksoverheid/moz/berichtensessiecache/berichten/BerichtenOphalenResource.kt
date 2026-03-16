@@ -92,7 +92,15 @@ class BerichtenOphalenResource(
                     MagazijnResult.Success(magazijnId, naam, response.berichten)
                 }
                 .onFailure(Exception::class.java).recoverWithItem { error ->
-                    log.errorf(error, "Magazijn %s (%s) ophalen mislukt", magazijnId, naam)
+                    when (error) {
+                        is jakarta.ws.rs.ProcessingException,
+                        is WebApplicationException,
+                        is io.smallrye.mutiny.TimeoutException,
+                        is java.net.ConnectException ->
+                            log.warnf(error, "Magazijn %s (%s) niet bereikbaar", magazijnId, naam)
+                        else ->
+                            log.errorf(error, "Onverwachte fout bij magazijn %s (%s)", magazijnId, naam)
+                    }
                     MagazijnResult.Failure(magazijnId, naam, error)
                 }
 
