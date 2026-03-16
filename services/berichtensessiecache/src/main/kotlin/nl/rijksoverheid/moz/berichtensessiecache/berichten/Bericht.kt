@@ -10,4 +10,11 @@ data class Bericht(
     val onderwerp: String,
     val tijdstip: Instant,
     val magazijnId: String,
-)
+) {
+    init {
+        require(afzender.isNotBlank()) { "afzender mag niet leeg zijn" }
+        require(ontvanger.isNotBlank()) { "ontvanger mag niet leeg zijn" }
+        require(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }
+        require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
+    }
+}
