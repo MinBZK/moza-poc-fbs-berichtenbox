@@ -13,7 +13,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
         // Personen
         burger = person "Burger" "Ontvangt berichten en notificaties van overheidsorganisaties"
-        ondernemer = person "Ondernemer" "Ontvangt berichten en notificaties van overheidsorganisaties"
+        ondernemer = person "Ondernemer / Zakelijke gebruiker" "Ontvangt berichten en notificaties van overheidsorganisaties"
         medewerkerA = person "Medewerker A" "Verstuurt berichten namens Organisatie A"
         medewerkerB = person "Medewerker B" "Verstuurt berichten namens Organisatie B"
         beheerder = person "Beheerder" "Monitort en beheert het berichtenstelsel"
@@ -34,7 +34,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         group "Federatief Berichtenstelsel (FBS)" {
 
             // Decentraal Berichtenmagazijn - functioneel identiek, kan zelf gehost of bij BBO afgenomen worden
-            decentraalMagazijn = softwareSystem "Decentraal Berichtenmagazijn (1..*)" "Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO" "Magazijn" {
+            decentraalMagazijn = softwareSystem "Decentraal Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO" "Magazijn" {
                 dmApp = container "Berichtenmagazijn API" "REST API voor berichten opslaan en ophalen" "Quarkus / Kotlin" "Service" {
                     dmApi = component "Berichtenmagazijn REST API" "REST endpoints voor berichten en bijlagen" "JAX-RS Resource"
                     dmCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (PostgreSQL, MinIO of Kafka onbeschikbaar)" "MicroProfile Fault Tolerance"
@@ -82,7 +82,8 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
             group "Centraal gehoste services" {
 
-                bboApi = softwareSystem "BBO API" "Centrale API voor burgers en ondernemers - routeert naar berichtensessiecache en magazijnen" "FBS Dienst"
+                berichtenboxApi = softwareSystem "Berichtenbox API" "API voor burgers en ondernemers - berichtenbox inzien, berichten beheren, zoeken, doorsturen" "FBS Dienst"
+                aanleverApi = softwareSystem "Aanlever API" "API voor berichtleveranciers - berichten aanleveren aan het stelsel" "FBS Dienst"
 
                 berichtensessiecache = softwareSystem "Berichtensessiecache" "Aggregeert berichtrecords uit alle aangesloten magazijnen" "FBS Dienst" {
                     blLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
@@ -126,15 +127,17 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         ondernemer -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, stuurt door, verwijdert" "HTTPS (browser/app)"
         emailService -> burger "Bezorgt doorgestuurde berichten" "E-mail"
         emailService -> ondernemer "Bezorgt doorgestuurde berichten" "E-mail"
+        notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
+        notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
         // Interactielaag -> achterliggende diensten
-        interactielaag -> bboApi "Berichten, mappen, zoeken" "REST API"
-        interactielaag -> digitaleBereikbaarheid "Bereikbaarheidsvoorkeuren beheren" "REST API"
+        interactielaag -> berichtenboxApi "Berichten, mappen, zoeken, abonnementen" "REST API"
 
-        // BBO API -> achterliggende diensten
-        bboApi -> blApp "Berichtensessiecache, mappen, zoeken" "REST API"
-        bboApi -> dmApp "Berichten en bijlagen ophalen, verwijderen" "REST API"
-        bboApi -> emailService "Stuurt berichten door" "SMTP / REST API"
+        // Berichtenbox API -> achterliggende diensten
+        berichtenboxApi -> blApp "Berichtensessiecache, mappen, zoeken" "REST API"
+        berichtenboxApi -> dmApp "Berichten en bijlagen ophalen, verwijderen" "REST API"
+        berichtenboxApi -> emailService "Doorstuuropdracht van burger/ondernemer naar derde partij" "SMTP / REST API"
+        berichtenboxApi -> digitaleBereikbaarheid "Abonnementen bekijken en wijzigen" "REST API"
 
         // Beheerder
         beheerder -> adViews "Beheert systeem via" "HTTPS (browser)"
@@ -145,11 +148,13 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         // Notificatie Service (extern) haalt contactgegevens op
         notificatieService -> profielService "Haalt contactgegevens en voorkeuren op" "REST API"
 
-        // Decentrale magazijnen melden berichten aan via BBO API
-        dmApp -> bboApi "Meldt berichten aan" "REST API"
+        // Organisaties leveren berichten aan via Aanlever API
+        orgA -> aanleverApi "Levert berichten aan" "Digikoppeling REST API via FSC"
+        orgB -> aanleverApi "Levert berichten aan" "Digikoppeling REST API via FSC"
 
-        // BBO API publiceert events op Kafka
-        bboApi -> kafka "Publiceert bericht-events" "Kafka Producer" "Async"
+        // Aanlever API -> achterliggende diensten
+        aanleverApi -> dmApp "Slaat berichten op in magazijn" "REST API"
+        aanleverApi -> kafka "Publiceert bericht-events" "Kafka Producer" "Async"
 
         // Autorisatie (component-niveau)
         dmAutorisatie -> authzen "Evalueert access request" "AuthZEN REST API"
