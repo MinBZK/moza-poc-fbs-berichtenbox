@@ -26,7 +26,7 @@ for fuzzer in $(grep -rl "fuzzerTestOneInput" $MODULE/src/test/kotlin/ || true);
 
     cat > "$OUT/$simple_name" << 'WRAPPER_EOF'
 #!/bin/bash
-# Jazzer fuzzer driver for jvm
+# LLVMFuzzerTestOneInput for jvm
 this_dir=$(dirname "$0")
 
 if [[ "$@" =~ (^| )-runs=[0-9]+($| ) ]]; then
