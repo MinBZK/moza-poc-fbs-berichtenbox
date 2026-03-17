@@ -19,11 +19,11 @@ interface BerichtenCache {
     fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean>
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?>
-    fun search(ontvanger: String?, q: String, page: Int, pageSize: Int): Uni<BerichtenPage>
+    fun search(ontvanger: String, q: String, page: Int, pageSize: Int): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
 
     companion object {
-        fun cacheKey(ontvanger: String?) = "berichtensessiecache:v1:${ontvanger ?: "all"}"
+        fun cacheKey(ontvanger: String) = "berichtensessiecache:v1:$ontvanger"
         fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
         const val BERICHT_PREFIX = "bericht:v1:"
         const val SEARCH_INDEX = "berichten-idx"
@@ -158,8 +158,8 @@ class RedisBerichtenCache(
         .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
-    override fun search(ontvanger: String?, q: String, page: Int, pageSize: Int): Uni<BerichtenPage> {
-        val ontvangerFilter = ontvanger?.let { "@ontvanger:{${escapeTag(it)}}" } ?: ""
+    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int): Uni<BerichtenPage> {
+        val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger)}}"
         val escapedQ = escapeRedisSearch(q)
         val query = "$ontvangerFilter (@onderwerp|afzender:$escapedQ)".trim()
 
