@@ -20,7 +20,7 @@ interface BerichtenCache {
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?>
     fun search(ontvanger: String?, q: String, page: Int, pageSize: Int): Uni<BerichtenPage>
-    fun getById(berichtId: UUID): Uni<Bericht?>
+    fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
 
     companion object {
         fun cacheKey(ontvanger: String?) = "berichtensessiecache:v1:${ontvanger ?: "all"}"
@@ -178,10 +178,14 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "RediSearch query mislukt voor q=%s, ontvanger=%s", q, ontvanger) }
     }
 
-    override fun getById(berichtId: UUID): Uni<Bericht?> {
+    override fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?> {
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         return redis.hash(String::class.java).hgetall(berichtKey)
-            .map { fields -> if (fields.isEmpty()) null else hashToBericht(fields) }
+            .map { fields ->
+                if (fields.isEmpty()) return@map null
+                val bericht = hashToBericht(fields)
+                if (bericht.ontvanger != ontvanger) null else bericht
+            }
             .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor berichtId=%s", berichtId) }
     }
 

@@ -23,9 +23,9 @@ class BerichtensessiecacheService(
         return berichtenCache.getAggregationStatus(key)
     }
 
-    fun getBerichtById(berichtId: UUID): Uni<Bericht?> {
+    fun getBerichtById(berichtId: UUID, ontvanger: String): Uni<Bericht?> {
         log.debugf("Ophalen bericht uit cache: %s", berichtId)
-        return berichtenCache.getById(berichtId)
+        return berichtenCache.getById(berichtId, ontvanger)
     }
 
     fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: String?, afzender: String?): Uni<BerichtenPage> {

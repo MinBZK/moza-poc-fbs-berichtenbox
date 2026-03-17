@@ -22,7 +22,8 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
         problem.status = 400
         problem.title = "Bad Request"
         problem.detail = exception.constraintViolations.joinToString("; ") {
-            "${it.propertyPath}: ${it.message}"
+            val paramName = it.propertyPath.lastOrNull()?.name ?: it.propertyPath.toString()
+            "$paramName: ${it.message}"
         }
 
         return Response.status(400)

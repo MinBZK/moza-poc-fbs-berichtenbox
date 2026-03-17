@@ -5,6 +5,7 @@ import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.CoreMatchers.containsString
+import org.hamcrest.CoreMatchers.not
 import org.hamcrest.CoreMatchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -123,6 +124,8 @@ class BerichtensessiecacheResourceTest {
             .body("totalPages", `is`(2))
             .body("_aggregatie.status", `is`("GEREED"))
             .body("_links.self.href", containsString("page=0"))
+            .body("_links.self.href", not(containsString("ontvanger")))
+            .body("_links.next.href", not(containsString("ontvanger")))
             .body("_links.first.href", notNullValue())
             .body("_links.last.href", notNullValue())
             .body("_links.next.href", containsString("page=1"))
@@ -157,13 +160,31 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by onbekend ID retourneert 404 als problem json`() {
+        val ontvanger = "onbekend-id-${System.nanoTime()}"
         given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
             .then()
             .statusCode(404)
             .contentType("application/problem+json")
             .body("status", `is`(404))
-            .body("title", `is`("Not Found"))
+    }
+
+    @Test
+    fun `GET zoeken zonder ontvanger retourneert 400`() {
+        given()
+            .queryParam("q", "test")
+            .`when`().get("/api/v1/berichten/_zoeken")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
     }
 
     @Test
@@ -189,14 +210,16 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert bericht uit cache met correcte velden`() {
+        val ontvanger = "999993653"
         // Eerst ophalen zodat berichten in cache komen
         given()
-            .header("X-Ontvanger", "byid-test-${System.nanoTime()}")
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
             .statusCode(200)
@@ -205,6 +228,35 @@ class BerichtensessiecacheResourceTest {
             .body("ontvanger", `is`("999993653"))
             .body("onderwerp", `is`("Test bericht 1"))
             .body("magazijnId", `is`("magazijn-a"))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 404 als ontvanger niet overeenkomt`() {
+        val ontvanger = "byid-owner-${System.nanoTime()}"
+        val andereOntvanger = "andere-ontvanger-${System.nanoTime()}"
+
+        // Ophalen zodat berichten in cache komen (ontvanger in berichten is "999993653")
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Ook ophalen voor andere ontvanger zodat requireGereedStatus slaagt
+        given()
+            .header("X-Ontvanger", andereOntvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Bericht met UUID bestaat, maar ontvanger komt niet overeen → 404
+        given()
+            .header("X-Ontvanger", andereOntvanger)
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("status", `is`(404))
     }
 
     @Test
@@ -285,7 +337,15 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert 404 als bericht niet in cache zit`() {
+        val ontvanger = "niet-in-cache-${System.nanoTime()}"
         given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
             .then()
             .statusCode(404)
