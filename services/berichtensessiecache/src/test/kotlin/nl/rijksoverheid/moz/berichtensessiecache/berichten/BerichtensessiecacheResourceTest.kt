@@ -32,6 +32,8 @@ class BerichtensessiecacheResourceTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("status", `is`(400))
+            .body("detail", containsString("must not be null"))
+            .body("detail", not(containsString("getBerichten.")))
     }
 
     @Test
@@ -43,6 +45,7 @@ class BerichtensessiecacheResourceTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("status", `is`(400))
+            .body("detail", notNullValue())
     }
 
     @Test
@@ -169,6 +172,8 @@ class BerichtensessiecacheResourceTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("status", `is`(400))
+            .body("detail", containsString("must not be null"))
+            .body("detail", not(containsString("getBerichtById.")))
     }
 
     @Test
@@ -228,6 +233,8 @@ class BerichtensessiecacheResourceTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("status", `is`(400))
+            .body("detail", containsString("must not be null"))
+            .body("detail", not(containsString("zoekBerichten.")))
     }
 
     @Test

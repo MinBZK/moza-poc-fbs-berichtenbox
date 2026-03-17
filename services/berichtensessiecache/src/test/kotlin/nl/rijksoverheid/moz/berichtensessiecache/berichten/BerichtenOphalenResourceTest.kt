@@ -4,6 +4,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import org.hamcrest.CoreMatchers.`is`
+import org.hamcrest.CoreMatchers.containsString
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -31,6 +32,7 @@ class BerichtenOphalenResourceTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("status", `is`(400))
+            .body("detail", containsString("X-Ontvanger"))
     }
 
     @Test
@@ -42,6 +44,7 @@ class BerichtenOphalenResourceTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("status", `is`(400))
+            .body("detail", containsString("X-Ontvanger"))
     }
 
     @Test
