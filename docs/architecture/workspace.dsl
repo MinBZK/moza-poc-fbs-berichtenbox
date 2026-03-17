@@ -7,6 +7,10 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
     }
 
     model {
+        properties {
+            "structurizr.groupSeparator" "/"
+        }
+
         // Personen
         burger = person "Burger" "Ontvangt berichten en notificaties van overheidsorganisaties"
         ondernemer = person "Ondernemer" "Ontvangt berichten en notificaties van overheidsorganisaties"
@@ -26,82 +30,85 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een decentraal magazijn" "Deelnemer"
         orgB = softwareSystem "Organisatie B" "Deelnemende overheidsorganisatie - neemt een decentraal magazijn af bij BBO" "Deelnemer"
 
-        // Decentraal Berichtenmagazijn - functioneel identiek, kan zelf gehost of bij BBO afgenomen worden
-        decentraalMagazijn = softwareSystem "Decentraal Berichtenmagazijn" "Berichten opslaan en ophalen - kan door de organisatie zelf gehost of bij BBO afgenomen worden" "Magazijn" {
-            dmApp = container "Berichtenmagazijn API" "REST API voor berichten opslaan en ophalen" "Quarkus / Kotlin" "Service" {
-                dmApi = component "Berichtenmagazijn REST API" "REST endpoints voor berichten en bijlagen" "JAX-RS Resource"
-                dmCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (PostgreSQL, MinIO of Kafka onbeschikbaar)" "MicroProfile Fault Tolerance"
-                dmBerichtSvc = component "BerichtService" "Berichtlevenscyclus: aanmaken, ophalen, bijwerken, verwijderen" "CDI Bean"
-                dmValidatie = component "ValidatieService" "Valideert inkomende berichten en bijlagen op structuur, formaat en inhoud" "CDI Bean"
-                dmAutorisatie = component "AutorisatieService" "Verifieert autorisatie via AuthZEN/FTV (fail-closed)" "CDI Bean"
-                dmStorageSvc = component "ObjectStorageService" "Berichtinhoud en bijlagen opslaan/ophalen" "MinIO SDK"
-                dmRepository = component "BerichtRepository" "Persistentie van berichten en bijlagen" "Panache ORM"
-                dmLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
-                dmAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
-
-                dmApi -> dmCircuitBreaker "Schrijfoperaties via"
-                dmCircuitBreaker -> dmBerichtSvc "Delegeert naar (als circuit closed)"
-                dmApi -> dmAutorisatie "Verifieert autorisatie"
-                dmBerichtSvc -> dmValidatie "Valideert bericht"
-                dmBerichtSvc -> dmRepository "Leest/schrijft"
-                dmBerichtSvc -> dmStorageSvc "Slaat inhoud op"
-                dmBerichtSvc -> dmLdvLogger "Logt verwerkingen"
-                dmBerichtSvc -> dmAppLogger "Logt applicatie-events"
-                dmCircuitBreaker -> dmAppLogger "Logt circuit state changes"
-            }
-            dmLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
-            dmPg = container "PostgreSQL" "Berichtmetadata (transactioneel, 0 berichtverlies)" "PostgreSQL 16" "Database"
-            dmMinio = container "MinIO" "Berichtinhoud en bijlagen" "MinIO" "Database"
-
-            adApp = container "Admin Dashboard" "Web-based beheeromgeving voor het magazijn" "Quarkus / Vaadin" "Service" {
-                adViews = component "Vaadin Views" "Dashboard, Berichten, Systeemstatus en LDV Audit Log views" "Vaadin"
-                adDataService = component "DashboardDataService" "Haalt berichtdata op via interne services" "CDI Bean"
-                adHealthChecker = component "ServiceHealthChecker" "Controleert beschikbaarheid van magazijndiensten" "HTTP Client"
-                adLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
-                adAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
-
-                adViews -> adDataService "Toont data van"
-                adViews -> adHealthChecker "Toont status van"
-                adDataService -> adLdvLogger "Logt verwerkingen"
-                adDataService -> adAppLogger "Logt applicatie-events"
-            }
-
-            dmRepository -> dmPg "Leest/schrijft metadata" "JDBC"
-            dmStorageSvc -> dmMinio "Slaat inhoud en bijlagen op" "S3 REST API"
-            dmAppLogger -> dmLogBuffer "Buffert applicatie-logberichten lokaal bij uitval logserver" "Disk I/O"
-            adDataService -> dmApp "Beheert berichten" "REST API"
-            adHealthChecker -> dmApp "Controleert gezondheid" "HTTP"
-        }
-
         // Het Federatief Berichtenstelsel
-        group "Federatief Berichtenstelsel" {
+        group "Federatief Berichtenstelsel (FBS)" {
 
-            bboApi = softwareSystem "BBO API" "Centrale API voor burgers en ondernemers - routeert naar berichtensessiecache en magazijnen" "FBS Dienst"
+            // Decentraal Berichtenmagazijn - functioneel identiek, kan zelf gehost of bij BBO afgenomen worden
+            decentraalMagazijn = softwareSystem "Decentraal Berichtenmagazijn (1..*)" "Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO" "Magazijn" {
+                dmApp = container "Berichtenmagazijn API" "REST API voor berichten opslaan en ophalen" "Quarkus / Kotlin" "Service" {
+                    dmApi = component "Berichtenmagazijn REST API" "REST endpoints voor berichten en bijlagen" "JAX-RS Resource"
+                    dmCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (PostgreSQL, MinIO of Kafka onbeschikbaar)" "MicroProfile Fault Tolerance"
+                    dmBerichtSvc = component "BerichtService" "Berichtlevenscyclus: aanmaken, ophalen, bijwerken, verwijderen" "CDI Bean"
+                    dmValidatie = component "ValidatieService" "Valideert inkomende berichten en bijlagen op structuur, formaat en inhoud" "CDI Bean"
+                    dmAutorisatie = component "AutorisatieService" "Verifieert autorisatie via AuthZEN/FTV (fail-closed)" "CDI Bean"
+                    dmStorageSvc = component "ObjectStorageService" "Berichtinhoud en bijlagen opslaan/ophalen" "MinIO SDK"
+                    dmRepository = component "BerichtRepository" "Persistentie van berichten en bijlagen" "Panache ORM"
+                    dmLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
+                    dmAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
 
-            berichtensessiecache = softwareSystem "Berichtensessiecache" "Aggregeert berichtrecords uit alle aangesloten magazijnen" "FBS Dienst" {
-                blLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
-                blApp = container "Berichtensessiecache API" "REST API voor geaggregeerde berichtrecords" "Quarkus / Kotlin" "Service" {
-                    blResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                    blService = component "BerichtensessiecacheService" "Aggregeert en cachet berichtrecords" "CDI Bean"
-                    blCache = component "Cache" "In-memory cache voor berichtrecords (60s TTL)" "Caffeine"
-                    blMagazijnClient = component "MagazijnClient" "REST client naar decentrale berichtenmagazijnen" "REST Client"
-                    blLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
-                    blAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
-                    blEventForwarder = component "EventForwarder" "Stuurt bericht-events door naar Notificatie Service" "CloudEvents / REST Client"
-
-                    blResource -> blService "Gebruikt"
-                    blService -> blCache "Leest/schrijft cache"
-                    blService -> blMagazijnClient "Haalt berichtrecords op"
-                    blService -> blLdvLogger "Logt verwerkingen"
-                    blService -> blAppLogger "Logt applicatie-events"
-                    blService -> blEventForwarder "Stuurt bericht-events door"
+                    dmApi -> dmCircuitBreaker "Schrijfoperaties via"
+                    dmCircuitBreaker -> dmBerichtSvc "Delegeert naar (als circuit closed)"
+                    dmApi -> dmAutorisatie "Verifieert autorisatie"
+                    dmBerichtSvc -> dmValidatie "Valideert bericht"
+                    dmBerichtSvc -> dmRepository "Leest/schrijft"
+                    dmBerichtSvc -> dmStorageSvc "Slaat inhoud op"
+                    dmBerichtSvc -> dmLdvLogger "Logt verwerkingen"
+                    dmBerichtSvc -> dmAppLogger "Logt applicatie-events"
+                    dmCircuitBreaker -> dmAppLogger "Logt circuit state changes"
                 }
-                blAppLogger -> blLogBuffer "Buffert applicatie-logberichten lokaal bij uitval logserver" "Disk I/O"
+                dmLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
+                dmPg = container "PostgreSQL" "Berichtmetadata (transactioneel, 0 berichtverlies)" "PostgreSQL 16" "Database"
+                dmMinio = container "MinIO" "Berichtinhoud en bijlagen" "MinIO" "Database"
+
+                adApp = container "Admin Dashboard" "Web-based beheeromgeving voor het magazijn" "Quarkus / Vaadin" "Service" {
+                    adViews = component "Vaadin Views" "Dashboard, Berichten, Systeemstatus en LDV Audit Log views" "Vaadin"
+                    adDataService = component "DashboardDataService" "Haalt berichtdata op via interne services" "CDI Bean"
+                    adHealthChecker = component "ServiceHealthChecker" "Controleert beschikbaarheid van magazijndiensten" "HTTP Client"
+                    adLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
+                    adAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
+
+                    adViews -> adDataService "Toont data van"
+                    adViews -> adHealthChecker "Toont status van"
+                    adDataService -> adLdvLogger "Logt verwerkingen"
+                    adDataService -> adAppLogger "Logt applicatie-events"
+                }
+
+                dmRepository -> dmPg "Leest/schrijft metadata" "JDBC"
+                dmStorageSvc -> dmMinio "Slaat inhoud en bijlagen op" "S3 REST API"
+                dmAppLogger -> dmLogBuffer "Buffert applicatie-logberichten lokaal bij uitval logserver" "Disk I/O"
+                adDataService -> dmApp "Beheert berichten" "REST API"
+                adHealthChecker -> dmApp "Controleert gezondheid" "HTTP"
             }
 
-            // Gedeelde infrastructuur
-            kafka = softwareSystem "Kafka" "Duurzame event streaming voor bericht-lifecycle events (acks=all, 0 berichtverlies)" "Infrastructuur"
-            ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
+            group "Centraal gehoste services" {
+
+                bboApi = softwareSystem "BBO API" "Centrale API voor burgers en ondernemers - routeert naar berichtensessiecache en magazijnen" "FBS Dienst"
+
+                berichtensessiecache = softwareSystem "Berichtensessiecache" "Aggregeert berichtrecords uit alle aangesloten magazijnen" "FBS Dienst" {
+                    blLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
+                    blApp = container "Berichtensessiecache API" "REST API voor geaggregeerde berichtrecords" "Quarkus / Kotlin" "Service" {
+                        blResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
+                        blService = component "BerichtensessiecacheService" "Aggregeert en cachet berichtrecords" "CDI Bean"
+                        blCache = component "Cache" "In-memory cache voor berichtrecords (60s TTL)" "Caffeine"
+                        blMagazijnClient = component "MagazijnClient" "REST client naar decentrale berichtenmagazijnen" "REST Client"
+                        blLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
+                        blAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
+                        blEventForwarder = component "EventForwarder" "Stuurt bericht-events door naar Notificatie Service" "CloudEvents / REST Client"
+
+                        blResource -> blService "Gebruikt"
+                        blService -> blCache "Leest/schrijft cache"
+                        blService -> blMagazijnClient "Haalt berichtrecords op"
+                        blService -> blLdvLogger "Logt verwerkingen"
+                        blService -> blAppLogger "Logt applicatie-events"
+                        blService -> blEventForwarder "Stuurt bericht-events door"
+                    }
+                    blAppLogger -> blLogBuffer "Buffert applicatie-logberichten lokaal bij uitval logserver" "Disk I/O"
+                }
+
+                // Gedeelde infrastructuur
+                kafka = softwareSystem "Kafka" "Duurzame event streaming voor bericht-lifecycle events (acks=all, 0 berichtverlies)" "Infrastructuur"
+                ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
+            }
         }
 
         // === Landscape relaties ===
