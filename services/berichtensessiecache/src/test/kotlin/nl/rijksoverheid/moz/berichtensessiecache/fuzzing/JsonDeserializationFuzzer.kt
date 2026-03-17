@@ -34,7 +34,7 @@ object JsonDeserializationFuzzer {
             val serialized = objectMapper.writeValueAsString(parsed)
             objectMapper.readValue(serialized, targetType)
         } catch (_: Exception) {
-            // Jackson-fouten en IllegalArgumentException uit require() zijn verwacht
+            // Verwacht: ongeldige JSON of domeinvalidatie-fouten zijn geen bugs
         }
     }
 }

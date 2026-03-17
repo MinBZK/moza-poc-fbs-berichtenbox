@@ -13,17 +13,21 @@ import java.util.UUID
 
 object DomainValidationFuzzer {
 
+    private val targets = arrayOf(
+        ::fuzzBericht,
+        ::fuzzAggregationStatus,
+        ::fuzzBerichtenPage,
+        ::fuzzMagazijnStatusEvent,
+    )
+
     @JvmStatic
     fun fuzzerTestOneInput(data: FuzzedDataProvider) {
-        fuzzBericht(data)
-        fuzzAggregationStatus(data)
-        fuzzBerichtenPage(data)
-        fuzzMagazijnStatusEvent(data)
+        data.pickValue(targets).invoke(data)
     }
 
     private fun fuzzBericht(data: FuzzedDataProvider) {
-        try {
-            val bericht = Bericht(
+        val bericht = try {
+            Bericht(
                 berichtId = UUID.randomUUID(),
                 afzender = data.consumeString(200),
                 ontvanger = data.consumeString(200),
@@ -31,50 +35,50 @@ object DomainValidationFuzzer {
                 tijdstip = Instant.now(),
                 magazijnId = data.consumeString(200),
             )
-            check(bericht.afzender.isNotBlank()) { "afzender moet niet-blank zijn na constructie" }
-            check(bericht.ontvanger.isNotBlank()) { "ontvanger moet niet-blank zijn na constructie" }
-            check(bericht.onderwerp.isNotBlank()) { "onderwerp moet niet-blank zijn na constructie" }
-            check(bericht.magazijnId.isNotBlank()) { "magazijnId moet niet-blank zijn na constructie" }
         } catch (_: IllegalArgumentException) {
-            // Verwacht bij ongeldige invoer (require-checks)
+            return
         }
+        check(bericht.afzender.isNotBlank()) { "afzender moet niet-blank zijn na constructie" }
+        check(bericht.ontvanger.isNotBlank()) { "ontvanger moet niet-blank zijn na constructie" }
+        check(bericht.onderwerp.isNotBlank()) { "onderwerp moet niet-blank zijn na constructie" }
+        check(bericht.magazijnId.isNotBlank()) { "magazijnId moet niet-blank zijn na constructie" }
     }
 
     private fun fuzzAggregationStatus(data: FuzzedDataProvider) {
-        try {
-            val status = AggregationStatus(
+        val status = try {
+            AggregationStatus(
                 status = data.pickValue(OphalenStatus.entries.toTypedArray()),
                 totaalMagazijnen = data.consumeInt(),
                 geslaagd = data.consumeInt(),
                 mislukt = data.consumeInt(),
             )
-            check(status.totaalMagazijnen >= 0) { "totaalMagazijnen moet niet-negatief zijn" }
-            check(status.geslaagd >= 0) { "geslaagd moet niet-negatief zijn" }
-            check(status.mislukt >= 0) { "mislukt moet niet-negatief zijn" }
-            check(status.geslaagd + status.mislukt <= status.totaalMagazijnen) {
-                "geslaagd + mislukt mag niet groter zijn dan totaalMagazijnen"
-            }
         } catch (_: IllegalArgumentException) {
-            // Verwacht bij ongeldige invoer
+            return
+        }
+        check(status.totaalMagazijnen >= 0) { "totaalMagazijnen moet niet-negatief zijn" }
+        check(status.geslaagd >= 0) { "geslaagd moet niet-negatief zijn" }
+        check(status.mislukt >= 0) { "mislukt moet niet-negatief zijn" }
+        check(status.geslaagd + status.mislukt <= status.totaalMagazijnen) {
+            "geslaagd + mislukt mag niet groter zijn dan totaalMagazijnen"
         }
     }
 
     private fun fuzzBerichtenPage(data: FuzzedDataProvider) {
-        try {
-            val page = BerichtenPage(
+        val page = try {
+            BerichtenPage(
                 berichten = emptyList(),
                 page = data.consumeInt(),
                 pageSize = data.consumeInt(),
                 totalElements = data.consumeLong(),
                 totalPages = data.consumeInt(),
             )
-            check(page.page >= 0) { "page moet niet-negatief zijn" }
-            check(page.pageSize > 0) { "pageSize moet positief zijn" }
-            check(page.totalElements >= 0) { "totalElements moet niet-negatief zijn" }
-            check(page.totalPages >= 0) { "totalPages moet niet-negatief zijn" }
         } catch (_: IllegalArgumentException) {
-            // Verwacht bij ongeldige invoer
+            return
         }
+        check(page.page >= 0) { "page moet niet-negatief zijn" }
+        check(page.pageSize > 0) { "pageSize moet positief zijn" }
+        check(page.totalElements >= 0) { "totalElements moet niet-negatief zijn" }
+        check(page.totalPages >= 0) { "totalPages moet niet-negatief zijn" }
     }
 
     private fun fuzzMagazijnStatusEvent(data: FuzzedDataProvider) {

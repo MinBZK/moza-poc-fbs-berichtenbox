@@ -12,11 +12,18 @@ MODULE=services/berichtensessiecache
 rsync -a $MODULE/target/classes/ $OUT/classes/
 rsync -a $MODULE/target/test-classes/ $OUT/classes/
 
-# Copy module's own JAR to lib
-cp $MODULE/target/*.jar $OUT/lib/ 2>/dev/null || true
+# Copy module's own JAR to lib (may not exist for interface-only modules)
+shopt -s nullglob
+jars=($MODULE/target/*.jar)
+shopt -u nullglob
+if [ ${#jars[@]} -gt 0 ]; then
+    cp "${jars[@]}" "$OUT/lib/"
+fi
 
-# Find all fuzz targets and create driver scripts
+# Find fuzz targets in $MODULE and create driver scripts
+fuzz_targets_found=0
 for fuzzer_source in $(grep -rl "fuzzerTestOneInput" $MODULE/src/test/kotlin/); do
+    fuzz_targets_found=1
     # Strip source prefix to get class path
     class_path=${fuzzer_source#"$MODULE/src/test/kotlin/"}
     # Convert path to fully qualified class name
@@ -27,7 +34,7 @@ for fuzzer_source in $(grep -rl "fuzzerTestOneInput" $MODULE/src/test/kotlin/); 
     # Create the fuzzer driver script
     cat > $OUT/$simple_name <<EOF
 #!/bin/bash
-# LLVMFuzzerTestOneInput for $class_name
+# Jazzer fuzzer driver for $class_name
 this_dir=\$(dirname "\$0")
 CLASSPATH=\$this_dir/classes:\$(echo \$this_dir/lib/*.jar | tr ' ' ':')
 exec java -cp \$CLASSPATH \
@@ -37,3 +44,8 @@ exec java -cp \$CLASSPATH \
 EOF
     chmod +x $OUT/$simple_name
 done
+
+if [ "$fuzz_targets_found" -eq 0 ]; then
+    echo "FOUT: Geen fuzz targets gevonden in $MODULE/src/test/kotlin/" >&2
+    exit 1
+fi
