@@ -1,0 +1,34 @@
+name: ClusterFuzzLite PR fuzzing
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/**'
+      - 'pom.xml'
+      - '.clusterfuzzlite/**'
+
+permissions: read-all
+
+jobs:
+  PR:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Build Fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: jvm
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          keep-unaffected-fuzz-targets: true
+      - name: Run Fuzzers
+        id: run
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 60
+          mode: code-change
