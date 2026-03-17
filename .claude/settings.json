@@ -1,0 +1,19 @@
+{
+  "enabledPlugins": {},
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'services/berichtensessiecache/src/main'; then ./mvnw test -pl services/berichtensessiecache -q 2>&1 | tail -5; fi",
+        "description": "Run tests after editing source files"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'target/generated-sources'; then echo 'BLOCK: Gegenereerde code mag niet handmatig worden aangepast. Wijzig de OpenAPI spec.' && exit 1; fi",
+        "description": "Block edits to generated OpenAPI sources"
+      }
+    ]
+  }
+}
