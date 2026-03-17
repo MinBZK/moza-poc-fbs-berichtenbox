@@ -60,13 +60,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: |
-            Berichten zijn nog niet opgehaald of het ophalen is nog bezig.
-            Roep eerst GET /berichten/_ophalen aan.
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -77,8 +71,8 @@ paths:
       description: |
         Haalt een enkel berichtrecord op aan de hand van het unieke bericht-ID
         uit de cache. Berichten zijn beschikbaar na een eerdere ophaalactie via
-        `GET /berichten/_ophalen`. Retourneert 404 als het bericht niet in de
-        cache zit.
+        `GET /berichten/_ophalen`. Retourneert 409 als er nog niet opgehaald is,
+        of 404 als het bericht niet in de cache zit.
       tags:
         - berichten
       parameters:
@@ -89,6 +83,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: ontvanger
+          in: query
+          required: true
+          description: Ontvanger (BSN of KVK-nummer)
+          x-todo: "Ontvanger tzt uit security-context halen"
+          schema:
+            type: string
+            minLength: 1
       responses:
         '200':
           description: Berichtrecord gevonden
@@ -99,12 +101,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BerichtResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -156,13 +162,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: |
-            Berichten zijn nog niet opgehaald of het ophalen is nog bezig.
-            Roep eerst GET /berichten/_ophalen aan.
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -455,6 +455,14 @@ components:
             $ref: '#/components/schemas/Problem'
     NotFound:
       description: Resource niet gevonden
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: |
+        Berichten zijn nog niet opgehaald of het ophalen is nog bezig.
+        Roep eerst GET /berichten/_ophalen aan.
       content:
         application/problem+json:
           schema:

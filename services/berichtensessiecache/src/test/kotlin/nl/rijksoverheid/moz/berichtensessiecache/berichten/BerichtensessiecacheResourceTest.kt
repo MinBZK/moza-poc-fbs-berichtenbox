@@ -149,22 +149,61 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
-    fun `GET bericht by ongeldig ID retourneert 404`() {
+    fun `GET bericht by id zonder ontvanger retourneert 400`() {
         given()
-            .`when`().get("/api/v1/berichten/niet-een-uuid")
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
-            .statusCode(404)
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
     }
 
     @Test
-    fun `GET bericht by onbekend ID retourneert 404 als problem json`() {
+    fun `GET bericht by id retourneert 409 als ophalen niet is aangeroepen`() {
         given()
+            .queryParam("ontvanger", "onbekend-byid-${System.nanoTime()}")
             .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
             .then()
-            .statusCode(404)
+            .statusCode(409)
             .contentType("application/problem+json")
-            .body("status", `is`(404))
-            .body("title", `is`("Not Found"))
+            .body("status", `is`(409))
+            .body("detail", containsString("nog niet opgehaald"))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 409 als ophalen nog bezig is`() {
+        val ontvanger = "bezig-byid-${System.nanoTime()}"
+        val key = BerichtenCache.cacheKey(ontvanger)
+
+        berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
+            .await().indefinitely()
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
+            .then()
+            .statusCode(409)
+            .contentType("application/problem+json")
+            .body("status", `is`(409))
+            .body("detail", containsString("momenteel opgehaald"))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 500 als ophalen is mislukt`() {
+        val ontvanger = "fout-byid-${System.nanoTime()}"
+        val key = BerichtenCache.cacheKey(ontvanger)
+
+        berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 2, mislukt = 2))
+            .await().indefinitely()
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
+            .then()
+            .statusCode(500)
+            .contentType("application/problem+json")
+            .body("status", `is`(500))
+            .body("detail", containsString("mislukt"))
     }
 
     @Test
@@ -190,14 +229,17 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert bericht uit cache met correcte velden`() {
+        val ontvanger = "999993653"
+
         // Eerst ophalen zodat berichten in cache komen
         given()
-            .queryParam("ontvanger", "byid-test-${System.nanoTime()}")
+            .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
+            .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
             .statusCode(200)
@@ -206,6 +248,27 @@ class BerichtensessiecacheResourceTest {
             .body("ontvanger", `is`("999993653"))
             .body("onderwerp", `is`("Test bericht 1"))
             .body("magazijnId", `is`("magazijn-a"))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 404 als ontvanger niet overeenkomt`() {
+        val eigenOntvanger = "andere-ontvanger-${System.nanoTime()}"
+
+        // Ophalen zodat aggregation status GEREED is
+        given()
+            .queryParam("ontvanger", eigenOntvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Bericht bestaat in cache maar hoort bij ontvanger "999993653", niet bij eigenOntvanger
+        given()
+            .queryParam("ontvanger", eigenOntvanger)
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("status", `is`(404))
     }
 
     @Test
@@ -286,7 +349,17 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert 404 als bericht niet in cache zit`() {
+        val ontvanger = "byid-404-${System.nanoTime()}"
+
+        // Ophalen zodat aggregation status GEREED is
         given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .queryParam("ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
             .then()
             .statusCode(404)

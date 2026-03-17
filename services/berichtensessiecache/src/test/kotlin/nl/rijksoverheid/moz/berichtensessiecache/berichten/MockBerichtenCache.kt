@@ -65,8 +65,9 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(BerichtenPage(slice, page, pageSize, gefilterd.size.toLong(), totalPages))
     }
 
-    override fun getById(berichtId: UUID): Uni<Bericht?> {
-        return Uni.createFrom().item(byId[berichtId])
+    override fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?> {
+        val bericht = byId[berichtId]
+        return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
     }
 
     override fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?> {
