@@ -124,19 +124,17 @@ class BerichtensessiecacheResource(
                 Response.Status.CONFLICT,
             )
         }
-        if (aggregation.status == OphalenStatus.BEZIG) {
-            throw WebApplicationException(
+        when (aggregation.status) {
+            OphalenStatus.GEREED -> return ontvanger to aggregation
+            OphalenStatus.BEZIG -> throw WebApplicationException(
                 "Berichten worden momenteel opgehaald. Wacht tot het ophalen is afgerond.",
                 Response.Status.CONFLICT,
             )
-        }
-        if (aggregation.status == OphalenStatus.FOUT) {
-            throw WebApplicationException(
+            OphalenStatus.FOUT -> throw WebApplicationException(
                 "Het ophalen van berichten is mislukt. Roep GET /api/v1/berichten/_ophalen opnieuw aan.",
                 Response.Status.INTERNAL_SERVER_ERROR,
             )
         }
-        return ontvanger to aggregation
     }
 
     private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {

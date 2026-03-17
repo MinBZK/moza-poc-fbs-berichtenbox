@@ -35,6 +35,17 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
+    fun `GET berichten met lege ontvanger retourneert 400`() {
+        given()
+            .header("X-Ontvanger", "")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    @Test
     fun `GET berichten retourneert 409 als ophalen niet is aangeroepen`() {
         given()
             .header("X-Ontvanger", "onbekend-${System.nanoTime()}")
