@@ -74,7 +74,7 @@ class BerichtensessiecacheResource(
         requireGereedStatus(ontvanger)
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichtById(berichtId)
+            berichtensessiecacheService.getBerichtById(berichtId, ontvanger!!)
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )

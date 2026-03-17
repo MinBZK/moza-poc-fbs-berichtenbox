@@ -60,13 +60,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: |
-            Berichten zijn nog niet opgehaald of het ophalen is nog bezig.
-            Roep eerst GET /berichten/_ophalen aan.
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -116,13 +110,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: |
-            Berichten zijn nog niet opgehaald of het ophalen is nog bezig.
-            Roep eerst GET /berichten/_ophalen aan.
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -174,13 +162,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: |
-            Berichten zijn nog niet opgehaald of het ophalen is nog bezig.
-            Roep eerst GET /berichten/_ophalen aan.
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -473,6 +455,14 @@ components:
             $ref: '#/components/schemas/Problem'
     NotFound:
       description: Resource niet gevonden
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: |
+        Berichten zijn nog niet opgehaald of het ophalen is nog bezig.
+        Roep eerst GET /berichten/_ophalen aan.
       content:
         application/problem+json:
           schema:

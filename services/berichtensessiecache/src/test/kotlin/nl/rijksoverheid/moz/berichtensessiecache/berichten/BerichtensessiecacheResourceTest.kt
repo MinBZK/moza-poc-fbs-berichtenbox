@@ -229,7 +229,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert bericht uit cache met correcte velden`() {
-        val ontvanger = "byid-test-${System.nanoTime()}"
+        val ontvanger = "999993653"
 
         // Eerst ophalen zodat berichten in cache komen
         given()
@@ -248,6 +248,27 @@ class BerichtensessiecacheResourceTest {
             .body("ontvanger", `is`("999993653"))
             .body("onderwerp", `is`("Test bericht 1"))
             .body("magazijnId", `is`("magazijn-a"))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 404 als ontvanger niet overeenkomt`() {
+        val eigenOntvanger = "andere-ontvanger-${System.nanoTime()}"
+
+        // Ophalen zodat aggregation status GEREED is
+        given()
+            .queryParam("ontvanger", eigenOntvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Bericht bestaat in cache maar hoort bij ontvanger "999993653", niet bij eigenOntvanger
+        given()
+            .queryParam("ontvanger", eigenOntvanger)
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("status", `is`(404))
     }
 
     @Test
