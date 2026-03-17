@@ -48,13 +48,13 @@ class BerichtensessiecacheResource(
             logboekContext.dataSubjectType = "ontvanger"
         }
 
-        val aggregation = requireGereedStatus(xOntvanger)
+        val (ontvanger, aggregation) = requireGereedStatus(xOntvanger)
 
         // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichten(p, ps, xOntvanger, afzender)
+            berichtensessiecacheService.getBerichten(p, ps, ontvanger, afzender)
         }
         logboekContext.status = StatusCode.OK
         return toBerichtensessiecacheResponse(result, aggregation)
@@ -65,15 +65,16 @@ class BerichtensessiecacheResource(
         processingActivityId = "https://register.example.com/verwerkingen/bericht-ophalen",
     )
     override fun getBerichtById(berichtId: UUID, xOntvanger: String?): BerichtResponse {
+        // Log berichtId als primair data subject (dit is de lookup-sleutel van dit endpoint)
         logboekContext.dataSubjectId = berichtId.toString()
         logboekContext.dataSubjectType = "berichtId"
 
-        requireGereedStatus(xOntvanger)
+        val (ontvanger, _) = requireGereedStatus(xOntvanger)
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichtById(berichtId, xOntvanger!!)
+            berichtensessiecacheService.getBerichtById(berichtId, ontvanger)
         } ?: throw WebApplicationException(
-            "Bericht $berichtId niet gevonden", Response.Status.NOT_FOUND,
+            "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )
 
         logboekContext.status = StatusCode.OK
@@ -96,19 +97,23 @@ class BerichtensessiecacheResource(
             logboekContext.dataSubjectType = "ontvanger"
         }
 
-        val aggregation = requireGereedStatus(xOntvanger)
+        val (ontvanger, aggregation) = requireGereedStatus(xOntvanger)
 
         // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.zoekBerichten(q, p, ps, xOntvanger, afzender)
+            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvanger, afzender)
         }
         logboekContext.status = StatusCode.OK
         return toBerichtensessiecacheResponse(result, aggregation)
     }
 
-    private fun requireGereedStatus(ontvanger: String?): AggregationStatus {
+    private fun requireGereedStatus(ontvanger: String?): Pair<String, AggregationStatus> {
+        if (ontvanger.isNullOrBlank()) {
+            throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
+        }
+
         val aggregation = awaitOrServiceUnavailable {
             berichtensessiecacheService.getAggregationStatus(ontvanger)
         }
@@ -131,7 +136,7 @@ class BerichtensessiecacheResource(
                 Response.Status.INTERNAL_SERVER_ERROR,
             )
         }
-        return aggregation
+        return ontvanger to aggregation
     }
 
     private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {

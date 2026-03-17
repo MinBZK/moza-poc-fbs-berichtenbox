@@ -33,12 +33,14 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.berichtensessiecache.*`
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
+- **Actieve modules:** Alleen `services/berichtensessiecache` is geregistreerd in de parent POM. `services/berichtenlijst/` bestaat als directory maar is niet actief.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
 
 ## Build & test commando's
 
 ```bash
+docker compose up -d                                       # Start Redis, WireMock, ClickHouse
 ./mvnw compile -pl services/berichtensessiecache          # Compileren
 ./mvnw test -pl services/berichtensessiecache              # Tests draaien
 ./mvnw quarkus:dev -pl services/berichtensessiecache       # Dev mode
@@ -46,12 +48,22 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 ## Belangrijke bestanden
 
-| Pad | Beschrijving |
-|-----|-------------|
-| `pom.xml` | Parent POM (Quarkus BOM, Kotlin plugin config) |
-| `services/berichtensessiecache/pom.xml` | Module POM (OpenAPI generator, dependencies) |
+| Pad                                    | Beschrijving                                                    |
+|----------------------------------------|-----------------------------------------------------------------|
+| `pom.xml`                              | Parent POM (Quarkus BOM, Kotlin plugin config)                  |
+| `services/berichtensessiecache/pom.xml`| Module POM (OpenAPI generator, dependencies)                    |
 | `services/berichtensessiecache/src/main/resources/openapi/berichtensessiecache-api.yaml` | OpenAPI spec (bron van waarheid) |
-| `docs/architecture/` | C4 model (Structurizr DSL) |
+| `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
+| `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, ClickHouse)               |
+| `.github/workflows/`                   | CI: CodeQL security scanning, Scorecard, Architecture validatie |
+| `.github/CODEOWNERS`                   | Code ownership (`@MinBZK/mijnoverheid-zakelijk`)                |
+
+## Omgevingsvariabelen
+
+| Variabele              | Default | Beschrijving                                        |
+|------------------------|---------|-----------------------------------------------------|
+| `CLICKHOUSE_USERNAME`  | `ldv`   | ClickHouse gebruikersnaam (Logboek Dataverwerkingen) |
+| `CLICKHOUSE_PASSWORD`  | `ldv`   | ClickHouse wachtwoord                                |
 
 ## Plannen
 
@@ -60,6 +72,21 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 - Bevat: context, structuur, stappen, ontwerpkeuzes, verificatie
 - Voeg `**Status:**` toe bovenaan (Concept / Uitgevoerd / Verworpen)
 - Sla elk plan op bij het afronden, zodat beslissingen traceerbaar blijven
+
+## Git-werkwijze
+
+- **Nooit direct pushen naar `main`.** Alle wijzigingen gaan via een feature branch en een Pull Request.
+- Branch naming: `feature/`, `fix/`, `chore/` prefix.
+
+## Teststrategie
+
+Bij elke codewijziging beoordelen of er tests toegevoegd of aangepast moeten worden:
+
+- **Happy én unhappy paths:** Niet alleen het successcenario, maar ook foutgevallen, edge cases en validatiefouten.
+- **Unit tests** zijn de basis (JUnit 5 + REST-assured).
+- **Integratietests** (`@QuarkusTest`) wanneer de wijziging meerdere componenten raakt of externe afhankelijkheden (Redis, REST-clients) betreft.
+- **Fuzzing / property-based tests** overwegen bij input-parsing, validatielogica of security-gevoelige code.
+- Als integratietests of fuzzing een grote toevoeging vormen, dit eerst voorleggen aan de gebruiker voordat je begint.
 
 ## Review-aanpak
 
