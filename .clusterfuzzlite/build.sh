@@ -5,47 +5,52 @@ MODULE=services/berichtensessiecache
 # Build the module and its dependencies
 ./mvnw package -DskipTests -pl $MODULE -am -B
 
-# Copy dependencies to $OUT/lib
+# Copy all dependencies to $OUT/lib
+mkdir -p $OUT/lib
 ./mvnw dependency:copy-dependencies -DoutputDirectory=$OUT/lib -pl $MODULE -B
 
-# Copy compiled classes
-rsync -a $MODULE/target/classes/ $OUT/classes/
-rsync -a $MODULE/target/test-classes/ $OUT/classes/
+# Copy compiled application and test classes
+cp -r $MODULE/target/classes $OUT/classes
+cp -r $MODULE/target/test-classes $OUT/test-classes
 
-# Copy module's own JAR to lib (may not exist for interface-only modules)
-shopt -s nullglob
-jars=($MODULE/target/*.jar)
-shopt -u nullglob
-if [ ${#jars[@]} -gt 0 ]; then
-    cp "${jars[@]}" "$OUT/lib/"
-fi
+# Bundle the JDK 21 runtime so jazzer_driver can run Java 21 bytecode
+mkdir -p "$OUT/open-jdk-21"
+rsync -aL --exclude='*.zip' "$JAVA_HOME/" "$OUT/open-jdk-21/"
 
 # Find fuzz targets in $MODULE and create driver scripts
-fuzz_targets_found=0
-for fuzzer_source in $(grep -rl "fuzzerTestOneInput" $MODULE/src/test/kotlin/); do
-    fuzz_targets_found=1
-    # Strip source prefix to get class path
-    class_path=${fuzzer_source#"$MODULE/src/test/kotlin/"}
-    # Convert path to fully qualified class name
-    class_name=$(echo "$class_path" | sed 's|/|.|g' | sed 's|\.kt$||')
-    # Extract simple class name for the script name
-    simple_name=$(basename "$class_path" .kt)
+for fuzzer in $(grep -rl "fuzzerTestOneInput" $MODULE/src/test/kotlin/ || true); do
+    class_name=$(echo "$fuzzer" | sed "s|$MODULE/src/test/kotlin/||;s|\.kt$||;s|/|.|g")
+    simple_name=$(basename -s .kt "$fuzzer")
 
-    # Create the fuzzer driver script
-    cat > $OUT/$simple_name <<EOF
+    echo "Creating fuzzer wrapper: $simple_name -> $class_name"
+
+    cat > "$OUT/$simple_name" << 'WRAPPER_EOF'
 #!/bin/bash
-# Jazzer fuzzer driver for $class_name
-this_dir=\$(dirname "\$0")
-CLASSPATH=\$this_dir/classes:\$(echo \$this_dir/lib/*.jar | tr ' ' ':')
-exec java -cp \$CLASSPATH \
-    com.code_intelligence.jazzer.Jazzer \
-    --target_class=$class_name \
-    "\$@"
-EOF
-    chmod +x $OUT/$simple_name
+# Jazzer fuzzer driver for jvm
+this_dir=$(dirname "$0")
+
+if [[ "$@" =~ (^| )-runs=[0-9]+($| ) ]]; then
+  mem_settings='-Xmx1900m:-Xss900k'
+else
+  mem_settings='-Xmx2048m:-Xss1024k'
+fi
+
+# Build classpath from compiled classes and all dependency jars
+CP="$this_dir/test-classes:$this_dir/classes"
+for jar in "$this_dir"/lib/*.jar; do
+  CP="$CP:$jar"
 done
 
-if [ "$fuzz_targets_found" -eq 0 ]; then
-    echo "FOUT: Geen fuzz targets gevonden in $MODULE/src/test/kotlin/" >&2
-    exit 1
-fi
+JAVA_HOME="$this_dir/open-jdk-21" \
+LD_LIBRARY_PATH="$this_dir/open-jdk-21/lib/server":"$this_dir" \
+"$this_dir/jazzer_driver" \
+  --agent_path="$this_dir/jazzer_agent_deploy.jar" \
+  --cp="$CP" \
+  --target_class=TARGET_CLASS_PLACEHOLDER \
+  --jvm_args="$mem_settings" \
+  "$@"
+WRAPPER_EOF
+
+    sed -i "s|TARGET_CLASS_PLACEHOLDER|$class_name|" "$OUT/$simple_name"
+    chmod +x "$OUT/$simple_name"
+done
