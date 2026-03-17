@@ -17,8 +17,6 @@ import nl.rijksoverheid.moz.berichtensessiecache.api.model.Link
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.PaginationLinks
 import org.jboss.logging.Logger
 import java.net.URI
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.UUID
 
@@ -40,18 +38,18 @@ class BerichtensessiecacheResource(
         processingActivityId = "https://register.example.com/verwerkingen/berichtensessiecache-ophalen",
     )
     override fun getBerichten(
-        ontvanger: String?,
+        xOntvanger: String?,
         page: Int?,
         pageSize: Int?,
         afzender: String?,
     ): BerichtensessiecacheResponse {
-        ontvanger?.let {
+        xOntvanger?.let {
             logboekContext.dataSubjectId = it
             logboekContext.dataSubjectType = "ontvanger"
         }
 
         val aggregation = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getAggregationStatus(ontvanger)
+            berichtensessiecacheService.getAggregationStatus(xOntvanger)
         }
 
         if (aggregation == null) {
@@ -77,10 +75,10 @@ class BerichtensessiecacheResource(
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichten(p, ps, ontvanger, afzender)
+            berichtensessiecacheService.getBerichten(p, ps, xOntvanger, afzender)
         }
         logboekContext.status = StatusCode.OK
-        return toBerichtensessiecacheResponse(result, aggregation, ontvanger)
+        return toBerichtensessiecacheResponse(result, aggregation)
     }
 
     @Logboek(
@@ -107,18 +105,18 @@ class BerichtensessiecacheResource(
     )
     override fun zoekBerichten(
         q: String,
-        ontvanger: String?,
+        xOntvanger: String?,
         page: Int?,
         pageSize: Int?,
         afzender: String?,
     ): BerichtensessiecacheResponse {
-        ontvanger?.let {
+        xOntvanger?.let {
             logboekContext.dataSubjectId = it
             logboekContext.dataSubjectType = "ontvanger"
         }
 
         val aggregation = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getAggregationStatus(ontvanger)
+            berichtensessiecacheService.getAggregationStatus(xOntvanger)
         }
 
         if (aggregation == null) {
@@ -144,10 +142,10 @@ class BerichtensessiecacheResource(
         val p = page ?: 0
         val ps = pageSize ?: 20
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvanger, afzender)
+            berichtensessiecacheService.zoekBerichten(q, p, ps, xOntvanger, afzender)
         }
         logboekContext.status = StatusCode.OK
-        return toBerichtensessiecacheResponse(result, aggregation, ontvanger)
+        return toBerichtensessiecacheResponse(result, aggregation)
     }
 
     private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {
@@ -166,7 +164,6 @@ class BerichtensessiecacheResource(
     private fun toBerichtensessiecacheResponse(
         result: BerichtenPage,
         aggregation: AggregationStatus?,
-        ontvanger: String?,
     ): BerichtensessiecacheResponse {
         val response = BerichtensessiecacheResponse()
         response.berichten = result.berichten.map { toApiBericht(it) }
@@ -183,18 +180,17 @@ class BerichtensessiecacheResource(
             }
         }
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        val ontvangerParam = ontvanger?.let { "&ontvanger=${URLEncoder.encode(it, StandardCharsets.UTF_8)}" } ?: ""
         response.links = PaginationLinks().apply {
-            self = Link().apply { href = URI.create("$basePath/berichten?page=${result.page}&pageSize=${result.pageSize}$ontvangerParam") }
-            first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${result.pageSize}$ontvangerParam") }
+            self = Link().apply { href = URI.create("$basePath/berichten?page=${result.page}&pageSize=${result.pageSize}") }
+            first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${result.pageSize}") }
             if (result.totalPages > 0) {
-                last = Link().apply { href = URI.create("$basePath/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                last = Link().apply { href = URI.create("$basePath/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}") }
             }
             if (result.page > 0) {
-                prev = Link().apply { href = URI.create("$basePath/berichten?page=${result.page - 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                prev = Link().apply { href = URI.create("$basePath/berichten?page=${result.page - 1}&pageSize=${result.pageSize}") }
             }
             if (result.page < result.totalPages - 1) {
-                next = Link().apply { href = URI.create("$basePath/berichten?page=${result.page + 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                next = Link().apply { href = URI.create("$basePath/berichten?page=${result.page + 1}&pageSize=${result.pageSize}") }
             }
         }
         return response

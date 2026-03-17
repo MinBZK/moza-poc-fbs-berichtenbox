@@ -36,7 +36,7 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `GET berichten retourneert 409 als ophalen niet is aangeroepen`() {
         given()
-            .queryParam("ontvanger", "onbekend-${System.nanoTime()}")
+            .header("X-Ontvanger", "onbekend-${System.nanoTime()}")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(409)
@@ -54,7 +54,7 @@ class BerichtensessiecacheResourceTest {
             .await().indefinitely()
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(409)
@@ -72,7 +72,7 @@ class BerichtensessiecacheResourceTest {
             .await().indefinitely()
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(500)
@@ -91,7 +91,7 @@ class BerichtensessiecacheResourceTest {
 
         given()
             .queryParam("q", "test")
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(500)
@@ -103,13 +103,13 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `GET berichten retourneert gepagineerde resultaten na ophalen`() {
         given()
-            .queryParam("ontvanger", "test-paginering")
+            .header("X-Ontvanger", "test-paginering")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .queryParam("ontvanger", "test-paginering")
+            .header("X-Ontvanger", "test-paginering")
             .queryParam("page", 0)
             .queryParam("pageSize", 2)
             .`when`().get("/api/v1/berichten")
@@ -123,7 +123,6 @@ class BerichtensessiecacheResourceTest {
             .body("totalPages", `is`(2))
             .body("_aggregatie.status", `is`("GEREED"))
             .body("_links.self.href", containsString("page=0"))
-            .body("_links.self.href", containsString("ontvanger=test-paginering"))
             .body("_links.first.href", notNullValue())
             .body("_links.last.href", notNullValue())
             .body("_links.next.href", containsString("page=1"))
@@ -132,13 +131,13 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `GET berichten paginering page 1 geeft andere resultaten`() {
         given()
-            .queryParam("ontvanger", "test-page1")
+            .header("X-Ontvanger", "test-page1")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .queryParam("ontvanger", "test-page1")
+            .header("X-Ontvanger", "test-page1")
             .queryParam("page", 1)
             .queryParam("pageSize", 2)
             .`when`().get("/api/v1/berichten")
@@ -192,7 +191,7 @@ class BerichtensessiecacheResourceTest {
     fun `GET bericht by id retourneert bericht uit cache met correcte velden`() {
         // Eerst ophalen zodat berichten in cache komen
         given()
-            .queryParam("ontvanger", "byid-test-${System.nanoTime()}")
+            .header("X-Ontvanger", "byid-test-${System.nanoTime()}")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -213,14 +212,14 @@ class BerichtensessiecacheResourceTest {
         val ontvanger = "zoek-test-${System.nanoTime()}"
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
             .queryParam("q", "bericht 1")
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(200)
@@ -233,7 +232,7 @@ class BerichtensessiecacheResourceTest {
         val ontvanger = "zoek-afzender-${System.nanoTime()}"
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -241,7 +240,7 @@ class BerichtensessiecacheResourceTest {
         // Zoek op afzender OIN van magazijn-b bericht
         given()
             .queryParam("q", "00000005555555550000")
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(200)
@@ -253,7 +252,7 @@ class BerichtensessiecacheResourceTest {
     fun `GET zoeken retourneert 409 als ophalen niet is aangeroepen`() {
         given()
             .queryParam("q", "test")
-            .queryParam("ontvanger", "onbekend-zoek-${System.nanoTime()}")
+            .header("X-Ontvanger", "onbekend-zoek-${System.nanoTime()}")
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(409)
@@ -267,13 +266,13 @@ class BerichtensessiecacheResourceTest {
         val ontvanger = "page-range-${System.nanoTime()}"
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .queryParam("page", 999)
             .queryParam("pageSize", 2)
             .`when`().get("/api/v1/berichten")

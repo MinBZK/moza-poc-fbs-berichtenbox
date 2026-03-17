@@ -30,14 +30,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/PageSizeParam'
-        - name: ontvanger
-          in: query
-          required: true
-          description: Ontvanger (BSN of KVK-nummer)
-          x-todo: "Ontvanger tzt uit security-context halen"
-          schema:
-            type: string
-            minLength: 1
+        - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
           in: query
           description: Filter op afzender (OIN)
@@ -126,14 +119,7 @@ paths:
           schema:
             type: string
             minLength: 2
-        - name: ontvanger
-          in: query
-          required: true
-          description: Ontvanger (BSN of KVK-nummer)
-          x-todo: "Ontvanger tzt uit security-context halen"
-          schema:
-            type: string
-            minLength: 1
+        - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
           in: query
           description: Filter op afzender (OIN)
@@ -189,14 +175,7 @@ paths:
       tags:
         - ophalen
       parameters:
-        - name: ontvanger
-          in: query
-          required: true
-          description: Ontvanger (BSN of KVK-nummer)
-          x-todo: "Ontvanger tzt uit security-context halen"
-          schema:
-            type: string
-            minLength: 1
+        - $ref: '#/components/parameters/OntvangerHeader'
       responses:
         '200':
           description: SSE-stream met ophaalstatus per magazijn
@@ -243,6 +222,14 @@ components:
         minimum: 1
         maximum: 100
         default: 20
+    OntvangerHeader:
+      name: X-Ontvanger
+      in: header
+      required: true
+      description: Ontvanger (BSN of KVK-nummer). Wordt doorgegeven als header om te voorkomen dat persoonsgegevens in URL/logs terechtkomen.
+      schema:
+        type: string
+        minLength: 1
 
   headers:
     API-Version:

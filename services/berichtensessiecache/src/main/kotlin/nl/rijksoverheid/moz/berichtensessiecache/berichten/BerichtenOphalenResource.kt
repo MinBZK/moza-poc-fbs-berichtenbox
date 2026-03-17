@@ -8,7 +8,7 @@ import jakarta.inject.Inject
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
-import jakarta.ws.rs.QueryParam
+import jakarta.ws.rs.HeaderParam
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
@@ -41,10 +41,10 @@ class BerichtenOphalenResource(
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     fun ophalenBerichten(
-        @QueryParam("ontvanger") ontvanger: String?,
+        @HeaderParam("X-Ontvanger") ontvanger: String?,
     ): Multi<MagazijnStatusEvent> {
         if (ontvanger.isNullOrBlank()) {
-            throw WebApplicationException("Parameter 'ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
+            throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
         }
 
         logboekContext.dataSubjectId = ontvanger
