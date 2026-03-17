@@ -171,6 +171,42 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
+    fun `GET bericht by id retourneert 409 als ophalen nog bezig is`() {
+        val ontvanger = "bezig-byid-${System.nanoTime()}"
+        val key = BerichtenCache.cacheKey(ontvanger)
+
+        berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
+            .await().indefinitely()
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
+            .then()
+            .statusCode(409)
+            .contentType("application/problem+json")
+            .body("status", `is`(409))
+            .body("detail", containsString("momenteel opgehaald"))
+    }
+
+    @Test
+    fun `GET bericht by id retourneert 500 als ophalen is mislukt`() {
+        val ontvanger = "fout-byid-${System.nanoTime()}"
+        val key = BerichtenCache.cacheKey(ontvanger)
+
+        berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 2, mislukt = 2))
+            .await().indefinitely()
+
+        given()
+            .queryParam("ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
+            .then()
+            .statusCode(500)
+            .contentType("application/problem+json")
+            .body("status", `is`(500))
+            .body("detail", containsString("mislukt"))
+    }
+
+    @Test
     fun `GET zoeken zonder query retourneert 400 als problem json`() {
         given()
             .`when`().get("/api/v1/berichten/_zoeken")
