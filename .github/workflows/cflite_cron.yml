@@ -1,0 +1,39 @@
+name: ClusterFuzzLite cron (coverage + pruning)
+on:
+  schedule:
+    - cron: '0 1 * * 0' # Zondag 01:00 UTC
+
+permissions: read-all
+
+jobs:
+  Coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build Fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713d53f1a1d4672b8a5ff48c2baf0580e690c # v1
+        with:
+          language: jvm
+      - name: Run Fuzzers (coverage)
+        id: coverage
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713d53f1a1d4672b8a5ff48c2baf0580e690c # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 600
+          mode: coverage
+
+  Pruning:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build Fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713d53f1a1d4672b8a5ff48c2baf0580e690c # v1
+        with:
+          language: jvm
+      - name: Run Fuzzers (pruning)
+        id: pruning
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713d53f1a1d4672b8a5ff48c2baf0580e690c # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 600
+          mode: prune
