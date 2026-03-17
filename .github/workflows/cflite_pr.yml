@@ -2,6 +2,10 @@ name: ClusterFuzzLite PR fuzzing
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'services/**'
+      - 'pom.xml'
+      - '.clusterfuzzlite/**'
 
 permissions: read-all
 
