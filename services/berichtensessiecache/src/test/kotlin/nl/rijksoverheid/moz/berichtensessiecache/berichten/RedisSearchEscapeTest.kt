@@ -28,7 +28,7 @@ class RedisSearchEscapeTest {
         val specialChars = listOf(
             ",", ".", "<", ">", "{", "}", "[", "]", "\"", "'", ":", ";",
             "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "-", "+",
-            "=", "~", "\\", "/", "|", " ",
+            "=", "~", "\\", "/", "|", "?", " ",
         )
         for (ch in specialChars) {
             val result = RedisBerichtenCache.escapeRedisSearch(ch)
@@ -77,7 +77,7 @@ class RedisSearchEscapeTest {
         val specialChars = listOf(
             ",", ".", "<", ">", "{", "}", "[", "]", "\"", "'", ":", ";",
             "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "-", "+",
-            "=", "~", "\\", "/", "|", " ",
+            "=", "~", "\\", "/", "|", "?", " ",
         )
         for (ch in specialChars) {
             val result = RedisBerichtenCache.escapeTag(ch)
@@ -102,5 +102,27 @@ class RedisSearchEscapeTest {
             RedisBerichtenCache.TAG_SPECIAL.find("|"),
             "TAG_SPECIAL moet het pipe karakter matchen"
         )
+    }
+
+    // --- Extra tests op basis van review feedback ---
+
+    @Test
+    fun `escapeRedisSearch geeft lege string terug bij lege invoer`() {
+        assertEquals("", RedisBerichtenCache.escapeRedisSearch(""))
+    }
+
+    @Test
+    fun `escapeRedisSearch escapet vraagteken wildcard`() {
+        assertEquals("test\\?", RedisBerichtenCache.escapeRedisSearch("test?"))
+    }
+
+    @Test
+    fun `escapeTag escapet realistische injectie met pipe en wildcard`() {
+        assertEquals("999993653\\|\\*", RedisBerichtenCache.escapeTag("999993653|*"))
+    }
+
+    @Test
+    fun `escapeTag escapet accolade sluiten tegen tag breakout`() {
+        assertEquals("value\\}injected", RedisBerichtenCache.escapeTag("value}injected"))
     }
 }
