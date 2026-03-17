@@ -3,7 +3,7 @@ package nl.rijksoverheid.moz.berichtensessiecache.fuzzing
 import com.code_intelligence.jazzer.api.FuzzedDataProvider
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
-import com.fasterxml.jackson.module.paramnames.ParameterNamesModule
+import com.fasterxml.jackson.module.kotlin.KotlinModule
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.BerichtenPage
@@ -14,7 +14,7 @@ object JsonDeserializationFuzzer {
 
     private val objectMapper = ObjectMapper()
         .registerModule(JavaTimeModule())
-        .registerModule(ParameterNamesModule())
+        .registerModule(KotlinModule.Builder().build())
 
     private val targetTypes = arrayOf(
         Bericht::class.java,
