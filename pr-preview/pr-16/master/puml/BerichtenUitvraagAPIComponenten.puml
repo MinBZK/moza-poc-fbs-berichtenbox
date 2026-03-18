@@ -1,0 +1,26 @@
+@startuml
+set separator none
+title Berichten Uitvraag Systeem - Berichten Uitvraag API - Components
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+!include <C4/C4_Component>
+
+System(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Decentraal Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO", $tags="", $link="")
+Container(BerichtenUitvraagSysteem.Berichtensessiecache, "Berichtensessiecache", $techn="Quarkus / Kotlin", $descr="Aggregeert berichten uit alle aangesloten magazijnen voor een burger of onderneming", $tags="", $link="")
+
+Container_Boundary("BerichtenUitvraagSysteem.BerichtenUitvraagAPI_boundary", "Berichten Uitvraag API", $tags="") {
+  Component(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.BerichtenlijstService, "Berichtenlijst Service", $techn="CDI Bean", $descr="Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten", $tags="", $link="")
+  Component(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.OpvraagService, "Opvraag Service", $techn="CDI Bean", $descr="Haal berichten en bijlagen op; berichten uit cache, bijlagen uit berichtenmagazijn", $tags="", $link="")
+}
+
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt berichten op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.OpvraagService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichten op uit cache", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.BerichtenlijstService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichtenlijst op", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.OpvraagService, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="REST API", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml

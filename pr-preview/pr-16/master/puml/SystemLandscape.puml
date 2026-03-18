@@ -1,0 +1,59 @@
+@startuml
+set separator none
+title System Landscape
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+
+AddBoundaryTag("Federatief Berichtenstelsel (FBS)", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
+Boundary(group_1, "Federatief Berichtenstelsel (FBS)", $tags="Federatief Berichtenstelsel (FBS)") {
+  System(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Decentraal Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO", $tags="", $link="")
+    AddBoundaryTag("Federatief Berichtenstelsel (FBS)/Centraal gehoste services", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
+    Boundary(group_2, "Centraal gehoste services", $tags="Federatief Berichtenstelsel (FBS)/Centraal gehoste services") {
+      System(BerichtenUitvraagSysteem, "Berichten Uitvraag Systeem", $descr="Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel", $tags="", $link="")
+      System(Kafka, "Kafka", $descr="Duurzame event streaming voor bericht-lifecycle events (acks=all, 0 berichtverlies)", $tags="", $link="")
+      System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+    }
+
+}
+
+Person(Burger, "Burger", $descr="Ontvangt berichten en notificaties van overheidsorganisaties", $tags="", $link="")
+System(Interactielaag, "Interactielaag", $descr="Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)", $tags="", $link="")
+System(EmailService, "E-mail Service", $descr="Externe e-maildienst voor het doorsturen van berichten", $tags="", $link="")
+System(OrganisatieA, "Organisatie A", $descr="Deelnemende overheidsorganisatie - host zelf een decentraal magazijn", $tags="", $link="")
+System(OrganisatieB, "Organisatie B", $descr="Deelnemende overheidsorganisatie - neemt een decentraal magazijn af bij BBO", $tags="", $link="")
+Person(OndernemerZakelijkegebruiker, "Ondernemer / Zakelijke gebruiker", $descr="Ontvangt berichten en notificaties van overheidsorganisaties", $tags="", $link="")
+Person(MedewerkerA, "Medewerker A", $descr="Verstuurt berichten namens Organisatie A", $tags="", $link="")
+Person(MedewerkerB, "Medewerker B", $descr="Verstuurt berichten namens Organisatie B", $tags="", $link="")
+Person(Beheerder, "Beheerder", $descr="Monitort en beheert het berichtenstelsel", $tags="", $link="")
+System(AuthZENFTV, "AuthZEN / FTV", $descr="Federatieve Toegangsverlening - autorisatie van verzoeken", $tags="", $link="")
+System(ProfielService, "Profiel Service", $descr="Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)", $tags="", $link="")
+System(NotificatieService, "Notificatie Service", $descr="Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)", $tags="", $link="")
+System(DigitaleBereikbaarheidService, "Digitale Bereikbaarheid Service", $descr="Tonen en muteren toestemming voor digitale communicatie per organisatie", $tags="", $link="")
+
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(MedewerkerA, OrganisatieA, "Verstuurt berichten via", $techn="", $tags="", $link="")
+Rel(MedewerkerB, OrganisatieB, "Verstuurt berichten via", $techn="", $tags="", $link="")
+Rel(Burger, Interactielaag, "Bekijkt berichten, zoekt, organiseert in mappen, stuurt door, verwijdert", $techn="HTTPS (browser/app)", $tags="", $link="")
+Rel(OndernemerZakelijkegebruiker, Interactielaag, "Bekijkt berichten, zoekt, organiseert in mappen, stuurt door, verwijdert", $techn="HTTPS (browser/app)", $tags="", $link="")
+Rel(EmailService, Burger, "Bezorgt doorgestuurde berichten", $techn="E-mail", $tags="", $link="")
+Rel(EmailService, OndernemerZakelijkegebruiker, "Bezorgt doorgestuurde berichten", $techn="E-mail", $tags="", $link="")
+Rel(NotificatieService, Burger, "Notificeert over nieuwe berichten", $techn="E-mail, SMS, app-notificatie", $tags="", $link="")
+Rel(NotificatieService, OndernemerZakelijkegebruiker, "Notificeert over nieuwe berichten", $techn="E-mail, SMS, app-notificatie", $tags="", $link="")
+Rel(Interactielaag, BerichtenUitvraagSysteem, "Berichten ophalen, lijsten, doorsturen", $techn="REST API", $tags="", $link="")
+Rel(Interactielaag, DigitaleBereikbaarheidService, "Toestemming bekijken en wijzigen", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="REST API", $tags="", $link="")
+Rel(Beheerder, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Beheert systeem via", $techn="HTTPS (browser)", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, NotificatieService, "Stuurt bericht-events door", $techn="CloudEvents webhook", $tags="", $link="")
+Rel(NotificatieService, ProfielService, "Haalt contactgegevens en voorkeuren op", $techn="REST API", $tags="", $link="")
+Rel(OrganisatieA, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(OrganisatieB, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml

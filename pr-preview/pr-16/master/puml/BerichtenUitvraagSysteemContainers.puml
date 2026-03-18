@@ -1,0 +1,35 @@
+@startuml
+set separator none
+title Berichten Uitvraag Systeem - Containers
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+
+System(AuthZENFTV, "AuthZEN / FTV", $descr="Federatieve Toegangsverlening - autorisatie van verzoeken", $tags="", $link="")
+System(Interactielaag, "Interactielaag", $descr="Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)", $tags="", $link="")
+System(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Decentraal Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO", $tags="", $link="")
+System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+
+System_Boundary("BerichtenUitvraagSysteem_boundary", "Berichten Uitvraag Systeem", $tags="") {
+  ContainerDb(BerichtenUitvraagSysteem.LokaleLogBuffer, "Lokale Log Buffer", $techn="Disk", $descr="Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)", $tags="", $link="")
+  Container(BerichtenUitvraagSysteem.Berichtensessiecache, "Berichtensessiecache", $techn="Quarkus / Kotlin", $descr="Aggregeert berichten uit alle aangesloten magazijnen voor een burger of onderneming", $tags="", $link="")
+  Container(BerichtenUitvraagSysteem.BerichtenUitvraagAPI, "Berichten Uitvraag API", $techn="Quarkus / Kotlin", $descr="API voor burgers en ondernemers - berichtenbox inzien, berichten beheren, doorsturen", $tags="", $link="")
+  Container(BerichtenUitvraagSysteem.AanmeldService, "Aanmeld Service", $techn="Quarkus / Kotlin", $descr="Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger", $tags="", $link="")
+}
+
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt berichten op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.AanmeldService, BerichtenUitvraagSysteem.Berichtensessiecache, "Werkt cache bij", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichten op uit cache", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache, BerichtenUitvraagSysteem.LokaleLogBuffer, "Buffert applicatie-logberichten lokaal bij uitval logserver", $techn="Disk I/O", $tags="", $link="")
+Rel(Interactielaag, BerichtenUitvraagSysteem.BerichtenUitvraagAPI, "Berichten ophalen, lijsten, doorsturen", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem.AanmeldService, "Meldt nieuw bericht aan", $techn="REST API", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml

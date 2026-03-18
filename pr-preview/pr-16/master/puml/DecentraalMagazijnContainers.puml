@@ -1,0 +1,51 @@
+@startuml
+set separator none
+title Decentraal Berichtenmagazijn (per deelnemende organisatie) - Containers
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+
+Person(Beheerder, "Beheerder", $descr="Monitort en beheert het berichtenstelsel", $tags="", $link="")
+System(NotificatieService, "Notificatie Service", $descr="Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)", $tags="", $link="")
+System(DigitaleBereikbaarheidService, "Digitale Bereikbaarheid Service", $descr="Tonen en muteren toestemming voor digitale communicatie per organisatie", $tags="", $link="")
+System(OrganisatieA, "Organisatie A", $descr="Deelnemende overheidsorganisatie - host zelf een decentraal magazijn", $tags="", $link="")
+System(OrganisatieB, "Organisatie B", $descr="Deelnemende overheidsorganisatie - neemt een decentraal magazijn af bij BBO", $tags="", $link="")
+System(BerichtenUitvraagSysteem, "Berichten Uitvraag Systeem", $descr="Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel", $tags="", $link="")
+System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+
+System_Boundary("DecentraalBerichtenmagazijnperdeelnemendeorganisatie_boundary", "Decentraal Berichtenmagazijn (per deelnemende organisatie)", $tags="") {
+  Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Berichtenmagazijn Ophaal API", $techn="Quarkus / Kotlin", $descr="REST API voor het ophalen van berichten en bijlagen", $tags="", $link="")
+  Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Berichtenmagazijn Opslaan API", $techn="Quarkus / Kotlin", $descr="REST API voor het opslaan van berichten door organisaties", $tags="", $link="")
+  ContainerDb(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.LokaleLogBuffer, "Lokale Log Buffer", $techn="Disk", $descr="Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)", $tags="", $link="")
+  ContainerDb(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PostgreSQL, "PostgreSQL", $techn="PostgreSQL 16", $descr="Berichtmetadata (transactioneel, 0 berichtverlies)", $tags="", $link="")
+  ContainerDb(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.MinIO, "MinIO", $techn="MinIO", $descr="Berichtinhoud en bijlagen", $tags="", $link="")
+  Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, "Admin Dashboard", $techn="Quarkus / Vaadin", $descr="Web-based beheeromgeving voor het magazijn", $tags="", $link="")
+  Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Bericht Validatie Service", $techn="Quarkus / Kotlin", $descr="Valideert berichten op PDF-type, grootte en aantal bijlagen", $tags="", $link="")
+  Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, "Publicatie Stream", $techn="Quarkus / Kotlin", $descr="Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken", $tags="", $link="")
+}
+
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PostgreSQL, "Leest metadata", $techn="JDBC", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.MinIO, "Leest inhoud en bijlagen", $techn="S3 REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PostgreSQL, "Schrijft metadata", $techn="JDBC", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.MinIO, "Slaat inhoud en bijlagen op", $techn="S3 REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Stuurt bericht ter validatie", $techn="REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Beheert berichten", $techn="REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Controleert gezondheid", $techn="HTTP", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, "Stuurt gevalideerd bericht door", $techn="", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Haalt bijlagen op uit berichtenmagazijn", $techn="REST API", $tags="", $link="")
+Rel(Beheerder, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, "Beheert systeem via", $techn="HTTPS (browser)", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, NotificatieService, "Stuurt bericht-events door", $techn="CloudEvents webhook", $tags="", $link="")
+Rel(OrganisatieA, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(OrganisatieB, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml
