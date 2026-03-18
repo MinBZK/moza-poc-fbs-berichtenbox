@@ -2,53 +2,128 @@ name: Architecture Site
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'docs/architecture/**'
+    branches: [main]
+    paths: ['docs/architecture/**']
   pull_request:
-    paths:
-      - 'docs/architecture/**'
+    types: [opened, synchronize, reopened, closed]
+    paths: ['docs/architecture/**']
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Generate static site
+        if: github.event.action != 'closed'
         run: |
           mkdir -p _site
           docker run --rm --user "$(id -u):$(id -g)" \
-            -v ${{ github.workspace }}/docs/architecture:/var/model:ro \
-            -v ${{ github.workspace }}/_site:/var/output \
+            -v "${GITHUB_WORKSPACE}/docs/architecture:/var/model:ro" \
+            -v "${GITHUB_WORKSPACE}/_site:/var/output" \
             ghcr.io/avisi-cloud/structurizr-site-generatr:1.5.2 \
             generate-site -w workspace.dsl --output-dir /var/output
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+      - name: Checkout gh-pages
+        id: gh-pages
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          path: _site
+          ref: gh-pages
+          path: gh-pages
+        continue-on-error: true
 
-  deploy:
-    if: github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+      - name: Initialize gh-pages
+        if: steps.gh-pages.outcome == 'failure'
+        env:
+          REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          mkdir -p gh-pages
+          cd gh-pages
+          git init -b gh-pages
+          git remote add origin "${REPO_URL}"
+
+      - name: Update main site
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          if [ -d gh-pages/pr-preview ]; then
+            mv gh-pages/pr-preview /tmp/pr-preview-backup
+          fi
+          find gh-pages -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
+          cp -r _site/* gh-pages/
+          if [ -d /tmp/pr-preview-backup ]; then
+            mv /tmp/pr-preview-backup gh-pages/pr-preview
+          fi
+
+      - name: Deploy PR preview
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          rm -rf "gh-pages/pr-preview/pr-${PR_NUMBER}"
+          mkdir -p "gh-pages/pr-preview/pr-${PR_NUMBER}"
+          cp -r _site/* "gh-pages/pr-preview/pr-${PR_NUMBER}/"
+
+      - name: Cleanup PR preview
+        if: github.event_name == 'pull_request' && github.event.action == 'closed'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          rm -rf "gh-pages/pr-preview/pr-${PR_NUMBER}"
+
+      - name: Push to gh-pages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "Geen wijzigingen om te deployen"
+            exit 0
+          fi
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            if [ "${EVENT_ACTION}" = "closed" ]; then
+              git commit -m "Cleanup preview PR #${PR_NUMBER}"
+            else
+              git commit -m "Deploy preview PR #${PR_NUMBER}"
+            fi
+          else
+            git commit -m "Deploy main site"
+          fi
+          git push origin gh-pages
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          PREVIEW_URL="https://${REPO_OWNER}.github.io/${REPO_NAME}/pr-preview/pr-${PR_NUMBER}/"
+          COMMENT_BODY="🏗️ **Architecture preview:** ${PREVIEW_URL}"
+
+          EXISTING=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("Architecture preview:"))) | .id' \
+            | head -1)
+
+          if [ -n "$EXISTING" ]; then
+            gh api "repos/${REPO}/issues/comments/${EXISTING}" \
+              -X PATCH -f body="${COMMENT_BODY}"
+          else
+            gh pr comment "${PR_NUMBER}" --body "${COMMENT_BODY}"
+          fi
