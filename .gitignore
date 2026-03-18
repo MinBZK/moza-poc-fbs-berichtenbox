@@ -27,3 +27,4 @@ dist/
 # Dependencies
 node_modules/
 /docs/architecture/workspace.json
+/docs/architecture/.structurizr/
