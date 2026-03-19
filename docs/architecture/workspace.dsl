@@ -3,7 +3,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
     properties {
         "nfr.betrouwbaarheid.berichtverlies" "RPO=0: geen berichtverlies; bij verstoring weigert de circuit breaker schrijfoperaties totdat duurzame persistentie is hersteld"
-        "nfr.betrouwbaarheid.applicatielogging" "Bij onbeschikbaarheid logserver worden applicatie-logberichten lokaal opgeslagen voor maximaal 72 uur"
+
     }
 
     model {
@@ -45,7 +45,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                     magazijnOpslaanResource -> magazijnCircuitBreaker "Schrijfoperaties via"
                     magazijnCircuitBreaker -> magazijnBerichtService "Delegeert naar (als circuit closed)"
                 }
-                magazijnLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Magazijn Database"
                 magazijnDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
 
                 berichtValidatie = container "Bericht Validatie Service" "Valideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service" "Quarkus / Kotlin" "Magazijn Service" {
@@ -77,17 +76,14 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 berichtenUitvraagSysteem = softwareSystem "Berichten Uitvraag Systeem" "Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" "FBS Dienst" {
 
                     // Berichtensessiecache
-                    sessiecacheLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten; filtert berichten op basis van autorisatie via FTV/AuthZEN" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
-                        sessiecacheAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache"
                         sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op"
-                        sessiecacheService -> sessiecacheAppLogger "Logt applicatie-events"
                     }
 
                     // Berichten Uitvraag Service
@@ -107,7 +103,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
                     uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
                     uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
-                    sessiecacheAppLogger -> sessiecacheLogBuffer "Buffert applicatie-logberichten lokaal bij uitval logserver" "Disk I/O"
+
                 }
 
                 // Gedeelde infrastructuur
