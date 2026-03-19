@@ -9,7 +9,7 @@ top to bottom direction
 
 AddBoundaryTag("Federatief Berichtenstelsel (FBS)", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
 Boundary(group_1, "Federatief Berichtenstelsel (FBS)", $tags="Federatief Berichtenstelsel (FBS)") {
-  System(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Decentraal Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO", $tags="", $link="")
+  System(Berichtenmagazijnperdeelnemendeorganisatie, "Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen", $tags="", $link="")
     AddBoundaryTag("Federatief Berichtenstelsel (FBS)/Centraal gehoste services", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
     Boundary(group_2, "Centraal gehoste services", $tags="Federatief Berichtenstelsel (FBS)/Centraal gehoste services") {
       System(BerichtenUitvraagSysteem, "Berichten Uitvraag Systeem", $descr="Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel", $tags="", $link="")
@@ -23,10 +23,10 @@ System(Interactielaag, "Interactielaag", $descr="Portaal of app waarmee burgers 
 
 Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
 Rel(Interactielaag, BerichtenUitvraagSysteem, "Berichten ophalen en lijsten", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 Rel(BerichtenUitvraagSysteem, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
 
 SHOW_LEGEND(true)
 @enduml

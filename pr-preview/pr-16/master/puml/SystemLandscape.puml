@@ -9,19 +9,18 @@ top to bottom direction
 
 AddBoundaryTag("Federatief Berichtenstelsel (FBS)", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
 Boundary(group_1, "Federatief Berichtenstelsel (FBS)", $tags="Federatief Berichtenstelsel (FBS)") {
-  System(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Decentraal Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO", $tags="", $link="")
+  System(Berichtenmagazijnperdeelnemendeorganisatie, "Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen", $tags="", $link="")
     AddBoundaryTag("Federatief Berichtenstelsel (FBS)/Centraal gehoste services", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
     Boundary(group_2, "Centraal gehoste services", $tags="Federatief Berichtenstelsel (FBS)/Centraal gehoste services") {
       System(BerichtenUitvraagSysteem, "Berichten Uitvraag Systeem", $descr="Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel", $tags="", $link="")
-      System(Kafka, "Kafka", $descr="Duurzame event streaming voor bericht-lifecycle events (acks=all, 0 berichtverlies)", $tags="", $link="")
       System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
     }
 
 }
 
 Person(Burger, "Burger", $descr="Ontvangt berichten en notificaties van overheidsorganisaties", $tags="", $link="")
-System(OrganisatieA, "Organisatie A", $descr="Deelnemende overheidsorganisatie - host zelf een decentraal magazijn", $tags="", $link="")
-System(OrganisatieB, "Organisatie B", $descr="Deelnemende overheidsorganisatie - neemt een decentraal magazijn af bij BBO", $tags="", $link="")
+System(OrganisatieA, "Organisatie A", $descr="Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn", $tags="", $link="")
+System(OrganisatieB, "Organisatie B", $descr="Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO", $tags="", $link="")
 Person(OndernemerZakelijkegebruiker, "Ondernemer / Zakelijke gebruiker", $descr="Ontvangt berichten en notificaties van overheidsorganisaties", $tags="", $link="")
 Person(MedewerkerA, "Medewerker A", $descr="Verstuurt berichten namens Organisatie A", $tags="", $link="")
 Person(MedewerkerB, "Medewerker B", $descr="Verstuurt berichten namens Organisatie B", $tags="", $link="")
@@ -40,15 +39,15 @@ Rel(NotificatieService, Burger, "Notificeert over nieuwe berichten", $techn="E-m
 Rel(NotificatieService, OndernemerZakelijkegebruiker, "Notificeert over nieuwe berichten", $techn="E-mail, SMS, app-notificatie", $tags="", $link="")
 Rel(Interactielaag, BerichtenUitvraagSysteem, "Berichten ophalen en lijsten", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 Rel(Interactielaag, DigitaleBereikbaarheidService, "Toestemming bekijken en wijzigen", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, NotificatieService, "Stuurt bericht-events door", $techn="CloudEvents webhook", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, NotificatieService, "Stuurt bericht-events door", $techn="CloudEvents webhook", $tags="", $link="")
 Rel(NotificatieService, ProfielService, "Haalt contactgegevens en voorkeuren op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(OrganisatieA, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(OrganisatieB, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(OrganisatieA, Berichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(OrganisatieB, Berichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 Rel(BerichtenUitvraagSysteem, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
 
 SHOW_LEGEND(true)
 @enduml

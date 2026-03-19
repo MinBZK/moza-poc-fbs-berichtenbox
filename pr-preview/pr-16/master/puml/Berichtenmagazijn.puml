@@ -1,0 +1,36 @@
+@startuml
+set separator none
+title Berichtenmagazijn (per deelnemende organisatie) - System Context
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+
+AddBoundaryTag("Federatief Berichtenstelsel (FBS)", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
+Boundary(group_1, "Federatief Berichtenstelsel (FBS)", $tags="Federatief Berichtenstelsel (FBS)") {
+  System(Berichtenmagazijnperdeelnemendeorganisatie, "Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen", $tags="", $link="")
+    AddBoundaryTag("Federatief Berichtenstelsel (FBS)/Centraal gehoste services", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
+    Boundary(group_2, "Centraal gehoste services", $tags="Federatief Berichtenstelsel (FBS)/Centraal gehoste services") {
+      System(BerichtenUitvraagSysteem, "Berichten Uitvraag Systeem", $descr="Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel", $tags="", $link="")
+      System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+    }
+
+}
+
+System(OrganisatieA, "Organisatie A", $descr="Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn", $tags="", $link="")
+System(OrganisatieB, "Organisatie B", $descr="Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO", $tags="", $link="")
+System(NotificatieService, "Notificatie Service", $descr="Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)", $tags="", $link="")
+System(DigitaleBereikbaarheidService, "Digitale Bereikbaarheid Service", $descr="Tonen en muteren toestemming voor digitale communicatie per organisatie", $tags="", $link="")
+
+Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, NotificatieService, "Stuurt bericht-events door", $techn="CloudEvents webhook", $tags="", $link="")
+Rel(OrganisatieA, Berichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(OrganisatieB, Berichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml
