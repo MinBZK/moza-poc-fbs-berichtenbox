@@ -79,12 +79,10 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten; filtert berichten op basis van autorisatie via FTV/AuthZEN" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar decentrale berichtenmagazijnen" "REST Client"
-                        sessiecacheLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
                         sessiecacheAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache"
                         sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op"
-                        sessiecacheService -> sessiecacheLdvLogger "Logt verwerkingen"
                         sessiecacheService -> sessiecacheAppLogger "Logt applicatie-events"
                     }
 
@@ -155,10 +153,13 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         // Berichtensessiecache -> decentrale magazijnen (alle gelijk behandeld)
         sessiecacheMagazijnClient -> magazijnOphaalApi "Haalt berichten op" "Digikoppeling REST API via FSC"
 
-        // LDV Logboek
-        magazijnOphaalApi -> ldvLogboek "Logt dataverwerkingen" "OTLP"
-        magazijnOpslaanApi -> ldvLogboek "Logt dataverwerkingen" "OTLP"
-        sessiecacheLdvLogger -> ldvLogboek "Logt dataverwerkingen" "OTLP"
+        // LDV Logboek (containers/componenten die persoonsgegevens verwerken)
+        magazijnOphaalApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        uitvraagBerichtenlijst -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        uitvraagOpvraag -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
     }
 
     views {
