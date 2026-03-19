@@ -22,7 +22,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         notificatieService = softwareSystem "Notificatie Service" "Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)" "Extern Systeem"
         digitaleBereikbaarheid = softwareSystem "Digitale Bereikbaarheid Service" "Tonen en muteren toestemming voor digitale communicatie per organisatie" "Extern Systeem"
         interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" "Extern Systeem"
-        emailService = softwareSystem "E-mail Service" "Externe e-maildienst voor het doorsturen van berichten" "Extern Systeem"
+
 
         // Deelnemende organisaties
         orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een decentraal magazijn" "Deelnemer"
@@ -83,7 +83,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                     }
 
                     // Berichten Uitvraag API
-                    uitvraagApi = container "Berichten Uitvraag API" "API voor burgers en ondernemers - berichtenbox inzien, berichten beheren, doorsturen" "Quarkus / Kotlin" "Service" {
+                    uitvraagApi = container "Berichten Uitvraag API" "API voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
                         uitvraagOpvraag = component "Opvraag Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen uit berichtenmagazijn" "CDI Bean"
                     }
@@ -112,15 +112,14 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
 
         // Burger en Ondernemer - interactie via interactielaag
-        burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, stuurt door, verwijdert" "HTTPS (browser/app)"
-        ondernemer -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, stuurt door, verwijdert" "HTTPS (browser/app)"
-        emailService -> burger "Bezorgt doorgestuurde berichten" "E-mail"
-        emailService -> ondernemer "Bezorgt doorgestuurde berichten" "E-mail"
+        burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
+        ondernemer -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
+
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
         // Interactielaag -> Berichten Uitvraag API
-        interactielaag -> uitvraagApi "Berichten ophalen, lijsten, doorsturen" "Digikoppeling REST API via FSC"
+        interactielaag -> uitvraagApi "Berichten ophalen en lijsten" "Digikoppeling REST API via FSC"
 
         // Interactielaag -> Digitale Bereikbaarheid Service
         interactielaag -> digitaleBereikbaarheid "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
