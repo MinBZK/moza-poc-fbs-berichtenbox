@@ -5,8 +5,10 @@ on:
     branches: [main]
     paths: ['docs/architecture/**']
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened]
     paths: ['docs/architecture/**']
+  pull_request_target:
+    types: [closed]
   workflow_dispatch:
 
 permissions:
@@ -67,7 +69,7 @@ jobs:
           fi
 
       - name: Update main site
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           if [ -d gh-pages/pr-preview ]; then
             mv gh-pages/pr-preview /tmp/pr-preview-backup
@@ -88,7 +90,7 @@ jobs:
           cp -r _site/* "gh-pages/pr-preview/pr-${PR_NUMBER}/"
 
       - name: Cleanup PR preview
-        if: github.event_name == 'pull_request' && github.event.action == 'closed'
+        if: github.event_name == 'pull_request_target'
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
@@ -108,12 +110,10 @@ jobs:
             echo "Geen wijzigingen om te deployen"
             exit 0
           fi
-          if [ "${EVENT_NAME}" = "pull_request" ]; then
-            if [ "${EVENT_ACTION}" = "closed" ]; then
-              git commit -m "Cleanup preview PR #${PR_NUMBER}"
-            else
-              git commit -m "Deploy preview PR #${PR_NUMBER}"
-            fi
+          if [ "${EVENT_NAME}" = "pull_request_target" ]; then
+            git commit -m "Cleanup preview PR #${PR_NUMBER}"
+          elif [ "${EVENT_NAME}" = "pull_request" ]; then
+            git commit -m "Deploy preview PR #${PR_NUMBER}"
           else
             git commit -m "Deploy main site"
           fi
