@@ -24,9 +24,9 @@ System(AuthZENFTV, "AuthZEN / FTV", $descr="Federatieve Toegangsverlening - auto
 Rel(BerichtenUitvraagSysteem, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
 Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
-Rel(Interactielaag, BerichtenUitvraagSysteem, "Berichten ophalen, lijsten, doorsturen", $techn="REST API", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="REST API", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="REST API", $tags="", $link="")
+Rel(Interactielaag, BerichtenUitvraagSysteem, "Berichten ophalen, lijsten, doorsturen", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 
 SHOW_LEGEND(true)
 @enduml

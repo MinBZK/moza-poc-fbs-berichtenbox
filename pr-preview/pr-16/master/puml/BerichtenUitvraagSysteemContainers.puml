@@ -24,12 +24,12 @@ Rel(BerichtenUitvraagSysteem.Berichtensessiecache, AuthZENFTV, "Filtert berichte
 Rel(BerichtenUitvraagSysteem.Berichtensessiecache, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt berichten op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
 Rel(BerichtenUitvraagSysteem.Berichtensessiecache, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.AanmeldService, BerichtenUitvraagSysteem.Berichtensessiecache, "Werkt cache bij", $techn="REST API", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichten op uit cache", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.AanmeldService, BerichtenUitvraagSysteem.Berichtensessiecache, "Werkt cache bij", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichten op uit cache", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 Rel(BerichtenUitvraagSysteem.Berichtensessiecache, BerichtenUitvraagSysteem.LokaleLogBuffer, "Buffert applicatie-logberichten lokaal bij uitval logserver", $techn="Disk I/O", $tags="", $link="")
-Rel(Interactielaag, BerichtenUitvraagSysteem.BerichtenUitvraagAPI, "Berichten ophalen, lijsten, doorsturen", $techn="REST API", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="REST API", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem.AanmeldService, "Meldt nieuw bericht aan", $techn="REST API", $tags="", $link="")
+Rel(Interactielaag, BerichtenUitvraagSysteem.BerichtenUitvraagAPI, "Berichten ophalen, lijsten, doorsturen", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem.AanmeldService, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 
 SHOW_LEGEND(true)
 @enduml

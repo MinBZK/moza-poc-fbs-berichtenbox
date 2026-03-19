@@ -1,0 +1,27 @@
+@startuml
+set separator none
+title Decentraal Berichtenmagazijn (per deelnemende organisatie) - Bericht Validatie Service - Components
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+!include <C4/C4_Component>
+
+System(DigitaleBereikbaarheidService, "Digitale Bereikbaarheid Service", $descr="Tonen en muteren toestemming voor digitale communicatie per organisatie", $tags="", $link="")
+Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Berichtenmagazijn Opslaan API", $techn="Quarkus / Kotlin", $descr="REST API voor het opslaan van berichten door organisaties", $tags="", $link="")
+
+Container_Boundary("DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService_boundary", "Bericht Validatie Service", $tags="") {
+  Component(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, "Validatie API", $techn="JAX-RS Resource", $descr="REST endpoint voor berichtvalidatie", $tags="", $link="")
+  Component(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie, "Technische Validatie", $techn="CDI Bean", $descr="Valideert PDF-type, grootte en aantal bijlagen", $tags="", $link="")
+  Component(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle, "Toestemming Controle", $techn="CDI Bean", $descr="Controleert of de ontvanger toestemming gegeven heeft voor digitale communicatie", $tags="", $link="")
+}
+
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie, "Valideert technische eisen", $techn="", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle, "Controleert toestemming", $techn="", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, "Stuurt bericht ter validatie", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml

@@ -9,7 +9,6 @@ top to bottom direction
 !include <C4/C4_Container>
 !include <C4/C4_Component>
 
-Person(Beheerder, "Beheerder", $descr="Monitort en beheert het berichtenstelsel", $tags="", $link="")
 Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Berichtenmagazijn Ophaal API", $techn="Quarkus / Kotlin", $descr="REST API voor het ophalen van berichten en bijlagen", $tags="", $link="")
 Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Berichtenmagazijn Opslaan API", $techn="Quarkus / Kotlin", $descr="REST API voor het opslaan van berichten door organisaties", $tags="", $link="")
 System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
@@ -29,10 +28,9 @@ Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.VaadinVi
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.VaadinViews, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.ServiceHealthChecker, "Toont status van", $techn="", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.DashboardDataService, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.LDVLogger, "Logt verwerkingen", $techn="", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.DashboardDataService, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.ApplicatieLogger, "Logt applicatie-events", $techn="", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.DashboardDataService, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Beheert berichten", $techn="REST API", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.DashboardDataService, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Beheert berichten", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.ServiceHealthChecker, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Controleert gezondheid", $techn="HTTP", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.ServiceHealthChecker, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Controleert gezondheid", $techn="HTTP", $tags="", $link="")
-Rel(Beheerder, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard.VaadinViews, "Beheert systeem via", $techn="HTTPS (browser)", $tags="", $link="")
 
 SHOW_LEGEND(true)
 @enduml

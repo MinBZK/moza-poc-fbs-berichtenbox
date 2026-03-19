@@ -18,9 +18,9 @@ Container_Boundary("BerichtenUitvraagSysteem.BerichtenUitvraagAPI_boundary", "Be
 }
 
 Rel(BerichtenUitvraagSysteem.Berichtensessiecache, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt berichten op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.OpvraagService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichten op uit cache", $techn="REST API", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.BerichtenlijstService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichtenlijst op", $techn="REST API", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.OpvraagService, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.OpvraagService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichten op uit cache", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.BerichtenlijstService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichtenlijst op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagAPI.OpvraagService, DecentraalBerichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 
 SHOW_LEGEND(true)
 @enduml
