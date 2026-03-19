@@ -1,0 +1,34 @@
+@startuml
+set separator none
+title Berichtenmagazijn (per deelnemende organisatie) - Berichtenmagazijn Opslaan API - Components
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+!include <C4/C4_Component>
+
+ContainerDb(Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Dataopslag", $techn="Naar keuze implementatie", $descr="Berichtmetadata, inhoud en bijlagen (0 berichtverlies)", $tags="", $link="")
+Container(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Bericht Validatie Service", $techn="Quarkus / Kotlin", $descr="Valideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service", $tags="", $link="")
+Container(Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, "Publicatie Stream", $techn="Quarkus / Kotlin", $descr="Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)", $tags="", $link="")
+System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+
+Container_Boundary("Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI_boundary", "Berichtenmagazijn Opslaan API", $tags="") {
+  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI, "Opslaan REST API", $techn="JAX-RS Resource", $descr="REST endpoints voor het aanleveren van berichten en bijlagen", $tags="", $link="")
+  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker, "CircuitBreaker", $techn="MicroProfile Fault Tolerance", $descr="Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)", $tags="", $link="")
+  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, "BerichtService", $techn="CDI Bean", $descr="Berichtlevenscyclus: valideren, opslaan en aanmelden", $tags="", $link="")
+}
+
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI, Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker, "Schrijfoperaties via", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker, Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, "Delegeert naar (als circuit closed)", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Schrijft berichten en bijlagen", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Stuurt bericht ter validatie", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, "Stuurt gevalideerd bericht door", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml

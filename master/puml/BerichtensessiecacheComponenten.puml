@@ -1,0 +1,31 @@
+@startuml
+set separator none
+title Berichten Uitvraag Systeem - Berichtensessiecache - Components
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Component>
+
+System(AuthZENFTV, "AuthZEN / FTV", $descr="Federatieve Toegangsverlening - autorisatie van verzoeken", $tags="", $link="")
+System(Berichtenmagazijnperdeelnemendeorganisatie, "Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen", $tags="", $link="")
+System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+
+Container_Boundary("BerichtenUitvraagSysteem.Berichtensessiecache_boundary", "Berichtensessiecache", $tags="") {
+  Component(BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI, "Berichtensessiecache API", $techn="JAX-RS Resource", $descr="REST endpoints voor berichtensessiecache en zoeken", $tags="", $link="")
+  Component(BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService, "BerichtensessiecacheService", $techn="CDI Bean", $descr="Aggregeert en cachet berichten; filtert berichten op basis van autorisatie via FTV/AuthZEN", $tags="", $link="")
+  Component(BerichtenUitvraagSysteem.Berichtensessiecache.Cache, "Cache", $techn="Redis / RediSearch", $descr="Cache voor berichten met full-text zoekindex (60s TTL)", $tags="", $link="")
+  Component(BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient, "MagazijnClient", $techn="REST Client", $descr="REST client naar berichtenmagazijnen", $tags="", $link="")
+}
+
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI, BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService, "Gebruikt", $techn="", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService, BerichtenUitvraagSysteem.Berichtensessiecache.Cache, "Leest/schrijft cache", $techn="", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService, BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient, "Haalt berichten op", $techn="", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt berichten op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml

@@ -1,0 +1,36 @@
+@startuml
+set separator none
+title Berichten Uitvraag Systeem - Berichten Uitvraag Service - Components
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+!include <C4/C4_Component>
+
+System(Interactielaag, "Interactielaag", $descr="Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)", $tags="", $link="")
+System(Berichtenmagazijnperdeelnemendeorganisatie, "Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen", $tags="", $link="")
+Container(BerichtenUitvraagSysteem.Berichtensessiecache, "Berichtensessiecache", $techn="Quarkus / Kotlin", $descr="Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker", $tags="", $link="")
+System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+
+Container_Boundary("BerichtenUitvraagSysteem.BerichtenUitvraagService_boundary", "Berichten Uitvraag Service", $tags="") {
+  Component(BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI, "Berichten Uitvraag API", $techn="JAX-RS Resource", $descr="REST endpoints voor berichtenbox, mappen en berichten", $tags="", $link="")
+  Component(BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService, "Berichtenlijst Service", $techn="CDI Bean", $descr="Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten", $tags="", $link="")
+  Component(BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService, "Opvraag Service", $techn="CDI Bean", $descr="Haal berichten en bijlagen op; berichten uit cache, bijlagen uit berichtenmagazijn", $tags="", $link="")
+}
+
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI, BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService, "Berichtenlijst en mappenbeheer", $techn="", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI, BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService, "Berichten en bijlagen ophalen", $techn="", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichten op uit cache", $techn="REST API (intern)", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichtenlijst op", $techn="REST API (intern)", $tags="", $link="")
+Rel(Interactielaag, BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI, "Berichten ophalen en lijsten", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem.Berichtensessiecache, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt berichten op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml

@@ -1,0 +1,30 @@
+@startuml
+set separator none
+title Berichtenmagazijn (per deelnemende organisatie) - Bericht Validatie Service - Components
+
+top to bottom direction
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+!include <C4/C4_Component>
+
+System(DigitaleBereikbaarheidService, "Digitale Bereikbaarheid Service", $descr="Tonen en muteren toestemming voor digitale communicatie per organisatie", $tags="", $link="")
+Container(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Berichtenmagazijn Opslaan API", $techn="Quarkus / Kotlin", $descr="REST API voor het opslaan van berichten door organisaties", $tags="", $link="")
+System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+
+Container_Boundary("Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService_boundary", "Bericht Validatie Service", $tags="") {
+  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, "Validatie API", $techn="JAX-RS Resource", $descr="REST endpoint voor berichtvalidatie", $tags="", $link="")
+  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie, "Technische Validatie", $techn="CDI Bean", $descr="Valideert PDF-type, grootte en aantal bijlagen", $tags="", $link="")
+  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle, "Toestemming Controle", $techn="CDI Bean", $descr="Controleert of de ontvanger toestemming gegeven heeft voor digitale communicatie", $tags="", $link="")
+}
+
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie, "Valideert technische eisen", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle, "Controleert toestemming", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI, "Stuurt bericht ter validatie", $techn="", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+
+SHOW_LEGEND(true)
+@enduml
