@@ -25,14 +25,17 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
 
         // Deelnemende organisaties
-        orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een decentraal magazijn" "Deelnemer"
-        orgB = softwareSystem "Organisatie B" "Deelnemende overheidsorganisatie - neemt een decentraal magazijn af bij BBO" "Deelnemer"
+        orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn" "Deelnemer"
+        orgB = softwareSystem "Organisatie B" "Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" "Deelnemer"
 
         // Het Federatief Berichtenstelsel
         group "Federatief Berichtenstelsel (FBS)" {
 
-            // Decentraal Berichtenmagazijn - functioneel identiek, kan zelf gehost of bij BBO afgenomen worden
-            decentraalMagazijn = softwareSystem "Decentraal Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO" "Magazijn" {
+            // Berichtenmagazijn - kan zelf gehost of bij BBO afgenomen worden
+            decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan en ophalen" "Magazijn" {
+                properties {
+                    "deployment.model" "Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO"
+                }
                 magazijnOphaalApi = container "Berichtenmagazijn Ophaal API" "REST API voor het ophalen van berichten en bijlagen" "Quarkus / Kotlin" "Magazijn Service"
                 magazijnOpslaanApi = container "Berichtenmagazijn Opslaan API" "REST API voor het opslaan van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
                     magazijnOpslaanResource = component "Opslaan REST API" "REST endpoints voor het aanleveren van berichten en bijlagen" "JAX-RS Resource" "Magazijn Component"
@@ -79,7 +82,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten; filtert berichten op basis van autorisatie via FTV/AuthZEN" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
-                        sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar decentrale berichtenmagazijnen" "REST Client"
+                        sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache"
@@ -128,7 +131,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         // Interactielaag -> Digitale Bereikbaarheid Service
         interactielaag -> digitaleBereikbaarheid "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
 
-        // Opvraag Service -> Decentraal Magazijn (voor bijlagen)
+        // Opvraag Service -> Berichtenmagazijn (voor bijlagen)
         uitvraagOpvraag -> magazijnOphaalApi "Haalt bijlagen op uit berichtenmagazijn" "Digikoppeling REST API via FSC"
 
         // Publicatie Stream meldt nieuwe berichten aan bij het uitvraag systeem
@@ -140,7 +143,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         // Notificatie Service (extern) haalt contactgegevens op
         notificatieService -> profielService "Haalt contactgegevens en voorkeuren op" "Digikoppeling REST API via FSC"
 
-        // Organisaties leveren berichten aan bij hun decentraal magazijn
+        // Organisaties leveren berichten aan bij hun berichtenmagazijn
         orgA -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
         orgB -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
 
@@ -150,7 +153,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         // Autorisatie (component-niveau)
         sessiecacheService -> authzen "Filtert berichten op autorisatie" "AuthZEN REST API"
 
-        // Berichtensessiecache -> decentrale magazijnen (alle gelijk behandeld)
+        // Berichtensessiecache -> berichtenmagazijnen (alle gelijk behandeld)
         sessiecacheMagazijnClient -> magazijnOphaalApi "Haalt berichten op" "Digikoppeling REST API via FSC"
 
         // LDV Logboek (containers/componenten die persoonsgegevens verwerken)
@@ -173,7 +176,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        systemContext decentraalMagazijn "DecentraalMagazijn" "Context van het Decentraal Berichtenmagazijn" {
+        systemContext decentraalMagazijn "Berichtenmagazijn" "Context van het Berichtenmagazijn" {
             include *
             autoLayout
         }
@@ -183,7 +186,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        container decentraalMagazijn "DecentraalMagazijnContainers" "Containers binnen het Decentraal Berichtenmagazijn" {
+        container decentraalMagazijn "BerichtenmagazijnContainers" "Containers binnen het Berichtenmagazijn" {
             include *
             autoLayout
         }
