@@ -90,10 +90,14 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         sessiecacheService -> sessiecacheAppLogger "Logt applicatie-events"
                     }
 
-                    // Berichten Uitvraag API
-                    uitvraagApi = container "Berichten Uitvraag API" "API voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
+                    // Berichten Uitvraag Service
+                    uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
+                        uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
                         uitvraagOpvraag = component "Opvraag Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen uit berichtenmagazijn" "CDI Bean"
+
+                        uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst en mappenbeheer"
+                        uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
                     }
 
                     // Aanmeld Service
@@ -126,7 +130,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
         // Interactielaag -> Berichten Uitvraag API
-        interactielaag -> uitvraagApi "Berichten ophalen en lijsten" "Digikoppeling REST API via FSC"
+        interactielaag -> uitvraagResource "Berichten ophalen en lijsten" "Digikoppeling REST API via FSC"
 
         // Interactielaag -> Digitale Bereikbaarheid Service
         interactielaag -> digitaleBereikbaarheid "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
@@ -196,7 +200,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        component uitvraagApi "BerichtenUitvraagAPIComponenten" "Componenten binnen de Berichten Uitvraag API" {
+        component uitvraagApi "BerichtenUitvraagServiceComponenten" "Componenten binnen de Berichten Uitvraag Service" {
             include *
             autoLayout
         }
