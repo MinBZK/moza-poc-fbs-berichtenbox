@@ -58,6 +58,14 @@ jobs:
             ghcr.io/avisi-cloud/structurizr-site-generatr:1.5.2 \
             generate-site -w workspace.dsl --output-dir /var/output
 
+      - name: Validate generated site
+        if: github.event.action != 'closed'
+        run: |
+          if [ ! -d _site ] || [ -z "$(ls -A _site)" ]; then
+            echo "::error::Site generation produced no output in _site/"
+            exit 1
+          fi
+
       - name: Update main site
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
