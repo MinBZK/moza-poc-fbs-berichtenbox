@@ -104,7 +104,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 }
 
                 // Gedeelde infrastructuur
-                kafka = softwareSystem "Kafka" "Duurzame event streaming voor bericht-lifecycle events (acks=all, 0 berichtverlies)" "Infrastructuur"
                 ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
             }
         }
