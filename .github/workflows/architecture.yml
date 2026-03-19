@@ -117,7 +117,13 @@ jobs:
           else
             git commit -m "Deploy main site"
           fi
-          git push origin gh-pages
+          for attempt in 1 2 3; do
+            if git push origin gh-pages; then
+              break
+            fi
+            echo "Push failed (attempt ${attempt}/3), rebasing..."
+            git pull --rebase origin gh-pages
+          done
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && github.event.action != 'closed'
