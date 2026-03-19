@@ -8,7 +8,6 @@ top to bottom direction
 !include <C4/C4_Context>
 !include <C4/C4_Container>
 
-Person(Magazijnbeheerder, "Magazijnbeheerder", $descr="Monitort en beheert een decentraal berichtenmagazijn", $tags="", $link="")
 System(NotificatieService, "Notificatie Service", $descr="Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)", $tags="", $link="")
 System(DigitaleBereikbaarheidService, "Digitale Bereikbaarheid Service", $descr="Tonen en muteren toestemming voor digitale communicatie per organisatie", $tags="", $link="")
 System(OrganisatieA, "Organisatie A", $descr="Deelnemende overheidsorganisatie - host zelf een decentraal magazijn", $tags="", $link="")
@@ -20,29 +19,25 @@ System_Boundary("DecentraalBerichtenmagazijnperdeelnemendeorganisatie_boundary",
   Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Berichtenmagazijn Ophaal API", $techn="Quarkus / Kotlin", $descr="REST API voor het ophalen van berichten en bijlagen", $tags="", $link="")
   Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Berichtenmagazijn Opslaan API", $techn="Quarkus / Kotlin", $descr="REST API voor het opslaan van berichten door organisaties", $tags="", $link="")
   ContainerDb(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.LokaleLogBuffer, "Lokale Log Buffer", $techn="Disk", $descr="Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)", $tags="", $link="")
-  ContainerDb(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Dataopslag", $techn="", $descr="Berichtmetadata, inhoud en bijlagen (0 berichtverlies)", $tags="", $link="")
-  Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, "Admin Dashboard", $techn="Quarkus / Vaadin", $descr="Web-based beheeromgeving voor het magazijn", $tags="", $link="")
+  ContainerDb(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Dataopslag", $techn="Naar keuze implementatie", $descr="Berichtmetadata, inhoud en bijlagen (0 berichtverlies)", $tags="", $link="")
   Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Bericht Validatie Service", $techn="Quarkus / Kotlin", $descr="Valideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service", $tags="", $link="")
   Container(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, "Publicatie Stream", $techn="Quarkus / Kotlin", $descr="Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken", $tags="", $link="")
 }
 
-Rel(OrganisatieB, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, LDVLogboek, "Logt dataverwerkingen", $techn="OTLP", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Leest berichten en bijlagen", $techn="", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Schrijft berichten en bijlagen", $techn="", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Stuurt bericht ter validatie", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Beheert berichten", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Controleert gezondheid", $techn="HTTP", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Stuurt bericht ter validatie", $techn="", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, "Stuurt gevalideerd bericht door", $techn="", $tags="", $link="")
 Rel(BerichtenUitvraagSysteem, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(Magazijnbeheerder, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.AdminDashboard, "Beheert magazijn via", $techn="HTTPS (browser)", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
 Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, NotificatieService, "Stuurt bericht-events door", $techn="CloudEvents webhook", $tags="", $link="")
 Rel(OrganisatieA, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(OrganisatieB, DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
+Rel(DecentraalBerichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
 
 SHOW_LEGEND(true)
 @enduml
