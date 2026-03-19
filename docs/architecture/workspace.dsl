@@ -16,8 +16,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         ondernemer = person "Ondernemer / Zakelijke gebruiker" "Ontvangt berichten en notificaties van overheidsorganisaties"
         medewerkerA = person "Medewerker A" "Verstuurt berichten namens Organisatie A"
         medewerkerB = person "Medewerker B" "Verstuurt berichten namens Organisatie B"
-        beheerder = person "Magazijnbeheerder" "Monitort en beheert een decentraal berichtenmagazijn"
-
         // Externe systemen
         authzen = softwareSystem "AuthZEN / FTV" "Federatieve Toegangsverlening - autorisatie van verzoeken" "Extern Systeem"
         profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" "Extern Systeem"
@@ -47,19 +45,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 dmLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Magazijn Database"
                 dmDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "" "Magazijn Database"
 
-                adApp = container "Admin Dashboard" "Web-based beheeromgeving voor het magazijn" "Quarkus / Vaadin" "Magazijn Service" {
-                    adViews = component "Vaadin Views" "Dashboard, Berichten, Systeemstatus en LDV Audit Log views" "Vaadin" "Magazijn Component"
-                    adDataService = component "DashboardDataService" "Haalt berichtdata op via interne services" "CDI Bean" "Magazijn Component"
-                    adHealthChecker = component "ServiceHealthChecker" "Controleert beschikbaarheid van magazijndiensten" "HTTP Client" "Magazijn Component"
-                    adLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry" "Magazijn Component"
-                    adAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback" "Magazijn Component"
-
-                    adViews -> adDataService "Toont data van"
-                    adViews -> adHealthChecker "Toont status van"
-                    adDataService -> adLdvLogger "Logt verwerkingen"
-                    adDataService -> adAppLogger "Logt applicatie-events"
-                }
-
                 berichtValidatie = container "Bericht Validatie Service" "Valideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service" "Quarkus / Kotlin" "Magazijn Service" {
                     bvApi = component "Validatie API" "REST endpoint voor berichtvalidatie" "JAX-RS Resource" "Magazijn Component"
                     bvTechnisch = component "Technische Validatie" "Valideert PDF-type, grootte en aantal bijlagen" "CDI Bean" "Magazijn Component"
@@ -73,9 +58,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 dmOphaalApi -> dmDatastore "Leest berichten en bijlagen"
                 dmBerichtSvc -> dmDatastore "Schrijft berichten en bijlagen"
                 dmBerichtSvc -> bvApi "Stuurt bericht ter validatie"
-                adDataService -> dmOphaalApi "Beheert berichten" "Digikoppeling REST API via FSC"
-                adHealthChecker -> dmOphaalApi "Controleert gezondheid" "HTTP"
-                adHealthChecker -> dmOpslaanApi "Controleert gezondheid" "HTTP"
                 dmBerichtSvc -> publicatieStream "Stuurt gevalideerd bericht door"
             }
 
@@ -110,9 +92,9 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
                     // Interne relaties
-                    aanmeldService -> blApp "Werkt cache bij" "Digikoppeling REST API via FSC"
-                    buOpvraag -> blApp "Haalt berichten op uit cache" "Digikoppeling REST API via FSC"
-                    buBerichtenlijst -> blApp "Haalt berichtenlijst op" "Digikoppeling REST API via FSC"
+                    aanmeldService -> blApp "Werkt cache bij" "REST API (intern)"
+                    buOpvraag -> blApp "Haalt berichten op uit cache" "REST API (intern)"
+                    buBerichtenlijst -> blApp "Haalt berichtenlijst op" "REST API (intern)"
                     blAppLogger -> blLogBuffer "Buffert applicatie-logberichten lokaal bij uitval logserver" "Disk I/O"
                 }
 
@@ -146,9 +128,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         // Opvraag Service -> Decentraal Magazijn (voor bijlagen)
         buOpvraag -> dmOphaalApi "Haalt bijlagen op uit berichtenmagazijn" "Digikoppeling REST API via FSC"
 
-        // Beheerder
-        beheerder -> adApp "Beheert magazijn via" "HTTPS (browser)"
-
         // Publicatie Stream meldt nieuwe berichten aan bij het uitvraag systeem
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
 
@@ -175,7 +154,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         dmOphaalApi -> ldvLogboek "Logt dataverwerkingen" "OTLP"
         dmOpslaanApi -> ldvLogboek "Logt dataverwerkingen" "OTLP"
         blLdvLogger -> ldvLogboek "Logt dataverwerkingen" "OTLP"
-        adLdvLogger -> ldvLogboek "Logt dataverwerkingen" "OTLP"
     }
 
     views {
@@ -225,11 +203,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         }
 
         component berichtValidatie "BerichtValidatieComponenten" "Componenten binnen de Bericht Validatie Service" {
-            include *
-            autoLayout
-        }
-
-        component adApp "AdminDashboardComponenten" "Componenten binnen het Admin Dashboard" {
             include *
             autoLayout
         }
