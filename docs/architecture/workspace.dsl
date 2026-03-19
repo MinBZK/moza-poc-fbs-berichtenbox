@@ -53,7 +53,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                     validatieApi -> validatieTechnisch "Valideert technische eisen"
                     validatieApi -> validatieToestemming "Controleert toestemming"
                 }
-                publicatieStream = container "Publicatie Stream" "Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken" "Quarkus / Kotlin" "Magazijn Service" {
+                publicatieStream = container "Publicatie Stream" "Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" "Quarkus / Kotlin" "Magazijn Service" {
                     properties {
                         "cloudevents.profiel" "NL GOV profiel CloudEvents v1.1"
                         "cloudevents.source" "urn:nld:fbs:magazijn:{organisatie-oin}"
@@ -65,6 +65,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 magazijnBerichtService -> magazijnDatastore "Schrijft berichten en bijlagen"
                 magazijnBerichtService -> validatieApi "Stuurt bericht ter validatie"
                 magazijnBerichtService -> publicatieStream "Stuurt gevalideerd bericht door"
+                publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
             }
 
             group "Centraal gehoste services" {
