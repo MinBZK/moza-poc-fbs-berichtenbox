@@ -43,7 +43,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                     magazijnCircuitBreaker -> magazijnBerichtService "Delegeert naar (als circuit closed)"
                 }
                 magazijnLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Magazijn Database"
-                magazijnDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "" "Magazijn Database"
+                magazijnDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
 
                 berichtValidatie = container "Bericht Validatie Service" "Valideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service" "Quarkus / Kotlin" "Magazijn Service" {
                     validatieApi = component "Validatie API" "REST endpoint voor berichtvalidatie" "JAX-RS Resource" "Magazijn Component"
