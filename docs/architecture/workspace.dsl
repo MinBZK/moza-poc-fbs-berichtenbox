@@ -3,7 +3,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
     properties {
         "nfr.betrouwbaarheid.berichtverlies" "RPO=0: geen berichtverlies; bij verstoring weigert de circuit breaker schrijfoperaties totdat duurzame persistentie is hersteld"
-
     }
 
     model {
@@ -11,27 +10,22 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             "structurizr.groupSeparator" "/"
         }
 
-        // Personen
         burger = person "Burger" "Ontvangt berichten en notificaties van overheidsorganisaties"
         ondernemer = person "Ondernemer / Zakelijke gebruiker" "Ontvangt berichten en notificaties van overheidsorganisaties"
         medewerkerA = person "Medewerker A" "Verstuurt berichten namens Organisatie A"
         medewerkerB = person "Medewerker B" "Verstuurt berichten namens Organisatie B"
-        // Externe systemen
+
         authzen = softwareSystem "AuthZEN / FTV" "Federatieve Toegangsverlening - autorisatie van verzoeken" "Extern Systeem"
         profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" "Extern Systeem"
         notificatieService = softwareSystem "Notificatie Service" "Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)" "Extern Systeem"
         digitaleBereikbaarheid = softwareSystem "Digitale Bereikbaarheid Service" "Tonen en muteren toestemming voor digitale communicatie per organisatie" "Extern Systeem"
         interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" "Extern Systeem"
 
-
-        // Deelnemende organisaties
         orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn" "Deelnemer"
         orgB = softwareSystem "Organisatie B" "Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" "Deelnemer"
 
-        // Het Federatief Berichtenstelsel
         group "Federatief Berichtenstelsel (FBS)" {
 
-            // Berichtenmagazijn - kan zelf gehost of bij BBO afgenomen worden
             decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan en ophalen" "Magazijn" {
                 properties {
                     "deployment.model" "Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO"
@@ -72,10 +66,8 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
             group "Centraal gehoste services" {
 
-                // Berichten Uitvraag Systeem
                 berichtenUitvraagSysteem = softwareSystem "Berichten Uitvraag Systeem" "Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" "FBS Dienst" {
 
-                    // Berichtensessiecache
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten; filtert berichten op basis van autorisatie via FTV/AuthZEN" "CDI Bean"
@@ -86,7 +78,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op"
                     }
 
-                    // Berichten Uitvraag Service
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
@@ -96,67 +87,45 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
                     }
 
-                    // Aanmeld Service
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
-                    // Interne relaties
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
                     uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
                     uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
-
                 }
 
-                // Gedeelde infrastructuur
                 ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
             }
         }
 
-        // === Landscape relaties ===
-
-        // Medewerkers -> hun organisatie
         medewerkerA -> orgA "Verstuurt berichten via"
         medewerkerB -> orgB "Verstuurt berichten via"
 
-
-        // Burger en Ondernemer - interactie via interactielaag
         burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
         ondernemer -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
 
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        // Interactielaag -> Berichten Uitvraag API
         interactielaag -> uitvraagResource "Berichten ophalen en lijsten" "Digikoppeling REST API via FSC"
-
-        // Interactielaag -> Digitale Bereikbaarheid Service
         interactielaag -> digitaleBereikbaarheid "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
 
-        // Opvraag Service -> Berichtenmagazijn (voor bijlagen)
         uitvraagOpvraag -> magazijnOphaalApi "Haalt bijlagen op uit berichtenmagazijn" "Digikoppeling REST API via FSC"
 
-        // Publicatie Stream meldt nieuwe berichten aan bij het uitvraag systeem
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
-
-        // Publicatie Stream notificeert externe Notificatie Service
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
 
-        // Notificatie Service (extern) haalt contactgegevens op
         notificatieService -> profielService "Haalt contactgegevens en voorkeuren op" "Digikoppeling REST API via FSC"
 
-        // Organisaties leveren berichten aan bij hun berichtenmagazijn
         orgA -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
         orgB -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
 
-        // Bericht Validatie Service -> Digitale Bereikbaarheid Service
         validatieToestemming -> digitaleBereikbaarheid "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
-        // Autorisatie (component-niveau)
         sessiecacheService -> authzen "Filtert berichten op autorisatie" "AuthZEN REST API"
 
-        // Berichtensessiecache -> berichtenmagazijnen (alle gelijk behandeld)
         sessiecacheMagazijnClient -> magazijnOphaalApi "Haalt berichten op" "Digikoppeling REST API via FSC"
 
-        // LDV Logboek (containers/componenten die persoonsgegevens verwerken)
         magazijnOphaalApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
