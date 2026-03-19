@@ -120,6 +120,7 @@ jobs:
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
+          set -euo pipefail
           PREVIEW_URL="https://${REPO_OWNER}.github.io/${REPO_NAME}/pr-preview/pr-${PR_NUMBER}/"
           COMMENT_BODY="🏗️ **Architecture preview:** ${PREVIEW_URL}"
 
