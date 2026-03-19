@@ -24,6 +24,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Initialize gh-pages
+        id: init-gh-pages
+        env:
+          REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            echo "gh-pages branch exists"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gh-pages branch does not exist, initializing"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            mkdir -p gh-pages
+            cd gh-pages
+            git init -b gh-pages
+            git remote add origin "${REPO_URL}"
+          fi
+
+      - name: Checkout gh-pages
+        if: steps.init-gh-pages.outputs.exists == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: gh-pages
+          path: gh-pages
+
       - name: Generate static site
         if: github.event.action != 'closed'
         run: |
@@ -33,24 +57,6 @@ jobs:
             -v "${GITHUB_WORKSPACE}/_site:/var/output" \
             ghcr.io/avisi-cloud/structurizr-site-generatr:1.5.2 \
             generate-site -w workspace.dsl --output-dir /var/output
-
-      - name: Checkout gh-pages
-        id: gh-pages
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: gh-pages
-          path: gh-pages
-        continue-on-error: true
-
-      - name: Initialize gh-pages
-        if: steps.gh-pages.outcome == 'failure'
-        env:
-          REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
-        run: |
-          mkdir -p gh-pages
-          cd gh-pages
-          git init -b gh-pages
-          git remote add origin "${REPO_URL}"
 
       - name: Update main site
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
