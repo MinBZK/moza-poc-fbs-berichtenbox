@@ -52,7 +52,7 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(statuses["$key:status"])
     }
 
-    override fun search(ontvanger: String?, q: String, page: Int, pageSize: Int): Uni<BerichtenPage> {
+    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int): Uni<BerichtenPage> {
         val key = BerichtenCache.cacheKey(ontvanger)
         val berichten = lists["$key:list"] ?: emptyList()
         val gefilterd = berichten.filter {

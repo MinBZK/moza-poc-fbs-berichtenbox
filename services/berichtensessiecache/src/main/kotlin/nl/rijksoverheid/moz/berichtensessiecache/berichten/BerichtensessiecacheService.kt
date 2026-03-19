@@ -11,14 +11,14 @@ class BerichtensessiecacheService(
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
-    fun getBerichten(page: Int, pageSize: Int, ontvanger: String?, afzender: String?): Uni<BerichtenPage> {
+    fun getBerichten(page: Int, pageSize: Int, ontvanger: String, afzender: String?): Uni<BerichtenPage> {
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d, ontvanger=%s", page, pageSize, ontvanger)
         val key = BerichtenCache.cacheKey(ontvanger)
         return berichtenCache.getPage(key, page, pageSize)
             .map { it ?: BerichtenPage(emptyList(), page, pageSize, 0L, 0) }
     }
 
-    fun getAggregationStatus(ontvanger: String?): Uni<AggregationStatus?> {
+    fun getAggregationStatus(ontvanger: String): Uni<AggregationStatus?> {
         val key = BerichtenCache.cacheKey(ontvanger)
         return berichtenCache.getAggregationStatus(key)
     }
@@ -28,7 +28,7 @@ class BerichtensessiecacheService(
         return berichtenCache.getById(berichtId, ontvanger)
     }
 
-    fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: String?, afzender: String?): Uni<BerichtenPage> {
+    fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: String, afzender: String?): Uni<BerichtenPage> {
         log.debugf("Zoeken berichten via RediSearch: q=%s, page=%d, pageSize=%d", q, page, pageSize)
         return berichtenCache.search(ontvanger, q, page, pageSize)
     }

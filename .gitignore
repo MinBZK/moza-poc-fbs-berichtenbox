@@ -24,5 +24,9 @@ dist/
 # Logs
 *.log
 
+# Structurizr Lite (gegenereerd)
+docs/architecture/.structurizr/
+docs/architecture/workspace.json
+
 # Dependencies
 node_modules/

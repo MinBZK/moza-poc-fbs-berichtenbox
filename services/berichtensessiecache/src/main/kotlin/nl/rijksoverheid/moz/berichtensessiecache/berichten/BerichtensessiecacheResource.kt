@@ -17,8 +17,6 @@ import nl.rijksoverheid.moz.berichtensessiecache.api.model.Link
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.PaginationLinks
 import org.jboss.logging.Logger
 import java.net.URI
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.UUID
 
@@ -40,17 +38,17 @@ class BerichtensessiecacheResource(
         processingActivityId = "https://register.example.com/verwerkingen/berichtensessiecache-ophalen",
     )
     override fun getBerichten(
-        ontvanger: String?,
+        xOntvanger: String?,
         page: Int?,
         pageSize: Int?,
         afzender: String?,
     ): BerichtensessiecacheResponse {
-        ontvanger?.let {
+        xOntvanger?.let {
             logboekContext.dataSubjectId = it
             logboekContext.dataSubjectType = "ontvanger"
         }
 
-        val aggregation = requireGereedStatus(ontvanger)
+        val (ontvanger, aggregation) = requireGereedStatus(xOntvanger)
 
         // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
@@ -59,22 +57,22 @@ class BerichtensessiecacheResource(
             berichtensessiecacheService.getBerichten(p, ps, ontvanger, afzender)
         }
         logboekContext.status = StatusCode.OK
-        return toBerichtensessiecacheResponse(result, aggregation, ontvanger)
+        return toBerichtensessiecacheResponse(result, aggregation)
     }
 
     @Logboek(
         name = "ophalen-bericht-bij-id",
         processingActivityId = "https://register.example.com/verwerkingen/bericht-ophalen",
     )
-    override fun getBerichtById(berichtId: UUID, ontvanger: String?): BerichtResponse {
+    override fun getBerichtById(berichtId: UUID, xOntvanger: String?): BerichtResponse {
         // Log berichtId als primair data subject (dit is de lookup-sleutel van dit endpoint)
         logboekContext.dataSubjectId = berichtId.toString()
         logboekContext.dataSubjectType = "berichtId"
 
-        requireGereedStatus(ontvanger)
+        val (ontvanger, _) = requireGereedStatus(xOntvanger)
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichtById(berichtId, ontvanger!!)
+            berichtensessiecacheService.getBerichtById(berichtId, ontvanger)
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )
@@ -89,17 +87,17 @@ class BerichtensessiecacheResource(
     )
     override fun zoekBerichten(
         q: String,
-        ontvanger: String?,
+        xOntvanger: String?,
         page: Int?,
         pageSize: Int?,
         afzender: String?,
     ): BerichtensessiecacheResponse {
-        ontvanger?.let {
+        xOntvanger?.let {
             logboekContext.dataSubjectId = it
             logboekContext.dataSubjectType = "ontvanger"
         }
 
-        val aggregation = requireGereedStatus(ontvanger)
+        val (ontvanger, aggregation) = requireGereedStatus(xOntvanger)
 
         // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
@@ -108,10 +106,14 @@ class BerichtensessiecacheResource(
             berichtensessiecacheService.zoekBerichten(q, p, ps, ontvanger, afzender)
         }
         logboekContext.status = StatusCode.OK
-        return toBerichtensessiecacheResponse(result, aggregation, ontvanger)
+        return toBerichtensessiecacheResponse(result, aggregation)
     }
 
-    private fun requireGereedStatus(ontvanger: String?): AggregationStatus {
+    private fun requireGereedStatus(ontvanger: String?): Pair<String, AggregationStatus> {
+        if (ontvanger.isNullOrBlank()) {
+            throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
+        }
+
         val aggregation = awaitOrServiceUnavailable {
             berichtensessiecacheService.getAggregationStatus(ontvanger)
         }
@@ -122,19 +124,17 @@ class BerichtensessiecacheResource(
                 Response.Status.CONFLICT,
             )
         }
-        if (aggregation.status == OphalenStatus.BEZIG) {
-            throw WebApplicationException(
+        when (aggregation.status) {
+            OphalenStatus.GEREED -> return ontvanger to aggregation
+            OphalenStatus.BEZIG -> throw WebApplicationException(
                 "Berichten worden momenteel opgehaald. Wacht tot het ophalen is afgerond.",
                 Response.Status.CONFLICT,
             )
-        }
-        if (aggregation.status == OphalenStatus.FOUT) {
-            throw WebApplicationException(
+            OphalenStatus.FOUT -> throw WebApplicationException(
                 "Het ophalen van berichten is mislukt. Roep GET /api/v1/berichten/_ophalen opnieuw aan.",
                 Response.Status.INTERNAL_SERVER_ERROR,
             )
         }
-        return aggregation
     }
 
     private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {
@@ -153,7 +153,6 @@ class BerichtensessiecacheResource(
     private fun toBerichtensessiecacheResponse(
         result: BerichtenPage,
         aggregation: AggregationStatus?,
-        ontvanger: String?,
     ): BerichtensessiecacheResponse {
         val response = BerichtensessiecacheResponse()
         response.berichten = result.berichten.map { toApiBericht(it) }
@@ -170,18 +169,17 @@ class BerichtensessiecacheResource(
             }
         }
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        val ontvangerParam = ontvanger?.let { "&ontvanger=${URLEncoder.encode(it, StandardCharsets.UTF_8)}" } ?: ""
         response.links = PaginationLinks().apply {
-            self = Link().apply { href = URI.create("$basePath/berichten?page=${result.page}&pageSize=${result.pageSize}$ontvangerParam") }
-            first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${result.pageSize}$ontvangerParam") }
+            self = Link().apply { href = URI.create("$basePath/berichten?page=${result.page}&pageSize=${result.pageSize}") }
+            first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${result.pageSize}") }
             if (result.totalPages > 0) {
-                last = Link().apply { href = URI.create("$basePath/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                last = Link().apply { href = URI.create("$basePath/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}") }
             }
             if (result.page > 0) {
-                prev = Link().apply { href = URI.create("$basePath/berichten?page=${result.page - 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                prev = Link().apply { href = URI.create("$basePath/berichten?page=${result.page - 1}&pageSize=${result.pageSize}") }
             }
             if (result.page < result.totalPages - 1) {
-                next = Link().apply { href = URI.create("$basePath/berichten?page=${result.page + 1}&pageSize=${result.pageSize}$ontvangerParam") }
+                next = Link().apply { href = URI.create("$basePath/berichten?page=${result.page + 1}&pageSize=${result.pageSize}") }
             }
         }
         return response

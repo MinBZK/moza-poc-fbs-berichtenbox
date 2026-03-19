@@ -4,6 +4,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import org.hamcrest.CoreMatchers.`is`
+import org.hamcrest.CoreMatchers.containsString
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -31,12 +32,25 @@ class BerichtenOphalenResourceTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("status", `is`(400))
+            .body("detail", containsString("X-Ontvanger"))
+    }
+
+    @Test
+    fun `GET ophalen met lege X-Ontvanger header retourneert 400`() {
+        given()
+            .header("X-Ontvanger", "")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+            .body("detail", containsString("X-Ontvanger"))
     }
 
     @Test
     fun `GET ophalen retourneert SSE-stream met magazijn events`() {
         val response = given()
-            .queryParam("ontvanger", "999993653")
+            .header("X-Ontvanger", "999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -54,7 +68,7 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = true
 
         val response = given()
-            .queryParam("ontvanger", "999993653")
+            .header("X-Ontvanger", "999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -71,13 +85,13 @@ class BerichtenOphalenResourceTest {
         val ontvanger = "fout-test-${System.nanoTime()}"
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -90,7 +104,7 @@ class BerichtenOphalenResourceTest {
     @Test
     fun `berichten in cache na ophalen`() {
         val sseResponse = given()
-            .queryParam("ontvanger", "cache-test")
+            .header("X-Ontvanger", "cache-test")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -102,7 +116,7 @@ class BerichtenOphalenResourceTest {
         )
 
         val berichtenResponse = given()
-            .queryParam("ontvanger", "cache-test")
+            .header("X-Ontvanger", "cache-test")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -117,7 +131,7 @@ class BerichtenOphalenResourceTest {
     @Test
     fun `GET ophalen multi-magazijn aggregatie beide OK`() {
         val response = given()
-            .queryParam("ontvanger", "multi-ok-${System.nanoTime()}")
+            .header("X-Ontvanger", "multi-ok-${System.nanoTime()}")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -134,7 +148,7 @@ class BerichtenOphalenResourceTest {
         (berichtenCache as MockBerichtenCache).simuleerBezig(cacheKey)
 
         given()
-            .queryParam("ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(409)
@@ -147,7 +161,7 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = true
 
         val response = given()
-            .queryParam("ontvanger", "partial-fail-${System.nanoTime()}")
+            .header("X-Ontvanger", "partial-fail-${System.nanoTime()}")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
