@@ -127,6 +127,7 @@ jobs:
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        continue-on-error: true # Niet-kritiek: deployment is al geslaagd
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
