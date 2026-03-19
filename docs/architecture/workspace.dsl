@@ -36,7 +36,14 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             // Decentraal Berichtenmagazijn - functioneel identiek, kan zelf gehost of bij BBO afgenomen worden
             decentraalMagazijn = softwareSystem "Decentraal Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan en ophalen - elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO" "Magazijn" {
                 dmOphaalApi = container "Berichtenmagazijn Ophaal API" "REST API voor het ophalen van berichten en bijlagen" "Quarkus / Kotlin" "Magazijn Service"
-                dmOpslaanApi = container "Berichtenmagazijn Opslaan API" "REST API voor het opslaan van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service"
+                dmOpslaanApi = container "Berichtenmagazijn Opslaan API" "REST API voor het opslaan van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
+                    dmOpslaanResource = component "Opslaan REST API" "REST endpoints voor het aanleveren van berichten en bijlagen" "JAX-RS Resource" "Magazijn Component"
+                    dmCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" "MicroProfile Fault Tolerance" "Magazijn Component"
+                    dmBerichtSvc = component "BerichtService" "Berichtlevenscyclus: valideren, opslaan en aanmelden" "CDI Bean" "Magazijn Component"
+
+                    dmOpslaanResource -> dmCircuitBreaker "Schrijfoperaties via"
+                    dmCircuitBreaker -> dmBerichtSvc "Delegeert naar (als circuit closed)"
+                }
                 dmLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Magazijn Database"
                 dmDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "" "Magazijn Database"
 
@@ -64,12 +71,12 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 publicatieStream = container "Publicatie Stream" "Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken" "Quarkus / Kotlin" "Magazijn Service"
 
                 dmOphaalApi -> dmDatastore "Leest berichten en bijlagen"
-                dmOpslaanApi -> dmDatastore "Schrijft berichten en bijlagen"
-                dmOpslaanApi -> bvApi "Stuurt bericht ter validatie" "Digikoppeling REST API via FSC"
+                dmBerichtSvc -> dmDatastore "Schrijft berichten en bijlagen"
+                dmBerichtSvc -> bvApi "Stuurt bericht ter validatie"
                 adDataService -> dmOphaalApi "Beheert berichten" "Digikoppeling REST API via FSC"
                 adHealthChecker -> dmOphaalApi "Controleert gezondheid" "HTTP"
                 adHealthChecker -> dmOpslaanApi "Controleert gezondheid" "HTTP"
-                dmOpslaanApi -> publicatieStream "Stuurt gevalideerd bericht door"
+                dmBerichtSvc -> publicatieStream "Stuurt gevalideerd bericht door"
             }
 
             group "Centraal gehoste services" {
@@ -208,6 +215,11 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         }
 
         component blApp "BerichtensessiecacheComponenten" "Componenten binnen de Berichtensessiecache" {
+            include *
+            autoLayout
+        }
+
+        component dmOpslaanApi "OpslaanAPIComponenten" "Componenten binnen de Berichtenmagazijn Opslaan API" {
             include *
             autoLayout
         }
