@@ -9,6 +9,7 @@ on:
     paths: ['docs/architecture/**']
   pull_request_target:
     types: [closed]
+    paths: ['docs/architecture/**']
   workflow_dispatch:
 
 permissions:
@@ -22,6 +23,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -37,16 +41,21 @@ jobs:
         env:
           REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
         run: |
-          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
             echo "gh-pages branch exists"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "gh-pages branch does not exist, initializing"
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            mkdir -p gh-pages
-            cd gh-pages
-            git init -b gh-pages
-            git remote add origin "${REPO_URL}"
+            ls_exit=$?
+            if [ $ls_exit -eq 2 ]; then
+              echo "gh-pages branch does not exist, initializing"
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              mkdir -p gh-pages && cd gh-pages
+              git init -b gh-pages
+              git remote add origin "${REPO_URL}"
+            else
+              echo "::error::git ls-remote failed met exit code ${ls_exit}"
+              exit 1
+            fi
           fi
 
       - name: Checkout gh-pages
@@ -57,7 +66,7 @@ jobs:
           path: gh-pages
 
       - name: Generate static site
-        if: github.event.action != 'closed'
+        if: github.event_name != 'pull_request_target'
         run: |
           mkdir -p _site
           docker run --rm --user "$(id -u):$(id -g)" \
@@ -67,10 +76,10 @@ jobs:
             generate-site -w workspace.dsl --output-dir /var/output
 
       - name: Validate generated site
-        if: github.event.action != 'closed'
+        if: github.event_name != 'pull_request_target'
         run: |
-          if [ ! -d _site ] || [ -z "$(ls -A _site)" ]; then
-            echo "::error::Site generation produced no output in _site/"
+          if [ ! -f _site/index.html ]; then
+            echo "::error::Site generatie onvolledig: _site/index.html ontbreekt"
             exit 1
           fi
 
@@ -100,12 +109,15 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          rm -rf "gh-pages/pr-preview/pr-${PR_NUMBER}"
+          if [ -d "gh-pages/pr-preview/pr-${PR_NUMBER}" ]; then
+            rm -rf "gh-pages/pr-preview/pr-${PR_NUMBER}"
+          else
+            echo "Geen preview gevonden voor PR #${PR_NUMBER}, niets op te ruimen"
+          fi
 
       - name: Push to gh-pages
         env:
           EVENT_NAME: ${{ github.event_name }}
-          EVENT_ACTION: ${{ github.event.action }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           cd gh-pages
@@ -123,17 +135,27 @@ jobs:
           else
             git commit -m "Deploy main site"
           fi
+          push_succeeded=false
           for attempt in 1 2 3; do
             if git push origin gh-pages; then
+              push_succeeded=true
               break
             fi
-            echo "Push failed (attempt ${attempt}/3), rebasing..."
-            git pull --rebase origin gh-pages
+            echo "::warning::Push failed (attempt ${attempt}/3), rebasing..."
+            if ! git pull --rebase origin gh-pages; then
+              echo "::error::git pull --rebase mislukt op poging ${attempt}/3"
+              git rebase --abort 2>/dev/null || true
+              exit 1
+            fi
           done
+          if [ "$push_succeeded" != "true" ]; then
+            echo "::error::Push naar gh-pages is mislukt na 3 pogingen"
+            exit 1
+          fi
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && github.event.action != 'closed'
-        continue-on-error: true # Niet-kritiek: deployment is al geslaagd
+        continue-on-error: true # Niet-kritiek: deployment is al geslaagd; PR comment kan falen door rate limits of permission issues
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -141,7 +163,6 @@ jobs:
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          set -euo pipefail
           PREVIEW_URL="https://${REPO_OWNER}.github.io/${REPO_NAME}/pr-preview/pr-${PR_NUMBER}/"
           COMMENT_BODY="🏗️ **Architecture preview:** ${PREVIEW_URL}"
 
