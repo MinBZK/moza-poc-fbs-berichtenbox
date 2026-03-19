@@ -82,7 +82,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                     blApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of onderneming" "Quarkus / Kotlin" "Service" {
                         blResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
                         blService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten; filtert berichten op basis van autorisatie via FTV/AuthZEN" "CDI Bean"
-                        blCache = component "Cache" "In-memory cache voor berichten (60s TTL)" "Caffeine"
+                        blCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         blMagazijnClient = component "MagazijnClient" "REST client naar decentrale berichtenmagazijnen" "REST Client"
                         blLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
                         blAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
