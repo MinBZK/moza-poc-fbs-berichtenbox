@@ -3,157 +3,137 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
     properties {
         "nfr.betrouwbaarheid.berichtverlies" "RPO=0: geen berichtverlies; bij verstoring weigert de circuit breaker schrijfoperaties totdat duurzame persistentie is hersteld"
-        "nfr.betrouwbaarheid.applicatielogging" "Bij onbeschikbaarheid logserver worden applicatie-logberichten lokaal opgeslagen voor maximaal 72 uur"
     }
 
     model {
-        // Personen
+        properties {
+            "structurizr.groupSeparator" "/"
+        }
+
         burger = person "Burger" "Ontvangt berichten en notificaties van overheidsorganisaties"
-        ondernemer = person "Ondernemer" "Ontvangt berichten en notificaties van overheidsorganisaties"
+        ondernemer = person "Ondernemer / Zakelijke gebruiker" "Ontvangt berichten en notificaties van overheidsorganisaties"
         medewerkerA = person "Medewerker A" "Verstuurt berichten namens Organisatie A"
         medewerkerB = person "Medewerker B" "Verstuurt berichten namens Organisatie B"
-        beheerder = person "Beheerder" "Monitort en beheert het berichtenstelsel"
 
-        // Externe systemen
         authzen = softwareSystem "AuthZEN / FTV" "Federatieve Toegangsverlening - autorisatie van verzoeken" "Extern Systeem"
         profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" "Extern Systeem"
         notificatieService = softwareSystem "Notificatie Service" "Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)" "Extern Systeem"
-        digitaleBereikbaarheid = softwareSystem "Digitale Bereikbaarheid Service" "Beheert digitale contactgegevens en bereikbaarheidsvoorkeuren van burgers en ondernemers (MoZa)" "Extern Systeem"
-        interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (MoZa)" "Extern Systeem"
-        emailService = softwareSystem "E-mail Service" "Externe e-maildienst voor het doorsturen van berichten" "Extern Systeem"
+        digitaleBereikbaarheid = softwareSystem "Digitale Bereikbaarheid Service" "Tonen en muteren toestemming voor digitale communicatie per organisatie" "Extern Systeem"
+        interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" "Extern Systeem"
 
-        // Deelnemende organisaties
-        orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een decentraal magazijn" "Deelnemer"
-        orgB = softwareSystem "Organisatie B" "Deelnemende overheidsorganisatie - neemt een decentraal magazijn af bij BBO" "Deelnemer"
+        orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn" "Deelnemer"
+        orgB = softwareSystem "Organisatie B" "Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" "Deelnemer"
 
-        // Decentraal Berichtenmagazijn - functioneel identiek, kan zelf gehost of bij BBO afgenomen worden
-        decentraalMagazijn = softwareSystem "Decentraal Berichtenmagazijn" "Berichten opslaan en ophalen - kan door de organisatie zelf gehost of bij BBO afgenomen worden" "Magazijn" {
-            dmApp = container "Berichtenmagazijn API" "REST API voor berichten opslaan en ophalen" "Quarkus / Kotlin" "Service" {
-                dmApi = component "Berichtenmagazijn REST API" "REST endpoints voor berichten en bijlagen" "JAX-RS Resource"
-                dmCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (PostgreSQL, MinIO of Kafka onbeschikbaar)" "MicroProfile Fault Tolerance"
-                dmBerichtSvc = component "BerichtService" "Berichtlevenscyclus: aanmaken, ophalen, bijwerken, verwijderen" "CDI Bean"
-                dmValidatie = component "ValidatieService" "Valideert inkomende berichten en bijlagen op structuur, formaat en inhoud" "CDI Bean"
-                dmAutorisatie = component "AutorisatieService" "Verifieert autorisatie via AuthZEN/FTV (fail-closed)" "CDI Bean"
-                dmStorageSvc = component "ObjectStorageService" "Berichtinhoud en bijlagen opslaan/ophalen" "MinIO SDK"
-                dmRepository = component "BerichtRepository" "Persistentie van berichten en bijlagen" "Panache ORM"
-                dmLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
-                dmAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
+        group "Federatief Berichtenstelsel (FBS)" {
 
-                dmApi -> dmCircuitBreaker "Schrijfoperaties via"
-                dmCircuitBreaker -> dmBerichtSvc "Delegeert naar (als circuit closed)"
-                dmApi -> dmAutorisatie "Verifieert autorisatie"
-                dmBerichtSvc -> dmValidatie "Valideert bericht"
-                dmBerichtSvc -> dmRepository "Leest/schrijft"
-                dmBerichtSvc -> dmStorageSvc "Slaat inhoud op"
-                dmBerichtSvc -> dmLdvLogger "Logt verwerkingen"
-                dmBerichtSvc -> dmAppLogger "Logt applicatie-events"
-                dmCircuitBreaker -> dmAppLogger "Logt circuit state changes"
-            }
-            dmLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
-            dmPg = container "PostgreSQL" "Berichtmetadata (transactioneel, 0 berichtverlies)" "PostgreSQL 16" "Database"
-            dmMinio = container "MinIO" "Berichtinhoud en bijlagen" "MinIO" "Database"
-
-            adApp = container "Admin Dashboard" "Web-based beheeromgeving voor het magazijn" "Quarkus / Vaadin" "Service" {
-                adViews = component "Vaadin Views" "Dashboard, Berichten, Systeemstatus en LDV Audit Log views" "Vaadin"
-                adDataService = component "DashboardDataService" "Haalt berichtdata op via interne services" "CDI Bean"
-                adHealthChecker = component "ServiceHealthChecker" "Controleert beschikbaarheid van magazijndiensten" "HTTP Client"
-                adLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
-                adAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
-
-                adViews -> adDataService "Toont data van"
-                adViews -> adHealthChecker "Toont status van"
-                adDataService -> adLdvLogger "Logt verwerkingen"
-                adDataService -> adAppLogger "Logt applicatie-events"
-            }
-
-            dmRepository -> dmPg "Leest/schrijft metadata" "JDBC"
-            dmStorageSvc -> dmMinio "Slaat inhoud en bijlagen op" "S3 REST API"
-            dmAppLogger -> dmLogBuffer "Buffert applicatie-logberichten lokaal bij uitval logserver" "Disk I/O"
-            adDataService -> dmApp "Beheert berichten" "REST API"
-            adHealthChecker -> dmApp "Controleert gezondheid" "HTTP"
-        }
-
-        // Het Federatief Berichtenstelsel
-        group "Federatief Berichtenstelsel" {
-
-            bboApi = softwareSystem "BBO API" "Centrale API voor burgers en ondernemers - routeert naar berichtensessiecache en magazijnen" "FBS Dienst"
-
-            berichtensessiecache = softwareSystem "Berichtensessiecache" "Aggregeert berichtrecords uit alle aangesloten magazijnen" "FBS Dienst" {
-                blLogBuffer = container "Lokale Log Buffer" "Lokale opslag voor applicatie-logberichten bij onbeschikbaarheid logserver (max 72 uur retentie)" "Disk" "Database"
-                blApp = container "Berichtensessiecache API" "REST API voor geaggregeerde berichtrecords" "Quarkus / Kotlin" "Service" {
-                    blResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                    blService = component "BerichtensessiecacheService" "Aggregeert en cachet berichtrecords" "CDI Bean"
-                    blCache = component "Cache" "In-memory cache voor berichtrecords (60s TTL)" "Caffeine"
-                    blMagazijnClient = component "MagazijnClient" "REST client naar decentrale berichtenmagazijnen" "REST Client"
-                    blLdvLogger = component "LDV Logger" "Logt dataverwerkingen conform LDV-standaard" "OpenTelemetry"
-                    blAppLogger = component "Applicatie Logger" "Applicatie-logging (foutmeldingen, audit); buffert lokaal bij uitval logserver (max 72 uur)" "SLF4J / Logback"
-                    blEventForwarder = component "EventForwarder" "Stuurt bericht-events door naar Notificatie Service" "CloudEvents / REST Client"
-
-                    blResource -> blService "Gebruikt"
-                    blService -> blCache "Leest/schrijft cache"
-                    blService -> blMagazijnClient "Haalt berichtrecords op"
-                    blService -> blLdvLogger "Logt verwerkingen"
-                    blService -> blAppLogger "Logt applicatie-events"
-                    blService -> blEventForwarder "Stuurt bericht-events door"
+            decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan en ophalen" "Magazijn" {
+                properties {
+                    "deployment.model" "Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO"
                 }
-                blAppLogger -> blLogBuffer "Buffert applicatie-logberichten lokaal bij uitval logserver" "Disk I/O"
+                magazijnOphaalApi = container "Berichtenmagazijn Ophaal API" "REST API voor het ophalen van berichten en bijlagen" "Quarkus / Kotlin" "Magazijn Service"
+                magazijnOpslaanApi = container "Berichtenmagazijn Opslaan API" "REST API voor het opslaan van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
+                    magazijnOpslaanResource = component "Opslaan REST API" "REST endpoints voor het aanleveren van berichten en bijlagen" "JAX-RS Resource" "Magazijn Component"
+                    magazijnCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" "MicroProfile Fault Tolerance" "Magazijn Component"
+                    magazijnBerichtService = component "BerichtService" "Berichtlevenscyclus: valideren, opslaan en aanmelden" "CDI Bean" "Magazijn Component"
+
+                    magazijnOpslaanResource -> magazijnCircuitBreaker "Schrijfoperaties via"
+                    magazijnCircuitBreaker -> magazijnBerichtService "Delegeert naar (als circuit closed)"
+                }
+                magazijnDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
+
+                berichtValidatie = container "Bericht Validatie Service" "Valideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service" "Quarkus / Kotlin" "Magazijn Service" {
+                    validatieApi = component "Validatie API" "REST endpoint voor berichtvalidatie" "JAX-RS Resource" "Magazijn Component"
+                    validatieTechnisch = component "Technische Validatie" "Valideert PDF-type, grootte en aantal bijlagen" "CDI Bean" "Magazijn Component"
+                    validatieToestemming = component "Toestemming Controle" "Controleert of de ontvanger toestemming gegeven heeft voor digitale communicatie" "CDI Bean" "Magazijn Component"
+
+                    validatieApi -> validatieTechnisch "Valideert technische eisen"
+                    validatieApi -> validatieToestemming "Controleert toestemming"
+                }
+                publicatieStream = container "Publicatie Stream" "Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" "Quarkus / Kotlin" "Magazijn Service" {
+                    properties {
+                        "cloudevents.profiel" "NL GOV profiel CloudEvents v1.1"
+                        "cloudevents.source" "urn:nld:fbs:magazijn:{organisatie-oin}"
+                        "cloudevents.type" "nl.rijksoverheid.fbs.bericht.gepubliceerd"
+                    }
+                }
+
+                magazijnOphaalApi -> magazijnDatastore "Leest berichten en bijlagen"
+                magazijnBerichtService -> magazijnDatastore "Schrijft berichten en bijlagen"
+                magazijnBerichtService -> validatieApi "Stuurt bericht ter validatie"
+                magazijnBerichtService -> publicatieStream "Stuurt gevalideerd bericht door"
+                publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
             }
 
-            // Gedeelde infrastructuur
-            kafka = softwareSystem "Kafka" "Duurzame event streaming voor bericht-lifecycle events (acks=all, 0 berichtverlies)" "Infrastructuur"
-            ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
+            group "Centraal gehoste services" {
+
+                berichtenUitvraagSysteem = softwareSystem "Berichten Uitvraag Systeem" "Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" "FBS Dienst" {
+
+                    sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
+                        sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
+                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten; filtert berichten op basis van autorisatie via FTV/AuthZEN" "CDI Bean"
+                        sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
+                        sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
+                        sessiecacheResource -> sessiecacheService "Gebruikt"
+                        sessiecacheService -> sessiecacheCache "Leest/schrijft cache"
+                        sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op"
+                    }
+
+                    uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
+                        uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
+                        uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
+                        uitvraagOpvraag = component "Opvraag Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen uit berichtenmagazijn" "CDI Bean"
+
+                        uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst en mappenbeheer"
+                        uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
+                    }
+
+                    aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
+
+                    aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
+                    uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
+                    uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
+                }
+
+                ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
+            }
         }
 
-        // === Landscape relaties ===
-
-        // Medewerkers -> hun organisatie
         medewerkerA -> orgA "Verstuurt berichten via"
         medewerkerB -> orgB "Verstuurt berichten via"
 
-        // Organisaties -> hun decentraal magazijn (functioneel identiek, hosting verschilt)
-        orgA -> dmApi "Verstuurt en ontvangt berichten" "Digikoppeling REST API via FSC"
-        orgB -> dmApi "Verstuurt en ontvangt berichten" "Digikoppeling REST API via FSC"
+        burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
+        ondernemer -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
 
-        // Burger en Ondernemer - interactie via interactielaag
-        burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, stuurt door, verwijdert" "HTTPS (browser/app)"
-        ondernemer -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, stuurt door, verwijdert" "HTTPS (browser/app)"
-        emailService -> burger "Bezorgt doorgestuurde berichten" "E-mail"
-        emailService -> ondernemer "Bezorgt doorgestuurde berichten" "E-mail"
+        notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
+        notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        // Interactielaag -> achterliggende diensten
-        interactielaag -> bboApi "Berichten, mappen, zoeken" "REST API"
-        interactielaag -> digitaleBereikbaarheid "Bereikbaarheidsvoorkeuren beheren" "REST API"
+        interactielaag -> uitvraagResource "Berichten ophalen en lijsten" "Digikoppeling REST API via FSC"
+        interactielaag -> digitaleBereikbaarheid "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
 
-        // BBO API -> achterliggende diensten
-        bboApi -> blApp "Berichtensessiecache, mappen, zoeken" "REST API"
-        bboApi -> dmApp "Berichten en bijlagen ophalen, verwijderen" "REST API"
-        bboApi -> emailService "Stuurt berichten door" "SMTP / REST API"
+        uitvraagOpvraag -> magazijnOphaalApi "Haalt bijlagen op uit berichtenmagazijn" "Digikoppeling REST API via FSC"
 
-        // Beheerder
-        beheerder -> adViews "Beheert systeem via" "HTTPS (browser)"
+        publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
+        publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
 
-        // Berichtensessiecache notificeert externe Notificatie Service
-        blEventForwarder -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
+        notificatieService -> profielService "Haalt contactgegevens en voorkeuren op" "Digikoppeling REST API via FSC"
 
-        // Notificatie Service (extern) haalt contactgegevens op
-        notificatieService -> profielService "Haalt contactgegevens en voorkeuren op" "REST API"
+        orgA -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
+        orgB -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
 
-        // Decentrale magazijnen melden berichten aan via BBO API
-        dmApp -> bboApi "Meldt berichten aan" "REST API"
+        validatieToestemming -> digitaleBereikbaarheid "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
-        // BBO API publiceert events op Kafka
-        bboApi -> kafka "Publiceert bericht-events" "Kafka Producer" "Async"
+        sessiecacheService -> authzen "Filtert berichten op autorisatie" "AuthZEN REST API"
 
-        // Autorisatie (component-niveau)
-        dmAutorisatie -> authzen "Evalueert access request" "AuthZEN REST API"
+        sessiecacheMagazijnClient -> magazijnOphaalApi "Haalt berichten op" "Digikoppeling REST API via FSC"
 
-        // Berichtensessiecache -> decentrale magazijnen (alle gelijk behandeld)
-        blMagazijnClient -> dmApp "Haalt berichtrecords op" "Digikoppeling REST API via FSC"
-
-        // LDV Logboek (component-niveau)
-        dmLdvLogger -> ldvLogboek "Logt dataverwerkingen" "OTLP"
-        blLdvLogger -> ldvLogboek "Logt dataverwerkingen" "OTLP"
-        adLdvLogger -> ldvLogboek "Logt dataverwerkingen" "OTLP"
+        magazijnOphaalApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        publicatieStream -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        aanmeldService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        uitvraagBerichtenlijst -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        uitvraagOpvraag -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
     }
 
     views {
@@ -167,37 +147,42 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        systemContext decentraalMagazijn "DecentraalMagazijn" "Context van het Decentraal Berichtenmagazijn" {
+        systemContext decentraalMagazijn "Berichtenmagazijn" "Context van het Berichtenmagazijn" {
             include *
             autoLayout
         }
 
-        systemContext berichtensessiecache "Berichtensessiecache" "Context van de Berichtensessiecache" {
+        systemContext berichtenUitvraagSysteem "BerichtenUitvraagSysteem" "Context van het Berichten Uitvraag Systeem" {
             include *
             autoLayout
         }
 
-        container decentraalMagazijn "DecentraalMagazijnContainers" "Containers binnen het Decentraal Berichtenmagazijn" {
+        container decentraalMagazijn "BerichtenmagazijnContainers" "Containers binnen het Berichtenmagazijn" {
             include *
             autoLayout
         }
 
-        container berichtensessiecache "BerichtensessiecacheContainers" "Containers binnen de Berichtensessiecache" {
+        container berichtenUitvraagSysteem "BerichtenUitvraagSysteemContainers" "Containers binnen het Berichten Uitvraag Systeem" {
             include *
             autoLayout
         }
 
-        component dmApp "BerichtenmagazijnComponenten" "Componenten binnen de Berichtenmagazijn API" {
+        component uitvraagApi "BerichtenUitvraagServiceComponenten" "Componenten binnen de Berichten Uitvraag Service" {
             include *
             autoLayout
         }
 
-        component blApp "BerichtensessiecacheComponenten" "Componenten binnen de Berichtensessiecache API" {
+        component sessiecacheApp "BerichtensessiecacheComponenten" "Componenten binnen de Berichtensessiecache" {
             include *
             autoLayout
         }
 
-        component adApp "AdminDashboardComponenten" "Componenten binnen het Admin Dashboard" {
+        component magazijnOpslaanApi "OpslaanAPIComponenten" "Componenten binnen de Berichtenmagazijn Opslaan API" {
+            include *
+            autoLayout
+        }
+
+        component berichtValidatie "BerichtValidatieComponenten" "Componenten binnen de Bericht Validatie Service" {
             include *
             autoLayout
         }
@@ -227,6 +212,23 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 background #2D8A4E
                 color #ffffff
                 stroke #1E6B38
+            }
+            element "Magazijn Service" {
+                shape RoundedBox
+                background #3BA55D
+                color #ffffff
+                stroke #2D8A4E
+            }
+            element "Magazijn Database" {
+                shape Cylinder
+                background #B3B3B3
+                color #000000
+                stroke #2D8A4E
+            }
+            element "Magazijn Component" {
+                background #3BA55D
+                color #ffffff
+                stroke #2D8A4E
             }
             element "Infrastructuur" {
                 background #999999

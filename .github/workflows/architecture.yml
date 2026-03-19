@@ -2,53 +2,177 @@ name: Architecture Site
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'docs/architecture/**'
+    branches: [main]
+    paths: ['docs/architecture/**']
   pull_request:
-    paths:
-      - 'docs/architecture/**'
+    types: [opened, synchronize, reopened]
+    paths: ['docs/architecture/**']
+  pull_request_target:
+    types: [closed]
+    paths: ['docs/architecture/**']
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
+  pull-requests: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: gh-pages-deploy-${{ github.event.pull_request.number || 'main' }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Check dispatch branch
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::workflow_dispatch wordt alleen ondersteund op main"
+          exit 1
+
+      - name: Initialize gh-pages
+        id: init-gh-pages
+        env:
+          REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            echo "gh-pages branch exists"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            ls_exit=$?
+            if [ $ls_exit -eq 2 ]; then
+              echo "gh-pages branch does not exist, initializing"
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              mkdir -p gh-pages && cd gh-pages
+              git init -b gh-pages
+              git remote add origin "${REPO_URL}"
+            else
+              echo "::error::git ls-remote failed met exit code ${ls_exit}"
+              exit 1
+            fi
+          fi
+
+      - name: Checkout gh-pages
+        if: steps.init-gh-pages.outputs.exists == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: gh-pages
+          path: gh-pages
+
       - name: Generate static site
+        if: github.event_name != 'pull_request_target'
         run: |
           mkdir -p _site
           docker run --rm --user "$(id -u):$(id -g)" \
-            -v ${{ github.workspace }}/docs/architecture:/var/model:ro \
-            -v ${{ github.workspace }}/_site:/var/output \
+            -v "${GITHUB_WORKSPACE}/docs/architecture:/var/model:ro" \
+            -v "${GITHUB_WORKSPACE}/_site:/var/output" \
             ghcr.io/avisi-cloud/structurizr-site-generatr:1.5.2 \
             generate-site -w workspace.dsl --output-dir /var/output
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
-        with:
-          path: _site
+      - name: Validate generated site
+        if: github.event_name != 'pull_request_target'
+        run: |
+          if [ ! -f _site/index.html ]; then
+            echo "::error::Site generatie onvolledig: _site/index.html ontbreekt"
+            exit 1
+          fi
 
-  deploy:
-    if: github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+      - name: Update main site
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          if [ -d gh-pages/pr-preview ]; then
+            mv gh-pages/pr-preview /tmp/pr-preview-backup
+          fi
+          find gh-pages -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
+          cp -r _site/* gh-pages/
+          if [ -d /tmp/pr-preview-backup ]; then
+            mv /tmp/pr-preview-backup gh-pages/pr-preview
+          fi
+
+      - name: Deploy PR preview
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          rm -rf "gh-pages/pr-preview/pr-${PR_NUMBER}"
+          mkdir -p "gh-pages/pr-preview/pr-${PR_NUMBER}"
+          cp -r _site/* "gh-pages/pr-preview/pr-${PR_NUMBER}/"
+
+      - name: Cleanup PR preview
+        if: github.event_name == 'pull_request_target'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -d "gh-pages/pr-preview/pr-${PR_NUMBER}" ]; then
+            rm -rf "gh-pages/pr-preview/pr-${PR_NUMBER}"
+          else
+            echo "Geen preview gevonden voor PR #${PR_NUMBER}, niets op te ruimen"
+          fi
+
+      - name: Push to gh-pages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "Geen wijzigingen om te deployen"
+            exit 0
+          fi
+          if [ "${EVENT_NAME}" = "pull_request_target" ]; then
+            git commit -m "Cleanup preview PR #${PR_NUMBER}"
+          elif [ "${EVENT_NAME}" = "pull_request" ]; then
+            git commit -m "Deploy preview PR #${PR_NUMBER}"
+          else
+            git commit -m "Deploy main site"
+          fi
+          push_succeeded=false
+          for attempt in 1 2 3; do
+            if git push origin gh-pages; then
+              push_succeeded=true
+              break
+            fi
+            echo "::warning::Push failed (attempt ${attempt}/3), rebasing..."
+            if ! git pull --rebase origin gh-pages; then
+              echo "::error::git pull --rebase mislukt op poging ${attempt}/3"
+              git rebase --abort 2>/dev/null || true
+              exit 1
+            fi
+          done
+          if [ "$push_succeeded" != "true" ]; then
+            echo "::error::Push naar gh-pages is mislukt na 3 pogingen"
+            exit 1
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        continue-on-error: true # Niet-kritiek: deployment is al geslaagd; PR comment kan falen door rate limits of permission issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          PREVIEW_URL="https://${REPO_OWNER}.github.io/${REPO_NAME}/pr-preview/pr-${PR_NUMBER}/"
+          COMMENT_BODY="🏗️ **Architecture preview:** ${PREVIEW_URL}"
+
+          EXISTING=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("Architecture preview:"))) | .id' \
+            | head -1)
+
+          if [ -n "$EXISTING" ]; then
+            gh api "repos/${REPO}/issues/comments/${EXISTING}" \
+              -X PATCH -f body="${COMMENT_BODY}"
+          else
+            gh pr comment "${PR_NUMBER}" --body "${COMMENT_BODY}"
+          fi

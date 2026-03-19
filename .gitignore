@@ -30,3 +30,5 @@ docs/architecture/workspace.json
 
 # Dependencies
 node_modules/
+/docs/architecture/workspace.json
+/docs/architecture/.structurizr/
