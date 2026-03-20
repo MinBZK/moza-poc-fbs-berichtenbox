@@ -222,13 +222,13 @@ class RedisBerichtenCache(
         private fun statusKey(key: String) = "$key:status"
         private fun lockKey(key: String) = "$key:lock"
 
-        // Escape speciale tekens voor RediSearch full-text queries
-        internal val SEARCH_SPECIAL = Regex("""[,.<>{}\[\]"':;!@#$%^&*()\-+=~\\/|? ]""")
+        // Escape niet-alfanumerieke tekens voor RediSearch full-text queries (whitelist-benadering)
+        internal val SEARCH_SPECIAL = Regex("[^a-zA-Z0-9]")
         internal fun escapeRedisSearch(text: String): String =
             text.replace(SEARCH_SPECIAL) { "\\${it.value}" }
 
-        // Escape speciale tekens voor RediSearch TAG filter-waarden
-        internal val TAG_SPECIAL = Regex("""[,.<>{}\[\]"':;!@#$%^&*()\-+=~\\/|? ]""")
+        // Escape niet-alfanumerieke tekens voor RediSearch TAG filter-waarden (whitelist-benadering)
+        internal val TAG_SPECIAL = Regex("[^a-zA-Z0-9]")
         internal fun escapeTag(value: String): String =
             value.replace(TAG_SPECIAL) { "\\${it.value}" }
     }
