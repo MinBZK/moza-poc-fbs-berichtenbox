@@ -3,13 +3,13 @@ name: Architecture Site
 on:
   push:
     branches: [main]
-    paths: ['docs/architecture/**']
+    paths: ['docs/architecture/**', '.github/workflows/architecture.yml']
   pull_request:
     types: [opened, synchronize, reopened]
-    paths: ['docs/architecture/**']
+    paths: ['docs/architecture/**', '.github/workflows/architecture.yml']
   pull_request_target:
     types: [closed]
-    paths: ['docs/architecture/**']
+    paths: ['docs/architecture/**', '.github/workflows/architecture.yml']
   workflow_dispatch:
 
 permissions:
