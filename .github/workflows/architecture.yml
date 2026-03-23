@@ -74,6 +74,7 @@ jobs:
             -v "${GITHUB_WORKSPACE}/_site:/var/output" \
             ghcr.io/avisi-cloud/structurizr-site-generatr:1.5.2 \
             generate-site -w workspace.dsl --output-dir /var/output
+          touch _site/.nojekyll
 
       - name: Validate generated site
         if: github.event_name != 'pull_request_target'
