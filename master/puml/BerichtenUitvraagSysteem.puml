@@ -3,30 +3,73 @@ set separator none
 title Berichten Uitvraag Systeem - System Context
 
 top to bottom direction
+skinparam ranksep 60
+skinparam nodesep 30
 
-!include <C4/C4>
-!include <C4/C4_Context>
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
+}
 
-AddBoundaryTag("Federatief Berichtenstelsel (FBS)", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
-Boundary(group_1, "Federatief Berichtenstelsel (FBS)", $tags="Federatief Berichtenstelsel (FBS)") {
-  System(Berichtenmagazijnperdeelnemendeorganisatie, "Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen", $tags="", $link="")
-    AddBoundaryTag("Federatief Berichtenstelsel (FBS)/Centraal gehoste services", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
-    Boundary(group_2, "Centraal gehoste services", $tags="Federatief Berichtenstelsel (FBS)/Centraal gehoste services") {
-      System(BerichtenUitvraagSysteem, "Berichten Uitvraag Systeem", $descr="Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel", $tags="", $link="")
-      System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+hide stereotype
+
+skinparam rectangle<<AuthZENFTV>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
+  BackgroundColor #2d8a4e
+  FontColor #ffffff
+  BorderColor #1e6b38
+  shadowing false
+}
+skinparam rectangle<<Interactielaag>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam queue<<LDVLogboek>> {
+  BackgroundColor #999999
+  FontColor #ffffff
+  BorderColor #6b6b6b
+  shadowing false
+}
+
+rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
+  skinparam RectangleBorderColor<<group1>> #cccccc
+  skinparam RectangleFontColor<<group1>> #cccccc
+  skinparam RectangleBorderStyle<<group1>> dashed
+
+  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan en ophalen" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+    rectangle "Centraal gehoste services" <<group2>> as group2 {
+      skinparam RectangleBorderColor<<group2>> #cccccc
+      skinparam RectangleFontColor<<group2>> #cccccc
+      skinparam RectangleBorderStyle<<group2>> dashed
+
+      rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
+      queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
     }
 
 }
 
-System(AuthZENFTV, "AuthZEN / FTV", $descr="Federatieve Toegangsverlening - autorisatie van verzoeken", $tags="", $link="")
-System(Interactielaag, "Interactielaag", $descr="Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)", $tags="", $link="")
+rectangle "==AuthZEN / FTV\n<size:10>[Software System]</size>\n\nFederatieve Toegangsverlening - autorisatie van verzoeken" <<AuthZENFTV>> as AuthZENFTV
+rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
 
-Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-Rel(Interactielaag, BerichtenUitvraagSysteem, "Berichten ophalen en lijsten", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-
-SHOW_LEGEND(true)
+BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten ophalen en lijsten\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op uit berichtenmagazijn\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> AuthZENFTV : "<color:#707070>Filtert berichten op autorisatie\n<color:#707070><size:8>[AuthZEN REST API]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 @enduml

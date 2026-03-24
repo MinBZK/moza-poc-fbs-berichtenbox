@@ -3,51 +3,148 @@ set separator none
 title System Landscape
 
 top to bottom direction
+skinparam ranksep 60
+skinparam nodesep 30
 
-!include <C4/C4>
-!include <C4/C4_Context>
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
+}
 
-AddBoundaryTag("Federatief Berichtenstelsel (FBS)", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
-Boundary(group_1, "Federatief Berichtenstelsel (FBS)", $tags="Federatief Berichtenstelsel (FBS)") {
-  System(Berichtenmagazijnperdeelnemendeorganisatie, "Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen", $tags="", $link="")
-    AddBoundaryTag("Federatief Berichtenstelsel (FBS)/Centraal gehoste services", $borderColor="#cccccc", $fontColor="#cccccc", $borderStyle="dashed")
-    Boundary(group_2, "Centraal gehoste services", $tags="Federatief Berichtenstelsel (FBS)/Centraal gehoste services") {
-      System(BerichtenUitvraagSysteem, "Berichten Uitvraag Systeem", $descr="Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel", $tags="", $link="")
-      System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
+hide stereotype
+
+skinparam rectangle<<AuthZENFTV>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
+  BackgroundColor #2d8a4e
+  FontColor #ffffff
+  BorderColor #1e6b38
+  shadowing false
+}
+skinparam person<<Burger>> {
+  BackgroundColor #08427b
+  FontColor #ffffff
+  BorderColor #052e56
+  shadowing false
+}
+skinparam rectangle<<DigitaleBereikbaarheidService>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<Interactielaag>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam queue<<LDVLogboek>> {
+  BackgroundColor #999999
+  FontColor #ffffff
+  BorderColor #6b6b6b
+  shadowing false
+}
+skinparam person<<MedewerkerA>> {
+  BackgroundColor #08427b
+  FontColor #ffffff
+  BorderColor #052e56
+  shadowing false
+}
+skinparam person<<MedewerkerB>> {
+  BackgroundColor #08427b
+  FontColor #ffffff
+  BorderColor #052e56
+  shadowing false
+}
+skinparam rectangle<<NotificatieService>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam person<<OndernemerZakelijkegebruiker>> {
+  BackgroundColor #08427b
+  FontColor #ffffff
+  BorderColor #052e56
+  shadowing false
+}
+skinparam rectangle<<OrganisatieA>> {
+  BackgroundColor #8c8c8c
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<OrganisatieB>> {
+  BackgroundColor #8c8c8c
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<ProfielService>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+
+rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
+  skinparam RectangleBorderColor<<group1>> #cccccc
+  skinparam RectangleFontColor<<group1>> #cccccc
+  skinparam RectangleBorderStyle<<group1>> dashed
+
+  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan en ophalen" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+    rectangle "Centraal gehoste services" <<group2>> as group2 {
+      skinparam RectangleBorderColor<<group2>> #cccccc
+      skinparam RectangleFontColor<<group2>> #cccccc
+      skinparam RectangleBorderStyle<<group2>> dashed
+
+      rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
+      queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
     }
 
 }
 
-Person(Burger, "Burger", $descr="Ontvangt berichten en notificaties van overheidsorganisaties", $tags="", $link="")
-System(OrganisatieA, "Organisatie A", $descr="Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn", $tags="", $link="")
-System(OrganisatieB, "Organisatie B", $descr="Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO", $tags="", $link="")
-Person(OndernemerZakelijkegebruiker, "Ondernemer / Zakelijke gebruiker", $descr="Ontvangt berichten en notificaties van overheidsorganisaties", $tags="", $link="")
-Person(MedewerkerA, "Medewerker A", $descr="Verstuurt berichten namens Organisatie A", $tags="", $link="")
-Person(MedewerkerB, "Medewerker B", $descr="Verstuurt berichten namens Organisatie B", $tags="", $link="")
-System(AuthZENFTV, "AuthZEN / FTV", $descr="Federatieve Toegangsverlening - autorisatie van verzoeken", $tags="", $link="")
-System(ProfielService, "Profiel Service", $descr="Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)", $tags="", $link="")
-System(NotificatieService, "Notificatie Service", $descr="Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)", $tags="", $link="")
-System(DigitaleBereikbaarheidService, "Digitale Bereikbaarheid Service", $descr="Tonen en muteren toestemming voor digitale communicatie per organisatie", $tags="", $link="")
-System(Interactielaag, "Interactielaag", $descr="Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)", $tags="", $link="")
+person "==Burger\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<Burger>> as Burger
+rectangle "==Organisatie A\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - host zelf een berichtenmagazijn" <<OrganisatieA>> as OrganisatieA
+rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
+person "==Ondernemer / Zakelijke gebruiker\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<OndernemerZakelijkegebruiker>> as OndernemerZakelijkegebruiker
+person "==Medewerker A\n<size:10>[Person]</size>\n\nVerstuurt berichten namens Organisatie A" <<MedewerkerA>> as MedewerkerA
+person "==Medewerker B\n<size:10>[Person]</size>\n\nVerstuurt berichten namens Organisatie B" <<MedewerkerB>> as MedewerkerB
+rectangle "==AuthZEN / FTV\n<size:10>[Software System]</size>\n\nFederatieve Toegangsverlening - autorisatie van verzoeken" <<AuthZENFTV>> as AuthZENFTV
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
+rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
+rectangle "==Digitale Bereikbaarheid Service\n<size:10>[Software System]</size>\n\nTonen en muteren toestemming voor digitale communicatie per organisatie" <<DigitaleBereikbaarheidService>> as DigitaleBereikbaarheidService
+rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
 
-Rel(BerichtenUitvraagSysteem, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-Rel(MedewerkerA, OrganisatieA, "Verstuurt berichten via", $techn="", $tags="", $link="")
-Rel(MedewerkerB, OrganisatieB, "Verstuurt berichten via", $techn="", $tags="", $link="")
-Rel(Burger, Interactielaag, "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert", $techn="HTTPS (browser/app)", $tags="", $link="")
-Rel(OndernemerZakelijkegebruiker, Interactielaag, "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert", $techn="HTTPS (browser/app)", $tags="", $link="")
-Rel(NotificatieService, Burger, "Notificeert over nieuwe berichten", $techn="E-mail, SMS, app-notificatie", $tags="", $link="")
-Rel(NotificatieService, OndernemerZakelijkegebruiker, "Notificeert over nieuwe berichten", $techn="E-mail, SMS, app-notificatie", $tags="", $link="")
-Rel(Interactielaag, BerichtenUitvraagSysteem, "Berichten ophalen en lijsten", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(Interactielaag, DigitaleBereikbaarheidService, "Toestemming bekijken en wijzigen", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie, NotificatieService, "Stuurt bericht-events door", $techn="CloudEvents webhook", $tags="", $link="")
-Rel(NotificatieService, ProfielService, "Haalt contactgegevens en voorkeuren op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(OrganisatieA, Berichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(OrganisatieB, Berichtenmagazijnperdeelnemendeorganisatie, "Levert berichten aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie, DigitaleBereikbaarheidService, "Controleert of de ontvanger toestemming gegeven heeft", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-
-SHOW_LEGEND(true)
+BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+MedewerkerA .[#707070,thickness=2].> OrganisatieA : "<color:#707070>Verstuurt berichten via"
+MedewerkerB .[#707070,thickness=2].> OrganisatieB : "<color:#707070>Verstuurt berichten via"
+Burger .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
+OndernemerZakelijkegebruiker .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
+NotificatieService .[#707070,thickness=2].> Burger : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
+NotificatieService .[#707070,thickness=2].> OndernemerZakelijkegebruiker : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten ophalen en lijsten\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Interactielaag .[#707070,thickness=2].> DigitaleBereikbaarheidService : "<color:#707070>Toestemming bekijken en wijzigen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op uit berichtenmagazijn\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
+NotificatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt contactgegevens en voorkeuren op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> DigitaleBereikbaarheidService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> AuthZENFTV : "<color:#707070>Filtert berichten op autorisatie\n<color:#707070><size:8>[AuthZEN REST API]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 @enduml

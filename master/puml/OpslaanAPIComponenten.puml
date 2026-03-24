@@ -3,32 +3,86 @@ set separator none
 title Berichtenmagazijn (per deelnemende organisatie) - Berichtenmagazijn Opslaan API - Components
 
 top to bottom direction
+skinparam ranksep 60
+skinparam nodesep 30
 
-!include <C4/C4>
-!include <C4/C4_Context>
-!include <C4/C4_Container>
-!include <C4/C4_Component>
-
-ContainerDb(Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Dataopslag", $techn="Naar keuze implementatie", $descr="Berichtmetadata, inhoud en bijlagen (0 berichtverlies)", $tags="", $link="")
-Container(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Bericht Validatie Service", $techn="Quarkus / Kotlin", $descr="Valideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service", $tags="", $link="")
-Container(Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, "Publicatie Stream", $techn="Quarkus / Kotlin", $descr="Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)", $tags="", $link="")
-System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
-
-Container_Boundary("Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI_boundary", "Berichtenmagazijn Opslaan API", $tags="") {
-  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI, "Opslaan REST API", $techn="JAX-RS Resource", $descr="REST endpoints voor het aanleveren van berichten en bijlagen", $tags="", $link="")
-  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker, "CircuitBreaker", $techn="MicroProfile Fault Tolerance", $descr="Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)", $tags="", $link="")
-  Component(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, "BerichtService", $techn="CDI Bean", $descr="Berichtlevenscyclus: valideren, opslaan en aanmelden", $tags="", $link="")
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
 }
 
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI, Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker, "Schrijfoperaties via", $techn="", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker, Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, "Delegeert naar (als circuit closed)", $techn="", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Schrijft berichten en bijlagen", $techn="", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService, "Stuurt bericht ter validatie", $techn="", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, "Stuurt gevalideerd bericht door", $techn="", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream, Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag, "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding", $techn="", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+hide stereotype
 
-SHOW_LEGEND(true)
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam database<<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> {
+  BackgroundColor #b3b3b3
+  FontColor #000000
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam queue<<LDVLogboek>> {
+  BackgroundColor #999999
+  FontColor #ffffff
+  BorderColor #6b6b6b
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI>> {
+  BorderColor #2d8a4e
+  FontColor #2d8a4e
+  shadowing false
+}
+
+database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtmetadata, inhoud en bijlagen (0 berichtverlies)" <<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> as Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag
+rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService
+rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> as Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
+queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
+
+rectangle "Berichtenmagazijn Opslaan API\n<size:10>[Container: Quarkus / Kotlin]</size>" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI>> {
+  rectangle "==Opslaan REST API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor het aanleveren van berichten en bijlagen" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI
+  rectangle "==CircuitBreaker\n<size:10>[Component: MicroProfile Fault Tolerance]</size>\n\nWeigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker
+  rectangle "==BerichtService\n<size:10>[Component: CDI Bean]</size>\n\nBerichtlevenscyclus: valideren, opslaan en aanmelden" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService
+}
+
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker : "<color:#707070>Schrijfoperaties via"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService : "<color:#707070>Delegeert naar (als circuit closed)"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService : "<color:#707070>Stuurt bericht ter validatie"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door"
+Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 @enduml

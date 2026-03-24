@@ -3,33 +3,89 @@ set separator none
 title Berichten Uitvraag Systeem - Containers
 
 top to bottom direction
+skinparam ranksep 60
+skinparam nodesep 30
 
-!include <C4/C4>
-!include <C4/C4_Context>
-!include <C4/C4_Container>
-
-System(AuthZENFTV, "AuthZEN / FTV", $descr="Federatieve Toegangsverlening - autorisatie van verzoeken", $tags="", $link="")
-System(Interactielaag, "Interactielaag", $descr="Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)", $tags="", $link="")
-System(Berichtenmagazijnperdeelnemendeorganisatie, "Berichtenmagazijn (per deelnemende organisatie)", $descr="Berichten opslaan en ophalen", $tags="", $link="")
-System(LDVLogboek, "LDV Logboek", $descr="Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard", $tags="", $link="")
-
-System_Boundary("BerichtenUitvraagSysteem_boundary", "Berichten Uitvraag Systeem", $tags="") {
-  Container(BerichtenUitvraagSysteem.Berichtensessiecache, "Berichtensessiecache", $techn="Quarkus / Kotlin", $descr="Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker", $tags="", $link="")
-  Container(BerichtenUitvraagSysteem.BerichtenUitvraagService, "Berichten Uitvraag Service", $techn="Quarkus / Kotlin", $descr="Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren", $tags="", $link="")
-  Container(BerichtenUitvraagSysteem.AanmeldService, "Aanmeld Service", $techn="Quarkus / Kotlin", $descr="Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger", $tags="", $link="")
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
 }
 
-Rel(BerichtenUitvraagSysteem.Berichtensessiecache, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.AanmeldService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.AanmeldService, BerichtenUitvraagSysteem.Berichtensessiecache, "Werkt cache bij", $techn="REST API (intern)", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService, BerichtenUitvraagSysteem.Berichtensessiecache, "Haalt berichten op uit cache", $techn="REST API (intern)", $tags="", $link="")
-Rel(Interactielaag, BerichtenUitvraagSysteem.BerichtenUitvraagService, "Berichten ophalen en lijsten", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.BerichtenUitvraagService, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt bijlagen op uit berichtenmagazijn", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie, BerichtenUitvraagSysteem.AanmeldService, "Meldt nieuw bericht aan", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.Berichtensessiecache, AuthZENFTV, "Filtert berichten op autorisatie", $techn="AuthZEN REST API", $tags="", $link="")
-Rel(BerichtenUitvraagSysteem.Berichtensessiecache, Berichtenmagazijnperdeelnemendeorganisatie, "Haalt berichten op", $techn="Digikoppeling REST API via FSC", $tags="", $link="")
-Rel(Berichtenmagazijnperdeelnemendeorganisatie, LDVLogboek, "Logt dataverwerkingen", $techn="OpenTelemetry (OTLP)", $tags="", $link="")
+hide stereotype
 
-SHOW_LEGEND(true)
+skinparam rectangle<<BerichtenUitvraagSysteem.AanmeldService>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<AuthZENFTV>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
+  BackgroundColor #2d8a4e
+  FontColor #ffffff
+  BorderColor #1e6b38
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<Interactielaag>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam queue<<LDVLogboek>> {
+  BackgroundColor #999999
+  FontColor #ffffff
+  BorderColor #6b6b6b
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem>> {
+  BorderColor #2e6295
+  FontColor #2e6295
+  shadowing false
+}
+
+rectangle "==AuthZEN / FTV\n<size:10>[Software System]</size>\n\nFederatieve Toegangsverlening - autorisatie van verzoeken" <<AuthZENFTV>> as AuthZENFTV
+rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
+rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan en ophalen" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
+
+rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<BerichtenUitvraagSysteem>> {
+  rectangle "==Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nAggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" <<BerichtenUitvraagSysteem.Berichtensessiecache>> as BerichtenUitvraagSysteem.Berichtensessiecache
+  rectangle "==Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nService voor burgers en ondernemers - berichtenbox inzien en berichten beheren" <<BerichtenUitvraagSysteem.BerichtenUitvraagService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService
+  rectangle "==Aanmeld Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWerkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" <<BerichtenUitvraagSysteem.AanmeldService>> as BerichtenUitvraagSysteem.AanmeldService
+}
+
+BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt cache bij\n<color:#707070><size:8>[REST API (intern)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op uit cache\n<color:#707070><size:8>[REST API (intern)]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService : "<color:#707070>Berichten ophalen en lijsten\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op uit berichtenmagazijn\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> AuthZENFTV : "<color:#707070>Filtert berichten op autorisatie\n<color:#707070><size:8>[AuthZEN REST API]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 @enduml
