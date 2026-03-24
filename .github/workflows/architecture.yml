@@ -12,9 +12,7 @@ on:
     paths: ['docs/architecture/**']
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: read-all
 
 concurrency:
   group: gh-pages-deploy-${{ github.event.pull_request.number || 'main' }}
@@ -22,6 +20,9 @@ concurrency:
 
 jobs:
   deploy:
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     defaults:
       run:
