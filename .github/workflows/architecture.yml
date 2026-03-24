@@ -3,13 +3,13 @@ name: Architecture Site
 on:
   push:
     branches: [main]
-    paths: ['docs/architecture/**']
+    paths: ['docs/architecture/**', '.github/workflows/architecture.yml']
   pull_request:
     types: [opened, synchronize, reopened]
-    paths: ['docs/architecture/**']
+    paths: ['docs/architecture/**', '.github/workflows/architecture.yml']
   pull_request_target:
     types: [closed]
-    paths: ['docs/architecture/**']
+    paths: ['docs/architecture/**', '.github/workflows/architecture.yml']
   workflow_dispatch:
 
 permissions: read-all
@@ -75,6 +75,7 @@ jobs:
             -v "${GITHUB_WORKSPACE}/_site:/var/output" \
             ghcr.io/avisi-cloud/structurizr-site-generatr:1.5.2 \
             generate-site -w workspace.dsl --output-dir /var/output
+          touch _site/.nojekyll
 
       - name: Validate generated site
         if: github.event_name != 'pull_request_target'

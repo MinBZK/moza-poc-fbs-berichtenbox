@@ -139,6 +139,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
     views {
         properties {
             "generatr.site.externalTag" "Extern Systeem"
+            "generatr.site.exporter" "structurizr"
             "generatr.site.nestGroups" "false"
         }
 
