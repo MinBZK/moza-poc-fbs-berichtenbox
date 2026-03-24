@@ -15,11 +15,12 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         medewerkerA = person "Medewerker A" "Verstuurt berichten namens Organisatie A"
         medewerkerB = person "Medewerker B" "Verstuurt berichten namens Organisatie B"
 
-        authzen = softwareSystem "AuthZEN / FTV" "Federatieve Toegangsverlening - autorisatie van verzoeken" "Extern Systeem"
         profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" "Extern Systeem"
         notificatieService = softwareSystem "Notificatie Service" "Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)" "Extern Systeem"
         digitaleBereikbaarheid = softwareSystem "Digitale Bereikbaarheid Service" "Tonen en muteren toestemming voor digitale communicatie per organisatie" "Extern Systeem"
         interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" "Extern Systeem"
+        eHerkenning = softwareSystem "eHerkenning" "Authenticatie en machtigingen voor zakelijke gebruikers — SAML 2.0 stelsel met machtigingenvoorziening en dienstencatalogus" "Extern Systeem"
+        digiD = softwareSystem "DigiD" "Authenticatie voor burgers" "Extern Systeem"
 
         orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn" "Deelnemer"
         orgB = softwareSystem "Organisatie B" "Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" "Deelnemer"
@@ -70,7 +71,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten; filtert berichten op basis van autorisatie via FTV/AuthZEN" "CDI Bean"
+                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten uit aangesloten magazijnen" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
@@ -104,13 +105,17 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         medewerkerB -> orgB "Verstuurt berichten via"
 
         burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
+        burger -> digiD "Logt in" "SAML 2.0"
         ondernemer -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
+        ondernemer -> eHerkenning "Logt in en verkrijgt machtigingen voor diensten" "SAML 2.0"
 
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        interactielaag -> uitvraagResource "Berichten ophalen en lijsten" "Digikoppeling REST API via FSC"
+        interactielaag -> uitvraagResource "Berichten ophalen en lijsten (incl. gemachtigde diensten)" "Digikoppeling REST API via FSC"
         interactielaag -> digitaleBereikbaarheid "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
+        interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
+        interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
         uitvraagOpvraag -> magazijnOphaalApi "Haalt bijlagen op uit berichtenmagazijn" "Digikoppeling REST API via FSC"
 
@@ -123,8 +128,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         orgB -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
 
         validatieToestemming -> digitaleBereikbaarheid "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
-
-        sessiecacheService -> authzen "Filtert berichten op autorisatie" "AuthZEN REST API"
 
         sessiecacheMagazijnClient -> magazijnOphaalApi "Haalt berichten op" "Digikoppeling REST API via FSC"
 
