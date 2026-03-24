@@ -98,6 +98,8 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             }
         }
 
+        berichtenUitvraagSysteem -> decentraalMagazijn "Wisselt berichten en bijlagen uit" "Digikoppeling REST API via FSC"
+
         medewerkerA -> orgA "Verstuurt berichten via"
         medewerkerB -> orgB "Verstuurt berichten via"
 
@@ -145,16 +147,19 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
         systemLandscape "SystemLandscape" "Het Federatief Berichtenstelsel - een stelsel van federatief gekoppelde diensten" {
             include *
+            exclude "decentraalMagazijn -> berichtenUitvraagSysteem"
             autoLayout
         }
 
         systemContext decentraalMagazijn "Berichtenmagazijn" "Context van het Berichtenmagazijn" {
             include *
+            exclude "decentraalMagazijn -> berichtenUitvraagSysteem"
             autoLayout
         }
 
         systemContext berichtenUitvraagSysteem "BerichtenUitvraagSysteem" "Context van het Berichten Uitvraag Systeem" {
             include *
+            exclude "decentraalMagazijn -> berichtenUitvraagSysteem"
             autoLayout
         }
 
