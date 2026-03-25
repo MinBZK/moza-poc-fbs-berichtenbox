@@ -80,9 +80,11 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
+                        tokenValidatie = component "Token Validatie" "Valideert SAML-assertions of tokens van de Interactielaag en stelt de identiteit van de gebruiker vast" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
                         uitvraagOpvraag = component "Opvraag Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen uit berichtenmagazijn" "CDI Bean"
 
+                        uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper"
                         uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst en mappenbeheer"
                         uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
                     }
@@ -115,6 +117,9 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
+
+        tokenValidatie -> eHerkenning "Valideert SAML-assertion zakelijke gebruiker" "SAML 2.0"
+        tokenValidatie -> digiD "Valideert SAML-assertion burger" "SAML 2.0"
 
         uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; wijzigt metadata van berichten" "Digikoppeling REST API via FSC"
 
