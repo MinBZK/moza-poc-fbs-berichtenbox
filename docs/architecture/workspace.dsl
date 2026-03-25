@@ -26,11 +26,11 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
         group "Federatief Berichtenstelsel (FBS)" {
 
-            decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan en ophalen" "Magazijn" {
+            decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan, ophalen en beheren (incl. metadata)" "Magazijn" {
                 properties {
                     "deployment.model" "Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO"
                 }
-                magazijnOphaalBeheerApi = container "Berichtenmagazijn Ophaal- en Beheer API" "REST API voor het ophalen van berichten en bijlagen, en het vastleggen van gelezen-bevestigingen per gebruiker" "Quarkus / Kotlin" "Magazijn Service"
+                magazijnOphaalBeheerApi = container "Berichtenmagazijn Ophaal- en Beheer API" "REST API voor het ophalen van berichten en bijlagen, en het vastleggen van metadata (gelezen-bevestigingen per gebruiker)" "Quarkus / Kotlin" "Magazijn Service"
                 magazijnAanleverApi = container "Berichtenmagazijn Aanlever API" "REST API voor het aanleveren van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
                     magazijnAanleverResource = component "Aanlever REST API" "REST endpoints voor het aanleveren van berichten en bijlagen" "JAX-RS Resource" "Magazijn Component"
                     magazijnCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" "MicroProfile Fault Tolerance" "Magazijn Component"
@@ -190,7 +190,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        component magazijnAanleverApi "OpslaanAPIComponenten" "Componenten binnen de Berichtenmagazijn Aanlever API" {
+        component magazijnAanleverApi "AanleverAPIComponenten" "Componenten binnen de Berichtenmagazijn Aanlever API" {
             include *
             autoLayout
         }
