@@ -75,6 +75,7 @@ rectangle "Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</s
   rectangle "==Opvraag Service\n<size:10>[Component: CDI Bean]</size>\n\nHaal berichten en bijlagen op; berichten uit cache, bijlagen uit berichtenmagazijn" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService
 }
 
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
@@ -85,5 +86,4 @@ BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService .[#70707
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI : "<color:#707070>Berichten ophalen en lijsten (incl. gemachtigde diensten)\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op uit berichtenmagazijn\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 @enduml
