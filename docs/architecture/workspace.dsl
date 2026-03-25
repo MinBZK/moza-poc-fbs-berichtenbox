@@ -113,13 +113,13 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        interactielaag -> uitvraagResource "Berichten en metadata ophalen, bewerken en verwijderen" "Digikoppeling REST API via FSC"
+        interactielaag -> uitvraagResource "Berichten en metadata ophalen, bewerken en verwijderen" "Digikoppeling REST API via FSC (SAML-assertion als bearer token)"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
-        tokenValidatie -> eHerkenning "Valideert SAML-assertion zakelijke gebruiker" "SAML 2.0"
-        tokenValidatie -> digiD "Valideert SAML-assertion burger" "SAML 2.0"
+        tokenValidatie -> eHerkenning "Valideert SAML-assertion (backchannel)" "SAML Metadata (HTTPS)"
+        tokenValidatie -> digiD "Valideert SAML-assertion (backchannel)" "SAML Metadata (HTTPS)"
 
         uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; wijzigt metadata van berichten" "Digikoppeling REST API via FSC (JWT met gebruikersclaims)"
 
