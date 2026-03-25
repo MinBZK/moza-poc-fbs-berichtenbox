@@ -1,6 +1,6 @@
 @startuml
 set separator none
-title Berichtenmagazijn (per deelnemende organisatie) - Berichtenmagazijn Opslaan API - Components
+title Berichtenmagazijn (per deelnemende organisatie) - Berichtenmagazijn Aanlever API - Components
 
 top to bottom direction
 skinparam ranksep 60
@@ -15,6 +15,12 @@ skinparam {
 
 hide stereotype
 
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.AanleverRESTAPI>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
 skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
@@ -22,13 +28,13 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatie
   roundCorner 20
   shadowing false
 }
-skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService>> {
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtService>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
   BorderColor #2d8a4e
   shadowing false
 }
-skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker>> {
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
   BorderColor #2d8a4e
@@ -46,12 +52,6 @@ skinparam queue<<LDVLogboek>> {
   BorderColor #6b6b6b
   shadowing false
 }
-skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI>> {
-  BackgroundColor #3ba55d
-  FontColor #ffffff
-  BorderColor #2d8a4e
-  shadowing false
-}
 skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
@@ -59,7 +59,7 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
   roundCorner 20
   shadowing false
 }
-skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI>> {
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI>> {
   BorderColor #2d8a4e
   FontColor #2d8a4e
   shadowing false
@@ -70,19 +70,19 @@ rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</
 rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> as Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
 queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
-rectangle "Berichtenmagazijn Opslaan API\n<size:10>[Container: Quarkus / Kotlin]</size>" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI>> {
-  rectangle "==Opslaan REST API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor het aanleveren van berichten en bijlagen" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI
-  rectangle "==CircuitBreaker\n<size:10>[Component: MicroProfile Fault Tolerance]</size>\n\nWeigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker
-  rectangle "==BerichtService\n<size:10>[Component: CDI Bean]</size>\n\nBerichtlevenscyclus: valideren, opslaan en aanmelden" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService
+rectangle "Berichtenmagazijn Aanlever API\n<size:10>[Container: Quarkus / Kotlin]</size>" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI>> {
+  rectangle "==Aanlever REST API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor het aanleveren van berichten en bijlagen" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.AanleverRESTAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.AanleverRESTAPI
+  rectangle "==CircuitBreaker\n<size:10>[Component: MicroProfile Fault Tolerance]</size>\n\nWeigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker
+  rectangle "==BerichtService\n<size:10>[Component: CDI Bean]</size>\n\nBerichtlevenscyclus: valideren, opslaan en aanmelden" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtService
 }
 
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.OpslaanRESTAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker : "<color:#707070>Schrijfoperaties via"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.CircuitBreaker .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService : "<color:#707070>Delegeert naar (als circuit closed)"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService : "<color:#707070>Stuurt bericht ter validatie"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.AanleverRESTAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker : "<color:#707070>Schrijfoperaties via"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtService : "<color:#707070>Delegeert naar (als circuit closed)"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService : "<color:#707070>Stuurt bericht ter validatie"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door"
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
 @enduml
