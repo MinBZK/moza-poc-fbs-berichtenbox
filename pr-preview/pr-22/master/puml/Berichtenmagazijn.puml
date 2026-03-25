@@ -33,12 +33,6 @@ skinparam rectangle<<DigiD>> {
   BorderColor #0b4884
   shadowing false
 }
-skinparam rectangle<<DigitaleBereikbaarheidService>> {
-  BackgroundColor #666666
-  FontColor #ffffff
-  BorderColor #0b4884
-  shadowing false
-}
 skinparam queue<<LDVLogboek>> {
   BackgroundColor #999999
   FontColor #ffffff
@@ -59,6 +53,12 @@ skinparam rectangle<<OrganisatieA>> {
 }
 skinparam rectangle<<OrganisatieB>> {
   BackgroundColor #8c8c8c
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<ProfielService>> {
+  BackgroundColor #666666
   FontColor #ffffff
   BorderColor #0b4884
   shadowing false
@@ -87,20 +87,21 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 
 }
 
-rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 rectangle "==Organisatie A\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - host zelf een berichtenmagazijn" <<OrganisatieA>> as OrganisatieA
 rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
-rectangle "==Digitale Bereikbaarheid Service\n<size:10>[Software System]</size>\n\nTonen en muteren toestemming voor digitale communicatie per organisatie" <<DigitaleBereikbaarheidService>> as DigitaleBereikbaarheidService
 rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — SAML 2.0 stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
+rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 
 Berichtenmagazijnperdeelnemendeorganisatie .[#ff0000,thickness=2].> DigiD : "<color:#ff0000>Controleert autorisatie burger\n<color:#ff0000><size:8>[SAML 2.0]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Wisselt berichten en bijlagen uit\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
+NotificatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt contactgegevens en voorkeuren op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> DigitaleBereikbaarheidService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#ff0000,thickness=2].> eHerkenning : "<color:#ff0000>Controleert autorisatie zakelijke gebruiker\n<color:#ff0000><size:8>[SAML 2.0]</size>"
 @enduml

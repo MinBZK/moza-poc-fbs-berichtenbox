@@ -66,7 +66,7 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.Berichtenmagazij
 }
 
 database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtmetadata, inhoud en bijlagen (0 berichtverlies)" <<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> as Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag
-rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService
+rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Profiel Service" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService
 rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> as Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
 queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
