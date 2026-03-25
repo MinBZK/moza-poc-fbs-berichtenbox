@@ -80,7 +80,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
-                        tokenValidatie = component "Token Validatie" "Valideert SAML-assertions of tokens van de Interactielaag en stelt de identiteit van de gebruiker vast" "CDI Bean"
+                        tokenValidatie = component "Token Validatie" "Valideert SAML-assertions van de Interactielaag en wisselt deze via Token Exchange (RFC 8693) om naar een JWT met gebruikersclaims (BSN/KvK)" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
                         uitvraagOpvraag = component "Opvraag Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen uit berichtenmagazijn" "CDI Bean"
 
@@ -121,7 +121,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         tokenValidatie -> eHerkenning "Valideert SAML-assertion zakelijke gebruiker" "SAML 2.0"
         tokenValidatie -> digiD "Valideert SAML-assertion burger" "SAML 2.0"
 
-        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; wijzigt metadata van berichten" "Digikoppeling REST API via FSC"
+        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; wijzigt metadata van berichten" "Digikoppeling REST API via FSC (JWT met gebruikersclaims)"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
@@ -133,10 +133,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
-        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC"
-
-        magazijnOphaalBeheerApi -> eHerkenning "Controleert autorisatie zakelijke gebruiker" "SAML 2.0" "In Ontwikkeling"
-        magazijnOphaalBeheerApi -> digiD "Controleert autorisatie burger" "SAML 2.0" "In Ontwikkeling"
+        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (JWT met gebruikersclaims)"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
