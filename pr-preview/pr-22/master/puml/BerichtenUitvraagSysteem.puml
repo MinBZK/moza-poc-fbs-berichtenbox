@@ -27,6 +27,12 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
   BorderColor #1e6b38
   shadowing false
 }
+skinparam rectangle<<DigiD>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 skinparam rectangle<<Interactielaag>> {
   BackgroundColor #666666
   FontColor #ffffff
@@ -37,6 +43,12 @@ skinparam queue<<LDVLogboek>> {
   BackgroundColor #999999
   FontColor #ffffff
   BorderColor #6b6b6b
+  shadowing false
+}
+skinparam rectangle<<eHerkenning>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
   shadowing false
 }
 
@@ -58,9 +70,17 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 }
 
 rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
+rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — SAML 2.0 stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
+rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 
+Berichtenmagazijnperdeelnemendeorganisatie .[#ff0000,thickness=2].> eHerkenning : "<color:#ff0000>Controleert autorisatie zakelijke gebruiker\n<color:#ff0000><size:8>[SAML 2.0]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#ff0000,thickness=2].> DigiD : "<color:#ff0000>Controleert autorisatie burger\n<color:#ff0000><size:8>[SAML 2.0]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Wisselt berichten en bijlagen uit\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten en metadata ophalen, bewerken en verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Interactielaag .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
+Interactielaag .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion\n<color:#707070><size:8>[SAML 2.0]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> eHerkenning : "<color:#707070>Valideert SAML-assertion zakelijke gebruiker\n<color:#707070><size:8>[SAML 2.0]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> DigiD : "<color:#707070>Valideert SAML-assertion burger\n<color:#707070><size:8>[SAML 2.0]</size>"
 @enduml

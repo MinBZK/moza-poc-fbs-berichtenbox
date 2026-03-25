@@ -42,6 +42,12 @@ skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache>> {
   roundCorner 20
   shadowing false
 }
+skinparam rectangle<<DigiD>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 skinparam rectangle<<Interactielaag>> {
   BackgroundColor #666666
   FontColor #ffffff
@@ -54,6 +60,12 @@ skinparam queue<<LDVLogboek>> {
   BorderColor #6b6b6b
   shadowing false
 }
+skinparam rectangle<<eHerkenning>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 skinparam rectangle<<BerichtenUitvraagSysteem>> {
   BorderColor #2e6295
   FontColor #2e6295
@@ -61,6 +73,8 @@ skinparam rectangle<<BerichtenUitvraagSysteem>> {
 }
 
 rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
+rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — SAML 2.0 stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
+rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan en ophalen" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
 queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
@@ -70,6 +84,9 @@ rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<Beri
   rectangle "==Aanmeld Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWerkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" <<BerichtenUitvraagSysteem.AanmeldService>> as BerichtenUitvraagSysteem.AanmeldService
 }
 
+BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#ff0000,thickness=2].> eHerkenning : "<color:#ff0000>Controleert autorisatie zakelijke gebruiker\n<color:#ff0000><size:8>[SAML 2.0]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#ff0000,thickness=2].> DigiD : "<color:#ff0000>Controleert autorisatie burger\n<color:#ff0000><size:8>[SAML 2.0]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
@@ -77,7 +94,10 @@ BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> LDVLo
 BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt cache bij\n<color:#707070><size:8>[REST API (intern)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op uit cache\n<color:#707070><size:8>[REST API (intern)]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService : "<color:#707070>Berichten en metadata ophalen, bewerken en verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Interactielaag .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
+Interactielaag .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion\n<color:#707070><size:8>[SAML 2.0]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> eHerkenning : "<color:#707070>Valideert SAML-assertion zakelijke gebruiker\n<color:#707070><size:8>[SAML 2.0]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> DigiD : "<color:#707070>Valideert SAML-assertion burger\n<color:#707070><size:8>[SAML 2.0]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op; wijzigt metadata van berichten\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml
