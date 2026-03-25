@@ -116,8 +116,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
-        uitvraagOpvraag -> magazijnOphaalApi "Haalt bijlagen op uit berichtenmagazijn" "Digikoppeling REST API via FSC"
-        uitvraagOpvraag -> magazijnOphaalApi "Stuurt gelezen-bevestigingen" "Digikoppeling REST API via FSC"
+        uitvraagOpvraag -> magazijnOphaalApi "Haalt bijlagen op; stuurt gelezen-bevestigingen" "Digikoppeling REST API via FSC"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
