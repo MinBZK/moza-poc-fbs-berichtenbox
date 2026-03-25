@@ -73,8 +73,6 @@ rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app
 rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — SAML 2.0 stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
 rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 
-Berichtenmagazijnperdeelnemendeorganisatie .[#ff0000,thickness=2].> eHerkenning : "<color:#ff0000>Controleert autorisatie zakelijke gebruiker\n<color:#ff0000><size:8>[SAML 2.0]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#ff0000,thickness=2].> DigiD : "<color:#ff0000>Controleert autorisatie burger\n<color:#ff0000><size:8>[SAML 2.0]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Wisselt berichten en bijlagen uit\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"

@@ -48,12 +48,6 @@ skinparam database<<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> {
   BorderColor #2d8a4e
   shadowing false
 }
-skinparam rectangle<<DigiD>> {
-  BackgroundColor #666666
-  FontColor #ffffff
-  BorderColor #0b4884
-  shadowing false
-}
 skinparam queue<<LDVLogboek>> {
   BackgroundColor #999999
   FontColor #ffffff
@@ -91,12 +85,6 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
   roundCorner 20
   shadowing false
 }
-skinparam rectangle<<eHerkenning>> {
-  BackgroundColor #666666
-  FontColor #ffffff
-  BorderColor #0b4884
-  shadowing false
-}
 skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
   BorderColor #1e6b38
   FontColor #1e6b38
@@ -105,8 +93,6 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
 
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
-rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — SAML 2.0 stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
-rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 rectangle "==Organisatie A\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - host zelf een berichtenmagazijn" <<OrganisatieA>> as OrganisatieA
 rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
 rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
@@ -120,8 +106,6 @@ rectangle "Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software S
   rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> as Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
 }
 
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI .[#ff0000,thickness=2].> eHerkenning : "<color:#ff0000>Controleert autorisatie zakelijke gebruiker\n<color:#ff0000><size:8>[SAML 2.0]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI .[#ff0000,thickness=2].> DigiD : "<color:#ff0000>Controleert autorisatie burger\n<color:#ff0000><size:8>[SAML 2.0]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
@@ -132,9 +116,7 @@ Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#70707
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService : "<color:#707070>Stuurt bericht ter validatie"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door"
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> eHerkenning : "<color:#707070>Valideert SAML-assertion zakelijke gebruiker\n<color:#707070><size:8>[SAML 2.0]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> DigiD : "<color:#707070>Valideert SAML-assertion burger\n<color:#707070><size:8>[SAML 2.0]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt bijlagen op; wijzigt metadata van berichten\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt bijlagen op; wijzigt metadata van berichten\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT met gebruikersclaims)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
 NotificatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt contactgegevens en voorkeuren op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
