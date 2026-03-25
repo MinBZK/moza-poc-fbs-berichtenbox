@@ -121,7 +121,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         tokenValidatie -> eHerkenning "Valideert SAML-assertion (backchannel)" "SAML Metadata (HTTPS)"
         tokenValidatie -> digiD "Valideert SAML-assertion (backchannel)" "SAML Metadata (HTTPS)"
 
-        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; wijzigt metadata van berichten" "Digikoppeling REST API via FSC (JWT met gebruikersclaims)"
+        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (JWT met gebruikersclaims)"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
