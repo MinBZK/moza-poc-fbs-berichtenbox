@@ -30,13 +30,13 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 properties {
                     "deployment.model" "Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO"
                 }
-                magazijnOphaalApi = container "Berichtenmagazijn Ophaal API" "REST API voor het ophalen van berichten en bijlagen, en het vastleggen van gelezen-bevestigingen per gebruiker" "Quarkus / Kotlin" "Magazijn Service"
-                magazijnOpslaanApi = container "Berichtenmagazijn Opslaan API" "REST API voor het opslaan van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
-                    magazijnOpslaanResource = component "Opslaan REST API" "REST endpoints voor het aanleveren van berichten en bijlagen" "JAX-RS Resource" "Magazijn Component"
+                magazijnOphaalBeheerApi = container "Berichtenmagazijn Ophaal- en Beheer API" "REST API voor het ophalen van berichten en bijlagen, en het vastleggen van gelezen-bevestigingen per gebruiker" "Quarkus / Kotlin" "Magazijn Service"
+                magazijnAanleverApi = container "Berichtenmagazijn Aanlever API" "REST API voor het aanleveren van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
+                    magazijnAanleverResource = component "Aanlever REST API" "REST endpoints voor het aanleveren van berichten en bijlagen" "JAX-RS Resource" "Magazijn Component"
                     magazijnCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" "MicroProfile Fault Tolerance" "Magazijn Component"
                     magazijnBerichtService = component "BerichtService" "Berichtlevenscyclus: valideren, opslaan en aanmelden" "CDI Bean" "Magazijn Component"
 
-                    magazijnOpslaanResource -> magazijnCircuitBreaker "Schrijfoperaties via"
+                    magazijnAanleverResource -> magazijnCircuitBreaker "Schrijfoperaties via"
                     magazijnCircuitBreaker -> magazijnBerichtService "Delegeert naar (als circuit closed)"
                 }
                 magazijnDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
@@ -57,7 +57,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                     }
                 }
 
-                magazijnOphaalApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft gelezen-bevestigingen per gebruiker"
+                magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft gelezen-bevestigingen per gebruiker"
                 magazijnBerichtService -> magazijnDatastore "Schrijft berichten en bijlagen"
                 magazijnBerichtService -> validatieApi "Stuurt bericht ter validatie"
                 magazijnBerichtService -> publicatieStream "Stuurt gevalideerd bericht door"
@@ -111,29 +111,29 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        interactielaag -> uitvraagResource "Berichten ophalen en lijsten; gelezen-bevestigingen (incl. gemachtigde diensten)" "Digikoppeling REST API via FSC"
+        interactielaag -> uitvraagResource "Berichten en metadata ophalen, bewerken en verwijderen" "Digikoppeling REST API via FSC"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
-        uitvraagOpvraag -> magazijnOphaalApi "Haalt bijlagen op; stuurt gelezen-bevestigingen" "Digikoppeling REST API via FSC"
+        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; wijzigt metadata van berichten" "Digikoppeling REST API via FSC"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
 
         notificatieService -> profielService "Haalt contactgegevens en voorkeuren op" "Digikoppeling REST API via FSC"
 
-        orgA -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
-        orgB -> magazijnOpslaanApi "Levert berichten aan" "Digikoppeling REST API via FSC"
+        orgA -> magazijnAanleverApi "Levert berichten aan" "Digikoppeling REST API via FSC"
+        orgB -> magazijnAanleverApi "Levert berichten aan" "Digikoppeling REST API via FSC"
 
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
-        sessiecacheMagazijnClient -> magazijnOphaalApi "Haalt berichten op" "Digikoppeling REST API via FSC"
+        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC"
 
-        magazijnOphaalApi -> eHerkenning "Controleert autorisatie zakelijke gebruiker" "SAML 2.0" "In Ontwikkeling"
-        magazijnOphaalApi -> digiD "Controleert autorisatie burger" "SAML 2.0" "In Ontwikkeling"
+        magazijnOphaalBeheerApi -> eHerkenning "Controleert autorisatie zakelijke gebruiker" "SAML 2.0" "In Ontwikkeling"
+        magazijnOphaalBeheerApi -> digiD "Controleert autorisatie burger" "SAML 2.0" "In Ontwikkeling"
 
-        magazijnOphaalApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
@@ -188,7 +188,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
             autoLayout
         }
 
-        component magazijnOpslaanApi "OpslaanAPIComponenten" "Componenten binnen de Berichtenmagazijn Opslaan API" {
+        component magazijnAanleverApi "OpslaanAPIComponenten" "Componenten binnen de Berichtenmagazijn Aanlever API" {
             include *
             autoLayout
         }
