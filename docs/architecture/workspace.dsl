@@ -71,7 +71,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                 magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door"
                 publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
 
-                autorisatieService = container "Autorisatie Service" "Toetst verzoeken aan het autorisatiebeleid van de deelnemende organisatie — per tenant configureerbaar bij centraal gehoste magazijnen" "Quarkus / Kotlin" "Magazijn Service"
+                autorisatieService = container "Autorisatie Service" "Toetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie — per tenant configureerbaar bij centraal gehoste magazijnen. Aanleverautorisatie verloopt via FSC-contracten: een geldig contract autoriseert de organisatie om berichten aan te leveren; de Bericht Validatie Service controleert vervolgens technische eisen en ontvangerstoestemming." "Quarkus / Kotlin" "Magazijn Service"
 
                 magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek"
             }
