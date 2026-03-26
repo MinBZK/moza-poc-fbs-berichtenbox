@@ -57,7 +57,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     }
                 }
 
-                magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft gelezen-bevestigingen per gebruiker"
+                magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft berichtstatus (gelezen, map, verwijderd) per gebruiker"
                 magazijnBerichtService -> magazijnDatastore "Schrijft berichten en bijlagen"
                 magazijnBerichtService -> validatieApi "Stuurt bericht ter validatie"
                 magazijnBerichtService -> publicatieStream "Stuurt gevalideerd bericht door"
@@ -74,12 +74,14 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                        magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden; transformeert PP naar EP per magazijn via BSNk" "CDI Bean"
+                        magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean"
+                        pseudoniemService = component "PseudoniemService" "Transformeert PP naar ondertekend EP per magazijn via BSNk" "CDI Bean"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
-                        sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden (met EP per magazijn)"
+                        sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden"
+                        sessiecacheService -> pseudoniemService "Transformeert PP naar ondertekend EP per magazijn"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache"
                         sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op"
                     }
@@ -95,11 +97,11 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                         uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
                     }
 
-                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP) per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" "BSNk container (Logius)" "Extern Geleverd"
+                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar ondertekende versleutelde pseudoniemen (SignedEncryptedPseudonym) per berichtenmagazijn — vereist sleutelmateriaal per deelnemer; handtekening verifieerbaar met BSNk U-sleutel" "BSNk container (Logius)" "Extern Geleverd"
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
-                    magazijnResolver -> bsnkTransformatie "Transformeert pseudoniem per magazijn" "BSNk API (lokaal)"
+                    pseudoniemService -> bsnkTransformatie "Transformeert pseudoniem per magazijn" "BSNk API (lokaal)"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
                     uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
                     uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
@@ -127,7 +129,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
-        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (EP en machtigingsclaims als parameters)"
+        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
@@ -140,13 +142,14 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
         magazijnResolver -> profielService "Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden" "Digikoppeling REST API via FSC"
-        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (EP en machtigingsclaims als parameters)"
+        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnResolver -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        pseudoniemService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         tokenValidatie -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         autorisatieService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         publicatieStream -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
