@@ -55,7 +55,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                 publicatieStream = container "Publicatie Stream" "Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" "Quarkus / Kotlin" "Magazijn Service" {
                     properties {
                         "cloudevents.profiel" "NL GOV profiel CloudEvents v1.1"
-                        "cloudevents.source" "urn:nld:fbs:magazijn:{organisatie-oin}"
+                        "cloudevents.source" "urn:nld:oin:{organisatie-oin}:systeem:fbs-magazijn"
                         "cloudevents.type" "nl.rijksoverheid.fbs.bericht.gepubliceerd"
                     }
                 }
@@ -92,7 +92,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
                         tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens uitgegeven door de Interactielaag en stelt de gebruikersidentiteit vast" "CDI Bean"
-                        uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
+                        uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst, verplaatst berichten naar andere map en verwijdert berichten" "CDI Bean"
                         uitvraagOphaalService = component "Bericht Ophaal Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" "CDI Bean"
 
                         uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper"
