@@ -62,6 +62,10 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                 magazijnBerichtService -> validatieApi "Stuurt bericht ter validatie"
                 magazijnBerichtService -> publicatieStream "Stuurt gevalideerd bericht door"
                 publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
+
+                autorisatieService = container "Autorisatie Service" "Toetst verzoeken aan het autorisatiebeleid van de deelnemende organisatie — per tenant configureerbaar bij centraal gehoste magazijnen" "Quarkus / Kotlin" "Magazijn Service"
+
+                magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek"
             }
 
             group "Centraal gehoste services" {
@@ -123,7 +127,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
-        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (EP als parameter)"
+        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (EP en machtigingsclaims als parameters)"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
@@ -136,7 +140,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
         magazijnResolver -> profielService "Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden" "Digikoppeling REST API via FSC"
-        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (EP als parameter)"
+        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (EP en machtigingsclaims als parameters)"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
@@ -144,6 +148,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnResolver -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         tokenValidatie -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        autorisatieService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         publicatieStream -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         aanmeldService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         uitvraagBerichtenlijst -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
