@@ -95,7 +95,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
-                    magazijnResolver -> bsnkTransformatie "Transformeert pseudoniem per magazijn"
+                    magazijnResolver -> bsnkTransformatie "Transformeert pseudoniem per magazijn" "BSNk API (lokaal)"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
                     uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
                     uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
