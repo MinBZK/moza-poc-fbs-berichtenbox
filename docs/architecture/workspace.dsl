@@ -20,7 +20,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
         profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" "Extern Systeem"
         notificatieService = softwareSystem "Notificatie Service" "Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)" "Extern Systeem"
-        interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel — fungeert als dienstbemiddelaar in eHerkenning en levert per-magazijn pseudoniemen voor zakelijke gebruikers" "Extern Systeem"
+        interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" "Extern Systeem"
         eHerkenning = softwareSystem "eHerkenning" "Authenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" "Extern Systeem"
         digiD = softwareSystem "DigiD" "Authenticatie voor burgers" "Extern Systeem"
 
