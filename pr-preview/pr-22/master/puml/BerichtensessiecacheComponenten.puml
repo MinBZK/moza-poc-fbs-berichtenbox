@@ -65,12 +65,12 @@ skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache>> {
 }
 
 rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. metadata)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
-rectangle "==BSNk Transformatie\n<size:10>[Container: BSNk container (Logius)]</size>\n\nTransformeert polymorfe pseudoniemen (PP) naar dienst-specifieke pseudoniemen (EP) per berichtenmagazijn" <<BerichtenUitvraagSysteem.BSNkTransformatie>> as BerichtenUitvraagSysteem.BSNkTransformatie
+rectangle "==BSNk Transformatie\n<size:10>[Container: BSNk container (Logius)]</size>\n\nTransformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP) per berichtenmagazijn" <<BerichtenUitvraagSysteem.BSNkTransformatie>> as BerichtenUitvraagSysteem.BSNkTransformatie
 queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
 rectangle "Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin]</size>" <<BerichtenUitvraagSysteem.Berichtensessiecache>> {
   rectangle "==Berichtensessiecache API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor berichtensessiecache en zoeken" <<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI>> as BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI
-  rectangle "==BerichtensessiecacheService\n<size:10>[Component: CDI Bean]</size>\n\nBepaalt op basis van gebruikersclaims (PP, machtigingen) welke magazijnen bevraagd worden; transformeert PP naar EP per magazijn via BSNk; aggregeert en cachet berichten" <<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService>> as BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService
+  rectangle "==BerichtensessiecacheService\n<size:10>[Component: CDI Bean]</size>\n\nBepaalt op basis van gebruikersclaims (PP, machtigingen) welke magazijnen bevraagd worden; laat PP naar EP transformeren per magazijn via BSNk; aggregeert en cachet berichten" <<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService>> as BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService
   rectangle "==Cache\n<size:10>[Component: Redis / RediSearch]</size>\n\nCache voor berichten met full-text zoekindex (60s TTL)" <<BerichtenUitvraagSysteem.Berichtensessiecache.Cache>> as BerichtenUitvraagSysteem.Berichtensessiecache.Cache
   rectangle "==MagazijnClient\n<size:10>[Component: REST Client]</size>\n\nREST client naar berichtenmagazijnen" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient
 }
