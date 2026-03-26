@@ -5,6 +5,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         "nfr.betrouwbaarheid.berichtverlies" "RPO=0: geen berichtverlies; bij verstoring weigert de circuit breaker schrijfoperaties totdat duurzame persistentie is hersteld"
         "security.fsc" "Alle FSC-verbindingen vereisen mTLS met PKIoverheid-certificaten"
         "nfr.beschikbaarheid.ratelimiting" "Rate limiting en throttling op FSC-contractniveau ter bescherming van magazijnen en BSNk tegen overbelasting"
+        "security.vertrouwensmodel" "Twee beveiligingslagen: (1) FSC levert organisatievertrouwen via mTLS + cryptografisch ondertekende contracten (PeerID, certificate-bound tokens); (2) het ondertekende versleutelde pseudoniem (EP) levert persoonsidentificatie per magazijn. Het EP bevat een doelmagazijn-binding (versleuteld met de publieke sleutel van het magazijn) en een BSNk-handtekening (verifieerbaar met de U-sleutel). De Interactielaag fungeert als token-issuer: ontvangt SAML-assertions van DigiD/eHerkenning en geeft JWT bearer tokens uit met PP (burgers) of per-magazijn pseudoniemen en machtigingsclaims (zakelijke gebruikers). Token Validatie verifieert de JWT-handtekening, issuer, audience en expiration conform het OIDC NL GOV profiel."
     }
 
     model {
@@ -77,7 +78,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
                         magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean"
-                        pseudoniemService = component "PseudoniemService" "Transformeert PP naar ondertekend EP per magazijn via BSNk (alleen burgers; zakelijke pseudoniemen komen direct uit het JWT via eHerkenning-dienstbemiddeling)" "CDI Bean"
+                        pseudoniemService = component "PseudoniemService" "Transformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP) per magazijn via BSNk (alleen burgers; zakelijke pseudoniemen komen direct uit het JWT via eHerkenning-dienstbemiddeling)" "CDI Bean"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem (sessie-scope, levensduur volgt JWT)" "CDI Bean"
                         sessiecacheCache = component "Cache" "Sessiecache voor berichten met full-text zoekindex — levensduur gekoppeld aan JWT-sessie, sleutel is het pseudoniem" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
@@ -99,11 +100,11 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                         uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
                     }
 
-                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar ondertekende versleutelde pseudoniemen (SignedEncryptedPseudonym) per berichtenmagazijn — vereist sleutelmateriaal per deelnemer; handtekening verifieerbaar met BSNk U-sleutel" "BSNk container (Logius)" "Extern Geleverd"
+                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP, formeel SignedEncryptedPseudonym) per berichtenmagazijn — vereist sleutelmateriaal per deelnemer; handtekening verifieerbaar met BSNk U-sleutel" "BSNk container (Logius)" "Extern Geleverd"
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
-                    pseudoniemService -> bsnkTransformatie "Transformeert pseudoniem per magazijn" "BSNk API (lokaal)"
+                    pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
                     uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
                     uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
