@@ -58,6 +58,12 @@ skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClien
   BorderColor #0b4884
   shadowing false
 }
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 skinparam rectangle<<ProfielService>> {
   BackgroundColor #666666
   FontColor #ffffff
@@ -77,18 +83,21 @@ queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkin
 
 rectangle "Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin]</size>" <<BerichtenUitvraagSysteem.Berichtensessiecache>> {
   rectangle "==Berichtensessiecache API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor berichtensessiecache en zoeken" <<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI>> as BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI
-  rectangle "==BerichtensessiecacheService\n<size:10>[Component: CDI Bean]</size>\n\nBepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden; laat PP naar EP transformeren per magazijn via BSNk; aggregeert en cachet berichten" <<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService>> as BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService
+  rectangle "==MagazijnResolver\n<size:10>[Component: CDI Bean]</size>\n\nBepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden; transformeert PP naar EP per magazijn via BSNk" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver
+  rectangle "==BerichtensessiecacheService\n<size:10>[Component: CDI Bean]</size>\n\nAggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten" <<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService>> as BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService
   rectangle "==Cache\n<size:10>[Component: Redis / RediSearch]</size>\n\nCache voor berichten met full-text zoekindex (60s TTL)" <<BerichtenUitvraagSysteem.Berichtensessiecache.Cache>> as BerichtenUitvraagSysteem.Berichtensessiecache.Cache
   rectangle "==MagazijnClient\n<size:10>[Component: REST Client]</size>\n\nREST client naar berichtenmagazijnen" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient
 }
 
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC (EP als parameter)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService : "<color:#707070>Gebruikt"
+BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver : "<color:#707070>Vraagt op welke magazijnen bevraagd moeten worden (met EP per magazijn)"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.Cache : "<color:#707070>Leest/schrijft cache"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient : "<color:#707070>Haalt berichten op"
-BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert pseudoniem per magazijn"
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert pseudoniem per magazijn"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml
