@@ -91,7 +91,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
                     }
 
-                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP) per berichtenmagazijn" "BSNk container (Logius)" "Extern Geleverd"
+                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP) per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" "BSNk container (Logius)" "Extern Geleverd"
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
