@@ -70,7 +70,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                        sessiecacheService = component "BerichtensessiecacheService" "Bepaalt op basis van gebruikersclaims (pseudoniem, machtigingen) welke magazijnen bevraagd worden; aggregeert en cachet berichten" "CDI Bean"
+                        sessiecacheService = component "BerichtensessiecacheService" "Bepaalt op basis van gebruikersclaims (PP, machtigingen) welke magazijnen bevraagd worden; transformeert PP naar EP per magazijn via BSNk; aggregeert en cachet berichten" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
@@ -116,12 +116,12 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        interactielaag -> uitvraagResource "Berichten en metadata ophalen, bewerken en verwijderen" "Digikoppeling REST API via FSC (JWT bearer token)"
+        interactielaag -> uitvraagResource "Berichten en metadata ophalen, bewerken en verwijderen" "Digikoppeling REST API via FSC (JWT bearer token met PP)"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
-        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (JWT met gebruikerspseudoniemen)"
+        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (JWT met EP per magazijn)"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
@@ -133,7 +133,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
-        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (JWT met gebruikerspseudoniemen)"
+        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (JWT met EP per magazijn)"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
