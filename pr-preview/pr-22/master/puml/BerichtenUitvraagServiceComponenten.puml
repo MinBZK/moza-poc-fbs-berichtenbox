@@ -15,7 +15,7 @@ skinparam {
 
 hide stereotype
 
-skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenService>> {
+skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService>> {
   BackgroundColor #1168bd
   FontColor #ffffff
   BorderColor #0b4884
@@ -79,7 +79,7 @@ rectangle "Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</s
   rectangle "==Berichten Uitvraag API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor berichtenbox, mappen en berichten" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI
   rectangle "==Token Validatie\n<size:10>[Component: CDI Bean]</size>\n\nValideert JWT bearer tokens uitgegeven door de Interactielaag en stelt de gebruikersidentiteit vast" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.TokenValidatie>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.TokenValidatie
   rectangle "==Berichtenlijst Service\n<size:10>[Component: CDI Bean]</size>\n\nLever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService
-  rectangle "==Berichten Service\n<size:10>[Component: CDI Bean]</size>\n\nHaal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenService
+  rectangle "==Bericht Ophaal Service\n<size:10>[Component: CDI Bean]</size>\n\nHaal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService
 }
 
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)]</size>"
@@ -87,12 +87,12 @@ Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek :
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.TokenValidatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.TokenValidatie : "<color:#707070>Valideert identiteit aanroeper"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService : "<color:#707070>Berichtenlijst en mappenbeheer"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenService : "<color:#707070>Berichten en bijlagen ophalen"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op uit cache\n<color:#707070><size:8>[REST API (intern)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService : "<color:#707070>Berichten en bijlagen ophalen"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op uit cache\n<color:#707070><size:8>[REST API (intern)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichtenlijst op\n<color:#707070><size:8>[REST API (intern)]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI : "<color:#707070>Berichten en metadata ophalen, bewerken en verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token met PP voor burgers, of per-magazijn pseudoniemen en machtigingen voor zakelijke gebruikers)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)\n<color:#707070><size:8>[Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)\n<color:#707070><size:8>[Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)]</size>"
 @enduml
