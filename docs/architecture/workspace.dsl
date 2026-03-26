@@ -84,7 +84,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
                         tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens uitgegeven door de Interactielaag en stelt de gebruikersidentiteit vast" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
-                        uitvraagOpvraag = component "Opvraag Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" "CDI Bean"
+                        uitvraagOpvraag = component "Berichten Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" "CDI Bean"
 
                         uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper"
                         uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst en mappenbeheer"
