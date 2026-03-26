@@ -70,10 +70,12 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                        sessiecacheService = component "BerichtensessiecacheService" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden; laat PP naar EP transformeren per magazijn via BSNk; aggregeert en cachet berichten" "CDI Bean"
+                        magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden; transformeert PP naar EP per magazijn via BSNk" "CDI Bean"
+                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
+                        sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden (met EP per magazijn)"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache"
                         sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op"
                     }
@@ -93,7 +95,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
-                    sessiecacheService -> bsnkTransformatie "Transformeert pseudoniem per magazijn"
+                    magazijnResolver -> bsnkTransformatie "Transformeert pseudoniem per magazijn"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
                     uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
                     uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
@@ -133,13 +135,14 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
-        sessiecacheService -> profielService "Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden" "Digikoppeling REST API via FSC"
+        magazijnResolver -> profielService "Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden" "Digikoppeling REST API via FSC"
         sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (EP als parameter)"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        magazijnResolver -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         tokenValidatie -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         publicatieStream -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         aanmeldService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
