@@ -121,7 +121,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
-        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (JWT met EP per magazijn)"
+        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (EP als parameter)"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
@@ -133,7 +133,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
-        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (JWT met EP per magazijn)"
+        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (EP als parameter)"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
