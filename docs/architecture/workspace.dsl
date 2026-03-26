@@ -11,6 +11,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         "security.bsnk-dienstregistratie" "Elk berichtenmagazijn is als aparte dienst geregistreerd bij BSNk, zodat de PP-naar-EP-transformatie een uniek EP per magazijn oplevert. Dit voorkomt cross-magazijn koppelbaarheid van pseudoniemen."
         "architectuur.fsc-abstractie" "FSC-infrastructuur (Inway, Outway, Manager, Directory) is bewust niet als aparte containers gemodelleerd. FSC wordt behandeld als cross-cutting transportlaag, zichtbaar in relatiebeschrijvingen ('Digikoppeling REST API via FSC'). Zie fsc-core v1.1.2 voor de componentarchitectuur."
         "architectuur.traceerbaarheid" "Cross-organisatie verwerkingen zijn traceerbaar via W3C Trace Context (traceparent header). FSC-verkeer propageert trace-context over organisatiegrenzen conform de LDV-standaard. De Fsc-Transaction-Id header wordt aanvullend gebruikt voor FSC-specifieke transactielogging."
+        "architectuur.ldv-logging" "Alle componenten die persoonsgegevens verwerken loggen naar het LDV Logboek via OpenTelemetry (OTLP). Dit betreft: magazijnOphaalBeheerApi, magazijnOpslagService, validatieApi, sessiecacheService, magazijnResolver, pseudoniemService, tokenValidatie, autorisatieService, publicatieStream, aanmeldService, uitvraagBerichtenlijst, uitvraagOphaalService, uitvraagBeheerService. LDV-relaties zijn niet in de views gemodelleerd om de leesbaarheid te bewaren."
     }
 
     model {
@@ -95,14 +96,16 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     }
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
-                        uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
+                        uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenlijst, ophalen, beheer en verwijderen" "JAX-RS Resource"
                         tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens en stelt de gebruikersidentiteit vast" "CDI Bean"
-                        uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst, verplaatst berichten naar andere map en verwijdert berichten" "CDI Bean"
-                        uitvraagOphaalService = component "Bericht Ophaal Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" "CDI Bean"
+                        uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst" "CDI Bean"
+                        uitvraagOphaalService = component "Bericht Ophaal Service" "Haalt berichten en bijlagen op uit cache en berichtenmagazijn" "CDI Bean"
+                        uitvraagBeheerService = component "Bericht Beheer Service" "Verplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" "CDI Bean"
 
                         uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper"
-                        uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst en mappenbeheer"
+                        uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst per map"
                         uitvraagResource -> uitvraagOphaalService "Berichten en bijlagen ophalen"
+                        uitvraagResource -> uitvraagBeheerService "Berichtstatus en mappenbeheer"
                     }
 
                     bsnkTransformatie = container "BSNk Transformatie" "Transformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" "BSNk container (Logius)" "Extern Geleverd"
@@ -111,8 +114,9 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
-                    uitvraagOphaalService -> sessiecacheResource "Haalt berichten op en werkt berichtstatus bij" "REST API (intern)"
+                    uitvraagOphaalService -> sessiecacheResource "Haalt berichten op" "REST API (intern)"
                     uitvraagBerichtenlijst -> sessiecacheResource "Haalt berichtenlijst op" "REST API (intern)"
+                    uitvraagBeheerService -> sessiecacheResource "Werkt berichtstatus bij in cache" "REST API (intern)"
                 }
 
                 ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
@@ -132,12 +136,13 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        interactielaag -> uitvraagResource "Berichten ophalen, berichtstatus beheren en berichten verwijderen" "Digikoppeling REST API via FSC (JWT bearer token)"
+        interactielaag -> uitvraagResource "Berichtenbox API-aanroepen namens burger of ondernemer" "Digikoppeling REST API via FSC (JWT bearer token)"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"
 
-        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt bijlagen op en beheert berichtstatus" "Digikoppeling REST API via FSC"
+        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt bijlagen op" "Digikoppeling REST API via FSC"
+        uitvraagBeheerService -> magazijnOphaalBeheerApi "Beheert berichtstatus" "Digikoppeling REST API via FSC"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
@@ -152,18 +157,6 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         magazijnResolver -> profielService "Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden" "Digikoppeling REST API via FSC"
         sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC"
 
-        magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        magazijnOpslagService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        magazijnResolver -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        pseudoniemService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        tokenValidatie -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        autorisatieService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        publicatieStream -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        aanmeldService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        uitvraagBerichtenlijst -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        uitvraagOphaalService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
     }
 
     views {
