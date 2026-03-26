@@ -109,9 +109,9 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         medewerkerB -> orgB "Verstuurt berichten via"
 
         burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
-        burger -> digiD "Logt in" "SAML 2.0"
+        burger -> digiD "Logt in" "HTTPS (browser redirect)"
         ondernemer -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
-        ondernemer -> eHerkenning "Logt in en verkrijgt machtigingen voor diensten" "SAML 2.0"
+        ondernemer -> eHerkenning "Logt in en verkrijgt machtigingen voor diensten" "HTTPS (browser redirect)"
 
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
@@ -139,6 +139,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
         magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        tokenValidatie -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         publicatieStream -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         aanmeldService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         uitvraagBerichtenlijst -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
