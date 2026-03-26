@@ -37,10 +37,10 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                 magazijnAanleverApi = container "Berichtenmagazijn Aanlever API" "REST API voor het aanleveren van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
                     magazijnAanleverResource = component "Aanlever REST API" "REST endpoints voor het aanleveren van berichten en bijlagen" "JAX-RS Resource" "Magazijn Component"
                     magazijnCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" "MicroProfile Fault Tolerance" "Magazijn Component"
-                    magazijnBerichtService = component "BerichtService" "Berichtlevenscyclus: valideren, opslaan en aanmelden" "CDI Bean" "Magazijn Component"
+                    magazijnOpslagService = component "Bericht Opslag Service" "Berichtlevenscyclus: valideren, opslaan en aanmelden" "CDI Bean" "Magazijn Component"
 
                     magazijnAanleverResource -> magazijnCircuitBreaker "Schrijfoperaties via"
-                    magazijnCircuitBreaker -> magazijnBerichtService "Delegeert naar (als circuit closed)"
+                    magazijnCircuitBreaker -> magazijnOpslagService "Delegeert naar (als circuit closed)"
                 }
                 magazijnDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
 
@@ -61,9 +61,9 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                 }
 
                 magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft berichtstatus (gelezen, map, verwijderd) per gebruiker"
-                magazijnBerichtService -> magazijnDatastore "Schrijft berichten en bijlagen"
-                magazijnBerichtService -> validatieApi "Stuurt bericht ter validatie"
-                magazijnBerichtService -> publicatieStream "Stuurt gevalideerd bericht door"
+                magazijnOpslagService -> magazijnDatastore "Schrijft berichten en bijlagen"
+                magazijnOpslagService -> validatieApi "Stuurt bericht ter validatie"
+                magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door"
                 publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
 
                 autorisatieService = container "Autorisatie Service" "Toetst verzoeken aan het autorisatiebeleid van de deelnemende organisatie — per tenant configureerbaar bij centraal gehoste magazijnen" "Quarkus / Kotlin" "Magazijn Service"
@@ -93,11 +93,11 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
                         tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens uitgegeven door de Interactielaag en stelt de gebruikersidentiteit vast" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
-                        uitvraagOpvraag = component "Berichten Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" "CDI Bean"
+                        uitvraagOphaalService = component "Bericht Ophaal Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" "CDI Bean"
 
                         uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper"
                         uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst en mappenbeheer"
-                        uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
+                        uitvraagResource -> uitvraagOphaalService "Berichten en bijlagen ophalen"
                     }
 
                     bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP, formeel SignedEncryptedPseudonym) per berichtenmagazijn — vereist sleutelmateriaal per deelnemer; handtekening verifieerbaar met BSNk U-sleutel" "BSNk container (Logius)" "Extern Geleverd"
@@ -106,7 +106,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
-                    uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
+                    uitvraagOphaalService -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
                     uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
                 }
 
@@ -132,7 +132,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
 
-        uitvraagOpvraag -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)"
+        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
@@ -148,7 +148,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        magazijnBerichtService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        magazijnOpslagService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         validatieApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         sessiecacheService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnResolver -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
@@ -158,7 +158,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         publicatieStream -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         aanmeldService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         uitvraagBerichtenlijst -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
-        uitvraagOpvraag -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
+        uitvraagOphaalService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
     }
 
     views {
