@@ -111,8 +111,8 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
-                    uitvraagOphaalService -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
-                    uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
+                    uitvraagOphaalService -> sessiecacheResource "Haalt berichten op uit cache (JWT-claims incl. machtigingen worden doorgegeven)" "REST API (intern)"
+                    uitvraagBerichtenlijst -> sessiecacheResource "Haalt berichtenlijst op (JWT-claims incl. machtigingen worden doorgegeven)" "REST API (intern)"
                 }
 
                 ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
