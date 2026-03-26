@@ -106,6 +106,7 @@ rectangle "Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software S
   rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> as Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
 }
 
+BerichtenUitvraagSysteem .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
