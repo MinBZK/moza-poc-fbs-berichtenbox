@@ -68,10 +68,10 @@ rectangle "Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</si
   rectangle "==Toestemming Controle\n<size:10>[Component: CDI Bean]</size>\n\nControleert of de ontvanger toestemming gegeven heeft voor digitale communicatie" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle
 }
 
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie : "<color:#707070>Valideert technische eisen"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle : "<color:#707070>Controleert toestemming"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI : "<color:#707070>Stuurt bericht ter validatie"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml
