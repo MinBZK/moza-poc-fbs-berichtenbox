@@ -55,12 +55,6 @@ skinparam rectangle<<Interactielaag>> {
   BorderColor #0b4884
   shadowing false
 }
-skinparam queue<<LDVLogboek>> {
-  BackgroundColor #999999
-  FontColor #ffffff
-  BorderColor #6b6b6b
-  shadowing false
-}
 skinparam rectangle<<ProfielService>> {
   BackgroundColor #666666
   FontColor #ffffff
@@ -76,7 +70,6 @@ skinparam rectangle<<BerichtenUitvraagSysteem>> {
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" <<Interactielaag>> as Interactielaag
 rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
-queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
 rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<BerichtenUitvraagSysteem>> {
   rectangle "==Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nAggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" <<BerichtenUitvraagSysteem.Berichtensessiecache>> as BerichtenUitvraagSysteem.Berichtensessiecache
@@ -85,15 +78,12 @@ rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<Beri
   rectangle "==Aanmeld Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWerkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" <<BerichtenUitvraagSysteem.AanmeldService>> as BerichtenUitvraagSysteem.AanmeldService
 }
 
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[BSNk API (lokaal)]</size>"
 BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt cache bij\n<color:#707070><size:8>[REST API (intern)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op en werkt berichtstatus bij\n<color:#707070><size:8>[REST API (intern)]</size>"
-Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService : "<color:#707070>Berichten ophalen, berichtstatus beheren en berichten verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op en beheert berichtstatus\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[REST API (intern)]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml

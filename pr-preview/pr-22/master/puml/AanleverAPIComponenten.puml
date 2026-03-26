@@ -46,12 +46,6 @@ skinparam database<<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> {
   BorderColor #2d8a4e
   shadowing false
 }
-skinparam queue<<LDVLogboek>> {
-  BackgroundColor #999999
-  FontColor #ffffff
-  BorderColor #6b6b6b
-  shadowing false
-}
 skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
@@ -68,7 +62,6 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.Berichtenmagazij
 database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtstatus, inhoud en bijlagen (0 berichtverlies)" <<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> as Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag
 rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Profiel Service" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService
 rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> as Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
-queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
 rectangle "Berichtenmagazijn Aanlever API\n<size:10>[Container: Quarkus / Kotlin]</size>" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI>> {
   rectangle "==Aanlever REST API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor het aanleveren van berichten en bijlagen" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.AanleverRESTAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.AanleverRESTAPI
@@ -76,7 +69,6 @@ rectangle "Berichtenmagazijn Aanlever API\n<size:10>[Container: Quarkus / Kotlin
   rectangle "==Bericht Opslag Service\n<size:10>[Component: CDI Bean]</size>\n\nBerichtlevenscyclus: valideren, opslaan en aanmelden" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService
 }
 
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.AanleverRESTAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker : "<color:#707070>Schrijfoperaties via"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService : "<color:#707070>Delegeert naar (als circuit closed)"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen"

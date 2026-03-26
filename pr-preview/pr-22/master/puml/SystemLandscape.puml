@@ -129,12 +129,12 @@ rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app
 rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
 rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
+NotificatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt contactgegevens en voorkeuren op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten, bijlagen en berichtstatus op; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 MedewerkerA .[#707070,thickness=2].> OrganisatieA : "<color:#707070>Verstuurt berichten via"
 MedewerkerB .[#707070,thickness=2].> OrganisatieB : "<color:#707070>Verstuurt berichten via"
@@ -144,10 +144,8 @@ OndernemerZakelijkegebruiker .[#707070,thickness=2].> Interactielaag : "<color:#
 OndernemerZakelijkegebruiker .[#707070,thickness=2].> eHerkenning : "<color:#707070>Logt in\n<color:#707070><size:8>[HTTPS (browser redirect)]</size>"
 NotificatieService .[#707070,thickness=2].> Burger : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
 NotificatieService .[#707070,thickness=2].> OndernemerZakelijkegebruiker : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
-Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten ophalen, berichtstatus beheren en berichten verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
 Interactielaag .[#707070,thickness=2].> ProfielService : "<color:#707070>Toestemming bekijken en wijzigen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Interactielaag .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
 Interactielaag .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie zakelijke gebruikers\n<color:#707070><size:8>[SAML 2.0]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
-NotificatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt contactgegevens en voorkeuren op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml
