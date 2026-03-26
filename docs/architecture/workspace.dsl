@@ -17,7 +17,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
         profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" "Extern Systeem"
         notificatieService = softwareSystem "Notificatie Service" "Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)" "Extern Systeem"
-        interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" "Extern Systeem"
+        interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel — fungeert als dienstbemiddelaar in eHerkenning en levert per-magazijn pseudoniemen voor zakelijke gebruikers" "Extern Systeem"
         eHerkenning = softwareSystem "eHerkenning" "Authenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" "Extern Systeem"
         digiD = softwareSystem "DigiD" "Authenticatie voor burgers" "Extern Systeem"
 
@@ -75,9 +75,9 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
                         magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean"
-                        pseudoniemService = component "PseudoniemService" "Transformeert PP naar ondertekend EP per magazijn via BSNk" "CDI Bean"
-                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten" "CDI Bean"
-                        sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
+                        pseudoniemService = component "PseudoniemService" "Transformeert PP naar ondertekend EP per magazijn via BSNk (alleen burgers; zakelijke pseudoniemen komen direct uit het JWT via eHerkenning-dienstbemiddeling)" "CDI Bean"
+                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem (sessie-scope, levensduur volgt JWT)" "CDI Bean"
+                        sessiecacheCache = component "Cache" "Sessiecache voor berichten met full-text zoekindex — levensduur gekoppeld aan JWT-sessie, sleutel is het pseudoniem" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
                         sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden"
@@ -124,7 +124,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        interactielaag -> uitvraagResource "Berichten en metadata ophalen, bewerken en verwijderen" "Digikoppeling REST API via FSC (JWT bearer token met PP of eHerkenning-machtigingen)"
+        interactielaag -> uitvraagResource "Berichten en metadata ophalen, bewerken en verwijderen" "Digikoppeling REST API via FSC (JWT bearer token met PP voor burgers, of per-magazijn pseudoniemen en machtigingen voor zakelijke gebruikers)"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
