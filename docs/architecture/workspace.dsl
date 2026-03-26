@@ -70,7 +70,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                        sessiecacheService = component "BerichtensessiecacheService" "Bepaalt op basis van JWT-claims welke magazijnen bevraagd worden; aggregeert en cachet berichten" "CDI Bean"
+                        sessiecacheService = component "BerichtensessiecacheService" "Bepaalt op basis van gebruikersclaims (pseudoniem, machtigingen) welke magazijnen bevraagd worden; aggregeert en cachet berichten" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
@@ -89,14 +89,14 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
                     }
 
-                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar dienst-specifieke pseudoniemen (EP) per berichtenmagazijn" "BSNk container (Logius)" "Service"
+                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar dienst-specifieke pseudoniemen (EP) per berichtenmagazijn" "BSNk container (Logius)" "Extern Geleverd"
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
                     sessiecacheService -> bsnkTransformatie "Transformeert pseudoniem per magazijn"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
-                    uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern, JWT)"
-                    uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern, JWT)"
+                    uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
+                    uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
                 }
 
                 ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
@@ -266,6 +266,12 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 background #438DD5
                 color #ffffff
                 stroke #2E6295
+            }
+            element "Extern Geleverd" {
+                shape RoundedBox
+                background #B3B3B3
+                color #000000
+                border dashed
             }
             element "Database" {
                 shape Cylinder
