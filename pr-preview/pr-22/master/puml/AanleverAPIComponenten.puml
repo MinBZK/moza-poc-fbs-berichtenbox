@@ -65,7 +65,7 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.Berichtenmagazij
   shadowing false
 }
 
-database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtmetadata, inhoud en bijlagen (0 berichtverlies)" <<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> as Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag
+database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtstatus, inhoud en bijlagen (0 berichtverlies)" <<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> as Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag
 rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Profiel Service" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService
 rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> as Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
 queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
@@ -77,12 +77,9 @@ rectangle "Berichtenmagazijn Aanlever API\n<size:10>[Container: Quarkus / Kotlin
 }
 
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.AanleverRESTAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker : "<color:#707070>Schrijfoperaties via"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.CircuitBreaker .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService : "<color:#707070>Delegeert naar (als circuit closed)"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService : "<color:#707070>Stuurt bericht ter validatie"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door"
-Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
 @enduml
