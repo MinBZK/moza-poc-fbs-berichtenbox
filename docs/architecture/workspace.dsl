@@ -38,7 +38,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                 properties {
                     "deployment.model" "Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO"
                 }
-                magazijnOphaalBeheerApi = container "Berichtenmagazijn Ophaal- en Beheer API" "REST API voor het ophalen van berichten en bijlagen, en het vastleggen van berichtstatus (gelezen, map, verwijderd) per gebruiker" "Quarkus / Kotlin" "Magazijn Service"
+                magazijnOphaalBeheerApi = container "Berichtenmagazijn Ophaal- en Beheer API" "REST API voor het ophalen van berichten en bijlagen, en het beheren van berichtstatus per gebruiker" "Quarkus / Kotlin" "Magazijn Service"
                 magazijnAanleverApi = container "Berichtenmagazijn Aanlever API" "REST API voor het aanleveren van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
                     magazijnAanleverResource = component "Aanlever REST API" "REST endpoints voor het aanleveren van berichten en bijlagen" "JAX-RS Resource" "Magazijn Component"
                     magazijnCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" "MicroProfile Fault Tolerance" "Magazijn Component"
@@ -47,7 +47,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     magazijnAanleverResource -> magazijnCircuitBreaker "Schrijfoperaties via"
                     magazijnCircuitBreaker -> magazijnOpslagService "Delegeert naar (als circuit closed)"
                 }
-                magazijnDatastore = container "Dataopslag" "Berichtmetadata, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
+                magazijnDatastore = container "Dataopslag" "Berichtstatus, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
 
                 berichtValidatie = container "Bericht Validatie Service" "Valideert berichten op technische eisen en controleert toestemming via Profiel Service" "Quarkus / Kotlin" "Magazijn Service" {
                     validatieApi = component "Validatie API" "REST endpoint voor berichtvalidatie" "JAX-RS Resource" "Magazijn Component"
@@ -65,13 +65,13 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     }
                 }
 
-                magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft berichtstatus (gelezen, map, verwijderd) per gebruiker"
+                magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft berichtstatus per gebruiker"
                 magazijnOpslagService -> magazijnDatastore "Schrijft berichten en bijlagen"
                 magazijnOpslagService -> validatieApi "Stuurt bericht ter validatie"
                 magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door"
                 publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
 
-                autorisatieService = container "Autorisatie Service" "Toetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie — per tenant configureerbaar bij centraal gehoste magazijnen. Aanleverautorisatie verloopt via FSC-contracten: een geldig contract autoriseert de organisatie om berichten aan te leveren; de Bericht Validatie Service controleert vervolgens technische eisen en ontvangerstoestemming." "Quarkus / Kotlin" "Magazijn Service"
+                autorisatieService = container "Autorisatie Service" "Toetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie" "Quarkus / Kotlin" "Magazijn Service"
 
                 magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek"
             }
@@ -83,20 +83,20 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
                         magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean"
-                        pseudoniemService = component "PseudoniemService" "Transformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP) per magazijn via BSNk (alleen burgers; zakelijke pseudoniemen komen direct uit het JWT via eHerkenning-dienstbemiddeling)" "CDI Bean"
-                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem (sessie-scope, levensduur volgt JWT)" "CDI Bean"
-                        sessiecacheCache = component "Cache" "Sessiecache voor berichten met full-text zoekindex — levensduur gekoppeld aan JWT-sessie, sleutel is het pseudoniem" "Redis / RediSearch"
+                        pseudoniemService = component "PseudoniemService" "Transformeert PP naar EP per magazijn via BSNk" "CDI Bean"
+                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" "CDI Bean"
+                        sessiecacheCache = component "Cache" "Sessiecache voor berichten met full-text zoekindex" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
                         sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden"
-                        sessiecacheService -> pseudoniemService "Transformeert PP naar ondertekend EP per magazijn"
+                        sessiecacheService -> pseudoniemService "Transformeert PP naar EP per magazijn"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache"
                         sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op"
                     }
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
-                        tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens uitgegeven door de Interactielaag en stelt de gebruikersidentiteit vast" "CDI Bean"
+                        tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens en stelt de gebruikersidentiteit vast" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst, verplaatst berichten naar andere map en verwijdert berichten" "CDI Bean"
                         uitvraagOphaalService = component "Bericht Ophaal Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" "CDI Bean"
 
@@ -105,21 +105,21 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                         uitvraagResource -> uitvraagOphaalService "Berichten en bijlagen ophalen"
                     }
 
-                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP, formeel SignedEncryptedPseudonym) per berichtenmagazijn — vereist sleutelmateriaal per deelnemer; handtekening verifieerbaar met BSNk U-sleutel" "BSNk container (Logius)" "Extern Geleverd"
+                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" "BSNk container (Logius)" "Extern Geleverd"
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
-                    uitvraagOphaalService -> sessiecacheResource "Haalt berichten op uit cache (JWT-claims incl. machtigingen worden doorgegeven)" "REST API (intern)"
-                    uitvraagBerichtenlijst -> sessiecacheResource "Haalt berichtenlijst op (JWT-claims incl. machtigingen worden doorgegeven)" "REST API (intern)"
+                    uitvraagOphaalService -> sessiecacheResource "Haalt berichten op en werkt berichtstatus bij" "REST API (intern)"
+                    uitvraagBerichtenlijst -> sessiecacheResource "Haalt berichtenlijst op" "REST API (intern)"
                 }
 
                 ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
             }
         }
 
-        berichtenUitvraagSysteem -> decentraalMagazijn "Wisselt berichten en bijlagen uit" "Digikoppeling REST API via FSC"
+        berichtenUitvraagSysteem -> decentraalMagazijn "Haalt berichten, bijlagen en berichtstatus op; beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
 
         medewerkerA -> orgA "Verstuurt berichten via"
         medewerkerB -> orgB "Verstuurt berichten via"
@@ -132,12 +132,12 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        interactielaag -> uitvraagResource "Berichten en metadata ophalen, bewerken en verwijderen" "Digikoppeling REST API via FSC (JWT bearer token met PP voor burgers, of per-magazijn pseudoniemen en machtigingen voor zakelijke gebruikers)"
+        interactielaag -> uitvraagResource "Berichten ophalen, berichtstatus beheren en berichten verwijderen" "Digikoppeling REST API via FSC (JWT bearer token)"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
-        interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion" "SAML 2.0"
+        interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"
 
-        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)" "Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)"
+        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt bijlagen op en beheert berichtstatus" "Digikoppeling REST API via FSC"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
@@ -150,7 +150,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
         magazijnResolver -> profielService "Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden" "Digikoppeling REST API via FSC"
-        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)"
+        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
         magazijnOpslagService -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
@@ -180,44 +180,42 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         }
 
         systemContext decentraalMagazijn "Berichtenmagazijn" "Context van het Berichtenmagazijn" {
-            include *
-            exclude "decentraalMagazijn -> berichtenUitvraagSysteem"
+            include *?
             autoLayout
         }
 
         systemContext berichtenUitvraagSysteem "BerichtenUitvraagSysteem" "Context van het Berichten Uitvraag Systeem" {
-            include *
-            exclude "decentraalMagazijn -> berichtenUitvraagSysteem"
+            include *?
             autoLayout
         }
 
         container decentraalMagazijn "BerichtenmagazijnContainers" "Containers binnen het Berichtenmagazijn" {
-            include *
+            include *?
             autoLayout
         }
 
         container berichtenUitvraagSysteem "BerichtenUitvraagSysteemContainers" "Containers binnen het Berichten Uitvraag Systeem" {
-            include *
+            include *?
             autoLayout
         }
 
         component uitvraagApi "BerichtenUitvraagServiceComponenten" "Componenten binnen de Berichten Uitvraag Service" {
-            include *
+            include *?
             autoLayout
         }
 
         component sessiecacheApp "BerichtensessiecacheComponenten" "Componenten binnen de Berichtensessiecache" {
-            include *
+            include *?
             autoLayout
         }
 
         component magazijnAanleverApi "AanleverAPIComponenten" "Componenten binnen de Berichtenmagazijn Aanlever API" {
-            include *
+            include *?
             autoLayout
         }
 
         component berichtValidatie "BerichtValidatieComponenten" "Componenten binnen de Bericht Validatie Service" {
-            include *
+            include *?
             autoLayout
         }
 
