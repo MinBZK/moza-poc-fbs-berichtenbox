@@ -1,4 +1,4 @@
-workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federatief Berichtenstelsel (FBS) - BBO-opdracht Logius/BZK" {
+workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Berichtenstelsel (FBS) - BBO-opdracht Logius/BZK" {
     !docs workspace-docs
 
     properties {
