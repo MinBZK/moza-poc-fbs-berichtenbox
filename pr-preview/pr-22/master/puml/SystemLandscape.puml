@@ -125,7 +125,7 @@ person "==Medewerker A\n<size:10>[Person]</size>\n\nVerstuurt berichten namens O
 person "==Medewerker B\n<size:10>[Person]</size>\n\nVerstuurt berichten namens Organisatie B" <<MedewerkerB>> as MedewerkerB
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
-rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
+rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel — fungeert als dienstbemiddelaar in eHerkenning en levert per-magazijn pseudoniemen voor zakelijke gebruikers" <<Interactielaag>> as Interactielaag
 rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
 rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 
@@ -143,7 +143,7 @@ OndernemerZakelijkegebruiker .[#707070,thickness=2].> Interactielaag : "<color:#
 OndernemerZakelijkegebruiker .[#707070,thickness=2].> eHerkenning : "<color:#707070>Logt in\n<color:#707070><size:8>[HTTPS (browser redirect)]</size>"
 NotificatieService .[#707070,thickness=2].> Burger : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
 NotificatieService .[#707070,thickness=2].> OndernemerZakelijkegebruiker : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
-Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten en metadata ophalen, bewerken en verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token met PP of eHerkenning-machtigingen)]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten en metadata ophalen, bewerken en verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token met PP voor burgers, of per-magazijn pseudoniemen en machtigingen voor zakelijke gebruikers)]</size>"
 Interactielaag .[#707070,thickness=2].> ProfielService : "<color:#707070>Toestemming bekijken en wijzigen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Interactielaag .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
 Interactielaag .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie zakelijke gebruikers; ontvangt gemachtigde diensten via SAML-assertion\n<color:#707070><size:8>[SAML 2.0]</size>"
