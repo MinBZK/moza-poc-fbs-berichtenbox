@@ -114,6 +114,8 @@ rectangle "Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software S
   rectangle "==Autorisatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nToetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie — per tenant configureerbaar bij centraal gehoste magazijnen. Aanleverautorisatie verloopt via FSC-contracten: een geldig contract autoriseert de organisatie om berichten aan te leveren; de Bericht Validatie Service controleert vervolgens technische eisen en ontvangerstoestemming." <<Berichtenmagazijnperdeelnemendeorganisatie.AutorisatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.AutorisatieService
 }
 
+OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
@@ -132,6 +134,4 @@ BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemend
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
 NotificatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt contactgegevens en voorkeuren op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml

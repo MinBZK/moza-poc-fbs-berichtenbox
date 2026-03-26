@@ -22,6 +22,13 @@ skinparam rectangle<<BerichtenUitvraagSysteem.BSNkTransformatie>> {
   roundCorner 20
   shadowing false
 }
+skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
+  shadowing false
+}
 skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
   BackgroundColor #2d8a4e
   FontColor #ffffff
@@ -84,6 +91,7 @@ skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache>> {
 
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+rectangle "==Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nService voor burgers en ondernemers - berichtenbox inzien en berichten beheren" <<BerichtenUitvraagSysteem.BerichtenUitvraagService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService
 rectangle "==BSNk Transformatie\n<size:10>[Container: BSNk container (Logius)]</size>\n\nTransformeert polymorfe pseudoniemen (PP) naar versleutelde pseudoniemen (EP, formeel SignedEncryptedPseudonym) per berichtenmagazijn — vereist sleutelmateriaal per deelnemer; handtekening verifieerbaar met BSNk U-sleutel" <<BerichtenUitvraagSysteem.BSNkTransformatie>> as BerichtenUitvraagSysteem.BSNkTransformatie
 queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
@@ -103,10 +111,13 @@ Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek :
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService : "<color:#707070>Gebruikt"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver : "<color:#707070>Vraagt op welke magazijnen bevraagd moeten worden"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService : "<color:#707070>Transformeert PP naar ondertekend EP per magazijn"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.Cache : "<color:#707070>Leest/schrijft cache"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient : "<color:#707070>Haalt berichten op"
 BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[BSNk API (lokaal)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI : "<color:#707070>Haalt berichten op uit cache (JWT-claims incl. machtigingen worden doorgegeven)\n<color:#707070><size:8>[REST API (intern)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)\n<color:#707070><size:8>[Digikoppeling REST API via FSC (ondertekend EP en machtigingsclaims als parameters)]</size>"
 @enduml
