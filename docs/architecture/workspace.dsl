@@ -70,7 +70,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                        sessiecacheService = component "BerichtensessiecacheService" "Bepaalt op basis van gebruikersclaims (PP, machtigingen) welke magazijnen bevraagd worden; laat PP naar EP transformeren per magazijn via BSNk; aggregeert en cachet berichten" "CDI Bean"
+                        sessiecacheService = component "BerichtensessiecacheService" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden; laat PP naar EP transformeren per magazijn via BSNk; aggregeert en cachet berichten" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
@@ -80,7 +80,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenbox, mappen en berichten" "JAX-RS Resource"
-                        tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens van de Interactielaag en stelt de gebruikersidentiteit vast" "CDI Bean"
+                        tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens uitgegeven door de Interactielaag en stelt de gebruikersidentiteit vast" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Lever per map een berichtenlijst, verplaats berichten naar andere map, verwijder berichten" "CDI Bean"
                         uitvraagOpvraag = component "Opvraag Service" "Haal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" "CDI Bean"
 
@@ -133,6 +133,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
+        sessiecacheService -> profielService "Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden" "Digikoppeling REST API via FSC"
         sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC (EP als parameter)"
 
         magazijnOphaalBeheerApi -> ldvLogboek "Logt dataverwerkingen" "OpenTelemetry (OTLP)"
