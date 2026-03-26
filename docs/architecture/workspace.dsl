@@ -4,7 +4,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
     properties {
         "nfr.betrouwbaarheid.berichtverlies" "RPO=0: geen berichtverlies; bij verstoring weigert de circuit breaker schrijfoperaties totdat duurzame persistentie is hersteld"
         "security.fsc" "Alle FSC-verbindingen vereisen mTLS met PKIoverheid-certificaten"
-        "nfr.beschikbaarheid.ratelimiting" "Rate limiting en throttling op FSC-contractniveau ter bescherming van magazijnen en BSNk tegen overbelasting"
+        "nfr.beschikbaarheid.ratelimiting" "Rate limiting en throttling op Inway-niveau per FSC-verbinding ter bescherming van magazijnen en BSNk tegen overbelasting"
         "security.vertrouwensmodel" "Twee beveiligingslagen: (1) FSC levert organisatievertrouwen via mTLS + cryptografisch ondertekende contracten (PeerID, certificate-bound tokens); (2) het ondertekende versleutelde pseudoniem (EP) levert persoonsidentificatie per magazijn. Het EP bevat een doelmagazijn-binding (versleuteld met de publieke sleutel van het magazijn) en een BSNk-handtekening (verifieerbaar met de U-sleutel). De Interactielaag fungeert als token-issuer: ontvangt SAML-assertions van DigiD/eHerkenning en geeft JWT bearer tokens uit met PP (burgers) of per-magazijn pseudoniemen en machtigingsclaims (zakelijke gebruikers). Token Validatie verifieert de JWT-handtekening, issuer, audience en expiration conform het OIDC NL GOV profiel."
     }
 
