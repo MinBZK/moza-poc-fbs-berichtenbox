@@ -70,7 +70,7 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
 
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert en cachet berichten uit aangesloten magazijnen" "CDI Bean"
+                        sessiecacheService = component "BerichtensessiecacheService" "Bepaalt op basis van JWT-claims welke magazijnen bevraagd worden; aggregeert en cachet berichten" "CDI Bean"
                         sessiecacheCache = component "Cache" "Cache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
