@@ -75,7 +75,7 @@ skinparam rectangle<<BerichtenUitvraagSysteem>> {
 
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
-rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. metadata)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
 queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
 rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<BerichtenUitvraagSysteem>> {

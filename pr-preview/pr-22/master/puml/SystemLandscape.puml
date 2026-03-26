@@ -105,7 +105,7 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
   skinparam RectangleFontColor<<group1>> #cccccc
   skinparam RectangleBorderStyle<<group1>> dashed
 
-  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. metadata)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
     rectangle "Centraal gehoste services" <<group2>> as group2 {
       skinparam RectangleBorderColor<<group2>> #cccccc
       skinparam RectangleFontColor<<group2>> #cccccc
