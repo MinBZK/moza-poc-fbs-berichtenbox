@@ -281,11 +281,6 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                 style dashed
                 color #707070
             }
-            relationship "In Ontwikkeling" {
-                color #FF0000
-                style dashed
-                thickness 2
-            }
         }
     }
 
