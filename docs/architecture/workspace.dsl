@@ -3,6 +3,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
     properties {
         "nfr.betrouwbaarheid.berichtverlies" "RPO=0: geen berichtverlies; bij verstoring weigert de circuit breaker schrijfoperaties totdat duurzame persistentie is hersteld"
+        "security.fsc" "Alle FSC-verbindingen vereisen mTLS met PKIoverheid-certificaten"
     }
 
     model {
