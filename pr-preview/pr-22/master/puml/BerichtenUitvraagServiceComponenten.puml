@@ -82,7 +82,7 @@ rectangle "Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</s
   rectangle "==Opvraag Service\n<size:10>[Component: CDI Bean]</size>\n\nHaal berichten en bijlagen op; berichten uit cache, bijlagen en berichtstatus uit berichtenmagazijn" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService
 }
 
-BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT met gebruikerspseudoniemen)]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT met EP per magazijn)]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.TokenValidatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
@@ -93,6 +93,6 @@ BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService : "<color:#707070>Berichten en bijlagen ophalen"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op uit cache\n<color:#707070><size:8>[REST API (intern)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichtenlijst op\n<color:#707070><size:8>[REST API (intern)]</size>"
-Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI : "<color:#707070>Berichten en metadata ophalen, bewerken en verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT met gebruikerspseudoniemen)]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI : "<color:#707070>Berichten en metadata ophalen, bewerken en verwijderen\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token met PP)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.OpvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt bijlagen op; beheert berichtstatus (map, gelezen, verwijderd, etc.)\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT met EP per magazijn)]</size>"
 @enduml
