@@ -89,11 +89,14 @@ workspace "Federatief Berichtenstelsel" "Referentie-implementatie van het Federa
                         uitvraagResource -> uitvraagOpvraag "Berichten en bijlagen ophalen"
                     }
 
+                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert polymorfe pseudoniemen (PP) naar dienst-specifieke pseudoniemen (EP) per berichtenmagazijn" "BSNk container (Logius)" "Service"
+
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
+                    sessiecacheService -> bsnkTransformatie "Transformeert pseudoniem per magazijn"
                     aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
-                    uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern)"
-                    uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern)"
+                    uitvraagOpvraag -> sessiecacheApp "Haalt berichten op uit cache" "REST API (intern, JWT)"
+                    uitvraagBerichtenlijst -> sessiecacheApp "Haalt berichtenlijst op" "REST API (intern, JWT)"
                 }
 
                 ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
