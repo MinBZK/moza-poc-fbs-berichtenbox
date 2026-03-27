@@ -96,7 +96,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                         magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean"
                         pseudoniemService = component "PseudoniemService" "Transformeert PP naar EP per magazijn via BSNk" "CDI Bean"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" "CDI Bean"
-                        sessiecacheCache = component "Cache" "Sessiecache voor berichten met full-text zoekindex" "Redis / RediSearch"
+                        sessiecacheCache = component "Cache" "Sessiecache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
                         sessiecacheResource -> sessiecacheService "Gebruikt"
                         sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden"
