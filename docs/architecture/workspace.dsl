@@ -74,13 +74,13 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
                 magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft berichtstatus per gebruiker" "SQL/JDBC"
                 magazijnOpslagService -> magazijnDatastore "Schrijft berichten en bijlagen" "SQL/JDBC"
-                magazijnOpslagService -> validatieApi "Stuurt bericht ter validatie" "REST API (intern)"
-                magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door" "REST API (intern)"
+                magazijnOpslagService -> validatieApi "Stuurt bericht ter validatie" "REST API (intern, mTLS)"
+                magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door" "REST API (intern, mTLS)"
                 publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding" "SQL/JDBC"
 
                 autorisatieService = container "Autorisatie Service" "Toetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie" "Quarkus / Kotlin" "Magazijn Service"
 
-                magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek" "REST API (intern)"
+                magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek" "REST API (intern, mTLS)"
             }
 
             group "Centraal gehoste services" {
