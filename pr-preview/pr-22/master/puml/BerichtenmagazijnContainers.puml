@@ -108,7 +108,7 @@ rectangle "Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software S
 }
 
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
 OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"

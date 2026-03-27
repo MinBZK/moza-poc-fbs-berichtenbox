@@ -53,6 +53,25 @@
         <div class="content p-3">
           <div><h1>Description</h1>
 <p>Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel</p></div>
+          <h2>Properties</h2>
+          <table class="table is-fullwidth">
+            <thead>
+              <tr>
+                <th class="is-one-fourth"><span class="">Name</span></th>
+                <th><span class="">Value</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="">architectuur.autorisatie</span></td>
+                <td><span class="">Autorisatie in het Uitvraag Systeem volgt het PEP/PDP-patroon conform AuthZEN NL GOV op twee niveaus: (1) Token Validatie fungeert als PEP en extraheert de gebruikersidentiteit en machtigingsclaims uit het JWT — voor burgers het PP (DigiD), voor zakelijke gebruikers KvK/RSIN, dienstcodes en machtigingstype (eHerkenning ketenmachtiging). (2) MagazijnResolver fungeert als PEP/PDP voor magazijntoegang: evalueert per magazijn of de combinatie van machtigingsclaims en dienstcodes toegang rechtvaardigt. Bij eHerkenning ketenmachtiging wordt de volledige machtigingsketen (persoon → gemachtigde organisatie → vertegenwoordigde organisatie) meegewogen. Autorisatiebeslissingen worden gelogd conform de Authorization Decision Log standaard (Logius).</span></td>
+              </tr>
+              <tr>
+                <td><span class="">architectuur.fsc</span></td>
+                <td><span class="">FSC-infrastructuur (Inway, Outway, Manager, Directory) is niet als aparte containers gemodelleerd. Elke organisatiegrens-overschrijdende relatie gemarkeerd als 'Digikoppeling REST API via FSC' impliceert: mTLS met PKIoverheid-certificaten, cryptografisch ondertekende FSC-contracten (ServiceConnectionGrant), certificate-bound JWT access tokens (Fsc-Authorization header), en een Inway/Outway-paar per deelnemend systeem. De FSC Manager fungeert als OAuth 2.0 Authorization Server (client_credentials grant) voor service-to-service tokens conform FSC Core v1.1.2.</span></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

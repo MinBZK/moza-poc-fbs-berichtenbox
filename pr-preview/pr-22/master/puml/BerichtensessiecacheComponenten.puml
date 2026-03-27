@@ -105,5 +105,5 @@ BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.Cache : "<color:#707070>Leest/schrijft cache"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient : "<color:#707070>Haalt berichten op"
 BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[BSNk API (lokaal)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[REST API (intern)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheAPI : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
 @enduml

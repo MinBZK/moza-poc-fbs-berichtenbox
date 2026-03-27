@@ -63,6 +63,14 @@
             </thead>
             <tbody>
               <tr>
+                <td><span class="">architectuur.autorisatie</span></td>
+                <td><span class="">Autorisatie in het magazijn volgt het PEP/PDP-patroon conform AuthZEN NL GOV. De Ophaal- en Beheer API en Aanlever API fungeren als Policy Enforcement Point (PEP): ze onderscheppen verzoeken en handhaven de autorisatiebeslissing. Het Policy Decision Point (PDP) evalueert het autorisatieverzoek (subject/action/resource/context) tegen het beleid — dit kan een interne component zijn of een gedeeld PDP over magazijnen. Autorisatiebeleid wordt beheerd via een Policy Administration Point (PAP). Aanvullende context (bijv. organisatieregistratie, machtigingen) wordt opgehaald via een Policy Information Point (PIP). Autorisatiebeslissingen worden gelogd conform de Authorization Decision Log standaard (Logius).</span></td>
+              </tr>
+              <tr>
+                <td><span class="">architectuur.fsc</span></td>
+                <td><span class="">FSC-infrastructuur (Inway, Outway, Manager, Directory) is niet als aparte containers gemodelleerd. Het magazijn biedt een Inway aan voor inkomende verzoeken van het Berichten Uitvraag Systeem en deelnemende organisaties. Elke relatie gemarkeerd als 'Digikoppeling REST API via FSC' impliceert: mTLS met PKIoverheid-certificaten, cryptografisch ondertekende FSC-contracten (ServiceConnectionGrant), certificate-bound JWT access tokens (Fsc-Authorization header), en tokenvalidatie door de Inway conform FSC Core v1.1.2.</span></td>
+              </tr>
+              <tr>
                 <td><span class="">deployment.model</span></td>
                 <td><span class="">Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO</span></td>
               </tr>

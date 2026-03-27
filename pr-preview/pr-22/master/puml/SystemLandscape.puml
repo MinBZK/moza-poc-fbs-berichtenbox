@@ -129,7 +129,7 @@ rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app
 rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
 rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
 NotificatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt contactgegevens en voorkeuren op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
