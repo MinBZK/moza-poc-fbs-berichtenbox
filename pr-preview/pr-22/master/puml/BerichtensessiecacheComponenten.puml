@@ -101,7 +101,7 @@ rectangle "Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin]</size>" 
   rectangle "==MagazijnResolver\n<size:10>[Component: CDI Bean]</size>\n\nBepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver
   rectangle "==PseudoniemService\n<size:10>[Component: CDI Bean]</size>\n\nTransformeert PP naar EP per magazijn via BSNk" <<BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService>> as BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService
   rectangle "==BerichtensessiecacheService\n<size:10>[Component: CDI Bean]</size>\n\nAggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" <<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService>> as BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService
-  rectangle "==Cache\n<size:10>[Component: Redis / RediSearch]</size>\n\nSessiecache voor berichten met full-text zoekindex" <<BerichtenUitvraagSysteem.Berichtensessiecache.Cache>> as BerichtenUitvraagSysteem.Berichtensessiecache.Cache
+  rectangle "==Cache\n<size:10>[Component: Redis / RediSearch]</size>\n\nSessiecache voor berichten met full-text zoekindex (60s TTL)" <<BerichtenUitvraagSysteem.Berichtensessiecache.Cache>> as BerichtenUitvraagSysteem.Berichtensessiecache.Cache
   rectangle "==MagazijnClient\n<size:10>[Component: REST Client]</size>\n\nREST client naar berichtenmagazijnen" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient
 }
 
