@@ -51,8 +51,8 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     magazijnCircuitBreaker = component "CircuitBreaker" "Weigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" "MicroProfile Fault Tolerance" "Magazijn Component"
                     magazijnOpslagService = component "Bericht Opslag Service" "Berichtlevenscyclus: valideren, opslaan en aanmelden" "CDI Bean" "Magazijn Component"
 
-                    magazijnAanleverResource -> magazijnCircuitBreaker "Schrijfoperaties via"
-                    magazijnCircuitBreaker -> magazijnOpslagService "Delegeert naar (als circuit closed)"
+                    magazijnAanleverResource -> magazijnCircuitBreaker "Schrijfoperaties via" "CDI"
+                    magazijnCircuitBreaker -> magazijnOpslagService "Delegeert naar (als circuit closed)" "CDI"
                 }
                 magazijnDatastore = container "Dataopslag" "Berichtstatus, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
 
@@ -61,8 +61,8 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     validatieTechnisch = component "Technische Validatie" "Valideert PDF-type, grootte en aantal bijlagen" "CDI Bean" "Magazijn Component"
                     validatieToestemming = component "Toestemming Controle" "Controleert of de ontvanger toestemming gegeven heeft voor digitale communicatie" "CDI Bean" "Magazijn Component"
 
-                    validatieApi -> validatieTechnisch "Valideert technische eisen"
-                    validatieApi -> validatieToestemming "Controleert toestemming"
+                    validatieApi -> validatieTechnisch "Valideert technische eisen" "CDI"
+                    validatieApi -> validatieToestemming "Controleert toestemming" "CDI"
                 }
                 publicatieStream = container "Publicatie Stream" "Wacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" "Quarkus / Kotlin" "Magazijn Service" {
                     properties {
@@ -72,15 +72,15 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     }
                 }
 
-                magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft berichtstatus per gebruiker"
-                magazijnOpslagService -> magazijnDatastore "Schrijft berichten en bijlagen"
-                magazijnOpslagService -> validatieApi "Stuurt bericht ter validatie"
-                magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door"
-                publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
+                magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft berichtstatus per gebruiker" "SQL/JDBC"
+                magazijnOpslagService -> magazijnDatastore "Schrijft berichten en bijlagen" "SQL/JDBC"
+                magazijnOpslagService -> validatieApi "Stuurt bericht ter validatie" "REST API (intern)"
+                magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door" "REST API (intern)"
+                publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding" "SQL/JDBC"
 
                 autorisatieService = container "Autorisatie Service" "Toetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie" "Quarkus / Kotlin" "Magazijn Service"
 
-                magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek"
+                magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek" "REST API (intern)"
             }
 
             group "Centraal gehoste services" {
@@ -98,11 +98,11 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" "CDI Bean"
                         sessiecacheCache = component "Cache" "Sessiecache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
-                        sessiecacheResource -> sessiecacheService "Gebruikt"
-                        sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden"
-                        sessiecacheService -> pseudoniemService "Transformeert PP naar EP per magazijn"
-                        sessiecacheService -> sessiecacheCache "Leest/schrijft cache"
-                        sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op"
+                        sessiecacheResource -> sessiecacheService "Gebruikt" "CDI"
+                        sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden" "CDI"
+                        sessiecacheService -> pseudoniemService "Transformeert PP naar EP per magazijn" "CDI"
+                        sessiecacheService -> sessiecacheCache "Leest/schrijft cache" "Redis"
+                        sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op" "CDI"
                     }
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
@@ -112,10 +112,10 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                         uitvraagOphaalService = component "Bericht Ophaal Service" "Haalt berichten en bijlagen op uit cache en berichtenmagazijn" "CDI Bean"
                         uitvraagBeheerService = component "Bericht Beheer Service" "Verplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" "CDI Bean"
 
-                        uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper"
-                        uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst per map"
-                        uitvraagResource -> uitvraagOphaalService "Berichten en bijlagen ophalen"
-                        uitvraagResource -> uitvraagBeheerService "Berichtstatus en mappenbeheer"
+                        uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper" "CDI"
+                        uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst per map" "CDI"
+                        uitvraagResource -> uitvraagOphaalService "Berichten en bijlagen ophalen" "CDI"
+                        uitvraagResource -> uitvraagBeheerService "Berichtstatus en mappenbeheer" "CDI"
                     }
 
                     bsnkTransformatie = container "BSNk Transformatie" "Transformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" "BSNk container (Logius)" "Extern Geleverd" {
@@ -139,8 +139,8 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
         berichtenUitvraagSysteem -> decentraalMagazijn "Haalt berichten, bijlagen en berichtstatus op; beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
 
-        medewerkerA -> orgA "Verstuurt berichten via"
-        medewerkerB -> orgB "Verstuurt berichten via"
+        medewerkerA -> orgA "Verstuurt berichten via" "HTTPS"
+        medewerkerB -> orgB "Verstuurt berichten via" "HTTPS"
 
         burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
         burger -> digiD "Logt in" "HTTPS (browser redirect)"
