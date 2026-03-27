@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Berichtenmagazijn (per deelnemende organisatie) | Federatief Berichtenstelsel</title>
+    <title>Berichten Uitvraag Systeem | Federatief Berichtenstelsel</title>
     <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
     <link href="../../../../style.css" rel="stylesheet">
     <link href="./../../../style-branding.css" rel="stylesheet">
@@ -35,27 +35,27 @@
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../../../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../../" class="is-active">Berichtenmagazijn (per deelnemende organisatie)</a><a href="../../../organisatie-a/" class="">Organisatie A</a><a href="../../../organisatie-b/" class="">Organisatie B</a></li>
+          <li><a href="../../" class="is-active">Berichten Uitvraag Systeem</a><a href="../../../berichtenmagazijn-(per-deelnemende-organisatie)/" class="">Berichtenmagazijn (per deelnemende organisatie)</a><a href="../../../organisatie-a/" class="">Organisatie A</a><a href="../../../organisatie-b/" class="">Organisatie B</a></li>
         </ul>
       </aside>
       <div class="container is-fluid">
-        <h1 class="title mt-3">Berichtenmagazijn (per deelnemende organisatie)</h1>
-        <h2 class="subtitle">Berichten opslaan, ophalen en beheren (incl. berichtstatus)</h2>
+        <h1 class="title mt-3">Berichten Uitvraag Systeem</h1>
+        <h2 class="subtitle">Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel</h2>
         <div class="tabs mt-3">
           <ul class="is-flex-wrap-wrap is-flex-shrink-1 is-flex-grow-0">
             <li><a href="../../" class="">Info</a></li>
             <li><a href="../../context/" class="">Context views</a></li>
             <li><a href="../../container/" class="">Container views</a></li>
-            <li class="is-active"><a href="../bericht-validatie-service/" class="is-active">Component views</a></li>
+            <li class="is-active"><a href="../berichten-uitvraag-service/" class="is-active">Component views</a></li>
             <li><a href="../../dependencies/" class="">Dependencies</a></li>
           </ul>
         </div>
         <div class="content p-3">
           <div class="tabs">
             <ul class="m-0 is-flex-wrap-wrap is-flex-shrink-1 is-flex-grow-0">
-              <li><a href="../bericht-validatie-service/" class="">Bericht Validatie Service</a></li>
-              <li><a href="../berichtenmagazijn-aanlever-api/" class="">Berichtenmagazijn Aanlever API</a></li>
-              <li class="is-active"><a href="./" class="is-active">Publicatie Stream</a></li>
+              <li class="is-active"><a href="./" class="is-active">BSNk Transformatie</a></li>
+              <li><a href="../berichten-uitvraag-service/" class="">Berichten Uitvraag Service</a></li>
+              <li><a href="../berichtensessiecache/" class="">Berichtensessiecache</a></li>
             </ul>
           </div>
           <h3>Properties</h3>
@@ -68,16 +68,12 @@
             </thead>
             <tbody>
               <tr>
-                <td><span class="">cloudevents.profiel</span></td>
-                <td><span class="">NL GOV profiel CloudEvents v1.1</span></td>
+                <td><span class="">beheer.dienstregistratie</span></td>
+                <td><span class="">Elk berichtenmagazijn wordt als aparte dienst geregistreerd bij BSNk. Bij registratie ontvangt de dienst een eigen set cryptografische sleutels. De PP-naar-EP-transformatie gebruikt de publieke sleutel van het doelmagazijn voor versleuteling, waardoor elk magazijn een uniek EP ontvangt — cross-magazijn koppeling is cryptografisch uitgesloten.</span></td>
               </tr>
               <tr>
-                <td><span class="">cloudevents.source</span></td>
-                <td><span class="">urn:nld:oin:{organisatie-oin}:systeem:fbs-magazijn</span></td>
-              </tr>
-              <tr>
-                <td><span class="">cloudevents.type</span></td>
-                <td><span class="">nl.rijksoverheid.fbs.bericht.gepubliceerd</span></td>
+                <td><span class="">beheer.sleutelbeheer</span></td>
+                <td><span class="">Sleutelmateriaal wordt beheerd door Logius als onderdeel van de BSNk-voorziening. Sleutelrotatie, distributie van publieke sleutels naar de BSNk container, en het onboarden van nieuwe magazijnen zijn beheerprocessen buiten scope van dit model. Toegang tot de BSNk API is beperkt tot de PseudoniemService via een lokale interface.</span></td>
               </tr>
             </tbody>
           </table>

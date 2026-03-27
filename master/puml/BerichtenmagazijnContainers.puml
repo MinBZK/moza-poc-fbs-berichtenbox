@@ -15,6 +15,13 @@ skinparam {
 
 hide stereotype
 
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.AutorisatieService>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  roundCorner 20
+  shadowing false
+}
 skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
@@ -28,14 +35,14 @@ skinparam rectangle<<BerichtenUitvraagSysteem>> {
   BorderColor #2e6295
   shadowing false
 }
-skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI>> {
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
   BorderColor #2d8a4e
   roundCorner 20
   shadowing false
 }
-skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI>> {
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
   BorderColor #2d8a4e
@@ -46,18 +53,6 @@ skinparam database<<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> {
   BackgroundColor #b3b3b3
   FontColor #000000
   BorderColor #2d8a4e
-  shadowing false
-}
-skinparam rectangle<<DigitaleBereikbaarheidService>> {
-  BackgroundColor #666666
-  FontColor #ffffff
-  BorderColor #0b4884
-  shadowing false
-}
-skinparam queue<<LDVLogboek>> {
-  BackgroundColor #999999
-  FontColor #ffffff
-  BorderColor #6b6b6b
   shadowing false
 }
 skinparam rectangle<<NotificatieService>> {
@@ -78,6 +73,12 @@ skinparam rectangle<<OrganisatieB>> {
   BorderColor #0b4884
   shadowing false
 }
+skinparam rectangle<<ProfielService>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> {
   BackgroundColor #3ba55d
   FontColor #ffffff
@@ -91,35 +92,31 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
   shadowing false
 }
 
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
-rectangle "==Digitale Bereikbaarheid Service\n<size:10>[Software System]</size>\n\nTonen en muteren toestemming voor digitale communicatie per organisatie" <<DigitaleBereikbaarheidService>> as DigitaleBereikbaarheidService
 rectangle "==Organisatie A\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - host zelf een berichtenmagazijn" <<OrganisatieA>> as OrganisatieA
 rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
 rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
-queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
 
 rectangle "Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>" <<Berichtenmagazijnperdeelnemendeorganisatie>> {
-  rectangle "==Berichtenmagazijn Ophaal API\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nREST API voor het ophalen van berichten en bijlagen" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI
-  rectangle "==Berichtenmagazijn Opslaan API\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nREST API voor het opslaan van berichten door organisaties" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI
-  database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtmetadata, inhoud en bijlagen (0 berichtverlies)" <<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> as Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag
-  rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Digitale Bereikbaarheid Service" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService
+  rectangle "==Berichtenmagazijn Ophaal- en Beheer API\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nREST API voor het ophalen van berichten en bijlagen, en het beheren van berichtstatus per gebruiker" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI
+  rectangle "==Berichtenmagazijn Aanlever API\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nREST API voor het aanleveren van berichten door organisaties" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI
+  database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtstatus, inhoud en bijlagen (0 berichtverlies)" <<Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag>> as Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag
+  rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Profiel Service" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService
   rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream>> as Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream
+  rectangle "==Autorisatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nToetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie" <<Berichtenmagazijnperdeelnemendeorganisatie.AutorisatieService>> as Berichtenmagazijnperdeelnemendeorganisatie.AutorisatieService
 }
 
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Leest berichten en bijlagen"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService : "<color:#707070>Stuurt bericht ter validatie"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door"
-Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI : "<color:#707070>Haalt bijlagen op uit berichtenmagazijn\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
-OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> DigitaleBereikbaarheidService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOpslaanAPI .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
+OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Leest berichten en bijlagen; schrijft berichtstatus per gebruiker\n<color:#707070><size:8>[SQL/JDBC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen\n<color:#707070><size:8>[SQL/JDBC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService : "<color:#707070>Stuurt bericht ter validatie\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.PublicatieStream .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.Dataopslag : "<color:#707070>Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding\n<color:#707070><size:8>[SQL/JDBC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.AutorisatieService : "<color:#707070>Toetst autorisatie per verzoek\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml

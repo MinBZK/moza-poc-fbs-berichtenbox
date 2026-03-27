@@ -15,12 +15,6 @@ skinparam {
 
 hide stereotype
 
-skinparam rectangle<<AuthZENFTV>> {
-  BackgroundColor #666666
-  FontColor #ffffff
-  BorderColor #0b4884
-  shadowing false
-}
 skinparam rectangle<<BerichtenUitvraagSysteem>> {
   BackgroundColor #438dd5
   FontColor #ffffff
@@ -39,10 +33,10 @@ skinparam rectangle<<Interactielaag>> {
   BorderColor #0b4884
   shadowing false
 }
-skinparam queue<<LDVLogboek>> {
-  BackgroundColor #999999
+skinparam rectangle<<ProfielService>> {
+  BackgroundColor #666666
   FontColor #ffffff
-  BorderColor #6b6b6b
+  BorderColor #0b4884
   shadowing false
 }
 
@@ -51,24 +45,22 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
   skinparam RectangleFontColor<<group1>> #cccccc
   skinparam RectangleBorderStyle<<group1>> dashed
 
-  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan en ophalen" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
     rectangle "Centraal gehoste services" <<group2>> as group2 {
       skinparam RectangleBorderColor<<group2>> #cccccc
       skinparam RectangleFontColor<<group2>> #cccccc
       skinparam RectangleBorderStyle<<group2>> dashed
 
       rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
-      queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
     }
 
 }
 
-rectangle "==AuthZEN / FTV\n<size:10>[Software System]</size>\n\nFederatieve Toegangsverlening - autorisatie van verzoeken" <<AuthZENFTV>> as AuthZENFTV
-rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
+rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" <<Interactielaag>> as Interactielaag
 
-BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Wisselt berichten en bijlagen uit\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten ophalen en lijsten\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> AuthZENFTV : "<color:#707070>Filtert berichten op autorisatie\n<color:#707070><size:8>[AuthZEN REST API]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten, bijlagen en berichtstatus op; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
 @enduml

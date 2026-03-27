@@ -35,7 +35,7 @@
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="is-active">Berichten Uitvraag Systeem</a><a href="../../berichtenmagazijn-(per-deelnemende-organisatie)/" class="">Berichtenmagazijn (per deelnemende organisatie)</a><a href="../../ldv-logboek/" class="">LDV Logboek</a><a href="../../organisatie-a/" class="">Organisatie A</a><a href="../../organisatie-b/" class="">Organisatie B</a></li>
+          <li><a href="../" class="is-active">Berichten Uitvraag Systeem</a><a href="../../berichtenmagazijn-(per-deelnemende-organisatie)/" class="">Berichtenmagazijn (per deelnemende organisatie)</a><a href="../../organisatie-a/" class="">Organisatie A</a><a href="../../organisatie-b/" class="">Organisatie B</a></li>
         </ul>
       </aside>
       <div class="container is-fluid">
@@ -68,8 +68,8 @@
               </tr>
               <tr>
                 <td><span class="has-text-grey has-text-weight-bold">Interactielaag (External)</span></td>
-                <td><span class="">Berichten ophalen en lijsten</span></td>
-                <td><span class="">Digikoppeling REST API via FSC</span></td>
+                <td><span class="">Berichtenbox API-aanroepen namens burger of ondernemer</span></td>
+                <td><span class="">Digikoppeling REST API via FSC (JWT bearer token)</span></td>
               </tr>
             </tbody>
           </table>
@@ -84,19 +84,14 @@
             </thead>
             <tbody>
               <tr>
-                <td><span class="has-text-grey has-text-weight-bold">AuthZEN / FTV (External)</span></td>
-                <td><span class="">Filtert berichten op autorisatie</span></td>
-                <td><span class="">AuthZEN REST API</span></td>
-              </tr>
-              <tr>
                 <td class="has-text-weight-bold"><a href="../../berichtenmagazijn-(per-deelnemende-organisatie)/" class="">Berichtenmagazijn (per deelnemende organisatie)</a></td>
-                <td><span class="">Wisselt berichten en bijlagen uit</span></td>
+                <td><span class="">Haalt berichten, bijlagen en berichtstatus op; beheert berichtstatus per gebruiker</span></td>
                 <td><span class="">Digikoppeling REST API via FSC</span></td>
               </tr>
               <tr>
-                <td class="has-text-weight-bold"><a href="../../ldv-logboek/" class="">LDV Logboek</a></td>
-                <td><span class="">Logt dataverwerkingen</span></td>
-                <td><span class="">OpenTelemetry (OTLP)</span></td>
+                <td><span class="has-text-grey has-text-weight-bold">Profiel Service (External)</span></td>
+                <td><span class="">Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden</span></td>
+                <td><span class="">Digikoppeling REST API via FSC</span></td>
               </tr>
             </tbody>
           </table>

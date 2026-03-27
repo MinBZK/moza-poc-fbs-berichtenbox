@@ -15,12 +15,6 @@ skinparam {
 
 hide stereotype
 
-skinparam rectangle<<AuthZENFTV>> {
-  BackgroundColor #666666
-  FontColor #ffffff
-  BorderColor #0b4884
-  shadowing false
-}
 skinparam rectangle<<BerichtenUitvraagSysteem>> {
   BackgroundColor #438dd5
   FontColor #ffffff
@@ -39,7 +33,7 @@ skinparam person<<Burger>> {
   BorderColor #052e56
   shadowing false
 }
-skinparam rectangle<<DigitaleBereikbaarheidService>> {
+skinparam rectangle<<DigiD>> {
   BackgroundColor #666666
   FontColor #ffffff
   BorderColor #0b4884
@@ -49,12 +43,6 @@ skinparam rectangle<<Interactielaag>> {
   BackgroundColor #666666
   FontColor #ffffff
   BorderColor #0b4884
-  shadowing false
-}
-skinparam queue<<LDVLogboek>> {
-  BackgroundColor #999999
-  FontColor #ffffff
-  BorderColor #6b6b6b
   shadowing false
 }
 skinparam person<<MedewerkerA>> {
@@ -99,20 +87,25 @@ skinparam rectangle<<ProfielService>> {
   BorderColor #0b4884
   shadowing false
 }
+skinparam rectangle<<eHerkenning>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 
 rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
   skinparam RectangleBorderColor<<group1>> #cccccc
   skinparam RectangleFontColor<<group1>> #cccccc
   skinparam RectangleBorderStyle<<group1>> dashed
 
-  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan en ophalen" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
     rectangle "Centraal gehoste services" <<group2>> as group2 {
       skinparam RectangleBorderColor<<group2>> #cccccc
       skinparam RectangleFontColor<<group2>> #cccccc
       skinparam RectangleBorderStyle<<group2>> dashed
 
       rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
-      queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
     }
 
 }
@@ -123,27 +116,29 @@ rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende ove
 person "==Ondernemer / Zakelijke gebruiker\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<OndernemerZakelijkegebruiker>> as OndernemerZakelijkegebruiker
 person "==Medewerker A\n<size:10>[Person]</size>\n\nVerstuurt berichten namens Organisatie A" <<MedewerkerA>> as MedewerkerA
 person "==Medewerker B\n<size:10>[Person]</size>\n\nVerstuurt berichten namens Organisatie B" <<MedewerkerB>> as MedewerkerB
-rectangle "==AuthZEN / FTV\n<size:10>[Software System]</size>\n\nFederatieve Toegangsverlening - autorisatie van verzoeken" <<AuthZENFTV>> as AuthZENFTV
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
-rectangle "==Digitale Bereikbaarheid Service\n<size:10>[Software System]</size>\n\nTonen en muteren toestemming voor digitale communicatie per organisatie" <<DigitaleBereikbaarheidService>> as DigitaleBereikbaarheidService
-rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel (b.v. MijnOverheid portaal, of andere portalen)" <<Interactielaag>> as Interactielaag
+rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" <<Interactielaag>> as Interactielaag
+rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
+rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 
-BerichtenUitvraagSysteem .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Wisselt berichten en bijlagen uit\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-MedewerkerA .[#707070,thickness=2].> OrganisatieA : "<color:#707070>Verstuurt berichten via"
-MedewerkerB .[#707070,thickness=2].> OrganisatieB : "<color:#707070>Verstuurt berichten via"
-Burger .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
-OndernemerZakelijkegebruiker .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
-NotificatieService .[#707070,thickness=2].> Burger : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
-NotificatieService .[#707070,thickness=2].> OndernemerZakelijkegebruiker : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
-Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten ophalen en lijsten\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Interactielaag .[#707070,thickness=2].> DigitaleBereikbaarheidService : "<color:#707070>Toestemming bekijken en wijzigen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
 NotificatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt contactgegevens en voorkeuren op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> DigitaleBereikbaarheidService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> AuthZENFTV : "<color:#707070>Filtert berichten op autorisatie\n<color:#707070><size:8>[AuthZEN REST API]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> LDVLogboek : "<color:#707070>Logt dataverwerkingen\n<color:#707070><size:8>[OpenTelemetry (OTLP)]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten, bijlagen en berichtstatus op; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+MedewerkerA .[#707070,thickness=2].> OrganisatieA : "<color:#707070>Verstuurt berichten via\n<color:#707070><size:8>[HTTPS]</size>"
+MedewerkerB .[#707070,thickness=2].> OrganisatieB : "<color:#707070>Verstuurt berichten via\n<color:#707070><size:8>[HTTPS]</size>"
+Burger .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
+Burger .[#707070,thickness=2].> DigiD : "<color:#707070>Logt in\n<color:#707070><size:8>[HTTPS (browser redirect)]</size>"
+OndernemerZakelijkegebruiker .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
+OndernemerZakelijkegebruiker .[#707070,thickness=2].> eHerkenning : "<color:#707070>Logt in\n<color:#707070><size:8>[HTTPS (browser redirect)]</size>"
+NotificatieService .[#707070,thickness=2].> Burger : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
+NotificatieService .[#707070,thickness=2].> OndernemerZakelijkegebruiker : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
+Interactielaag .[#707070,thickness=2].> ProfielService : "<color:#707070>Toestemming bekijken en wijzigen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Interactielaag .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
+Interactielaag .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie zakelijke gebruikers\n<color:#707070><size:8>[SAML 2.0]</size>"
 @enduml
