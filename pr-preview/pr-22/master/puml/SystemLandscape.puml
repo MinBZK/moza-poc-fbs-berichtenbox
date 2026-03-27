@@ -45,12 +45,6 @@ skinparam rectangle<<Interactielaag>> {
   BorderColor #0b4884
   shadowing false
 }
-skinparam queue<<LDVLogboek>> {
-  BackgroundColor #999999
-  FontColor #ffffff
-  BorderColor #6b6b6b
-  shadowing false
-}
 skinparam person<<MedewerkerA>> {
   BackgroundColor #08427b
   FontColor #ffffff
@@ -112,7 +106,6 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
       skinparam RectangleBorderStyle<<group2>> dashed
 
       rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
-      queue "==LDV Logboek\n<size:10>[Software System]</size>\n\nLogboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" <<LDVLogboek>> as LDVLogboek
     }
 
 }
