@@ -9,6 +9,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         "security.betrouwbaarheidsniveaus" "DigiD: minimaal Substantieel (app of sms-controle). eHerkenning: minimaal EH3 (standaard niveau). Betrouwbaarheidsniveau wordt meegegeven als acr-claim in het JWT conform OIDC NL GOV profiel."
         "security.jwt-claims" "Het JWT bevat minimaal: iss (Interactielaag), sub (gebruikersidentifier), aud (Berichten Uitvraag Systeem), exp, iat, jti, acr (betrouwbaarheidsniveau). Voor burgers: PP als sub-claim. Voor zakelijke gebruikers: per-magazijn pseudoniemen en machtigingsclaims (KvK-nummer, dienstcodes) als aanvullende claims."
         "security.bsnk-dienstregistratie" "Elk berichtenmagazijn is als aparte dienst geregistreerd bij BSNk, zodat de PP-naar-EP-transformatie een uniek EP per magazijn oplevert. Dit voorkomt cross-magazijn koppelbaarheid van pseudoniemen."
+        "architectuur.organisatie-identificatie" "Deelnemende organisaties worden geïdentificeerd via hun OIN (Organisatie Identificatie Nummer) conform het OIN-Stelsel v2.2.2 en Digikoppeling Identificatie en Authenticatie v1.5.0. Het OIN is opgenomen in het subject.serialNumber veld van het PKIoverheid-certificaat en vormt de basis voor het FSC PeerID. In FSC-contracten, CloudEvents (source: urn:nld:fbs:magazijn:{oin}), en LDV-logging wordt het OIN als organisatie-identifier gebruikt."
         "architectuur.fsc-abstractie" "FSC-infrastructuur (Inway, Outway, Manager, Directory) is bewust niet als aparte containers gemodelleerd. FSC wordt behandeld als cross-cutting transportlaag, zichtbaar in relatiebeschrijvingen ('Digikoppeling REST API via FSC'). Zie fsc-core v1.1.2 voor de componentarchitectuur."
         "architectuur.traceerbaarheid" "Cross-organisatie verwerkingen zijn traceerbaar via W3C Trace Context (traceparent header). FSC-verkeer propageert trace-context over organisatiegrenzen conform de LDV-standaard. De Fsc-Transaction-Id header wordt aanvullend gebruikt voor FSC-specifieke transactielogging."
         "architectuur.ldv-logging" "Alle componenten die persoonsgegevens verwerken loggen naar het LDV Logboek via OpenTelemetry (OTLP). Dit betreft: magazijnOphaalBeheerApi, magazijnOpslagService, validatieApi, sessiecacheService, magazijnResolver, pseudoniemService, tokenValidatie, autorisatieService, publicatieStream, aanmeldService, uitvraagBerichtenlijst, uitvraagOphaalService, uitvraagBeheerService. LDV-relaties zijn niet in de views gemodelleerd om de leesbaarheid te bewaren."
@@ -26,7 +27,11 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
         profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" "Extern Systeem"
         notificatieService = softwareSystem "Notificatie Service" "Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)" "Extern Systeem"
-        interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" "Extern Systeem"
+        interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" "Extern Systeem" {
+            properties {
+                "architectuur.oidc" "De Interactielaag fungeert als OpenID Provider / Authorization Server conform OIDC NL GOV v1.0.1 en OAuth NL profiel v1.1.0. Ontvangt SAML 2.0 assertions van DigiD (burgers) en eHerkenning (zakelijke gebruikers), transformeert deze naar signed JWT bearer tokens (RFC 9068) met PP als sub-claim (burgers) of KvK/RSIN en machtigingsclaims (ondernemers). Publiceert een JWKS endpoint waarmee de Token Validatie in de Berichten Uitvraag Service de tokenhandtekening verifieert. Verplichte claims: iss, sub, aud, exp, iat, jti, acr (eIDAS-niveau). Client authenticatie via private_key_jwt of mTLS met PKIoverheid-certificaat."
+            }
+        }
         eHerkenning = softwareSystem "eHerkenning" "Authenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" "Extern Systeem"
         digiD = softwareSystem "DigiD" "Authenticatie voor burgers" "Extern Systeem"
 
@@ -38,6 +43,8 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
             decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan, ophalen en beheren (incl. berichtstatus)" "Magazijn" {
                 properties {
                     "deployment.model" "Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO"
+                    "architectuur.fsc" "FSC-infrastructuur (Inway, Outway, Manager, Directory) is niet als aparte containers gemodelleerd. Het magazijn biedt een Inway aan voor inkomende verzoeken van het Berichten Uitvraag Systeem en deelnemende organisaties. Elke relatie gemarkeerd als 'Digikoppeling REST API via FSC' impliceert: mTLS met PKIoverheid-certificaten, cryptografisch ondertekende FSC-contracten (ServiceConnectionGrant), certificate-bound JWT access tokens (Fsc-Authorization header), en tokenvalidatie door de Inway conform FSC Core v1.1.2."
+                    "architectuur.autorisatie" "Autorisatie in het magazijn volgt het PEP/PDP-patroon conform AuthZEN NL GOV. De Ophaal- en Beheer API en Aanlever API fungeren als Policy Enforcement Point (PEP): ze onderscheppen verzoeken en handhaven de autorisatiebeslissing. Het Policy Decision Point (PDP) evalueert het autorisatieverzoek (subject/action/resource/context) tegen het beleid — dit kan een interne component zijn of een gedeeld PDP over magazijnen. Autorisatiebeleid wordt beheerd via een Policy Administration Point (PAP). Aanvullende context (bijv. organisatieregistratie, machtigingen) wordt opgehaald via een Policy Information Point (PIP). Autorisatiebeslissingen worden gelogd conform de Authorization Decision Log standaard (Logius)."
                 }
                 magazijnOphaalBeheerApi = container "Berichtenmagazijn Ophaal- en Beheer API" "REST API voor het ophalen van berichten en bijlagen, en het beheren van berichtstatus per gebruiker" "Quarkus / Kotlin" "Magazijn Service"
                 magazijnAanleverApi = container "Berichtenmagazijn Aanlever API" "REST API voor het aanleveren van berichten door organisaties" "Quarkus / Kotlin" "Magazijn Service" {
@@ -80,6 +87,10 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
             group "Centraal gehoste services" {
 
                 berichtenUitvraagSysteem = softwareSystem "Berichten Uitvraag Systeem" "Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" "FBS Dienst" {
+                    properties {
+                        "architectuur.fsc" "FSC-infrastructuur (Inway, Outway, Manager, Directory) is niet als aparte containers gemodelleerd. Elke organisatiegrens-overschrijdende relatie gemarkeerd als 'Digikoppeling REST API via FSC' impliceert: mTLS met PKIoverheid-certificaten, cryptografisch ondertekende FSC-contracten (ServiceConnectionGrant), certificate-bound JWT access tokens (Fsc-Authorization header), en een Inway/Outway-paar per deelnemend systeem. De FSC Manager fungeert als OAuth 2.0 Authorization Server (client_credentials grant) voor service-to-service tokens conform FSC Core v1.1.2."
+                        "architectuur.autorisatie" "Autorisatie in het Uitvraag Systeem volgt het PEP/PDP-patroon conform AuthZEN NL GOV op twee niveaus: (1) Token Validatie fungeert als PEP en extraheert de gebruikersidentiteit en machtigingsclaims uit het JWT — voor burgers het PP (DigiD), voor zakelijke gebruikers KvK/RSIN, dienstcodes en machtigingstype (eHerkenning ketenmachtiging). (2) MagazijnResolver fungeert als PEP/PDP voor magazijntoegang: evalueert per magazijn of de combinatie van machtigingsclaims en dienstcodes toegang rechtvaardigt. Bij eHerkenning ketenmachtiging wordt de volledige machtigingsketen (persoon → gemachtigde organisatie → vertegenwoordigde organisatie) meegewogen. Autorisatiebeslissingen worden gelogd conform de Authorization Decision Log standaard (Logius)."
+                    }
 
                     sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
                         sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
@@ -97,7 +108,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenlijst, ophalen, beheer en verwijderen" "JAX-RS Resource"
-                        tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens en stelt de gebruikersidentiteit vast" "CDI Bean"
+                        tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens (handtekening, iss, aud, exp, jti, acr) en stelt de gebruikersidentiteit en het betrouwbaarheidsniveau vast" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst" "CDI Bean"
                         uitvraagOphaalService = component "Bericht Ophaal Service" "Haalt berichten en bijlagen op uit cache en berichtenmagazijn" "CDI Bean"
                         uitvraagBeheerService = component "Bericht Beheer Service" "Verplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" "CDI Bean"
@@ -108,15 +119,20 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                         uitvraagResource -> uitvraagBeheerService "Berichtstatus en mappenbeheer"
                     }
 
-                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" "BSNk container (Logius)" "Extern Geleverd"
+                    bsnkTransformatie = container "BSNk Transformatie" "Transformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" "BSNk container (Logius)" "Extern Geleverd" {
+                        properties {
+                            "beheer.dienstregistratie" "Elk berichtenmagazijn wordt als aparte dienst geregistreerd bij BSNk. Bij registratie ontvangt de dienst een eigen set cryptografische sleutels. De PP-naar-EP-transformatie gebruikt de publieke sleutel van het doelmagazijn voor versleuteling, waardoor elk magazijn een uniek EP ontvangt — cross-magazijn koppeling is cryptografisch uitgesloten."
+                            "beheer.sleutelbeheer" "Sleutelmateriaal wordt beheerd door Logius als onderdeel van de BSNk-voorziening. Sleutelrotatie, distributie van publieke sleutels naar de BSNk container, en het onboarden van nieuwe magazijnen zijn beheerprocessen buiten scope van dit model. Toegang tot de BSNk API is beperkt tot de PseudoniemService via een lokale interface."
+                        }
+                    }
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
-                    aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern)"
-                    uitvraagOphaalService -> sessiecacheResource "Haalt berichten op" "REST API (intern)"
-                    uitvraagBerichtenlijst -> sessiecacheResource "Haalt berichtenlijst op" "REST API (intern)"
-                    uitvraagBeheerService -> sessiecacheResource "Werkt berichtstatus bij in cache" "REST API (intern)"
+                    aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern, mTLS)"
+                    uitvraagOphaalService -> sessiecacheResource "Haalt berichten op" "REST API (intern, mTLS)"
+                    uitvraagBerichtenlijst -> sessiecacheResource "Haalt berichtenlijst op" "REST API (intern, mTLS)"
+                    uitvraagBeheerService -> sessiecacheResource "Werkt berichtstatus bij in cache" "REST API (intern, mTLS)"
                 }
 
                 ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
@@ -145,7 +161,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         uitvraagBeheerService -> magazijnOphaalBeheerApi "Beheert berichtstatus" "Digikoppeling REST API via FSC"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
-        publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook" "Async"
+        publicatieStream -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook via FSC" "Async"
 
         notificatieService -> profielService "Haalt contactgegevens en voorkeuren op" "Digikoppeling REST API via FSC"
 
