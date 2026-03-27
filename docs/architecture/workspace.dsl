@@ -11,7 +11,7 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
         "architectuur.organisatie-identificatie" "Deelnemende organisaties worden geïdentificeerd via hun OIN (Organisatie Identificatie Nummer) conform het OIN-Stelsel v2.2.2 en Digikoppeling Identificatie en Authenticatie v1.5.0. Het OIN is opgenomen in het subject.serialNumber veld van het PKIoverheid-certificaat en vormt de basis voor het FSC PeerID. In FSC-contracten, CloudEvents (source: urn:nld:fbs:magazijn:{oin}), en LDV-logging wordt het OIN als organisatie-identifier gebruikt."
         "architectuur.fsc-abstractie" "FSC-infrastructuur (Inway, Outway, Manager, Directory) is bewust niet als aparte containers gemodelleerd. FSC wordt behandeld als cross-cutting transportlaag, zichtbaar in relatiebeschrijvingen ('Digikoppeling REST API via FSC'). Zie fsc-core v1.1.2 voor de componentarchitectuur."
         "architectuur.traceerbaarheid" "Cross-organisatie verwerkingen zijn traceerbaar via W3C Trace Context (traceparent header). FSC-verkeer propageert trace-context over organisatiegrenzen conform de LDV-standaard. De Fsc-Transaction-Id header wordt aanvullend gebruikt voor FSC-specifieke transactielogging."
-        "architectuur.ldv-logging" "Alle componenten die persoonsgegevens verwerken loggen naar het LDV Logboek via OpenTelemetry (OTLP). Dit betreft: magazijnOphaalBeheerApi, magazijnOpslagService, validatieApi, sessiecacheService, magazijnResolver, pseudoniemService, tokenValidatie, autorisatieService, publicatieStream, aanmeldService, uitvraagBerichtenlijst, uitvraagOphaalService, uitvraagBeheerService. LDV-relaties zijn niet in de views gemodelleerd om de leesbaarheid te bewaren."
+        "architectuur.ldv-logging" "Alle componenten die persoonsgegevens verwerken loggen naar het LDV Logboek via OpenTelemetry (OTLP). LDV-relaties zijn niet in het model opgenomen om de leesbaarheid te bewaren."
     }
 
     model {
@@ -128,13 +128,12 @@ workspace "Federatief Berichtenstelsel" "Doel-architectuur van het Federatief Be
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
-                    aanmeldService -> sessiecacheApp "Werkt cache bij" "REST API (intern, mTLS)"
+                    aanmeldService -> sessiecacheResource "Werkt cache bij" "REST API (intern, mTLS)"
                     uitvraagOphaalService -> sessiecacheResource "Haalt berichten op" "REST API (intern, mTLS)"
                     uitvraagBerichtenlijst -> sessiecacheResource "Haalt berichtenlijst op" "REST API (intern, mTLS)"
                     uitvraagBeheerService -> sessiecacheResource "Werkt berichtstatus bij in cache" "REST API (intern, mTLS)"
                 }
 
-                ldvLogboek = softwareSystem "LDV Logboek" "Logboek Dataverwerkingen - logging van dataverwerkingen conform LDV-standaard" "Infrastructuur"
             }
         }
 
