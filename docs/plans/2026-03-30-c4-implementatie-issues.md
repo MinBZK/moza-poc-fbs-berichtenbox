@@ -17,6 +17,41 @@ Het C4-model in `docs/architecture/workspace.dsl` beschrijft de volledige doelar
 
 ---
 
+## API-overzicht (afgeleid uit C4-model)
+
+Alle REST-relaties uit `workspace.dsl` vertaald naar concrete API's:
+
+### Externe API's (via FSC)
+
+| API | Container | Consumers | Endpoints |
+|-----|-----------|-----------|-----------|
+| **Berichten Uitvraag API** | `uitvraagApi` | Interactielaag (JWT) | `GET /berichten`, `GET /berichten/_zoeken`, `GET /berichten/{id}`, `GET /berichten/{id}/bijlagen/{id}`, `PATCH /berichten/{id}`, `DELETE /berichten/{id}` |
+| **Magazijn Ophaal- en Beheer API** | `magazijnOphaalBeheerApi` | Sessiecache, Uitvraag Service | `GET /berichten`, `GET /berichten/{id}`, `GET /berichten/{id}/bijlagen/{id}`, `PATCH /berichten/{id}`, `DELETE /berichten/{id}` |
+| **Magazijn Aanlever API** | `magazijnAanleverApi` | Organisaties | `POST /berichten` |
+
+### Interne API's (mTLS, binnen systeem)
+
+| API | Container | Consumers | Endpoints |
+|-----|-----------|-----------|-----------|
+| **Berichtensessiecache API** | `sessiecacheApp` | Uitvraag Service, Aanmeld Service | `GET /berichten`, `GET /berichten/_zoeken`, `GET /berichten/{id}`, `PATCH /berichten/{id}`, `POST /berichten` |
+| **Bericht Validatie API** | `berichtValidatie` | Bericht Opslag Service | `POST /berichten/_valideer` |
+| **Publicatie Stream API** | `publicatieStream` | Bericht Opslag Service | `POST /publicaties` |
+| **Autorisatie Evaluatie API** | `autorisatieService` | Ophaal- en Beheer API | `POST /autorisatiebeslissingen/_evalueer` |
+| **Aanmeld Service webhook** | `aanmeldService` | Publicatie Stream | CloudEvents HTTP binding (`nl.rijksoverheid.fbs.bericht.gepubliceerd`) |
+
+### Uitgaande REST-clients (via FSC)
+
+| Client | In container | Naar | Doel |
+|--------|-------------|------|------|
+| `sessiecacheMagazijnClient` | Sessiecache | Magazijn Ophaal- en Beheer API | Berichten ophalen voor aggregatie |
+| `uitvraagOphaalService` | Uitvraag Service | Magazijn Ophaal- en Beheer API | Bijlagen ophalen |
+| `uitvraagBeheerService` | Uitvraag Service | Magazijn Ophaal- en Beheer API | Berichtstatus beheren |
+| `magazijnResolver` | Sessiecache | Profiel Service | Dienstvoorkeuren ophalen |
+| `validatieToestemming` | Bericht Validatie | Profiel Service | Toestemming controleren |
+| `publicatieStream` | Publicatie Stream | Aanmeld Service, Notificatie Service | CloudEvents doorsturen |
+
+---
+
 ## Issues
 
 ### Issue 1: Berichtenmagazijn Aanlever API — nieuwe service module
@@ -51,24 +86,28 @@ Volgt dezelfde patronen als `services/berichtensessiecache`: OpenAPI-first, func
 
 **Labels:** `enhancement`, `magazijn`
 
-Voeg de Ophaal- en Beheer API toe aan `services/berichtenmagazijn` (C4 container: `magazijnOphaalBeheerApi`). Dit is de API die de bestaande `MagazijnClient` in de berichtensessiecache aanroept. Het response-formaat moet aansluiten op `MagazijnBerichtenResponse` en de huidige WireMock-stubs. Naamgeving in het Nederlands conform bestaande specs en ADR.
+Voeg de Ophaal- en Beheer API toe aan `services/berichtenmagazijn` (C4 container: `magazijnOphaalBeheerApi`). Naamgeving in het Nederlands conform ADR.
+
+Deze API heeft **twee externe consumers** (C4 relaties):
+1. **Berichtensessiecache** (`sessiecacheMagazijnClient`): haalt berichtenlijsten op voor aggregatie (C4 regel 172)
+2. **Berichten Uitvraag Service**: haalt bijlagen op (`uitvraagOphaalService`, C4 regel 158) en beheert berichtstatus (`uitvraagBeheerService`, C4 regel 159)
 
 **Endpoints:**
-- `GET /api/v1/berichten` — berichten ophalen (ontvanger via `X-Ontvanger` header, niet als query parameter — voorkomt PII in URLs/logs)
-- `GET /api/v1/berichten/{berichtId}` — enkel bericht met inhoud/bijlagen
-- `GET /api/v1/berichten/_zoeken` — zoeken in berichten (met `_` prefix voor custom operaties conform ADR)
+- `GET /api/v1/berichten` — berichtenlijst ophalen (ontvanger via `X-Ontvanger` header — voorkomt PII in URLs/logs)
+- `GET /api/v1/berichten/{berichtId}` — enkel bericht met inhoud
+- `GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}` — bijlage ophalen (consumer: uitvraagOphaalService)
 - `PATCH /api/v1/berichten/{berichtId}` — berichtstatus bijwerken (gelezen, map) via JSON Merge Patch
 - `DELETE /api/v1/berichten/{berichtId}` — bericht verwijderen
 
 **Acceptatiecriteria:**
 - [ ] OpenAPI spec met bovengenoemde endpoints
 - [ ] OpenAPI spec valideert zonder fouten tegen [ADR Spectral linter](https://static.developer.overheid.nl/adr/ruleset.yaml)
-- [ ] `ontvanger` als `X-Ontvanger` header (niet als query parameter) — conform berichtensessiecache-conventie en ADR-regel "geen gevoelige informatie in URIs"
+- [ ] `ontvanger` als `X-Ontvanger` header (niet als query parameter) — conform ADR-regel "geen gevoelige informatie in URIs"
+- [ ] Bijlagen-endpoint voor het ophalen van individuele bijlagen bij een bericht
 - [ ] `OphaalBeheerResource.kt` implementeert gegenereerde interface
-- [ ] Response compatibel met bestaande `MagazijnClient` / `MagazijnBerichtenResponse`
-- [ ] **Breaking change:** `MagazijnClient` interface bijwerken: `ontvanger` van `@QueryParam` naar `@HeaderParam("X-Ontvanger")`, en `zoekBerichten` pad van `/berichten/zoeken` naar `/berichten/_zoeken`
+- [ ] **Breaking change:** `MagazijnClient` interface bijwerken: `ontvanger` van `@QueryParam` naar `@HeaderParam("X-Ontvanger")`; zoek-endpoint verwijderen (zoeken gebeurt lokaal in sessiecache via RediSearch, niet op het magazijn)
 - [ ] Berichtstatus per gebruiker (gelezen/ongelezen, map) via `PATCH` met JSON Merge Patch body
-- [ ] WireMock mappings bijgewerkt voor nieuwe endpoints en gewijzigde paden
+- [ ] WireMock mappings bijgewerkt voor nieuwe en gewijzigde endpoints
 - [ ] LDV logging, Problem JSON, security headers
 - [ ] Unit tests en integratietests
 - [ ] Bestaande berichtensessiecache tests bijwerken voor gewijzigde `MagazijnClient` interface
@@ -88,11 +127,16 @@ Voeg twee C4 containers toe aan het berichtenmagazijn:
 
 **C4 componenten:** `validatieApi`, `validatieTechnisch`, `validatieToestemming`, `publicatieStream`
 
+**Interne REST-contracten (C4 relaties D1, D2):**
+- `POST /api/v1/berichten/_valideer` — bericht ter validatie aanbieden (consumer: `magazijnOpslagService`, C4 regel 77)
+- `POST /api/v1/publicaties` — gevalideerd bericht doorsturen voor publicatie (consumer: `magazijnOpslagService`, C4 regel 78)
+
 **Acceptatiecriteria:**
+- [ ] Interne OpenAPI specs voor validatie- en publicatie-endpoints
 - [ ] `BerichtValidatieService.kt` met technische validatie (type, grootte, bijlagen)
 - [ ] `ToestemmingControle.kt` — REST client naar Profiel Service (PoC: WireMock stub)
-- [ ] `AanleverResource` roept validatie aan vóór opslag
-- [ ] `PublicatieStream.kt` met outbox-patroon (`@Scheduled` polling)
+- [ ] `AanleverResource` roept validatie aan vóór opslag via intern REST-endpoint
+- [ ] `PublicatieStream.kt` met outbox-patroon (`@Scheduled` polling op berichten met status "te publiceren")
 - [ ] CloudEvents conform NL GOV profiel v1.1 (`source: urn:nld:oin:{oin}:systeem:fbs-magazijn`)
 - [ ] Unit tests voor validatieregels en publicatie-flow
 - [ ] Integratietest voor de keten: aanleveren → valideren → publiceren
@@ -105,23 +149,37 @@ Voeg twee C4 containers toe aan het berichtenmagazijn:
 
 **Labels:** `enhancement`, `uitvraag`
 
-Maak een nieuwe Quarkus service module `services/berichtenuitvraag` (C4 container: `uitvraagApi`). Dit is de user-facing API die de Interactielaag aanroept namens burgers en ondernemers. Delegeert naar de berichtensessiecache voor ophalen/zoeken en naar het berichtenmagazijn voor bijlagen en beheer. Naamgeving in het Nederlands conform bestaande specs en ADR.
+Maak een nieuwe Quarkus service module `services/berichtenuitvraag` (C4 container: `uitvraagApi`). Dit is de user-facing API die de Interactielaag aanroept namens burgers en ondernemers. Naamgeving in het Nederlands conform ADR.
 
 **C4 componenten:** `uitvraagResource`, `uitvraagBerichtenlijst`, `uitvraagOphaalService`, `uitvraagBeheerService`
 
+**Dual-backend architectuur (afgeleid uit C4 relaties):**
+- **Via Berichtensessiecache:** berichtenlijst (B2, regel 133), berichten ophalen (B1, regel 132), zoeken, status bijwerken in cache (B3, regel 134)
+- **Via Magazijn (direct, via FSC):** bijlagen ophalen (C2, regel 158), berichtstatus persistent beheren (C3, regel 159)
+
+Bij statuswijzigingen en verwijderingen schrijft de uitvraag service naar **zowel** het magazijn (persistent) **als** de sessiecache (cache-invalidatie).
+
 **Endpoints:**
-- `GET /api/v1/berichten` — berichtenlijst per map
-- `GET /api/v1/berichten/{berichtId}` — bericht met inhoud
-- `GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}` — bijlage ophalen
-- `PATCH /api/v1/berichten/{berichtId}` — berichtstatus bijwerken en verplaatsen naar andere map (JSON Merge Patch, consistent met magazijn API)
-- `DELETE /api/v1/berichten/{berichtId}` — bericht verwijderen
+- `GET /api/v1/berichten` — berichtenlijst per map (via sessiecache)
+- `GET /api/v1/berichten/_zoeken` — zoeken in berichten (via sessiecache)
+- `GET /api/v1/berichten/{berichtId}` — bericht met inhoud (via sessiecache)
+- `GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}` — bijlage ophalen (via magazijn direct)
+- `PATCH /api/v1/berichten/{berichtId}` — berichtstatus bijwerken en verplaatsen naar andere map (JSON Merge Patch → magazijn + sessiecache)
+- `DELETE /api/v1/berichten/{berichtId}` — bericht verwijderen (→ magazijn + sessiecache)
+
+**Sessiecache API-uitbreiding benodigd:**
+De sessiecache API moet uitgebreid worden met schrijf-endpoints om de C4 relaties B3 en B4 te ondersteunen:
+- `PATCH /api/v1/berichten/{berichtId}` — status bijwerken in cache (consumer: uitvraagBeheerService)
+- `POST /api/v1/berichten` — bericht toevoegen aan cache (consumer: aanmeldService, zie Issue 8)
 
 **Acceptatiecriteria:**
 - [ ] Maven module `services/berichtenuitvraag` in parent POM
-- [ ] OpenAPI spec met bovengenoemde endpoints
+- [ ] OpenAPI spec voor uitvraag API met bovengenoemde endpoints
 - [ ] OpenAPI spec valideert zonder fouten tegen [ADR Spectral linter](https://static.developer.overheid.nl/adr/ruleset.yaml)
-- [ ] Verplaatsen gemodelleerd als `PATCH` met `map`-veld in de body (geen apart `POST` endpoint met werkwoord)
-- [ ] REST clients naar berichtensessiecache en berichtenmagazijn
+- [ ] Verplaatsen gemodelleerd als `PATCH` met `map`-veld in de body (geen apart endpoint met werkwoord)
+- [ ] REST client naar berichtensessiecache (berichtenlijst, zoeken, status in cache bijwerken)
+- [ ] REST client naar berichtenmagazijn via FSC (bijlagen ophalen, berichtstatus persistent beheren)
+- [ ] Sessiecache OpenAPI spec uitbreiden met `PATCH` schrijf-endpoint voor cache-invalidatie
 - [ ] `BerichtenlijstService.kt`, `BerichtOphaalService.kt`, `BerichtBeheerService.kt`
 - [ ] Problem JSON, API-Version header, security headers, LDV logging
 - [ ] Unit tests en integratietests
@@ -198,19 +256,21 @@ Implementeer MagazijnResolver (`magazijnResolver`). Momenteel bevraagt `Berichte
 
 **Labels:** `enhancement`, `uitvraag`
 
-Implementeer de Aanmeld Service (`aanmeldService`) en verbind de volledige notificatie-keten. Ontvangt CloudEvents van de Publicatie Stream bij nieuw gepubliceerde berichten en werkt de berichtensessiecache bij voor actieve sessies.
+Implementeer de Aanmeld Service (`aanmeldService`) en verbind de volledige notificatie-keten. De Aanmeld Service is een brug tussen CloudEvents (van magazijnen) en de sessiecache REST API.
 
-**Flow:** Publicatie Stream → CloudEvent via FSC → Aanmeld Service → REST API → Berichtensessiecache
+**C4 relaties:**
+- `publicatieStream → aanmeldService` — "Meldt nieuw bericht aan" (E1, regel 161, via FSC)
+- `aanmeldService → sessiecacheResource` — "Werkt cache bij" (B4, regel 131, intern mTLS)
 
-De bestaande `EventForwarder.kt` stuurt al CloudEvents, maar de omgekeerde richting (magazijn → cache update) ontbreekt.
+**Flow:** Publicatie Stream → CloudEvents HTTP webhook (via FSC) → Aanmeld Service → `POST /api/v1/berichten` → Berichtensessiecache
 
 **Acceptatiecriteria:**
 - [ ] Aanmeld Service als onderdeel van berichtenuitvraag module (of eigen module)
-- [ ] CloudEvents webhook endpoint voor `nl.rijksoverheid.fbs.bericht.gepubliceerd`
-- [ ] Cache bijwerken via berichtensessiecache REST API (alleen voor actieve sessies)
-- [ ] Idempotentie: dubbele events niet opnieuw verwerken (event ID check)
-- [ ] `EventForwarder.kt` refactoren naar gedeeld CloudEvents-patroon indien nuttig
-- [ ] Unit tests en integratietest voor volledige flow
+- [ ] CloudEvents HTTP webhook endpoint conform [CloudEvents HTTP Protocol Binding](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/bindings/http-protocol-binding.md) voor `nl.rijksoverheid.fbs.bericht.gepubliceerd`
+- [ ] Sessiecache OpenAPI spec uitbreiden met `POST /api/v1/berichten` — bericht toevoegen aan cache voor actieve sessies (consumer: aanmeldService)
+- [ ] Alleen bijwerken als cache-key voor de ontvanger bestaat (actieve sessie)
+- [ ] Idempotentie: dubbele events niet opnieuw verwerken (CloudEvents `id` attribuut)
+- [ ] Unit tests en integratietest voor volledige flow (publicatie → aanmelding → cache update)
 
 **Dependencies:** Issues 3 (Publicatie Stream), 4 (Berichtenuitvraag) · **Complexiteit:** M
 
@@ -222,11 +282,17 @@ De bestaande `EventForwarder.kt` stuurt al CloudEvents, maar de omgekeerde richt
 
 Implementeer de Autorisatie Service (`autorisatieService`) voor het Berichtenmagazijn en het PEP/PDP-patroon conform AuthZEN NL GOV.
 
+**C4 relatie:** `magazijnOphaalBeheerApi → autorisatieService` — "Toetst autorisatie per verzoek" (D3, regel 83, intern mTLS)
+
 Twee autorisatieniveaus uit het C4-model:
 1. **Berichtenmagazijn:** Ophaal- en Beheer API als PEP, Autorisatie Service als PDP
 2. **Berichten Uitvraag Systeem:** Token Validatie als PEP, MagazijnResolver als PEP/PDP
 
+**AuthZEN evaluatie-endpoint:**
+- `POST /api/v1/autorisatiebeslissingen/_evalueer` — evalueert autorisatieverzoek (subject/action/resource/context → allow/deny)
+
 **Acceptatiecriteria:**
+- [ ] OpenAPI spec voor autorisatie evaluatie-endpoint conform AuthZEN NL GOV
 - [ ] `AutorisatieService.kt` interface en PoC-implementatie in berichtenmagazijn
 - [ ] PEP-integratie in `OphaalBeheerResource` en `AanleverResource` (interceptor of filter)
 - [ ] Autorisatiebeslissing-model: subject/action/resource/context (AuthZEN)
