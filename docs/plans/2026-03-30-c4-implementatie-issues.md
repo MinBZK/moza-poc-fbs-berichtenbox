@@ -4,10 +4,10 @@
 
 ## Context
 
-Het C4-model in `docs/architecture/workspace.dsl` beschrijft de volledige doelarchitectuur van het Federatief Berichtenstelsel (FBS). Momenteel is alleen de **Berichtensessiecache** geïmplementeerd (`services/berichtensessiecache/`). De overige containers en componenten uit het C4-model moeten nog gebouwd worden. Deze issues verdelen dat werk in 10 logische, onafhankelijk leverbare delen.
+Het C4-model in `docs/architecture/workspace.dsl` beschrijft de volledige doelarchitectuur van het Federatief Berichtenstelsel (FBS). Momenteel is alleen de **Berichtensessiecache** geïmplementeerd (`services/berichtensessiecache/`). De overige containers en componenten uit het C4-model moeten nog gebouwd worden. Deze issues verdelen dat werk in 11 logische, onafhankelijk leverbare delen.
 
 **Huidige staat:**
-- :warning: Berichtensessiecache (geïmplementeerd, maar wijkt af van C4-model — zie Issue 0)
+- :warning: Berichtensessiecache (geïmplementeerd, maar wijkt af van C4-model — zie Issue 1)
 - :x: Berichtenmagazijn (Aanlever API, Ophaal- & Beheer API, Validatie, Publicatie Stream, Autorisatie, Dataopslag)
 - :x: Berichten Uitvraag Service (user-facing API, Token Validatie, Beheer)
 - :x: BSNk Transformatie / PseudoniemService
@@ -54,7 +54,7 @@ Alle REST-relaties uit `workspace.dsl` vertaald naar concrete API's:
 
 ## Issues
 
-### Issue 0: Berichtensessiecache alignen met C4-model
+### Issue 1: Berichtensessiecache alignen met C4-model
 
 **Labels:** `refactor`, `sessiecache`
 
@@ -87,7 +87,7 @@ C4 flow:
                                            → sessiecacheCache (opslaan)
 ```
 
-De Resource wordt een dunne laag die alleen SSE-events doorgeeft; de Service orkestreert de aggregatie. Dit maakt het mogelijk om in latere issues (6, 7) de MagazijnResolver en PseudoniemService in te pluggen via CDI zonder de Resource te wijzigen.
+De Resource wordt een dunne laag die alleen SSE-events doorgeeft; de Service orkestreert de aggregatie. Dit maakt het mogelijk om in latere issues (7, 8) de MagazijnResolver en PseudoniemService in te pluggen via CDI zonder de Resource te wijzigen.
 
 **Acceptatiecriteria:**
 
@@ -115,7 +115,7 @@ De Resource wordt een dunne laag die alleen SSE-events doorgeeft; de Service ork
 - [ ] WireMock mappings bijwerken
 
 *Afwijking 5 — EventForwarder verwijderen:*
-- [ ] `notificatie/EventForwarder.kt` verwijderen uit sessiecache (dode code; notificatie-flow hoort in magazijn `publicatieStream`, zie Issue 3)
+- [ ] `notificatie/EventForwarder.kt` verwijderen uit sessiecache (dode code; notificatie-flow hoort in magazijn `publicatieStream`, zie Issue 4)
 - [ ] `notificatie.service.url` verwijderen uit `application.properties`
 
 *Afwijking 6 — afzender filter:*
@@ -125,7 +125,7 @@ De Resource wordt een dunne laag die alleen SSE-events doorgeeft; de Service ork
 
 ---
 
-### Issue 1: Berichtenmagazijn Aanlever API — nieuwe service module
+### Issue 2: Berichtenmagazijn Aanlever API — nieuwe service module
 
 **Labels:** `enhancement`, `magazijn`
 
@@ -153,7 +153,7 @@ Volgt dezelfde patronen als `services/berichtensessiecache`: OpenAPI-first, func
 
 ---
 
-### Issue 2: Berichtenmagazijn Ophaal- en Beheer API
+### Issue 3: Berichtenmagazijn Ophaal- en Beheer API
 
 **Labels:** `enhancement`, `magazijn`
 
@@ -183,11 +183,11 @@ Deze API heeft **twee externe consumers** (C4 relaties):
 - [ ] Unit tests en integratietests
 - [ ] Bestaande berichtensessiecache tests bijwerken voor gewijzigde `MagazijnClient` interface
 
-**Dependencies:** Issues 0, 1 · **Complexiteit:** M
+**Dependencies:** Issues 1, 2 · **Complexiteit:** M
 
 ---
 
-### Issue 3: Bericht Validatie Service en Publicatie Stream
+### Issue 4: Bericht Validatie Service en Publicatie Stream
 
 **Labels:** `enhancement`, `magazijn`
 
@@ -212,11 +212,11 @@ Voeg twee C4 containers toe aan het berichtenmagazijn:
 - [ ] Unit tests voor validatieregels en publicatie-flow
 - [ ] Integratietest voor de keten: aanleveren → valideren → publiceren
 
-**Dependencies:** Issue 1 · **Complexiteit:** M
+**Dependencies:** Issue 2 · **Complexiteit:** M
 
 ---
 
-### Issue 4: Berichten Uitvraag Service — nieuwe service module
+### Issue 5: Berichten Uitvraag Service — nieuwe service module
 
 **Labels:** `enhancement`, `uitvraag`
 
@@ -241,7 +241,7 @@ Bij statuswijzigingen en verwijderingen schrijft de uitvraag service naar **zowe
 **Sessiecache API-uitbreiding benodigd:**
 De sessiecache API moet uitgebreid worden met schrijf-endpoints om de C4 relaties B3 en B4 te ondersteunen:
 - `PATCH /api/v1/berichten/{berichtId}` — status bijwerken in cache (consumer: uitvraagBeheerService)
-- `POST /api/v1/berichten` — bericht toevoegen aan cache (consumer: aanmeldService, zie Issue 8)
+- `POST /api/v1/berichten` — bericht toevoegen aan cache (consumer: aanmeldService, zie Issue 9)
 
 **Acceptatiecriteria:**
 - [ ] Maven module `services/berichtenuitvraag` in parent POM
@@ -256,11 +256,11 @@ De sessiecache API moet uitgebreid worden met schrijf-endpoints om de C4 relatie
 - [ ] Unit tests en integratietests
 - [ ] `compose.yaml` bijgewerkt
 
-**Dependencies:** Issues 0 (sessiecache schrijf-endpoints + refactored service), 2 (magazijn beschikbaar) · **Complexiteit:** L
+**Dependencies:** Issues 1 (sessiecache schrijf-endpoints + refactored service), 3 (magazijn beschikbaar) · **Complexiteit:** L
 
 ---
 
-### Issue 5: Token Validatie — JWT-authenticatie
+### Issue 6: Token Validatie — JWT-authenticatie
 
 **Labels:** `enhancement`, `security`, `uitvraag`
 
@@ -278,11 +278,11 @@ De Interactielaag verstrekt een JWT met PP als `sub` claim (burgers) of KvK/mach
 - [ ] Unit tests met gesimuleerde JWT tokens (valid, invalid, expired)
 - [ ] Integratietest met Quarkus OIDC test utilities
 
-**Dependencies:** Issue 4 · **Complexiteit:** M
+**Dependencies:** Issue 5 · **Complexiteit:** M
 
 ---
 
-### Issue 6: BSNk Transformatie en PseudoniemService
+### Issue 7: BSNk Transformatie en PseudoniemService
 
 **Labels:** `enhancement`, `security`
 
@@ -293,37 +293,37 @@ Momenteel stuurt `BerichtenOphalenResource.kt` dezelfde `ontvanger` naar alle ma
 **Acceptatiecriteria:**
 - [ ] `PseudoniemService.kt` interface en implementatie in berichtensessiecache
 - [ ] Transformeert PP naar uniek EP per magazijn-ID
-- [ ] `BerichtenOphalenResource` en `BerichtensessiecacheService` gebruiken PseudoniemService
+- [ ] `BerichtensessiecacheService` gebruikt PseudoniemService (inplugbaar dankzij Issue 1 refactoring)
 - [ ] PoC-modus: deterministische stub (bijv. HMAC van PP + magazijnId)
 - [ ] Interface-abstractie voor latere aansluiting echte BSNk API
 - [ ] Bestaande tests aangepast
 - [ ] Unit tests voor transformatie en uniciteit per magazijn
 
-**Dependencies:** Issues 0 (aggregatie in Service maakt inpluggen mogelijk), 5 (PP beschikbaar uit JWT) · **Complexiteit:** M
+**Dependencies:** Issues 1 (aggregatie in Service maakt inpluggen mogelijk), 6 (PP beschikbaar uit JWT) · **Complexiteit:** M
 
 ---
 
-### Issue 7: MagazijnResolver met Profiel Service
+### Issue 8: MagazijnResolver met Profiel Service
 
 **Labels:** `enhancement`
 
-Implementeer MagazijnResolver (`magazijnResolver`). Momenteel bevraagt `BerichtenOphalenResource` alle geconfigureerde magazijnen via `clientFactory.getAllClients()`. De MagazijnResolver bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingsclaims welke magazijnen bevraagd worden.
+Implementeer MagazijnResolver (`magazijnResolver`). Momenteel bevraagt de sessiecache alle geconfigureerde magazijnen. De MagazijnResolver bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingsclaims welke magazijnen bevraagd worden.
 
 **Acceptatiecriteria:**
 - [ ] `MagazijnResolver.kt` interface en implementatie in berichtensessiecache
 - [ ] REST client naar Profiel Service (PoC: WireMock stub)
 - [ ] Combineert dienstvoorkeuren met beschikbare magazijnen
 - [ ] Voor zakelijke gebruikers: evaluatie machtigingsclaims per magazijn
-- [ ] `BerichtenOphalenResource` gebruikt MagazijnResolver i.p.v. `getAllClients()`
+- [ ] `BerichtensessiecacheService` gebruikt MagazijnResolver (inplugbaar dankzij Issue 1 refactoring)
 - [ ] Fallback: alle magazijnen bevragen als Profiel Service onbereikbaar (graceful degradation)
 - [ ] WireMock mappings voor Profiel Service
 - [ ] Unit tests en integratietests
 
-**Dependencies:** Issues 0 (aggregatie in Service maakt inpluggen mogelijk), 5 (machtigingsclaims), 6 (EP per magazijn) · **Complexiteit:** M
+**Dependencies:** Issues 1 (aggregatie in Service maakt inpluggen mogelijk), 6 (machtigingsclaims), 7 (EP per magazijn) · **Complexiteit:** M
 
 ---
 
-### Issue 8: Aanmeld Service en CloudEvents notificatie-flow
+### Issue 9: Aanmeld Service en CloudEvents notificatie-flow
 
 **Labels:** `enhancement`, `uitvraag`
 
@@ -343,11 +343,11 @@ Implementeer de Aanmeld Service (`aanmeldService`) en verbind de volledige notif
 - [ ] Idempotentie: dubbele events niet opnieuw verwerken (CloudEvents `id` attribuut)
 - [ ] Unit tests en integratietest voor volledige flow (publicatie → aanmelding → cache update)
 
-**Dependencies:** Issues 0 (sessiecache POST-endpoint), 3 (Publicatie Stream), 4 (Berichtenuitvraag) · **Complexiteit:** M
+**Dependencies:** Issues 1 (sessiecache POST-endpoint), 4 (Publicatie Stream), 5 (Berichtenuitvraag) · **Complexiteit:** M
 
 ---
 
-### Issue 9: Autorisatie Service — PEP/PDP patroon
+### Issue 10: Autorisatie Service — PEP/PDP patroon
 
 **Labels:** `enhancement`, `security`, `magazijn`
 
@@ -372,11 +372,11 @@ Twee autorisatieniveaus uit het C4-model:
 - [ ] Machtigingsvalidatie voor eHerkenning ketenmachtiging in uitvraag service
 - [ ] Unit tests voor autorisatiebeslissingen (allowed/denied)
 
-**Dependencies:** Issues 2, 5 · **Complexiteit:** L
+**Dependencies:** Issues 3, 6 · **Complexiteit:** L
 
 ---
 
-### Issue 10: C4-model synchronisatie met implementatiebeslissingen
+### Issue 11: C4-model synchronisatie met implementatiebeslissingen
 
 **Labels:** `documentation`
 
@@ -390,30 +390,30 @@ Werk `docs/architecture/workspace.dsl` bij zodat het de implementatiebeslissinge
 - [ ] Relaties valideren: alle code-paden kloppen met `->` relaties in DSL
 - [ ] Architecture site bouwt succesvol (CI workflow)
 
-**Dependencies:** Issues 1–9 (incrementeel meebijwerken) · **Complexiteit:** S
+**Dependencies:** Issues 1–10 (incrementeel meebijwerken) · **Complexiteit:** S
 
 ---
 
 ## Afhankelijkheden en volgorde
 
 ```
-Issue 0:  Sessiecache alignen met C4     (geen deps)          [L]
-Issue 1:  Magazijn Aanlever API          (geen deps)          [L]
-Issue 2:  Magazijn Ophaal- & Beheer API  (→ 0, 1)             [M]
-Issue 3:  Validatie + Publicatie Stream   (→ 1)                [M]
-Issue 4:  Berichten Uitvraag Service     (→ 0, 2)             [L]
-Issue 5:  Token Validatie (JWT)          (→ 4)                [M]
-Issue 6:  BSNk / PseudoniemService       (→ 0, 5)             [M]
-Issue 7:  MagazijnResolver + Profiel Svc (→ 0, 5, 6)          [M]
-Issue 8:  Aanmeld Service + notificaties (→ 0, 3, 4)          [M]
-Issue 9:  Autorisatie (AuthZEN)          (→ 2, 5)             [L]
-Issue 10: C4-model synchronisatie        (→ 0–9, incrementeel) [S]
+Issue 1:  Sessiecache alignen met C4     (geen deps)          [L]
+Issue 2:  Magazijn Aanlever API          (geen deps)          [L]
+Issue 3:  Magazijn Ophaal- & Beheer API  (→ 1, 2)             [M]
+Issue 4:  Validatie + Publicatie Stream   (→ 2)                [M]
+Issue 5:  Berichten Uitvraag Service     (→ 1, 3)             [L]
+Issue 6:  Token Validatie (JWT)          (→ 5)                [M]
+Issue 7:  BSNk / PseudoniemService       (→ 1, 6)             [M]
+Issue 8:  MagazijnResolver + Profiel Svc (→ 1, 6, 7)          [M]
+Issue 9:  Aanmeld Service + notificaties (→ 1, 4, 5)          [M]
+Issue 10: Autorisatie (AuthZEN)          (→ 3, 6)             [L]
+Issue 11: C4-model synchronisatie        (→ 1–10, incrementeel) [S]
 ```
 
 **Aanbevolen parallellisatie:**
-- **Wave 1:** Issues 0, 1 (parallel: sessiecache refactoren + magazijn module opzetten)
-- **Wave 2:** Issues 2, 3, 10 (parallel: magazijn APIs + validatie + C4 sync incrementeel)
-- **Wave 3:** Issue 4 (→ 0, 2)
-- **Wave 4:** Issues 5, 8 (parallel: JWT + notificatie-flow)
-- **Wave 5:** Issue 6 (→ 0, 5)
-- **Wave 6:** Issues 7, 9 (parallel: resolver + autorisatie)
+- **Wave 1:** Issues 1, 2 (parallel: sessiecache refactoren + magazijn module opzetten)
+- **Wave 2:** Issues 3, 4, 11 (parallel: magazijn APIs + validatie + C4 sync incrementeel)
+- **Wave 3:** Issue 5 (→ 1, 3)
+- **Wave 4:** Issues 6, 9 (parallel: JWT + notificatie-flow)
+- **Wave 5:** Issue 7 (→ 1, 6)
+- **Wave 6:** Issues 8, 10 (parallel: resolver + autorisatie)
