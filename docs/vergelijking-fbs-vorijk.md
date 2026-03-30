@@ -99,3 +99,103 @@ De kern: VoRijk kiest voor **"de burger bewijst zelf wie hij is"** terwijl FBS k
 - [VoRijk Als bronorganisatie](https://vorijk.nl/docs/aan-de-slag/bronorganisatie/)
 - [Blauwe Knop Standaard](https://vorijk.nl/standaard/)
 - [Proeftuin Blauwe Knop](https://blauweknop.app/docs/protocol/)
+
+---
+
+## Appendix: OpenID4VP als toekomstig authenticatiekanaal
+
+### Wat is OpenID4VP?
+
+**OpenID for Verifiable Presentations** ([OpenID4VP](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html)) is het protocol waarmee een Relying Party (verifier) een burger vraagt om een **Verifiable Presentation** (VP) vanuit een wallet te tonen. De burger bepaalt zelf welke gegevens worden gedeeld — alleen de claims die de dienst daadwerkelijk nodig heeft (selective disclosure via SD-JWT VC).
+
+OpenID4VP is onderdeel van het **EUDI wallet ecosysteem** dat voortkomt uit de herziene eIDAS-verordening (mei 2024). Elke EU-lidstaat moet eind 2026 minstens één gecertificeerde wallet beschikbaar stellen. In Nederland is dat de [NL-Wallet (EDI-wallet)](https://github.com/MinBZK/nl-wallet), ontwikkeld als open source.
+
+### Waar leeft de wallet?
+
+| Component | Locatie | Rol |
+|-----------|---------|-----|
+| **Wallet-app** | Mobiel apparaat van de burger (Android/iOS) | Beheert credentials, toont presentaties, burger heeft regie |
+| **Wallet Provider backend** | Beheerd door overheid (RvIG/BZK) | Geeft wallet-app uit, faciliteert PID-uitgifte (via OpenID4VCI), wallet attestation |
+| **Issuers (bronhouders)** | RvIG (PID/identiteit), KvK (organisatie), DUO (diploma), RDW (rijbewijs) | Geven Verifiable Credentials uit die in de wallet worden opgeslagen |
+
+De burger draagt de wallet dus letterlijk bij zich. Credentials worden lokaal opgeslagen en zijn cryptografisch gebonden aan het device (hardware-backed keys via Secure Enclave/TEE) — vergelijkbaar met het keypair-model van VoRijk/Blauwe Knop.
+
+### Wat kan OpenID4VP vervangen of aanvullen in FBS?
+
+| Huidig FBS-component | Met OpenID4VP | Relatie |
+|----------------------|---------------|---------|
+| **DigiD (SAML 2.0)** voor burgers | Wallet presenteert PID-credential (pseudoniem, naam) | **Aanvullen** — DigiD blijft verplicht kanaal; wallet wordt derde optie |
+| **eHerkenning (SAML 2.0)** voor bedrijven | Wallet presenteert organisatie-credential (KvK, machtiging) | **Aanvullen** — eHerkenning-ketenmachtigingen passen nog niet goed in het VC-model |
+| **BSNk pseudoniemtransformatie** | Wallet kan pseudonieme PID presenteren via selective disclosure | **Aanvullen** — BSNk blijft nodig voor per-magazijn ontkoppeling (PP→EP) |
+| **Interactielaag (OIDC Provider)** | Wordt Relying Party/Verifier die OpenID4VP-requests initieert | **Uitbreiden** — de Interactielaag krijgt er een authenticatiekanaal bij |
+
+**Kernpunt:** OpenID4VP vervangt DigiD en eHerkenning niet, maar wordt een **derde inlogkanaal** ernaast. De eIDAS2-verordening eist dat publieke organisaties de EUDI wallet accepteren zodra deze beschikbaar is.
+
+### Hoe zou de flow eruitzien?
+
+```
+Burger opent MijnOverheid Zakelijk (portaal)
+  │
+  ├─ [bestaand] Redirect naar DigiD (SAML) ─────────────────┐
+  ├─ [bestaand] Redirect naar eHerkenning (SAML) ───────────┤
+  └─ [nieuw]    OpenID4VP-request naar wallet ───────┐       │
+                                                     │       │
+        Burger's telefoon toont:                     │       │
+        "MijnOverheid Zakelijk vraagt:               │       │
+         - Uw pseudoniem (PID)"                      │       │
+                                                     │       │
+        Burger accordeert → VP (SD-JWT) ─────────────┤       │
+                                                     ▼       ▼
+                                            Interactielaag valideert
+                                            (VP-signature of SAML-assertion)
+                                                     │
+                                                     ▼
+                                            Signed JWT (RFC 9068)
+                                            met PP/KvK + claims
+                                                     │
+                                                     ▼
+                                            Zelfde flow als nu:
+                                            BSNk → Berichten Uitvraag → Magazijn
+```
+
+De Interactielaag abstraheert het authenticatiekanaal: of de burger nu via DigiD, eHerkenning of wallet binnenkomt, het resultaat is hetzelfde signed JWT richting de rest van het FBS-stelsel.
+
+### Vergelijking van de drie authenticatiekanalen
+
+| Aspect | DigiD/eHerkenning (huidig) | VoRijk / Blauwe Knop | OpenID4VP / EUDI Wallet |
+|--------|---------------------------|----------------------|-------------------------|
+| **Initiatief** | Redirect vanuit webportaal | Burger-app direct naar organisatie | Wallet-presentatie via webportaal of app |
+| **Intermediair** | Interactielaag (SAML→JWT) | Geen | Interactielaag (VP→JWT) |
+| **Vertrouwensmodel** | Transitief (via JWT-issuer) | Direct (burger bewijst zelf) | Hybride: wallet bewijst, Interactielaag vertaalt |
+| **Credential-formaat** | SAML-assertion | W3C VC + eigen BK-protocol | SD-JWT VC (selective disclosure) |
+| **Dataminimalisatie** | Beperkt (vaste claimsets) | Burger kiest wat te delen | Burger kiest wat te delen (selectief) |
+| **Machtigingen** | JWT-claims (eHerkenning-keten) | VC-gebonden claims | Nog onvoldoende uitgewerkt voor ketenmachtigingen |
+| **Standaard-status** | Vastgesteld en verplicht | Proeftuin / concept | Richting verplicht (eIDAS2), specificatie in ontwikkeling |
+| **Beschikbaarheid** | Nu | Pilot | Verwacht eind 2026/2027 |
+
+### Aandachtspunten voor FBS
+
+1. **Tijdlijn** — De NL-Wallet en OpenID4VP-specificaties zijn nog niet definitief vastgesteld. De standaard gaat richting verplicht, maar is nog in ontwikkeling. Implementatie in de PoC is prematuur.
+
+2. **BSNk-integratie** — Het is nog onduidelijk hoe BSNk-pseudoniemen exact in wallet-credentials landen. De PID-credential bevat een identifier, maar de PP→EP transformatie per magazijn blijft nodig om cross-magazine koppeling te voorkomen.
+
+3. **eHerkenning-ketenmachtigingen** — De complexe machtigingsstructuur (Persoon → Gemachtigde Organisatie → Vertegenwoordigde Organisatie) past niet eenvoudig in het huidige VC-model. Dit is een open vraagstuk in de EUDI-architectuur.
+
+4. **Dual/triple-channel** — De Interactielaag moet DigiD, eHerkenning én wallet ondersteunen. De huidige abstractie (authenticatiemiddel in, JWT uit) is hier goed op voorbereid, mits de Interactielaag als OpenID4VP Relying Party kan optreden.
+
+5. **Overlap met VoRijk** — VoRijk's Blauwe Knop en de EUDI wallet gebruiken beide Verifiable Credentials en device-gebonden keypairs. Op termijn zou de EUDI wallet het Blauwe Knop-protocol kunnen absorberen, waardoor één wallet beide usecases dekt.
+
+### Aanbeveling
+
+Voor de huidige PoC: **nog niet implementeren**, maar wel de architectuur voorbereiden:
+
+- De Interactielaag zo ontwerpen dat meerdere authenticatiekanalen naast elkaar werken (dit is al het geval met de SAML→JWT abstractie)
+- In het C4-model de EUDI wallet als toekomstige actor opnemen
+- De NL-Wallet referentie-implementatie volgen voor concrete API-voorbeelden zodra de specificaties stabiliseren
+
+### Bronnen
+- [OpenID4VP specificatie](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html)
+- [EUDI Architecture and Reference Framework](https://eu-digital-identity-wallet.github.io/eudi-doc-architecture-and-reference-framework/latest/architecture-and-reference-framework-main/)
+- [NL-Wallet (EDI-wallet) open source repository](https://github.com/MinBZK/nl-wallet)
+- [EDI-wallet informatie (edi.pleio.nl)](https://edi.pleio.nl)
+- [SD-JWT VC specificatie (IETF draft)](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/)
