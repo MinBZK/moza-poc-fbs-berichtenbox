@@ -25,13 +25,15 @@ Het C4-model in `docs/architecture/workspace.dsl` beschrijft de volledige doelar
 
 Maak een nieuwe Quarkus service module `services/berichtenmagazijn` met de Aanlever API (C4 container: `magazijnAanleverApi`). Hiermee kunnen organisaties berichten aanleveren aan het FBS.
 
-Volgt dezelfde patronen als `services/berichtensessiecache`: OpenAPI-first, functionele packages, Problem JSON, security headers, LDV logging.
+Volgt dezelfde patronen als `services/berichtensessiecache`: OpenAPI-first, functionele packages, Problem JSON, security headers, LDV logging. Naamgeving in het Nederlands conform bestaande berichtensessiecache-spec en ADR.
 
 **C4 componenten:** `magazijnAanleverResource`, `magazijnCircuitBreaker`, `magazijnOpslagService`
 
 **Acceptatiecriteria:**
 - [ ] Maven module `services/berichtenmagazijn` geregistreerd in parent POM
 - [ ] OpenAPI spec voor Aanlever API (`POST /api/v1/berichten`) conform NL API Design Rules
+- [ ] OpenAPI spec valideert zonder fouten tegen [ADR Spectral linter](https://static.developer.overheid.nl/adr/ruleset.yaml)
+- [ ] Gedeelde OpenAPI-componenten (`Problem`, `Link`, `PaginationLinks`, `API-Version` header) hergebruiken uit berichtensessiecache-spec (via `$ref` naar gedeeld bestand of kopie per spec — keuze vastleggen)
 - [ ] `AanleverResource.kt` implementeert gegenereerde interface
 - [ ] `BerichtOpslagService.kt` met opslag-logica
 - [ ] CircuitBreaker op schrijfoperaties (MicroProfile Fault Tolerance `@CircuitBreaker`)
@@ -49,23 +51,27 @@ Volgt dezelfde patronen als `services/berichtensessiecache`: OpenAPI-first, func
 
 **Labels:** `enhancement`, `magazijn`
 
-Voeg de Ophaal- en Beheer API toe aan `services/berichtenmagazijn` (C4 container: `magazijnOphaalBeheerApi`). Dit is de API die de bestaande `MagazijnClient` in de berichtensessiecache aanroept. Het response-formaat moet aansluiten op `MagazijnBerichtenResponse` en de huidige WireMock-stubs.
+Voeg de Ophaal- en Beheer API toe aan `services/berichtenmagazijn` (C4 container: `magazijnOphaalBeheerApi`). Dit is de API die de bestaande `MagazijnClient` in de berichtensessiecache aanroept. Het response-formaat moet aansluiten op `MagazijnBerichtenResponse` en de huidige WireMock-stubs. Naamgeving in het Nederlands conform bestaande specs en ADR.
 
 **Endpoints:**
-- `GET /api/v1/berichten` — berichten ophalen (filter op ontvanger)
+- `GET /api/v1/berichten` — berichten ophalen (ontvanger via `X-Ontvanger` header, niet als query parameter — voorkomt PII in URLs/logs)
 - `GET /api/v1/berichten/{berichtId}` — enkel bericht met inhoud/bijlagen
-- `PATCH /api/v1/berichten/{berichtId}/status` — berichtstatus bijwerken (gelezen, verplaatst)
+- `GET /api/v1/berichten/_zoeken` — zoeken in berichten (met `_` prefix voor custom operaties conform ADR)
+- `PATCH /api/v1/berichten/{berichtId}` — berichtstatus bijwerken (gelezen, map) via JSON Merge Patch
 - `DELETE /api/v1/berichten/{berichtId}` — bericht verwijderen
 
 **Acceptatiecriteria:**
 - [ ] OpenAPI spec met bovengenoemde endpoints
+- [ ] OpenAPI spec valideert zonder fouten tegen [ADR Spectral linter](https://static.developer.overheid.nl/adr/ruleset.yaml)
+- [ ] `ontvanger` als `X-Ontvanger` header (niet als query parameter) — conform berichtensessiecache-conventie en ADR-regel "geen gevoelige informatie in URIs"
 - [ ] `OphaalBeheerResource.kt` implementeert gegenereerde interface
 - [ ] Response compatibel met bestaande `MagazijnClient` / `MagazijnBerichtenResponse`
-- [ ] Berichtstatus per gebruiker (gelezen/ongelezen, map)
-- [ ] WireMock mappings bijgewerkt voor nieuwe endpoints
+- [ ] **Breaking change:** `MagazijnClient` interface bijwerken: `ontvanger` van `@QueryParam` naar `@HeaderParam("X-Ontvanger")`, en `zoekBerichten` pad van `/berichten/zoeken` naar `/berichten/_zoeken`
+- [ ] Berichtstatus per gebruiker (gelezen/ongelezen, map) via `PATCH` met JSON Merge Patch body
+- [ ] WireMock mappings bijgewerkt voor nieuwe endpoints en gewijzigde paden
 - [ ] LDV logging, Problem JSON, security headers
 - [ ] Unit tests en integratietests
-- [ ] Bestaande berichtensessiecache tests blijven slagen
+- [ ] Bestaande berichtensessiecache tests bijwerken voor gewijzigde `MagazijnClient` interface
 
 **Dependencies:** Issue 1 · **Complexiteit:** M
 
@@ -99,7 +105,7 @@ Voeg twee C4 containers toe aan het berichtenmagazijn:
 
 **Labels:** `enhancement`, `uitvraag`
 
-Maak een nieuwe Quarkus service module `services/berichtenuitvraag` (C4 container: `uitvraagApi`). Dit is de user-facing API die de Interactielaag aanroept namens burgers en ondernemers. Delegeert naar de berichtensessiecache voor ophalen/zoeken en naar het berichtenmagazijn voor bijlagen en beheer.
+Maak een nieuwe Quarkus service module `services/berichtenuitvraag` (C4 container: `uitvraagApi`). Dit is de user-facing API die de Interactielaag aanroept namens burgers en ondernemers. Delegeert naar de berichtensessiecache voor ophalen/zoeken en naar het berichtenmagazijn voor bijlagen en beheer. Naamgeving in het Nederlands conform bestaande specs en ADR.
 
 **C4 componenten:** `uitvraagResource`, `uitvraagBerichtenlijst`, `uitvraagOphaalService`, `uitvraagBeheerService`
 
@@ -107,13 +113,14 @@ Maak een nieuwe Quarkus service module `services/berichtenuitvraag` (C4 containe
 - `GET /api/v1/berichten` — berichtenlijst per map
 - `GET /api/v1/berichten/{berichtId}` — bericht met inhoud
 - `GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}` — bijlage ophalen
-- `PATCH /api/v1/berichten/{berichtId}` — berichtstatus bijwerken
+- `PATCH /api/v1/berichten/{berichtId}` — berichtstatus bijwerken en verplaatsen naar andere map (JSON Merge Patch, consistent met magazijn API)
 - `DELETE /api/v1/berichten/{berichtId}` — bericht verwijderen
-- `POST /api/v1/berichten/{berichtId}/verplaats` — verplaatsen naar map
 
 **Acceptatiecriteria:**
 - [ ] Maven module `services/berichtenuitvraag` in parent POM
 - [ ] OpenAPI spec met bovengenoemde endpoints
+- [ ] OpenAPI spec valideert zonder fouten tegen [ADR Spectral linter](https://static.developer.overheid.nl/adr/ruleset.yaml)
+- [ ] Verplaatsen gemodelleerd als `PATCH` met `map`-veld in de body (geen apart `POST` endpoint met werkwoord)
 - [ ] REST clients naar berichtensessiecache en berichtenmagazijn
 - [ ] `BerichtenlijstService.kt`, `BerichtOphaalService.kt`, `BerichtBeheerService.kt`
 - [ ] Problem JSON, API-Version header, security headers, LDV logging
