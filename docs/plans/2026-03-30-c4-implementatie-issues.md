@@ -7,7 +7,7 @@
 Het C4-model in `docs/architecture/workspace.dsl` beschrijft de volledige doelarchitectuur van het Federatief Berichtenstelsel (FBS). Momenteel is alleen de **Berichtensessiecache** geïmplementeerd (`services/berichtensessiecache/`). De overige containers en componenten uit het C4-model moeten nog gebouwd worden. Deze issues verdelen dat werk in 10 logische, onafhankelijk leverbare delen.
 
 **Huidige staat:**
-- :white_check_mark: Berichtensessiecache (aggregatie, Redis cache, SSE, multi-magazijn)
+- :warning: Berichtensessiecache (geïmplementeerd, maar wijkt af van C4-model — zie Issue 0)
 - :x: Berichtenmagazijn (Aanlever API, Ophaal- & Beheer API, Validatie, Publicatie Stream, Autorisatie, Dataopslag)
 - :x: Berichten Uitvraag Service (user-facing API, Token Validatie, Beheer)
 - :x: BSNk Transformatie / PseudoniemService
@@ -53,6 +53,77 @@ Alle REST-relaties uit `workspace.dsl` vertaald naar concrete API's:
 ---
 
 ## Issues
+
+### Issue 0: Berichtensessiecache alignen met C4-model
+
+**Labels:** `refactor`, `sessiecache`
+
+De bestaande berichtensessiecache implementatie wijkt op meerdere punten af van het C4-model. Deze afwijkingen moeten eerst opgelost worden voordat nieuwe services (uitvraag, magazijn) erop kunnen aansluiten.
+
+**Afwijkingen:**
+
+| # | Ernst | Afwijking | C4-model | Huidige code |
+|---|-------|----------|----------|-------------|
+| 1 | Hoog | Aggregatie-logica in Resource i.p.v. Service | `sessiecacheService` aggregeert via `magazijnResolver` → `pseudoniemService` → `magazijnClient` (regels 101-105) | `BerichtenOphalenResource` orkestreert alles zelf (regels 55-196) |
+| 2 | Hoog | Geen schrijf-endpoints op sessiecache API | B3: uitvraagBeheerService schrijft status (regel 134), B4: aanmeldService voegt berichten toe (regel 131) | Alleen GET endpoints + SSE; geen PATCH/POST |
+| 3 | Hoog | MagazijnClient heeft zoek-endpoint dat niet in C4 staat | C4 relatie C1: alleen "Haalt berichten op" (regel 172) | `MagazijnClient.kt:28` heeft `zoekBerichten()` — zoeken hoort lokaal in RediSearch |
+| 4 | Medium | MagazijnClient stuurt ontvanger als query param (PII in URL) | ADR: geen gevoelige informatie in URIs | `MagazijnClient.kt:18`: `@QueryParam("ontvanger")` |
+| 5 | Medium | EventForwarder is dode code op verkeerde locatie | C4: notificaties gaan van `publicatieStream` → `notificatieService` (regel 162, vanuit magazijn) | `notificatie/EventForwarder.kt` in sessiecache, nergens aangeroepen |
+| 6 | Laag | `afzender` filter niet geïmplementeerd | OpenAPI spec accepteert `afzender` parameter | `BerichtensessiecacheService` negeert de parameter |
+
+**Structurele refactoring (afwijking 1):**
+
+De aggregatie-logica moet verplaatst worden van `BerichtenOphalenResource` naar `BerichtensessiecacheService`, conform de C4 component-flow:
+
+```
+Huidige flow:
+  BerichtenOphalenResource → MagazijnClientFactory.getAllClients() → MagazijnClient
+                           → BerichtenCache (direct)
+
+C4 flow:
+  sessiecacheResource → sessiecacheService → magazijnResolver (welke magazijnen?)
+                                           → pseudoniemService (PP→EP per magazijn)
+                                           → sessiecacheMagazijnClient (ophalen)
+                                           → sessiecacheCache (opslaan)
+```
+
+De Resource wordt een dunne laag die alleen SSE-events doorgeeft; de Service orkestreert de aggregatie. Dit maakt het mogelijk om in latere issues (6, 7) de MagazijnResolver en PseudoniemService in te pluggen via CDI zonder de Resource te wijzigen.
+
+**Acceptatiecriteria:**
+
+*Afwijking 1 — Aggregatie naar Service:*
+- [ ] Aggregatie-logica verplaatsen van `BerichtenOphalenResource` naar `BerichtensessiecacheService`
+- [ ] Service krijgt methode `aggregeerBerichten(ontvanger): Multi<MagazijnStatusEvent>` die de volledige flow orkestreert
+- [ ] Resource wordt dunne SSE-doorgeefluik: roept service aan, streamt events
+- [ ] `MagazijnClientFactory` wordt dependency van de Service, niet van de Resource
+- [ ] Bestaande SSE-tests blijven slagen (gedrag ongewijzigd, alleen interne structuur)
+
+*Afwijking 2 — Schrijf-endpoints:*
+- [ ] OpenAPI spec uitbreiden met `PATCH /berichten/{berichtId}` — status bijwerken in cache (consumer: uitvraagBeheerService)
+- [ ] OpenAPI spec uitbreiden met `POST /berichten` — bericht toevoegen aan cache (consumer: aanmeldService)
+- [ ] `BerichtenCache` interface uitbreiden met `updateStatus()` en `addBericht()` methoden
+- [ ] Nieuwe endpoints in `BerichtensessiecacheResource` (of aparte Resource class)
+- [ ] Unit tests voor schrijf-endpoints (happy + unhappy, o.a. bericht niet in cache, ontvanger mismatch)
+
+*Afwijking 3 — MagazijnClient zoek-endpoint verwijderen:*
+- [ ] `zoekBerichten()` methode verwijderen uit `MagazijnClient` interface
+- [ ] Bijbehorende WireMock mappings opruimen indien aanwezig
+- [ ] Tests die zoeken via magazijn gebruiken aanpassen
+
+*Afwijking 4 — Ontvanger als header:*
+- [ ] `MagazijnClient.getBerichten()`: `ontvanger` van `@QueryParam` naar `@HeaderParam("X-Ontvanger")`
+- [ ] WireMock mappings bijwerken
+
+*Afwijking 5 — EventForwarder verwijderen:*
+- [ ] `notificatie/EventForwarder.kt` verwijderen uit sessiecache (dode code; notificatie-flow hoort in magazijn `publicatieStream`, zie Issue 3)
+- [ ] `notificatie.service.url` verwijderen uit `application.properties`
+
+*Afwijking 6 — afzender filter:*
+- [ ] `afzender` filter implementeren in `BerichtensessiecacheService.getBerichten()` (RediSearch TAG filter) of parameter verwijderen uit OpenAPI spec als het buiten scope PoC valt
+
+**Dependencies:** geen (eerste issue) · **Complexiteit:** L
+
+---
 
 ### Issue 1: Berichtenmagazijn Aanlever API — nieuwe service module
 
@@ -112,7 +183,7 @@ Deze API heeft **twee externe consumers** (C4 relaties):
 - [ ] Unit tests en integratietests
 - [ ] Bestaande berichtensessiecache tests bijwerken voor gewijzigde `MagazijnClient` interface
 
-**Dependencies:** Issue 1 · **Complexiteit:** M
+**Dependencies:** Issues 0, 1 · **Complexiteit:** M
 
 ---
 
@@ -185,7 +256,7 @@ De sessiecache API moet uitgebreid worden met schrijf-endpoints om de C4 relatie
 - [ ] Unit tests en integratietests
 - [ ] `compose.yaml` bijgewerkt
 
-**Dependencies:** Issues 1, 2 (magazijn beschikbaar), berichtensessiecache (bestaand) · **Complexiteit:** L
+**Dependencies:** Issues 0 (sessiecache schrijf-endpoints + refactored service), 2 (magazijn beschikbaar) · **Complexiteit:** L
 
 ---
 
@@ -228,7 +299,7 @@ Momenteel stuurt `BerichtenOphalenResource.kt` dezelfde `ontvanger` naar alle ma
 - [ ] Bestaande tests aangepast
 - [ ] Unit tests voor transformatie en uniciteit per magazijn
 
-**Dependencies:** Issue 5 (PP beschikbaar uit JWT) · **Complexiteit:** M
+**Dependencies:** Issues 0 (aggregatie in Service maakt inpluggen mogelijk), 5 (PP beschikbaar uit JWT) · **Complexiteit:** M
 
 ---
 
@@ -248,7 +319,7 @@ Implementeer MagazijnResolver (`magazijnResolver`). Momenteel bevraagt `Berichte
 - [ ] WireMock mappings voor Profiel Service
 - [ ] Unit tests en integratietests
 
-**Dependencies:** Issues 5 (machtigingsclaims), 6 (EP per magazijn) · **Complexiteit:** M
+**Dependencies:** Issues 0 (aggregatie in Service maakt inpluggen mogelijk), 5 (machtigingsclaims), 6 (EP per magazijn) · **Complexiteit:** M
 
 ---
 
@@ -272,7 +343,7 @@ Implementeer de Aanmeld Service (`aanmeldService`) en verbind de volledige notif
 - [ ] Idempotentie: dubbele events niet opnieuw verwerken (CloudEvents `id` attribuut)
 - [ ] Unit tests en integratietest voor volledige flow (publicatie → aanmelding → cache update)
 
-**Dependencies:** Issues 3 (Publicatie Stream), 4 (Berichtenuitvraag) · **Complexiteit:** M
+**Dependencies:** Issues 0 (sessiecache POST-endpoint), 3 (Publicatie Stream), 4 (Berichtenuitvraag) · **Complexiteit:** M
 
 ---
 
@@ -326,22 +397,23 @@ Werk `docs/architecture/workspace.dsl` bij zodat het de implementatiebeslissinge
 ## Afhankelijkheden en volgorde
 
 ```
-Issue 1: Magazijn Aanlever API           (geen deps)         [L]
-Issue 2: Magazijn Ophaal- & Beheer API   (→ 1)               [M]
-Issue 3: Validatie + Publicatie Stream    (→ 1)               [M]
-Issue 4: Berichten Uitvraag Service      (→ 1, 2)            [L]
-Issue 5: Token Validatie (JWT)           (→ 4)               [M]
-Issue 6: BSNk / PseudoniemService        (→ 5)               [M]
-Issue 7: MagazijnResolver + Profiel Svc  (→ 5, 6)            [M]
-Issue 8: Aanmeld Service + notificaties  (→ 3, 4)            [M]
-Issue 9: Autorisatie (AuthZEN)           (→ 2, 5)            [L]
-Issue 10: C4-model synchronisatie        (→ 1–9, incrementeel) [S]
+Issue 0:  Sessiecache alignen met C4     (geen deps)          [L]
+Issue 1:  Magazijn Aanlever API          (geen deps)          [L]
+Issue 2:  Magazijn Ophaal- & Beheer API  (→ 0, 1)             [M]
+Issue 3:  Validatie + Publicatie Stream   (→ 1)                [M]
+Issue 4:  Berichten Uitvraag Service     (→ 0, 2)             [L]
+Issue 5:  Token Validatie (JWT)          (→ 4)                [M]
+Issue 6:  BSNk / PseudoniemService       (→ 0, 5)             [M]
+Issue 7:  MagazijnResolver + Profiel Svc (→ 0, 5, 6)          [M]
+Issue 8:  Aanmeld Service + notificaties (→ 0, 3, 4)          [M]
+Issue 9:  Autorisatie (AuthZEN)          (→ 2, 5)             [L]
+Issue 10: C4-model synchronisatie        (→ 0–9, incrementeel) [S]
 ```
 
 **Aanbevolen parallellisatie:**
-- **Wave 1:** Issues 1 + 10 (incrementeel)
-- **Wave 2:** Issues 2, 3 (parallel, beiden → 1)
-- **Wave 3:** Issue 4 (→ 1, 2)
-- **Wave 4:** Issues 5, 8 (parallel)
-- **Wave 5:** Issue 6 (→ 5)
-- **Wave 6:** Issues 7, 9 (parallel)
+- **Wave 1:** Issues 0, 1 (parallel: sessiecache refactoren + magazijn module opzetten)
+- **Wave 2:** Issues 2, 3, 10 (parallel: magazijn APIs + validatie + C4 sync incrementeel)
+- **Wave 3:** Issue 4 (→ 0, 2)
+- **Wave 4:** Issues 5, 8 (parallel: JWT + notificatie-flow)
+- **Wave 5:** Issue 6 (→ 0, 5)
+- **Wave 6:** Issues 7, 9 (parallel: resolver + autorisatie)
