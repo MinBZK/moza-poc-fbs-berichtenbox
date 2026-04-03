@@ -1,6 +1,8 @@
 name: Test Berichtensessiecache
 
 on:
+  push:
+    branches: ['issue-1/**']
   workflow_dispatch:
 
 permissions: read-all
