@@ -137,7 +137,6 @@ class BerichtensessiecacheResource(
         name = "toevoegen-bericht",
         processingActivityId = "https://register.example.com/verwerkingen/bericht-toevoegen",
     )
-    @org.jboss.resteasy.reactive.ResponseStatus(201)
     override fun addBericht(
         xOntvanger: String?,
         berichtInput: BerichtInput,
