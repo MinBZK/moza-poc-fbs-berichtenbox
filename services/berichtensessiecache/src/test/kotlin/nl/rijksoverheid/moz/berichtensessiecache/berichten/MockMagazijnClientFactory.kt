@@ -90,14 +90,6 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                     val berichtId = args[0] as String
                     berichten.find { it.berichtId.toString() == berichtId }
                 }
-                "zoekBerichten" -> {
-                    if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
-                    val q = args[0] as String
-                    val results = berichten.filter { it.onderwerp.contains(q, ignoreCase = true) }
-                    MagazijnBerichtenResponse(
-                        berichten = results,
-                    )
-                }
                 else -> throw UnsupportedOperationException("Unexpected method: ${method.name}")
             }
         }

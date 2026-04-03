@@ -19,6 +19,40 @@ servers:
 
 paths:
   /berichten:
+    post:
+      operationId: addBericht
+      summary: Bericht toevoegen aan cache
+      description: |
+        Voegt een berichtrecord toe aan de sessiecache.
+        Consumer: aanmeldService.
+      tags:
+        - berichten
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BerichtInput'
+      responses:
+        '201':
+          description: Bericht toegevoegd
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BerichtResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     get:
       operationId: getBerichten
       summary: Geaggregeerde berichtensessiecache ophalen
@@ -58,6 +92,49 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 
   /berichten/{berichtId}:
+    patch:
+      operationId: updateBerichtStatus
+      summary: Status van een bericht bijwerken
+      description: |
+        Werkt de status van een berichtrecord bij in de cache.
+        Consumer: uitvraagBeheerService.
+      tags:
+        - berichten
+      parameters:
+        - name: berichtId
+          in: path
+          required: true
+          description: Uniek ID van het bericht
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/OntvangerHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BerichtStatusUpdate'
+      responses:
+        '200':
+          description: Status bijgewerkt
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BerichtResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     get:
       operationId: getBerichtById
       summary: Enkel berichtrecord ophalen
@@ -105,7 +182,8 @@ paths:
       operationId: zoekBerichten
       summary: Zoeken in berichten
       description: |
-        Zoekt in gecachte berichtrecords op basis van vrije tekst (onderwerp en afzender).
+        Zoekt in gecachte berichtrecords op basis van vrije tekst (onderwerp).
+        Optioneel te combineren met een afzender-filter.
       tags:
         - berichten
       parameters:
@@ -334,7 +412,7 @@ components:
       properties:
         event:
           type: string
-          enum: [magazijn-status, ophalen-gereed]
+          enum: [magazijn-status, ophalen-gereed, ophalen-fout]
         magazijnId:
           type: string
         naam:
@@ -395,6 +473,47 @@ components:
           type: string
         _links:
           $ref: '#/components/schemas/BerichtLinks'
+
+    BerichtStatusUpdate:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [gelezen, ongelezen]
+          description: Nieuwe status van het bericht
+
+    BerichtInput:
+      type: object
+      required:
+        - berichtId
+        - afzender
+        - ontvanger
+        - onderwerp
+        - tijdstip
+        - magazijnId
+      properties:
+        berichtId:
+          type: string
+          format: uuid
+          description: Uniek ID van het bericht
+        afzender:
+          type: string
+          description: OIN van de afzender
+        ontvanger:
+          type: string
+          description: BSN of KVK-nummer van de ontvanger
+        onderwerp:
+          type: string
+          description: Onderwerp van het bericht
+        tijdstip:
+          type: string
+          format: date-time
+          description: Tijdstip van het bericht
+        magazijnId:
+          type: string
+          description: ID van het bronmagazijn
 
     Problem:
       type: object

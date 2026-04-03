@@ -52,13 +52,12 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(statuses["$key:status"])
     }
 
-    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int): Uni<BerichtenPage> {
+    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
         val key = BerichtenCache.cacheKey(ontvanger)
         val berichten = lists["$key:list"] ?: emptyList()
         val gefilterd = berichten.filter {
-            it.onderwerp.contains(q, ignoreCase = true) ||
-                it.afzender.contains(q, ignoreCase = true)
-        }
+            it.onderwerp.contains(q, ignoreCase = true)
+        }.filter { afzender == null || it.afzender == afzender }
         val start = page * pageSize
         val slice = gefilterd.drop(start).take(pageSize)
         val totalPages = if (gefilterd.isEmpty()) 0 else (gefilterd.size + pageSize - 1) / pageSize
@@ -70,8 +69,29 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
     }
 
-    override fun getPage(key: String, page: Int, pageSize: Int): Uni<BerichtenPage?> {
-        val berichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()
+    override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+        val bericht = byId[berichtId]
+        if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
+        val updated = bericht.copy(status = status)
+        byId[berichtId] = updated
+        return Uni.createFrom().item(updated)
+    }
+
+    override fun addBericht(bericht: Bericht): Uni<Void> {
+        val key = BerichtenCache.cacheKey(bericht.ontvanger)
+        val listKey = "$key:list"
+        val existing = lists[listKey] ?: emptyList()
+        lists[listKey] = (existing + bericht).sortedByDescending { it.tijdstip }
+        byId[bericht.berichtId] = bericht
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: String?): Uni<BerichtenPage?> {
+        val allBerichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()
+        val berichten = if (afzender != null) allBerichten.filter { it.afzender == afzender } else allBerichten
+        if (afzender != null && berichten.isEmpty()) {
+            return Uni.createFrom().item(BerichtenPage(emptyList(), page, pageSize, 0L, 0))
+        }
         val start = page * pageSize
         val end = minOf(start + pageSize, berichten.size)
         val slice = if (start < berichten.size) berichten.subList(start, end) else emptyList()
