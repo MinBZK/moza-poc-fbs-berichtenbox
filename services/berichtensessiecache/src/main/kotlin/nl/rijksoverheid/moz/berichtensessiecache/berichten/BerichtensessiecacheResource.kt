@@ -124,7 +124,7 @@ class BerichtensessiecacheResource(
         val ontvanger = requireOntvanger(xOntvanger)
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, berichtStatusUpdate.status)
+            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, berichtStatusUpdate.status.value())
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )
