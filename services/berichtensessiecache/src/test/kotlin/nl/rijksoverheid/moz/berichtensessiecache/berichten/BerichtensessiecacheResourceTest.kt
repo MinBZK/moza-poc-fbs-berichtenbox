@@ -432,7 +432,7 @@ class BerichtensessiecacheResourceTest {
 
         given()
             .header("X-Ontvanger", ontvanger)
-            .contentType("application/json")
+            .contentType("application/merge-patch+json")
             .body("""{"status": "gelezen"}""")
             .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
@@ -452,7 +452,7 @@ class BerichtensessiecacheResourceTest {
 
         given()
             .header("X-Ontvanger", ontvanger)
-            .contentType("application/json")
+            .contentType("application/merge-patch+json")
             .body("""{"status": "gelezen"}""")
             .`when`().patch("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
             .then()
@@ -473,7 +473,7 @@ class BerichtensessiecacheResourceTest {
         // Bericht hoort bij "999993653", niet bij eigenOntvanger
         given()
             .header("X-Ontvanger", eigenOntvanger)
-            .contentType("application/json")
+            .contentType("application/merge-patch+json")
             .body("""{"status": "gelezen"}""")
             .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
@@ -484,7 +484,7 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `PATCH bericht zonder ontvanger retourneert 400`() {
         given()
-            .contentType("application/json")
+            .contentType("application/merge-patch+json")
             .body("""{"status": "gelezen"}""")
             .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
