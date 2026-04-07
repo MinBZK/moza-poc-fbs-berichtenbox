@@ -19,6 +19,8 @@ import nl.rijksoverheid.moz.berichtensessiecache.api.model.Link
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.PaginationLinks
 import org.jboss.logging.Logger
 import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.UUID
 
@@ -153,6 +155,18 @@ class BerichtensessiecacheResource(
             )
         }
 
+        // Aanmeld Service mag alleen bestaande, actieve sessies bijwerken: als er geen
+        // aggregatie heeft plaatsgevonden voor deze ontvanger, hoort er ook geen cache te zijn.
+        val aggregation = awaitOrServiceUnavailable {
+            berichtensessiecacheService.getAggregationStatus(ontvanger)
+        }
+        if (aggregation == null) {
+            throw WebApplicationException(
+                "Geen actieve sessie voor deze ontvanger; bericht niet toegevoegd.",
+                Response.Status.NOT_FOUND,
+            )
+        }
+
         val bericht = Bericht(
             berichtId = berichtInput.berichtId,
             afzender = berichtInput.afzender,
@@ -223,7 +237,11 @@ class BerichtensessiecacheResource(
         afzender: String? = null,
     ): BerichtensessiecacheResponse {
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        val filterParams = if (afzender != null) "&afzender=$afzender" else ""
+        val filterParams = if (afzender != null) {
+            "&afzender=" + URLEncoder.encode(afzender, StandardCharsets.UTF_8)
+        } else {
+            ""
+        }
 
         return BerichtensessiecacheResponse().apply {
             berichten = this@toResponse.berichten.map { it.toApiModel() }

@@ -496,14 +496,23 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `POST bericht toevoegen retourneert 201`() {
+        val ontvanger = "post-201-${System.nanoTime()}"
+
+        // Aanmeld Service mag alleen actieve sessies bijwerken: zorg eerst voor aggregatie.
         given()
-            .header("X-Ontvanger", "999993653")
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
             .contentType("application/json")
             .body("""
                 {
                     "berichtId": "55555555-5555-5555-5555-555555555555",
                     "afzender": "00000001234567890000",
-                    "ontvanger": "999993653",
+                    "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
                     "tijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
@@ -514,6 +523,30 @@ class BerichtensessiecacheResourceTest {
             .statusCode(201)
             .body("berichtId", `is`("55555555-5555-5555-5555-555555555555"))
             .body("onderwerp", `is`("Nieuw bericht"))
+    }
+
+    @Test
+    fun `POST bericht zonder actieve sessie retourneert 404`() {
+        val ontvanger = "post-zonder-sessie-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/json")
+            .body("""
+                {
+                    "berichtId": "66666666-6666-6666-6666-666666666666",
+                    "afzender": "00000001234567890000",
+                    "ontvanger": "$ontvanger",
+                    "onderwerp": "Nieuw bericht",
+                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a"
+                }
+            """.trimIndent())
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("detail", containsString("actieve sessie"))
     }
 
     @Test
