@@ -1,0 +1,66 @@
+@startuml
+set separator none
+title Berichten Uitvraag Systeem - System Context
+
+top to bottom direction
+skinparam ranksep 60
+skinparam nodesep 30
+
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
+}
+
+hide stereotype
+
+skinparam rectangle<<BerichtenUitvraagSysteem>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
+  BackgroundColor #2d8a4e
+  FontColor #ffffff
+  BorderColor #1e6b38
+  shadowing false
+}
+skinparam rectangle<<Interactielaag>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<ProfielService>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+
+rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
+  skinparam RectangleBorderColor<<group1>> #cccccc
+  skinparam RectangleFontColor<<group1>> #cccccc
+  skinparam RectangleBorderStyle<<group1>> dashed
+
+  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus)" <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+    rectangle "Centraal gehoste services" <<group2>> as group2 {
+      skinparam RectangleBorderColor<<group2>> #cccccc
+      skinparam RectangleFontColor<<group2>> #cccccc
+      skinparam RectangleBorderStyle<<group2>> dashed
+
+      rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
+    }
+
+}
+
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
+rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" <<Interactielaag>> as Interactielaag
+
+Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten, bijlagen en berichtstatus op; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
+@enduml
