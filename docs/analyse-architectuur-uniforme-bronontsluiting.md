@@ -479,15 +479,40 @@ Voor de definitie van het bewijstype "geboortegegevens" heeft afstemming plaatsg
 
 ## 9. Relevantie voor het FBS Berichtenbox project
 
-Dit document is relevant voor het Federatief Berichtenstelsel (FBS) project op meerdere vlakken:
+### 9.1 Vergelijkbaar architectuurpatroon
 
-- **FSC als transportstandaard:** UBO gebruikt dezelfde FSC-standaard die ook in het FBS-project centraal staat. De FSC-configuratie (contracten, properties, delegatie, policies) is gedetailleerd beschreven en kan als referentie dienen.
-- **Digikoppeling REST API profiel:** UBO kiest bewust voor dit profiel, wat in lijn is met de richting van het Federatief Berichtenstelsel.
-- **Data API als OpenAPI-first benadering:** Vergelijkbaar met de berichtensessiecache-api.yaml aanpak in het FBS-project.
-- **Authenticatie via DigiD/eHerkenning:** Het document beschrijft hoe de herauthenticatie via TVS verloopt, relevant voor de authenticatie-integratie in het FBS.
-- **Common Ground principes:** "Data bij de bron" en het Gemeentelijk Gegevensmodel (GGM) worden toegepast.
-- **Logging en audit trail:** Vergelijkbaar met het Logboek Dataverwerkingen (ClickHouse) in het FBS-project.
-- **FSC contractering en delegatie:** De gedetailleerde contracteringsflows (10-staps voor OOTS, 17-staps voor EUDI-wallet) bieden inzicht in hoe FSC-contracten in de praktijk worden ingezet.
+Het UBO-patroon -- "verschillende gemeentelijke bronnen uniform ontsluiten via een gestandaardiseerde integratielaag" -- is direct vergelijkbaar met hoe het FBS gemeentelijke berichtenmagazijnen ontsluit. De "bron" is in het geval van het FBS geen BRP maar een berichtenmagazijn; het architectuurpatroon is echter hetzelfde.
+
+| UBO concept | FBS equivalent | Toelichting |
+|---|---|---|
+| Databronnen | Berichtenmagazijnen | De gemeentelijke bronnen die ontsloten worden |
+| Middleware | BerichtensessiecacheService + MagazijnResolver | Abstraheert verschillen tussen magazijnen, bepaalt welke magazijnen bevraagd worden |
+| Data API | Berichtenmagazijn Ophaal- en Beheer API | Uniform koppelvlak conform Digikoppeling REST API profiel en OpenAPI-specificatie |
+| OpenFSC Inway | FSC Inway | Authenticatie, autorisatie en routering van verzoeken |
+| Uniformeren | PseudoniemService + aggregatie in sessiecache | Omvorming en bundeling van gegevens uit meerdere bronnen |
+| Aanbieden (FSC-catalogus) | FSC service publicatie | Beschikbaar stellen van de service aan afnemers |
+| Logging (audit trail) | Logboek Dataverwerkingen (ClickHouse) | Vastleggen van gegevensleveringen voor verantwoording |
+
+### 9.2 Conclusie: het patroon wordt al gevolgd
+
+Het FBS volgt in de huidige C4-architectuur al hetzelfde integratielaag-patroon als UBO:
+
+- **Uniform koppelvlak** via Digikoppeling REST API + FSC voor alle magazijn-communicatie
+- **Integratielaag** (sessiecache) die magazijnverschillen abstraheert en berichten uit meerdere magazijnen aggregeert
+- **Pseudoniemtransformatie** per magazijn (PP naar EP via BSNk), vergelijkbaar met de persoonsidentificatie-omvorming in UBO
+- **mTLS met PKIoverheid-certificaten** en cryptografisch ondertekende FSC-contracten
+- **Authenticatie via DigiD/eHerkenning** via de Interactielaag, vergelijkbaar met de authenticatieservice in de Basisinrichting OOTS-V
+
+Er is op dit moment **geen aanleiding om de C4-architectuur aan te passen** op basis van dit document.
+
+### 9.3 Denkrichtingen bij opschaling
+
+De UBO-architectuur biedt wel bruikbare patronen voor wanneer het FBS opschaalt:
+
+- **FSC contract properties voor autorisatiescoping:** UBO definieert properties op contractniveau (AVG-grondslag, verwerkrelatie, kanaal) die bepalen welke bevragingen binnen een contract zijn toegestaan. Dit is een aanvullend patroon naast de AuthZEN-autorisatie die het FBS al kent, en wordt relevant bij het aansluiten van meer magazijnen met verschillende autorisatieregimes.
+- **Kanaalonafhankelijke API:** UBO's Data API is bewust kanaalonafhankelijk ontworpen, zodat dezelfde bron via OOTS, EUDI-wallet of andere kanalen ontsloten kan worden. Als het FBS in de toekomst ook via andere kanalen (bijv. EUDI-wallet attestaties van berichtstatus) zou ontsluiten, is dit patroon direct toepasbaar.
+- **FSC service discovery:** UBO's publicatie in de FSC-catalogus maakt dat afnemers de service kunnen ontdekken. Bij meer aangesloten magazijnen wordt dit relevant voor het FBS.
+- **FSC contracteringsflows:** De gedetailleerde contracteringsflows (10 stappen voor OOTS, 17 stappen voor EUDI-wallet met delegatie) bieden een referentie voor hoe FSC-contracten bij opschaling ingericht kunnen worden.
 
 ## 10. Aandachtspunten en risico's
 
