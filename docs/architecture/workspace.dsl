@@ -39,9 +39,8 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
         group "Federatief Berichtenstelsel (FBS)" {
 
-            decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan, ophalen en beheren (incl. berichtstatus)" "Magazijn" {
+            decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan, ophalen en beheren (incl. berichtstatus). Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO." "Magazijn" {
                 properties {
-                    "deployment.model" "Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO"
                     "architectuur.fsc" "FSC-infrastructuur (Inway, Outway, Manager, Directory) is niet als aparte containers gemodelleerd. Het magazijn biedt een Inway aan voor inkomende verzoeken van het Berichten Uitvraag Systeem en deelnemende organisaties. Elke relatie gemarkeerd als 'Digikoppeling REST API via FSC' impliceert: mTLS met PKIoverheid-certificaten, cryptografisch ondertekende FSC-contracten (ServiceConnectionGrant), certificate-bound JWT access tokens (Fsc-Authorization header), en tokenvalidatie door de Inway conform FSC Core v1.1.2."
                     "architectuur.autorisatie" "Autorisatie in het magazijn volgt het PEP/PDP-patroon conform AuthZEN NL GOV. De Ophaal- en Beheer API en Aanlever API fungeren als Policy Enforcement Point (PEP): ze onderscheppen verzoeken en handhaven de autorisatiebeslissing. Het Policy Decision Point (PDP) evalueert het autorisatieverzoek (subject/action/resource/context) tegen het beleid — dit kan een interne component zijn of een gedeeld PDP over magazijnen. Autorisatiebeleid wordt beheerd via een Policy Administration Point (PAP). Aanvullende context (bijv. organisatieregistratie, machtigingen) wordt opgehaald via een Policy Information Point (PIP). Autorisatiebeslissingen worden gelogd conform de Authorization Decision Log standaard (Logius)."
                 }
@@ -136,8 +135,6 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
             }
         }
-
-        berichtenUitvraagSysteem -> decentraalMagazijn "Haalt berichten, bijlagen en berichtstatus op; beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
 
         medewerkerA -> orgA "Verstuurt berichten via" "HTTPS"
         medewerkerB -> orgB "Verstuurt berichten via" "HTTPS"
