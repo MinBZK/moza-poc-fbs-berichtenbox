@@ -77,6 +77,7 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 
 - **Nooit direct pushen naar `main`.** Alle wijzigingen gaan via een feature branch en een Pull Request.
 - Branch naming: `feature/`, `fix/`, `chore/` prefix.
+- Bij aanmaken van een pull request **nooit** een reviewer toevoegen.
 
 ## Teststrategie
 
