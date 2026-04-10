@@ -60,6 +60,7 @@ class RedisBerichtenCache(
                 .indexedField("onderwerp", FieldType.TEXT)
                 .indexedField("afzender", FieldType.TAG)
                 .indexedField("ontvanger", FieldType.TAG)
+                .indexedField("tijdstip", FieldType.TAG)
             redis.search().ftCreate(BerichtenCache.SEARCH_INDEX, args)
                 .await().atMost(Duration.ofSeconds(5))
             log.infof("RediSearch index '%s' aangemaakt", BerichtenCache.SEARCH_INDEX)
