@@ -54,6 +54,13 @@ class RedisBerichtenCache(
     @PostConstruct
     fun init() {
         try {
+            redis.search().ftDropIndex(BerichtenCache.SEARCH_INDEX)
+                .await().atMost(Duration.ofSeconds(5))
+            log.debugf("Bestaande RediSearch index '%s' verwijderd", BerichtenCache.SEARCH_INDEX)
+        } catch (_: Exception) {
+            // Index bestond niet — geen probleem
+        }
+        try {
             val args = CreateArgs()
                 .onHash()
                 .prefixes(BerichtenCache.BERICHT_PREFIX)
@@ -65,11 +72,7 @@ class RedisBerichtenCache(
                 .await().atMost(Duration.ofSeconds(5))
             log.infof("RediSearch index '%s' aangemaakt", BerichtenCache.SEARCH_INDEX)
         } catch (e: Exception) {
-            if (e.message?.contains("Index already exists") == true) {
-                log.debugf("RediSearch index '%s' bestaat al", BerichtenCache.SEARCH_INDEX)
-            } else {
-                log.errorf(e, "Kon RediSearch index '%s' niet aanmaken", BerichtenCache.SEARCH_INDEX)
-            }
+            log.errorf(e, "Kon RediSearch index '%s' niet aanmaken", BerichtenCache.SEARCH_INDEX)
         }
     }
 
