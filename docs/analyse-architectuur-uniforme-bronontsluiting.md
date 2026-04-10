@@ -1,4 +1,6 @@
-# Analyse: Architectuur voor Uniforme Bronontsluiting (UBO)
+# Analyse: Architectuur voor Uniforme Bronontsluiting (UBO) (AI-gegenereerd)
+
+> **AI-disclaimer:** Dit document is gegenereerd met behulp van Claude Code. De inhoud kan feitelijke onjuistheden bevatten en is nog niet inhoudelijk gereviewd. Feedback is welkom.
 
 **Bron:** [Architectuur Uniforme bronontsluiting (PDF)](https://digilab.overheid.nl/uploads/uniforme-bronontsluiting/2025-11-11%20Architectuur%20Uniforme%20bronontsluiting.pdf)
 **Auteur:** VNG Realisatie | **Versie:** 11-11-2025 (concept) | **Omvang:** 42 pagina's
