@@ -1,12 +1,12 @@
 package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
-import io.quarkus.test.Mock
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.inject.Alternative
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-@Mock
+@Alternative
 @ApplicationScoped
 class MockBerichtenCache : BerichtenCache {
 

@@ -8,6 +8,7 @@ import io.quarkus.redis.datasource.search.QueryArgs
 import io.smallrye.mutiny.Uni
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
+import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.security.MessageDigest
 import java.time.Duration
@@ -45,6 +46,8 @@ interface BerichtenCache {
 class RedisBerichtenCache(
     private val redis: ReactiveRedisDataSource,
     private val objectMapper: ObjectMapper,
+    @ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT60S")
+    private val ttl: Duration,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
@@ -86,14 +89,14 @@ class RedisBerichtenCache(
 
             txKey.del(listKey)
                 .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
-                .chain { _ -> txKey.expire(listKey, TTL) }
+                .chain { _ -> txKey.expire(listKey, ttl) }
                 .chain { _ ->
                     // Sla elk bericht op als Hash voor RediSearch full-text index en lookup by ID
                     val stores = sorted.map { bericht ->
                         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
                         val fields = berichtToHash(bericht)
                         txHash.hset(berichtKey, fields)
-                            .chain { _ -> txKey.expire(berichtKey, TTL) }
+                            .chain { _ -> txKey.expire(berichtKey, ttl) }
                             .replaceWithVoid()
                     }
                     Uni.join().all(stores).andFailFast().replaceWithVoid()
@@ -107,7 +110,7 @@ class RedisBerichtenCache(
     override fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
         val statusKey = statusKey(key)
         val json = objectMapper.writeValueAsString(status)
-        return redis.value(String::class.java).setex(statusKey, TTL.seconds, json)
+        return redis.value(String::class.java).setex(statusKey, ttl.seconds, json)
             .chain { _ -> redis.key().del(lockKey(key)) }
             .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis storeAggregationStatus mislukt voor key=%s", key) }
@@ -120,8 +123,8 @@ class RedisBerichtenCache(
         return redis.value(String::class.java).setnx(lockKey, "1")
             .chain { wasSet ->
                 if (wasSet) {
-                    redis.key().expire(lockKey, TTL)
-                        .chain { _ -> redis.value(String::class.java).setex(statusKey, TTL.seconds, json) }
+                    redis.key().expire(lockKey, ttl)
+                        .chain { _ -> redis.value(String::class.java).setex(statusKey, ttl.seconds, json) }
                         .replaceWith(true)
                 } else {
                     Uni.createFrom().item(false)
@@ -286,9 +289,9 @@ class RedisBerichtenCache(
             val txKey = tx.key()
 
             txList.rpush(listKey, json)
-                .chain { _ -> txKey.expire(listKey, TTL) }
+                .chain { _ -> txKey.expire(listKey, ttl) }
                 .chain { _ -> txHash.hset(berichtKey, fields) }
-                .chain { _ -> txKey.expire(berichtKey, TTL) }
+                .chain { _ -> txKey.expire(berichtKey, ttl) }
                 .replaceWithVoid()
         }
             .replaceWithVoid()
@@ -297,7 +300,6 @@ class RedisBerichtenCache(
     }
 
     companion object {
-        private val TTL = Duration.ofSeconds(60)
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"
         private fun lockKey(key: String) = "$key:lock"

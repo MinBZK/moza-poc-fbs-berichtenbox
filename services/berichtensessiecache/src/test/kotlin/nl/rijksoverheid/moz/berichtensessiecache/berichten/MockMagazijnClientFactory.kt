@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
-import io.quarkus.test.Mock
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.inject.Alternative
 import jakarta.ws.rs.ProcessingException
 import nl.rijksoverheid.moz.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.berichtensessiecache.magazijn.MagazijnClient
@@ -13,7 +13,7 @@ import java.time.Instant
 import java.util.Optional
 import java.util.UUID
 
-@Mock
+@Alternative
 @ApplicationScoped
 class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) {
 

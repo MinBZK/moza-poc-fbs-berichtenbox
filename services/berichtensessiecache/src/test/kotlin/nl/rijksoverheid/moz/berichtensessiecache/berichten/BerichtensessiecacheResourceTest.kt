@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
 import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import org.hamcrest.CoreMatchers.`is`
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 @QuarkusTest
+@TestProfile(MockedDependenciesProfile::class)
 class BerichtensessiecacheResourceTest {
 
     @Inject
