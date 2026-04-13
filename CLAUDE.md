@@ -31,7 +31,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 ## Conventies
 
 - **GroupId:** `nl.rijksoverheid.moz`
-- **Packages:** `nl.rijksoverheid.moz.berichtensessiecache.*`
+- **Packages:** `nl.rijksoverheid.moz.<service-naam>.*`
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
 - **Actieve modules:** Alleen `services/berichtensessiecache` is geregistreerd in de parent POM. `services/berichtenlijst/` bestaat als directory maar is niet actief.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
@@ -41,7 +41,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 ```bash
 docker compose up -d                                       # Start Redis, WireMock, ClickHouse
-./mvnw compile -pl services/berichtensessiecache          # Compileren
+./mvnw compile -pl services/berichtensessiecache           # Compileren
 ./mvnw test -pl services/berichtensessiecache              # Tests draaien
 ./mvnw quarkus:dev -pl services/berichtensessiecache       # Dev mode
 ```
@@ -88,6 +88,31 @@ Bij elke codewijziging beoordelen of er tests toegevoegd of aangepast moeten wor
 - **Integratietests** (`@QuarkusTest`) wanneer de wijziging meerdere componenten raakt of externe afhankelijkheden (Redis, REST-clients) betreft.
 - **Fuzzing / property-based tests** overwegen bij input-parsing, validatielogica of security-gevoelige code.
 - Als integratietests of fuzzing een grote toevoeging vormen, dit eerst voorleggen aan de gebruiker voordat je begint.
+- **Coverage:** JaCoCo minimum 90% line coverage (`quarkus-jacoco`), gegenereerde code (`api.*`) uitgesloten
+
+## Testlagen
+
+### 1. Spec-driven aan de randen
+- OpenAPI-spec is bron van waarheid voor inkomende API en uitgaande clients
+- Server-stubs worden gegenereerd uit de spec (`jaxrs-spec`, `interfaceOnly=true`); compilatie faalt bij afwijking
+- Responses valideren met `swagger-request-validator-restassured` (`OpenApiContractTest`) — zowel happy paths als foutresponses (400/404/409/500) tegen het Problem-schema
+- Externe bronnen (magazijn-clients): WireMock-contracttests voor succes, HTTP-fouten, timeouts en malformed responses
+
+### 2. Unit tests voor deterministische logica
+- JUnit 5 + MockK (Kotlin)
+- Pure logica: validatie (data class init-blocks), mapping/transformaties, cache-key-opbouw (SHA-256), service-orkestratie
+- Geen database of HTTP; buren mocken via MockK
+- Fuzzing/property-based tests bij input-parsing en validatielogica
+
+### 3. Component-integratietests tegen echte infrastructuur
+- Infrastructuur via Testcontainers (Quarkus Dev Services)
+- Test gedrag dat mocks niet vangen: voor Redis bijvoorbeeld serialisatie roundtrip, RediSearch full-text/TAG queries, TTL-expiratie, atomaire lock (SETNX), index drop+recreate
+- WireMock voor magazijn-clients: HTTP 500, connection timeout, malformed JSON, lege responses, partial failure
+- TestProfiles schakelen per testlaag tussen echte en mock-implementaties (`MockedDependenciesProfile`, `RealRedisTestProfile`, `WireMockTestProfile`)
+
+### 4. End-to-end integratietests
+- Volledige keten: HTTP request → service → echte Redis + WireMock magazijnen → SSE response
+- Degradatiegedrag: partial failure (1 magazijn OK, 1 FOUT), ophalen-bezig (409), ophalen-mislukt (500)
 
 ## Review-aanpak
 
