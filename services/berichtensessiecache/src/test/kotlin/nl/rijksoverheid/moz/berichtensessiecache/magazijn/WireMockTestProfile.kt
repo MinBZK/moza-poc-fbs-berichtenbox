@@ -11,5 +11,6 @@ class WireMockTestProfile : QuarkusTestProfile {
 
     override fun getConfigOverrides(): Map<String, String> = mapOf(
         "quarkus.redis.devservices.enabled" to "false",
+        "quarkus.redis.hosts" to "redis://localhost:6379",
     )
 }
