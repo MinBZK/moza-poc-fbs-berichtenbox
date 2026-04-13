@@ -163,6 +163,44 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `store met lege lijst verwijdert key`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        berichtenCache.store(cacheKey(), emptyList()).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
+        assertNull(page)
+    }
+
+    @Test
+    fun `storeAggregationStatus en getAggregationStatus roundtrip`() {
+        val status = AggregationStatus(
+            status = OphalenStatus.GEREED,
+            totaalMagazijnen = 2,
+            geslaagd = 2,
+            mislukt = 0,
+        )
+        berichtenCache.storeAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        val retrieved = berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely()
+        assertNotNull(retrieved)
+        assertEquals(OphalenStatus.GEREED, retrieved!!.status)
+        assertEquals(2, retrieved.geslaagd)
+    }
+
+    @Test
+    fun `getPage met afzender en ontvanger filter via RediSearch`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, "00000001234567890000", ontvanger)
+            .await().indefinitely()
+
+        assertNotNull(page)
+        assertTrue(page!!.berichten.all { it.afzender == "00000001234567890000" })
+    }
+
+    @Test
     fun `TTL verificatie - data verdwijnt na TTL`() {
         val berichten = testBerichten().take(1)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
