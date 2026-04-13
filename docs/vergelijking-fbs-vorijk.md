@@ -1,4 +1,6 @@
-# Vergelijking VoRijk (Blauwe Knop) vs. FBS Berichtenbox
+# Vergelijking VoRijk (Blauwe Knop) vs. FBS Berichtenbox (AI-gegenereerd)
+
+> **AI-disclaimer:** Dit document is gegenereerd met behulp van Claude Code. De inhoud kan feitelijke onjuistheden bevatten en is nog niet inhoudelijk gereviewd. Feedback is welkom.
 
 ## Wat is VoRijk?
 
