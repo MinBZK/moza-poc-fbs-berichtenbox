@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v1/berichten/11111111-aaaa-bbbb-cccc-111111111111"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "berichtId": "11111111-aaaa-bbbb-cccc-111111111111",
+      "afzender": "00000005555555550000",
+      "ontvanger": "{{request.headers.X-Ontvanger}}",
+      "onderwerp": "Vergunning omgevingswet",
+      "tijdstip": "2026-03-10T10:00:00Z",
+      "magazijnId": "magazijn-b"
+    }
+  }
+}

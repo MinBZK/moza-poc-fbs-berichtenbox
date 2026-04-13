@@ -1,0 +1,15 @@
+meta {
+  name: 1. Berichten ophalen (SSE)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/berichten/_ophalen
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvanger}}
+}

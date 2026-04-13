@@ -14,18 +14,18 @@ services:
     ports:
       - "8081:8080"
     volumes:
-      - ./wiremock/mappings:/home/wiremock/mappings
-      - ./wiremock/__files:/home/wiremock/__files
-    command: ["--verbose"]
+      - ./wiremock/magazijn-a/mappings:/home/wiremock/mappings
+      - ./wiremock/magazijn-a/__files:/home/wiremock/__files
+    command: ["--verbose", "--global-response-templating"]
 
   magazijn-b:
     image: wiremock/wiremock:3.12.1
     ports:
       - "8082:8080"
     volumes:
-      - ./wiremock/mappings:/home/wiremock/mappings
-      - ./wiremock/__files:/home/wiremock/__files
-    command: ["--verbose"]
+      - ./wiremock/magazijn-b/mappings:/home/wiremock/mappings
+      - ./wiremock/magazijn-b/__files:/home/wiremock/__files
+    command: ["--verbose", "--global-response-templating"]
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.3

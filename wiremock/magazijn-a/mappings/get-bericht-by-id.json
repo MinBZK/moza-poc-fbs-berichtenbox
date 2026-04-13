@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/api/v1/berichten/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "berichtId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "afzender": "00000001234567890000",
+      "ontvanger": "{{request.headers.X-Ontvanger}}",
+      "onderwerp": "Besluit aanvraag subsidie",
+      "tijdstip": "2026-03-10T14:30:00Z",
+      "magazijnId": "magazijn-a"
+    }
+  }
+}

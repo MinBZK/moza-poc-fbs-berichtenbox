@@ -1,0 +1,21 @@
+meta {
+  name: 2. Berichten lijst
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/berichten
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvanger}}
+}
+
+params:query {
+  ~page: 0
+  ~pageSize: 20
+  ~afzender: 00000001234567890000
+}

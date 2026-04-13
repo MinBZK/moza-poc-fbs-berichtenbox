@@ -18,7 +18,7 @@
         {
           "berichtId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
           "afzender": "00000001234567890000",
-          "ontvanger": "999993653",
+          "ontvanger": "{{request.headers.X-Ontvanger}}",
           "onderwerp": "Besluit aanvraag subsidie",
           "tijdstip": "2026-03-10T14:30:00Z",
           "magazijnId": "magazijn-a"
@@ -26,38 +26,20 @@
         {
           "berichtId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
           "afzender": "00000001234567890000",
-          "ontvanger": "999993653",
-          "onderwerp": "Bevestiging inschrijving",
+          "ontvanger": "{{request.headers.X-Ontvanger}}",
+          "onderwerp": "Bevestiging inschrijving KVK",
           "tijdstip": "2026-03-09T09:15:00Z",
           "magazijnId": "magazijn-a"
         },
         {
           "berichtId": "c3d4e5f6-a7b8-9012-cdef-123456789012",
           "afzender": "00000009876543210000",
-          "ontvanger": "999993653",
+          "ontvanger": "{{request.headers.X-Ontvanger}}",
           "onderwerp": "Kennisgeving handhaving",
           "tijdstip": "2026-03-08T16:45:00Z",
           "magazijnId": "magazijn-a"
-        },
-        {
-          "berichtId": "d4e5f6a7-b8c9-0123-defa-234567890123",
-          "afzender": "00000001234567890000",
-          "ontvanger": "999993653",
-          "onderwerp": "Herinnering belastingaangifte",
-          "tijdstip": "2026-03-07T11:00:00Z",
-          "magazijnId": "magazijn-a"
-        },
-        {
-          "berichtId": "e5f6a7b8-c9d0-1234-efab-345678901234",
-          "afzender": "00000009876543210000",
-          "ontvanger": "999993653",
-          "onderwerp": "Uitnodiging informatieavond",
-          "tijdstip": "2026-03-06T08:30:00Z",
-          "magazijnId": "magazijn-a"
         }
-      ],
-      "totalElements": 5,
-      "totalPages": 1
+      ]
     }
   }
 }
