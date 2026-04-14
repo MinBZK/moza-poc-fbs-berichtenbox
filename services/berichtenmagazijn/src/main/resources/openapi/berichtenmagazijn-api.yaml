@@ -1,0 +1,196 @@
+openapi: 3.0.3
+info:
+  title: FBS Berichtenmagazijn - Aanlever API
+  version: 0.1.0
+  description: |
+    Aanlever-API van het decentrale berichtenmagazijn. Organisaties leveren
+    nieuwe berichten aan via POST /api/v1/berichten. Onderdeel van het
+    Federatief Berichtenstelsel (FBS).
+  contact:
+    name: MijnOverheid Zakelijk
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+
+servers:
+  - url: /api/v1
+    description: Versioned API base path
+
+tags:
+  - name: Aanlever
+    description: Aanlevering van berichten aan het magazijn
+
+paths:
+  /berichten:
+    post:
+      tags: [Aanlever]
+      summary: Lever een nieuw bericht aan bij het magazijn
+      operationId: aanleverBericht
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AanleverBerichtRequest'
+      responses:
+        '201':
+          description: Bericht succesvol opgeslagen
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BerichtResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  headers:
+    API-Version:
+      description: Versie van de API
+      schema:
+        type: string
+        example: "0.1.0"
+
+  schemas:
+    AanleverBerichtRequest:
+      type: object
+      required: [afzender, ontvanger, onderwerp, inhoud]
+      properties:
+        afzender:
+          type: string
+          minLength: 1
+          description: OIN van de afzendende organisatie
+          example: "00000001003214345000"
+        ontvanger:
+          type: string
+          minLength: 1
+          description: BSN van natuurlijk persoon of KVK-nummer van organisatie
+          example: "999993653"
+        onderwerp:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: "Voorlopige aanslag 2026"
+        inhoud:
+          type: string
+          minLength: 1
+          description: Berichtinhoud (tekst)
+
+    BerichtResponse:
+      type: object
+      required: [berichtId, afzender, ontvanger, onderwerp, tijdstip, _links]
+      properties:
+        berichtId:
+          type: string
+          format: uuid
+        afzender:
+          type: string
+        ontvanger:
+          type: string
+        onderwerp:
+          type: string
+        tijdstip:
+          type: string
+          format: date-time
+          description: Tijdstip van opslag in het magazijn (ISO 8601)
+        _links:
+          $ref: '#/components/schemas/BerichtLinks'
+
+    BerichtLinks:
+      type: object
+      required: [self]
+      properties:
+        self:
+          $ref: '#/components/schemas/Link'
+
+    Link:
+      type: object
+      required: [href]
+      properties:
+        href:
+          type: string
+          format: uri
+
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details
+      properties:
+        type:
+          type: string
+          format: uri
+          default: "about:blank"
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+
+  responses:
+    BadRequest:
+      description: Request is syntactisch onjuist of ontbreekt verplichte velden
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Authenticatie ontbreekt of is ongeldig
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Geen toestemming voor deze actie
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnprocessableEntity:
+      description: Request is syntactisch correct maar semantisch ongeldig
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalServerError:
+      description: Interne fout in het magazijn
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: Magazijn tijdelijk niet beschikbaar (circuit breaker open of H2 down)
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
