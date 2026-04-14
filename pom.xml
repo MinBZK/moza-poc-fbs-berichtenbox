@@ -13,6 +13,7 @@
     <description>Federatief Berichtenstelsel - Proof of Concept</description>
 
     <modules>
+        <module>libraries/fbs-common</module>
         <module>services/berichtensessiecache</module>
     </modules>
 
