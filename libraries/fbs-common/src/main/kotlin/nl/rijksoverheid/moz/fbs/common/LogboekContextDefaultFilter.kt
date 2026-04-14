@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.berichtensessiecache.berichten
+package nl.rijksoverheid.moz.fbs.common
 
 import jakarta.inject.Inject
 import jakarta.ws.rs.container.ContainerRequestContext
@@ -7,9 +7,9 @@ import jakarta.ws.rs.ext.Provider
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 
 /**
- * Sets safe defaults on LogboekContext before the @Logboek CDI interceptor runs.
- * This prevents IllegalArgumentException when Bean Validation rejects a request
- * before the resource method body can set the actual dataSubjectId.
+ * Zet safe defaults op LogboekContext voordat de @Logboek CDI interceptor draait.
+ * Voorkomt IllegalArgumentException als Bean Validation een request afwijst voor
+ * de resource-methode de echte dataSubjectId kan zetten.
  */
 @Provider
 class LogboekContextDefaultFilter : ContainerRequestFilter {
