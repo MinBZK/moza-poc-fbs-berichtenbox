@@ -17,6 +17,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>

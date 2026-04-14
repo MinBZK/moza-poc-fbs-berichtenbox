@@ -1,13 +1,10 @@
-package nl.rijksoverheid.moz.berichtensessiecache
+package nl.rijksoverheid.moz.fbs.common
 
 import jakarta.ws.rs.WebApplicationException
-import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
-import nl.rijksoverheid.moz.berichtensessiecache.api.model.Problem
 import org.jboss.logging.Logger
-import java.net.URI
 
 @Provider
 class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
@@ -21,19 +18,15 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
             log.errorf(exception, "Server error %d: %s", status, exception.message)
         }
 
-        val problem = Problem()
-        problem.type = URI.create("about:blank")
-        problem.status = status
-        problem.title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
-        problem.detail = exception.message
+        val problem = Problem(
+            title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error",
+            status = status,
+            detail = exception.message,
+        )
 
         return Response.status(status)
-            .type(PROBLEM_JSON)
+            .type(ProblemMediaType.APPLICATION_PROBLEM_JSON_TYPE)
             .entity(problem)
             .build()
-    }
-
-    companion object {
-        private val PROBLEM_JSON = MediaType.valueOf("application/problem+json")
     }
 }
