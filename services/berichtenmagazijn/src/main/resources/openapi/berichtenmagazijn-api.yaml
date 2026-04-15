@@ -46,6 +46,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '500':
@@ -160,6 +162,15 @@ components:
             $ref: '#/components/schemas/Problem'
     Forbidden:
       description: Geen toestemming voor deze actie
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Aanlevering conflicteert met bestaande data (unieke constraint geschonden)
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'

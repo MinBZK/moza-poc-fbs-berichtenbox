@@ -119,6 +119,31 @@ class AanleverResourceIntegrationTest {
     }
 
     @Test
+    fun `POST berichten met whitespace-only onderwerp wordt afgevangen door domein-init en retourneert 400`() {
+        // Onderwerp met alleen spaties passeert minLength=1 maar wordt afgewezen door
+        // het init-block van Bericht. Zonder IllegalArgumentExceptionMapper zou dit 500 worden.
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "00000001003214345000",
+                  "ontvanger": "999993653",
+                  "onderwerp": "   ",
+                  "inhoud": "Hierbij ontvangt u..."
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+            .body("title", `is`("Bad Request"))
+            .body("detail", containsString("onderwerp"))
+    }
+
+    @Test
     fun `POST berichten persisteert het bericht in H2`() {
         val responseBerichtId: String = given()
             .contentType(ContentType.JSON)

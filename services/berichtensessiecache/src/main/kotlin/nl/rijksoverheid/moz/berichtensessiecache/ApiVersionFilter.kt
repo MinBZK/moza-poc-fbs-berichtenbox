@@ -7,8 +7,8 @@ import jakarta.ws.rs.ext.Provider
 import org.eclipse.microprofile.config.inject.ConfigProperty
 
 /**
- * Zet de API-Version header per service. Security headers en cache-control
- * worden elders in fbs-common-filters gezet.
+ * Zet de API-Version header per service. Security-headers en cache-control komen
+ * uit `libraries/fbs-common` (SecurityHeadersFilter, CacheControlFilter).
  */
 @Provider
 class ApiVersionFilter(

@@ -10,4 +10,9 @@ data class Problem(
     val status: Int,
     val detail: String? = null,
     val instance: URI? = null,
-)
+) {
+    init {
+        require(title.isNotBlank()) { "title mag niet leeg zijn" }
+        require(status in 100..599) { "status moet een geldige HTTP-statuscode zijn (100-599)" }
+    }
+}

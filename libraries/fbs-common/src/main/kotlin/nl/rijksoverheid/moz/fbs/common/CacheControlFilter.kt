@@ -6,12 +6,15 @@ import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.ext.Provider
 
 /**
- * Zet `Cache-Control: no-store` op alle responses. Apart van SecurityHeadersFilter
- * zodat per-service of per-endpoint overrides mogelijk blijven.
+ * Zet `Cache-Control: no-store` als de resource zelf geen Cache-Control heeft gezet.
+ * Scheiding van [SecurityHeadersFilter] zodat een endpoint dat bewust cacheable is
+ * zijn eigen Cache-Control kan handhaven zonder in `no-store` verloren te gaan.
  */
 @Provider
 class CacheControlFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
-        responseContext.headers.putSingle("Cache-Control", "no-store")
+        if (!responseContext.headers.containsKey("Cache-Control")) {
+            responseContext.headers.putSingle("Cache-Control", "no-store")
+        }
     }
 }

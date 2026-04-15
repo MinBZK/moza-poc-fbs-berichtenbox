@@ -1,0 +1,34 @@
+package nl.rijksoverheid.moz.berichtenmagazijn.aanlever
+
+import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.ext.ExceptionMapper
+import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.common.Problem
+import nl.rijksoverheid.moz.fbs.common.ProblemMediaType
+import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException
+import org.jboss.logging.Logger
+
+/**
+ * Mapt [CircuitBreakerOpenException] naar 503 Problem JSON conform OpenAPI-spec.
+ * Zonder deze mapper valt de exception door naar 500 en is het contract verbroken.
+ */
+@Provider
+class CircuitBreakerOpenExceptionMapper : ExceptionMapper<CircuitBreakerOpenException> {
+
+    private val log = Logger.getLogger(CircuitBreakerOpenExceptionMapper::class.java)
+
+    override fun toResponse(exception: CircuitBreakerOpenException): Response {
+        log.warnf("Circuit breaker open: %s", exception.message)
+
+        val problem = Problem(
+            title = "Service Unavailable",
+            status = 503,
+            detail = "Magazijn tijdelijk niet beschikbaar. Probeer het later opnieuw.",
+        )
+
+        return Response.status(503)
+            .type(ProblemMediaType.APPLICATION_PROBLEM_JSON_TYPE)
+            .entity(problem)
+            .build()
+    }
+}
