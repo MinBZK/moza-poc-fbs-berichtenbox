@@ -33,7 +33,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.<service-naam>.*`
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
-- **Actieve modules:** Alleen `services/berichtensessiecache` is geregistreerd in de parent POM. `services/berichtenlijst/` bestaat als directory maar is niet actief.
+- **Actieve modules:** `services/berichtensessiecache`, `services/berichtenmagazijn`. De gedeelde JAX-RS filters en exception mappers staan in `libraries/fbs-common`. `services/berichtenlijst/` bestaat als directory maar is niet actief.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
 
@@ -44,6 +44,9 @@ docker compose up -d                                       # Start Redis, WireMo
 ./mvnw compile -pl services/berichtensessiecache           # Compileren
 ./mvnw test -pl services/berichtensessiecache              # Tests draaien
 ./mvnw quarkus:dev -pl services/berichtensessiecache       # Dev mode
+./mvnw compile -pl services/berichtenmagazijn -am                # Compileren berichtenmagazijn
+./mvnw test -pl services/berichtenmagazijn -am                   # Tests berichtenmagazijn
+./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode
 ```
 
 ## Belangrijke bestanden
@@ -53,6 +56,9 @@ docker compose up -d                                       # Start Redis, WireMo
 | `pom.xml`                              | Parent POM (Quarkus BOM, Kotlin plugin config)                  |
 | `services/berichtensessiecache/pom.xml`| Module POM (OpenAPI generator, dependencies)                    |
 | `services/berichtensessiecache/src/main/resources/openapi/berichtensessiecache-api.yaml` | OpenAPI spec (bron van waarheid) |
+| `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
+| `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, H2, JPA, Fault Tolerance)        |
+| `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, ClickHouse)               |
 | `.github/workflows/`                   | CI: CodeQL security scanning, Scorecard, Architecture validatie |
