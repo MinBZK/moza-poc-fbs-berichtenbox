@@ -132,7 +132,7 @@ class BerichtensessiecacheResourceTest {
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
-            .header("API-Version", `is`("0.1.0"))
+            .header("API-Version", `is`("v1"))
             .body("berichten.size()", `is`(2))
             .body("page", `is`(0))
             .body("pageSize", `is`(2))
