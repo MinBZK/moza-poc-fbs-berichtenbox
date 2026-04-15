@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Berichtenmagazijn Aanlever API — Implementatieplan
 

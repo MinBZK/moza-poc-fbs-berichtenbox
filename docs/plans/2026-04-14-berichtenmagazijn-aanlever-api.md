@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Berichtenmagazijn — nieuwe service module met Aanlever API
 
