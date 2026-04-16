@@ -440,6 +440,15 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
             .body("berichtId", `is`("11111111-1111-1111-1111-111111111111"))
+            .body("status", `is`("gelezen"))
+
+        // Na de PATCH moet een volgende GET de nieuwe status teruggeven
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("status", `is`("gelezen"))
     }
 
     @Test

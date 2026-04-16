@@ -16,7 +16,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Taal:** Kotlin (JVM 21, all-open plugin voor CDI/JAX-RS)
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
-- **Caching:** Redis (60s TTL) via `BerichtenCache` interface
+- **Caching:** Redis (60s sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via `BerichtenCache` interface — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
 

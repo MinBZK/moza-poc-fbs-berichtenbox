@@ -346,8 +346,19 @@ components:
         magazijnId:
           type: string
           description: ID van het bronmagazijn
+        status:
+          $ref: '#/components/schemas/BerichtStatus'
         _links:
           $ref: '#/components/schemas/BerichtLinks'
+
+    BerichtStatus:
+      type: string
+      enum: [gelezen, ongelezen]
+      nullable: true
+      description: |
+        Leesstatus van het bericht. `null` als het bronmagazijn geen status
+        meelevert. Mapping tussen decentrale magazijn-attributen en deze
+        leesstatus is een federatie-afspraak (zie issue voor vervolg).
 
     BerichtLinks:
       type: object
@@ -477,6 +488,8 @@ components:
           format: date-time
         magazijnId:
           type: string
+        status:
+          $ref: '#/components/schemas/BerichtStatus'
         _links:
           $ref: '#/components/schemas/BerichtLinks'
 
@@ -486,9 +499,7 @@ components:
         - status
       properties:
         status:
-          type: string
-          enum: [gelezen, ongelezen]
-          description: Nieuwe status van het bericht
+          $ref: '#/components/schemas/BerichtStatus'
 
     BerichtInput:
       type: object

@@ -3,6 +3,11 @@ name: Test Berichtensessiecache
 on:
   push:
     branches: ['issue-1/**']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/berichtensessiecache/**'
+      - 'pom.xml'
   workflow_dispatch:
 
 permissions: read-all
@@ -10,16 +15,8 @@ permissions: read-all
 jobs:
   test:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis/redis-stack-server:7.4.0-v3
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 5
+    # Geen `services: redis` meer: Quarkus Dev Services (Testcontainers) start een Redis Stack
+    # container vanuit `RealRedisTestProfile`. Unit- en mock-tests gebruiken geen Redis.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -27,7 +24,5 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
-      - name: Compile
-        run: ./mvnw compile -pl services/berichtensessiecache -am -B -q
       - name: Test
-        run: ./mvnw test -pl services/berichtensessiecache -B
+        run: ./mvnw verify -pl services/berichtensessiecache -am -B
