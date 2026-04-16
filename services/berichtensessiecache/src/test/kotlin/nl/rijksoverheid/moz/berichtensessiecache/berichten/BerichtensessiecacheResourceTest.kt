@@ -10,6 +10,8 @@ import org.hamcrest.CoreMatchers.not
 import org.hamcrest.CoreMatchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 
 @QuarkusTest
 @TestProfile(MockedDependenciesProfile::class)
@@ -422,8 +424,13 @@ class BerichtensessiecacheResourceTest {
 
     // --- PATCH /berichten/{berichtId} ---
 
-    @Test
-    fun `PATCH bericht status bijwerken retourneert 200`() {
+    @ParameterizedTest(name = "PATCH status={0} → {1}")
+    @CsvSource(
+        "gelezen,   200",
+        "ongelezen, 200",
+        "bekeken,   400",
+    )
+    fun `PATCH bericht status validatie`(status: String, expectedHttpStatus: Int) {
         val ontvanger = "999993653"
 
         given()
@@ -432,23 +439,58 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
 
+        val patchSpec = given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "$status"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(expectedHttpStatus)
+
+        if (expectedHttpStatus == 200) {
+            patchSpec
+                .body("berichtId", `is`("11111111-1111-1111-1111-111111111111"))
+                .body("status", `is`(status))
+
+            // Na de PATCH moet een volgende GET de nieuwe status teruggeven
+            given()
+                .header("X-Ontvanger", ontvanger)
+                .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+                .then()
+                .statusCode(200)
+                .body("status", `is`(status))
+        } else {
+            // Ongeldige enum-waarde komt door Jackson's `BerichtStatus.fromValue(...)`
+            // niet door als typed enum, maar als `null`. Bean Validation `@NotNull` op
+            // `BerichtStatusUpdate.status` triggert dan een 400 Problem+JSON via de
+            // ConstraintViolationExceptionMapper. Voor pure malformed JSON zie de
+            // aparte test "PATCH malformed JSON-body".
+            patchSpec
+                .contentType("application/problem+json")
+                .body("status", `is`(400))
+        }
+    }
+
+    @Test
+    fun `PATCH malformed JSON-body retourneert 400 problem+json`() {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        // Ongeldige JSON syntax → JsonProcessingException → JsonProcessingExceptionMapper
         given()
             .header("X-Ontvanger", ontvanger)
             .contentType("application/merge-patch+json")
-            .body("""{"status": "gelezen"}""")
+            .body("""{"status": """) // afgekapt, parse-fout
             .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
-            .statusCode(200)
-            .body("berichtId", `is`("11111111-1111-1111-1111-111111111111"))
-            .body("status", `is`("gelezen"))
-
-        // Na de PATCH moet een volgende GET de nieuwe status teruggeven
-        given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
-            .then()
-            .statusCode(200)
-            .body("status", `is`("gelezen"))
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+            .body("title", `is`("Bad Request"))
     }
 
     @Test
