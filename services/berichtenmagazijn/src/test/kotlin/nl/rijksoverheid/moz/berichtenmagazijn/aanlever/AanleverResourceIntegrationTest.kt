@@ -43,9 +43,13 @@ class AanleverResourceIntegrationTest {
             .`when`().post("/api/v1/berichten")
             .then()
             .statusCode(201)
-            .header("API-Version", `is`("0.1.0"))
+            .header("API-Version", `is`("v1"))
             .header("X-Frame-Options", `is`("DENY"))
             .header("X-Content-Type-Options", `is`("nosniff"))
+            .header("Strict-Transport-Security", containsString("max-age=31536000"))
+            .header("Strict-Transport-Security", containsString("includeSubDomains"))
+            .header("Content-Security-Policy", `is`("frame-ancestors 'none'"))
+            .header("Referrer-Policy", `is`("no-referrer"))
             .header("Cache-Control", `is`("no-store"))
             .contentType("application/json")
             .body("berichtId", matchesRegex("[0-9a-f-]{36}"))
@@ -57,7 +61,7 @@ class AanleverResourceIntegrationTest {
     }
 
     @Test
-    fun `POST berichten met ontbrekende ontvanger retourneert 400 Problem JSON`() {
+    fun `POST berichten met ontbrekende ontvanger retourneert 400 Problem JSON met API-Version header`() {
         given()
             .contentType(ContentType.JSON)
             .body(
@@ -73,6 +77,10 @@ class AanleverResourceIntegrationTest {
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
+            // API-Version en security-headers horen óók op fout-responses te staan;
+            // anders is het contract voor clients die op die headers steunen inconsistent.
+            .header("API-Version", `is`("v1"))
+            .header("X-Content-Type-Options", `is`("nosniff"))
             .body("status", `is`(400))
             .body("title", `is`("Bad Request"))
     }

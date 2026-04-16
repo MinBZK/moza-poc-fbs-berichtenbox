@@ -11,16 +11,24 @@ import org.jboss.logging.Logger
 
 private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.common.JsonProcessingExceptionMapper")
 
+// Veilig pad: Java-identifier segmenten, gescheiden door `.`, optioneel met array-indexen.
+// Weigert o.a. HTML, control-chars, spaties — alles wat attacker-controlled keys kenmerkt.
+private val SAFE_PATH_PATTERN = Regex("""^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*|\[\d+])*$""")
+
 internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingException): Response {
     // Jackson-boodschappen bevatten vaak class-/package-namen en input fragments. Nooit
-    // verbatim terug — wel intern loggen voor debugging.
-    log.infof(exception, "JSON-deserialisatiefout (detail niet naar client): %s", exception.originalMessage)
+    // verbatim terug — wel intern loggen. Debug-niveau: malformed JSON is een client-fout
+    // en veroorzaakt anders onnodig log-volume bij een kapotte of kwaadwillende client.
+    log.debugf(exception, "JSON-deserialisatiefout (detail niet naar client): %s", exception.originalMessage)
 
     val detail = when (exception) {
         is MismatchedInputException -> {
-            val path = exception.path.joinToString(".") { it.fieldName ?: "[${it.index}]" }
-            if (path.isNotBlank()) {
-                "Ongeldige JSON-invoer voor veld '$path'."
+            val rawPath = exception.path.joinToString(".") { it.fieldName ?: "[${it.index}]" }
+            // Alleen toevoegen als het pad uit veldnamen van ons model komt (niet
+            // attacker-controlled keys bij Map/JsonNode deserialisatie). Anders kunnen
+            // payloads als `{"<script>": 1}` reflected in de response belanden.
+            if (SAFE_PATH_PATTERN.matches(rawPath)) {
+                "Ongeldige JSON-invoer voor veld '$rawPath'."
             } else {
                 "Ongeldige JSON-invoer."
             }

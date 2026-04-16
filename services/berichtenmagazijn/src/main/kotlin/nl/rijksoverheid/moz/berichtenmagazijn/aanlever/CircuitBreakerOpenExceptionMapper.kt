@@ -21,7 +21,9 @@ class CircuitBreakerOpenExceptionMapper : ExceptionMapper<CircuitBreakerOpenExce
 
     override fun toResponse(exception: CircuitBreakerOpenException): Response {
         val errorId = UUID.randomUUID()
-        log.errorf(exception, "Circuit breaker open (errorId=%s): %s", errorId, exception.message)
+        // Log op warn (niet error): de root-cause is al gelogd toen het circuit opende;
+        // elke daaropvolgende request zou anders een duplicate error + stacktrace spammen.
+        log.warnf("Circuit breaker open (errorId=%s): %s", errorId, exception.message)
 
         val problem = Problem(
             title = "Service Unavailable",

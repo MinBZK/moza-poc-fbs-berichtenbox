@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.berichtenmagazijn.aanlever
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.persistence.PersistenceException
 import jakarta.transaction.Transactional
-import jakarta.validation.ConstraintViolationException
 import jakarta.ws.rs.ClientErrorException
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.BerichtRepository
@@ -23,21 +22,18 @@ class BerichtOpslagService(
 
     private val log = Logger.getLogger(BerichtOpslagService::class.java)
 
-    // Thresholds zijn voorlopige defaults voor de PoC; afstemmen zodra load-testdata
-    // beschikbaar is.
+    // Thresholds zijn PoC-defaults.
     //
     // skipOn — fouten die níét meetellen voor het circuit:
-    //  - DomainValidationException + jakarta.validation.ConstraintViolationException +
-    //    ClientErrorException: pure client-fouten (verkeerde request); zegt niets over
-    //    de gezondheid van het magazijn.
-    //  - HibernateConstraintViolationException: dekt zowel unieke-key conflicts (409,
-    //    client-fout) als overige integrity-violations (NOT NULL/FK/CHECK → 500). De
-    //    500-tak duidt op een data-/schemaprobleem, géén infrastructuurstoring — de DB
-    //    is bereikbaar. Daarom skippen we beide takken: deze fouten openen het circuit
-    //    niet maar verschijnen wel als 500/409 in de respons en logs voor diagnose.
+    //  - DomainValidationException, ClientErrorException: client-fouten, zeggen niets
+    //    over de gezondheid van de infrastructuur.
+    //  - HibernateConstraintViolationException: unique-key (409) én NOT NULL/FK/CHECK
+    //    (500) duiden op data/schema, niet op een onbereikbare DB.
     //
-    // Generieke `IllegalArgumentException` staat bewust níét in skipOn: die wijst op
-    // een programmeerfout en moet wél meetellen.
+    // Niet in skipOn: `jakarta.validation.ConstraintViolationException` — Bean Validation
+    // vuurt vóór de resource-methode en bereikt deze service niet. Generieke
+    // `IllegalArgumentException` evenmin: die wijst op een programmeerfout en moet wél
+    // meetellen.
     @CircuitBreaker(
         requestVolumeThreshold = 20,
         failureRatio = 0.5,
@@ -45,7 +41,6 @@ class BerichtOpslagService(
         successThreshold = 2,
         skipOn = [
             DomainValidationException::class,
-            ConstraintViolationException::class,
             HibernateConstraintViolationException::class,
             ClientErrorException::class,
         ],
