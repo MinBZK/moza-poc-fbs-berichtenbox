@@ -140,5 +140,5 @@ Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#7070
 Interactielaag .[#707070,thickness=2].> ProfielService : "<color:#707070>Toestemming bekijken en wijzigen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Interactielaag .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
 Interactielaag .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie zakelijke gebruikers\n<color:#707070><size:8>[SAML 2.0]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichtenlijst, inclusief berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml
