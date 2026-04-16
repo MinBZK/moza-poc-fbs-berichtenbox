@@ -6,6 +6,12 @@ import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import org.jboss.logging.Logger
 
+/**
+ * Mapt Bean Validation [ConstraintViolationException] (uit `@Valid`/`@NotNull`/`@Pattern`
+ * op gegenereerde API-interfaces) naar 400 Problem JSON. Detail formatteert elke
+ * schending als `paramName: message`, gescheiden door `;`, zodat de client weet welk
+ * veld ongeldig was zonder dat interne paths gelekt worden.
+ */
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {
 

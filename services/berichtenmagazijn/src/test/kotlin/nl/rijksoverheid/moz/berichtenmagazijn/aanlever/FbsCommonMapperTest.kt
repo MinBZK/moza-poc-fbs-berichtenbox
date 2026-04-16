@@ -58,7 +58,23 @@ class FbsCommonMapperTest {
         assertEquals(404, problem.status)
         assertEquals("Not Found", problem.title)
         assertEquals("bericht niet gevonden", problem.detail)
-        assertNull(problem.instance)
+        // 4xx krijgt een correlation-id voor support-traceability (zonder detail te maskeren).
+        assertNotNull(problem.instance)
+        assertTrue(problem.instance!!.toString().startsWith("urn:uuid:"))
+    }
+
+    @Test
+    fun `ProblemExceptionMapper saniteert stacktrace-achtige 4xx detail`() {
+        val response = ProblemExceptionMapper()
+            .toResponse(
+                jakarta.ws.rs.BadRequestException(
+                    "Input fout at nl.rijksoverheid.moz.Foo.bar(Foo.kt:42) op regel 5",
+                ),
+            )
+
+        val problem = response.entity as Problem
+        assertFalse(problem.detail!!.contains("Foo.kt:42"), "file+line moet weg: ${problem.detail}")
+        assertFalse(problem.detail!!.contains("at nl.rijksoverheid"), "frame moet weg: ${problem.detail}")
     }
 
     @Test
@@ -77,12 +93,15 @@ class FbsCommonMapperTest {
     }
 
     @Test
-    fun `ProblemExceptionMapper logt 4xx niet als 5xx (geen correlation-id)`() {
+    fun `ProblemExceptionMapper geeft 4xx een correlation-id in instance voor support-traceability`() {
         val response = ProblemExceptionMapper()
             .toResponse(BadRequestException("ongeldig"))
 
         val problem = response.entity as Problem
-        assertNull(problem.instance)
+        // 4xx krijgt een errorId zodat support een concrete request kan terugvinden bij klacht.
+        // Detail wordt niet gemaskeerd (zoals bij 5xx) — "ongeldig" blijft zichtbaar.
+        assertEquals("ongeldig", problem.detail)
+        assertNotNull(problem.instance)
     }
 
     @Test

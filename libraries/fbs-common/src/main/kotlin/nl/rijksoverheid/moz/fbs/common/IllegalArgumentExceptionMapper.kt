@@ -18,9 +18,11 @@ import java.util.UUID
  * correlation-id in plaats van 400. Voor client-exposed domein-validatie: gebruik
  * [DomainValidationException] + [DomainValidationExceptionMapper].
  *
- * `@Priority` ligt expliciet onder die van [DomainValidationExceptionMapper]
- * (`USER - 100`); JAX-RS prefereert lágere numerieke waarden, dus de specifiekere
- * mapper wint zonder afhankelijkheid van scan-volgorde.
+ * Specificiteit bepaalt de keuze: JAX-RS kiest eerst de mapper waarvan het generic type
+ * het dichtst bij de exception-class staat, dus [DomainValidationExceptionMapper] wint
+ * vanzelf voor [DomainValidationException] (subclass van IAE). De `@Priority`-waarden
+ * (`USER - 100` voor domein, `USER` hier) dienen als secundaire tiebreaker voor het
+ * geval twee mappers ooit hetzelfde type zouden claimen.
  */
 @Provider
 @Priority(Priorities.USER)
