@@ -16,7 +16,8 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Taal:** Kotlin (JVM 21, all-open plugin voor CDI/JAX-RS)
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
-- **Caching:** Redis (60s TTL) via `BerichtenCache` interface
+- **Caching:** sessiecache-specifiek: Redis (60s TTL) via `BerichtenCache` interface. Berichtenmagazijn heeft geen cache.
+- **Persistentie:** berichtenmagazijn-specifiek: H2 embedded + Hibernate ORM Panache.
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
 
@@ -25,8 +26,8 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **OpenAPI-first:** De OpenAPI spec (`berichtensessiecache-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze.
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`.
-- **Cache alleen succesvolle responses:** Error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
-- **ExceptionMappers:** `ProblemExceptionMapper` (WebApplicationException) en `ConstraintViolationExceptionMapper` voor consistente Problem JSON responses.
+- **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
+- **ExceptionMappers in fbs-common:** `ProblemExceptionMapper` (WebApplicationException, maskeert 5xx met correlation-id), `ConstraintViolationExceptionMapper` (Bean Validation), `DomainValidationExceptionMapper` (domein-invarianten), `IllegalArgumentExceptionMapper` (vangnet, behandelt generieke IAE als 500), `JsonProcessingExceptionMapper`/`MismatchedInputExceptionMapper` (Jackson, zonder originalMessage lek).
 
 ## Conventies
 

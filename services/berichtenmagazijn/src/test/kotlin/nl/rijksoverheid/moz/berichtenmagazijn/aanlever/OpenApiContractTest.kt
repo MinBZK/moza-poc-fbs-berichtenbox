@@ -36,6 +36,8 @@ class OpenApiContractTest {
                     .withLevel("validation.request.body.schema.required", ValidationReport.Level.IGNORE)
                     .withLevel("validation.request.body.schema.type", ValidationReport.Level.IGNORE)
                     .withLevel("validation.request.body.schema.minLength", ValidationReport.Level.IGNORE)
+                    .withLevel("validation.request.body.schema.maxLength", ValidationReport.Level.IGNORE)
+                    .withLevel("validation.request.body.schema.pattern", ValidationReport.Level.IGNORE)
                     .withLevel("validation.request.body.missing", ValidationReport.Level.IGNORE)
                     .build()
             )

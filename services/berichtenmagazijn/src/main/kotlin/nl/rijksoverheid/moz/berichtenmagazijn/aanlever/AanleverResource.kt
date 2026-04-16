@@ -30,15 +30,19 @@ class AanleverResource(
         processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-aanleveren",
     )
     override fun aanleverBericht(aanleverBerichtRequest: AanleverBerichtRequest): BerichtResponse {
-        logboekContext.dataSubjectId = aanleverBerichtRequest.ontvanger
-        logboekContext.dataSubjectType = "ontvanger"
-
         val bericht = opslagService.opslaanBericht(
             afzender = aanleverBerichtRequest.afzender,
             ontvanger = aanleverBerichtRequest.ontvanger,
             onderwerp = aanleverBerichtRequest.onderwerp,
             inhoud = aanleverBerichtRequest.inhoud,
         )
+
+        // Zet dataSubjectId pas na succesvolle domein-validatie, zodat we geen
+        // ongevalideerde input in de AVG-logboekcontext zetten. Tot dat punt zorgt
+        // LogboekContextDefaultFilter voor een safe default. Gebruik de door
+        // [Bericht] gevalideerde waarde, niet het raw request-veld.
+        logboekContext.dataSubjectId = bericht.ontvanger.waarde
+        logboekContext.dataSubjectType = "ontvanger"
 
         val selfHref = uriInfo.baseUriBuilder
             .path("api")
@@ -49,8 +53,8 @@ class AanleverResource(
 
         return BerichtResponse().apply {
             berichtId = bericht.berichtId
-            afzender = bericht.afzender
-            ontvanger = bericht.ontvanger
+            afzender = bericht.afzender.waarde
+            ontvanger = bericht.ontvanger.waarde
             onderwerp = bericht.onderwerp
             tijdstip = bericht.tijdstip
             links = BerichtLinks().apply {

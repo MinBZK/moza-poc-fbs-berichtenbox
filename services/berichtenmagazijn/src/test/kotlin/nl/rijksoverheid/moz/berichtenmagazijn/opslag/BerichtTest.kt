@@ -11,8 +11,8 @@ import java.util.UUID
 class BerichtTest {
 
     private fun bericht(
-        afzender: String = "00000001003214345000",
-        ontvanger: String = "999993653",
+        afzender: Oin = Oin("00000001003214345000"),
+        ontvanger: Identificatienummer = Bsn("999993653"),
         onderwerp: String = "Onderwerp",
         inhoud: String = "Inhoud",
     ) = Bericht(
@@ -27,19 +27,7 @@ class BerichtTest {
     @Test
     fun `geldige velden construeren zonder fout`() {
         val b = bericht()
-        assertEquals("00000001003214345000", b.afzender)
-    }
-
-    @Test
-    fun `blanke afzender faalt met duidelijke boodschap`() {
-        val ex = assertThrows(IllegalArgumentException::class.java) { bericht(afzender = "  ") }
-        assertEquals("afzender mag niet leeg zijn", ex.message)
-    }
-
-    @Test
-    fun `blanke ontvanger faalt`() {
-        val ex = assertThrows(IllegalArgumentException::class.java) { bericht(ontvanger = "") }
-        assertEquals("ontvanger mag niet leeg zijn", ex.message)
+        assertEquals("00000001003214345000", b.afzender.waarde)
     }
 
     @Test
@@ -52,5 +40,19 @@ class BerichtTest {
     fun `blank inhoud faalt`() {
         val ex = assertThrows(IllegalArgumentException::class.java) { bericht(inhoud = "   ") }
         assertEquals("inhoud mag niet leeg zijn", ex.message)
+    }
+
+    @Test
+    fun `te lange onderwerp faalt`() {
+        val lang = "x".repeat(Bericht.MAX_ONDERWERP_LENGTE + 1)
+        val ex = assertThrows(IllegalArgumentException::class.java) { bericht(onderwerp = lang) }
+        assertEquals("onderwerp mag max ${Bericht.MAX_ONDERWERP_LENGTE} characters zijn", ex.message)
+    }
+
+    @Test
+    fun `te lange inhoud faalt`() {
+        val lang = "x".repeat(Bericht.MAX_INHOUD_LENGTE + 1)
+        val ex = assertThrows(IllegalArgumentException::class.java) { bericht(inhoud = lang) }
+        assertEquals("inhoud mag max ${Bericht.MAX_INHOUD_LENGTE} characters zijn", ex.message)
     }
 }

@@ -12,18 +12,20 @@ import org.jboss.logging.Logger
 private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.common.JsonProcessingExceptionMapper")
 
 internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingException): Response {
-    log.debugf("JSON-deserialisatiefout: %s", exception.originalMessage)
+    // Jackson-boodschappen bevatten vaak class-/package-namen en input fragments. Nooit
+    // verbatim terug — wel intern loggen voor debugging.
+    log.infof(exception, "JSON-deserialisatiefout (detail niet naar client): %s", exception.originalMessage)
 
     val detail = when (exception) {
         is MismatchedInputException -> {
             val path = exception.path.joinToString(".") { it.fieldName ?: "[${it.index}]" }
             if (path.isNotBlank()) {
-                "Ongeldige invoer voor veld '$path': ${exception.originalMessage}"
+                "Ongeldige JSON-invoer voor veld '$path'."
             } else {
-                exception.originalMessage
+                "Ongeldige JSON-invoer."
             }
         }
-        else -> exception.originalMessage
+        else -> "Ongeldige JSON-invoer."
     }
 
     val problem = Problem(
@@ -40,6 +42,7 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
 
 /**
  * Mapt generieke Jackson [JsonProcessingException]s naar een 400 Problem JSON.
+ * De interne Jackson-boodschap wordt niet naar de client gelekt.
  */
 @Provider
 @Priority(Priorities.USER)

@@ -10,6 +10,7 @@ import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.matchesRegex
 import org.hamcrest.Matchers.notNullValue
+import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -120,8 +121,10 @@ class AanleverResourceIntegrationTest {
 
     @Test
     fun `POST berichten met whitespace-only onderwerp wordt afgevangen door domein-init en retourneert 400`() {
-        // Onderwerp met alleen spaties passeert minLength=1 maar wordt afgewezen door
-        // het init-block van Bericht. Zonder IllegalArgumentExceptionMapper zou dit 500 worden.
+        // Onderwerp met alleen spaties passeert OpenAPI-pattern (minLength=1) maar wordt
+        // afgewezen door requireValid in Bericht.init → DomainValidationException.
+        // De assertions hieronder borgen dat de DomainValidationExceptionMapper wint van
+        // de generieke IllegalArgumentExceptionMapper (die zou maskeren naar 500 + correlation-id).
         given()
             .contentType(ContentType.JSON)
             .body(
@@ -140,7 +143,34 @@ class AanleverResourceIntegrationTest {
             .contentType("application/problem+json")
             .body("status", `is`(400))
             .body("title", `is`("Bad Request"))
-            .body("detail", containsString("onderwerp"))
+            .body("detail", `is`("onderwerp mag niet leeg zijn"))
+            .body("instance", nullValue())
+    }
+
+    @Test
+    fun `POST berichten met afzender van 8 cijfers wordt afgewezen door OIN-validatie als 400`() {
+        // Border case voor de mapper-prioriteit: een afzender van 8 cijfers passeert
+        // het OpenAPI-pattern niet meer (we hebben dit aangescherpt naar exact 20). Maar
+        // mocht het ooit verzwakt worden, dan moet Oin.init alsnog een DomainValidationException
+        // gooien die door de juiste mapper als 400 wordt afgehandeld — niet 500.
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "12345678",
+                  "ontvanger": "999993653",
+                  "onderwerp": "Test",
+                  "inhoud": "Inhoud"
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+            .body("title", `is`("Bad Request"))
     }
 
     @Test

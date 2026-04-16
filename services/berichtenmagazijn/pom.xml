@@ -204,9 +204,15 @@
                         <phase>test</phase>
                         <goals><goal>check</goal></goals>
                         <configuration>
+                            <excludes>
+                                <exclude>nl/rijksoverheid/moz/berichtenmagazijn/api/**</exclude>
+                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
+                                    <excludes>
+                                        <exclude>nl.rijksoverheid.moz.berichtenmagazijn.api.*</exclude>
+                                    </excludes>
                                     <limits>
                                         <limit>
                                             <counter>LINE</counter>

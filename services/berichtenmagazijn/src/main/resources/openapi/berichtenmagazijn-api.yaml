@@ -42,14 +42,8 @@ paths:
                 $ref: '#/components/schemas/BerichtResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -70,13 +64,21 @@ components:
       properties:
         afzender:
           type: string
-          minLength: 1
-          description: OIN van de afzendende organisatie
+          pattern: '^[0-9]{20}$'
+          minLength: 20
+          maxLength: 20
+          description: OIN (20 cijfers) van de afzendende organisatie
           example: "00000001003214345000"
         ontvanger:
           type: string
-          minLength: 1
-          description: BSN van natuurlijk persoon of KVK-nummer van organisatie
+          pattern: '^([0-9]{8}|[0-9]{9}|[0-9]{20})$'
+          minLength: 8
+          maxLength: 20
+          description: |
+            Identificatienummer van de ontvanger. Drie toegestane lengtes:
+              - 8 cijfers  → KVK-nummer van organisatie
+              - 9 cijfers  → BSN van natuurlijk persoon (gevalideerd met elfproef)
+              - 20 cijfers → OIN van organisatie
           example: "999993653"
         onderwerp:
           type: string
@@ -86,7 +88,8 @@ components:
         inhoud:
           type: string
           minLength: 1
-          description: Berichtinhoud (tekst)
+          maxLength: 1048576
+          description: Berichtinhoud (tekst, max 1 MiB)
 
     BerichtResponse:
       type: object
@@ -143,25 +146,7 @@ components:
 
   responses:
     BadRequest:
-      description: Request is syntactisch onjuist of ontbreekt verplichte velden
-      headers:
-        API-Version:
-          $ref: '#/components/headers/API-Version'
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    Unauthorized:
-      description: Authenticatie ontbreekt of is ongeldig
-      headers:
-        API-Version:
-          $ref: '#/components/headers/API-Version'
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    Forbidden:
-      description: Geen toestemming voor deze actie
+      description: Request is syntactisch onjuist, ontbreekt verplichte velden of schendt een domein-invariant
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'
@@ -178,17 +163,8 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
-    UnprocessableEntity:
-      description: Request is syntactisch correct maar semantisch ongeldig
-      headers:
-        API-Version:
-          $ref: '#/components/headers/API-Version'
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
     InternalServerError:
-      description: Interne fout in het magazijn
+      description: Interne fout in het magazijn (bv. onverwachte DB-constraintfout). Response bevat `instance` met correlation-id voor support.
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'
@@ -197,7 +173,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     ServiceUnavailable:
-      description: Magazijn tijdelijk niet beschikbaar (circuit breaker open of H2 down)
+      description: Magazijn tijdelijk niet beschikbaar (circuit breaker open na opeenvolgende infrastructuurfouten)
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'

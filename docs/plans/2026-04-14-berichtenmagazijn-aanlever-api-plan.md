@@ -10,7 +10,7 @@
 
 **Tech stack:** Kotlin 2.3.10, Quarkus 3.34.3, Java 21, Hibernate ORM Panache, H2, JUnit 5, MockK, REST-assured, swagger-request-validator.
 
-**Ontwerpdocument:** `docs/plans/2026-04-14-berichtenmagazijn-aanlever-api.md`
+**Ontwerpdocument:** `docs/plans/2026-04-14-berichtenmagazijn-aanlever-api.md` — dit is het canonieke document voor ontwerpkeuzes. De codefragmenten hieronder zijn de taakbrief voor de agent-executie en weerspiegelen niet noodzakelijk de eindcode na review. Zie de werkelijke Kotlin-bronnen onder `libraries/fbs-common/` en `services/berichtenmagazijn/` voor de actuele implementatie.
 
 ---
 

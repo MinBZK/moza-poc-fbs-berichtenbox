@@ -7,6 +7,8 @@ import nl.rijksoverheid.moz.fbs.common.Problem
 import nl.rijksoverheid.moz.fbs.common.ProblemMediaType
 import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException
 import org.jboss.logging.Logger
+import java.net.URI
+import java.util.UUID
 
 /**
  * Mapt [CircuitBreakerOpenException] naar 503 Problem JSON conform OpenAPI-spec.
@@ -18,12 +20,14 @@ class CircuitBreakerOpenExceptionMapper : ExceptionMapper<CircuitBreakerOpenExce
     private val log = Logger.getLogger(CircuitBreakerOpenExceptionMapper::class.java)
 
     override fun toResponse(exception: CircuitBreakerOpenException): Response {
-        log.warnf("Circuit breaker open: %s", exception.message)
+        val errorId = UUID.randomUUID()
+        log.errorf(exception, "Circuit breaker open (errorId=%s): %s", errorId, exception.message)
 
         val problem = Problem(
             title = "Service Unavailable",
             status = 503,
             detail = "Magazijn tijdelijk niet beschikbaar. Probeer het later opnieuw.",
+            instance = URI.create("urn:uuid:$errorId"),
         )
 
         return Response.status(503)

@@ -50,12 +50,22 @@ moza-poc-fbs-berichtenbox/
 
 Gedeelde Kotlin-module zonder Quarkus-applicatielaag (pure JAR). Bevat:
 
+**Filters:**
 - `SecurityHeadersFilter` — Strict-Transport-Security, X-Frame-Options, X-Content-Type-Options, Content-Security-Policy
 - `CacheControlFilter` — `Cache-Control: no-store` (apart zodat individuele services/endpoints het later kunnen overschrijven)
-- `ProblemExceptionMapper` — `WebApplicationException` → RFC 9457 Problem JSON
-- `ConstraintViolationExceptionMapper` — Bean Validation fouten → Problem JSON
 - `CreatedStatusFilter` — HTTP 200 → 201 voor POST-requests (compenseert jaxrs-spec generator)
 - `LogboekContextDefaultFilter` — safe defaults op `LogboekContext` vóór Bean Validation
+
+**Exception mappers → RFC 9457 Problem JSON:**
+- `ProblemExceptionMapper` — vangt alle `WebApplicationException`s. Voor 5xx: maskeert `detail` en voegt `instance` met correlation-id toe; voor 4xx: echoot de boodschap.
+- `ConstraintViolationExceptionMapper` — Bean Validation (`jakarta.validation.ConstraintViolationException`) → 400
+- `DomainValidationExceptionMapper` — `DomainValidationException` (marker-subklasse van `IllegalArgumentException`) → 400 met de handgeschreven domeinboodschap
+- `IllegalArgumentExceptionMapper` — vangnet voor generieke IAEs uit dependencies/JDK → 500 met correlation-id (géén message-echo, want die is niet onder onze controle)
+- `JsonProcessingExceptionMapper` + `MismatchedInputExceptionMapper` — Jackson-deserialisatiefouten → 400 met veld-pad maar zonder Jackson-interne boodschap
+
+**Types:**
+- `Problem` (data class met `require`-invarianten op `title` en `status`), `ProblemMediaType`
+- `DomainValidationException` + helper `requireValid { ... }`
 
 Package: `nl.rijksoverheid.moz.fbs.common`
 
@@ -102,7 +112,9 @@ Pad: `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-ap
 
 | Methode | Pad | Beschrijving | Statuscodes |
 |---|---|---|---|
-| POST | `/api/v1/berichten` | Lever een bericht aan bij het magazijn | 201, 400, 401, 403, 422, 500, 503 |
+| POST | `/api/v1/berichten` | Lever een bericht aan bij het magazijn | 201, 400, 409, 500, 503 |
+
+401/403 (authenticatie/autorisatie) en 422 (semantische validatie) komen in een latere iteratie — niet opgenomen in de spec zolang er geen code-pad voor bestaat.
 
 **Conventies (NL API Design Rules):**
 - Prefix `/api/v1`
@@ -113,10 +125,10 @@ Pad: `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-ap
 - 201 Created voor POST (afgedwongen door `fbs-common/CreatedStatusFilter`)
 
 **Request (`AanleverBerichtRequest`):**
-- `afzender` (string, required, minLength=1) — OIN van afzendende organisatie
-- `ontvanger` (string, required, minLength=1) — BSN of KVK-nummer
+- `afzender` (string, required, pattern `^[0-9]{8,20}$`, minLength=8, maxLength=20) — OIN van afzendende organisatie
+- `ontvanger` (string, required, pattern `^[0-9]{8,20}$`, minLength=8, maxLength=20) — BSN / KVK / OIN
 - `onderwerp` (string, required, minLength=1, maxLength=255)
-- `inhoud` (string, required, minLength=1) — tekstinhoud (PoC)
+- `inhoud` (string, required, minLength=1, maxLength=1048576) — tekstinhoud, max 1 MiB (PoC)
 
 **Response (`BerichtResponse`):**
 - `berichtId` (uuid)
@@ -178,13 +190,19 @@ Op `BerichtOpslagService.opslaanBericht(...)`:
 @CircuitBreaker(
     requestVolumeThreshold = 20,
     failureRatio = 0.5,
-    delay = 5000,
+    delay = 5_000L,
     successThreshold = 2,
+    skipOn = [
+        IllegalArgumentException::class,
+        ConstraintViolationException::class,          // Bean Validation (jakarta.validation)
+        HibernateConstraintViolationException::class, // DB-level unique/FK/NN violations
+        ClientErrorException::class,                  // 4xx WebApplicationExceptions
+    ],
 )
-fun opslaanBericht(request: AanleverBerichtRequest): Bericht { ... }
+fun opslaanBericht(...): Bericht { ... }
 ```
 
-**Gedrag:** Als >50% van 20 opeenvolgende aanvragen faalt, opent de circuit voor 5 seconden. Fouten bubbelen op als `CircuitBreakerOpenException` → `503 Service Unavailable` (via `ProblemExceptionMapper`).
+**Gedrag:** Als >50% van 20 opeenvolgende aanvragen faalt, opent de circuit voor 5 seconden. Client-fouten (validatie, duplicate aanlevering, 4xx WAEs) tellen niet mee — die reflecteren een foute request, niet een infrastructuurprobleem. Fouten bubbelen op als `CircuitBreakerOpenException` → `503 Service Unavailable` via een dedicated `CircuitBreakerOpenExceptionMapper` in de aanlever-package (niet via `ProblemExceptionMapper`, want `CircuitBreakerOpenException` is geen `WebApplicationException`).
 
 **Dependency:** `io.quarkus:quarkus-smallrye-fault-tolerance`.
 
@@ -211,17 +229,22 @@ Kleine aanpassing op basisbranch (PR #26):
 Conform de 4-lagen teststrategie uit `CLAUDE.md`:
 
 ### Laag 1 — Spec-driven aan de randen
-- `OpenApiContractTest`: valideert dat responses (200/201/400/422/500/503) voldoen aan de OpenAPI spec en aan het Problem-schema via `swagger-request-validator-restassured`
+- `OpenApiContractTest`: valideert dat 201 en 400 responses voldoen aan de OpenAPI spec via `swagger-request-validator-restassured`
+- `DbConstraintViolation409ContractTest` / `InternalError500ContractTest` / `CircuitBreakerOpen503ContractTest`: valideren 409/500/503 Problem-responses tegen spec met gemockte service-laag
 - Gegenereerde interface dwingt compile-time alignment af
 
 ### Laag 2 — Unit tests (deterministische logica)
-- `BerichtOpslagServiceTest` (JUnit 5 + MockK): mock `BerichtRepository`, test mapping request → entity → response, test dat `opslaanBericht` het bericht correct persist
-- `BerichtEntityMappingTest`: request → entity, entity → response
+- `BerichtOpslagServiceTest` (JUnit 5 + MockK): mock `BerichtRepository`, test dat `opslaanBericht` het bericht correct persist
+- `BerichtTest`: invarianten in init-block (blank afzender/ontvanger/onderwerp/inhoud → `DomainValidationException`)
+- `FbsCommonMapperTest`: exception-mapper contracten — message-masking op 5xx, correlation-id, 409 alleen op unique-violation SQL state 23505
+- `JsonProcessingExceptionMapperTest`: geen originalMessage/class-path leaks
 - Pure logica zonder database of HTTP
 
 ### Laag 3 — Component-integratietests
 - `AanleverResourceIntegrationTest` (`@QuarkusTest` + H2 embedded): POST met geldige/ongeldige payloads, controleer statuscodes, Problem JSON, `_links.self`, `API-Version` header, security headers
-- Testcoverage happy + unhappy paths: ontbrekende verplichte velden (400), te lange onderwerp (422), lege inhoud (400/422), interne fout simulatie
+- `BerichtRepositoryIntegrationTest`: persist/findById roundtrip incl. grote CLOB-inhoud (64 KB) en PK-violation
+- `CircuitBreakerSkipOnTest`: mockt repository om skipOn-exceptions te gooien en verifieert dat 30 opeenvolgende aanvragen géén 503 opleveren (ondanks ruim boven threshold)
+- `DbConstraintViolation409ContractTest` / `InternalError500ContractTest` / `CircuitBreakerOpen503ContractTest`: QuarkusMock-based contracttests die 409/500/503 responses valideren tegen de OpenAPI-spec
 - **Geen Testcontainers nodig** voor H2 (embedded). Indien later PostgreSQL: Testcontainers via Quarkus Dev Services
 
 ### Laag 4 — End-to-end (optioneel in deze iteratie)
