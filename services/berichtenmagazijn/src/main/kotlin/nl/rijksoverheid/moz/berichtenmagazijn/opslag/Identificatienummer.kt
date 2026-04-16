@@ -20,13 +20,16 @@ sealed interface Identificatienummer {
          *  - 9 cijfers  → [Bsn] (met elfproef)
          *  - 20 cijfers → [Oin]
          */
-        fun parse(waarde: String): Identificatienummer = when (waarde.length) {
-            KVK_LENGTE -> Kvk(waarde)
-            BSN_LENGTE -> Bsn(waarde)
-            OIN_LENGTE -> Oin(waarde)
-            else -> throw DomainValidationException(
-                "Identificatienummer moet $KVK_LENGTE (KVK), $BSN_LENGTE (BSN) of $OIN_LENGTE (OIN) cijfers zijn",
-            )
+        fun parse(waarde: String): Identificatienummer {
+            val genormaliseerd = waarde.trim()
+            return when (genormaliseerd.length) {
+                KVK_LENGTE -> Kvk(genormaliseerd)
+                BSN_LENGTE -> Bsn(genormaliseerd)
+                OIN_LENGTE -> Oin(genormaliseerd)
+                else -> throw DomainValidationException(
+                    "Identificatienummer moet $KVK_LENGTE (KVK), $BSN_LENGTE (BSN) of $OIN_LENGTE (OIN) cijfers zijn",
+                )
+            }
         }
 
         private const val KVK_LENGTE = 8
@@ -64,6 +67,7 @@ value class Kvk(override val waarde: String) : Identificatienummer {
 value class Bsn(override val waarde: String) : Identificatienummer {
     init {
         requireValid(PATTERN.matches(waarde)) { "BSN moet precies 9 cijfers zijn" }
+        requireValid(waarde.any { it != '0' }) { "BSN kan niet geheel uit nullen bestaan" }
         requireValid(isValidElfproef(waarde)) { "BSN voldoet niet aan elfproef" }
     }
 

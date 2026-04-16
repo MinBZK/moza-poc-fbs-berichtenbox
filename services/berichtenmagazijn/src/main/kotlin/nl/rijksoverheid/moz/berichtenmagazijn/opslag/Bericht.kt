@@ -29,6 +29,9 @@ data class Bericht(
         requireValid(inhoud.length <= MAX_INHOUD_LENGTE) {
             "inhoud mag max $MAX_INHOUD_LENGTE characters zijn"
         }
+        requireValid(afzender.waarde != ontvanger.waarde) {
+            "afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
+        }
     }
 
     companion object {

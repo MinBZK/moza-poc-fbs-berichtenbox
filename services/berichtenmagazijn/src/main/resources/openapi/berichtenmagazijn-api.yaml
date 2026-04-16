@@ -84,6 +84,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          description: Onderwerp van het bericht (vrije tekst)
           example: "Voorlopige aanslag 2026"
         inhoud:
           type: string
@@ -98,12 +99,16 @@ components:
         berichtId:
           type: string
           format: uuid
+          description: Unieke identifier van het opgeslagen bericht
         afzender:
           type: string
+          description: OIN van de afzendende organisatie (echo van de request)
         ontvanger:
           type: string
+          description: Identificatienummer van de ontvanger (echo; KVK/BSN/OIN)
         onderwerp:
           type: string
+          description: Onderwerp van het bericht (echo van de request)
         tijdstip:
           type: string
           format: date-time

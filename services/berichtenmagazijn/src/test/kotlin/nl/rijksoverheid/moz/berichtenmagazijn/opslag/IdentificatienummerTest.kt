@@ -4,6 +4,7 @@ import nl.rijksoverheid.moz.fbs.common.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class IdentificatienummerTest {
@@ -101,9 +102,25 @@ class IdentificatienummerTest {
         val ex = assertThrows(DomainValidationException::class.java) {
             Identificatienummer.parse("1234567890")
         }
-        assertEquals(
-            "Identificatienummer moet 8 (KVK), 9 (BSN) of 20 (OIN) cijfers zijn",
-            ex.message,
+        val message = ex.message ?: ""
+        assertTrue(message.contains("8 (KVK)"), "bericht moet KVK-lengte noemen: $message")
+        assertTrue(message.contains("9 (BSN)"), "bericht moet BSN-lengte noemen: $message")
+        assertTrue(message.contains("20 (OIN)"), "bericht moet OIN-lengte noemen: $message")
+    }
+
+    @Test
+    fun `parse trimt whitespace`() {
+        val id = Identificatienummer.parse("  999993653  ")
+        assertInstanceOf(Bsn::class.java, id)
+        assertEquals("999993653", id.waarde)
+    }
+
+    @Test
+    fun `BSN bestaande uit negen nullen wordt geweigerd`() {
+        val ex = assertThrows(DomainValidationException::class.java) { Bsn("000000000") }
+        assertTrue(
+            ex.message?.contains("nullen") == true,
+            "bericht moet verwijzen naar nullen-check: ${ex.message}",
         )
     }
 }

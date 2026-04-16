@@ -1,13 +1,11 @@
 package nl.rijksoverheid.moz.berichtenmagazijn.opslag
 
-import io.quarkus.test.junit.QuarkusTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
 
-@QuarkusTest
 class BerichtTest {
 
     private fun bericht(
