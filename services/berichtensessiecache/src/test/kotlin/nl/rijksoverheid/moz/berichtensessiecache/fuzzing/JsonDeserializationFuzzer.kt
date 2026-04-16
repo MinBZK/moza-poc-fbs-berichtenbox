@@ -7,7 +7,7 @@ import com.fasterxml.jackson.module.kotlin.KotlinModule
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.BerichtenPage
-import nl.rijksoverheid.moz.berichtensessiecache.berichten.MagazijnStatusEvent
+import nl.rijksoverheid.moz.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 
 object JsonDeserializationFuzzer {
@@ -19,7 +19,7 @@ object JsonDeserializationFuzzer {
     private val targetTypes = arrayOf(
         Bericht::class.java,
         MagazijnBerichtenResponse::class.java,
-        MagazijnStatusEvent::class.java,
+        MagazijnEvent::class.java,
         AggregationStatus::class.java,
         BerichtenPage::class.java,
     )

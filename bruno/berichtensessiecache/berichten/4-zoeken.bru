@@ -1,0 +1,21 @@
+meta {
+  name: 4. Berichten zoeken
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/berichten/_zoeken
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvanger}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+params:query {
+  q: subsidie
+  ~afzender: 00000001234567890000
+}

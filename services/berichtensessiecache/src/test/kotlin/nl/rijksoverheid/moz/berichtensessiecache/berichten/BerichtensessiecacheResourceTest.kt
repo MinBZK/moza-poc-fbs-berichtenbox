@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
 import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import org.hamcrest.CoreMatchers.`is`
@@ -9,8 +10,11 @@ import org.hamcrest.CoreMatchers.not
 import org.hamcrest.CoreMatchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 
 @QuarkusTest
+@TestProfile(MockedDependenciesProfile::class)
 class BerichtensessiecacheResourceTest {
 
     @Inject
@@ -130,7 +134,7 @@ class BerichtensessiecacheResourceTest {
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
-            .header("API-Version", `is`("0.1.0"))
+            .header("API-Version", `is`("v1"))
             .body("berichten.size()", `is`(2))
             .body("page", `is`(0))
             .body("pageSize", `is`(2))
@@ -323,7 +327,7 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
-    fun `GET zoeken op afzender retourneert gefilterde resultaten`() {
+    fun `GET zoeken met afzender filter retourneert gefilterde resultaten`() {
         val ontvanger = "zoek-afzender-${System.nanoTime()}"
 
         given()
@@ -332,9 +336,10 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
 
-        // Zoek op afzender OIN van magazijn-b bericht
+        // Filter op afzender OIN van magazijn-b bericht via afzender parameter
         given()
-            .queryParam("q", "00000005555555550000")
+            .queryParam("q", "Test")
+            .queryParam("afzender", "00000005555555550000")
             .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
@@ -357,6 +362,45 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
+    fun `GET berichten met afzender filter retourneert alleen berichten van die afzender`() {
+        val ontvanger = "afzender-filter-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Filter op afzender van magazijn-b bericht
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("afzender", "00000005555555550000")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(1))
+            .body("berichten[0].magazijnId", `is`("magazijn-b"))
+    }
+
+    @Test
+    fun `GET berichten zonder afzender filter retourneert alle berichten`() {
+        val ontvanger = "geen-afzender-filter-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(4))
+    }
+
+    @Test
     fun `GET berichten paginering buiten bereik retourneert lege lijst`() {
         val ontvanger = "page-range-${System.nanoTime()}"
 
@@ -376,6 +420,228 @@ class BerichtensessiecacheResourceTest {
             .body("berichten.size()", `is`(0))
             .body("totalElements", `is`(4))
             .body("totalPages", `is`(2))
+    }
+
+    // --- PATCH /berichten/{berichtId} ---
+
+    @ParameterizedTest(name = "PATCH status={0} → {1}")
+    @CsvSource(
+        "gelezen,   200",
+        "ongelezen, 200",
+        "bekeken,   400",
+    )
+    fun `PATCH bericht status validatie`(status: String, expectedHttpStatus: Int) {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        val patchSpec = given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "$status"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(expectedHttpStatus)
+
+        if (expectedHttpStatus == 200) {
+            patchSpec
+                .body("berichtId", `is`("11111111-1111-1111-1111-111111111111"))
+                .body("status", `is`(status))
+
+            // Na de PATCH moet een volgende GET de nieuwe status teruggeven
+            given()
+                .header("X-Ontvanger", ontvanger)
+                .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+                .then()
+                .statusCode(200)
+                .body("status", `is`(status))
+        } else {
+            // Ongeldige enum-waarde komt door Jackson's `BerichtStatus.fromValue(...)`
+            // niet door als typed enum, maar als `null`. Bean Validation `@NotNull` op
+            // `BerichtStatusUpdate.status` triggert dan een 400 Problem+JSON via de
+            // ConstraintViolationExceptionMapper. Voor pure malformed JSON zie de
+            // aparte test "PATCH malformed JSON-body".
+            patchSpec
+                .contentType("application/problem+json")
+                .body("status", `is`(400))
+        }
+    }
+
+    @Test
+    fun `PATCH malformed JSON-body retourneert 400 problem+json`() {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        // Ongeldige JSON syntax → JsonProcessingException → JsonProcessingExceptionMapper
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": """) // afgekapt, parse-fout
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+            .body("title", `is`("Bad Request"))
+    }
+
+    @Test
+    fun `PATCH bericht niet gevonden retourneert 404`() {
+        val ontvanger = "patch-404-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `PATCH bericht ontvanger mismatch retourneert 404`() {
+        val eigenOntvanger = "andere-patch-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", eigenOntvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Bericht hoort bij "999993653", niet bij eigenOntvanger
+        given()
+            .header("X-Ontvanger", eigenOntvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `PATCH bericht zonder ontvanger retourneert 400`() {
+        given()
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    // --- POST /berichten ---
+
+    @Test
+    fun `POST bericht toevoegen retourneert 201`() {
+        val ontvanger = "post-201-${System.nanoTime()}"
+
+        // Aanmeld Service mag alleen actieve sessies bijwerken: zorg eerst voor aggregatie.
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/json")
+            .body("""
+                {
+                    "berichtId": "55555555-5555-5555-5555-555555555555",
+                    "afzender": "00000001234567890000",
+                    "ontvanger": "$ontvanger",
+                    "onderwerp": "Nieuw bericht",
+                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a"
+                }
+            """.trimIndent())
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(201)
+            .body("berichtId", `is`("55555555-5555-5555-5555-555555555555"))
+            .body("onderwerp", `is`("Nieuw bericht"))
+    }
+
+    @Test
+    fun `POST bericht zonder actieve sessie retourneert 404`() {
+        val ontvanger = "post-zonder-sessie-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/json")
+            .body("""
+                {
+                    "berichtId": "66666666-6666-6666-6666-666666666666",
+                    "afzender": "00000001234567890000",
+                    "ontvanger": "$ontvanger",
+                    "onderwerp": "Nieuw bericht",
+                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a"
+                }
+            """.trimIndent())
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("detail", containsString("actieve sessie"))
+    }
+
+    @Test
+    fun `POST bericht met afwijkende ontvanger retourneert 400`() {
+        given()
+            .header("X-Ontvanger", "andere-ontvanger")
+            .contentType("application/json")
+            .body("""
+                {
+                    "berichtId": "55555555-5555-5555-5555-555555555555",
+                    "afzender": "00000001234567890000",
+                    "ontvanger": "999993653",
+                    "onderwerp": "Nieuw bericht",
+                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a"
+                }
+            """.trimIndent())
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("detail", containsString("komt niet overeen"))
+    }
+
+    @Test
+    fun `POST bericht zonder ontvanger retourneert 400`() {
+        given()
+            .contentType("application/json")
+            .body("""
+                {
+                    "berichtId": "55555555-5555-5555-5555-555555555555",
+                    "afzender": "00000001234567890000",
+                    "ontvanger": "999993653",
+                    "onderwerp": "Nieuw bericht",
+                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a"
+                }
+            """.trimIndent())
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
     }
 
     @Test

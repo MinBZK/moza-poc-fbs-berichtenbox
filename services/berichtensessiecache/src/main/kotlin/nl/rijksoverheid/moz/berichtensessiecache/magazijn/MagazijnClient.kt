@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.berichtensessiecache.magazijn
 
 import jakarta.ws.rs.GET
+import jakarta.ws.rs.HeaderParam
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.Produces
@@ -15,19 +16,11 @@ interface MagazijnClient {
     @GET
     @Path("/berichten")
     fun getBerichten(
-        @QueryParam("ontvanger") ontvanger: String?,
+        @HeaderParam("X-Ontvanger") ontvanger: String?,
         @QueryParam("afzender") afzender: String?,
     ): MagazijnBerichtenResponse
 
     @GET
     @Path("/berichten/{berichtId}")
     fun getBerichtById(@PathParam("berichtId") berichtId: String): Bericht?
-
-    @GET
-    @Path("/berichten/zoeken")
-    fun zoekBerichten(
-        @QueryParam("q") q: String,
-        @QueryParam("ontvanger") ontvanger: String?,
-        @QueryParam("afzender") afzender: String?,
-    ): MagazijnBerichtenResponse
 }

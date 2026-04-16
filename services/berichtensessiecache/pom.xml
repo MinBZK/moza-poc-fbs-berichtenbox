@@ -75,6 +75,29 @@
             <artifactId>jackson-module-kotlin</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jacoco</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.mockk</groupId>
+            <artifactId>mockk-jvm</artifactId>
+            <version>1.13.16</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.atlassian.oai</groupId>
+            <artifactId>swagger-request-validator-restassured</artifactId>
+            <version>2.43.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock</artifactId>
+            <version>3.13.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -119,6 +142,11 @@
                                 <useSwaggerAnnotations>false</useSwaggerAnnotations>
                                 <useTags>true</useTags>
                                 <dateLibrary>java8</dateLibrary>
+                                <!-- Zonder deze flag wrapt de generator `nullable: true`-velden in
+                                     JsonNullable<T> uit org.openapitools.jackson.nullable; we hebben
+                                     die dependency niet nodig voor onze use-case (optioneel veld met
+                                     null-waarde) en willen gewoon T? krijgen. -->
+                                <openApiNullable>false</openApiNullable>
                             </configOptions>
                             <typeMappings>
                                 <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
@@ -138,6 +166,46 @@
             <plugin>
                 <groupId>org.jetbrains.kotlin</groupId>
                 <artifactId>kotlin-maven-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.13</version>
+                <configuration>
+                    <excludes>
+                        <!-- Gegenereerde OpenAPI model-klassen -->
+                        <exclude>nl/rijksoverheid/moz/berichtensessiecache/api/**</exclude>
+                    </excludes>
+                    <!-- quarkus-jacoco schrijft naar target/jacoco-quarkus.exec -->
+                    <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>test</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>

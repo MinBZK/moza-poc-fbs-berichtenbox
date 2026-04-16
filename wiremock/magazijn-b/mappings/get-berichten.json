@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/v1/berichten",
+    "headers": {
+      "X-Ontvanger": {
+        "matches": ".+"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "berichten": [
+        {
+          "berichtId": "11111111-aaaa-bbbb-cccc-111111111111",
+          "afzender": "00000005555555550000",
+          "ontvanger": "{{request.headers.X-Ontvanger}}",
+          "onderwerp": "Vergunning omgevingswet",
+          "tijdstip": "2026-03-10T10:00:00Z",
+          "magazijnId": "magazijn-b"
+        },
+        {
+          "berichtId": "22222222-aaaa-bbbb-cccc-222222222222",
+          "afzender": "00000005555555550000",
+          "ontvanger": "{{request.headers.X-Ontvanger}}",
+          "onderwerp": "Herinnering WOZ-bezwaar",
+          "tijdstip": "2026-03-07T13:20:00Z",
+          "magazijnId": "magazijn-b"
+        }
+      ]
+    }
+  }
+}

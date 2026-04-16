@@ -1,0 +1,27 @@
+meta {
+  name: 6. Bericht toevoegen
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/berichten
+  body: json
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvanger}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "berichtId": "99999999-0000-1111-2222-333333333333",
+    "afzender": "00000001234567890000",
+    "ontvanger": "{{ontvanger}}",
+    "onderwerp": "Testbericht via Bruno",
+    "tijdstip": "2026-04-13T12:00:00Z",
+    "magazijnId": "magazijn-a"
+  }
+}

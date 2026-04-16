@@ -10,13 +10,18 @@ import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.AggregationStatus as ApiAggregationStatus
+import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtInput
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtLinks
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtResponse
+import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtStatus as ApiBerichtStatus
+import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtStatusUpdate
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtensessiecacheResponse
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.Link
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.PaginationLinks
 import org.jboss.logging.Logger
 import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.UUID
 
@@ -32,6 +37,12 @@ class BerichtensessiecacheResource(
 
     @Context
     lateinit var uriInfo: UriInfo
+
+    // De processingActivityId-URL's hieronder zijn hardcoded. Runtime-override via
+    // `logboekContext.processingActivityId = ...` werkt niet: de LogboekInterceptor
+    // schrijft de annotation-waarde naar de context ná `proceed()` (vlak vóór
+    // addLogboekContextToSpan), dus elke method-body-override wordt overschreven.
+    // Configureerbaarheid vereist een aanpassing in de logboekdataverwerking-wrapper.
 
     @Logboek(
         name = "ophalen-berichtensessiecache",
@@ -50,14 +61,13 @@ class BerichtensessiecacheResource(
 
         val (ontvanger, aggregation) = requireGereedStatus(xOntvanger)
 
-        // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
-        val ps = pageSize ?: 20
+        val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
             berichtensessiecacheService.getBerichten(p, ps, ontvanger, afzender)
         }
         logboekContext.status = StatusCode.OK
-        return toBerichtensessiecacheResponse(result, aggregation)
+        return result.toResponse(aggregation, afzender)
     }
 
     @Logboek(
@@ -78,7 +88,7 @@ class BerichtensessiecacheResource(
         )
 
         logboekContext.status = StatusCode.OK
-        return toBerichtResponse(bericht)
+        return bericht.toResponse()
     }
 
     @Logboek(
@@ -99,14 +109,93 @@ class BerichtensessiecacheResource(
 
         val (ontvanger, aggregation) = requireGereedStatus(xOntvanger)
 
-        // TODO: afzender parameter wordt momenteel genegeerd -- filter niet actief (PoC)
         val p = page ?: 0
-        val ps = pageSize ?: 20
+        val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
             berichtensessiecacheService.zoekBerichten(q, p, ps, ontvanger, afzender)
         }
         logboekContext.status = StatusCode.OK
-        return toBerichtensessiecacheResponse(result, aggregation)
+        return result.toResponse(aggregation, afzender)
+    }
+
+    @Logboek(
+        name = "bijwerken-berichtstatus",
+        processingActivityId = "https://register.example.com/verwerkingen/berichtstatus-bijwerken",
+    )
+    override fun updateBerichtStatus(
+        berichtId: UUID,
+        xOntvanger: String?,
+        berichtStatusUpdate: BerichtStatusUpdate,
+    ): BerichtResponse {
+        logboekContext.dataSubjectId = berichtId.toString()
+        logboekContext.dataSubjectType = "berichtId"
+
+        val ontvanger = requireOntvanger(xOntvanger)
+
+        val bericht = awaitOrServiceUnavailable {
+            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, berichtStatusUpdate.status.toString())
+        } ?: throw WebApplicationException(
+            "Bericht niet gevonden", Response.Status.NOT_FOUND,
+        )
+
+        logboekContext.status = StatusCode.OK
+        return bericht.toResponse()
+    }
+
+    @Logboek(
+        name = "toevoegen-bericht",
+        processingActivityId = "https://register.example.com/verwerkingen/bericht-toevoegen",
+    )
+    override fun addBericht(
+        xOntvanger: String?,
+        berichtInput: BerichtInput,
+    ): BerichtResponse {
+        val ontvanger = requireOntvanger(xOntvanger)
+
+        logboekContext.dataSubjectId = ontvanger
+        logboekContext.dataSubjectType = "ontvanger"
+
+        if (berichtInput.ontvanger != ontvanger) {
+            throw WebApplicationException(
+                "Ontvanger in body komt niet overeen met X-Ontvanger header.",
+                Response.Status.BAD_REQUEST,
+            )
+        }
+
+        // Aanmeld Service mag alleen bestaande, actieve sessies bijwerken: als er geen
+        // aggregatie heeft plaatsgevonden voor deze ontvanger, hoort er ook geen cache te zijn.
+        val aggregation = awaitOrServiceUnavailable {
+            berichtensessiecacheService.getAggregationStatus(ontvanger)
+        }
+        if (aggregation == null) {
+            throw WebApplicationException(
+                "Geen actieve sessie voor deze ontvanger; bericht niet toegevoegd.",
+                Response.Status.NOT_FOUND,
+            )
+        }
+
+        val bericht = Bericht(
+            berichtId = berichtInput.berichtId,
+            afzender = berichtInput.afzender,
+            ontvanger = berichtInput.ontvanger,
+            onderwerp = berichtInput.onderwerp,
+            tijdstip = berichtInput.tijdstip,
+            magazijnId = berichtInput.magazijnId,
+        )
+
+        val result = awaitOrServiceUnavailable {
+            berichtensessiecacheService.addBericht(bericht)
+        }
+
+        logboekContext.status = StatusCode.OK
+        return result.toResponse()
+    }
+
+    private fun requireOntvanger(ontvanger: String?): String {
+        if (ontvanger.isNullOrBlank()) {
+            throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
+        }
+        return ontvanger
     }
 
     private fun requireGereedStatus(ontvanger: String?): Pair<String, AggregationStatus> {
@@ -150,70 +239,77 @@ class BerichtensessiecacheResource(
         }
     }
 
-    private fun toBerichtensessiecacheResponse(
-        result: BerichtenPage,
+    private fun BerichtenPage.toResponse(
         aggregation: AggregationStatus?,
+        afzender: String? = null,
     ): BerichtensessiecacheResponse {
-        val response = BerichtensessiecacheResponse()
-        response.berichten = result.berichten.map { toApiBericht(it) }
-        response.page = result.page
-        response.pageSize = result.pageSize
-        response.totalElements = result.totalElements
-        response.totalPages = result.totalPages
-        if (aggregation != null) {
-            response.aggregatie = ApiAggregationStatus().apply {
-                status = ApiAggregationStatus.StatusEnum.fromString(aggregation.status.name)
-                totaalMagazijnen = aggregation.totaalMagazijnen
-                geslaagd = aggregation.geslaagd
-                mislukt = aggregation.mislukt
-            }
-        }
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        response.links = PaginationLinks().apply {
-            self = Link().apply { href = URI.create("$basePath/berichten?page=${result.page}&pageSize=${result.pageSize}") }
-            first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${result.pageSize}") }
-            if (result.totalPages > 0) {
-                last = Link().apply { href = URI.create("$basePath/berichten?page=${result.totalPages - 1}&pageSize=${result.pageSize}") }
+        val filterParams = if (afzender != null) {
+            "&afzender=" + URLEncoder.encode(afzender, StandardCharsets.UTF_8)
+        } else {
+            ""
+        }
+
+        return BerichtensessiecacheResponse().apply {
+            berichten = this@toResponse.berichten.map { it.toApiModel() }
+            page = this@toResponse.page
+            pageSize = this@toResponse.pageSize
+            totalElements = this@toResponse.totalElements
+            totalPages = this@toResponse.totalPages
+            if (aggregation != null) {
+                aggregatie = ApiAggregationStatus().apply {
+                    status = ApiAggregationStatus.StatusEnum.fromString(aggregation.status.name)
+                    totaalMagazijnen = aggregation.totaalMagazijnen
+                    geslaagd = aggregation.geslaagd
+                    mislukt = aggregation.mislukt
+                }
             }
-            if (result.page > 0) {
-                prev = Link().apply { href = URI.create("$basePath/berichten?page=${result.page - 1}&pageSize=${result.pageSize}") }
-            }
-            if (result.page < result.totalPages - 1) {
-                next = Link().apply { href = URI.create("$basePath/berichten?page=${result.page + 1}&pageSize=${result.pageSize}") }
+            links = PaginationLinks().apply {
+                self = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${this@toResponse.pageSize}$filterParams") }
+                if (this@toResponse.totalPages > 0) {
+                    last = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.totalPages - 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                }
+                if (this@toResponse.page > 0) {
+                    prev = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page - 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                }
+                if (this@toResponse.page < this@toResponse.totalPages - 1) {
+                    next = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page + 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                }
             }
         }
-        return response
     }
 
-    private fun berichtLinks(berichtId: UUID): BerichtLinks {
+    private fun Bericht.toApiModel(): nl.rijksoverheid.moz.berichtensessiecache.api.model.Bericht {
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        return BerichtLinks().apply {
-            self = Link().apply { href = URI.create("$basePath/berichten/$berichtId") }
+        return nl.rijksoverheid.moz.berichtensessiecache.api.model.Bericht().apply {
+            berichtId = this@toApiModel.berichtId
+            afzender = this@toApiModel.afzender
+            ontvanger = this@toApiModel.ontvanger
+            onderwerp = this@toApiModel.onderwerp
+            tijdstip = this@toApiModel.tijdstip
+            magazijnId = this@toApiModel.magazijnId
+            status = this@toApiModel.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
+            links = BerichtLinks().apply {
+                self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiModel.berichtId}") }
+            }
         }
     }
 
-    private fun toApiBericht(bericht: Bericht): nl.rijksoverheid.moz.berichtensessiecache.api.model.Bericht {
-        val apiBericht = nl.rijksoverheid.moz.berichtensessiecache.api.model.Bericht()
-        apiBericht.berichtId = bericht.berichtId
-        apiBericht.afzender = bericht.afzender
-        apiBericht.ontvanger = bericht.ontvanger
-        apiBericht.onderwerp = bericht.onderwerp
-        apiBericht.tijdstip = bericht.tijdstip
-        apiBericht.magazijnId = bericht.magazijnId
-        apiBericht.links = berichtLinks(bericht.berichtId)
-        return apiBericht
-    }
-
-    private fun toBerichtResponse(bericht: Bericht): BerichtResponse {
-        val response = BerichtResponse()
-        response.berichtId = bericht.berichtId
-        response.afzender = bericht.afzender
-        response.ontvanger = bericht.ontvanger
-        response.onderwerp = bericht.onderwerp
-        response.tijdstip = bericht.tijdstip
-        response.magazijnId = bericht.magazijnId
-        response.links = berichtLinks(bericht.berichtId)
-        return response
+    private fun Bericht.toResponse(): BerichtResponse {
+        val basePath = uriInfo.baseUri.path.removeSuffix("/")
+        return BerichtResponse().apply {
+            berichtId = this@toResponse.berichtId
+            afzender = this@toResponse.afzender
+            ontvanger = this@toResponse.ontvanger
+            onderwerp = this@toResponse.onderwerp
+            tijdstip = this@toResponse.tijdstip
+            magazijnId = this@toResponse.magazijnId
+            status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
+            links = BerichtLinks().apply {
+                self = Link().apply { href = URI.create("$basePath/berichten/${this@toResponse.berichtId}") }
+            }
+        }
     }
 
     companion object {

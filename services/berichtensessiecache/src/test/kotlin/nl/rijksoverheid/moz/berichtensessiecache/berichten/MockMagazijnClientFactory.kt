@@ -1,19 +1,19 @@
 package nl.rijksoverheid.moz.berichtensessiecache.berichten
 
-import io.quarkus.test.Mock
+import io.mockk.every
+import io.mockk.mockk
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.inject.Alternative
 import jakarta.ws.rs.ProcessingException
 import nl.rijksoverheid.moz.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.berichtensessiecache.magazijn.MagazijnenConfig
-import java.lang.reflect.InvocationHandler
-import java.lang.reflect.Proxy
 import java.time.Instant
 import java.util.Optional
 import java.util.UUID
 
-@Mock
+@Alternative
 @ApplicationScoped
 class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) {
 
@@ -64,8 +64,8 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
 
     override fun getAllClients(): Map<String, MagazijnClient> {
         return mapOf(
-            "magazijn-a" to createProxy(testBerichtenA, { shouldFailA }, { shouldTimeoutA }),
-            "magazijn-b" to createProxy(testBerichtenB, { shouldFailB }, { shouldTimeoutB }),
+            "magazijn-a" to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }),
+            "magazijn-b" to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }),
         )
     }
 
@@ -75,37 +75,21 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
         else -> null
     }
 
-    private fun createProxy(berichten: List<Bericht>, shouldFail: () -> Boolean, shouldTimeout: () -> Boolean): MagazijnClient {
-        val handler = InvocationHandler { _, method, args ->
-            when (method.name) {
-                "getBerichten" -> {
-                    if (shouldTimeout()) Thread.sleep(15_000)
-                    if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
-                    MagazijnBerichtenResponse(
-                        berichten = berichten,
-                    )
-                }
-                "getBerichtById" -> {
-                    if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
-                    val berichtId = args[0] as String
-                    berichten.find { it.berichtId.toString() == berichtId }
-                }
-                "zoekBerichten" -> {
-                    if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
-                    val q = args[0] as String
-                    val results = berichten.filter { it.onderwerp.contains(q, ignoreCase = true) }
-                    MagazijnBerichtenResponse(
-                        berichten = results,
-                    )
-                }
-                else -> throw UnsupportedOperationException("Unexpected method: ${method.name}")
-            }
+    private fun magazijnClient(
+        berichten: List<Bericht>,
+        shouldFail: () -> Boolean,
+        shouldTimeout: () -> Boolean,
+    ): MagazijnClient = mockk<MagazijnClient>().also { client ->
+        every { client.getBerichten(any(), any()) } answers {
+            if (shouldTimeout()) Thread.sleep(15_000)
+            if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
+            MagazijnBerichtenResponse(berichten = berichten)
         }
-        return Proxy.newProxyInstance(
-            MagazijnClient::class.java.classLoader,
-            arrayOf(MagazijnClient::class.java),
-            handler,
-        ) as MagazijnClient
+        every { client.getBerichtById(any()) } answers {
+            if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
+            val berichtId = firstArg<String>()
+            berichten.find { it.berichtId.toString() == berichtId }
+        }
     }
 }
 

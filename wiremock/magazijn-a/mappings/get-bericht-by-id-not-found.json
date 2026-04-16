@@ -1,0 +1,19 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/v1/berichten/[0-9a-f\\-]+"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/problem+json"
+    },
+    "jsonBody": {
+      "type": "about:blank",
+      "title": "Not Found",
+      "status": 404,
+      "detail": "Bericht niet gevonden"
+    }
+  }
+}

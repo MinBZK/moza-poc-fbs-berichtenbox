@@ -6,7 +6,7 @@ import nl.rijksoverheid.moz.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.BerichtenPage
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.EventType
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.MagazijnStatus
-import nl.rijksoverheid.moz.berichtensessiecache.berichten.MagazijnStatusEvent
+import nl.rijksoverheid.moz.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.berichtensessiecache.berichten.OphalenStatus
 import java.time.Instant
 import java.util.UUID
@@ -17,7 +17,7 @@ object DomainValidationFuzzer {
         ::fuzzBericht,
         ::fuzzAggregationStatus,
         ::fuzzBerichtenPage,
-        ::fuzzMagazijnStatusEvent,
+        ::fuzzMagazijnEventDomain,
     )
 
     @JvmStatic
@@ -81,9 +81,9 @@ object DomainValidationFuzzer {
         check(page.totalPages >= 0) { "totalPages moet niet-negatief zijn" }
     }
 
-    private fun fuzzMagazijnStatusEvent(data: FuzzedDataProvider) {
+    private fun fuzzMagazijnEventDomain(data: FuzzedDataProvider) {
         try {
-            MagazijnStatusEvent(
+            MagazijnEvent(
                 event = data.pickValue(EventType.entries.toTypedArray()),
                 magazijnId = if (data.consumeBoolean()) data.consumeString(100) else null,
                 naam = if (data.consumeBoolean()) data.consumeString(100) else null,

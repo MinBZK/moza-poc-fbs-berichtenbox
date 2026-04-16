@@ -1,0 +1,23 @@
+meta {
+  name: 5. Berichtstatus bijwerken
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/berichten/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+  body: json
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvanger}}
+  Content-Type: application/merge-patch+json
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "status": "gelezen"
+  }
+}

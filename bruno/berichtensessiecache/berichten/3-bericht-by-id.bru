@@ -1,0 +1,16 @@
+meta {
+  name: 3. Bericht op ID
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/berichten/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvanger}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
