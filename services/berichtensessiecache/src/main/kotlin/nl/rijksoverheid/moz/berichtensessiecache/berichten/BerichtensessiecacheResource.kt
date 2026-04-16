@@ -13,6 +13,7 @@ import nl.rijksoverheid.moz.berichtensessiecache.api.model.AggregationStatus as 
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtInput
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtLinks
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtResponse
+import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtStatus as ApiBerichtStatus
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtStatusUpdate
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.BerichtensessiecacheResponse
 import nl.rijksoverheid.moz.berichtensessiecache.api.model.Link
@@ -36,6 +37,12 @@ class BerichtensessiecacheResource(
 
     @Context
     lateinit var uriInfo: UriInfo
+
+    // De processingActivityId-URL's hieronder zijn hardcoded. Runtime-override via
+    // `logboekContext.processingActivityId = ...` werkt niet: de LogboekInterceptor
+    // schrijft de annotation-waarde naar de context ná `proceed()` (vlak vóór
+    // addLogboekContextToSpan), dus elke method-body-override wordt overschreven.
+    // Configureerbaarheid vereist een aanpassing in de logboekdataverwerking-wrapper.
 
     @Logboek(
         name = "ophalen-berichtensessiecache",
@@ -126,7 +133,7 @@ class BerichtensessiecacheResource(
         val ontvanger = requireOntvanger(xOntvanger)
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, berichtStatusUpdate.status.value())
+            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, berichtStatusUpdate.status.toString())
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )
@@ -282,6 +289,7 @@ class BerichtensessiecacheResource(
             onderwerp = this@toApiModel.onderwerp
             tijdstip = this@toApiModel.tijdstip
             magazijnId = this@toApiModel.magazijnId
+            status = this@toApiModel.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiModel.berichtId}") }
             }
@@ -297,6 +305,7 @@ class BerichtensessiecacheResource(
             onderwerp = this@toResponse.onderwerp
             tijdstip = this@toResponse.tijdstip
             magazijnId = this@toResponse.magazijnId
+            status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toResponse.berichtId}") }
             }

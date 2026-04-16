@@ -57,8 +57,16 @@ class RedisBerichtenCache(
             redis.search().ftDropIndex(BerichtenCache.SEARCH_INDEX)
                 .await().atMost(Duration.ofSeconds(5))
             log.debugf("Bestaande RediSearch index '%s' verwijderd", BerichtenCache.SEARCH_INDEX)
-        } catch (_: Exception) {
-            // Index bestond niet — geen probleem
+        } catch (e: Exception) {
+            if (isUnknownIndex(e)) {
+                log.debugf("Geen bestaande RediSearch index '%s' om te verwijderen", BerichtenCache.SEARCH_INDEX)
+            } else {
+                // Redis onbereikbaar / permissie-issue / onverwachte fout → fail-fast bij startup
+                throw IllegalStateException(
+                    "Kan RediSearch index '${BerichtenCache.SEARCH_INDEX}' niet benaderen voor cleanup",
+                    e,
+                )
+            }
         }
         try {
             val args = CreateArgs()
@@ -72,8 +80,18 @@ class RedisBerichtenCache(
                 .await().atMost(Duration.ofSeconds(5))
             log.infof("RediSearch index '%s' aangemaakt", BerichtenCache.SEARCH_INDEX)
         } catch (e: Exception) {
-            log.errorf(e, "Kon RediSearch index '%s' niet aanmaken", BerichtenCache.SEARCH_INDEX)
+            // Zonder search-index werken filter- en zoek-endpoints niet; laat de container fail-fast
+            // starten in plaats van stilzwijgend te degraderen.
+            throw IllegalStateException(
+                "RediSearch index '${BerichtenCache.SEARCH_INDEX}' kon niet worden aangemaakt",
+                e,
+            )
         }
+    }
+
+    private fun isUnknownIndex(e: Throwable): Boolean {
+        val msg = (e.message ?: "").lowercase()
+        return "unknown index" in msg || "no such index" in msg
     }
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
@@ -105,8 +123,7 @@ class RedisBerichtenCache(
                     }
                     Uni.join().all(stores).andFailFast().replaceWithVoid()
                 }
-        }
-            .replaceWithVoid()
+        }.replaceWithVoid()
             .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache", berichten.size) }
             .onFailure().invoke { e -> log.errorf(e, "Redis store mislukt voor key=%s", key) }
     }
@@ -177,7 +194,10 @@ class RedisBerichtenCache(
                     )
                 }
             }
-        .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
+            // Sliding TTL: elke succesvolle read verlengt de sessie-keys zodat actieve gebruikers
+            // hun cache niet verliezen tijdens een sessie.
+            .call { result -> if (result != null) renewSessionTtl(key) else Uni.createFrom().voidItem() }
+            .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
     private fun getPageFiltered(page: Int, pageSize: Int, ontvanger: String, afzender: String): Uni<BerichtenPage?> {
@@ -201,6 +221,7 @@ class RedisBerichtenCache(
                     BerichtenPage(berichten, page, pageSize, total, totalPages)
                 }
             }
+            .call { result -> renewReadTtl(ontvanger, result?.berichten) }
             .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt voor afzender=%s", afzender) }
     }
 
@@ -222,6 +243,7 @@ class RedisBerichtenCache(
                 val totalPages = if (total == 0L) 0 else ((total + pageSize - 1) / pageSize).toInt()
                 BerichtenPage(berichten, page, pageSize, total, totalPages)
             }
+            .call { result -> renewReadTtl(ontvanger, result.berichten) }
             .onFailure().invoke { e -> log.errorf(e, "RediSearch query mislukt voor q=%s", q) }
     }
 
@@ -233,7 +255,45 @@ class RedisBerichtenCache(
                 val bericht = hashToBericht(fields)
                 if (bericht.ontvanger != ontvanger) null else bericht
             }
+            .call { bericht ->
+                if (bericht != null) renewReadTtl(ontvanger, listOf(bericht))
+                else Uni.createFrom().voidItem()
+            }
             .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor berichtId=%s", berichtId) }
+    }
+
+    /**
+     * Verlengt TTL op sessie-keys (list + status) zodat actieve gebruikers hun cache niet
+     * verliezen. Faalt niet hard: als verlengen mislukt, wordt dat gelogd maar niet gepropageerd —
+     * de oorspronkelijke read heeft al gelukt en de cache valt anders uiterlijk na `ttl` weg.
+     */
+    private fun renewSessionTtl(cacheKey: String): Uni<Void> {
+        val listKey = listKey(cacheKey)
+        val statusKey = statusKey(cacheKey)
+        return Uni.combine().all()
+            .unis(
+                redis.key().expire(listKey, ttl),
+                redis.key().expire(statusKey, ttl),
+            ).discardItems()
+            .onFailure().invoke { e -> log.warnf(e, "Sliding TTL verlengen mislukt voor cacheKey=%s", cacheKey) }
+            .onFailure().recoverWithNull().replaceWithVoid()
+    }
+
+    /**
+     * Verlengt TTL op sessie-keys én op de per-bericht hash keys die via een read zijn geraakt.
+     * Zo blijven zowel de lijst als de berichten-hashes in sync qua TTL.
+     */
+    private fun renewReadTtl(ontvanger: String, berichten: List<Bericht>?): Uni<Void> {
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+        val sessionRenew = renewSessionTtl(cacheKey)
+        if (berichten.isNullOrEmpty()) return sessionRenew
+        val hashRenews = berichten.map { bericht ->
+            redis.key().expire(BerichtenCache.berichtKey(bericht.berichtId), ttl)
+        }
+        return Uni.combine().all()
+            .unis(sessionRenew, Uni.join().all(hashRenews).andFailFast())
+            .discardItems()
+            .onFailure().recoverWithNull().replaceWithVoid()
     }
 
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
@@ -297,8 +357,7 @@ class RedisBerichtenCache(
                 .chain { _ -> txHash.hset(berichtKey, fields) }
                 .chain { _ -> txKey.expire(berichtKey, ttl) }
                 .replaceWithVoid()
-        }
-            .replaceWithVoid()
+        }.replaceWithVoid()
             .invoke { _ -> log.debugf("Bericht %s toegevoegd aan cache", bericht.berichtId) }
             .onFailure().invoke { e -> log.errorf(e, "Redis addBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }

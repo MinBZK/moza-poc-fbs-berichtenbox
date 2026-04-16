@@ -56,7 +56,7 @@ class BerichtensessiecacheService(
      * Orkestreert het ophalen van berichten uit alle magazijnen, slaat ze op in de cache,
      * en retourneert een SSE-compatible Multi met statusevents per magazijn.
      */
-    fun ophalenBerichten(ontvanger: String): Multi<MagazijnStatusEvent> {
+    fun ophalenBerichten(ontvanger: String): Multi<MagazijnEvent> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
         val clients = clientFactory.getAllClients()
@@ -87,11 +87,10 @@ class BerichtensessiecacheService(
         val magazijnStreams = clients.map { (magazijnId, client) ->
             val naam = clientFactory.getNaam(magazijnId)
 
-            val bezigEvent = MagazijnStatusEvent(
-                event = EventType.MAGAZIJN_STATUS,
+            val gestartEvent = MagazijnEvent(
+                event = EventType.MAGAZIJN_BEVRAGING_GESTART,
                 magazijnId = magazijnId,
                 naam = naam,
-                status = MagazijnStatus.BEZIG,
             )
 
             val resultUni = Uni.createFrom().item { client }
@@ -119,8 +118,8 @@ class BerichtensessiecacheService(
                     is MagazijnResult.Success -> {
                         alleBerichten.addAll(result.berichten)
                         geslaagd.incrementAndGet()
-                        MagazijnStatusEvent(
-                            event = EventType.MAGAZIJN_STATUS,
+                        MagazijnEvent(
+                            event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
                             magazijnId = magazijnId,
                             naam = naam,
                             status = MagazijnStatus.OK,
@@ -130,8 +129,8 @@ class BerichtensessiecacheService(
                     is MagazijnResult.Failure -> {
                         mislukt.incrementAndGet()
                         val isTimeout = result.error is io.smallrye.mutiny.TimeoutException
-                        MagazijnStatusEvent(
-                            event = EventType.MAGAZIJN_STATUS,
+                        MagazijnEvent(
+                            event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
                             magazijnId = magazijnId,
                             naam = naam,
                             status = if (isTimeout) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
@@ -142,7 +141,7 @@ class BerichtensessiecacheService(
             }
 
             Multi.createBy().concatenating().streams(
-                Multi.createFrom().item(bezigEvent),
+                Multi.createFrom().item(gestartEvent),
                 resultStream,
             )
         }
@@ -166,7 +165,7 @@ class BerichtensessiecacheService(
                             berichtenCache.storeAggregationStatus(cacheKey, status)
                         }
                         .map { _ ->
-                            MagazijnStatusEvent(
+                            MagazijnEvent(
                                 event = EventType.OPHALEN_GEREED,
                                 totaalBerichten = alleBerichten.size,
                                 geslaagd = geslaagd.get(),
@@ -187,7 +186,7 @@ class BerichtensessiecacheService(
                         .onFailure().invoke { e -> log.errorf(e, "Best-effort FOUT status opslaan ook mislukt") }
                         .onFailure().recoverWithNull()
                         .replaceWith(
-                            MagazijnStatusEvent(
+                            MagazijnEvent(
                                 event = EventType.OPHALEN_FOUT,
                                 geslaagd = geslaagd.get(),
                                 mislukt = mislukt.get(),

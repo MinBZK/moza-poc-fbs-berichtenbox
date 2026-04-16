@@ -58,9 +58,9 @@ class BerichtenOphalenResourceTest {
             .statusCode(200)
             .extract().body().asString()
 
-        assertTrue(response.contains("\"event\":\"magazijn-status\""), "Verwacht magazijn-status events in: $response")
+        assertTrue(response.contains("\"event\":\"magazijn-bevraging-gestart\""), "Verwacht magazijn-bevraging-gestart events in: $response")
+        assertTrue(response.contains("\"event\":\"magazijn-bevraging-voltooid\""), "Verwacht magazijn-bevraging-voltooid events in: $response")
         assertTrue(response.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed event in: $response")
-        assertTrue(response.contains("\"status\":\"BEZIG\""), "Verwacht BEZIG status in: $response")
         assertTrue(response.contains("\"status\":\"OK\""), "Verwacht OK status in: $response")
     }
 

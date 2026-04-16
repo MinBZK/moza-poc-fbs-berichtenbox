@@ -147,6 +147,11 @@
                                 <useSwaggerAnnotations>false</useSwaggerAnnotations>
                                 <useTags>true</useTags>
                                 <dateLibrary>java8</dateLibrary>
+                                <!-- Zonder deze flag wrapt de generator `nullable: true`-velden in
+                                     JsonNullable<T> uit org.openapitools.jackson.nullable; we hebben
+                                     die dependency niet nodig voor onze use-case (optioneel veld met
+                                     null-waarde) en willen gewoon T? krijgen. -->
+                                <openApiNullable>false</openApiNullable>
                             </configOptions>
                             <typeMappings>
                                 <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>

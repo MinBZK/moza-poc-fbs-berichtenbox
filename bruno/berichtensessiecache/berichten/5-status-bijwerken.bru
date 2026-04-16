@@ -13,6 +13,7 @@ patch {
 headers {
   X-Ontvanger: {{ontvanger}}
   Content-Type: application/merge-patch+json
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
 }
 
 body:json {

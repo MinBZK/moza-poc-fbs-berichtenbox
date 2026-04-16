@@ -7,8 +7,7 @@ import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
-import org.hamcrest.CoreMatchers.containsString
-import org.hamcrest.CoreMatchers.`is`
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -37,7 +36,7 @@ class MagazijnClientWireMockTest {
             .extract().body().asString()
 
         // SSE stream moet ophalen-gereed event bevatten
-        org.junit.jupiter.api.Assertions.assertTrue(response.contains("ophalen-gereed"))
+        assertTrue(response.contains("ophalen-gereed"))
     }
 
     @Test
@@ -55,7 +54,7 @@ class MagazijnClientWireMockTest {
             .extract().body().asString()
 
         // Stream moet FOUT status event bevatten voor het falende magazijn
-        org.junit.jupiter.api.Assertions.assertTrue(response.contains("FOUT"))
+        assertTrue(response.contains("FOUT"))
     }
 
     @Test
@@ -72,7 +71,12 @@ class MagazijnClientWireMockTest {
             .then().statusCode(200)
             .extract().body().asString()
 
-        org.junit.jupiter.api.Assertions.assertTrue(response.contains("TIMEOUT") || response.contains("FOUT"))
+        // Een fixed delay langer dan de per-magazijn timeout (10s) moet strikt TIMEOUT opleveren,
+        // niet FOUT. FOUT is voorbehouden aan HTTP-errors / malformed responses.
+        assertTrue(
+            response.contains("TIMEOUT"),
+            "Verwacht TIMEOUT-event maar stream bevatte: $response",
+        )
     }
 
     @Test
@@ -94,7 +98,7 @@ class MagazijnClientWireMockTest {
             .then().statusCode(200)
             .extract().body().asString()
 
-        org.junit.jupiter.api.Assertions.assertTrue(response.contains("FOUT"))
+        assertTrue(response.contains("FOUT"))
     }
 
     @Test
@@ -108,8 +112,8 @@ class MagazijnClientWireMockTest {
             .then().statusCode(200)
             .extract().body().asString()
 
-        org.junit.jupiter.api.Assertions.assertTrue(response.contains("ophalen-gereed"))
-        org.junit.jupiter.api.Assertions.assertTrue(response.contains("\"totaalBerichten\":0"))
+        assertTrue(response.contains("ophalen-gereed"))
+        assertTrue(response.contains("\"totaalBerichten\":0"))
     }
 
     private fun stubMagazijnSuccess(server: com.github.tomakehurst.wiremock.WireMockServer, magazijnId: String) {
