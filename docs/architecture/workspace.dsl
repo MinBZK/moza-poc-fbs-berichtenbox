@@ -152,7 +152,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"
 
-        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt bijlagen op" "Digikoppeling REST API via FSC"
+        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt berichtenlijst, inclusief berichtinhoud en attributen, of bijlagen op" "Digikoppeling REST API via FSC"
         uitvraagBeheerService -> magazijnOphaalBeheerApi "Beheert berichtstatus" "Digikoppeling REST API via FSC"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
