@@ -4,28 +4,36 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
-class MagazijnStatusEventTest {
+class MagazijnEventTest {
 
     @Test
-    fun `MAGAZIJN_STATUS zonder magazijnId gooit IllegalArgumentException`() {
+    fun `MAGAZIJN_BEVRAGING_GESTART zonder magazijnId gooit IllegalArgumentException`() {
         val ex = assertThrows<IllegalArgumentException> {
-            MagazijnStatusEvent(event = EventType.MAGAZIJN_STATUS, status = MagazijnStatus.OK)
+            MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_GESTART)
         }
-        assertEquals("MAGAZIJN_STATUS vereist magazijnId", ex.message)
+        assertEquals("MAGAZIJN_BEVRAGING_GESTART vereist magazijnId", ex.message)
     }
 
     @Test
-    fun `MAGAZIJN_STATUS zonder status gooit IllegalArgumentException`() {
+    fun `MAGAZIJN_BEVRAGING_VOLTOOID zonder magazijnId gooit IllegalArgumentException`() {
         val ex = assertThrows<IllegalArgumentException> {
-            MagazijnStatusEvent(event = EventType.MAGAZIJN_STATUS, magazijnId = "magazijn-a")
+            MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID, status = MagazijnStatus.OK)
         }
-        assertEquals("MAGAZIJN_STATUS vereist status", ex.message)
+        assertEquals("MAGAZIJN_BEVRAGING_VOLTOOID vereist magazijnId", ex.message)
+    }
+
+    @Test
+    fun `MAGAZIJN_BEVRAGING_VOLTOOID zonder status gooit IllegalArgumentException`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID, magazijnId = "magazijn-a")
+        }
+        assertEquals("MAGAZIJN_BEVRAGING_VOLTOOID vereist status", ex.message)
     }
 
     @Test
     fun `OPHALEN_GEREED zonder totaalBerichten gooit IllegalArgumentException`() {
         val ex = assertThrows<IllegalArgumentException> {
-            MagazijnStatusEvent(event = EventType.OPHALEN_GEREED, totaalMagazijnen = 2)
+            MagazijnEvent(event = EventType.OPHALEN_GEREED, totaalMagazijnen = 2)
         }
         assertEquals("OPHALEN_GEREED vereist totaalBerichten", ex.message)
     }
@@ -33,7 +41,7 @@ class MagazijnStatusEventTest {
     @Test
     fun `OPHALEN_GEREED zonder totaalMagazijnen gooit IllegalArgumentException`() {
         val ex = assertThrows<IllegalArgumentException> {
-            MagazijnStatusEvent(event = EventType.OPHALEN_GEREED, totaalBerichten = 5)
+            MagazijnEvent(event = EventType.OPHALEN_GEREED, totaalBerichten = 5)
         }
         assertEquals("OPHALEN_GEREED vereist totaalMagazijnen", ex.message)
     }
@@ -41,7 +49,7 @@ class MagazijnStatusEventTest {
     @Test
     fun `OPHALEN_FOUT zonder foutmelding gooit IllegalArgumentException`() {
         val ex = assertThrows<IllegalArgumentException> {
-            MagazijnStatusEvent(event = EventType.OPHALEN_FOUT, totaalMagazijnen = 2)
+            MagazijnEvent(event = EventType.OPHALEN_FOUT, totaalMagazijnen = 2)
         }
         assertEquals("OPHALEN_FOUT vereist foutmelding", ex.message)
     }
@@ -49,27 +57,39 @@ class MagazijnStatusEventTest {
     @Test
     fun `OPHALEN_FOUT zonder totaalMagazijnen gooit IllegalArgumentException`() {
         val ex = assertThrows<IllegalArgumentException> {
-            MagazijnStatusEvent(event = EventType.OPHALEN_FOUT, foutmelding = "Fout")
+            MagazijnEvent(event = EventType.OPHALEN_FOUT, foutmelding = "Fout")
         }
         assertEquals("OPHALEN_FOUT vereist totaalMagazijnen", ex.message)
     }
 
     @Test
-    fun `geldige MAGAZIJN_STATUS slaagt`() {
-        val event = MagazijnStatusEvent(
-            event = EventType.MAGAZIJN_STATUS,
+    fun `geldige MAGAZIJN_BEVRAGING_GESTART slaagt`() {
+        val event = MagazijnEvent(
+            event = EventType.MAGAZIJN_BEVRAGING_GESTART,
+            magazijnId = "magazijn-a",
+            naam = "Magazijn A",
+        )
+        assertEquals(EventType.MAGAZIJN_BEVRAGING_GESTART, event.event)
+        assertEquals("magazijn-a", event.magazijnId)
+    }
+
+    @Test
+    fun `geldige MAGAZIJN_BEVRAGING_VOLTOOID slaagt`() {
+        val event = MagazijnEvent(
+            event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
             magazijnId = "magazijn-a",
             naam = "Magazijn A",
             status = MagazijnStatus.OK,
             aantalBerichten = 3,
         )
-        assertEquals(EventType.MAGAZIJN_STATUS, event.event)
-        assertEquals("magazijn-a", event.magazijnId)
+        assertEquals(EventType.MAGAZIJN_BEVRAGING_VOLTOOID, event.event)
+        assertEquals(MagazijnStatus.OK, event.status)
+        assertEquals(3, event.aantalBerichten)
     }
 
     @Test
     fun `geldige OPHALEN_GEREED slaagt`() {
-        val event = MagazijnStatusEvent(
+        val event = MagazijnEvent(
             event = EventType.OPHALEN_GEREED,
             totaalBerichten = 5,
             geslaagd = 2,
@@ -82,7 +102,7 @@ class MagazijnStatusEventTest {
 
     @Test
     fun `geldige OPHALEN_FOUT slaagt`() {
-        val event = MagazijnStatusEvent(
+        val event = MagazijnEvent(
             event = EventType.OPHALEN_FOUT,
             foutmelding = "Interne fout",
             totaalMagazijnen = 2,

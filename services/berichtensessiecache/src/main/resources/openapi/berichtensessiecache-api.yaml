@@ -237,8 +237,10 @@ paths:
         Start het ophalen van berichten uit alle aangesloten magazijnen.
         Retourneert een Server-Sent Events stream met voortgangsupdates per magazijn.
 
-        **Event types:**
-        - `magazijn-status` — Status per magazijn (BEZIG → OK / FOUT / TIMEOUT)
+        **Event types** (per magazijn één GESTART, gevolgd door één VOLTOOID;
+        afsluitend voor de hele aggregatie één GEREED of FOUT):
+        - `magazijn-bevraging-gestart` — Bevraging van een magazijn is begonnen
+        - `magazijn-bevraging-voltooid` — Bevraging is afgerond met uitkomst (`status`: OK / FOUT / TIMEOUT)
         - `ophalen-gereed` — Afsluitend event met totaalresultaat
         - `ophalen-fout` — Afsluitend event bij interne fout (bijv. cache-opslag mislukt)
 
@@ -262,7 +264,7 @@ paths:
           content:
             text/event-stream:
               schema:
-                $ref: '#/components/schemas/MagazijnStatusEvent'
+                $ref: '#/components/schemas/MagazijnEvent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -423,20 +425,29 @@ components:
           type: integer
           description: Aantal magazijnen dat een fout gaf
 
-    MagazijnStatusEvent:
+    MagazijnEvent:
       type: object
-      description: SSE event met ophaalstatus per magazijn
+      description: |
+        SSE event in de aggregatiestream. Per magazijn wordt eerst een
+        `magazijn-bevraging-gestart` uitgestuurd en daarna één
+        `magazijn-bevraging-voltooid` met `status` als uitkomst.
+        De stream sluit met één `ophalen-gereed` (of `ophalen-fout`).
       properties:
         event:
           type: string
-          enum: [magazijn-status, ophalen-gereed, ophalen-fout]
+          enum:
+            - magazijn-bevraging-gestart
+            - magazijn-bevraging-voltooid
+            - ophalen-gereed
+            - ophalen-fout
         magazijnId:
           type: string
         naam:
           type: string
         status:
           type: string
-          enum: [BEZIG, OK, FOUT, TIMEOUT]
+          description: Uitkomst van een afgeronde bevraging (alleen op `magazijn-bevraging-voltooid`).
+          enum: [OK, FOUT, TIMEOUT]
         aantalBerichten:
           type: integer
         foutmelding:

@@ -4,20 +4,25 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonValue
 
 enum class EventType(@get:JsonValue val value: String) {
-    MAGAZIJN_STATUS("magazijn-status"),
+    MAGAZIJN_BEVRAGING_GESTART("magazijn-bevraging-gestart"),
+    MAGAZIJN_BEVRAGING_VOLTOOID("magazijn-bevraging-voltooid"),
     OPHALEN_GEREED("ophalen-gereed"),
     OPHALEN_FOUT("ophalen-fout"),
 }
 
+/**
+ * Uitkomst van een afgeronde magazijn-bevraging. Wordt alleen gezet op
+ * `MAGAZIJN_BEVRAGING_VOLTOOID`-events; voor `MAGAZIJN_BEVRAGING_GESTART`
+ * is de uitkomst nog onbekend.
+ */
 enum class MagazijnStatus(@get:JsonValue val value: String) {
-    BEZIG("BEZIG"),
     OK("OK"),
     FOUT("FOUT"),
     TIMEOUT("TIMEOUT"),
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
-data class MagazijnStatusEvent(
+data class MagazijnEvent(
     val event: EventType,
     val magazijnId: String? = null,
     val naam: String? = null,
@@ -31,9 +36,12 @@ data class MagazijnStatusEvent(
 ) {
     init {
         when (event) {
-            EventType.MAGAZIJN_STATUS -> {
-                requireNotNull(magazijnId) { "MAGAZIJN_STATUS vereist magazijnId" }
-                requireNotNull(status) { "MAGAZIJN_STATUS vereist status" }
+            EventType.MAGAZIJN_BEVRAGING_GESTART -> {
+                requireNotNull(magazijnId) { "MAGAZIJN_BEVRAGING_GESTART vereist magazijnId" }
+            }
+            EventType.MAGAZIJN_BEVRAGING_VOLTOOID -> {
+                requireNotNull(magazijnId) { "MAGAZIJN_BEVRAGING_VOLTOOID vereist magazijnId" }
+                requireNotNull(status) { "MAGAZIJN_BEVRAGING_VOLTOOID vereist status" }
             }
             EventType.OPHALEN_GEREED -> {
                 requireNotNull(totaalBerichten) { "OPHALEN_GEREED vereist totaalBerichten" }

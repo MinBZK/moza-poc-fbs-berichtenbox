@@ -39,7 +39,7 @@ class BerichtenOphalenResource(
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     fun ophalenBerichten(
         @HeaderParam("X-Ontvanger") ontvanger: String?,
-    ): Multi<MagazijnStatusEvent> {
+    ): Multi<MagazijnEvent> {
         if (ontvanger.isNullOrBlank()) {
             throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
         }
