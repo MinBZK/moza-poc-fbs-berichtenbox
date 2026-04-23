@@ -1,0 +1,24 @@
+meta {
+  name: 6. Bericht aanleveren - afzender = ontvanger (400)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/berichten
+  body: json
+  auth: none
+}
+
+headers {
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "afzender": "{{afzender}}",
+    "ontvanger": "{{afzender}}",
+    "onderwerp": "Zelfverzonden",
+    "inhoud": "Afzender en ontvanger zijn gelijk; de domein-invariant in Bericht.kt moet dit met 400 afwijzen."
+  }
+}

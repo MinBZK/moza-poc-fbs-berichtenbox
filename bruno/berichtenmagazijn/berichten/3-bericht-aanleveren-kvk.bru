@@ -1,0 +1,24 @@
+meta {
+  name: 3. Bericht aanleveren (ontvanger KVK)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/berichten
+  body: json
+  auth: none
+}
+
+headers {
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "afzender": "{{afzender}}",
+    "ontvanger": "{{ontvangerKvk}}",
+    "onderwerp": "Handelsregister update",
+    "inhoud": "Beste ondernemer,\n\nHierbij een mededeling over uw inschrijving in het handelsregister."
+  }
+}

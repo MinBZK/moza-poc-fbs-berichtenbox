@@ -1,0 +1,24 @@
+meta {
+  name: 5. Bericht aanleveren - ongeldige ontvanger (400)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/berichten
+  body: json
+  auth: none
+}
+
+headers {
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "afzender": "{{afzender}}",
+    "ontvanger": "12345",
+    "onderwerp": "Ongeldige ontvanger",
+    "inhoud": "Ontvanger is te kort; patroon eist 8, 9 of 20 cijfers."
+  }
+}
