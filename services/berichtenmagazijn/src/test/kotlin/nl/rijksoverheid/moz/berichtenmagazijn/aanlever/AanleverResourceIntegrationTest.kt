@@ -182,7 +182,7 @@ class AanleverResourceIntegrationTest {
     }
 
     @Test
-    fun `POST berichten persisteert het bericht in H2`() {
+    fun `POST berichten persisteert het bericht in de database`() {
         val responseBerichtId: String = given()
             .contentType(ContentType.JSON)
             .body(

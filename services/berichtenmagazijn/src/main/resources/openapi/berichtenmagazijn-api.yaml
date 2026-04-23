@@ -67,7 +67,7 @@ components:
           pattern: '^[0-9]{20}$'
           minLength: 20
           maxLength: 20
-          description: OIN (20 cijfers) van de afzendende organisatie
+          description: OIN (20 cijfers) van de versturende organisatie
           example: "00000001003214345000"
         ontvanger:
           type: string
@@ -151,7 +151,7 @@ components:
 
   responses:
     BadRequest:
-      description: Request is syntactisch onjuist, ontbreekt verplichte velden of schendt een domein-invariant
+      description: Request is syntactisch onjuist, mist verplichte velden of schendt een domein-invariant
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'
@@ -160,7 +160,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     Conflict:
-      description: Aanlevering conflicteert met bestaande data (unieke constraint geschonden)
+      description: Aanlevering conflicteert met bestaande data
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'
@@ -169,7 +169,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     InternalServerError:
-      description: Interne fout in het magazijn (bv. onverwachte DB-constraintfout). Response bevat `instance` met correlation-id voor support.
+      description: Interne fout in het magazijn. Response bevat `instance` met correlation-id voor support.
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'
@@ -178,7 +178,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     ServiceUnavailable:
-      description: Magazijn tijdelijk niet beschikbaar (circuit breaker open na opeenvolgende infrastructuurfouten)
+      description: Magazijn tijdelijk niet beschikbaar
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'

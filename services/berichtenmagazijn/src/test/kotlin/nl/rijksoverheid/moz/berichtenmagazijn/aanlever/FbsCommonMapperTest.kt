@@ -64,7 +64,7 @@ class FbsCommonMapperTest {
     }
 
     @Test
-    fun `ProblemExceptionMapper saniteert stacktrace-achtige 4xx detail`() {
+    fun `ProblemExceptionMapper saneert stacktrace-achtige 4xx detail`() {
         val response = ProblemExceptionMapper()
             .toResponse(
                 jakarta.ws.rs.BadRequestException(

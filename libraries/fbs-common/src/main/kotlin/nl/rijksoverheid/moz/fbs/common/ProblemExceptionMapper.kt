@@ -14,7 +14,7 @@ import java.util.UUID
  * - **5xx**: detail wordt gemaskeerd met een generiek bericht plus een UUID-correlation-id
  *   (in zowel `instance` als het errorlog), zodat support een fout kan terugvinden zonder
  *   interne details aan de client te lekken.
- * - **4xx**: de exception-message wordt gesaniteerd (controltekens verwijderd, lengte
+ * - **4xx**: de exception-message wordt gesaneerd (controltekens verwijderd, lengte
  *   geknipt, stacktrace-achtige content gefilterd) en in `detail` opgenomen. Zo blijven
  *   eigen `throw WebApplicationException("Header X verplicht", 400)` constructies nuttig,
  *   terwijl Jakarta-defaults en per ongeluk doorgegeven interne messages geen kanaal

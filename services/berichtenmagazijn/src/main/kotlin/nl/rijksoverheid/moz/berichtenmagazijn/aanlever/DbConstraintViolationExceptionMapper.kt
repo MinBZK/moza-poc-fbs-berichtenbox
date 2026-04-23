@@ -40,7 +40,7 @@ class DbConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolation
             val errorId = UUID.randomUUID()
             log.errorf(
                 exception,
-                "DB-constraint geschonden (niet-uniek, errorId=%s): state=%s constraint=%s",
+                "DB-constraint geschonden (errorId=%s): state=%s constraint=%s",
                 errorId,
                 sqlState ?: "(onbekend)",
                 exception.constraintName ?: "(onbekend)",

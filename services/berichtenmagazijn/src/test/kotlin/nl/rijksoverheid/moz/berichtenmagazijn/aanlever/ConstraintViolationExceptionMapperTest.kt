@@ -41,9 +41,9 @@ class ConstraintViolationExceptionMapperTest {
         val response = mapper.toResponse(exception)
         val detail = (response.entity as Problem).detail ?: ""
 
-        assertTrue(detail.contains("afzender: formaat onjuist"), "afzender detail mist: $detail")
-        assertTrue(detail.contains("inhoud: te lang"), "inhoud detail mist: $detail")
-        assertTrue(detail.contains("; "), "scheidingsteken `; ` mist: $detail")
+        assertTrue(detail.contains("afzender: formaat onjuist"), "afzender detail ontbreekt: $detail")
+        assertTrue(detail.contains("inhoud: te lang"), "inhoud detail ontbreekt: $detail")
+        assertTrue(detail.contains("; "), "scheidingsteken `; ` ontbreekt: $detail")
     }
 
     @Test
