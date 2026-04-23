@@ -23,13 +23,13 @@ paths:
     post:
       tags: [Aanlever]
       summary: Lever een nieuw bericht aan bij het magazijn
-      operationId: aanleverBericht
+      operationId: leverBerichtAan
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AanleverBerichtRequest'
+              $ref: '#/components/schemas/BerichtAanleverenRequest'
       responses:
         '201':
           description: Bericht succesvol opgeslagen
@@ -58,7 +58,7 @@ components:
         example: "0.1.0"
 
   schemas:
-    AanleverBerichtRequest:
+    BerichtAanleverenRequest:
       type: object
       required: [afzender, ontvanger, onderwerp, inhoud]
       properties:

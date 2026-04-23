@@ -8,7 +8,7 @@ import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.berichtenmagazijn.api.AanleverApi
-import nl.rijksoverheid.moz.berichtenmagazijn.api.model.AanleverBerichtRequest
+import nl.rijksoverheid.moz.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.BerichtLinks
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.BerichtResponse
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
@@ -31,14 +31,14 @@ class AanleverResource(
         name = "aanleveren-bericht",
         processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-aanleveren",
     )
-    override fun aanleverBericht(aanleverBerichtRequest: AanleverBerichtRequest): BerichtResponse {
-        val ontvangerDto = aanleverBerichtRequest.ontvanger
+    override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
+        val ontvangerDto = berichtAanleverenRequest.ontvanger
         val bericht = opslagService.opslaanBericht(
-            afzender = aanleverBerichtRequest.afzender,
+            afzender = berichtAanleverenRequest.afzender,
             ontvangerType = IdentificatienummerType.valueOf(ontvangerDto.type.name),
             ontvangerWaarde = ontvangerDto.waarde,
-            onderwerp = aanleverBerichtRequest.onderwerp,
-            inhoud = aanleverBerichtRequest.inhoud,
+            onderwerp = berichtAanleverenRequest.onderwerp,
+            inhoud = berichtAanleverenRequest.inhoud,
         )
 
         // Zet dataSubjectId pas na succesvolle domein-validatie, zodat we geen

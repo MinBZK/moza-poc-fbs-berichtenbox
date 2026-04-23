@@ -10,18 +10,18 @@ import java.util.UUID
  *
  * Het generieke type-parameter `Long` verwijst naar de surrogate primary key van
  * [BerichtEntity]; externe callers adresseren berichten echter via de
- * bedrijfs-identifier ([Bericht.berichtId]). De naamgeving [vind] benadrukt dat er
- * op de business-key wordt gezocht, niet op het technische `id`.
+ * bedrijfs-identifier ([Bericht.berichtId]). De naam [findByBerichtId] onderscheidt
+ * dit expliciet van Panache's `findById` (surrogate PK).
  */
 @ApplicationScoped
 class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
 
     /** Persisteert een gevalideerd domeinobject. De entity-mapping gebeurt hier. */
-    fun opslaan(bericht: Bericht) {
+    fun save(bericht: Bericht) {
         persist(BerichtEntity.fromDomain(bericht))
     }
 
-    /** Haalt een bericht op als domeinobject. Retourneert `null` als het niet bestaat. */
-    fun vind(berichtId: UUID): Bericht? =
+    /** Haalt een bericht op via de business-key. Retourneert `null` als het niet bestaat. */
+    fun findByBerichtId(berichtId: UUID): Bericht? =
         find("berichtId", berichtId).firstResult()?.toDomain()
 }

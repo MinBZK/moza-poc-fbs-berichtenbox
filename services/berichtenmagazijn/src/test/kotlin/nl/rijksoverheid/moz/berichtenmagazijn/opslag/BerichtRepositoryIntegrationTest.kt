@@ -47,9 +47,9 @@ class BerichtRepositoryIntegrationTest {
             tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
 
-        repository.opslaan(original)
+        repository.save(original)
 
-        val found = repository.vind(original.berichtId)
+        val found = repository.findByBerichtId(original.berichtId)
         assertEquals(original, found)
     }
 
@@ -66,9 +66,9 @@ class BerichtRepositoryIntegrationTest {
             tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
 
-        repository.opslaan(bericht)
+        repository.save(bericht)
 
-        val loaded = repository.vind(bericht.berichtId)
+        val loaded = repository.findByBerichtId(bericht.berichtId)
         assertNotNull(loaded)
         assertEquals(largeContent.length, loaded!!.inhoud.length)
         assertEquals(largeContent, loaded.inhoud)
@@ -86,9 +86,9 @@ class BerichtRepositoryIntegrationTest {
             tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
 
-        repository.opslaan(bericht)
+        repository.save(bericht)
 
-        val loaded = repository.vind(bericht.berichtId)!!
+        val loaded = repository.findByBerichtId(bericht.berichtId)!!
         assertEquals(Kvk::class, loaded.ontvanger::class)
         assertEquals("12345678", loaded.ontvanger.waarde)
     }
@@ -107,7 +107,7 @@ class BerichtRepositoryIntegrationTest {
         )
         val second = first.copy(onderwerp = "Tweede", inhoud = "2")
 
-        repository.opslaan(first)
+        repository.save(first)
         // flush+clear om de eerste entity uit de in-memory persistence context te
         // halen, anders blokkeert Hibernate de tweede persist met EntityExistsException
         // (NonUniqueObjectException) vóór de DB überhaupt wordt geraakt. We willen
@@ -116,7 +116,7 @@ class BerichtRepositoryIntegrationTest {
         entityManager.clear()
 
         val ex = assertThrows(RuntimeException::class.java) {
-            repository.opslaan(second)
+            repository.save(second)
             entityManager.flush()
         }
         // Borg expliciet dat een PK-violation als Hibernate ConstraintViolationException
@@ -162,5 +162,5 @@ class BerichtRepositoryIntegrationTest {
     }
 
     @Transactional
-    fun findByIdInTransaction(berichtId: UUID): Bericht? = repository.vind(berichtId)
+    fun findByIdInTransaction(berichtId: UUID): Bericht? = repository.findByBerichtId(berichtId)
 }

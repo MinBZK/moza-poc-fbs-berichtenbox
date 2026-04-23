@@ -46,7 +46,7 @@ class CircuitBreakerTripTest {
     @Test
     fun `PersistenceException opent circuit na threshold en volgende requests krijgen 503`() {
         val failingRepo = mockk<BerichtRepository>(relaxed = true)
-        every { failingRepo.opslaan(any<Bericht>()) } throws PersistenceException("infra fout")
+        every { failingRepo.save(any<Bericht>()) } throws PersistenceException("infra fout")
         QuarkusMock.installMockForType(failingRepo, BerichtRepository::class.java)
 
         val statusses = (1..30).map {

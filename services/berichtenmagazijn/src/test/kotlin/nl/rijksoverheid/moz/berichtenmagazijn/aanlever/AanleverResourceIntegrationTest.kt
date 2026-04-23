@@ -208,7 +208,7 @@ class AanleverResourceIntegrationTest {
         // Zoek het bericht op met de teruggegeven berichtId en verifieer dat alle
         // velden uit de request daadwerkelijk in de DB zijn beland (en correct
         // getypeerd zijn gehydrateerd via toDomain()).
-        val opgeslagen = repository.vind(java.util.UUID.fromString(responseBerichtId))
+        val opgeslagen = repository.findByBerichtId(java.util.UUID.fromString(responseBerichtId))
         assertNotNull(opgeslagen, "bericht ontbreekt in DB voor berichtId=$responseBerichtId")
         assertEquals("00000001003214345000", opgeslagen!!.afzender.waarde)
         assertEquals("999993653", opgeslagen.ontvanger.waarde)

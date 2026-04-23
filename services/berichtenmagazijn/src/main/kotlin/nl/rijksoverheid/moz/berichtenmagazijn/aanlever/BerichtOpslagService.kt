@@ -64,7 +64,7 @@ class BerichtOpslagService(
         )
 
         try {
-            repository.opslaan(bericht)
+            repository.save(bericht)
         } catch (ex: PersistenceException) {
             // Persist-specifieke fouten loggen we met service-context (afzender/ontvanger)
             // zodat diagnose mogelijk blijft óók wanneer de mapper het detail maskeert.

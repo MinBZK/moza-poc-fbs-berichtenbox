@@ -19,7 +19,7 @@ class BerichtOpslagServiceTest {
     @Test
     fun `opslaanBericht roept repository opslaan aan en retourneert het domeinobject`() {
         val berichtSlot = slot<Bericht>()
-        every { repository.opslaan(capture(berichtSlot)) } answers { }
+        every { repository.save(capture(berichtSlot)) } answers { }
 
         val bericht = service.opslaanBericht(
             afzender = "00000001003214345000",
@@ -37,7 +37,7 @@ class BerichtOpslagServiceTest {
         assertEquals("Voorlopige aanslag 2026", bericht.onderwerp)
         assertEquals("Hierbij ontvangt u...", bericht.inhoud)
 
-        verify { repository.opslaan(any<Bericht>()) }
+        verify { repository.save(any<Bericht>()) }
         assertEquals(bericht, berichtSlot.captured)
     }
 }

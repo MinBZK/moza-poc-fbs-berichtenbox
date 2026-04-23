@@ -36,7 +36,7 @@ class CircuitBreakerSkipOnTest {
 
     private fun installFailingRepository(throwable: Throwable) {
         val failingRepo = mockk<BerichtRepository>(relaxed = true)
-        every { failingRepo.opslaan(any<Bericht>()) } throws throwable
+        every { failingRepo.save(any<Bericht>()) } throws throwable
         QuarkusMock.installMockForType(failingRepo, BerichtRepository::class.java)
     }
 
