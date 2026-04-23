@@ -5,7 +5,9 @@ import com.atlassian.oai.validator.restassured.OpenApiValidationFilter
 import io.quarkus.test.junit.QuarkusMock
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
+import io.mockk.mockk
 import io.restassured.http.ContentType
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType
 import org.hamcrest.Matchers.`is`
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
 import org.junit.jupiter.api.BeforeEach
@@ -28,11 +30,12 @@ class DbConstraintViolation409ContractTest {
     @BeforeEach
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
-            repository = io.mockk.mockk(relaxed = true),
+            repository = mockk(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,
-                ontvanger: String,
+                ontvangerType: IdentificatienummerType,
+                ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
             ): Nothing = throw HibernateConstraintViolationException(
@@ -53,7 +56,7 @@ class DbConstraintViolation409ContractTest {
                 """
                 {
                   "afzender": "00000001003214345000",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Test",
                   "inhoud": "Test"
                 }

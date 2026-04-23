@@ -5,8 +5,10 @@ import com.atlassian.oai.validator.restassured.OpenApiValidationFilter
 import io.quarkus.test.junit.QuarkusMock
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
+import io.mockk.mockk
 import io.restassured.http.ContentType
 import jakarta.ws.rs.InternalServerErrorException
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType
 import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.matchesRegex
 import org.hamcrest.Matchers.not
@@ -29,11 +31,12 @@ class InternalError500ContractTest {
     @BeforeEach
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
-            repository = io.mockk.mockk(relaxed = true),
+            repository = mockk(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,
-                ontvanger: String,
+                ontvangerType: IdentificatienummerType,
+                ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
             ): Nothing = throw InternalServerErrorException("SELECT * FROM berichten WHERE secret=redacted")
@@ -50,7 +53,7 @@ class InternalError500ContractTest {
                 """
                 {
                   "afzender": "00000001003214345000",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Test",
                   "inhoud": "Test"
                 }

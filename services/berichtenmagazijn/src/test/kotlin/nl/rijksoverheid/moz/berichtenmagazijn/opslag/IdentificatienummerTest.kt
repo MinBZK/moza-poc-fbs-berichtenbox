@@ -1,5 +1,9 @@
 package nl.rijksoverheid.moz.berichtenmagazijn.opslag
 
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType.BSN
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType.KVK
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType.OIN
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType.RSIN
 import nl.rijksoverheid.moz.fbs.common.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -15,6 +19,7 @@ class IdentificatienummerTest {
     fun `Oin met 20 cijfers is geldig`() {
         val oin = Oin("00000001003214345000")
         assertEquals("00000001003214345000", oin.waarde)
+        assertEquals(OIN, oin.type)
     }
 
     @Test
@@ -38,6 +43,7 @@ class IdentificatienummerTest {
     fun `Kvk met 8 cijfers is geldig`() {
         val kvk = Kvk("12345678")
         assertEquals("12345678", kvk.waarde)
+        assertEquals(KVK, kvk.type)
     }
 
     @Test
@@ -56,6 +62,7 @@ class IdentificatienummerTest {
     fun `Bsn 999993653 is geldig (elfproef)`() {
         val bsn = Bsn("999993653")
         assertEquals("999993653", bsn.waarde)
+        assertEquals(BSN, bsn.type)
     }
 
     @Test
@@ -80,41 +87,6 @@ class IdentificatienummerTest {
         assertThrows(DomainValidationException::class.java) { Bsn("99999365a") }
     }
 
-    // --- parse factory ---------------------------------------------------------
-
-    @Test
-    fun `parse 8 cijfers geeft Kvk`() {
-        assertInstanceOf(Kvk::class.java, Identificatienummer.parse("12345678"))
-    }
-
-    @Test
-    fun `parse 9 cijfers (geldige BSN) geeft Bsn`() {
-        assertInstanceOf(Bsn::class.java, Identificatienummer.parse("999993653"))
-    }
-
-    @Test
-    fun `parse 20 cijfers geeft Oin`() {
-        assertInstanceOf(Oin::class.java, Identificatienummer.parse("00000001003214345000"))
-    }
-
-    @Test
-    fun `parse 10 cijfers faalt met duidelijke boodschap`() {
-        val ex = assertThrows(DomainValidationException::class.java) {
-            Identificatienummer.parse("1234567890")
-        }
-        val message = ex.message ?: ""
-        assertTrue(message.contains("8 (KVK)"), "bericht moet KVK-lengte noemen: $message")
-        assertTrue(message.contains("9 (BSN)"), "bericht moet BSN-lengte noemen: $message")
-        assertTrue(message.contains("20 (OIN)"), "bericht moet OIN-lengte noemen: $message")
-    }
-
-    @Test
-    fun `parse trimt whitespace`() {
-        val id = Identificatienummer.parse("  999993653  ")
-        assertInstanceOf(Bsn::class.java, id)
-        assertEquals("999993653", id.waarde)
-    }
-
     @Test
     fun `BSN bestaande uit negen nullen wordt geweigerd`() {
         val ex = assertThrows(DomainValidationException::class.java) { Bsn("000000000") }
@@ -122,5 +94,65 @@ class IdentificatienummerTest {
             ex.message?.contains("nullen") == true,
             "bericht moet verwijzen naar nullen-check: ${ex.message}",
         )
+    }
+
+    // --- Rsin (elfproef, 9 cijfers, gescheiden van BSN) -----------------------
+
+    @Test
+    fun `Rsin met geldige elfproef is geldig en onderscheidt zich van Bsn`() {
+        val rsin = Rsin("111222333")
+        assertEquals("111222333", rsin.waarde)
+        assertEquals(RSIN, rsin.type)
+    }
+
+    @Test
+    fun `Rsin faalt elfproef`() {
+        assertThrows(DomainValidationException::class.java) { Rsin("999993654") }
+    }
+
+    // --- of(type, waarde) factory ---------------------------------------------
+
+    @Test
+    fun `of KVK geeft Kvk-instance met type KVK`() {
+        val id = Identificatienummer.of(KVK, "12345678")
+        assertInstanceOf(Kvk::class.java, id)
+        assertEquals(KVK, id.type)
+    }
+
+    @Test
+    fun `of BSN geeft Bsn, niet Rsin, ook als waarde een geldige RSIN-pattern kon zijn`() {
+        // Expliciet type voorkomt silent-fallback zoals length-based parse dat wel deed.
+        val id = Identificatienummer.of(BSN, "999993653")
+        assertInstanceOf(Bsn::class.java, id)
+        assertEquals(BSN, id.type)
+    }
+
+    @Test
+    fun `of RSIN geeft Rsin, niet Bsn, bij dezelfde 9-cijferige waarde`() {
+        val id = Identificatienummer.of(RSIN, "111222333")
+        assertInstanceOf(Rsin::class.java, id)
+        assertEquals(RSIN, id.type)
+    }
+
+    @Test
+    fun `of OIN geeft Oin`() {
+        val id = Identificatienummer.of(OIN, "00000001003214345000")
+        assertInstanceOf(Oin::class.java, id)
+        assertEquals(OIN, id.type)
+    }
+
+    @Test
+    fun `of trimt whitespace`() {
+        val id = Identificatienummer.of(BSN, "  999993653  ")
+        assertInstanceOf(Bsn::class.java, id)
+        assertEquals("999993653", id.waarde)
+    }
+
+    @Test
+    fun `of BSN met waarde die niet aan elfproef voldoet faalt met duidelijke boodschap`() {
+        val ex = assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.of(BSN, "999993654")
+        }
+        assertEquals("BSN voldoet niet aan elfproef", ex.message)
     }
 }

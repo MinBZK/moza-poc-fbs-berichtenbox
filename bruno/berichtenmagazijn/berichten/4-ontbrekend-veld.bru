@@ -17,7 +17,7 @@ headers {
 body:json {
   {
     "afzender": "{{afzender}}",
-    "ontvanger": "{{ontvangerPersoon}}",
+    "ontvanger": { "type": "BSN", "waarde": "{{ontvangerPersoon}}" },
     "inhoud": "Een bericht zonder onderwerp-veld - dit moet een 400 Problem JSON opleveren."
   }
 }

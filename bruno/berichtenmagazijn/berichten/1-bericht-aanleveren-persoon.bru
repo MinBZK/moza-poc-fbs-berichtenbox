@@ -17,7 +17,7 @@ headers {
 body:json {
   {
     "afzender": "{{afzender}}",
-    "ontvanger": "{{ontvangerPersoon}}",
+    "ontvanger": { "type": "BSN", "waarde": "{{ontvangerPersoon}}" },
     "onderwerp": "Voorlopige aanslag 2026",
     "inhoud": "Beste belastingplichtige,\n\nHierbij ontvangt u uw voorlopige aanslag inkomstenbelasting 2026."
   }

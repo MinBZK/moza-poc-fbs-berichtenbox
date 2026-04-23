@@ -9,7 +9,7 @@ import java.util.UUID
  * Gescheiden van [BerichtEntity] (JPA) om domeinlogica onafhankelijk te houden van persistentie.
  *
  * Afzender is altijd een [Oin] (organisatie). Ontvanger kan elk [Identificatienummer]-
- * type zijn (BSN, KvK of OIN). Typen zijn value classes die hun eigen invarianten
+ * type zijn (BSN, RSIN, KvK of OIN). Typen zijn value classes die hun eigen invarianten
  * afdwingen bij constructie — deze data class hoeft die dus niet te herhalen.
  */
 data class Bericht(
@@ -18,7 +18,7 @@ data class Bericht(
     val ontvanger: Identificatienummer,
     val onderwerp: String,
     val inhoud: String,
-    val tijdstip: Instant,
+    val tijdstipOntvangst: Instant,
 ) {
     init {
         requireValid(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }

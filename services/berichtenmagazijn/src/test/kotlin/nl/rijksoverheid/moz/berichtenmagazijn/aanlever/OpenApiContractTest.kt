@@ -59,7 +59,7 @@ class OpenApiContractTest {
                 """
                 {
                   "afzender": "00000001003214345000",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Contract test",
                   "inhoud": "Contract test inhoud"
                 }

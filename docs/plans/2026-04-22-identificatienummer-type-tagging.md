@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** In uitvoering (berichtenmagazijn afgerond; sessiecache-stap volgt)
 **Datum:** 2026-04-22
 **Module:** `services/berichtenmagazijn`
 

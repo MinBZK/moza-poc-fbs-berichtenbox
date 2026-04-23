@@ -44,7 +44,7 @@ class BerichtRepositoryIntegrationTest {
             ontvanger = Bsn("999993653"),
             onderwerp = "Voorlopige aanslag 2026",
             inhoud = "Hierbij ontvangt u de voorlopige aanslag.",
-            tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
 
         repository.opslaan(original)
@@ -63,7 +63,7 @@ class BerichtRepositoryIntegrationTest {
             ontvanger = Bsn("999993653"),
             onderwerp = "Groot bericht",
             inhoud = largeContent,
-            tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
 
         repository.opslaan(bericht)
@@ -83,7 +83,7 @@ class BerichtRepositoryIntegrationTest {
             ontvanger = Kvk("12345678"),
             onderwerp = "Aan organisatie",
             inhoud = "Inhoud",
-            tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
 
         repository.opslaan(bericht)
@@ -103,7 +103,7 @@ class BerichtRepositoryIntegrationTest {
             ontvanger = Bsn("999993653"),
             onderwerp = "Eerste",
             inhoud = "1",
-            tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
         val second = first.copy(onderwerp = "Tweede", inhoud = "2")
 
@@ -152,10 +152,11 @@ class BerichtRepositoryIntegrationTest {
         val corrupt = BerichtEntity().apply {
             this.berichtId = berichtId
             afzender = "kort"  // bewust ongeldig: geen 20-cijferige OIN
-            ontvanger = "999993653"
+            ontvangerType = IdentificatienummerType.BSN
+            ontvangerWaarde = "999993653"
             onderwerp = "Test"
             inhoud = "Inhoud"
-            tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS)
         }
         entityManager.persist(corrupt)
     }

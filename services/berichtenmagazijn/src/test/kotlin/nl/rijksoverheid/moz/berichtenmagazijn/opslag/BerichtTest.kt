@@ -19,7 +19,7 @@ class BerichtTest {
         ontvanger = ontvanger,
         onderwerp = onderwerp,
         inhoud = inhoud,
-        tijdstip = Instant.now(),
+        tijdstipOntvangst = Instant.now(),
     )
 
     @Test

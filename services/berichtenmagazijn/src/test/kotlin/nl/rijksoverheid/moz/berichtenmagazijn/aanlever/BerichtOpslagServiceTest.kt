@@ -6,6 +6,7 @@ import io.mockk.slot
 import io.mockk.verify
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.BerichtRepository
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
@@ -22,14 +23,16 @@ class BerichtOpslagServiceTest {
 
         val bericht = service.opslaanBericht(
             afzender = "00000001003214345000",
-            ontvanger = "999993653",
+            ontvangerType = IdentificatienummerType.BSN,
+            ontvangerWaarde = "999993653",
             onderwerp = "Voorlopige aanslag 2026",
             inhoud = "Hierbij ontvangt u...",
         )
 
         assertNotNull(bericht.berichtId)
-        assertNotNull(bericht.tijdstip)
+        assertNotNull(bericht.tijdstipOntvangst)
         assertEquals("00000001003214345000", bericht.afzender.waarde)
+        assertEquals(IdentificatienummerType.BSN, bericht.ontvanger.type)
         assertEquals("999993653", bericht.ontvanger.waarde)
         assertEquals("Voorlopige aanslag 2026", bericht.onderwerp)
         assertEquals("Hierbij ontvangt u...", bericht.inhoud)

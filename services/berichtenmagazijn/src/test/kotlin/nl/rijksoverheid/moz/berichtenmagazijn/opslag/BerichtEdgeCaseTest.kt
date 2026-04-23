@@ -28,7 +28,7 @@ class BerichtEdgeCaseTest {
         ontvanger = ontvanger,
         onderwerp = onderwerp,
         inhoud = inhoud,
-        tijdstip = Instant.now(),
+        tijdstipOntvangst = Instant.now(),
     )
 
     // Karakters die als "isNotBlank()" doorgaan maar bijzondere implicaties hebben
@@ -107,23 +107,20 @@ class BerichtEdgeCaseTest {
         }
 
     @TestFactory
-    fun `Identificatienummer parse — willekeurige numerieke strings van 0 tot 25 cijfers`() =
+    fun `Identificatienummer of — expliciet type scheidt Bsn en Rsin bij gelijke 9-cijfer-waarde`() =
         listOf(Random(seed = 7L)).map { rng ->
-            DynamicTest.dynamicTest("alleen lengtes 8, 9, 20 leveren een type op") {
-                repeat(500) {
-                    val lengte = rng.nextInt(0, 26)
-                    val s = (0 until lengte).map { rng.nextInt(10) }.joinToString("")
-                    val result = runCatching { Identificatienummer.parse(s) }
-                    when (lengte) {
-                        8 -> check(result.isSuccess) { "lengte 8 moet lukken: $s" }
-                        9 -> {
-                            // 9 cijfers mogelijk via elfproef geldig, mogelijk niet — maar
-                            // het type is altijd Bsn (of faalt met DomainValidationException).
-                            result.onFailure { check(it is DomainValidationException) }
-                        }
-                        20 -> check(result.isSuccess) { "lengte 20 moet lukken: $s" }
-                        else -> check(result.isFailure) { "lengte $lengte moet falen: $s" }
+            DynamicTest.dynamicTest("of(BSN,…) en of(RSIN,…) produceren verschillende typen op dezelfde waarde") {
+                repeat(200) {
+                    val waarde = (1..9).map { rng.nextInt(10) }.joinToString("")
+                    val bsn = runCatching { Identificatienummer.of(IdentificatienummerType.BSN, waarde) }
+                    val rsin = runCatching { Identificatienummer.of(IdentificatienummerType.RSIN, waarde) }
+                    // Beide gebruiken dezelfde elfproef, dus slagen of falen gelijktijdig.
+                    check(bsn.isSuccess == rsin.isSuccess) { "BSN/RSIN validatie moet symmetrisch: $waarde" }
+                    if (bsn.isSuccess) {
+                        check(bsn.getOrThrow() is Bsn) { "of(BSN) moet Bsn geven, niet ${bsn.getOrThrow()::class}" }
+                        check(rsin.getOrThrow() is Rsin) { "of(RSIN) moet Rsin geven, niet ${rsin.getOrThrow()::class}" }
                     }
+                    bsn.onFailure { check(it is DomainValidationException) }
                 }
             }
         }

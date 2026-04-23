@@ -7,6 +7,8 @@ import jakarta.inject.Inject
 import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.BerichtRepository
 import org.hamcrest.Matchers.containsString
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.matchesRegex
 import org.hamcrest.Matchers.notNullValue
@@ -34,7 +36,7 @@ class AanleverResourceIntegrationTest {
                 """
                 {
                   "afzender": "00000001003214345000",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Voorlopige aanslag 2026",
                   "inhoud": "Hierbij ontvangt u..."
                 }
@@ -54,9 +56,10 @@ class AanleverResourceIntegrationTest {
             .contentType("application/json")
             .body("berichtId", matchesRegex("[0-9a-f-]{36}"))
             .body("afzender", `is`("00000001003214345000"))
-            .body("ontvanger", `is`("999993653"))
+            .body("ontvanger.type", `is`("BSN"))
+            .body("ontvanger.waarde", `is`("999993653"))
             .body("onderwerp", `is`("Voorlopige aanslag 2026"))
-            .body("tijdstip", notNullValue())
+            .body("tijdstipOntvangst", notNullValue())
             .body("_links.self.href", containsString("/api/v1/berichten/"))
     }
 
@@ -93,7 +96,7 @@ class AanleverResourceIntegrationTest {
                 """
                 {
                   "afzender": "00000001003214345000",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "",
                   "inhoud": "Hierbij ontvangt u..."
                 }
@@ -115,7 +118,7 @@ class AanleverResourceIntegrationTest {
                 """
                 {
                   "afzender": "00000001003214345000",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "$tooLong",
                   "inhoud": "Hierbij ontvangt u..."
                 }
@@ -139,7 +142,7 @@ class AanleverResourceIntegrationTest {
                 """
                 {
                   "afzender": "00000001003214345000",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "   ",
                   "inhoud": "Hierbij ontvangt u..."
                 }
@@ -167,7 +170,7 @@ class AanleverResourceIntegrationTest {
                 """
                 {
                   "afzender": "12345678",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Test",
                   "inhoud": "Inhoud"
                 }
@@ -189,7 +192,7 @@ class AanleverResourceIntegrationTest {
                 """
                 {
                   "afzender": "00000001003214345000",
-                  "ontvanger": "999993653",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Test persistentie",
                   "inhoud": "Inhoud"
                 }
@@ -200,8 +203,17 @@ class AanleverResourceIntegrationTest {
             .statusCode(201)
             .extract().path("berichtId")
 
-        val opgeslagenAantal = repository.count()
-        assert(opgeslagenAantal == 1L) { "Verwacht 1 bericht in DB, kreeg $opgeslagenAantal" }
         assert(responseBerichtId.isNotBlank())
+
+        // Zoek het bericht op met de teruggegeven berichtId en verifieer dat alle
+        // velden uit de request daadwerkelijk in de DB zijn beland (en correct
+        // getypeerd zijn gehydrateerd via toDomain()).
+        val opgeslagen = repository.vind(java.util.UUID.fromString(responseBerichtId))
+        assertNotNull(opgeslagen, "bericht ontbreekt in DB voor berichtId=$responseBerichtId")
+        assertEquals("00000001003214345000", opgeslagen!!.afzender.waarde)
+        assertEquals("999993653", opgeslagen.ontvanger.waarde)
+        assertEquals(nl.rijksoverheid.moz.berichtenmagazijn.opslag.Bsn::class, opgeslagen.ontvanger::class)
+        assertEquals("Test persistentie", opgeslagen.onderwerp)
+        assertEquals("Inhoud", opgeslagen.inhoud)
     }
 }

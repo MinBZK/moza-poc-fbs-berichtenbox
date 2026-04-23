@@ -28,7 +28,7 @@ class CircuitBreakerSkipOnTest {
     private fun validPayload() = """
         {
           "afzender": "00000001003214345000",
-          "ontvanger": "999993653",
+          "ontvanger": {"type": "BSN", "waarde": "999993653"},
           "onderwerp": "Test",
           "inhoud": "Test"
         }

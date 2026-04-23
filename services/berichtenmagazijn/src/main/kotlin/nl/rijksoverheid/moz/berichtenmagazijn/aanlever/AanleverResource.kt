@@ -11,7 +11,9 @@ import nl.rijksoverheid.moz.berichtenmagazijn.api.AanleverApi
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.AanleverBerichtRequest
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.BerichtLinks
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.BerichtResponse
+import nl.rijksoverheid.moz.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.Link
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType
 
 @Path("/api/v1/berichten")
 @ApplicationScoped
@@ -30,9 +32,11 @@ class AanleverResource(
         processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-aanleveren",
     )
     override fun aanleverBericht(aanleverBerichtRequest: AanleverBerichtRequest): BerichtResponse {
+        val ontvangerDto = aanleverBerichtRequest.ontvanger
         val bericht = opslagService.opslaanBericht(
             afzender = aanleverBerichtRequest.afzender,
-            ontvanger = aanleverBerichtRequest.ontvanger,
+            ontvangerType = IdentificatienummerType.valueOf(ontvangerDto.type.name),
+            ontvangerWaarde = ontvangerDto.waarde,
             onderwerp = aanleverBerichtRequest.onderwerp,
             inhoud = aanleverBerichtRequest.inhoud,
         )
@@ -54,9 +58,12 @@ class AanleverResource(
         return BerichtResponse().apply {
             berichtId = bericht.berichtId
             afzender = bericht.afzender.waarde
-            ontvanger = bericht.ontvanger.waarde
+            ontvanger = IdentificatienummerDto().apply {
+                type = IdentificatienummerDto.TypeEnum.valueOf(bericht.ontvanger.type.name)
+                waarde = bericht.ontvanger.waarde
+            }
             onderwerp = bericht.onderwerp
-            tijdstip = bericht.tijdstip
+            tijdstipOntvangst = bericht.tijdstipOntvangst
             links = BerichtLinks().apply {
                 self = Link().apply { href = selfHref }
             }

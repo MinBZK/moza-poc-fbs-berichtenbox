@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.berichtenmagazijn.opslag
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import jakarta.ws.rs.InternalServerErrorException
@@ -33,8 +35,15 @@ internal class BerichtEntity {
     @Column(nullable = false, length = 20)
     var afzender: String = ""
 
-    @Column(nullable = false, length = 20)
-    var ontvanger: String = ""
+    // Het type wordt als string (enum-name) opgeslagen i.p.v. ordinaal: leesbaar in de DB
+    // en forward-compatible met nieuwe enum-waarden (herordening van de enum zou ordinale
+    // opslag stiekem breken).
+    @Column(name = "ontvanger_type", nullable = false, length = 8)
+    @Enumerated(EnumType.STRING)
+    var ontvangerType: IdentificatienummerType = IdentificatienummerType.OIN
+
+    @Column(name = "ontvanger_waarde", nullable = false, length = 20)
+    var ontvangerWaarde: String = ""
 
     @Column(nullable = false, length = 255)
     var onderwerp: String = ""
@@ -42,17 +51,17 @@ internal class BerichtEntity {
     @Column(nullable = false, columnDefinition = "CLOB")
     var inhoud: String = ""
 
-    @Column(nullable = false)
-    var tijdstip: Instant = Instant.EPOCH
+    @Column(name = "tijdstip_ontvangst", nullable = false)
+    var tijdstipOntvangst: Instant = Instant.EPOCH
 
     fun toDomain(): Bericht = try {
         Bericht(
             berichtId = berichtId,
             afzender = Oin(afzender),
-            ontvanger = Identificatienummer.parse(ontvanger),
+            ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
             onderwerp = onderwerp,
             inhoud = inhoud,
-            tijdstip = tijdstip,
+            tijdstipOntvangst = tijdstipOntvangst,
         )
     } catch (ex: DomainValidationException) {
         // Bij hydratatie zijn alle invarianten al door fromDomain geverifieerd vóór persist.
@@ -63,10 +72,11 @@ internal class BerichtEntity {
         // raw DomainValidationException als 400 te exposen.
         log.errorf(
             ex,
-            "DB-rij corrupt of niet-conform: berichtId=%s afzender.length=%d ontvanger.length=%d",
+            "DB-rij corrupt of niet-conform: berichtId=%s afzender.length=%d ontvangerType=%s ontvangerWaarde.length=%d",
             berichtId,
             afzender.length,
-            ontvanger.length,
+            ontvangerType,
+            ontvangerWaarde.length,
         )
         throw InternalServerErrorException(
             "DB-rij berichtId=$berichtId voldoet niet aan domein-invarianten",
@@ -81,10 +91,11 @@ internal class BerichtEntity {
         internal fun fromDomain(bericht: Bericht): BerichtEntity = BerichtEntity().apply {
             berichtId = bericht.berichtId
             afzender = bericht.afzender.waarde
-            ontvanger = bericht.ontvanger.waarde
+            ontvangerType = bericht.ontvanger.type
+            ontvangerWaarde = bericht.ontvanger.waarde
             onderwerp = bericht.onderwerp
             inhoud = bericht.inhoud
-            tijdstip = bericht.tijdstip
+            tijdstipOntvangst = bericht.tijdstipOntvangst
         }
     }
 }

@@ -17,8 +17,8 @@ headers {
 body:json {
   {
     "afzender": "{{afzender}}",
-    "ontvanger": "12345",
+    "ontvanger": { "type": "BSN", "waarde": "12345" },
     "onderwerp": "Ongeldige ontvanger",
-    "inhoud": "Ontvanger is te kort; patroon eist 8, 9 of 20 cijfers."
+    "inhoud": "Ontvanger-waarde voldoet niet aan de type-invarianten (BSN moet 9 cijfers + elfproef zijn)."
   }
 }

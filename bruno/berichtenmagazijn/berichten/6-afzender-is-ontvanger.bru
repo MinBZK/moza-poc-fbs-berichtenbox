@@ -17,7 +17,7 @@ headers {
 body:json {
   {
     "afzender": "{{afzender}}",
-    "ontvanger": "{{afzender}}",
+    "ontvanger": { "type": "OIN", "waarde": "{{afzender}}" },
     "onderwerp": "Zelfverzonden",
     "inhoud": "Afzender en ontvanger zijn gelijk; de domein-invariant in Bericht.kt moet dit met 400 afwijzen."
   }

@@ -7,6 +7,7 @@ import jakarta.ws.rs.ClientErrorException
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.Identificatienummer
+import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.Oin
 import nl.rijksoverheid.moz.fbs.common.DomainValidationException
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker
@@ -48,17 +49,18 @@ class BerichtOpslagService(
     @Transactional
     fun opslaanBericht(
         afzender: String,
-        ontvanger: String,
+        ontvangerType: IdentificatienummerType,
+        ontvangerWaarde: String,
         onderwerp: String,
         inhoud: String,
     ): Bericht {
         val bericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = Oin(afzender),
-            ontvanger = Identificatienummer.parse(ontvanger),
+            ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
             onderwerp = onderwerp,
             inhoud = inhoud,
-            tijdstip = Instant.now(),
+            tijdstipOntvangst = Instant.now(),
         )
 
         try {
@@ -71,9 +73,10 @@ class BerichtOpslagService(
             // mét eigen errorId, zodat we hier geen verwarrende dubbele log-context maken.
             log.errorf(
                 ex,
-                "Persist mislukt voor berichtId=%s afzender=%s ontvanger=%s onderwerp.length=%d inhoud.length=%d",
+                "Persist mislukt voor berichtId=%s afzender=%s ontvanger=%s:%s onderwerp.length=%d inhoud.length=%d",
                 bericht.berichtId,
                 bericht.afzender.waarde,
+                bericht.ontvanger.type,
                 bericht.ontvanger.waarde,
                 bericht.onderwerp.length,
                 bericht.inhoud.length,
@@ -82,9 +85,10 @@ class BerichtOpslagService(
         }
 
         log.debugf(
-            "Bericht opgeslagen: berichtId=%s afzender=%s ontvanger=%s",
+            "Bericht opgeslagen: berichtId=%s afzender=%s ontvanger=%s:%s",
             bericht.berichtId,
             bericht.afzender.waarde,
+            bericht.ontvanger.type,
             bericht.ontvanger.waarde,
         )
         return bericht

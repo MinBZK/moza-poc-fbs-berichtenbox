@@ -17,7 +17,7 @@ headers {
 body:json {
   {
     "afzender": "{{afzender}}",
-    "ontvanger": "{{ontvangerOrganisatie}}",
+    "ontvanger": { "type": "OIN", "waarde": "{{ontvangerOrganisatie}}" },
     "onderwerp": "Jaarafrekening 2025",
     "inhoud": "Beste organisatie,\n\nHierbij ontvangt u uw jaarafrekening over 2025."
   }

@@ -17,7 +17,7 @@ headers {
 body:json {
   {
     "afzender": "{{afzender}}",
-    "ontvanger": "{{ontvangerKvk}}",
+    "ontvanger": { "type": "KVK", "waarde": "{{ontvangerKvk}}" },
     "onderwerp": "Handelsregister update",
     "inhoud": "Beste ondernemer,\n\nHierbij een mededeling over uw inschrijving in het handelsregister."
   }

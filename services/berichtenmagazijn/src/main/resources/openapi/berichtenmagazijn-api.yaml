@@ -70,16 +70,7 @@ components:
           description: OIN (20 cijfers) van de versturende organisatie
           example: "00000001003214345000"
         ontvanger:
-          type: string
-          pattern: '^([0-9]{8}|[0-9]{9}|[0-9]{20})$'
-          minLength: 8
-          maxLength: 20
-          description: |
-            Identificatienummer van de ontvanger. Drie toegestane lengtes:
-              - 8 cijfers  → KVK-nummer van organisatie
-              - 9 cijfers  → BSN van natuurlijk persoon (gevalideerd met elfproef)
-              - 20 cijfers → OIN van organisatie
-          example: "999993653"
+          $ref: '#/components/schemas/Identificatienummer'
         onderwerp:
           type: string
           minLength: 1
@@ -92,9 +83,31 @@ components:
           maxLength: 1048576
           description: Berichtinhoud (tekst, max 1 MiB)
 
+    Identificatienummer:
+      type: object
+      required: [type, waarde]
+      description: |
+        Getypeerd identificatienummer. `type` is verplicht en wordt niet uit `waarde`
+        afgeleid; onbekende types of waardes die niet aan de type-invarianten voldoen
+        (lengte, cijfers-only, elfproef voor BSN/RSIN) resulteren in een 400-response.
+      properties:
+        type:
+          type: string
+          enum: [BSN, RSIN, KVK, OIN]
+          description: Type identificatienummer
+        waarde:
+          type: string
+          pattern: '^[0-9]{1,20}$'
+          minLength: 8
+          maxLength: 20
+          description: Numerieke waarde, valide conform het opgegeven type
+      example:
+        type: BSN
+        waarde: "123456782"
+
     BerichtResponse:
       type: object
-      required: [berichtId, afzender, ontvanger, onderwerp, tijdstip, _links]
+      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, _links]
       properties:
         berichtId:
           type: string
@@ -102,17 +115,16 @@ components:
           description: Unieke identifier van het opgeslagen bericht
         afzender:
           type: string
-          description: OIN van de afzendende organisatie (echo van de request)
+          description: OIN van de versturende organisatie (echo van de request)
         ontvanger:
-          type: string
-          description: Identificatienummer van de ontvanger (echo; KVK/BSN/OIN)
+          $ref: '#/components/schemas/Identificatienummer'
         onderwerp:
           type: string
           description: Onderwerp van het bericht (echo van de request)
-        tijdstip:
+        tijdstipOntvangst:
           type: string
           format: date-time
-          description: Tijdstip van opslag in het magazijn (ISO 8601)
+          description: Tijdstip waarop het magazijn het bericht heeft ontvangen (server-side gezet, ISO 8601)
         _links:
           $ref: '#/components/schemas/BerichtLinks'
 
