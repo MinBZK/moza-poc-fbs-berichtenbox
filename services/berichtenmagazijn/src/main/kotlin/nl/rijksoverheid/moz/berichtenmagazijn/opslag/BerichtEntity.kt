@@ -4,6 +4,8 @@ import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
+import jakarta.persistence.GeneratedValue
+import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import jakarta.ws.rs.InternalServerErrorException
@@ -14,9 +16,15 @@ import java.util.UUID
 
 /**
  * JPA-persistentie-representatie van een [Bericht]. Deze klasse is `internal`
- * omdat externe code alleen via [BerichtRepository.opslaan] (schrijven) of
- * [BerichtEntity.toDomain] (lezen, via repository) mag werken; directe entity-
- * mutatie omzeilt de invarianten van [Bericht].
+ * omdat externe code alleen via [BerichtRepository] (schrijven/lezen) mag werken;
+ * directe entity-mutatie omzeilt de invarianten van [Bericht].
+ *
+ * De primary key [id] is een door de database gegenereerde surrogate key die
+ * losstaat van de bedrijfs-identifier [berichtId]. Zo blijft de PK stabiel als de
+ * business-id-semantiek ooit verandert, en kan er nooit een natuurlijke
+ * eigenschap per ongeluk als PK fungeren. [berichtId] blijft uniek
+ * (via UNIQUE-constraint) zodat de 409 Conflict-semantiek van de Aanlever API
+ * bewaard blijft.
  *
  * De velden hebben default-initialisers zodat Hibernate via de no-arg constructor kan
  * hydrateren en `fromDomain` meteen alle waarden zet. Daarmee bestaat er geen
@@ -29,7 +37,11 @@ import java.util.UUID
 internal class BerichtEntity {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(nullable = false)
+    var id: Long = 0
+
+    @Column(name = "bericht_id", nullable = false, unique = true)
     var berichtId: UUID = PLACEHOLDER_UUID
 
     @Column(nullable = false, length = 20)
@@ -72,7 +84,8 @@ internal class BerichtEntity {
         // raw DomainValidationException als 400 te exposen.
         log.errorf(
             ex,
-            "DB-rij corrupt of niet-conform: berichtId=%s afzender.length=%d ontvangerType=%s ontvangerWaarde.length=%d",
+            "DB-rij corrupt of niet-conform: id=%d berichtId=%s afzender.length=%d ontvangerType=%s ontvangerWaarde.length=%d",
+            id,
             berichtId,
             afzender.length,
             ontvangerType,
