@@ -190,6 +190,8 @@
                 <configuration>
                     <excludes>
                         <exclude>nl/rijksoverheid/moz/berichtenmagazijn/api/**</exclude>
+                        <!-- fbs-common heeft eigen testsuite; uitsluiten voorkomt dubbele meting. -->
+                        <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
                     </excludes>
                     <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
                 </configuration>
@@ -206,12 +208,14 @@
                         <configuration>
                             <excludes>
                                 <exclude>nl/rijksoverheid/moz/berichtenmagazijn/api/**</exclude>
+                                <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
                             </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
                                     <excludes>
                                         <exclude>nl.rijksoverheid.moz.berichtenmagazijn.api.*</exclude>
+                                        <exclude>nl.rijksoverheid.moz.fbs.common.*</exclude>
                                     </excludes>
                                     <limits>
                                         <limit>

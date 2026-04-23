@@ -72,6 +72,12 @@
             <version>1.13.16</version>
             <scope>test</scope>
         </dependency>
+        <!-- RuntimeDelegate-implementatie voor JAX-RS `Response.status(...)` in mapper-tests. -->
+        <dependency>
+            <groupId>org.jboss.resteasy</groupId>
+            <artifactId>resteasy-core</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
