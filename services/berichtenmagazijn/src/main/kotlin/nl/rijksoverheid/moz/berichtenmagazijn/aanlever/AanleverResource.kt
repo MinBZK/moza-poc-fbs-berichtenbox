@@ -7,6 +7,7 @@ import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.rijksoverheid.moz.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.berichtenmagazijn.api.AanleverApi
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.BerichtLinks
@@ -15,7 +16,7 @@ import nl.rijksoverheid.moz.berichtenmagazijn.api.model.Identificatienummer as I
 import nl.rijksoverheid.moz.berichtenmagazijn.api.model.Link
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType
 
-@Path("/api/v1/berichten")
+@Path(ApiInfo.BASE_PATH + "/berichten")
 @ApplicationScoped
 class AanleverResource(
     private val opslagService: BerichtOpslagService,
@@ -49,8 +50,7 @@ class AanleverResource(
         logboekContext.dataSubjectType = "ontvanger"
 
         val selfHref = uriInfo.baseUriBuilder
-            .path("api")
-            .path("v1")
+            .path(ApiInfo.BASE_PATH)
             .path("berichten")
             .path(bericht.berichtId.toString())
             .build()

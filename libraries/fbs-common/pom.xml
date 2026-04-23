@@ -55,6 +55,12 @@
             <artifactId>jboss-logging</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- @ConfigProperty voor ApiVersionFilter; wordt door de service-runtime (Quarkus) geleverd. -->
+        <dependency>
+            <groupId>org.eclipse.microprofile.config</groupId>
+            <artifactId>microprofile-config-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
             <artifactId>logboekdataverwerking-wrapper</artifactId>
