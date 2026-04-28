@@ -81,7 +81,11 @@ components:
           type: string
           minLength: 1
           maxLength: 1048576
-          description: Berichtinhoud (tekst, max 1 MiB)
+          description: |
+            Berichtinhoud (tekst). De server-side grens is **1 MiB UTF-8 bytes**, niet
+            characters; bij multibyte-tekens (bv. emoji's, 4 bytes elk) past dus minder
+            tekst dan `maxLength` doet vermoeden. `maxLength` is in JSON-Schema in
+            characters gedefinieerd en dient hier als grove bovengrens.
 
     Identificatienummer:
       type: object

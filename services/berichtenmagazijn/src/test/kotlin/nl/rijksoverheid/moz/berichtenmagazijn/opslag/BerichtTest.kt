@@ -49,8 +49,13 @@ class BerichtTest {
 
     @Test
     fun `te lange inhoud faalt`() {
-        val lang = "x".repeat(Bericht.MAX_INHOUD_LENGTE + 1)
+        // ASCII = 1 UTF-8 byte/char, dus byte-grens overschrijden vereist één extra byte.
+        val lang = "x".repeat(Bericht.MAX_INHOUD_BYTES + 1)
         val ex = assertThrows(IllegalArgumentException::class.java) { bericht(inhoud = lang) }
-        assertEquals("inhoud mag max ${Bericht.MAX_INHOUD_LENGTE} characters zijn", ex.message)
+        val miB = Bericht.MAX_INHOUD_BYTES / 1024 / 1024
+        assertEquals(
+            "inhoud mag max $miB MiB UTF-8 zijn (kreeg ${Bericht.MAX_INHOUD_BYTES + 1} bytes)",
+            ex.message,
+        )
     }
 }
