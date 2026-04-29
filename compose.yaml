@@ -44,8 +44,12 @@ services:
       POSTGRES_USER: berichtenmagazijn
       POSTGRES_PASSWORD: berichtenmagazijn
       POSTGRES_DB: berichtenmagazijn
+    # Postgres 18+ verwacht een mount op /var/lib/postgresql (zonder /data); de
+    # data komt in een major-version-subdirectory (`/var/lib/postgresql/18/docker`).
+    # Zo blijft `pg_upgrade --link` mogelijk bij toekomstige major upgrades.
+    # Zie https://github.com/docker-library/postgres/pull/1259.
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U berichtenmagazijn -d berichtenmagazijn"]
       interval: 5s
