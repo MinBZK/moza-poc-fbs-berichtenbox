@@ -77,7 +77,7 @@ class BerichtOpslagService(
             // mét eigen errorId, zodat we hier geen verwarrende dubbele log-context maken.
             log.errorf(
                 ex,
-                "Persist mislukt berichtId=%s afzenderType=OIN ontvangerType=%s onderwerp.length=%d inhoud.length=%d",
+                "Persist mislukt berichtId=%s ontvangerType=%s onderwerp.length=%d inhoud.length=%d",
                 bericht.berichtId,
                 bericht.ontvanger.type,
                 bericht.onderwerp.length,
@@ -87,7 +87,7 @@ class BerichtOpslagService(
         }
 
         log.debugf(
-            "Bericht opgeslagen: berichtId=%s afzenderType=OIN ontvangerType=%s",
+            "Bericht opgeslagen: berichtId=%s ontvangerType=%s",
             bericht.berichtId,
             bericht.ontvanger.type,
         )

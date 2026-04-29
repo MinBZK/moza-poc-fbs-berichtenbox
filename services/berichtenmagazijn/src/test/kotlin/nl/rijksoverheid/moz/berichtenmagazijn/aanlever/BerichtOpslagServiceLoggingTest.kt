@@ -84,10 +84,6 @@ class BerichtOpslagServiceLoggingTest {
             output.contains("ontvangerType=BSN"),
             "ontvangerType hoort wél in de log voor diagnose — output: $output",
         )
-        assertTrue(
-            output.contains("afzenderType=OIN"),
-            "afzenderType hoort wél in de log voor diagnose — output: $output",
-        )
     }
 
     @Test
