@@ -31,7 +31,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 ## Conventies
 
 - **GroupId:** `nl.rijksoverheid.moz`
-- **Packages:** `nl.rijksoverheid.moz.<service-naam>.*`
+- **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
 - **Actieve modules:** Alleen `services/berichtensessiecache` is geregistreerd in de parent POM. `services/berichtenlijst/` bestaat als directory maar is niet actief.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
