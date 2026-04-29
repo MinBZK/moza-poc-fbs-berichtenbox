@@ -138,8 +138,8 @@
                             <inputSpec>${project.basedir}/src/main/resources/openapi/berichtensessiecache-api.yaml</inputSpec>
                             <generatorName>jaxrs-spec</generatorName>
                             <output>${project.build.directory}/generated-sources/openapi</output>
-                            <apiPackage>nl.rijksoverheid.moz.berichtensessiecache.api</apiPackage>
-                            <modelPackage>nl.rijksoverheid.moz.berichtensessiecache.api.model</modelPackage>
+                            <apiPackage>nl.rijksoverheid.moz.fbs.berichtensessiecache.api</apiPackage>
+                            <modelPackage>nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model</modelPackage>
                             <configOptions>
                                 <interfaceOnly>true</interfaceOnly>
                                 <returnResponse>false</returnResponse>
@@ -180,7 +180,7 @@
                 <configuration>
                     <excludes>
                         <!-- Gegenereerde OpenAPI model-klassen -->
-                        <exclude>nl/rijksoverheid/moz/berichtensessiecache/api/**</exclude>
+                        <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/api/**</exclude>
                     </excludes>
                     <!-- quarkus-jacoco schrijft naar target/jacoco-quarkus.exec -->
                     <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
