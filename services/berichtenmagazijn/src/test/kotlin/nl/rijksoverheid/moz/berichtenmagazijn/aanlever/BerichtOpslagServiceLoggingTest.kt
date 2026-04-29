@@ -87,7 +87,7 @@ class BerichtOpslagServiceLoggingTest {
     }
 
     @Test
-    fun `error-log bij persist-fout bevat ontvangerType maar geen BSN-waarde`() {
+    fun `error-log bij opslagfout bevat ontvangerType maar geen BSN-waarde`() {
         every { repository.save(any<Bericht>()) } throws PersistenceException("infra fout")
 
         assertThrows(PersistenceException::class.java) {
@@ -113,7 +113,7 @@ class BerichtOpslagServiceLoggingTest {
             "ontvangerType hoort wél in de error-log voor diagnose — output: $output",
         )
         assertTrue(
-            output.contains("Persist mislukt"),
+            output.contains("Opslaan mislukt"),
             "error-log moet herkenbare prefix hebben — output: $output",
         )
     }

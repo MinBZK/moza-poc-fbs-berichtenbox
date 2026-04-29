@@ -66,10 +66,10 @@ class BerichtOpslagService(
         try {
             repository.save(bericht)
         } catch (ex: PersistenceException) {
-            // Persist-specifieke fouten loggen we met service-context (type + lengtes) zodat
-            // diagnose mogelijk blijft óók wanneer de mapper het detail maskeert. De waarde
-            // van afzender/ontvanger blijft buiten de applicatielog: ontvanger kan een BSN
-            // zijn en persoonsgegevens horen niet in de reguliere log (AVG art. 5 lid 1c,
+            // Opslagfouten loggen we met service-context (type + lengtes) zodat diagnose
+            // mogelijk blijft óók wanneer de mapper het detail maskeert. De waarde van
+            // afzender/ontvanger blijft buiten de applicatielog: ontvanger kan een BSN zijn
+            // en persoonsgegevens horen niet in de reguliere log (AVG art. 5 lid 1c,
             // BIO 12.4.1). LDV is de juiste plek voor dataSubjectId.
             //
             // Andere RuntimeExceptions (NPE, programmeerfout) vallen door — die worden
@@ -77,7 +77,7 @@ class BerichtOpslagService(
             // mét eigen errorId, zodat we hier geen verwarrende dubbele log-context maken.
             log.errorf(
                 ex,
-                "Persist mislukt berichtId=%s ontvangerType=%s onderwerp.length=%d inhoud.length=%d",
+                "Opslaan mislukt berichtId=%s ontvangerType=%s onderwerp.length=%d inhoud.length=%d",
                 bericht.berichtId,
                 bericht.ontvanger.type,
                 bericht.onderwerp.length,
