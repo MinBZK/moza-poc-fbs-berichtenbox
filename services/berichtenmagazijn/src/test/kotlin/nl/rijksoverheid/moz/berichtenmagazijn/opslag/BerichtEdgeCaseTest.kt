@@ -87,24 +87,29 @@ class BerichtEdgeCaseTest {
     }
 
     @TestFactory
-    fun `inhoud byte-grens werkt op multibyte-characters (emoji)`() = listOf(
-        // 😀 = U+1F600 = 4 UTF-8 bytes per emoji.
-        // 262_144 × 4 = 1_048_576 = MAX_INHOUD_BYTES → moet net passen.
-        262_144 to true,
-        // 262_145 × 4 = 1_048_580 → 4 bytes over de grens.
-        262_145 to false,
-    ).map { (aantalEmoji, valid) ->
-        DynamicTest.dynamicTest("$aantalEmoji× emoji (×4 bytes) moet ${if (valid) "lukken" else "falen"}") {
-            val s = "😀".repeat(aantalEmoji) // 😀
-            if (valid) {
-                bericht(inhoud = s)
-            } else {
-                val ex = assertThrows(DomainValidationException::class.java) { bericht(inhoud = s) }
-                check(ex.message!!.contains("MiB UTF-8")) {
-                    "foutmelding moet de MiB UTF-8 grens noemen, kreeg: ${ex.message}"
+    fun `inhoud byte-grens werkt op multibyte-characters (emoji)`(): List<DynamicTest> {
+        // 😀 = U+1F600 = 4 UTF-8 bytes; deelbaar op MAX_INHOUD_BYTES, dus exact passend.
+        val maxAantalEmoji = Bericht.MAX_INHOUD_BYTES / UTF8_BYTES_PER_EMOJI
+        return listOf(
+            maxAantalEmoji to true,
+            maxAantalEmoji + 1 to false,
+        ).map { (aantalEmoji, valid) ->
+            DynamicTest.dynamicTest("$aantalEmoji× emoji moet ${if (valid) "lukken" else "falen"}") {
+                val s = "😀".repeat(aantalEmoji)
+                if (valid) {
+                    bericht(inhoud = s)
+                } else {
+                    val ex = assertThrows(DomainValidationException::class.java) { bericht(inhoud = s) }
+                    check(ex.message!!.contains("MiB UTF-8")) {
+                        "foutmelding moet de MiB UTF-8 grens noemen, kreeg: ${ex.message}"
+                    }
                 }
             }
         }
+    }
+
+    private companion object {
+        const val UTF8_BYTES_PER_EMOJI = 4
     }
 
     @TestFactory

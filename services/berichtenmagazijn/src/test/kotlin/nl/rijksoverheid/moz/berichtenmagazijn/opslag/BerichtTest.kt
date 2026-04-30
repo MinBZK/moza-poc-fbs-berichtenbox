@@ -31,20 +31,20 @@ class BerichtTest {
     @Test
     fun `blank onderwerp faalt`() {
         val ex = assertThrows(IllegalArgumentException::class.java) { bericht(onderwerp = "\t") }
-        assertEquals("onderwerp mag niet leeg zijn", ex.message)
+        assertEquals("Onderwerp mag niet leeg zijn", ex.message)
     }
 
     @Test
     fun `blank inhoud faalt`() {
         val ex = assertThrows(IllegalArgumentException::class.java) { bericht(inhoud = "   ") }
-        assertEquals("inhoud mag niet leeg zijn", ex.message)
+        assertEquals("Inhoud mag niet leeg zijn", ex.message)
     }
 
     @Test
     fun `te lange onderwerp faalt`() {
         val lang = "x".repeat(Bericht.MAX_ONDERWERP_LENGTE + 1)
         val ex = assertThrows(IllegalArgumentException::class.java) { bericht(onderwerp = lang) }
-        assertEquals("onderwerp mag max ${Bericht.MAX_ONDERWERP_LENGTE} characters zijn", ex.message)
+        assertEquals("Onderwerp mag max ${Bericht.MAX_ONDERWERP_LENGTE} characters zijn", ex.message)
     }
 
     @Test
@@ -54,7 +54,7 @@ class BerichtTest {
         val ex = assertThrows(IllegalArgumentException::class.java) { bericht(inhoud = lang) }
         val miB = Bericht.MAX_INHOUD_BYTES / 1024 / 1024
         assertEquals(
-            "inhoud mag max $miB MiB UTF-8 zijn (kreeg ${Bericht.MAX_INHOUD_BYTES + 1} bytes)",
+            "Inhoud mag max $miB MiB UTF-8 zijn (kreeg ${Bericht.MAX_INHOUD_BYTES + 1} bytes)",
             ex.message,
         )
     }

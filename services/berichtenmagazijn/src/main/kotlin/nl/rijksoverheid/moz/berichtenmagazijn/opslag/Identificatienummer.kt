@@ -22,10 +22,9 @@ sealed interface Identificatienummer {
          * Gooit [DomainValidationException] als de waarde niet aan de type-invarianten
          * voldoet (lengte, cijfers-only, elfproef voor BSN/RSIN, niet-geheel-nullen).
          *
-         * Strikt: geen impliciete trim of normalisatie. Het OpenAPI-pattern dwingt
-         * cijfers-only al af aan de rand; aanvullende whitespace is een clientfout
-         * die we niet willen verbergen omdat het asymmetrie creëert tussen
-         * `of(type, "  …  ")` en de directe value-class constructors (`Bsn(...)`).
+         * Geen impliciete trim of normalisatie: aanvullende whitespace is een clientfout.
+         * Dit voorkomt asymmetrie tussen `of(type, "  …  ")` en de directe value-class
+         * constructors (`Bsn(...)`) — die accepteren whitespace ook niet.
          */
         fun of(type: IdentificatienummerType, waarde: String): Identificatienummer = when (type) {
             IdentificatienummerType.BSN -> Bsn(waarde)
