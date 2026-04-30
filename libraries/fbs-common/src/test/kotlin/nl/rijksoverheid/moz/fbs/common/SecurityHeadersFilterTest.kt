@@ -12,38 +12,44 @@ class SecurityHeadersFilterTest {
 
     private val filter = SecurityHeadersFilter()
 
-    private fun apply(): MultivaluedHashMap<String, Any> {
+    // Exacte waarden — internet.nl test op deze strings.
+    private val expected = mapOf(
+        "Strict-Transport-Security" to "max-age=31536000; includeSubDomains; preload",
+        "X-Frame-Options" to "DENY",
+        "X-Content-Type-Options" to "nosniff",
+        "Content-Security-Policy" to "frame-ancestors 'none'",
+        "Referrer-Policy" to "no-referrer",
+    )
+
+    private fun runFilter(initial: Map<String, String> = emptyMap()): MultivaluedHashMap<String, Any> {
         val req = mockk<ContainerRequestContext>()
         val res = mockk<ContainerResponseContext>()
         val headers = MultivaluedHashMap<String, Any>()
+        initial.forEach { (k, v) -> headers.add(k, v) }
         every { res.headers } returns headers
         filter.filter(req, res)
         return headers
     }
 
-    @Test
-    fun `zet alle vereiste security-headers met exacte waarden`() {
-        // Exacte waarden — internet.nl test op deze strings.
-        val headers = apply()
-        assertEquals(
-            "max-age=31536000; includeSubDomains; preload",
-            headers.getFirst("Strict-Transport-Security"),
-        )
-        assertEquals("DENY", headers.getFirst("X-Frame-Options"))
-        assertEquals("nosniff", headers.getFirst("X-Content-Type-Options"))
-        assertEquals("frame-ancestors 'none'", headers.getFirst("Content-Security-Policy"))
-        assertEquals("no-referrer", headers.getFirst("Referrer-Policy"))
+    private fun assertExpectedHeaders(headers: MultivaluedHashMap<String, Any>) {
+        expected.forEach { (name, value) ->
+            assertEquals(listOf(value), headers[name]) {
+                "$name: enkele waarde verwacht ($value), kreeg ${headers[name]}"
+            }
+        }
     }
 
     @Test
-    fun `tweede call overschrijft, geen duplicate headers`() {
-        val req = mockk<ContainerRequestContext>()
-        val res = mockk<ContainerResponseContext>()
-        val headers = MultivaluedHashMap<String, Any>()
-        every { res.headers } returns headers
-        filter.filter(req, res)
-        filter.filter(req, res)
-        assertEquals(1, headers.getValue("Strict-Transport-Security").size)
-        assertEquals(1, headers.getValue("X-Frame-Options").size)
+    fun `zet alle vereiste security-headers met exacte waarden`() {
+        assertExpectedHeaders(runFilter())
+    }
+
+    @Test
+    fun `bestaande security-header-waarden worden vervangen door de filter-waarden`() {
+        // Vooraf vullen met bewust afwijkende waarden simuleert een eerder filter of
+        // resource-level header die nooit naar de client mag lekken: het security-filter
+        // moet ze allemaal overschrijven, zonder duplicaten te creëren.
+        val initial = expected.mapValues { "OUDE_${it.key}_WAARDE" }
+        assertExpectedHeaders(runFilter(initial))
     }
 }
