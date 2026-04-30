@@ -60,7 +60,7 @@ internal class BerichtEntity {
     @Column(nullable = false, length = 255)
     var onderwerp: String = ""
 
-    @Column(nullable = false, columnDefinition = "CLOB")
+    @Column(nullable = false, columnDefinition = "TEXT")
     var inhoud: String = ""
 
     @Column(name = "tijdstip_ontvangst", nullable = false)
