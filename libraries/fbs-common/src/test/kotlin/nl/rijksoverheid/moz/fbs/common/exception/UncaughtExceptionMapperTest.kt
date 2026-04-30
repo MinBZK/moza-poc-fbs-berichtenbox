@@ -1,7 +1,5 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
-import nl.rijksoverheid.moz.fbs.common.exception.Problem
-import nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
