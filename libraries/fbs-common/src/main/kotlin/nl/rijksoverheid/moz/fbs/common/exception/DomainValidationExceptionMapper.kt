@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.annotation.Priority
 import jakarta.ws.rs.Priorities
@@ -10,8 +10,8 @@ import org.jboss.logging.Logger
 /**
  * Mapt [DomainValidationException] naar 400 met de door het domein zelf
  * geformuleerde boodschap — deze berichten zijn handgeschreven en veilig te delen.
- * Moet een hogere priority hebben dan [IllegalArgumentExceptionMapper] zodat JAX-RS
- * deze specifiekere mapper kiest.
+ * `@Priority(USER - 100)` is een tiebreaker; JAX-RS kiest deze mapper sowieso al
+ * via type-specificiteit boven [UncaughtExceptionMapper] (`<Exception>`).
  */
 @Provider
 @Priority(Priorities.USER - 100)
@@ -21,16 +21,6 @@ class DomainValidationExceptionMapper : ExceptionMapper<DomainValidationExceptio
 
     override fun toResponse(exception: DomainValidationException): Response {
         log.infof("Domeinvalidatie geschonden: %s", exception.message)
-
-        val problem = Problem(
-            title = "Bad Request",
-            status = 400,
-            detail = exception.message,
-        )
-
-        return Response.status(400)
-            .type(ProblemMediaType.APPLICATION_PROBLEM_JSON_TYPE)
-            .entity(problem)
-            .build()
+        return problemResponse(status = 400, title = "Bad Request", detail = exception.message)
     }
 }

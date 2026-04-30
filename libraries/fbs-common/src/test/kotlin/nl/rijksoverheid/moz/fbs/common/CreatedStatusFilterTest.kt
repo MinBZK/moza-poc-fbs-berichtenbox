@@ -1,11 +1,10 @@
-package nl.rijksoverheid.moz.berichtenmagazijn.aanlever
+package nl.rijksoverheid.moz.fbs.common
 
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerResponseContext
-import nl.rijksoverheid.moz.fbs.common.CreatedStatusFilter
 import org.junit.jupiter.api.Test
 
 class CreatedStatusFilterTest {

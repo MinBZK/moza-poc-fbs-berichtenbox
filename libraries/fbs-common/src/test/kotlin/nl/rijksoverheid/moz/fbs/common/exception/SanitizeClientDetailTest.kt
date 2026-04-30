@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse

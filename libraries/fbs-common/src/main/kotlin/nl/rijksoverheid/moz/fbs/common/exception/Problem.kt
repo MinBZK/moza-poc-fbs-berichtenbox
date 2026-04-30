@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import java.net.URI

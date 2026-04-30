@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
@@ -9,7 +9,7 @@ import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import org.jboss.logging.Logger
 
-private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.common.JsonProcessingExceptionMapper")
+private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.common.exception.JsonProcessingExceptionMapper")
 
 // Veilig pad: Java-identifier segmenten, gescheiden door `.`, optioneel met array-indexen.
 // Weigert o.a. HTML, control-chars, spaties — alles wat attacker-controlled keys kenmerkt.
@@ -36,16 +36,7 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
         else -> "Ongeldige JSON-invoer."
     }
 
-    val problem = Problem(
-        title = "Bad Request",
-        status = 400,
-        detail = detail,
-    )
-
-    return Response.status(400)
-        .type(ProblemMediaType.APPLICATION_PROBLEM_JSON_TYPE)
-        .entity(problem)
-        .build()
+    return problemResponse(status = 400, title = "Bad Request", detail = detail)
 }
 
 /**

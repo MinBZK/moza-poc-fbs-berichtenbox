@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.InternalServerErrorException

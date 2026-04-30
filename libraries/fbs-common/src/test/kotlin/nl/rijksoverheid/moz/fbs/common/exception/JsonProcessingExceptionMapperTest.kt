@@ -1,11 +1,8 @@
-package nl.rijksoverheid.moz.berichtenmagazijn.aanlever
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
-import nl.rijksoverheid.moz.fbs.common.JsonProcessingExceptionMapper
-import nl.rijksoverheid.moz.fbs.common.MismatchedInputExceptionMapper
-import nl.rijksoverheid.moz.fbs.common.Problem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -68,6 +65,62 @@ class JsonProcessingExceptionMapperTest {
         assertEquals(400, response.status)
         val problem = response.entity as Problem
         assertEquals("Bad Request", problem.title)
+        assertEquals("Ongeldige JSON-invoer.", problem.detail)
+    }
+
+    // De pad-filtering (SAFE_PATH_PATTERN) is bedoeld als reflected-XSS-defensie:
+    // bij Map/JsonNode-deserialisatie zijn keys door de aanvaller bepaald, dus alleen
+    // identifier-paden mogen letterlijk in de response terug. Onveilige paden vallen
+    // terug op het generieke bericht zonder veld te noemen.
+
+    @Test
+    fun `pad met HTML-achtige key valt terug op generiek bericht`() {
+        val ex = causeMismatchedInput("""{"<script>alert(1)</script>": {"x": "abc"}}""")
+
+        val problem = MismatchedInputExceptionMapper().toResponse(ex).entity as Problem
+
+        assertEquals("Ongeldige JSON-invoer.", problem.detail)
+        assertFalse(problem.detail!!.contains("<")) { "HTML mag niet reflected: ${problem.detail}" }
+        assertFalse(problem.detail!!.contains("script"))
+    }
+
+    @Test
+    fun `pad met spatie in key valt terug op generiek bericht`() {
+        val ex = causeMismatchedInput("""{"my key": {"x": "abc"}}""")
+
+        val problem = MismatchedInputExceptionMapper().toResponse(ex).entity as Problem
+
+        assertEquals("Ongeldige JSON-invoer.", problem.detail)
+    }
+
+    @Test
+    fun `geneste path met identifier-keys wordt wel gehonoreerd`() {
+        val ex = causeMismatchedInput("""{"data": {"leeftijd": "niet"}}""")
+
+        val problem = MismatchedInputExceptionMapper().toResponse(ex).entity as Problem
+
+        assertTrue(problem.detail!!.contains("data.leeftijd")) {
+            "veld-pad met identifier-keys moet zichtbaar zijn: ${problem.detail}"
+        }
+    }
+
+    @Test
+    fun `pad met array-index valt terug op generiek bericht (huidige join-vorm matcht niet)`() {
+        // De helper joined paden met `.` als separator, wat voor array-elementen
+        // `data.[0].naam` produceert i.p.v. `data[0].naam`. Het SAFE_PATH_PATTERN
+        // verwacht het tweede formaat, dus paden met index vallen terug op
+        // het generieke bericht. Dit test borgt dat gedrag (geen reflected key bij
+        // bv. een element-niveau parse-fout in een lijst).
+        val ex = runCatching {
+            objectMapper.readValue(
+                """[{"leeftijd": "niet"}]""",
+                object : TypeReference<List<Map<String, Int>>>() {},
+            )
+        }.exceptionOrNull() as? MismatchedInputException
+            ?: error("verwachte MismatchedInputException")
+
+        val problem = MismatchedInputExceptionMapper().toResponse(ex).entity as Problem
+
         assertEquals("Ongeldige JSON-invoer.", problem.detail)
     }
 }

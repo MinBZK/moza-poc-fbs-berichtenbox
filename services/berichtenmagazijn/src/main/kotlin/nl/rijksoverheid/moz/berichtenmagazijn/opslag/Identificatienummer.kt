@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.berichtenmagazijn.opslag
 
-import nl.rijksoverheid.moz.fbs.common.DomainValidationException
-import nl.rijksoverheid.moz.fbs.common.requireValid
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.exception.requireValid
 
 /**
  * Polymorfe identificatie van een natuurlijk persoon of organisatie in FBS.

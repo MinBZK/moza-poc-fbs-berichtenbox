@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 /**
  * Marker-exception voor domein-validatiefouten afkomstig van expliciete checks in
@@ -6,7 +6,7 @@ package nl.rijksoverheid.moz.fbs.common
  * veilig een door de developer geschreven boodschap aan de client exposen
  * (zie [DomainValidationExceptionMapper] → 400). Generieke [IllegalArgumentException]s
  * uit dependencies/JDK worden behandeld als programmeerfout en krijgen een
- * 500-response met correlation-id (zie [IllegalArgumentExceptionMapper]).
+ * 500-response met correlation-id via [UncaughtExceptionMapper].
  */
 class DomainValidationException(message: String, cause: Throwable? = null) :
     IllegalArgumentException(message, cause)

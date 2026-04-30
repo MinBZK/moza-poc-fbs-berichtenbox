@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.berichtenmagazijn.opslag
 
-import nl.rijksoverheid.moz.fbs.common.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.DynamicTest

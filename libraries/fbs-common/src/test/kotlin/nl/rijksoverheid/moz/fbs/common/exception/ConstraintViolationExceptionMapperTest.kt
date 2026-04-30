@@ -1,18 +1,14 @@
-package nl.rijksoverheid.moz.berichtenmagazijn.aanlever
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import io.mockk.every
 import io.mockk.mockk
-import io.quarkus.test.junit.QuarkusTest
 import jakarta.validation.ConstraintViolation
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Path
-import nl.rijksoverheid.moz.fbs.common.ConstraintViolationExceptionMapper
-import nl.rijksoverheid.moz.fbs.common.Problem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-@QuarkusTest
 class ConstraintViolationExceptionMapperTest {
 
     private val mapper = ConstraintViolationExceptionMapper()

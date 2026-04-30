@@ -4,7 +4,7 @@ import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType.BSN
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType.KVK
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType.OIN
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType.RSIN
-import nl.rijksoverheid.moz.fbs.common.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows

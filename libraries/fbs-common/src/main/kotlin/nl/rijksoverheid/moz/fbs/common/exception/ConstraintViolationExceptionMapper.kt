@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.validation.ConstraintViolationException
 import jakarta.ws.rs.core.Response
@@ -7,7 +7,7 @@ import jakarta.ws.rs.ext.Provider
 import org.jboss.logging.Logger
 
 /**
- * Mapt Bean Validation [ConstraintViolationException] (uit `@Valid`/`@NotNull`/`@Pattern`
+ * Mapt Bean Validation [jakarta.validation.ConstraintViolationException] (uit `@Valid`/`@NotNull`/`@Pattern`
  * op gegenereerde API-interfaces) naar 400 Problem JSON. Detail formatteert elke
  * schending als `paramName: message`, gescheiden door `;`, zodat de client weet welk
  * veld ongeldig was zonder dat interne paths gelekt worden.
@@ -25,15 +25,6 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
             "$paramName: ${it.message}"
         }
 
-        val problem = Problem(
-            title = "Bad Request",
-            status = 400,
-            detail = detail,
-        )
-
-        return Response.status(400)
-            .type(ProblemMediaType.APPLICATION_PROBLEM_JSON_TYPE)
-            .entity(problem)
-            .build()
+        return problemResponse(status = 400, title = "Bad Request", detail = detail)
     }
 }
