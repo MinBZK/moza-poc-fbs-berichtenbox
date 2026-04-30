@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.berichtenmagazijn.opslag
 
-import nl.rijksoverheid.moz.fbs.common.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.DynamicTest
@@ -71,11 +71,12 @@ class BerichtEdgeCaseTest {
     }
 
     @TestFactory
-    fun `inhoud boundary-lengtes rond MAX_INHOUD_LENGTE`() = listOf(
-        Bericht.MAX_INHOUD_LENGTE to true,
-        Bericht.MAX_INHOUD_LENGTE + 1 to false,
+    fun `inhoud boundary-bytes rond MAX_INHOUD_BYTES (ASCII)`() = listOf(
+        Bericht.MAX_INHOUD_BYTES to true,
+        Bericht.MAX_INHOUD_BYTES + 1 to false,
     ).map { (lengte, valid) ->
-        DynamicTest.dynamicTest("lengte=$lengte moet ${if (valid) "lukken" else "falen"}") {
+        DynamicTest.dynamicTest("ASCII-lengte=$lengte moet ${if (valid) "lukken" else "falen"}") {
+            // ASCII-character is 1 UTF-8 byte; lengte == byte-count.
             val s = "x".repeat(lengte)
             if (valid) {
                 bericht(inhoud = s)
@@ -83,6 +84,32 @@ class BerichtEdgeCaseTest {
                 assertThrows(DomainValidationException::class.java) { bericht(inhoud = s) }
             }
         }
+    }
+
+    @TestFactory
+    fun `inhoud byte-grens werkt op multibyte-characters (emoji)`(): List<DynamicTest> {
+        // 😀 = U+1F600 = 4 UTF-8 bytes; deelbaar op MAX_INHOUD_BYTES, dus exact passend.
+        val maxAantalEmoji = Bericht.MAX_INHOUD_BYTES / UTF8_BYTES_PER_EMOJI
+        return listOf(
+            maxAantalEmoji to true,
+            maxAantalEmoji + 1 to false,
+        ).map { (aantalEmoji, valid) ->
+            DynamicTest.dynamicTest("$aantalEmoji× emoji moet ${if (valid) "lukken" else "falen"}") {
+                val s = "😀".repeat(aantalEmoji)
+                if (valid) {
+                    bericht(inhoud = s)
+                } else {
+                    val ex = assertThrows(DomainValidationException::class.java) { bericht(inhoud = s) }
+                    check(ex.message!!.contains("MiB UTF-8")) {
+                        "foutmelding moet de MiB UTF-8 grens noemen, kreeg: ${ex.message}"
+                    }
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val UTF8_BYTES_PER_EMOJI = 4
     }
 
     @TestFactory

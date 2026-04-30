@@ -8,7 +8,7 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.BerichtRepository
-import nl.rijksoverheid.moz.fbs.common.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test

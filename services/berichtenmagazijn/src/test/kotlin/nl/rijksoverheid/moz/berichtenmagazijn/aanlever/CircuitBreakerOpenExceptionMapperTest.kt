@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.berichtenmagazijn.aanlever
 
 import io.quarkus.test.junit.QuarkusTest
-import nl.rijksoverheid.moz.fbs.common.Problem
+import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
