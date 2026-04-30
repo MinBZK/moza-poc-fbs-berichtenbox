@@ -20,16 +20,17 @@ sealed interface Identificatienummer {
         /**
          * Bouwt een getypeerd [Identificatienummer] uit een expliciete type-keuze en waarde.
          * Gooit [DomainValidationException] als de waarde niet aan de type-invarianten
-         * voldoet (lengte, cijfers-only, elfproef voor BSN/RSIN).
+         * voldoet (lengte, cijfers-only, elfproef voor BSN/RSIN, niet-geheel-nullen).
+         *
+         * Geen impliciete trim of normalisatie: aanvullende whitespace is een clientfout.
+         * Dit voorkomt asymmetrie tussen `of(type, "  …  ")` en de directe value-class
+         * constructors (`Bsn(...)`) — die accepteren whitespace ook niet.
          */
-        fun of(type: IdentificatienummerType, waarde: String): Identificatienummer {
-            val genormaliseerd = waarde.trim()
-            return when (type) {
-                IdentificatienummerType.BSN -> Bsn(genormaliseerd)
-                IdentificatienummerType.RSIN -> Rsin(genormaliseerd)
-                IdentificatienummerType.KVK -> Kvk(genormaliseerd)
-                IdentificatienummerType.OIN -> Oin(genormaliseerd)
-            }
+        fun of(type: IdentificatienummerType, waarde: String): Identificatienummer = when (type) {
+            IdentificatienummerType.BSN -> Bsn(waarde)
+            IdentificatienummerType.RSIN -> Rsin(waarde)
+            IdentificatienummerType.KVK -> Kvk(waarde)
+            IdentificatienummerType.OIN -> Oin(waarde)
         }
     }
 }
@@ -41,6 +42,7 @@ enum class IdentificatienummerType { BSN, RSIN, KVK, OIN }
 value class Oin(override val waarde: String) : Identificatienummer {
     init {
         requireValid(PATTERN.matches(waarde)) { "OIN moet precies 20 cijfers zijn" }
+        requireValid(waarde.any { it != '0' }) { "OIN kan niet geheel uit nullen bestaan" }
     }
 
     override val type: IdentificatienummerType get() = IdentificatienummerType.OIN
@@ -55,6 +57,7 @@ value class Oin(override val waarde: String) : Identificatienummer {
 value class Kvk(override val waarde: String) : Identificatienummer {
     init {
         requireValid(PATTERN.matches(waarde)) { "KVK-nummer moet precies 8 cijfers zijn" }
+        requireValid(waarde.any { it != '0' }) { "KVK-nummer kan niet geheel uit nullen bestaan" }
     }
 
     override val type: IdentificatienummerType get() = IdentificatienummerType.KVK

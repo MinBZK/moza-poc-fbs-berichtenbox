@@ -56,6 +56,24 @@ class IdentificatienummerTest {
         assertThrows(DomainValidationException::class.java) { Kvk("123456789") }
     }
 
+    @Test
+    fun `Kvk bestaande uit acht nullen wordt geweigerd`() {
+        val ex = assertThrows(DomainValidationException::class.java) { Kvk("00000000") }
+        assertTrue(
+            ex.message?.contains("nullen") == true,
+            "bericht moet verwijzen naar nullen-check: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `Oin bestaande uit twintig nullen wordt geweigerd`() {
+        val ex = assertThrows(DomainValidationException::class.java) { Oin("0".repeat(20)) }
+        assertTrue(
+            ex.message?.contains("nullen") == true,
+            "bericht moet verwijzen naar nullen-check: ${ex.message}",
+        )
+    }
+
     // --- Bsn (elfproef) --------------------------------------------------------
 
     @Test
@@ -142,10 +160,14 @@ class IdentificatienummerTest {
     }
 
     @Test
-    fun `of trimt whitespace`() {
-        val id = Identificatienummer.of(BSN, "  999993653  ")
-        assertInstanceOf(Bsn::class.java, id)
-        assertEquals("999993653", id.waarde)
+    fun `of normaliseert NIET — whitespace wordt geweigerd`() {
+        // Strikt: of() verbergt geen clientfouten via trim. De OpenAPI-pattern
+        // dwingt cijfers-only af aan de rand; whitespace doorlaten zou inconsistent
+        // zijn met de directe value-class constructors.
+        val ex = assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.of(BSN, "  999993653  ")
+        }
+        assertEquals("BSN moet precies 9 cijfers zijn", ex.message)
     }
 
     @Test

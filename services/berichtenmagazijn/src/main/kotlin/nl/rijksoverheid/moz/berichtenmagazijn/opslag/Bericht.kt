@@ -21,21 +21,25 @@ data class Bericht(
     val tijdstipOntvangst: Instant,
 ) {
     init {
-        requireValid(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }
+        requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
         requireValid(onderwerp.length <= MAX_ONDERWERP_LENGTE) {
-            "onderwerp mag max $MAX_ONDERWERP_LENGTE characters zijn"
+            "Onderwerp mag max $MAX_ONDERWERP_LENGTE characters zijn"
         }
-        requireValid(inhoud.isNotBlank()) { "inhoud mag niet leeg zijn" }
-        requireValid(inhoud.length <= MAX_INHOUD_LENGTE) {
-            "inhoud mag max $MAX_INHOUD_LENGTE characters zijn"
+        requireValid(inhoud.isNotBlank()) { "Inhoud mag niet leeg zijn" }
+        val inhoudBytes = inhoud.toByteArray(Charsets.UTF_8).size
+        requireValid(inhoudBytes <= MAX_INHOUD_BYTES) {
+            "Inhoud mag max ${MAX_INHOUD_BYTES / 1024 / 1024} MiB UTF-8 zijn (kreeg $inhoudBytes bytes)"
         }
         requireValid(afzender.waarde != ontvanger.waarde) {
-            "afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
+            "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
         }
     }
 
     companion object {
         const val MAX_ONDERWERP_LENGTE = 255
-        const val MAX_INHOUD_LENGTE = 1_048_576 // 1 MiB, synchroon met OpenAPI spec
+
+        /** Max inhoudgrootte in UTF-8 bytes (1 MiB). Bytes, niet characters,
+         *  zodat een 4-byte emoji niet 4× meer geheugen kost binnen dezelfde limiet. */
+        const val MAX_INHOUD_BYTES = 1_048_576
     }
 }

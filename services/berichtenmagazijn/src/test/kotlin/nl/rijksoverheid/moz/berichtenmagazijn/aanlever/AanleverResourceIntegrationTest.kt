@@ -154,7 +154,7 @@ class AanleverResourceIntegrationTest {
             .contentType("application/problem+json")
             .body("status", `is`(400))
             .body("title", `is`("Bad Request"))
-            .body("detail", `is`("onderwerp mag niet leeg zijn"))
+            .body("detail", `is`("Onderwerp mag niet leeg zijn"))
             .body("instance", nullValue())
     }
 
