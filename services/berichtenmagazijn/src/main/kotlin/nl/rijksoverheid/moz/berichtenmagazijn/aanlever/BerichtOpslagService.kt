@@ -9,7 +9,7 @@ import nl.rijksoverheid.moz.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.Identificatienummer
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.berichtenmagazijn.opslag.Oin
-import nl.rijksoverheid.moz.fbs.common.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker
 import org.jboss.logging.Logger
 import java.time.Instant
@@ -69,8 +69,8 @@ class BerichtOpslagService(
             // Persist-specifieke fouten loggen we met service-context (afzender/ontvanger)
             // zodat diagnose mogelijk blijft óók wanneer de mapper het detail maskeert.
             // Andere RuntimeExceptions (NPE, programmeerfout) vallen door — die worden
-            // door ProblemExceptionMapper / IllegalArgumentExceptionMapper afgehandeld
-            // mét eigen errorId, zodat we hier geen verwarrende dubbele log-context maken.
+            // door ProblemExceptionMapper / UncaughtExceptionMapper afgehandeld mét
+            // eigen errorId, zodat we hier geen verwarrende dubbele log-context maken.
             log.errorf(
                 ex,
                 "Persist mislukt voor berichtId=%s afzender=%s ontvanger=%s:%s onderwerp.length=%d inhoud.length=%d",

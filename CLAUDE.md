@@ -27,7 +27,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`.
 - **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
-- **ExceptionMappers in fbs-common:** `ProblemExceptionMapper` (WebApplicationException, maskeert 5xx met correlation-id), `ConstraintViolationExceptionMapper` (Bean Validation), `DomainValidationExceptionMapper` (domein-invarianten), `IllegalArgumentExceptionMapper` (vangnet, behandelt generieke IAE als 500), `JsonProcessingExceptionMapper`/`MismatchedInputExceptionMapper` (Jackson, zonder originalMessage lek).
+- **ExceptionMappers in fbs-common:** `ProblemExceptionMapper` (WebApplicationException, maskeert 5xx met correlation-id), `ConstraintViolationExceptionMapper` (Bean Validation), `DomainValidationExceptionMapper` (domein-invarianten), `JsonProcessingExceptionMapper`/`MismatchedInputExceptionMapper` (Jackson, zonder originalMessage lek), `UncaughtExceptionMapper` (vangnet voor alle overige `Exception`s, 500 + correlation-id). Gedeelde response-helpers: `problemResponse(...)` en `maskedServerErrorProblem(...)` in `ProblemResponses.kt`.
 
 ## Conventies
 

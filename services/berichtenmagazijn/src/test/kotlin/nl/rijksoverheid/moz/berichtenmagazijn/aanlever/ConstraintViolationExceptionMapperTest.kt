@@ -6,8 +6,8 @@ import io.quarkus.test.junit.QuarkusTest
 import jakarta.validation.ConstraintViolation
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Path
-import nl.rijksoverheid.moz.fbs.common.ConstraintViolationExceptionMapper
-import nl.rijksoverheid.moz.fbs.common.Problem
+import nl.rijksoverheid.moz.fbs.common.exception.ConstraintViolationExceptionMapper
+import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

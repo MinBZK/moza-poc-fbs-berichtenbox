@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.common
 
+import nl.rijksoverheid.moz.fbs.common.exception.Problem
+import nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -23,7 +25,7 @@ class UncaughtExceptionMapperTest {
         assertEquals("Internal Server Error", problem.title)
         assertEquals(500, problem.status)
         assertEquals(
-            "Er is een interne fout opgetreden. Vermeld errorId bij contact met support.",
+            "Er is een onverwachte interne fout opgetreden. Vermeld errorId bij contact met support.",
             problem.detail,
         )
         assertNotNull(problem.instance)

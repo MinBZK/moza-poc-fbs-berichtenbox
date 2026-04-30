@@ -3,9 +3,9 @@ package nl.rijksoverheid.moz.berichtenmagazijn.aanlever
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
-import nl.rijksoverheid.moz.fbs.common.JsonProcessingExceptionMapper
-import nl.rijksoverheid.moz.fbs.common.MismatchedInputExceptionMapper
-import nl.rijksoverheid.moz.fbs.common.Problem
+import nl.rijksoverheid.moz.fbs.common.exception.JsonProcessingExceptionMapper
+import nl.rijksoverheid.moz.fbs.common.exception.MismatchedInputExceptionMapper
+import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull

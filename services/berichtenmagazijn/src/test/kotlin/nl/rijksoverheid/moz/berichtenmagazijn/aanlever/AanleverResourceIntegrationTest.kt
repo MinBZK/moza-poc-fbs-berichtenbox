@@ -135,7 +135,7 @@ class AanleverResourceIntegrationTest {
         // Onderwerp met alleen spaties passeert OpenAPI-pattern (minLength=1) maar wordt
         // afgewezen door requireValid in Bericht.init → DomainValidationException.
         // De assertions hieronder borgen dat de DomainValidationExceptionMapper wint van
-        // de generieke IllegalArgumentExceptionMapper (die zou maskeren naar 500 + correlation-id).
+        // de generieke UncaughtExceptionMapper (die zou maskeren naar 500 + correlation-id).
         given()
             .contentType(ContentType.JSON)
             .body(

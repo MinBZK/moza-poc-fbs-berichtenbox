@@ -1,5 +1,8 @@
 package nl.rijksoverheid.moz.fbs.common
 
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationExceptionMapper
+import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 

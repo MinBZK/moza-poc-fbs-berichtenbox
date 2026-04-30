@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
@@ -28,33 +28,22 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
     override fun toResponse(exception: WebApplicationException): Response {
         val status = exception.response?.status ?: 500
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
+        val errorId = UUID.randomUUID()
 
-        val problem = if (status >= 500) {
+        return if (status >= 500) {
             // Log met correlation-id zodat support de echte oorzaak kan terugvinden,
             // maar expose de interne exception-message niet aan de client.
-            val errorId = UUID.randomUUID()
             log.errorf(exception, "Server error %d (errorId=%s): %s", status, errorId, exception.message)
-            Problem(
-                title = title,
-                status = status,
-                detail = "Er is een interne fout opgetreden. Vermeld errorId bij contact met support.",
-                instance = URI.create("urn:uuid:$errorId"),
-            )
+            maskedServerErrorProblem(errorId = errorId, status = status, title = title)
         } else {
-            val errorId = UUID.randomUUID()
             log.infof("Client error %d (errorId=%s): %s", status, errorId, exception.message)
-            Problem(
-                title = title,
+            problemResponse(
                 status = status,
+                title = title,
                 detail = sanitizeClientDetail(exception.message),
                 instance = URI.create("urn:uuid:$errorId"),
             )
         }
-
-        return Response.status(status)
-            .type(ProblemMediaType.APPLICATION_PROBLEM_JSON_TYPE)
-            .entity(problem)
-            .build()
     }
 }
 

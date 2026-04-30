@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.ws.rs.core.MediaType
 

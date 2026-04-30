@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.berichtenmagazijn.opslag
 
-import nl.rijksoverheid.moz.fbs.common.requireValid
+import nl.rijksoverheid.moz.fbs.common.exception.requireValid
 import java.time.Instant
 import java.util.UUID
 

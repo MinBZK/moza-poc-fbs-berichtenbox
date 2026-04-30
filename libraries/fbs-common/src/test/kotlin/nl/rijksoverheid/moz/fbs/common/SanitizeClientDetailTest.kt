@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.common
 
+import nl.rijksoverheid.moz.fbs.common.exception.sanitizeClientDetail
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
