@@ -1,0 +1,23 @@
+meta {
+  name: 4. Bericht aanleveren - ontbrekend veld (400)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/berichten
+  body: json
+  auth: none
+}
+
+headers {
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "afzender": "{{afzender}}",
+    "ontvanger": { "type": "BSN", "waarde": "{{ontvangerPersoon}}" },
+    "inhoud": "Een bericht zonder onderwerp-veld - dit moet een 400 Problem JSON opleveren."
+  }
+}

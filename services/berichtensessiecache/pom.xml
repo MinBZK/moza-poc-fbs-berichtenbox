@@ -17,6 +17,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
@@ -158,6 +163,90 @@
                             <generateSupportingFiles>false</generateSupportingFiles>
                             <generateApiTests>false</generateApiTests>
                             <generateModelTests>false</generateModelTests>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              Genereert een `ApiInfo.java`-klasse met compile-time constanten uit de
+              OpenAPI-spec (BASE_PATH, API_VERSION, SPEC_VERSION). Zo komt de
+              API-versie op één plek — de spec — en kan de service de string waar nodig
+              gebruiken zonder pad-parsing op runtime. Ant-ingebouwde filters extraheren
+              de waardes; geen extra plugin-dependencies zoals ant-contrib nodig.
+            -->
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>generate-api-info</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <property name="spec.file" value="${project.basedir}/src/main/resources/openapi/berichtensessiecache-api.yaml"/>
+                                <property name="apiinfo.dir" value="${project.build.directory}/generated-sources/openapi/src/gen/java/nl/rijksoverheid/moz/berichtensessiecache"/>
+                                <mkdir dir="${apiinfo.dir}"/>
+
+                                <!-- info.version (ingesprongen `version:`-regel in het info-blok). -->
+                                <loadfile srcFile="${spec.file}" property="api.spec.version">
+                                    <filterchain>
+                                        <linecontainsregexp>
+                                            <regexp pattern="^\s{2,}version:\s*\S+"/>
+                                        </linecontainsregexp>
+                                        <headfilter lines="1"/>
+                                        <tokenfilter>
+                                            <replaceregex pattern='^\s*version:\s*&quot;?([^&quot;\s]+)&quot;?\s*$' replace="\1"/>
+                                        </tokenfilter>
+                                        <striplinebreaks/>
+                                    </filterchain>
+                                </loadfile>
+
+                                <!-- servers[0].url — eerste `- url:`-regel onder `servers:`. -->
+                                <loadfile srcFile="${spec.file}" property="api.base.path">
+                                    <filterchain>
+                                        <linecontainsregexp>
+                                            <regexp pattern="^\s*-\s+url:\s*\S+"/>
+                                        </linecontainsregexp>
+                                        <headfilter lines="1"/>
+                                        <tokenfilter>
+                                            <replaceregex pattern='^\s*-\s+url:\s*&quot;?([^&quot;\s]+)&quot;?\s*$' replace="\1"/>
+                                        </tokenfilter>
+                                        <striplinebreaks/>
+                                    </filterchain>
+                                </loadfile>
+
+                                <!-- API-majorversie (v1, v2, ...) uit de base-path. -->
+                                <loadresource property="api.version">
+                                    <string value="${api.base.path}"/>
+                                    <filterchain>
+                                        <tokenfilter>
+                                            <replaceregex pattern=".*/(v\d+).*" replace="\1"/>
+                                        </tokenfilter>
+                                    </filterchain>
+                                </loadresource>
+
+                                <echo file="${apiinfo.dir}/ApiInfo.java">package nl.rijksoverheid.moz.berichtensessiecache;
+
+/**
+ * Compile-time constanten afgeleid uit berichtensessiecache-api.yaml. Automatisch
+ * gegenereerd door maven-antrun-plugin in fase generate-sources; niet handmatig
+ * bewerken.
+ */
+public final class ApiInfo {
+    /** Volledige base-path uit servers[0].url, bv. "/api/v1". */
+    public static final String BASE_PATH = "${api.base.path}";
+
+    /** API-majorversie, bv. "v1". */
+    public static final String API_VERSION = "${api.version}";
+
+    /** Spec-versie uit info.version, bv. "0.1.0". */
+    public static final String SPEC_VERSION = "${api.spec.version}";
+
+    private ApiInfo() {}
+}
+</echo>
+                            </target>
                         </configuration>
                     </execution>
                 </executions>

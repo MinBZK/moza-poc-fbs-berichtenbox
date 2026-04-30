@@ -1,14 +1,17 @@
-package nl.rijksoverheid.moz.fbs.berichtensessiecache
+package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.validation.ConstraintViolationException
-import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.Problem
 import org.jboss.logging.Logger
-import java.net.URI
 
+/**
+ * Mapt Bean Validation [jakarta.validation.ConstraintViolationException] (uit `@Valid`/`@NotNull`/`@Pattern`
+ * op gegenereerde API-interfaces) naar 400 Problem JSON. Detail formatteert elke
+ * schending als `paramName: message`, gescheiden door `;`, zodat de client weet welk
+ * veld ongeldig was zonder dat interne paths gelekt worden.
+ */
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {
 
@@ -17,22 +20,11 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
     override fun toResponse(exception: ConstraintViolationException): Response {
         log.debugf("Validatiefout: %s", exception.constraintViolations)
 
-        val problem = Problem()
-        problem.type = URI.create("about:blank")
-        problem.status = 400
-        problem.title = "Bad Request"
-        problem.detail = exception.constraintViolations.joinToString("; ") {
+        val detail = exception.constraintViolations.joinToString("; ") {
             val paramName = it.propertyPath.lastOrNull()?.name ?: it.propertyPath.toString()
             "$paramName: ${it.message}"
         }
 
-        return Response.status(400)
-            .type(PROBLEM_JSON)
-            .entity(problem)
-            .build()
-    }
-
-    companion object {
-        private val PROBLEM_JSON = MediaType.valueOf("application/problem+json")
+        return problemResponse(status = 400, title = "Bad Request", detail = detail)
     }
 }

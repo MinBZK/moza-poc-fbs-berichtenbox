@@ -1,0 +1,204 @@
+openapi: 3.0.3
+info:
+  title: FBS Berichtenmagazijn - Aanlever API
+  version: 0.1.0
+  description: |
+    Aanlever-API van het decentrale berichtenmagazijn. Organisaties leveren
+    nieuwe berichten aan via POST /api/v1/berichten. Onderdeel van het
+    Federatief Berichtenstelsel (FBS).
+  contact:
+    name: MijnOverheid Zakelijk
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+
+servers:
+  - url: /api/v1
+    description: Versioned API base path
+
+tags:
+  - name: Aanlever
+    description: Aanlevering van berichten aan het magazijn
+
+paths:
+  /berichten:
+    post:
+      tags: [Aanlever]
+      summary: Lever een nieuw bericht aan bij het magazijn
+      operationId: leverBerichtAan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BerichtAanleverenRequest'
+      responses:
+        '201':
+          description: Bericht succesvol opgeslagen
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BerichtResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  headers:
+    API-Version:
+      description: Versie van de API
+      schema:
+        type: string
+        example: "0.1.0"
+
+  schemas:
+    BerichtAanleverenRequest:
+      type: object
+      required: [afzender, ontvanger, onderwerp, inhoud]
+      properties:
+        afzender:
+          type: string
+          pattern: '^[0-9]{20}$'
+          minLength: 20
+          maxLength: 20
+          description: OIN (20 cijfers) van de versturende organisatie
+          example: "00000001003214345000"
+        ontvanger:
+          $ref: '#/components/schemas/Identificatienummer'
+        onderwerp:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Onderwerp van het bericht (vrije tekst)
+          example: "Voorlopige aanslag 2026"
+        inhoud:
+          type: string
+          minLength: 1
+          maxLength: 1048576
+          description: |
+            Berichtinhoud (tekst). De server-side grens is **1 MiB UTF-8 bytes**, niet
+            characters; bij multibyte-tekens (bv. emoji's, 4 bytes elk) past dus minder
+            tekst dan `maxLength` doet vermoeden. `maxLength` is in JSON-Schema in
+            characters gedefinieerd en dient hier als grove bovengrens.
+
+    Identificatienummer:
+      type: object
+      required: [type, waarde]
+      description: |
+        Getypeerd identificatienummer. `type` is verplicht en wordt niet uit `waarde`
+        afgeleid; onbekende types of waardes die niet aan de type-invarianten voldoen
+        (lengte, cijfers-only, elfproef voor BSN/RSIN) resulteren in een 400-response.
+      properties:
+        type:
+          type: string
+          enum: [BSN, RSIN, KVK, OIN]
+          description: Type identificatienummer
+        waarde:
+          type: string
+          pattern: '^[0-9]{1,20}$'
+          minLength: 8
+          maxLength: 20
+          description: Numerieke waarde, valide conform het opgegeven type
+      example:
+        type: BSN
+        waarde: "123456782"
+
+    BerichtResponse:
+      type: object
+      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, _links]
+      properties:
+        berichtId:
+          type: string
+          format: uuid
+          description: Unieke identifier van het opgeslagen bericht
+        afzender:
+          type: string
+          description: OIN van de versturende organisatie (echo van de request)
+        ontvanger:
+          $ref: '#/components/schemas/Identificatienummer'
+        onderwerp:
+          type: string
+          description: Onderwerp van het bericht (echo van de request)
+        tijdstipOntvangst:
+          type: string
+          format: date-time
+          description: Tijdstip waarop het magazijn het bericht heeft ontvangen (server-side gezet, ISO 8601)
+        _links:
+          $ref: '#/components/schemas/BerichtLinks'
+
+    BerichtLinks:
+      type: object
+      required: [self]
+      properties:
+        self:
+          $ref: '#/components/schemas/Link'
+
+    Link:
+      type: object
+      required: [href]
+      properties:
+        href:
+          type: string
+          format: uri
+
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details
+      properties:
+        type:
+          type: string
+          format: uri
+          default: "about:blank"
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+
+  responses:
+    BadRequest:
+      description: Request is syntactisch onjuist, mist verplichte velden of schendt een domein-invariant
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Aanlevering conflicteert met bestaande data
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalServerError:
+      description: Interne fout in het magazijn. Response bevat `instance` met correlation-id voor support.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: Magazijn tijdelijk niet beschikbaar
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

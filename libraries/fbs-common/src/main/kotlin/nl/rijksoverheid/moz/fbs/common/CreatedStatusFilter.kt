@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.berichtensessiecache
+package nl.rijksoverheid.moz.fbs.common
 
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerResponseContext

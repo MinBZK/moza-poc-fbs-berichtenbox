@@ -2,8 +2,12 @@
 
 MODULE=services/berichtensessiecache
 
-# Build the module and its dependencies
-./mvnw package -DskipTests -pl $MODULE -am -B
+# Bouw de module plus upstream-dependencies (o.a. libraries/fbs-common) en
+# installeer ze in de lokale Maven-repo, zodat de vervolgstap
+# `dependency:copy-dependencies` ze kan resolven. Met `package` zou fbs-common
+# wel in target/ belanden maar niet in ~/.m2 — dan faalt copy-dependencies met
+# "could not find artifact nl.rijksoverheid.moz:fbs-common".
+./mvnw install -DskipTests -pl $MODULE -am -B
 
 # Copy all dependencies to $OUT/lib
 mkdir -p $OUT/lib

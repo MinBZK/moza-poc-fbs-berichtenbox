@@ -1,0 +1,24 @@
+meta {
+  name: 1. Bericht aanleveren (ontvanger BSN)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/berichten
+  body: json
+  auth: none
+}
+
+headers {
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "afzender": "{{afzender}}",
+    "ontvanger": { "type": "BSN", "waarde": "{{ontvangerPersoon}}" },
+    "onderwerp": "Voorlopige aanslag 2026",
+    "inhoud": "Beste belastingplichtige,\n\nHierbij ontvangt u uw voorlopige aanslag inkomstenbelasting 2026."
+  }
+}
