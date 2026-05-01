@@ -36,7 +36,7 @@ class ProblemExceptionMapperTest {
 
         val problem = response.entity as Problem
         assertFalse(problem.detail!!.contains("Foo.kt:42"), "file+line moet weg: ${problem.detail}")
-        assertFalse(problem.detail!!.contains("at nl.rijksoverheid"), "frame moet weg: ${problem.detail}")
+        assertFalse(problem.detail.contains("at nl.rijksoverheid"), "frame moet weg: ${problem.detail}")
     }
 
     @Test

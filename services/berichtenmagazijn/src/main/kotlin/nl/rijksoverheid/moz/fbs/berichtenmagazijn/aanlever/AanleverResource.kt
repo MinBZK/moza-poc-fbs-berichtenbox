@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.inject.Inject
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.UriInfo
@@ -20,13 +19,9 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 @ApplicationScoped
 class AanleverResource(
     private val opslagService: BerichtOpslagService,
+    private val logboekContext: LogboekContext,
+    @param:Context private val uriInfo: UriInfo,
 ) : AanleverApi {
-
-    @Inject
-    lateinit var logboekContext: LogboekContext
-
-    @Context
-    lateinit var uriInfo: UriInfo
 
     @Logboek(
         name = "aanleveren-bericht",

@@ -48,8 +48,8 @@ class JsonProcessingExceptionMapperTest {
         // Jackson originalMessage bevat typisch class-namen zoals `java.lang.Integer`
         // of package-paden. De client mag die niet zien.
         assertFalse(problem.detail!!.contains("java.lang"))
-        assertFalse(problem.detail!!.contains("com.fasterxml"))
-        assertFalse(problem.detail!! == originalMsg) {
+        assertFalse(problem.detail.contains("com.fasterxml"))
+        assertFalse(problem.detail == originalMsg) {
             "detail mag niet identiek zijn aan originalMessage"
         }
     }
@@ -81,7 +81,7 @@ class JsonProcessingExceptionMapperTest {
 
         assertEquals("Ongeldige JSON-invoer.", problem.detail)
         assertFalse(problem.detail!!.contains("<")) { "HTML mag niet reflected: ${problem.detail}" }
-        assertFalse(problem.detail!!.contains("script"))
+        assertFalse(problem.detail.contains("script"))
     }
 
     @Test

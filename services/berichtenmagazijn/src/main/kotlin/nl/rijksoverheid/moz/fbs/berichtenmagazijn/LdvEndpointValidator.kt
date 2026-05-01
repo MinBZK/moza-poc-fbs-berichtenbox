@@ -6,13 +6,10 @@ import jakarta.enterprise.event.Observes
 import org.eclipse.microprofile.config.inject.ConfigProperty
 
 @ApplicationScoped
-class LdvEndpointValidator {
-
-    @ConfigProperty(name = "logboekdataverwerking.clickhouse.endpoint")
-    lateinit var endpoint: String
-
-    @ConfigProperty(name = "quarkus.profile")
-    lateinit var profile: String
+class LdvEndpointValidator(
+    @param:ConfigProperty(name = "logboekdataverwerking.clickhouse.endpoint") private val endpoint: String,
+    @param:ConfigProperty(name = "quarkus.profile") private val profile: String,
+) {
 
     fun onStartup(@Observes event: StartupEvent) {
         validate(profile, endpoint)

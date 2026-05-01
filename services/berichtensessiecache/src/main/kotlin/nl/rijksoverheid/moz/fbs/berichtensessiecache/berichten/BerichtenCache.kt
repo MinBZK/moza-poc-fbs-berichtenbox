@@ -46,7 +46,7 @@ interface BerichtenCache {
 class RedisBerichtenCache(
     private val redis: ReactiveRedisDataSource,
     private val objectMapper: ObjectMapper,
-    @ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT60S")
+    @param:ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT60S")
     private val ttl: Duration,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
@@ -311,7 +311,7 @@ class RedisBerichtenCache(
         afzender = fields["afzender"]!!,
         ontvanger = fields["ontvanger"]!!,
         onderwerp = fields["onderwerp"]!!,
-        tijdstip = Instant.parse(fields["tijdstip"]),
+        tijdstip = Instant.parse(fields["tijdstip"]!!),
         magazijnId = fields["magazijnId"]!!,
         status = fields["status"],
     )
