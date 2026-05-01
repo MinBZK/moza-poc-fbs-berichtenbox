@@ -28,7 +28,7 @@ services:
     command: ["--verbose", "--global-response-templating"]
 
   clickhouse:
-    image: clickhouse/clickhouse-server:25.3
+    image: clickhouse/clickhouse-server:26.3
     ports:
       - "8123:8123"
     environment:
