@@ -31,18 +31,34 @@ De Berichtenbox bestaat uit de volgende onderdelen:
 ```bash
 # Start lokale services (Redis, WireMock magazijnen, ClickHouse)
 docker compose up -d
-
-# Compileer en start de berichtensessiecache service in dev mode
-./mvnw quarkus:dev -pl services/berichtensessiecache
 ```
 
-De API is beschikbaar op `http://localhost:8080/api/v1/berichten`.
-De OpenAPI specificatie staat op `http://localhost:8080/openapi.json`.
+De services draaien elk in hun eigen Quarkus-dev-mode. Start ze in **aparte terminals**
+zodat beide live-reload en de devconsole blijven werken:
+
+```bash
+# Terminal 1 — berichtensessiecache (poort 8080)
+./mvnw compile quarkus:dev -pl services/berichtensessiecache -am
+
+# Terminal 2 — berichtenmagazijn (poort 8090)
+./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am
+```
+
+De `compile`-fase vóór `quarkus:dev` zorgt dat de gedeelde module `libraries/fbs-common`
+(via `-am`) eerst gebouwd wordt; zonder `compile` draait Maven alleen het `quarkus:dev`-goal
+en faalt de resolution van `fbs-common-0.1.0-SNAPSHOT.jar` zolang die niet in de lokale
+Maven-repository staat.
+
+| Service              | API                                              | OpenAPI                                 |
+|----------------------|--------------------------------------------------|-----------------------------------------|
+| berichtensessiecache | `http://localhost:8080/api/v1/berichten`         | `http://localhost:8080/openapi.json`    |
+| berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
 
 ### Tests draaien
 
 ```bash
-./mvnw test -pl services/berichtensessiecache
+./mvnw test -pl services/berichtensessiecache -am
+./mvnw test -pl services/berichtenmagazijn -am
 ```
 
 ### Configuratie

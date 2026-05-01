@@ -16,7 +16,8 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Taal:** Kotlin (JVM 21, all-open plugin voor CDI/JAX-RS)
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
-- **Caching:** Redis (60s sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via `BerichtenCache` interface — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes
+- **Caching:** sessiecache-specifiek: Redis (60s sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via `BerichtenCache` interface — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes. Berichtenmagazijn heeft geen cache.
+- **Persistentie:** berichtenmagazijn-specifiek: H2 embedded + Hibernate ORM Panache.
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
 
@@ -25,16 +26,18 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **OpenAPI-first:** De OpenAPI spec (`berichtensessiecache-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze.
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`.
-- **Cache alleen succesvolle responses:** Error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
-- **ExceptionMappers:** `ProblemExceptionMapper` (WebApplicationException) en `ConstraintViolationExceptionMapper` voor consistente Problem JSON responses.
+- **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
+- **ExceptionMappers in fbs-common:** `ProblemExceptionMapper` (WebApplicationException, maskeert 5xx met correlation-id), `ConstraintViolationExceptionMapper` (Bean Validation), `DomainValidationExceptionMapper` (domein-invarianten), `JsonProcessingExceptionMapper`/`MismatchedInputExceptionMapper` (Jackson, zonder originalMessage lek), `UncaughtExceptionMapper` (vangnet voor alle overige `Exception`s, 500 + correlation-id). Gedeelde response-helpers: `problemResponse(...)` en `maskedServerErrorProblem(...)` in `ProblemResponses.kt`.
 
 ## Conventies
 
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
-- **Actieve modules:** Alleen `services/berichtensessiecache` is geregistreerd in de parent POM. `services/berichtenlijst/` bestaat als directory maar is niet actief.
+- **Actieve modules:** `services/berichtensessiecache`, `services/berichtenmagazijn`. De gedeelde JAX-RS filters en exception mappers staan in `libraries/fbs-common`. `services/berichtenlijst/` bestaat als directory maar is niet actief.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
+- **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
+- **Bruno-collectie:** per service met een OpenAPI-spec hoort een Bruno-collectie onder `bruno/<service-naam>/` (met `bruno.json`, `environments/lokaal.bru` en requests per functioneel pad). Nieuwe endpoints in de OpenAPI-spec krijgen direct een bijbehorende `.bru`-request; zo blijft de collectie een levend exempel van de spec.
 - **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
 
 ## Build & test commando's
@@ -44,6 +47,9 @@ docker compose up -d                                       # Start Redis, WireMo
 ./mvnw compile -pl services/berichtensessiecache           # Compileren
 ./mvnw test -pl services/berichtensessiecache              # Tests draaien
 ./mvnw quarkus:dev -pl services/berichtensessiecache       # Dev mode
+./mvnw compile -pl services/berichtenmagazijn -am                # Compileren berichtenmagazijn
+./mvnw test -pl services/berichtenmagazijn -am                   # Tests berichtenmagazijn
+./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode
 ```
 
 ## Belangrijke bestanden
@@ -53,7 +59,11 @@ docker compose up -d                                       # Start Redis, WireMo
 | `pom.xml`                              | Parent POM (Quarkus BOM, Kotlin plugin config)                  |
 | `services/berichtensessiecache/pom.xml`| Module POM (OpenAPI generator, dependencies)                    |
 | `services/berichtensessiecache/src/main/resources/openapi/berichtensessiecache-api.yaml` | OpenAPI spec (bron van waarheid) |
+| `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
+| `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, H2, JPA, Fault Tolerance)        |
+| `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
+| `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, ClickHouse)               |
 | `.github/workflows/`                   | CI: CodeQL security scanning, Scorecard, Architecture validatie |
 | `.github/CODEOWNERS`                   | Code ownership (`@MinBZK/mijnoverheid-zakelijk`)                |

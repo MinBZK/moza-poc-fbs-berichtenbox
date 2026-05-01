@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import io.opentelemetry.api.trace.StatusCode
-import jakarta.inject.Inject
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Context
@@ -28,15 +27,11 @@ import java.util.UUID
 @Path("/api/v1/berichten")
 class BerichtensessiecacheResource(
     private val berichtensessiecacheService: BerichtensessiecacheService,
+    private val logboekContext: LogboekContext,
+    @param:Context private val uriInfo: UriInfo,
 ) : nl.rijksoverheid.moz.fbs.berichtensessiecache.api.BerichtenApi {
 
     private val log = Logger.getLogger(BerichtensessiecacheResource::class.java)
-
-    @Inject
-    lateinit var logboekContext: LogboekContext
-
-    @Context
-    lateinit var uriInfo: UriInfo
 
     // De processingActivityId-URL's hieronder zijn hardcoded. Runtime-override via
     // `logboekContext.processingActivityId = ...` werkt niet: de LogboekInterceptor
@@ -229,7 +224,7 @@ class BerichtensessiecacheResource(
     private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {
         try {
             return block().await().atMost(TIMEOUT)
-        } catch (e: java.util.concurrent.TimeoutException) {
+        } catch (_: java.util.concurrent.TimeoutException) {
             throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
         } catch (e: WebApplicationException) {
             throw e

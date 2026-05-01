@@ -97,7 +97,7 @@ class BerichtensessiecacheResourceTest {
             .statusCode(500)
             .contentType("application/problem+json")
             .body("status", `is`(500))
-            .body("detail", containsString("mislukt"))
+            .body("detail", containsString("errorId"))
     }
 
     @Test
@@ -116,7 +116,7 @@ class BerichtensessiecacheResourceTest {
             .statusCode(500)
             .contentType("application/problem+json")
             .body("status", `is`(500))
-            .body("detail", containsString("mislukt"))
+            .body("detail", containsString("errorId"))
     }
 
     @Test
@@ -225,7 +225,7 @@ class BerichtensessiecacheResourceTest {
             .statusCode(500)
             .contentType("application/problem+json")
             .body("status", `is`(500))
-            .body("detail", containsString("mislukt"))
+            .body("detail", containsString("errorId"))
     }
 
     @Test

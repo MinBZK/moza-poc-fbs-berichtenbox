@@ -1,18 +1,27 @@
-package nl.rijksoverheid.moz.fbs.berichtensessiecache
+package nl.rijksoverheid.moz.fbs.common
 
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.ext.Provider
 
+/**
+ * Voegt security-gerelateerde response headers toe aan alle responses.
+ *
+ * HSTS met `includeSubDomains; preload` conform forumstandaardisatie.nl /
+ * internet.nl-advies. Referrer-Policy `no-referrer` voorkomt dat interne URLs
+ * lekken bij uitgaande links in (toekomstige) error pages of redirects.
+ */
 @Provider
 class SecurityHeadersFilter : ContainerResponseFilter {
-
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
-        responseContext.headers.putSingle("Strict-Transport-Security", "max-age=31536000")
+        responseContext.headers.putSingle(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains; preload",
+        )
         responseContext.headers.putSingle("X-Frame-Options", "DENY")
         responseContext.headers.putSingle("X-Content-Type-Options", "nosniff")
         responseContext.headers.putSingle("Content-Security-Policy", "frame-ancestors 'none'")
-        responseContext.headers.putSingle("Cache-Control", "no-store")
+        responseContext.headers.putSingle("Referrer-Policy", "no-referrer")
     }
 }
