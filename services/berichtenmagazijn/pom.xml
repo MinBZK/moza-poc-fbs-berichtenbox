@@ -137,8 +137,8 @@
                             <inputSpec>${project.basedir}/src/main/resources/openapi/berichtenmagazijn-api.yaml</inputSpec>
                             <generatorName>jaxrs-spec</generatorName>
                             <output>${project.build.directory}/generated-sources/openapi</output>
-                            <apiPackage>nl.rijksoverheid.moz.berichtenmagazijn.api</apiPackage>
-                            <modelPackage>nl.rijksoverheid.moz.berichtenmagazijn.api.model</modelPackage>
+                            <apiPackage>nl.rijksoverheid.moz.fbs.berichtenmagazijn.api</apiPackage>
+                            <modelPackage>nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model</modelPackage>
                             <configOptions>
                                 <interfaceOnly>true</interfaceOnly>
                                 <returnResponse>false</returnResponse>
@@ -217,7 +217,7 @@
                                     </filterchain>
                                 </loadresource>
 
-                                <echo file="${apiinfo.dir}/ApiInfo.java">package nl.rijksoverheid.moz.berichtenmagazijn;
+                                <echo file="${apiinfo.dir}/ApiInfo.java">package nl.rijksoverheid.moz.fbs.berichtenmagazijn;
 
 /**
  * Compile-time constanten afgeleid uit berichtenmagazijn-api.yaml. Automatisch
@@ -278,7 +278,7 @@ public final class ApiInfo {
                 <version>0.8.13</version>
                 <configuration>
                     <excludes>
-                        <exclude>nl/rijksoverheid/moz/berichtenmagazijn/api/**</exclude>
+                        <exclude>nl/rijksoverheid/moz/fbs/berichtenmagazijn/api/**</exclude>
                         <!-- fbs-common heeft eigen testsuite; uitsluiten voorkomt dubbele meting. -->
                         <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
                     </excludes>
@@ -296,14 +296,14 @@ public final class ApiInfo {
                         <goals><goal>check</goal></goals>
                         <configuration>
                             <excludes>
-                                <exclude>nl/rijksoverheid/moz/berichtenmagazijn/api/**</exclude>
+                                <exclude>nl/rijksoverheid/moz/fbs/berichtenmagazijn/api/**</exclude>
                                 <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
                             </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
                                     <excludes>
-                                        <exclude>nl.rijksoverheid.moz.berichtenmagazijn.api.*</exclude>
+                                        <exclude>nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.*</exclude>
                                         <exclude>nl.rijksoverheid.moz.fbs.common.*</exclude>
                                     </excludes>
                                     <limits>
