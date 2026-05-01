@@ -36,7 +36,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
             log.errorf(exception, "Server error %d (errorId=%s): %s", status, errorId, exception.message)
             maskedServerErrorProblem(errorId = errorId, status = status, title = title)
         } else {
-            log.infof("Client error %d (errorId=%s): %s", status, errorId, exception.message)
+            log.infov(exception, "Client error {0} (errorId={1}): {2}", status, errorId, exception.message)
             problemResponse(
                 status = status,
                 title = title,
