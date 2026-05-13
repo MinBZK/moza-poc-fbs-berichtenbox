@@ -41,14 +41,23 @@ class BijlageRepository : PanacheRepositoryBase<BijlageEntity, Long> {
     /**
      * Haalt alleen de metadata (zonder bytes) op van alle bijlagen bij een bericht.
      * Gebruikt door `GET /berichten/{id}` om bijlage-metadata in de response te
-     * bouwen. Bij grote bijlagen of veel bijlagen kan een projection-query
-     * (`SELECT bijlage_id, naam, mime_type`) efficiënter zijn; voor de PoC is
-     * Hibernate's lazy-load van `@Lob`-kolommen voldoende.
+     * bouwen. Projection-query zodat de `content`-kolom (`BYTEA`, tot 25 MiB per
+     * bijlage) niet onnodig in heap belandt.
      */
     fun metadataVoorBericht(berichtId: UUID): List<BijlageMetadata> =
-        find("berichtId", berichtId)
-            .list()
-            .map { BijlageMetadata(bijlageId = it.bijlageId, naam = it.naam, mimeType = it.mimeType) }
+        getEntityManager()
+            .createQuery(
+                """
+                SELECT new nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata(
+                    b.bijlageId, b.naam, b.mimeType
+                )
+                FROM BijlageEntity b
+                WHERE b.berichtId = :berichtId
+                """.trimIndent(),
+                BijlageMetadata::class.java,
+            )
+            .setParameter("berichtId", berichtId)
+            .resultList
 }
 
 private fun BijlageEntity.toBijlage(): Bijlage = Bijlage(

@@ -150,7 +150,7 @@ class OphaalResourceIntegrationTest {
     }
 
     @Test
-    fun `GET bijlage levert bytes met application-octet-stream`() {
+    fun `GET bijlage levert bytes met het bij aanlevering geregistreerde MIME-type`() {
         val b = insertBericht()
         val payload = "Hello PDF".toByteArray()
         val bijlageId = insertBijlage(b.berichtId, payload)
@@ -160,7 +160,7 @@ class OphaalResourceIntegrationTest {
             .`when`().get("/api/v1/berichten/${b.berichtId}/bijlagen/$bijlageId")
             .then()
             .statusCode(200)
-            .contentType("application/octet-stream")
+            .contentType("application/pdf")
             .extract().asByteArray()
 
         assert(bytes.contentEquals(payload)) { "Bytes match niet: kreeg ${bytes.size} bytes" }

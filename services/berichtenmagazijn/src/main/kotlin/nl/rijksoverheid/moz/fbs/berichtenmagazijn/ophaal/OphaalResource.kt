@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.Path
+import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
@@ -17,11 +18,10 @@ import java.util.UUID
  * Resource voor de Ophaal-API. Implementeert de gegenereerde [OphaalApi]
  * interface en mapt domeinobjecten naar de API-modellen via [BerichtDtoMapper].
  *
- * Voor `getBijlage` worden de bytes teruggegeven met `Content-Type:
- * application/octet-stream` — een PoC-keuze, omdat de gegenereerde JAX-RS
- * interface een statisch `@Produces` declareert en het dynamisch mappen op de
- * werkelijke MIME-type van de bijlage extra plumbing vraagt. Consumers vinden
- * de werkelijke MIME-type in `BijlageMetadata.mimeType` bij het bericht.
+ * Voor `getBijlage` wordt het werkelijke MIME-type van de bijlage in de
+ * `Content-Type` response-header gezet via [BijlageContentTypeFilter]; de
+ * resource zet het MIME-type op een request-attribute zodat de filter het
+ * vlak voor het schrijven van de body kan toepassen.
  */
 @Path(ApiInfo.BASE_PATH + "/berichten")
 @ApplicationScoped
@@ -29,6 +29,7 @@ class OphaalResource(
     private val ophaalService: BerichtOphaalService,
     private val logboekContext: LogboekContext,
     @param:Context private val uriInfo: UriInfo,
+    @param:Context private val request: ContainerRequestContext,
 ) : OphaalApi {
 
     @Logboek(
@@ -70,7 +71,9 @@ class OphaalResource(
     override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
         registreerLdvSubject(ontvanger)
-        return ophaalService.haalBijlageOp(berichtId, bijlageId, ontvanger).content
+        val bijlage = ophaalService.haalBijlageOp(berichtId, bijlageId, ontvanger)
+        request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, bijlage.mimeType)
+        return bijlage.content
     }
 
     private fun registreerLdvSubject(ontvanger: Identificatienummer) {

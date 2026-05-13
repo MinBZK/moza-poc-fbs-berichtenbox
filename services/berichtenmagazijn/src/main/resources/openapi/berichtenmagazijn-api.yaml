@@ -100,8 +100,6 @@ paths:
                 $ref: '#/components/schemas/BerichtenLijst'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -220,12 +218,12 @@ paths:
         - $ref: '#/components/parameters/OntvangerHeader'
       responses:
         '200':
-          description: Bijlage-inhoud (bytes)
+          description: Bijlage-inhoud (bytes); de werkelijke `Content-Type` reflecteert het bij aanlevering geregistreerde MIME-type.
           headers:
             API-Version:
               $ref: '#/components/headers/API-Version'
           content:
-            application/octet-stream:
+            '*/*':
               schema:
                 type: string
                 format: binary
