@@ -8,6 +8,7 @@ import jakarta.inject.Inject
 import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
@@ -27,6 +28,7 @@ class OphaalBeheerOpenApiContractTest {
 
     @Inject lateinit var berichtRepository: BerichtRepository
     @Inject lateinit var bijlageRepository: BijlageRepository
+    @Inject lateinit var statusRepository: BerichtStatusRepository
 
     private val validationFilter = OpenApiValidationFilter(
         OpenApiInteractionValidator
@@ -37,6 +39,7 @@ class OphaalBeheerOpenApiContractTest {
     @BeforeEach
     @Transactional
     fun cleanDatabase() {
+        statusRepository.deleteAll()
         bijlageRepository.deleteAll()
         berichtRepository.deleteAll()
     }
