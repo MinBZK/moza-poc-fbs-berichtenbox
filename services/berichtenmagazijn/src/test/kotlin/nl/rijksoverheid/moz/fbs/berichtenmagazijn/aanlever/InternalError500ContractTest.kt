@@ -9,7 +9,9 @@ import io.mockk.mockk
 import io.restassured.http.ContentType
 import jakarta.ws.rs.InternalServerErrorException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.hamcrest.Matchers.`is`
+import java.time.Instant
 import org.hamcrest.Matchers.matchesRegex
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.BeforeEach
@@ -32,6 +34,7 @@ class InternalError500ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,
@@ -39,6 +42,7 @@ class InternalError500ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
+                publicatieDatum: Instant?,
             ): Nothing = throw InternalServerErrorException("SELECT * FROM berichten WHERE secret=redacted")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

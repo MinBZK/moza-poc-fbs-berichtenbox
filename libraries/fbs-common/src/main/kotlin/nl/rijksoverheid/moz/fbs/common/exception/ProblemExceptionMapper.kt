@@ -31,12 +31,42 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         val errorId = UUID.randomUUID()
 
         return if (status >= 500) {
-            // Log met correlation-id zodat support de echte oorzaak kan terugvinden,
-            // maar expose de interne exception-message niet aan de client.
-            log.errorf(exception, "Server error %d (errorId=%s): %s", status, errorId, exception.message)
+            // Log met correlation-id zodat support de echte oorzaak kan terugvinden.
+            // Consistent met 4xx-tak: laat `exception.message` weg uit de log-regel
+            // omdat `FoutBeschrijving.saneer` cijfer-PII + CRLF dekt maar GEEN
+            // niet-numerieke PII (namen, adres, telefoon, e-mail). Het `exception`-
+            // object blijft als 1e arg aanwezig zodat de stack-trace via `errorId`
+            // correleert in de full stack-log voor support.
+            log.errorf(
+                exception,
+                "Server error %d (errorId=%s, type=%s, cause=%s)",
+                status,
+                errorId,
+                exception.javaClass.simpleName,
+                exception.cause?.javaClass?.simpleName ?: "geen",
+            )
             maskedServerErrorProblem(errorId = errorId, status = status, title = title)
         } else {
-            log.infov(exception, "Client error {0} (errorId={1}): {2}", status, errorId, exception.message)
+            // 4xx: gesaneerde message gaat naar de client via `detail`
+            // (`sanitizeClientDetail`). De message wordt BEWUST WEGGELATEN uit
+            // de log-regel: `FoutBeschrijving.saneer` dekt CRLF + numerieke ID's
+            // maar geen niet-numerieke PII (namen, e-mailadressen). Voor 4xx is
+            // de message vaak gebruiker-input — logvolume vermijden is veiliger
+            // dan proberen te saneren.
+            //
+            // Twee correlatie-handvatten voor support: (a) `errorId` matcht het
+            // `urn:uuid:` in de Problem-`instance` die de client zag; (b)
+            // `cause`-type wijst (bij wrapped exceptions) op de upstream-laag
+            // zonder PII te onthullen. `exception` als 1e arg geeft de stack
+            // mee voor environments waar `INFO + throwable` doorkomt.
+            log.infov(
+                exception,
+                "Client error {0} (errorId={1}, type={2}, cause={3})",
+                status,
+                errorId,
+                exception.javaClass.simpleName,
+                exception.cause?.javaClass?.simpleName ?: "geen",
+            )
             problemResponse(
                 status = status,
                 title = title,

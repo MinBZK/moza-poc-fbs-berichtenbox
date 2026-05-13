@@ -1,0 +1,114 @@
+package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
+
+import io.mockk.every
+import io.mockk.mockk
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import java.time.Instant
+import java.util.UUID
+
+/**
+ * Unit-tests voor [CloudEventBuilder]. Borgt:
+ *  - NL GOV CloudEvents v1.1 verplichte attributen aanwezig en correct
+ *  - `source` URN-notatie met `urn:nld:oin:<OIN>:systeem:fbs-magazijn`
+ *  - `subject` = berichtId, NIET BSN/RSIN (NL GOV: geen persoonsgegevens in context-attributen)
+ *  - deterministische `id` per (berichtId, doel) — retry produceert dezelfde id
+ *  - verschillende doelen → verschillende id's
+ */
+class CloudEventBuilderTest {
+
+    private val oin = "00000001823288444000"
+    private val config = mockk<PublicatieConfig>().apply {
+        every { organisatie() } returns mockk { every { oin() } returns oin }
+    }
+    private val builder = CloudEventBuilder(config)
+
+    private val bsnWaarde = "999993653"
+    private val bericht = Bericht(
+        berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
+        afzender = Oin("00000001003214345000"),
+        ontvanger = Bsn(bsnWaarde),
+        onderwerp = "Voorlopige aanslag 2026",
+        inhoud = "Hierbij ontvangt u uw aanslag.",
+        tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
+        publicatieDatum = Instant.parse("2026-05-12T10:00:00Z"),
+    )
+    private val nu = Instant.parse("2026-05-12T10:00:05Z")
+
+    private val aanmeld = PublicatieDoel("aanmeld")
+    private val notificatie = PublicatieDoel("notificatie")
+
+    @Test
+    fun `verplichte NL GOV attributen aanwezig`() {
+        val event = builder.bouw(bericht, aanmeld, nu)
+        assertEquals(CloudEventBuilder.SPEC_VERSION, event.specversion)
+        assertEquals(CloudEventBuilder.EVENT_TYPE, event.type)
+        assertEquals("urn:nld:oin:$oin:systeem:fbs-magazijn", event.source)
+        assertEquals(nu, event.time)
+        assertEquals("application/json", event.datacontenttype)
+        assertEquals(CloudEventBuilder.DATASCHEMA, event.dataschema)
+    }
+
+    @Test
+    fun `subject is berichtId en niet BSN of ander persoonsgegeven`() {
+        val event = builder.bouw(bericht, aanmeld, nu)
+        assertEquals(bericht.berichtId.toString(), event.subject)
+        assertFalse(event.subject.contains(bsnWaarde), "subject bevat BSN; lekt persoonsgegeven via NL GOV-context")
+    }
+
+    @Test
+    fun `event-type volgt reverse domain name notation conform NL GOV`() {
+        val event = builder.bouw(bericht, aanmeld, nu)
+        assertTrue(event.type.startsWith("nl."), "type moet met `nl.` beginnen: ${event.type}")
+        assertTrue(event.type.contains("."), "type moet reverse domain name notation gebruiken: ${event.type}")
+    }
+
+    @Test
+    fun `event-id deterministisch per bericht en doel`() {
+        val a1 = builder.bouw(bericht, aanmeld, nu).id
+        val a2 = builder.bouw(bericht, aanmeld, nu.plusSeconds(60)).id
+        assertEquals(a1, a2)
+    }
+
+    @Test
+    fun `event-id verschilt per doel`() {
+        val aanmeldId = builder.bouw(bericht, aanmeld, nu).id
+        val notificatieId = builder.bouw(bericht, notificatie, nu).id
+        assertNotEquals(aanmeldId, notificatieId)
+    }
+
+    @Test
+    fun `data-payload bevat berichtinhoud en ontvanger-info`() {
+        val event = builder.bouw(bericht, aanmeld, nu)
+        assertEquals(bericht.berichtId, event.data.berichtId)
+        assertEquals(bericht.onderwerp, event.data.onderwerp)
+        assertEquals(bericht.inhoud, event.data.inhoud)
+        assertEquals(bericht.afzender.waarde, event.data.afzender)
+        assertEquals("BSN", event.data.ontvanger.type)
+        assertEquals(bsnWaarde, event.data.ontvanger.waarde)
+        assertEquals(bericht.tijdstipOntvangst, event.data.tijdstipOntvangst)
+        assertEquals(bericht.publicatieDatum, event.data.publicatieDatum)
+    }
+
+    @Test
+    fun `OntvangerData weigert ongeldig BSN (elfproef-bewaking in payload)`() {
+        // Een rauw `(type=BSN, waarde=...)` met ongeldige elfproef mag de outbox
+        // niet in lekken — voorkomt regressie na refactor.
+        org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+            OntvangerData(type = "BSN", waarde = "111111111")
+        }
+    }
+
+    @Test
+    fun `OntvangerData_van bouwt vanuit gevalideerd Identificatienummer`() {
+        val data = OntvangerData.van(nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn("999993653"))
+        assertEquals("BSN", data.type)
+        assertEquals("999993653", data.waarde)
+    }
+}

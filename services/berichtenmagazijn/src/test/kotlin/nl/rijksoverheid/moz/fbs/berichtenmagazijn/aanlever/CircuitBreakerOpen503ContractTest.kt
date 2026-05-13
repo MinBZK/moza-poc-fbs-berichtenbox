@@ -8,7 +8,9 @@ import io.restassured.RestAssured.given
 import io.mockk.mockk
 import io.restassured.http.ContentType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException
+import java.time.Instant
 import org.hamcrest.Matchers.`is`
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -31,6 +33,7 @@ class CircuitBreakerOpen503ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,
@@ -38,6 +41,7 @@ class CircuitBreakerOpen503ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
+                publicatieDatum: Instant?,
             ): Nothing = throw CircuitBreakerOpenException("circuit open (test)")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

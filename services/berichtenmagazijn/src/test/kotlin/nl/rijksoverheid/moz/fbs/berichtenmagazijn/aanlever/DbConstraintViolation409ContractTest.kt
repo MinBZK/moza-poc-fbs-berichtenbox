@@ -8,11 +8,13 @@ import io.restassured.RestAssured.given
 import io.mockk.mockk
 import io.restassured.http.ContentType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.hamcrest.Matchers.`is`
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.sql.SQLException
+import java.time.Instant
 
 /**
  * Contracttest: 409 Problem-response wanneer de DB een unique-key-violation meldt
@@ -31,6 +33,7 @@ class DbConstraintViolation409ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,
@@ -38,6 +41,7 @@ class DbConstraintViolation409ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
+                publicatieDatum: Instant?,
             ): Nothing = throw HibernateConstraintViolationException(
                 "unique violation",
                 SQLException("duplicate key", "23505"),

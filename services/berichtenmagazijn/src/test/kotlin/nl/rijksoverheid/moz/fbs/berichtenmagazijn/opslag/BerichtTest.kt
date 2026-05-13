@@ -13,13 +13,16 @@ class BerichtTest {
         ontvanger: Identificatienummer = Bsn("999993653"),
         onderwerp: String = "Onderwerp",
         inhoud: String = "Inhoud",
+        tijdstipOntvangst: Instant = Instant.now(),
+        publicatieDatum: Instant = tijdstipOntvangst,
     ) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = afzender,
         ontvanger = ontvanger,
         onderwerp = onderwerp,
         inhoud = inhoud,
-        tijdstipOntvangst = Instant.now(),
+        tijdstipOntvangst = tijdstipOntvangst,
+        publicatieDatum = publicatieDatum,
     )
 
     @Test
@@ -57,5 +60,39 @@ class BerichtTest {
             "Inhoud mag max $miB MiB UTF-8 zijn (kreeg ${Bericht.MAX_INHOUD_BYTES + 1} bytes)",
             ex.message,
         )
+    }
+
+    @Test
+    fun `publicatieDatum gelijk aan tijdstipOntvangst is geldig`() {
+        val nu = Instant.parse("2026-05-12T10:00:00Z")
+        val b = bericht(tijdstipOntvangst = nu, publicatieDatum = nu)
+        assertEquals(nu, b.publicatieDatum)
+    }
+
+    @Test
+    fun `publicatieDatum in de toekomst is geldig`() {
+        val nu = Instant.parse("2026-05-12T10:00:00Z")
+        val toekomst = nu.plusSeconds(86_400)
+        val b = bericht(tijdstipOntvangst = nu, publicatieDatum = toekomst)
+        assertEquals(toekomst, b.publicatieDatum)
+    }
+
+    @Test
+    fun `publicatieDatum significant voor tijdstipOntvangst faalt`() {
+        val nu = Instant.parse("2026-05-12T10:00:00Z")
+        val ex = assertThrows(IllegalArgumentException::class.java) {
+            bericht(tijdstipOntvangst = nu, publicatieDatum = nu.minusSeconds(60))
+        }
+        assertEquals("PublicatieDatum mag niet voor tijdstipOntvangst liggen", ex.message)
+    }
+
+    @Test
+    fun `publicatieDatum 1 seconde voor tijdstipOntvangst is toegestaan via klok-skew-slack`() {
+        // Domein-invariant heeft 1s slack tegen klok-skew tussen aanleveraar en server;
+        // dit voorkomt dat een client-clock minimaal vooruit lopen direct als domeinfout
+        // verschijnt. Borg het gedrag expliciet.
+        val nu = Instant.parse("2026-05-12T10:00:00Z")
+        val b = bericht(tijdstipOntvangst = nu, publicatieDatum = nu.minusSeconds(1))
+        assertEquals(nu.minusSeconds(1), b.publicatieDatum)
     }
 }

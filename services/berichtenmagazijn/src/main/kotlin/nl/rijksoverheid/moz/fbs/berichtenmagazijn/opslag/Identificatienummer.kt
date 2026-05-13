@@ -37,7 +37,14 @@ sealed interface Identificatienummer {
 
 enum class IdentificatienummerType { BSN, RSIN, KVK, OIN }
 
-/** Organisatie-identificatienummer van Logius (20 cijfers). */
+/**
+ * Organisatie-identificatienummer van Logius (20 cijfers, **geen elfproef**).
+ *
+ * Logius OIN-spec eist enkel 20-cijferig + numeriek; in tegenstelling tot
+ * BSN/RSIN is er géén elfproef gedefinieerd. Wordt elders bevestigd
+ * (`PublicatieConfig.toOin` KDoc + `CloudEventBuilder.OntvangerData` KDoc) —
+ * voorkomt dat een goedbedoelde refactor "alsnog" een elfproef-check toevoegt.
+ */
 @JvmInline
 value class Oin(override val waarde: String) : Identificatienummer {
     init {

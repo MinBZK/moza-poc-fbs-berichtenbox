@@ -1,0 +1,61 @@
+{
+  "$schema": "https://apis-json.org/2.0/apis-schema.json",
+  "name": "FBS Berichtenbox APIs",
+  "description": "Decentraal berichtenmagazijn van het Federatief Berichtenstelsel (FBS) — onderdeel van MijnOverheid Zakelijk.",
+  "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/apis.json",
+  "tags": [
+    "fbs",
+    "berichten",
+    "mijnoverheid-zakelijk",
+    "publicatie-stream"
+  ],
+  "created": "2026-05-13",
+  "modified": "2026-05-13",
+  "specificationVersion": "0.18",
+  "apis": [
+    {
+      "name": "FBS Berichtenmagazijn — Aanlever API",
+      "description": "Aanlevering van berichten aan het decentrale magazijn (POST /api/v1/berichten). Onderdeel van het Federatief Berichtenstelsel.",
+      "image": "https://www.rijksoverheid.nl/img/logo-rijksoverheid.svg",
+      "humanURL": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox",
+      "baseURL": "/api/v1",
+      "tags": ["aanlever", "berichten"],
+      "properties": [
+        {
+          "type": "X-OpenAPI",
+          "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml"
+        },
+        {
+          "type": "X-Repository",
+          "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox"
+        }
+      ],
+      "contact": [
+        {
+          "FN": "MijnOverheid Zakelijk",
+          "email": "mijnoverheidzakelijk@minbzk.nl",
+          "X-twitter": ""
+        }
+      ]
+    },
+    {
+      "name": "FBS Berichtensessiecache",
+      "description": "Sessie-gebonden cache van berichten-aggregaten over decentrale magazijnen (Redis-backed).",
+      "humanURL": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox",
+      "baseURL": "/api/v1",
+      "tags": ["cache", "berichten", "sessie"],
+      "properties": [
+        {
+          "type": "X-OpenAPI",
+          "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/services/berichtensessiecache/src/main/resources/openapi/berichtensessiecache-api.yaml"
+        }
+      ]
+    }
+  ],
+  "maintainers": [
+    {
+      "FN": "MijnOverheid Zakelijk team",
+      "email": "mijnoverheidzakelijk@minbzk.nl"
+    }
+  ]
+}

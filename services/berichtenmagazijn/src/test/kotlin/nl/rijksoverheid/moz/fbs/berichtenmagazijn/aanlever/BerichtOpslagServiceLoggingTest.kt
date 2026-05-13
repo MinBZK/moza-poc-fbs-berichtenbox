@@ -6,6 +6,7 @@ import jakarta.persistence.PersistenceException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -31,7 +32,8 @@ import java.util.logging.Logger
 class BerichtOpslagServiceLoggingTest {
 
     private val repository = mockk<BerichtRepository>(relaxed = true)
-    private val service = BerichtOpslagService(repository)
+    private val publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true)
+    private val service = BerichtOpslagService(repository, publicatieOutbox)
 
     private val julLogger: Logger = Logger.getLogger(BerichtOpslagService::class.java.name)
     private val records = mutableListOf<LogRecord>()

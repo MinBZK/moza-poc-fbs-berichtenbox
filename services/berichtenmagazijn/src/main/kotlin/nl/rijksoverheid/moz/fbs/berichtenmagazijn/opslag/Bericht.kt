@@ -19,6 +19,7 @@ data class Bericht(
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
+    val publicatieDatum: Instant,
 ) {
     init {
         requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
@@ -32,6 +33,13 @@ data class Bericht(
         }
         requireValid(afzender.waarde != ontvanger.waarde) {
             "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
+        }
+        // PublicatieDatum mag in de toekomst (uitgestelde publicatie). Niet ver in
+        // het verleden vóór tijdstipOntvangst — anders zou de outbox-poller direct
+        // afleveren met een misleidende "geplande" datum. Slack van 1s tegen
+        // klok-skew tussen aanleveraar en server.
+        requireValid(!publicatieDatum.isBefore(tijdstipOntvangst.minusSeconds(1))) {
+            "PublicatieDatum mag niet voor tijdstipOntvangst liggen"
         }
     }
 
