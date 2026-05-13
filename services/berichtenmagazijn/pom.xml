@@ -149,6 +149,7 @@
                             </configOptions>
                             <typeMappings>
                                 <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
+                                <typeMapping>File=byte[]</typeMapping>
                             </typeMappings>
                             <generateSupportingFiles>false</generateSupportingFiles>
                             <generateApiTests>false</generateApiTests>

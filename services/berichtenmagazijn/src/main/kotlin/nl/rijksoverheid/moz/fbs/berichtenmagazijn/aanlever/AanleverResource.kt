@@ -29,12 +29,16 @@ class AanleverResource(
     )
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
         val ontvangerDto = berichtAanleverenRequest.ontvanger
+        val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
+            NieuweBijlage(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
+        }
         val bericht = opslagService.opslaanBericht(
             afzender = berichtAanleverenRequest.afzender,
             ontvangerType = IdentificatienummerType.valueOf(ontvangerDto.type.name),
             ontvangerWaarde = ontvangerDto.waarde,
             onderwerp = berichtAanleverenRequest.onderwerp,
             inhoud = berichtAanleverenRequest.inhoud,
+            bijlagen = bijlagen,
         )
 
         // Zet dataSubjectId pas na succesvolle domein-validatie, zodat we geen

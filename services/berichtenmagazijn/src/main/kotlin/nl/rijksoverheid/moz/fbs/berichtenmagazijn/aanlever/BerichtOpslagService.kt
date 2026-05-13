@@ -6,6 +6,8 @@ import jakarta.transaction.Transactional
 import jakarta.ws.rs.ClientErrorException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
@@ -19,6 +21,7 @@ import org.hibernate.exception.ConstraintViolationException as HibernateConstrai
 @ApplicationScoped
 class BerichtOpslagService(
     private val repository: BerichtRepository,
+    private val bijlageRepository: BijlageRepository,
 ) {
 
     private val log = Logger.getLogger(BerichtOpslagService::class.java)
@@ -53,9 +56,11 @@ class BerichtOpslagService(
         ontvangerWaarde: String,
         onderwerp: String,
         inhoud: String,
+        bijlagen: List<NieuweBijlage> = emptyList(),
     ): Bericht {
+        val berichtId = UUID.randomUUID()
         val bericht = Bericht(
-            berichtId = UUID.randomUUID(),
+            berichtId = berichtId,
             afzender = Oin(afzender),
             ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
             onderwerp = onderwerp,
@@ -65,6 +70,17 @@ class BerichtOpslagService(
 
         try {
             repository.save(bericht)
+            bijlagen.forEach { nieuw ->
+                bijlageRepository.save(
+                    Bijlage(
+                        bijlageId = UUID.randomUUID(),
+                        berichtId = berichtId,
+                        naam = nieuw.naam,
+                        mimeType = nieuw.mimeType,
+                        content = nieuw.content,
+                    ),
+                )
+            }
         } catch (ex: PersistenceException) {
             // Opslagfouten loggen we met service-context (type + lengtes) zodat diagnose
             // mogelijk blijft óók wanneer de mapper het detail maskeert. De waarde van
@@ -87,10 +103,36 @@ class BerichtOpslagService(
         }
 
         log.debugf(
-            "Bericht opgeslagen: berichtId=%s ontvangerType=%s",
+            "Bericht opgeslagen: berichtId=%s ontvangerType=%s bijlagen=%d",
             bericht.berichtId,
             bericht.ontvanger.type,
+            bijlagen.size,
         )
         return bericht
+    }
+}
+
+/**
+ * Input-tuple voor een bijlage bij het opslaan van een bericht. Houdt de
+ * service-API losgekoppeld van de gegenereerde JAX-RS DTO's (resource-laag
+ * doet de DTO-mapping).
+ */
+data class NieuweBijlage(
+    val naam: String,
+    val mimeType: String,
+    val content: ByteArray,
+) {
+    // contentEquals/hashCode zodat tests deterministisch met bytes kunnen werken.
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is NieuweBijlage) return false
+        return naam == other.naam && mimeType == other.mimeType && content.contentEquals(other.content)
+    }
+
+    override fun hashCode(): Int {
+        var result = naam.hashCode()
+        result = 31 * result + mimeType.hashCode()
+        result = 31 * result + content.contentHashCode()
+        return result
     }
 }

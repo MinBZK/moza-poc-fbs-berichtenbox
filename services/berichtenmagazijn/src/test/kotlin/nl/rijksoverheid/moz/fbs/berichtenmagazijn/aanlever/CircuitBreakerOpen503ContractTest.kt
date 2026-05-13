@@ -31,6 +31,7 @@ class CircuitBreakerOpen503ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            bijlageRepository = mockk(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,
@@ -38,6 +39,7 @@ class CircuitBreakerOpen503ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
+                bijlagen: List<NieuweBijlage>,
             ): Nothing = throw CircuitBreakerOpenException("circuit open (test)")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

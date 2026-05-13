@@ -31,6 +31,7 @@ class DbConstraintViolation409ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            bijlageRepository = mockk(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,
@@ -38,6 +39,7 @@ class DbConstraintViolation409ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
+                bijlagen: List<NieuweBijlage>,
             ): Nothing = throw HibernateConstraintViolationException(
                 "unique violation",
                 SQLException("duplicate key", "23505"),

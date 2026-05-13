@@ -32,6 +32,27 @@ sealed interface Identificatienummer {
             IdentificatienummerType.KVK -> Kvk(waarde)
             IdentificatienummerType.OIN -> Oin(waarde)
         }
+
+        /**
+         * Parseert een `X-Ontvanger` header in formaat `<TYPE>:<WAARDE>` naar een
+         * getypeerd [Identificatienummer]. De header is op spec-niveau al gevalideerd
+         * (regex `^(BSN|RSIN|KVK|OIN):[0-9]{8,20}$`) door de JAX-RS Bean Validation
+         * annotaties op de gegenereerde interface; deze functie zet om naar het
+         * domein-model en delegeert verdere type-invarianten (elfproef, lengte per
+         * type) aan [of]. Gooit [DomainValidationException] bij invalide invoer.
+         */
+        fun fromHeader(header: String): Identificatienummer {
+            val parts = header.split(':', limit = 2)
+            requireValid(parts.size == 2) {
+                "X-Ontvanger header moet in formaat <TYPE>:<WAARDE> zijn"
+            }
+            val type = try {
+                IdentificatienummerType.valueOf(parts[0])
+            } catch (_: IllegalArgumentException) {
+                throw DomainValidationException("Onbekend identificatienummer-type: ${parts[0]}")
+            }
+            return of(type, parts[1])
+        }
     }
 }
 

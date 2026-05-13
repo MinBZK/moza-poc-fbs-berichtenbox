@@ -19,6 +19,12 @@ data class Bericht(
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
+    // Metadata van bijlagen bij het bericht. Bytes worden separaat opgehaald via
+    // de bijlage-repository; in de berichtenlijst is alleen metadata zichtbaar.
+    val bijlagen: List<BijlageMetadata> = emptyList(),
+    // Leesstatus voor de ontvanger die het bericht opvraagt. `null` als de
+    // ontvanger het bericht nog niet heeft aangeraakt.
+    val status: BerichtStatus? = null,
 ) {
     init {
         requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
