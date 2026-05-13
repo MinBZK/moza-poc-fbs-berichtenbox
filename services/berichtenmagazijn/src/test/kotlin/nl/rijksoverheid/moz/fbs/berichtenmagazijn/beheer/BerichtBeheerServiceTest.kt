@@ -48,7 +48,7 @@ class BerichtBeheerServiceTest {
         val patchSlot = slot<BerichtStatusPatch>()
         every { berichtRepository.findByBerichtId(b.berichtId) } returns b
         every {
-            statusRepository.upsert(b.berichtId, ontvanger, capture(patchSlot), any())
+            statusRepository.upsert(b.berichtId, capture(patchSlot), any())
         } returns nieuweStatus
         every { bijlageRepository.metadataVoorBericht(b.berichtId) } returns emptyList()
 

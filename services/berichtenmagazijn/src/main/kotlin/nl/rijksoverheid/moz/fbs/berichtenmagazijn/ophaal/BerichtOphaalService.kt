@@ -44,11 +44,9 @@ class BerichtOphaalService(
         pageSize: Int,
     ): PagedBerichten {
         val pagina = berichtRepository.lijstVoorOntvanger(ontvanger, afzender, page, pageSize)
-        // Per bericht de status (gelezen/map) voor déze ontvanger toevoegen.
+        // Per bericht de status (gelezen/map) toevoegen.
         val verrijkt = pagina.berichten.map { bericht ->
-            bericht.copy(
-                status = statusRepository.findByBerichtIdEnOntvanger(bericht.berichtId, ontvanger),
-            )
+            bericht.copy(status = statusRepository.findByBerichtId(bericht.berichtId))
         }
         return pagina.copy(berichten = verrijkt)
     }
@@ -60,7 +58,7 @@ class BerichtOphaalService(
         autoriseerOntvanger(bericht, ontvanger)
         return bericht.copy(
             bijlagen = bijlageRepository.metadataVoorBericht(berichtId),
-            status = statusRepository.findByBerichtIdEnOntvanger(berichtId, ontvanger),
+            status = statusRepository.findByBerichtId(berichtId),
         )
     }
 

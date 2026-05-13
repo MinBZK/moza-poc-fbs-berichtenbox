@@ -49,7 +49,7 @@ class BerichtOphaalServiceTest {
         val status = BerichtStatus(gelezen = true, map = "archief", gewijzigdOp = Instant.now())
         every { berichtRepository.findByBerichtId(b.berichtId) } returns b
         every { bijlageRepository.metadataVoorBericht(b.berichtId) } returns meta
-        every { statusRepository.findByBerichtIdEnOntvanger(b.berichtId, ontvanger) } returns status
+        every { statusRepository.findByBerichtId(b.berichtId) } returns status
 
         val resultaat = service.haalBerichtOp(b.berichtId, ontvanger)
 
@@ -113,14 +113,14 @@ class BerichtOphaalServiceTest {
     }
 
     @Test
-    fun `lijst voegt per bericht de status van de ontvanger toe`() {
+    fun `lijst voegt per bericht de status toe`() {
         val b1 = bericht()
         val b2 = bericht()
         val pagina = PagedBerichten(berichten = listOf(b1, b2), page = 0, pageSize = 20, totalElements = 2L)
         val status1 = BerichtStatus(gelezen = true, map = null, gewijzigdOp = Instant.now())
         every { berichtRepository.lijstVoorOntvanger(ontvanger, null, 0, 20) } returns pagina
-        every { statusRepository.findByBerichtIdEnOntvanger(b1.berichtId, ontvanger) } returns status1
-        every { statusRepository.findByBerichtIdEnOntvanger(b2.berichtId, ontvanger) } returns null
+        every { statusRepository.findByBerichtId(b1.berichtId) } returns status1
+        every { statusRepository.findByBerichtId(b2.berichtId) } returns null
 
         val resultaat = service.lijst(ontvanger, afzender = null, page = 0, pageSize = 20)
 

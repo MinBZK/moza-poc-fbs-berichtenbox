@@ -6,25 +6,23 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Panache-repository voor de leesstatus per (bericht, ontvanger). Externe code
- * werkt uitsluitend met [BerichtStatus] — [BerichtStatusEntity] is een
- * `internal` implementatiedetail.
+ * Panache-repository voor de leesstatus van een bericht. Externe code werkt
+ * uitsluitend met [BerichtStatus] — [BerichtStatusEntity] is een `internal`
+ * implementatiedetail.
  *
- * Status-rijen worden lazy aangemaakt: de eerste PATCH op een bericht door een
- * ontvanger maakt de rij; daarvoor levert [findByBerichtIdEnOntvanger] simpelweg
- * `null` op (de ontvanger heeft het bericht nog niet aangeraakt).
+ * Status-rijen worden lazy aangemaakt: de eerste PATCH op een bericht maakt
+ * de rij; daarvoor levert [findByBerichtId] simpelweg `null` op (het bericht
+ * is nog niet aangeraakt door de ontvanger).
  */
 @ApplicationScoped
-class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, BerichtStatusKey> {
+class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, UUID> {
 
     /**
-     * Haalt de status van een bericht voor een specifieke ontvanger op, of
-     * `null` als de ontvanger nog geen status heeft gezet.
+     * Haalt de status van een bericht op, of `null` als er nog geen status is
+     * gezet.
      */
-    fun findByBerichtIdEnOntvanger(
-        berichtId: UUID,
-        ontvanger: Identificatienummer,
-    ): BerichtStatus? = findById(BerichtStatusKey(berichtId, ontvanger))?.toDomain()
+    fun findByBerichtId(berichtId: UUID): BerichtStatus? =
+        findById(berichtId)?.toDomain()
 
     /**
      * Maakt een status-rij aan of werkt een bestaande bij. PoC-semantiek (zie
@@ -35,12 +33,10 @@ class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, Beric
      */
     fun upsert(
         berichtId: UUID,
-        ontvanger: Identificatienummer,
         patch: BerichtStatusPatch,
         tijdstip: Instant,
     ): BerichtStatus {
-        val key = BerichtStatusKey(berichtId, ontvanger)
-        val entity = findById(key) ?: BerichtStatusEntity().apply { id = key }
+        val entity = findById(berichtId) ?: BerichtStatusEntity().apply { this.berichtId = berichtId }
         if (patch.gelezen != null) entity.gelezen = patch.gelezen
         if (patch.map != null) entity.map = patch.map
         entity.gewijzigdOp = tijdstip

@@ -49,7 +49,6 @@ class BerichtBeheerService(
 
         val nieuweStatus = statusRepository.upsert(
             berichtId = berichtId,
-            ontvanger = ontvanger,
             patch = patch,
             tijdstip = Instant.now(),
         )
