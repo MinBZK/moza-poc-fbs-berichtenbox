@@ -44,10 +44,9 @@ class BerichtOphaalService(
         pageSize: Int,
     ): PagedBerichten {
         val pagina = berichtRepository.lijstVoorOntvanger(ontvanger, afzender, page, pageSize)
-        // Per bericht de status (gelezen/map) toevoegen.
-        val verrijkt = pagina.berichten.map { bericht ->
-            bericht.copy(status = statusRepository.findByBerichtId(bericht.berichtId))
-        }
+        // Statussen in één batch ophalen om N+1 te vermijden bij grote pages.
+        val statuses = statusRepository.findByBerichtIds(pagina.berichten.map { it.berichtId })
+        val verrijkt = pagina.berichten.map { it.copy(status = statuses[it.berichtId]) }
         return pagina.copy(berichten = verrijkt)
     }
 

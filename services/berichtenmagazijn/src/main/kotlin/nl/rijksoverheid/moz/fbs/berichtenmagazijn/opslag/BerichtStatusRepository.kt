@@ -29,6 +29,27 @@ class BerichtStatusRepository(
         find("bericht.berichtId", berichtId).firstResult()?.toDomain()
 
     /**
+     * Batch-variant voor lijst-endpoints: laadt statussen voor een verzameling
+     * berichten in één query (anders N+1). De parent wordt mee-fetched zodat
+     * de map-sleutel — `bericht.berichtId` — geen extra lazy-load triggert.
+     */
+    fun findByBerichtIds(berichtIds: Collection<UUID>): Map<UUID, BerichtStatus> {
+        if (berichtIds.isEmpty()) return emptyMap()
+        return getEntityManager()
+            .createQuery(
+                """
+                SELECT bs FROM BerichtStatusEntity bs
+                JOIN FETCH bs.bericht be
+                WHERE be.berichtId IN :ids
+                """.trimIndent(),
+                BerichtStatusEntity::class.java,
+            )
+            .setParameter("ids", berichtIds)
+            .resultList
+            .associate { it.bericht.berichtId to it.toDomain() }
+    }
+
+    /**
      * Maakt een status-rij aan of werkt een bestaande bij. PoC-semantiek (zie
      * docstring van [BerichtStatusPatch]): alleen niet-`null` velden in [patch]
      * vervangen de huidige waarde. Volledig RFC 7396-conforme "wis met `null`"

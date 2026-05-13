@@ -42,18 +42,22 @@ class BijlageRepository(
     /**
      * Haalt één bijlage op (incl. bytes) aan de hand van bericht- én bijlage-ID.
      * Beide IDs moeten matchen, anders 404 — dit voorkomt dat een gokje op een
-     * `bijlageId` resultaat geeft bij een willekeurig ander bericht.
+     * `bijlageId` resultaat geeft bij een willekeurig ander bericht. Verwijderde
+     * berichten worden uitgesloten (defense-in-depth: callers controleren al,
+     * maar deze query mag onafhankelijk veilig zijn).
      */
     fun findByBerichtIdEnBijlageId(berichtId: UUID, bijlageId: UUID): Bijlage? =
-        find("bericht.berichtId = ?1 and bijlageId = ?2", berichtId, bijlageId)
-            .firstResult()
-            ?.toBijlage()
+        find(
+            "bericht.berichtId = ?1 and bijlageId = ?2 and bericht.verwijderdOp is null",
+            berichtId,
+            bijlageId,
+        ).firstResult()?.toBijlage()
 
     /**
      * Haalt alleen de metadata (zonder bytes) op van alle bijlagen bij een bericht.
      * Gebruikt door `GET /berichten/{id}` om bijlage-metadata in de response te
      * bouwen. Projection-query zodat de `content`-kolom (`BYTEA`, tot 25 MiB per
-     * bijlage) niet onnodig in heap belandt.
+     * bijlage) niet onnodig in heap belandt. Sluit verwijderde berichten uit.
      */
     fun metadataVoorBericht(berichtId: UUID): List<BijlageMetadata> =
         getEntityManager()
@@ -64,6 +68,7 @@ class BijlageRepository(
                 )
                 FROM BijlageEntity b
                 WHERE b.bericht.berichtId = :berichtId
+                  AND b.bericht.verwijderdOp IS NULL
                 """.trimIndent(),
                 BijlageMetadata::class.java,
             )

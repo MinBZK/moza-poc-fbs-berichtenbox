@@ -119,8 +119,8 @@ class BerichtOphaalServiceTest {
         val pagina = PagedBerichten(berichten = listOf(b1, b2), page = 0, pageSize = 20, totalElements = 2L)
         val status1 = BerichtStatus(gelezen = true, map = null, gewijzigdOp = Instant.now())
         every { berichtRepository.lijstVoorOntvanger(ontvanger, null, 0, 20) } returns pagina
-        every { statusRepository.findByBerichtId(b1.berichtId) } returns status1
-        every { statusRepository.findByBerichtId(b2.berichtId) } returns null
+        every { statusRepository.findByBerichtIds(listOf(b1.berichtId, b2.berichtId)) } returns
+            mapOf(b1.berichtId to status1)
 
         val resultaat = service.lijst(ontvanger, afzender = null, page = 0, pageSize = 20)
 

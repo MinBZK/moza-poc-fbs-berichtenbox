@@ -68,6 +68,7 @@ class OphaalResource(
         name = "ophalen-bijlage",
         processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-ophalen",
     )
+    @OverrideContentType
     override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
         registreerLdvSubject(ontvanger)
