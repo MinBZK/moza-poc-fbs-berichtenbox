@@ -148,6 +148,5 @@ Bij code reviews classificeren we bevindingen op ernst (Hoog/Medium/Laag) met ee
 
 ## Tooling
 
-- **Docker-afhankelijke tests via `mcp__maven-host`:** Testcontainers en Quarkus Dev Services hebben Docker nodig; de Claude-sandbox heeft dat niet. Roep `mcp__maven-host__run_maven` aan met `goals="test"`, `extra_args="-pl services/<naam> -am"` en `env={"TESTCONTAINERS_RYUK_DISABLED": "true"}` (Rancher Desktop / Docker-socket bind-mount issue). Lokale `./mvnw test-compile` kan zonder Docker — handig voor snelle compilatie-check.
 - **ADR-spec-linting:** `npx @stoplight/spectral-cli lint <spec.yaml> --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml` valideert tegen Forum-Standaardisatie API Design Rules.
 - **CI-status volgen:** `gh pr checks <PR#>` en `gh run watch <run-id> --exit-status`. Bij falen: `gh run view <id> --log-failed`.
