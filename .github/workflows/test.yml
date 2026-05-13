@@ -33,4 +33,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: jacoco-report
-          path: services/berichtenmagazijn/target/site/jacoco-quarkus/
+          path: |
+            services/berichtenmagazijn/target/site/
+            services/berichtenmagazijn/target/jacoco-report/
+            services/berichtenmagazijn/target/jacoco-quarkus.exec
