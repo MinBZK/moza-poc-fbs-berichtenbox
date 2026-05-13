@@ -37,22 +37,6 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
             ?.toDomain()
 
     /**
-     * Haalt een actief bericht op dat tevens hoort bij de opgegeven ontvanger.
-     * Retourneert `null` zowel bij niet-bestaand bericht als bij een mismatch op
-     * de ontvanger — zo lekken Ophaal-endpoints niet of een bericht überhaupt
-     * bestaat voor een andere ontvanger. Autorisatie-laag (Issue 10) zal dit
-     * later mogelijk anders modelleren (403 vs 404), maar voor de PoC is "lijkt
-     * niet te bestaan" de veiligste default.
-     */
-    fun findByBerichtIdEnOntvanger(berichtId: UUID, ontvanger: Identificatienummer): Bericht? =
-        find(
-            "berichtId = ?1 and ontvangerType = ?2 and ontvangerWaarde = ?3 and verwijderdOp is null",
-            berichtId,
-            ontvanger.type,
-            ontvanger.waarde,
-        ).firstResult()?.toDomain()
-
-    /**
      * Paged lijst van actieve berichten voor een ontvanger, optioneel gefilterd
      * op afzender. Sortering: nieuwste bericht eerst — gebruikelijke UX in
      * berichtenbox-views.
