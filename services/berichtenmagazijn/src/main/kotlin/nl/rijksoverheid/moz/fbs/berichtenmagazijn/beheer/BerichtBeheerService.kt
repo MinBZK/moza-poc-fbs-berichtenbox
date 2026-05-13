@@ -2,15 +2,14 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.beheer
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
-import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtAutorisatie
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
-import org.jboss.logging.Logger
 import java.time.Instant
 import java.util.UUID
 
@@ -29,8 +28,6 @@ class BerichtBeheerService(
     private val bijlageRepository: BijlageRepository,
 ) {
 
-    private val log = Logger.getLogger(BerichtBeheerService::class.java)
-
     /**
      * Patcht de leesstatus (gelezen, map) van een bericht voor de opgegeven
      * ontvanger en retourneert het bijgewerkte bericht inclusief bijlage-metadata
@@ -45,7 +42,7 @@ class BerichtBeheerService(
     ): Bericht {
         val bericht = berichtRepository.findByBerichtId(berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
-        autoriseerOntvanger(bericht, ontvanger)
+        BerichtAutorisatie.vereisOntvanger(bericht, ontvanger)
 
         val nieuweStatus = statusRepository.upsert(
             berichtId = berichtId,
@@ -68,25 +65,13 @@ class BerichtBeheerService(
     fun verwijder(berichtId: UUID, ontvanger: Identificatienummer) {
         val bericht = berichtRepository.findByBerichtId(berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
-        autoriseerOntvanger(bericht, ontvanger)
+        BerichtAutorisatie.vereisOntvanger(bericht, ontvanger)
 
         val ok = berichtRepository.softDelete(berichtId, ontvanger, Instant.now())
         if (!ok) {
             // Race-condition: tussen find en update is iets anders gebeurd. Behandel
             // als "niet meer aanwezig" — 404 is dan de consistente respons.
             throw NotFoundException("Bericht niet gevonden")
-        }
-    }
-
-    private fun autoriseerOntvanger(bericht: Bericht, ontvanger: Identificatienummer) {
-        if (bericht.ontvanger.type != ontvanger.type || bericht.ontvanger.waarde != ontvanger.waarde) {
-            log.warnf(
-                "Autorisatie geweigerd: ontvanger-mismatch berichtId=%s berichtOntvangerType=%s headerOntvangerType=%s",
-                bericht.berichtId,
-                bericht.ontvanger.type,
-                ontvanger.type,
-            )
-            throw ForbiddenException("Geen toegang tot dit bericht")
         }
     }
 }

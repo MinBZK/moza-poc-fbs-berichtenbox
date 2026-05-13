@@ -1,10 +1,16 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn
+package nl.rijksoverheid.moz.fbs.common
 
 import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import org.eclipse.microprofile.config.inject.ConfigProperty
 
+/**
+ * Borgt dat het LDV (Logboek Dataverwerkingen) endpoint in productie-achtige
+ * profielen TLS (https://) gebruikt. Persoonsgegevens (zoals dataSubjectId
+ * met BSN) mogen niet onversleuteld over het netwerk — BIO 13.2.1 / AVG
+ * art. 32. In `dev` en `test` mag http:// voor lokale containers.
+ */
 @ApplicationScoped
 class LdvEndpointValidator(
     @param:ConfigProperty(name = "logboekdataverwerking.clickhouse.endpoint") private val endpoint: String,

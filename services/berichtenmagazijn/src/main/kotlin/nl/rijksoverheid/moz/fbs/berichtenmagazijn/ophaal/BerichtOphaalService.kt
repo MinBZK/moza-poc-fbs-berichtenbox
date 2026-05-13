@@ -2,16 +2,15 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
-import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtAutorisatie
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.PagedBerichten
-import org.jboss.logging.Logger
 import java.util.UUID
 
 /**
@@ -34,8 +33,6 @@ class BerichtOphaalService(
     private val statusRepository: BerichtStatusRepository,
 ) {
 
-    private val log = Logger.getLogger(BerichtOphaalService::class.java)
-
     @Transactional
     fun lijst(
         ontvanger: Identificatienummer,
@@ -54,7 +51,7 @@ class BerichtOphaalService(
     fun haalBerichtOp(berichtId: UUID, ontvanger: Identificatienummer): Bericht {
         val bericht = berichtRepository.findByBerichtId(berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
-        autoriseerOntvanger(bericht, ontvanger)
+        BerichtAutorisatie.vereisOntvanger(bericht, ontvanger)
         return bericht.copy(
             bijlagen = bijlageRepository.metadataVoorBericht(berichtId),
             status = statusRepository.findByBerichtId(berichtId),
@@ -68,22 +65,8 @@ class BerichtOphaalService(
         // tot data-disclosure leiden.
         val bericht = berichtRepository.findByBerichtId(berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
-        autoriseerOntvanger(bericht, ontvanger)
+        BerichtAutorisatie.vereisOntvanger(bericht, ontvanger)
         return bijlageRepository.findByBerichtIdEnBijlageId(berichtId, bijlageId)
             ?: throw NotFoundException("Bijlage niet gevonden")
-    }
-
-    private fun autoriseerOntvanger(bericht: Bericht, ontvanger: Identificatienummer) {
-        if (bericht.ontvanger.type != ontvanger.type || bericht.ontvanger.waarde != ontvanger.waarde) {
-            // Geen ontvanger-waarde in de log (kan BSN zijn): alleen types loggen.
-            // De correlation-id in de Problem-response geeft support genoeg context.
-            log.warnf(
-                "Autorisatie geweigerd: ontvanger-mismatch berichtId=%s berichtOntvangerType=%s headerOntvangerType=%s",
-                bericht.berichtId,
-                bericht.ontvanger.type,
-                ontvanger.type,
-            )
-            throw ForbiddenException("Geen toegang tot dit bericht")
-        }
     }
 }

@@ -51,7 +51,7 @@ class BijlageRepository(
             "bericht.berichtId = ?1 and bijlageId = ?2 and bericht.verwijderdOp is null",
             berichtId,
             bijlageId,
-        ).firstResult()?.toBijlage()
+        ).firstResult()?.toBijlage(berichtId)
 
     /**
      * Haalt alleen de metadata (zonder bytes) op van alle bijlagen bij een bericht.
@@ -76,9 +76,13 @@ class BijlageRepository(
             .resultList
 }
 
-private fun BijlageEntity.toBijlage(): Bijlage = Bijlage(
+// `berichtId` als parameter zodat we de LAZY `bericht`-associatie niet hoeven
+// te dereferentiëren — caller kent de business-key al, en zo voorkomen we
+// een LazyInitializationException als de Bijlage buiten transactie wordt
+// teruggegeven of gedetacheerd raakt.
+private fun BijlageEntity.toBijlage(berichtId: UUID): Bijlage = Bijlage(
     bijlageId = bijlageId,
-    berichtId = bericht.berichtId,
+    berichtId = berichtId,
     naam = naam,
     mimeType = mimeType,
     content = content,
