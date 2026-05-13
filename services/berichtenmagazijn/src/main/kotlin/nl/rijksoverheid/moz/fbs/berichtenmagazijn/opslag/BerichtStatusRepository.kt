@@ -12,17 +12,21 @@ import java.util.UUID
  *
  * Status-rijen worden lazy aangemaakt: de eerste PATCH op een bericht maakt
  * de rij; daarvoor levert [findByBerichtId] simpelweg `null` op (het bericht
- * is nog niet aangeraakt door de ontvanger).
+ * is nog niet aangeraakt door de ontvanger). De FK naar `berichten` loopt
+ * via de surrogate PK; [BerichtRepository.findEntityByBerichtId] vertaalt de
+ * business-key.
  */
 @ApplicationScoped
-class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, Long> {
+class BerichtStatusRepository(
+    private val berichtRepository: BerichtRepository,
+) : PanacheRepositoryBase<BerichtStatusEntity, Long> {
 
     /**
      * Haalt de status van een bericht op via de business-key, of `null` als er
      * nog geen status is gezet.
      */
     fun findByBerichtId(berichtId: UUID): BerichtStatus? =
-        find("berichtId", berichtId).firstResult()?.toDomain()
+        find("bericht.berichtId", berichtId).firstResult()?.toDomain()
 
     /**
      * Maakt een status-rij aan of werkt een bestaande bij. PoC-semantiek (zie
@@ -36,8 +40,13 @@ class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, Long>
         patch: BerichtStatusPatch,
         tijdstip: Instant,
     ): BerichtStatus {
-        val entity = find("berichtId", berichtId).firstResult()
-            ?: BerichtStatusEntity().apply { this.berichtId = berichtId }
+        val entity = find("bericht.berichtId", berichtId).firstResult()
+            ?: BerichtStatusEntity().apply {
+                bericht = berichtRepository.findEntityByBerichtId(berichtId)
+                    ?: throw IllegalArgumentException(
+                        "Bericht niet gevonden voor berichtId=$berichtId",
+                    )
+            }
         if (patch.gelezen != null) entity.gelezen = patch.gelezen
         if (patch.map != null) entity.map = patch.map
         entity.gewijzigdOp = tijdstip

@@ -37,6 +37,14 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
             ?.toDomain()
 
     /**
+     * Helper voor sibling-repositories die een FK op `berichten.id` zetten:
+     * vertaalt de business-key naar de bijbehorende [BerichtEntity]. Filtert
+     * NIET op soft-delete — child-rijen mogen na soft-delete nog steeds bestaan.
+     */
+    internal fun findEntityByBerichtId(berichtId: UUID): BerichtEntity? =
+        find("berichtId", berichtId).firstResult()
+
+    /**
      * Paged lijst van actieve berichten voor een ontvanger, optioneel gefilterd
      * op afzender. Sortering: nieuwste bericht eerst — gebruikelijke UX in
      * berichtenbox-views.

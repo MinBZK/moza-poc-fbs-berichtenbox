@@ -2,20 +2,22 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
+import jakarta.persistence.JoinColumn
+import jakarta.persistence.ManyToOne
 import jakarta.persistence.Table
 import java.util.UUID
 
 /**
  * JPA-persistentie van een bijlage bij een bericht.
  *
- * `berichtId` verwijst naar de bedrijfs-identifier (UUID) van het bericht — niet
- * naar de surrogate PK — zodat de bijlage-repository met dezelfde sleutel kan
- * zoeken die de API exposeert. De FK in de DB zorgt voor cascade-delete als
- * een bericht ooit hard verwijderd wordt; soft-delete op `berichten.verwijderd_op`
- * raakt bijlagen niet aan.
+ * De relatie naar [BerichtEntity] loopt via `bericht_db_id`, een FK op de
+ * surrogate PK `berichten.id`. Zo blijft de child-tabel onafhankelijk van de
+ * business-identifier `bericht_id`. De FK forceert verwijzingsintegriteit en
+ * cascade-delete; soft-delete op `berichten.verwijderd_op` raakt bijlagen niet.
  *
  * `content` is een onverpakte byte-array (PostgreSQL `BYTEA`). Voor de PoC houden
  * we de bijlage in dezelfde transactie als het bericht; bij grote bijlagen of
@@ -33,8 +35,9 @@ internal class BijlageEntity {
     @Column(name = "bijlage_id", nullable = false, unique = true)
     var bijlageId: UUID = PLACEHOLDER_UUID
 
-    @Column(name = "bericht_id", nullable = false)
-    var berichtId: UUID = PLACEHOLDER_UUID
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "bericht_db_id", nullable = false)
+    lateinit var bericht: BerichtEntity
 
     @Column(nullable = false, length = 255)
     var naam: String = ""

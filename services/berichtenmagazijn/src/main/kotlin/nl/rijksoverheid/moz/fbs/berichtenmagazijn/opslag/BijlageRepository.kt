@@ -7,20 +7,31 @@ import java.util.UUID
 /**
  * Panache-repository voor bijlagen. Externe code werkt uitsluitend met [Bijlage]
  * en [BijlageMetadata] — [BijlageEntity] is een `internal` implementatiedetail.
+ *
+ * De FK naar `berichten` loopt via de surrogate PK (`bericht_db_id` → `berichten.id`).
+ * [BerichtRepository] levert de [BerichtEntity]-referentie op basis van de
+ * business-key zodat callers van [save] alsnog met de UUID kunnen werken.
  */
 @ApplicationScoped
-class BijlageRepository : PanacheRepositoryBase<BijlageEntity, Long> {
+class BijlageRepository(
+    private val berichtRepository: BerichtRepository,
+) : PanacheRepositoryBase<BijlageEntity, Long> {
 
     /**
      * Persisteert een nieuwe bijlage. Wordt aangeroepen vanuit de Aanlever-flow
-     * voor elke bijlage in het aangeleverde bericht. De FK naar `berichten` zorgt
-     * dat een bijlage zonder bestaand bericht een DB-constraint-violation geeft.
+     * voor elke bijlage in het aangeleverde bericht. Faalt met `IllegalArgumentException`
+     * als het parent-bericht (nog) niet bestaat — de Aanlever-service plaatst de
+     * bericht-save in dezelfde transactie, dus dat scenario duidt op een bug.
      */
     fun save(bijlage: Bijlage) {
+        val berichtEntity = berichtRepository.findEntityByBerichtId(bijlage.berichtId)
+            ?: throw IllegalArgumentException(
+                "Bericht niet gevonden voor berichtId=${bijlage.berichtId}",
+            )
         persist(
             BijlageEntity().apply {
                 bijlageId = bijlage.bijlageId
-                berichtId = bijlage.berichtId
+                bericht = berichtEntity
                 naam = bijlage.naam
                 mimeType = bijlage.mimeType
                 content = bijlage.content
@@ -34,7 +45,7 @@ class BijlageRepository : PanacheRepositoryBase<BijlageEntity, Long> {
      * `bijlageId` resultaat geeft bij een willekeurig ander bericht.
      */
     fun findByBerichtIdEnBijlageId(berichtId: UUID, bijlageId: UUID): Bijlage? =
-        find("berichtId = ?1 and bijlageId = ?2", berichtId, bijlageId)
+        find("bericht.berichtId = ?1 and bijlageId = ?2", berichtId, bijlageId)
             .firstResult()
             ?.toBijlage()
 
@@ -52,7 +63,7 @@ class BijlageRepository : PanacheRepositoryBase<BijlageEntity, Long> {
                     b.bijlageId, b.naam, b.mimeType
                 )
                 FROM BijlageEntity b
-                WHERE b.berichtId = :berichtId
+                WHERE b.bericht.berichtId = :berichtId
                 """.trimIndent(),
                 BijlageMetadata::class.java,
             )
@@ -62,7 +73,7 @@ class BijlageRepository : PanacheRepositoryBase<BijlageEntity, Long> {
 
 private fun BijlageEntity.toBijlage(): Bijlage = Bijlage(
     bijlageId = bijlageId,
-    berichtId = berichtId,
+    berichtId = bericht.berichtId,
     naam = naam,
     mimeType = mimeType,
     content = content,
