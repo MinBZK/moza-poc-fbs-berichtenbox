@@ -27,15 +27,32 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
     override fun toResponse(exception: ConstraintViolationException): Response {
         log.debugf("Validatiefout: %s", exception.constraintViolations)
 
-        val rawDetail = exception.constraintViolations.joinToString("; ") {
-            val paramName = it.propertyPath.lastOrNull()?.name ?: it.propertyPath.toString()
-            "$paramName: ${it.message}"
-        }
+        // .take(MAX_VIOLATIONS_IN_DETAIL) cap't memory-pressure bij N=10000+
+        // violations (groot request met veel @Pattern-velden) — sanitizeClientDetail
+        // cap't alleen het eindresultaat, niet de tussenstring-allocatie.
+        val rawDetail = exception.constraintViolations
+            .asSequence()
+            .take(MAX_VIOLATIONS_IN_DETAIL)
+            .joinToString("; ") {
+                val paramName = it.propertyPath.lastOrNull()?.name ?: it.propertyPath.toString()
+                "$paramName: ${it.message}"
+            }
 
+        // sanitizeClientDetail null-return is in deze format onmogelijk: paramName + ": "
+        // is altijd minstens 2 chars die saneer overlaat. Geen fallback nodig.
         return problemResponse(
             status = 400,
             title = "Bad Request",
             detail = sanitizeClientDetail(rawDetail),
         )
+    }
+
+    companion object {
+        /**
+         * Bovengrens op aantal violations in `detail`-string. Bij meer violations
+         * krijgt de client de eerste N — voldoende om actionable te zijn, beperkt
+         * memory-pressure bij volume-aanvallen of grote requests met veel velden.
+         */
+        const val MAX_VIOLATIONS_IN_DETAIL = 50
     }
 }

@@ -39,9 +39,17 @@ class DomainValidationExceptionMapper : ExceptionMapper<DomainValidationExceptio
         // strip CRLF, CWE-117 mitigatie). Domeinmessages zijn handgeschreven,
         // maar string-interpolatie van user-input kan alsnog control-chars
         // of BSN-achtige reeksen meedragen — saneer is goedkope verdediging.
+        // Cause-message wordt OOK gesaneerd gelogd als 2e correlatie-handvat:
+        // call-sites die context willen meegeven zonder die in `Problem.detail`
+        // te lekken (bv. `CloudEventBuilder` met `type=<bogus>`) gebruiken
+        // `cause = IllegalArgumentException("type=$x")`. Saneer dekt CWE-117
+        // (CRLF-strip) + ≥7-cijfer-PII redact. `cause`-type is sowieso al
+        // 3e handvat (klasse-naam, geen user-input).
         log.infof(
-            "Domeinvalidatie geschonden (errorId=%s): %s",
+            "Domeinvalidatie geschonden (errorId=%s, causeType=%s, cause=%s): %s",
             errorId,
+            exception.cause?.javaClass?.simpleName ?: "geen",
+            FoutBeschrijving.saneer(exception.cause?.message),
             FoutBeschrijving.saneer(exception.message),
         )
         // `detail` BEWUST ongesaneerd doorgegeven: handgeschreven domeinmessages

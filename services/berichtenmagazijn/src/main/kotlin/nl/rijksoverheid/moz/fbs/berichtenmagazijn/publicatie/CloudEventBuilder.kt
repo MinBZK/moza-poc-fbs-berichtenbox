@@ -139,11 +139,16 @@ data class OntvangerData(
         // ongesaneerde reflectie van `type` in `Problem.detail` zou CRLF/JSON-
         // injection of oversize-DoS toelaten. De client krijgt enum-namen al
         // via OpenAPI-spec — interpoleren voegt geen actionable info toe.
-        // De feitelijke `type`-waarde belandt wèl in de log via `cause`-handvat
-        // van DomainValidationExceptionMapper voor support-correlatie.
+        //
+        // Voor support-debug van "welk onbekend type kwam binnen?" geven we
+        // de raw `type`-waarde mee als `cause`-message. DomainValidationExceptionMapper
+        // logt nu `cause`-message via `FoutBeschrijving.saneer` (CWE-117 strip),
+        // zodat de waarde traceerbaar is in support-flow zonder dat-ie ongesaneerd
+        // in `Problem.detail` belandt. `take(64)` cap't oversize-DoS in log.
         val typed = enumValues<IdentificatienummerType>().firstOrNull { it.name == type }
             ?: throw nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException(
                 "Onbekend identificatienummer-type",
+                cause = IllegalArgumentException("type=${type.take(64)}"),
             )
         Identificatienummer.of(typed, waarde)
     }

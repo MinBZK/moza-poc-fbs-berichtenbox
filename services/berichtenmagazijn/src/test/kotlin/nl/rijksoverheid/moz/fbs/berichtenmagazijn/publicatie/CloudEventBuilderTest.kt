@@ -111,4 +111,61 @@ class CloudEventBuilderTest {
         assertEquals("BSN", data.type)
         assertEquals("999993653", data.waarde)
     }
+
+    @Test
+    fun `OntvangerData met onbekend type gooit DomainValidationException MET STATISCHE message (CRLF-injection-regressie)`() {
+        // Round 12 H1: voorheen interpoleerde de message `$type` direct.
+        // Een bogus type met CRLF/HTML-injection moet door de mapper als
+        // statisch detail naar de client gaan, NIET de raw payload.
+        // Refactor die de interpolatie herinvoert wordt hier gevangen.
+        val attackPayload = "BOGUS\r\nLevel: ERROR\nInjected line"
+        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+            OntvangerData(type = attackPayload, waarde = "x")
+        }
+        // Statische message (geen $type-interpolatie meer)
+        assertEquals(
+            "Onbekend identificatienummer-type",
+            ex.message,
+            "message moet statisch zijn — gevonden: ${ex.message}",
+        )
+        assertFalse(
+            ex.message!!.contains("BOGUS"),
+            "raw type-payload mag niet in client-zichtbare message — gevonden: ${ex.message}",
+        )
+        assertFalse(
+            ex.message!!.contains("\r") || ex.message!!.contains("\n"),
+            "CRLF mag niet in message (CWE-117) — gevonden: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `OntvangerData met onbekend type geeft type-waarde mee als cause voor support-correlatie`() {
+        // Round 13 H1: type-waarde verdween eerder volledig; support kon niet
+        // achterhalen welke bogus-input binnenkwam. Cause draagt de waarde nu
+        // (DomainValidationExceptionMapper logt cause-message gesaneerd).
+        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+            OntvangerData(type = "ONBEKEND_TYPE_X", waarde = "999993653")
+        }
+        val cause = ex.cause
+        org.junit.jupiter.api.Assertions.assertNotNull(cause, "cause vereist voor support-correlatie")
+        assertTrue(
+            cause!!.message!!.contains("ONBEKEND_TYPE_X"),
+            "cause-message moet type-waarde bevatten — gevonden: ${cause.message}",
+        )
+    }
+
+    @Test
+    fun `OntvangerData cap't oversize type in cause-message (DoS-mitigatie)`() {
+        // Voorkomt log-volume-DoS: aanvaller stuurt 1 MB type-waarde, cause
+        // mag niet ongebreideld groeien. take(64) cap't.
+        val oversizeType = "X".repeat(10_000)
+        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+            OntvangerData(type = oversizeType, waarde = "999993653")
+        }
+        val causeMessage = ex.cause!!.message!!
+        assertTrue(
+            causeMessage.length <= 100,
+            "cause-message moet capped zijn — lengte: ${causeMessage.length}",
+        )
+    }
 }
