@@ -107,26 +107,58 @@ class DownstreamClient(
                     reden = "HTTP $status van ${doel.key}",
                 )
             }
-        } catch (ex: HttpConnectTimeoutException) {
+        } catch (ex: IOException) {
+            mapDeliveryException(ex, doel)
+        } catch (ex: InterruptedException) {
+            // Herstel interrupt-flag zodat bovenliggende code (scheduler-thread)
+            // het signaal niet verliest.
+            Thread.currentThread().interrupt()
+            log.warnf(ex, "Interrupted bij downstream-aflevering: doel=%s", doel)
+            DownstreamResultaat.NetwerkFout("Interrupted naar $doel")
+        }
+    }
+
+    /**
+     * Mapt een [IOException]-variant uit [HttpClient.send] naar het juiste
+     * [DownstreamResultaat]. Geëxtraheerd uit [lever] om deterministisch
+     * unit-testbaar te zijn (geen netwerk-trigger nodig om SSL-takken te raken):
+     * de catch-volgorde-invariant zit nu in `when (ex)`-`is`-branches, waarvan
+     * de **eerste match wint** zoals bij sequentiële `try/catch`-blokken.
+     *
+     * **Volgorde-invariant** (gepin'd door [DownstreamClientExceptionMappingTest]):
+     *  1. [HttpConnectTimeoutException] vóór [HttpTimeoutException] (subklasse-relatie).
+     *  2. [SSLHandshakeException] vóór [SSLException] (subklasse + verschillende
+     *     herstelbaarheid: handshake-faal = cert-config = ConfiguratieFout, generiek
+     *     SSL = mogelijk transient = NetwerkFout).
+     *  3. SSL-takken vóór generieke [IOException]-tak (anders raakt code de
+     *     algemene "netwerk-hick"-pad en mist ops het ERROR-niveau cert-faal-signaal).
+     *
+     * Een refactor die deze volgorde wijzigt zou eindeloos retry op een permanent
+     * cert-faal — resource-verspilling + Black-Hole-aflevering.
+     */
+    internal fun mapDeliveryException(ex: IOException, doel: PublicatieDoel): DownstreamResultaat = when (ex) {
+        is HttpConnectTimeoutException -> {
             log.warnf(ex, "Connect-timeout bij downstream-aflevering: doel=%s", doel)
             DownstreamResultaat.Timeout(FoutBeschrijving.saneer("Connect-timeout naar $doel: ${ex.message}"))
-        } catch (ex: HttpTimeoutException) {
+        }
+        is HttpTimeoutException -> {
             log.warnf(ex, "Read-timeout bij downstream-aflevering: doel=%s", doel)
             DownstreamResultaat.Timeout(FoutBeschrijving.saneer("Read-timeout naar $doel: ${ex.message}"))
-        } catch (ex: SSLHandshakeException) {
+        }
+        is SSLHandshakeException -> {
             // TLS-handshake faalt: cert/CA-mismatch, untrusted CA, expired cert,
             // SNI-mismatch, protocol-downgrade. Retry binnen pollvenster zinloos —
             // herstel vereist cert-rotatie (pod-restart of config-reload), niet
             // een nieuwe HTTP-poging. Categoriseren als ConfiguratieFout
             // (non-herstelbaar) zodat de delivery direct MISLUKT-status krijgt
             // i.p.v. retry tot maxPogingen → resource-besparing + ops ziet direct
-            // ERROR-log + status. SSLHandshakeException is een IOException-subklasse:
-            // deze catch moet vóór de generieke IOException-catch staan.
+            // ERROR-log + status.
             log.errorf(ex, "TLS-handshake faalt bij downstream-aflevering: doel=%s", doel)
             DownstreamResultaat.ConfiguratieFout(
                 FoutBeschrijving.saneer("TLS-handshake naar $doel: ${ex.javaClass.simpleName}"),
             )
-        } catch (ex: SSLException) {
+        }
+        is SSLException -> {
             // Overige TLS-laag fouten (SSLProtocolException, partial-handshake-RST
             // tijdens server-overload, transient cert-rotatie-window). Geen
             // handshake-failure dus mogelijk transient — retry kan slagen na
@@ -137,17 +169,12 @@ class DownstreamClient(
             DownstreamResultaat.NetwerkFout(
                 FoutBeschrijving.saneer("TLS-fout naar $doel: ${ex.javaClass.simpleName}"),
             )
-        } catch (ex: IOException) {
+        }
+        else -> {
             log.warnf(ex, "Netwerkfout bij downstream-aflevering: doel=%s", doel)
             DownstreamResultaat.NetwerkFout(
                 FoutBeschrijving.saneer("${ex.javaClass.simpleName} naar $doel: ${ex.message}"),
             )
-        } catch (ex: InterruptedException) {
-            // Herstel interrupt-flag zodat bovenliggende code (scheduler-thread)
-            // het signaal niet verliest.
-            Thread.currentThread().interrupt()
-            log.warnf(ex, "Interrupted bij downstream-aflevering: doel=%s", doel)
-            DownstreamResultaat.NetwerkFout("Interrupted naar $doel")
         }
     }
 

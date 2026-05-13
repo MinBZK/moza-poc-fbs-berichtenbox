@@ -120,55 +120,127 @@ class DownstreamClientTest {
     }
 
     @Test
-    fun `https tegen TCP-server die garbage stuurt triggert SSLException-pad`() {
-        // Borgt de SSLException-catch-volgorde (Round 8 H2 + Round 9 M2):
-        // SSLHandshakeException → ConfiguratieFout (non-herstelbaar) staat
-        // VOOR de generieke SSLException → NetwerkFout (herstelbaar). Een
-        // refactor die deze volgorde wijzigt zou eindeloos retry op een
-        // permanent cert-faal — ressource-verspilling. Test door een TCP-
-        // server te starten die garbage als TLS-handshake-response stuurt:
-        // JDK SSL-stack detecteert dit en gooit een SSLException-variant.
-        val tcpServer = java.net.ServerSocket(0)
-        val acceptThread = Thread {
-            try {
-                val socket = tcpServer.accept()
-                // Stuur 5 bytes die geen geldige TLS server-hello vormen.
-                // JDK SSLEngine herkent dit als protocol-violation → SSLException.
-                socket.outputStream.write(byteArrayOf(0x00, 0x01, 0x02, 0x03, 0x04))
-                socket.outputStream.flush()
-                socket.close()
-            } catch (_: Exception) {
-                // Server-side close tijdens shutdown — irrelevant voor test.
-            }
-        }
-        acceptThread.isDaemon = true
-        acceptThread.start()
+    fun `mapDeliveryException SSLHandshakeException naar ConfiguratieFout (non-herstelbaar)`() {
+        // Round 8 H2 + Round 9 M2 invariant: SSLHandshakeException = cert-config-fout.
+        // Retry binnen pollvenster zinloos — herstel vereist cert-rotatie. Mapping
+        // moet ConfiguratieFout (non-herstelbaar) zijn; eerdere flaky network-test
+        // (TCP-garbage server) is vervangen door deze deterministische unit-test
+        // op de geëxtraheerde mapping-functie.
+        every { config.downstreams() } returns emptyMap()
+        client = DownstreamClient(config, objectMapper, openTelemetry)
 
-        try {
-            val httpsUrl = "https://localhost:${tcpServer.localPort}/events"
-            every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(httpsUrl))
-            client = DownstreamClient(config, objectMapper, openTelemetry)
+        val resultaat = client.mapDeliveryException(
+            javax.net.ssl.SSLHandshakeException("Unable to find valid certification path"),
+            PublicatieDoel("aanmeld"),
+        )
 
-            val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        assertTrue(
+            resultaat is DownstreamResultaat.ConfiguratieFout,
+            "SSLHandshakeException moet ConfiguratieFout (non-herstelbaar) worden — gevonden: $resultaat",
+        )
+        val reden = (resultaat as DownstreamResultaat.ConfiguratieFout).reden
+        assertTrue(
+            reden.contains("TLS-handshake"),
+            "reden moet TLS-handshake-categorie aangeven — gevonden: $reden",
+        )
+        assertTrue(
+            reden.contains("SSLHandshakeException"),
+            "reden moet exception-class voor support-correlatie bevatten — gevonden: $reden",
+        )
+    }
 
-            // Resultaat moet ConfiguratieFout (SSLHandshakeException) of NetwerkFout
-            // (overige SSLException) zijn — beide bewijzen dat de SSL-catches vóór
-            // de generieke IOException-catch geraakt worden. Reden bevat "TLS".
-            val isMislukt = resultaat is DownstreamResultaat.ConfiguratieFout ||
-                resultaat is DownstreamResultaat.NetwerkFout
-            assertTrue(isMislukt, "verwacht TLS-classificatie — gevonden: $resultaat")
-            val reden = when (resultaat) {
-                is DownstreamResultaat.ConfiguratieFout -> resultaat.reden
-                is DownstreamResultaat.NetwerkFout -> resultaat.reden
-                else -> ""
-            }
-            assertTrue(
-                reden.contains("TLS"),
-                "reden moet TLS-laag fout aangeven (anders raakt code de generieke IOException-catch en is volgorde gebroken) — gevonden: $reden",
-            )
-        } finally {
-            tcpServer.close()
-        }
+    @Test
+    fun `mapDeliveryException generieke SSLException naar NetwerkFout (herstelbaar)`() {
+        // Verschilt van SSLHandshakeException: SSLProtocolException, partial-handshake-RST,
+        // transient cert-rotatie-window — kunnen na pod-restart slagen. Daarom
+        // herstelbaar = NetwerkFout. Mag NIET als ConfiguratieFout (eindeloos
+        // retry-besluit) of als generieke IOException (mist TLS-context in log).
+        every { config.downstreams() } returns emptyMap()
+        client = DownstreamClient(config, objectMapper, openTelemetry)
+
+        val resultaat = client.mapDeliveryException(
+            javax.net.ssl.SSLProtocolException("Connection reset during handshake"),
+            PublicatieDoel("aanmeld"),
+        )
+
+        assertTrue(
+            resultaat is DownstreamResultaat.NetwerkFout,
+            "generieke SSLException moet NetwerkFout (herstelbaar) worden — gevonden: $resultaat",
+        )
+        val reden = (resultaat as DownstreamResultaat.NetwerkFout).reden
+        assertTrue(
+            reden.contains("TLS-fout"),
+            "reden moet TLS-laag-categorie aangeven (niet generieke netwerk) — gevonden: $reden",
+        )
+    }
+
+    @Test
+    fun `mapDeliveryException SSLHandshakeException matcht VOOR generieke SSLException`() {
+        // Borgt de when-volgorde-invariant: SSLHandshakeException IS-A SSLException
+        // (Java class-hierarchy). Een refactor die de when-branches herordent zou
+        // SSLHandshakeException naar de generieke SSLException-tak laten vallen
+        // → NetwerkFout i.p.v. ConfiguratieFout → eindeloos retry op cert-faal.
+        // Deze test mist als de mapping `is SSLException` vóór `is SSLHandshakeException`
+        // zou plaatsen.
+        every { config.downstreams() } returns emptyMap()
+        client = DownstreamClient(config, objectMapper, openTelemetry)
+
+        val handshake = javax.net.ssl.SSLHandshakeException("test")
+        // Bewijs class-hierarchy: SSLHandshakeException IS-A SSLException
+        assertTrue(handshake is javax.net.ssl.SSLException, "Java class-hierarchy assumption")
+
+        val resultaat = client.mapDeliveryException(handshake, PublicatieDoel("aanmeld"))
+
+        // Specifiekere subklasse moet eerst matchen → ConfiguratieFout, niet NetwerkFout
+        assertEquals(
+            DownstreamResultaat.ConfiguratieFout::class,
+            resultaat::class,
+            "SSLHandshakeException moet specifiekere ConfiguratieFout-tak raken vóór generieke SSLException-tak",
+        )
+    }
+
+    @Test
+    fun `mapDeliveryException Connect-timeout vóór generieke timeout (subklasse-volgorde)`() {
+        // HttpConnectTimeoutException IS-A HttpTimeoutException — mapping moet specifiek
+        // catch'en zodat connect-timeout en read-timeout via verschillende
+        // diagnostiek-paden kunnen lopen (DNS-faal vs. server-overload).
+        every { config.downstreams() } returns emptyMap()
+        client = DownstreamClient(config, objectMapper, openTelemetry)
+
+        val ct = java.net.http.HttpConnectTimeoutException("connect timed out")
+        assertTrue(ct is java.net.http.HttpTimeoutException, "Java class-hierarchy assumption")
+
+        val resultaat = client.mapDeliveryException(ct, PublicatieDoel("aanmeld"))
+
+        assertTrue(resultaat is DownstreamResultaat.Timeout)
+        assertTrue(
+            (resultaat as DownstreamResultaat.Timeout).reden.contains("Connect-timeout"),
+            "Connect-specifiek bericht vereist (niet generieke 'Read-timeout') — gevonden: ${resultaat.reden}",
+        )
+    }
+
+    @Test
+    fun `mapDeliveryException generieke IOException naar NetwerkFout`() {
+        // Vangnet voor connection-reset, broken-pipe, host-unreachable — alles
+        // behalve TLS en timeouts. Mag GEEN TLS-context impliceren.
+        every { config.downstreams() } returns emptyMap()
+        client = DownstreamClient(config, objectMapper, openTelemetry)
+
+        val resultaat = client.mapDeliveryException(
+            java.io.IOException("Connection reset"),
+            PublicatieDoel("aanmeld"),
+        )
+
+        assertTrue(resultaat is DownstreamResultaat.NetwerkFout)
+        val reden = (resultaat as DownstreamResultaat.NetwerkFout).reden
+        assertFalse(
+            reden.contains("TLS"),
+            "generieke IOException mag GEEN TLS-context bevatten (verwarrend voor ops) — gevonden: $reden",
+        )
+        assertTrue(
+            reden.contains("IOException"),
+            "exception-class voor support-correlatie vereist — gevonden: $reden",
+        )
     }
 
     @Test
