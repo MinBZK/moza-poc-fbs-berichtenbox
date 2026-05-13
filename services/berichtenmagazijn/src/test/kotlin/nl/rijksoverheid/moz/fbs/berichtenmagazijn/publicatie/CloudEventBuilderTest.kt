@@ -155,6 +155,36 @@ class CloudEventBuilderTest {
     }
 
     @Test
+    fun `OntvangerData filtert niet-numerieke PII uit type cause-message (BIO 12_4_1, AVG art 5_1_c)`() {
+        // Round 14 H1: aanvaller stuurt PII-string als type ("type=jan@voorbeeld.nl"
+        // of "type=Jan Jansen Kerkstraat 1"). FoutBeschrijving.saneer redact
+        // alleen ≥7-cijfer-runs + control-chars — namen, e-mail, adres glippen door.
+        // Whitelist [A-Za-z0-9_] op type-veld vóór cause-meegave: alle interessante
+        // PII-bytes (`@`, spatie, `.`, `,`, `:`) worden weg-gefilterd.
+        val piiPayload = "jan.jansen@voorbeeld.nl Kerkstraat 1, Amsterdam"
+        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+            OntvangerData(type = piiPayload, waarde = "999993653")
+        }
+        val causeMessage = ex.cause!!.message!!
+        assertFalse(
+            causeMessage.contains("@"),
+            "e-mail at-sign mag niet door — gevonden: $causeMessage",
+        )
+        assertFalse(
+            causeMessage.contains("."),
+            "punt mag niet door (e-mail/IP-vorm) — gevonden: $causeMessage",
+        )
+        assertFalse(
+            causeMessage.contains(" "),
+            "spatie mag niet door (naam/adres) — gevonden: $causeMessage",
+        )
+        assertFalse(
+            causeMessage.contains(","),
+            "komma mag niet door (adres) — gevonden: $causeMessage",
+        )
+    }
+
+    @Test
     fun `OntvangerData cap't oversize type in cause-message (DoS-mitigatie)`() {
         // Voorkomt log-volume-DoS: aanvaller stuurt 1 MB type-waarde, cause
         // mag niet ongebreideld groeien. take(64) cap't.

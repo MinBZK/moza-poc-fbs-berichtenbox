@@ -144,11 +144,22 @@ data class OntvangerData(
         // de raw `type`-waarde mee als `cause`-message. DomainValidationExceptionMapper
         // logt nu `cause`-message via `FoutBeschrijving.saneer` (CWE-117 strip),
         // zodat de waarde traceerbaar is in support-flow zonder dat-ie ongesaneerd
-        // in `Problem.detail` belandt. `take(64)` cap't oversize-DoS in log.
+        // in `Problem.detail` belandt.
+        //
+        // Whitelist-filter [A-Za-z0-9_] op `type`: legitieme enum-namen
+        // (`BSN`, `KVK`, `RSIN`, `OIN`) bestaan uit `[A-Z_]+`, dus blijven intact.
+        // Aanvaller-controlled JSON-input kan anders niet-numerieke PII
+        // (`type="jan.jansen@voorbeeld.nl"` of `type="Jan Jansen"`) door
+        // `FoutBeschrijving.saneer` heen smokkelen — saneer redact alleen
+        // ≥7-cijfer-runs + control-chars, niet namen/e-mail/adres
+        // (BIO 12.4.1, AVG art. 5.1.c minimalisatie). Alle "interessante"
+        // PII-bytes (`@`, spatie, `.`, `,`, `:`) worden weg-gefilterd vóór
+        // het cause-pad. `take(64)` cap't oversize-DoS in log.
+        val typeVoorLog = type.take(64).filter { it.isLetterOrDigit() || it == '_' }
         val typed = enumValues<IdentificatienummerType>().firstOrNull { it.name == type }
             ?: throw nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException(
                 "Onbekend identificatienummer-type",
-                cause = IllegalArgumentException("type=${type.take(64)}"),
+                cause = IllegalArgumentException("type=$typeVoorLog"),
             )
         Identificatienummer.of(typed, waarde)
     }
