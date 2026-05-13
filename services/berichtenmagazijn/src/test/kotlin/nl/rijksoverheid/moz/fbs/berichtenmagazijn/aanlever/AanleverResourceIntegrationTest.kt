@@ -6,6 +6,7 @@ import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
 import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -16,6 +17,7 @@ import org.hamcrest.Matchers.notNullValue
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.util.Base64
 import java.util.UUID
 
 @QuarkusTest
@@ -24,9 +26,13 @@ class AanleverResourceIntegrationTest {
     @Inject
     lateinit var repository: BerichtRepository
 
+    @Inject
+    lateinit var bijlageRepository: BijlageRepository
+
     @BeforeEach
     @Transactional
     fun cleanDatabase() {
+        bijlageRepository.deleteAll()
         repository.deleteAll()
     }
 
@@ -217,5 +223,38 @@ class AanleverResourceIntegrationTest {
         assertEquals(Bsn::class, opgeslagen.ontvanger::class)
         assertEquals("Test persistentie", opgeslagen.onderwerp)
         assertEquals("Inhoud", opgeslagen.inhoud)
+    }
+
+    @Test
+    fun `POST berichten met bijlagen persisteert bericht en bijlagen`() {
+        val payload = "Hello PDF".toByteArray()
+        val base64 = Base64.getEncoder().encodeToString(payload)
+
+        val responseBerichtId: String = given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "00000001003214345000",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
+                  "onderwerp": "Met bijlage",
+                  "inhoud": "Zie bijlage",
+                  "bijlagen": [
+                    {"naam": "voorlopige-aanslag.pdf", "mimeType": "application/pdf", "inhoud": "$base64"}
+                  ]
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(201)
+            .body("berichtId", matchesRegex("[0-9a-f-]{36}"))
+            .extract().path("berichtId")
+
+        assert(responseBerichtId.isNotBlank())
+        val bijlagen = bijlageRepository.metadataVoorBericht(UUID.fromString(responseBerichtId))
+        assertEquals(1, bijlagen.size)
+        assertEquals("voorlopige-aanslag.pdf", bijlagen[0].naam)
+        assertEquals("application/pdf", bijlagen[0].mimeType)
     }
 }
