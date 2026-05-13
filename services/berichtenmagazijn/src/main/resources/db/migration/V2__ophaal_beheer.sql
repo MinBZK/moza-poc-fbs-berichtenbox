@@ -9,9 +9,10 @@
 --    en cascade-delete; soft-delete op het bericht raakt bijlagen niet.
 --    `content` is BYTEA (PostgreSQL); past tot enkele tientallen MB.
 --
--- 3. `bericht_status` — leesstatus van een bericht. PK = `bericht_id`: in de
---    PoC heeft elk bericht hooguit één ontvanger, en de berichten-rij draagt de
---    ontvanger-identiteit. Een aparte ontvanger-kolom is daarom redundant.
+-- 3. `bericht_status` — leesstatus van een bericht. Surrogate `id` als PK; de
+--    business-key `bericht_id` is uniek. Past dezelfde conventie toe als
+--    `berichten` en `bijlagen`: een nietszeggende, automatisch gegenereerde PK
+--    losgekoppeld van de bedrijfs-identifier.
 
 ALTER TABLE berichten
     ADD COLUMN verwijderd_op TIMESTAMP NULL;
@@ -31,10 +32,12 @@ CREATE TABLE bijlagen (
 CREATE INDEX idx_bijlagen_bericht_id ON bijlagen (bericht_id);
 
 CREATE TABLE bericht_status (
-    bericht_id    UUID        PRIMARY KEY,
+    id            BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    bericht_id    UUID        NOT NULL,
     gelezen       BOOLEAN     NOT NULL DEFAULT FALSE,
     map           VARCHAR(64) NULL,
     gewijzigd_op  TIMESTAMP   NOT NULL,
+    CONSTRAINT uq_bericht_status_bericht_id UNIQUE (bericht_id),
     CONSTRAINT fk_bericht_status_bericht
         FOREIGN KEY (bericht_id) REFERENCES berichten (bericht_id) ON DELETE CASCADE
 );

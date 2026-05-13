@@ -15,14 +15,14 @@ import java.util.UUID
  * is nog niet aangeraakt door de ontvanger).
  */
 @ApplicationScoped
-class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, UUID> {
+class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, Long> {
 
     /**
-     * Haalt de status van een bericht op, of `null` als er nog geen status is
-     * gezet.
+     * Haalt de status van een bericht op via de business-key, of `null` als er
+     * nog geen status is gezet.
      */
     fun findByBerichtId(berichtId: UUID): BerichtStatus? =
-        findById(berichtId)?.toDomain()
+        find("berichtId", berichtId).firstResult()?.toDomain()
 
     /**
      * Maakt een status-rij aan of werkt een bestaande bij. PoC-semantiek (zie
@@ -36,7 +36,8 @@ class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, UUID>
         patch: BerichtStatusPatch,
         tijdstip: Instant,
     ): BerichtStatus {
-        val entity = findById(berichtId) ?: BerichtStatusEntity().apply { this.berichtId = berichtId }
+        val entity = find("berichtId", berichtId).firstResult()
+            ?: BerichtStatusEntity().apply { this.berichtId = berichtId }
         if (patch.gelezen != null) entity.gelezen = patch.gelezen
         if (patch.map != null) entity.map = patch.map
         entity.gewijzigdOp = tijdstip

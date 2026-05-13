@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.GeneratedValue
+import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import java.time.Instant
@@ -12,13 +14,19 @@ import java.util.UUID
  * de bericht-rij draagt al de ontvanger-identiteit, dus de status hangt enkel
  * aan `bericht_id`. Afwezigheid van een rij betekent "nog niet bekeken, geen
  * map gekozen"; bij de eerste PATCH wordt de rij aangemaakt.
+ *
+ * Surrogate `id` als PK; `berichtId` is de unieke business-key.
  */
 @Entity
 @Table(name = "bericht_status")
 internal class BerichtStatusEntity {
 
     @Id
-    @Column(name = "bericht_id", nullable = false)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(nullable = false)
+    var id: Long = 0
+
+    @Column(name = "bericht_id", nullable = false, unique = true)
     var berichtId: UUID = PLACEHOLDER_UUID
 
     @Column(nullable = false)
