@@ -3,6 +3,8 @@ package nl.rijksoverheid.moz.fbs.common.exception
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -45,6 +47,43 @@ class DomainValidationExceptionMapperTest {
         val problem = response.entity as Problem
         assertEquals("Bad Request", problem.title)
         assertEquals("onderwerp mag niet leeg zijn", problem.detail)
+        // Round 12 H3: errorId in `urn:uuid:` instance voor cross-correlatie
+        // tussen client-zichtbaar Problem en applicatielog. Refactor die
+        // instance terug naar null zet zou support-traceability slopen.
+        assertNotNull(problem.instance)
+        assertTrue(problem.instance!!.toString().startsWith("urn:uuid:"))
+    }
+
+    @Test
+    fun `genereert unieke errorId per response (geen statische sentinel)`() {
+        // Borgt dat errorId per request opnieuw gegenereerd wordt — anders
+        // collapsed alle 400's in support-tooling op één id en is correlatie
+        // tussen client en log onmogelijk.
+        val a = mapper.toResponse(DomainValidationException("a")).entity as Problem
+        val b = mapper.toResponse(DomainValidationException("b")).entity as Problem
+        assertNotEquals(a.instance, b.instance)
+    }
+
+    @Test
+    fun `log bevat errorId voor cross-correlatie met Problem-instance`() {
+        // Round 12 H3: dezelfde errorId moet in zowel `Problem.instance` als
+        // de applicatielog-regel staan. Zonder match kan support een klacht
+        // ("ik kreeg errorId X") niet aan een specifieke log-regel koppelen.
+        val response = mapper.toResponse(DomainValidationException("test"))
+
+        val problem = response.entity as Problem
+        val errorIdFromInstance = problem.instance!!.toString().removePrefix("urn:uuid:")
+
+        val infoRecords = records.filter { it.level == Level.INFO }
+        assertEquals(1, infoRecords.size)
+        val rendered = infoRecords.first().let { rec ->
+            rec.parameters?.let { runCatching { String.format(rec.message, *it) }.getOrDefault(rec.message) }
+                ?: rec.message
+        }
+        assertTrue(
+            rendered.contains(errorIdFromInstance),
+            "log moet identieke errorId bevatten als Problem.instance — gevonden: $rendered",
+        )
     }
 
     @Test

@@ -194,4 +194,29 @@ class ProblemExceptionMapperTest {
             "cause-veld vereist — gevonden: ${rec.message}",
         )
     }
+
+    @Test
+    fun `5xx-log format pin exact veld-volgorde (symmetrisch met 4xx)`() {
+        // Round 12 M4: maakt 5xx-pin symmetrisch met 4xx-pin (regel 167-172).
+        // 4xx kan exact `rec.message` matchen (MessageFormat is lazy).
+        // 5xx printf eager-formatteert; we kunnen geen template terug-halen.
+        // Wel kunnen we de exacte volgorde + scheidings-tokens pinnen via
+        // regex die label= waarde paren in vaste volgorde verwacht.
+        // Refactor die `cause`/`type` herordent of weghaalt slaat aggregator-
+        // queries kapot die op deze positionele anker-volgorde zoeken.
+        mapper.toResponse(InternalServerErrorException("test"))
+
+        val rec = records.filter { it.level == Level.SEVERE }.first()
+        val patroon = Regex(
+            """^Server error 500 \(errorId=[0-9a-f-]+, type=InternalServerErrorException, cause=[A-Za-z]+\)$""",
+        )
+        assertTrue(
+            patroon.matches(rec.message),
+            "5xx-format-shape geschonden — verwacht 'Server error <status> (errorId=<uuid>, type=<class>, cause=<class>)' — gevonden: ${rec.message}",
+        )
+        assertNotNull(
+            rec.thrown,
+            "throwable moet in LogRecord.thrown — anders is stack-trace verloren in pipelines die op `thrown` filteren",
+        )
+    }
 }

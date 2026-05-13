@@ -169,11 +169,20 @@ class AanleverResource(
                     // message weg uit log (FoutBeschrijving.saneer dekt geen niet-
                     // numerieke PII). Categorie + cause-type zijn voldoende correlatie-
                     // handvatten; de oorspronkelijke exception-stack komt door naar
-                    // de mapper via de `throw` in catch (regel 120).
+                    // de mapper via de `throw ex` in de outer `catch (ex: Exception)`
+                    // hierboven (line-ref vermeden — overleeft refactors).
+                    //
+                    // errorId hier voegt een tweede correlatie-handvat toe: ProblemException
+                    // Mapper genereert zijn eigen errorId voor de oorspronkelijke ex.
+                    // Beide id's in dezelfde request-trace laten support twee log-regels
+                    // koppelen ("LDV-koppelen-faal" + "Server error 500") wanneer de
+                    // pipeline message-filter throwables strip't.
+                    val ldvErrorId = java.util.UUID.randomUUID()
                     log.errorf(
                         ex,
-                        "LDV-context koppelen aan span faalde voor aanleveren-bericht; " +
-                            "oorspronkelijke fout-categorie=%s cause=%s",
+                        "LDV-context koppelen aan span faalde voor aanleveren-bericht " +
+                            "(ldvErrorId=%s); oorspronkelijke fout-categorie=%s cause=%s",
+                        ldvErrorId,
                         pendingFailure?.javaClass?.simpleName ?: "geen",
                         pendingFailure?.cause?.javaClass?.simpleName ?: "geen",
                     )

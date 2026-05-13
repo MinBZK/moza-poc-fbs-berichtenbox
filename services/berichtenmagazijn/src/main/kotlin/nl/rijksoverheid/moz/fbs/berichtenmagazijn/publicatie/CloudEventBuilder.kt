@@ -133,9 +133,17 @@ data class OntvangerData(
         // raw IllegalArgumentException gooien voor een onbekende enum-naam,
         // wat door de generieke UncaughtExceptionMapper als 500 zou worden
         // gemaskeerd; expliciete wrap zorgt voor consistente 400.
+        //
+        // Message is BEWUST statisch (zonder $type-interpolatie). `OntvangerData`
+        // is Jackson-deserialiseerbaar uit downstream/cross-org payloads;
+        // ongesaneerde reflectie van `type` in `Problem.detail` zou CRLF/JSON-
+        // injection of oversize-DoS toelaten. De client krijgt enum-namen al
+        // via OpenAPI-spec — interpoleren voegt geen actionable info toe.
+        // De feitelijke `type`-waarde belandt wèl in de log via `cause`-handvat
+        // van DomainValidationExceptionMapper voor support-correlatie.
         val typed = enumValues<IdentificatienummerType>().firstOrNull { it.name == type }
             ?: throw nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException(
-                "Onbekend identificatienummer-type: $type",
+                "Onbekend identificatienummer-type",
             )
         Identificatienummer.of(typed, waarde)
     }

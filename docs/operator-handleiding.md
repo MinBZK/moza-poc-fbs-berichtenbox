@@ -71,8 +71,9 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
   niet.
 * **`status = GEPUBLICEERD` ouder dan retentie-interval**: `PublicatieDeliveriesOpschoner`
   ruimt deze elke `magazijn.publicatie.opschonen.interval`. Bij DB-uitval
-  ziet de operator `ERROR Outbox-opschoning faalde — outbox kan
-  ongebreideld groeien tot volgende ronde slaagt`. Volgende ronde retried
+  ziet de operator `ERROR Outbox-opschoning faalde (persistence|transactie)
+  — outbox kan groeien tot volgende ronde slaagt`. Grep-anchor:
+  `Outbox-opschoning faalde` matcht beide varianten. Volgende ronde retried
   automatisch.
 
 ## Logging & observability

@@ -41,6 +41,7 @@
     {
       "name": "FBS Berichtensessiecache",
       "description": "Sessie-gebonden cache van berichten-aggregaten over decentrale magazijnen (Redis-backed).",
+      "image": "https://www.rijksoverheid.nl/img/logo-rijksoverheid.svg",
       "humanURL": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox",
       "baseURL": "/api/v1",
       "tags": ["cache", "berichten", "sessie"],
@@ -48,6 +49,17 @@
         {
           "type": "X-OpenAPI",
           "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/services/berichtensessiecache/src/main/resources/openapi/berichtensessiecache-api.yaml"
+        },
+        {
+          "type": "X-Repository",
+          "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox"
+        }
+      ],
+      "contact": [
+        {
+          "FN": "MijnOverheid Zakelijk",
+          "email": "mijnoverheidzakelijk@minbzk.nl",
+          "X-twitter": ""
         }
       ]
     }
