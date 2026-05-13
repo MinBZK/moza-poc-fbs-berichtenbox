@@ -5,7 +5,6 @@ import jakarta.persistence.Entity
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
-import jakarta.persistence.Lob
 import jakarta.persistence.Table
 import java.util.UUID
 
@@ -43,7 +42,10 @@ internal class BijlageEntity {
     @Column(name = "mime_type", nullable = false, length = 127)
     var mimeType: String = ""
 
-    @Lob
+    // Geen @Lob: op PostgreSQL mapt Hibernate 6 `@Lob byte[]` naar `oid`
+    // (Large Object), terwijl V2__ophaal_beheer.sql `BYTEA` declareert.
+    // De default mapping voor `byte[]` is VARBINARY → BYTEA — wat hier
+    // gewenst is.
     @Column(nullable = false)
     var content: ByteArray = EMPTY_BYTES
 
