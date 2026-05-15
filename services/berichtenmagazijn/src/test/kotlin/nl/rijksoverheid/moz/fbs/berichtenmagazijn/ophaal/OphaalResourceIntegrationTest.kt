@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
+import jakarta.persistence.EntityManager
 import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
@@ -28,6 +29,7 @@ class OphaalResourceIntegrationTest {
     @Inject lateinit var berichtRepository: BerichtRepository
     @Inject lateinit var bijlageRepository: BijlageRepository
     @Inject lateinit var statusRepository: BerichtStatusRepository
+    @Inject lateinit var em: EntityManager
 
     private val ontvanger: Identificatienummer = Bsn("999993653")
     private val ontvangerHeader = "BSN:999993653"
@@ -190,6 +192,45 @@ class OphaalResourceIntegrationTest {
             .`when`().get("/api/v1/berichten/${b.berichtId}/bijlagen/${UUID.randomUUID()}")
             .then()
             .statusCode(404)
+    }
+
+    @Test
+    fun `GET bijlage met corrupte MIME-type in DB valt terug op default Content-Type (filter logt warning)`() {
+        // Simuleert een corrupte / pre-validatie ingeleverde DB-rij: een mimeType die
+        // de Bijlage-init wel passeert (niet leeg, max 127 chars) maar geen geldige
+        // MediaType is. De filter moet dit detecteren, een warning loggen en de
+        // default Content-Type laten staan i.p.v. een ongeldige header te sturen.
+        val b = insertBericht()
+        val bijlageId = insertBijlageMetCorruptMime(b.berichtId)
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten/${b.berichtId}/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+    }
+
+    @Transactional
+    fun insertBijlageMetCorruptMime(berichtId: UUID): UUID {
+        // Direct via native query om Bijlage.init-validatie te omzeilen. Een waarde
+        // als "not a media type" is niet leeg en niet te lang, dus de Kotlin-init
+        // zou passen — maar `MediaType.valueOf` werpt erop een IllegalArgumentException.
+        val berichtDbId: Long = em
+            .createQuery("SELECT b.id FROM BerichtEntity b WHERE b.berichtId = :id", java.lang.Long::class.java)
+            .setParameter("id", berichtId)
+            .singleResult.toLong()
+        val bijlageId = UUID.randomUUID()
+        em.createNativeQuery(
+            "INSERT INTO bijlagen (bijlage_id, bericht_db_id, naam, mime_type, content) " +
+                "VALUES (?, ?, ?, ?, ?)",
+        )
+            .setParameter(1, bijlageId)
+            .setParameter(2, berichtDbId)
+            .setParameter(3, "corrupt.bin")
+            .setParameter(4, "not a media type")
+            .setParameter(5, byteArrayOf(1, 2, 3))
+            .executeUpdate()
+        return bijlageId
     }
 
     @Test
