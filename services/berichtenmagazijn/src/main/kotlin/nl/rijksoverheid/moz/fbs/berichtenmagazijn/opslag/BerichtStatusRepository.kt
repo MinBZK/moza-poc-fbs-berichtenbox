@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
 import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.common.exception.requireValid
 import java.time.Instant
 import java.util.UUID
 
@@ -88,8 +89,18 @@ private fun BerichtStatusEntity.toDomain(): BerichtStatus = BerichtStatus(
  * "afwezig" en "expliciet `null`" wordt niet bewaard — Jackson kan dat zonder
  * extra type-machinerie niet onderscheiden. Daardoor kan een map die eenmaal
  * gezet is, in de PoC niet via deze endpoint gewist worden.
+ *
+ * Een patch waar alle velden `null` zijn is een no-op die anders stil de
+ * `gewijzigdOp`-timestamp zou bumpen zonder semantische wijziging; dat
+ * ondergraaft de audit-betekenis. Een lege patch is dus een client-fout (400).
  */
 data class BerichtStatusPatch(
     val gelezen: Boolean?,
     val map: String?,
-)
+) {
+    init {
+        requireValid(gelezen != null || map != null) {
+            "Patch moet minstens één van 'gelezen' of 'map' bevatten"
+        }
+    }
+}

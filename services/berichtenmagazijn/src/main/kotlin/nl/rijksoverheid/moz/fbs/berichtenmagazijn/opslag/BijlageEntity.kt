@@ -16,8 +16,11 @@ import java.util.UUID
  *
  * De relatie naar [BerichtEntity] loopt via `bericht_db_id`, een FK op de
  * surrogate PK `berichten.id`. Zo blijft de child-tabel onafhankelijk van de
- * business-identifier `bericht_id`. De FK forceert verwijzingsintegriteit en
- * cascade-delete; soft-delete op `berichten.verwijderd_op` raakt bijlagen niet.
+ * business-identifier `bericht_id`. De FK forceert verwijzingsintegriteit
+ * met RESTRICT (geen cascade — zie CLAUDE.md "Database & migraties"):
+ * een hard-delete op `berichten` faalt als er nog bijlagen bestaan.
+ * Soft-delete op `berichten.verwijderd_op` laat bijlagen ongemoeid; queries
+ * filteren expliciet op `bericht.verwijderdOp IS NULL`.
  *
  * `content` is een onverpakte byte-array (PostgreSQL `BYTEA`). Voor de PoC houden
  * we de bijlage in dezelfde transactie als het bericht; bij grote bijlagen of

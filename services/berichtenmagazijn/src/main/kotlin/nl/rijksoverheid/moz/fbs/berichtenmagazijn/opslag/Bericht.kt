@@ -36,7 +36,12 @@ data class Bericht(
         requireValid(inhoudBytes <= MAX_INHOUD_BYTES) {
             "Inhoud mag max ${MAX_INHOUD_BYTES / 1024 / 1024} MiB UTF-8 zijn (kreeg $inhoudBytes bytes)"
         }
-        requireValid(afzender.waarde != ontvanger.waarde) {
+        // Vergelijk op het volledige Identificatienummer-object, niet alleen op `waarde`,
+        // zodat een toevallige waarde-collisie tussen verschillende types (bv. BSN/RSIN
+        // met dezelfde 9 cijfers) niet als gelijke identiteit wordt gezien. De value
+        // classes (Oin/Bsn/Rsin/Kvk) genereren `equals` op (type, waarde) waardoor
+        // verschillende types nooit gelijk zijn.
+        requireValid(afzender != ontvanger) {
             "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
         }
     }

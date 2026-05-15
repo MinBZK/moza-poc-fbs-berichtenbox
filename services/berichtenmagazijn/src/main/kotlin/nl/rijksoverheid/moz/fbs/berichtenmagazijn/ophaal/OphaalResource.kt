@@ -84,8 +84,10 @@ class OphaalResource(
     }
 
     private companion object {
-        // Spiegelt de OpenAPI-default; alleen relevant als de generator de Integer-parameter
-        // alsnog `null` doorgeeft (bv. een client die de query-param weglaat).
+        // De gegenereerde interface levert `pageSize` als `Int?` — Quarkus REST dwingt
+        // de OpenAPI-default niet af op de Kotlin-parameter, dus zetten we hem hier
+        // expliciet wanneer de query-param ontbreekt. Waarde moet gelijk blijven aan
+        // de `default` in de spec, anders divergeert client-doc van server-gedrag.
         const val DEFAULT_PAGE_SIZE = 20
     }
 }

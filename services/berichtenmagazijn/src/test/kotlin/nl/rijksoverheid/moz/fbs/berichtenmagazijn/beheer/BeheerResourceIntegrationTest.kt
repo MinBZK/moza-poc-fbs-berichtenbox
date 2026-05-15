@@ -7,6 +7,7 @@ import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
@@ -92,6 +93,19 @@ class BeheerResourceIntegrationTest {
     }
 
     @Test
+    fun `PATCH met lege body geeft 400 (geen no-op accepteren)`() {
+        val b = insertBericht()
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .contentType("application/merge-patch+json")
+            .body("{}")
+            .`when`().patch("/api/v1/berichten/${b.berichtId}")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
     fun `PATCH op andermans bericht geeft 403`() {
         val b = insertBericht()
         given()
@@ -148,5 +162,54 @@ class BeheerResourceIntegrationTest {
             .header("X-Ontvanger", andereOntvangerHeader)
             .`when`().delete("/api/v1/berichten/${b.berichtId}")
             .then().statusCode(403)
+    }
+
+    @Test
+    fun `DELETE laat bijlage onbereikbaar via GET bijlage (soft-delete isolatie)`() {
+        val b = insertBericht()
+        val bijlageId = UUID.randomUUID()
+        insertBijlageVoor(b.berichtId, bijlageId)
+
+        // Soft-delete het bericht
+        given().header("X-Ontvanger", ontvangerHeader)
+            .`when`().delete("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(204)
+
+        // De bijlage staat fysiek nog in de DB (geen cascade) maar moet via Ophaal
+        // niet meer bereikbaar zijn — anders zou data uit verwijderde berichten lekken.
+        given().header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten/${b.berichtId}/bijlagen/$bijlageId")
+            .then().statusCode(404)
+    }
+
+    @Test
+    fun `Soft-deleted bericht verdwijnt uit GET berichten-lijst`() {
+        val zichtbaar = insertBericht()
+        val teVerwijderen = insertBericht()
+
+        given().header("X-Ontvanger", ontvangerHeader)
+            .`when`().delete("/api/v1/berichten/${teVerwijderen.berichtId}")
+            .then().statusCode(204)
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten?page=0&pageSize=10")
+            .then()
+            .statusCode(200)
+            .body("totalElements", `is`(1))
+            .body("berichten[0].berichtId", `is`(zichtbaar.berichtId.toString()))
+    }
+
+    @Transactional
+    fun insertBijlageVoor(berichtId: UUID, bijlageId: UUID) {
+        bijlageRepository.save(
+            Bijlage(
+                bijlageId = bijlageId,
+                berichtId = berichtId,
+                naam = "audit.pdf",
+                mimeType = "application/pdf",
+                content = byteArrayOf(1, 2, 3),
+            ),
+        )
     }
 }
