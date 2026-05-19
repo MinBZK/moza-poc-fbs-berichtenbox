@@ -1,0 +1,24 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/toestemmingen",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$[?(@.ontvangerType == 'BSN')]"
+      },
+      {
+        "matchesJsonPath": "$[?(@.ontvangerWaarde == '111222333')]"
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "toegestaan": false
+    }
+  }
+}

@@ -33,6 +33,7 @@ class InternalError500ContractTest {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
             bijlageRepository = mockk(relaxed = true),
+            validatieService = mockk(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,

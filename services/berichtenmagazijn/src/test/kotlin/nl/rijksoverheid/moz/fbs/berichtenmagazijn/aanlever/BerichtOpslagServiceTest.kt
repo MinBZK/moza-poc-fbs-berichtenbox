@@ -4,10 +4,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import io.mockk.verifyOrder
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
@@ -16,7 +18,8 @@ class BerichtOpslagServiceTest {
 
     private val repository = mockk<BerichtRepository>(relaxed = true)
     private val bijlageRepository = mockk<BijlageRepository>(relaxed = true)
-    private val service = BerichtOpslagService(repository, bijlageRepository)
+    private val validatieService = mockk<BerichtValidatieService>(relaxed = true)
+    private val service = BerichtOpslagService(repository, bijlageRepository, validatieService)
 
     @Test
     fun `opslaanBericht roept repository opslaan aan en retourneert het domeinobject`() {
@@ -41,5 +44,27 @@ class BerichtOpslagServiceTest {
 
         verify { repository.save(any<Bericht>()) }
         assertEquals(bericht, berichtSlot.captured)
+    }
+
+    @Test
+    fun `opslaanBericht roept validatie aan vóór repository save`() {
+        // Borgt het contract met issue #541: validatie hoort vóór persistentie.
+        // Anders zou een ongeldig bericht eerst in de DB landen (bij rollback ook nog
+        // ID-ruimte verbruiken) en faalt de keten op een onlogische plek.
+        every { repository.save(any()) } answers { }
+
+        service.opslaanBericht(
+            afzender = "00000001003214345000",
+            ontvangerType = IdentificatienummerType.BSN,
+            ontvangerWaarde = "999993653",
+            onderwerp = "Test",
+            inhoud = "Inhoud",
+            bijlagen = listOf(NieuweBijlage("doc.pdf", "application/pdf", byteArrayOf(1, 2))),
+        )
+
+        verifyOrder {
+            validatieService.valideer(any(), any())
+            repository.save(any())
+        }
     }
 }

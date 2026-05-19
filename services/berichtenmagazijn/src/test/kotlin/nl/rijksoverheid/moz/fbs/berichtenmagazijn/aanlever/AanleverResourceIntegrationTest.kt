@@ -36,6 +36,10 @@ class AanleverResourceIntegrationTest {
         repository.deleteAll()
     }
 
+    // ToestemmingControle wordt vervangen door MockToestemmingControle (CDI @Mock
+    // met @RestClient qualifier). Default `toegestaan = true`; geen extra setup
+    // nodig in deze tests.
+
     @Test
     fun `POST berichten met geldige payload retourneert 201 met bericht en _links_self`() {
         given()

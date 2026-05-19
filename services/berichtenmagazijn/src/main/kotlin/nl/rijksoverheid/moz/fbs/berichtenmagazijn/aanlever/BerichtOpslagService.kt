@@ -11,6 +11,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.ToestemmingGeweigerdException
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker
 import org.jboss.logging.Logger
@@ -22,13 +24,15 @@ import org.hibernate.exception.ConstraintViolationException as HibernateConstrai
 class BerichtOpslagService(
     private val repository: BerichtRepository,
     private val bijlageRepository: BijlageRepository,
+    private val validatieService: BerichtValidatieService,
 ) {
 
     private val log = Logger.getLogger(BerichtOpslagService::class.java)
 
     // skipOn — fouten die níét meetellen voor het circuit:
-    //  - DomainValidationException, ClientErrorException: client-fouten, zeggen niets
-    //    over de gezondheid van de infrastructuur.
+    //  - DomainValidationException, ClientErrorException, ToestemmingGeweigerdException:
+    //    client-fouten / policy-besluiten; zeggen niets over de gezondheid van de
+    //    infrastructuur.
     //  - HibernateConstraintViolationException: unique-key (409) én NOT NULL/FK/CHECK
     //    (500) duiden op data/schema, niet op een onbereikbare DB.
     //
@@ -45,6 +49,7 @@ class BerichtOpslagService(
             DomainValidationException::class,
             HibernateConstraintViolationException::class,
             ClientErrorException::class,
+            ToestemmingGeweigerdException::class,
         ],
     )
     @Transactional
@@ -65,6 +70,11 @@ class BerichtOpslagService(
             inhoud = inhoud,
             tijdstipOntvangst = Instant.now(),
         )
+
+        // Validatie vóór persistentie: MIME-typen en toestemming (issue #541).
+        // Gooit DomainValidationException (→ 400) of ToestemmingGeweigerdException (→ 403),
+        // beide in skipOn van de circuit breaker hierboven.
+        validatieService.valideer(bericht, bijlagen)
 
         try {
             repository.save(bericht)

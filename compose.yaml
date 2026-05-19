@@ -27,6 +27,18 @@ services:
       - ./wiremock/magazijn-b/__files:/home/wiremock/__files
     command: ["--verbose", "--global-response-templating"]
 
+  # Profiel Service stub voor berichtenmagazijn — controleert of een ontvanger
+  # toestemming heeft om berichten van de afzender te ontvangen (zowel burgers
+  # als ondernemers). Default mapping `toegestaan=true`; voor 403-rookproef is
+  # er een specifieke geweigerd-mapping op een vaste BSN-waarde.
+  profiel-service:
+    image: wiremock/wiremock:3.13.2
+    ports:
+      - "8089:8080"
+    volumes:
+      - ./wiremock/profiel-service/mappings:/home/wiremock/mappings
+    command: ["--verbose"]
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     ports:
