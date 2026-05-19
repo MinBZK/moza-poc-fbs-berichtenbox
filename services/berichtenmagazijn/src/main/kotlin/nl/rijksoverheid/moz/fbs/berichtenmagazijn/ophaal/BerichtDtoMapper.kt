@@ -3,8 +3,6 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 import jakarta.ws.rs.core.UriBuilder
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtMetInhoud
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageLinks
@@ -12,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.PaginationLinks
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht as BerichtDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
@@ -28,8 +27,8 @@ import java.util.UUID
  */
 internal object BerichtDtoMapper {
 
-    fun toBerichtMetInhoud(bericht: Bericht, baseUri: UriBuilder): BerichtMetInhoud =
-        BerichtMetInhoud().apply {
+    fun toBericht(bericht: Bericht, baseUri: UriBuilder): BerichtDto =
+        BerichtDto().apply {
             berichtId = bericht.berichtId
             afzender = bericht.afzender.waarde
             ontvanger = toIdentificatienummerDto(bericht.ontvanger)
@@ -45,30 +44,16 @@ internal object BerichtDtoMapper {
 
     fun toBerichtenLijst(
         pagina: PagedBerichten,
-        ontvanger: Identificatienummer,
         afzender: String?,
         baseUri: UriBuilder,
     ): BerichtenLijst = BerichtenLijst().apply {
-        berichten = pagina.berichten.map { toBerichtSamenvatting(it, baseUri) }
+        berichten = pagina.berichten.map { toBericht(it, baseUri) }
         page = pagina.page
         pageSize = pagina.pageSize
         totalElements = pagina.totalElements
         totalPages = pagina.totalPages
-        links = pagineerLinks(pagina, ontvanger, afzender, baseUri)
+        links = pagineerLinks(pagina, afzender, baseUri)
     }
-
-    private fun toBerichtSamenvatting(bericht: Bericht, baseUri: UriBuilder): BerichtSamenvatting =
-        BerichtSamenvatting().apply {
-            berichtId = bericht.berichtId
-            afzender = bericht.afzender.waarde
-            ontvanger = toIdentificatienummerDto(bericht.ontvanger)
-            onderwerp = bericht.onderwerp
-            tijdstipOntvangst = bericht.tijdstipOntvangst
-            status = bericht.status?.let { toStatusDto(it) }
-            links = BerichtLinks().apply {
-                self = Link().apply { href = selfHrefVoorBericht(bericht.berichtId, baseUri) }
-            }
-        }
 
     private fun toBijlageMetadataDto(
         meta: DomainBijlageMetadata,
@@ -98,14 +83,11 @@ internal object BerichtDtoMapper {
 
     private fun pagineerLinks(
         pagina: PagedBerichten,
-        @Suppress("UNUSED_PARAMETER") ontvanger: Identificatienummer,
         afzender: String?,
         baseUri: UriBuilder,
     ): PaginationLinks = PaginationLinks().apply {
         // De `X-Ontvanger`-header is bewust GEEN onderdeel van de URL — PII hoort
-        // niet in HAL-links of toegangslogs. De ontvanger-parameter blijft hier
-        // expliciet om aan te geven dat ontvanger-context relevant is bij paginering,
-        // ook al wordt hij in de URL niet gebruikt.
+        // niet in HAL-links of toegangslogs.
         val builder: (Int) -> Link = { p -> linkVoorPagina(p, pagina.pageSize, afzender, baseUri) }
         self = builder(pagina.page)
         first = builder(0)

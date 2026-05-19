@@ -7,6 +7,7 @@ import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.AanleverApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
@@ -25,12 +26,12 @@ class AanleverResource(
 
     @Logboek(
         name = "aanleveren-bericht",
-        processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-aanleveren",
+        processingActivityId = ProcessingActivities.MAGAZIJN_AANLEVEREN,
     )
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
         val ontvangerDto = berichtAanleverenRequest.ontvanger
         val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
-            NieuweBijlage(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
+            BijlageInvoer(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
         }
         val bericht = opslagService.opslaanBericht(
             afzender = berichtAanleverenRequest.afzender,

@@ -195,11 +195,12 @@ class OphaalResourceIntegrationTest {
     }
 
     @Test
-    fun `GET bijlage met corrupte MIME-type in DB valt terug op default Content-Type (filter logt warning)`() {
+    fun `GET bijlage met corrupte MIME-type in DB levert 500 problem+json`() {
         // Simuleert een corrupte / pre-validatie ingeleverde DB-rij: een mimeType die
         // de Bijlage-init wel passeert (niet leeg, max 127 chars) maar geen geldige
-        // MediaType is. De filter moet dit detecteren, een warning loggen en de
-        // default Content-Type laten staan i.p.v. een ongeldige header te sturen.
+        // MediaType is. De resource detecteert dit en gooit een 500 i.p.v. bytes met
+        // een ongeldig Content-Type uit te leveren (data-corruptie mag niet stilzwijgend
+        // doorgaan).
         val b = insertBericht()
         val bijlageId = insertBijlageMetCorruptMime(b.berichtId)
 
@@ -207,7 +208,8 @@ class OphaalResourceIntegrationTest {
             .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/${b.berichtId}/bijlagen/$bijlageId")
             .then()
-            .statusCode(200)
+            .statusCode(500)
+            .contentType("application/problem+json")
     }
 
     @Transactional

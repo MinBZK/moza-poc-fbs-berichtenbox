@@ -39,7 +39,7 @@ class DbConstraintViolation409ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                bijlagen: List<NieuweBijlage>,
+                bijlagen: List<BijlageInvoer>,
             ): Nothing = throw HibernateConstraintViolationException(
                 "unique violation",
                 SQLException("duplicate key", "23505"),

@@ -51,11 +51,21 @@ data class Bijlage(
     }
 
     companion object {
+        // Synchroniseer met `BijlageMetadata.naam.maxLength` en
+        // `BijlageAanleverenRequest.naam.maxLength` in `berichtenmagazijn-api.yaml`,
+        // en met `@Column(length = ...)` in `BijlageEntity`.
         const val MAX_NAAM_LENGTE = 255
+
+        // Synchroniseer met `BijlageMetadata.mimeType.maxLength` en
+        // `BijlageAanleverenRequest.mimeType.maxLength` in de spec, en met
+        // `@Column(length = ...)` in `BijlageEntity`.
         const val MAX_MIME_LENGTE = 127
 
-        // 25 MiB per bijlage. Postgres BYTEA staat tot ~1 GB toe; deze grens is pragmatisch
-        // voor PoC-doeleinden en voorkomt dat een test of misconfiguratie de heap opvreet.
+        // 25 MiB per bijlage. Postgres BYTEA staat tot ~1 GB toe; deze grens
+        // voorkomt dat een test of misconfiguratie de heap opvreet en is
+        // ruim genoeg voor reguliere PDF-bijlagen. Geen directe pendant in
+        // de spec: `BijlageAanleverenRequest.inhoud` is base64-gecodeerd en
+        // de validatie van de gedecodeerde lengte gebeurt hier.
         const val MAX_CONTENT_BYTES = 25 * 1024 * 1024
     }
 }

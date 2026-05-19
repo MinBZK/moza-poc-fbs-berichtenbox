@@ -25,6 +25,9 @@ data class BerichtStatus(
     }
 
     companion object {
+        // Synchroniseer met `BerichtStatusInfo.map.maxLength` en
+        // `BerichtStatusPatch.map.maxLength` in `berichtenmagazijn-api.yaml` en
+        // met `@Column(length = ...)` in `BerichtStatusEntity`.
         const val MAX_MAP_LENGTE = 64
     }
 }

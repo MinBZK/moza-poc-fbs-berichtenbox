@@ -36,9 +36,9 @@ class BerichtDtoMapperTest {
     )
 
     @Test
-    fun `toBerichtMetInhoud zet alle velden en self-link`() {
+    fun `toBericht zet alle velden en self-link`() {
         val bijlageId = UUID.fromString("22222222-2222-2222-2222-222222222222")
-        val dto = BerichtDtoMapper.toBerichtMetInhoud(
+        val dto = BerichtDtoMapper.toBericht(
             bericht(
                 bijlagen = listOf(BijlageMetadata(bijlageId, "doc.pdf", "application/pdf")),
                 status = BerichtStatus(gelezen = true, map = "archief", gewijzigdOp = Instant.now()),
@@ -65,8 +65,8 @@ class BerichtDtoMapperTest {
     }
 
     @Test
-    fun `toBerichtMetInhoud zonder status geeft null terug`() {
-        val dto = BerichtDtoMapper.toBerichtMetInhoud(bericht(), baseUri())
+    fun `toBericht zonder status geeft null terug`() {
+        val dto = BerichtDtoMapper.toBericht(bericht(), baseUri())
         assertNull(dto.status)
     }
 
@@ -78,7 +78,7 @@ class BerichtDtoMapperTest {
             pageSize = 10,
             totalElements = 35L,
         )
-        val dto = BerichtDtoMapper.toBerichtenLijst(pagina, Bsn("999993653"), afzender = null, baseUri())
+        val dto = BerichtDtoMapper.toBerichtenLijst(pagina, afzender = null, baseUri())
 
         assertEquals(1, dto.page)
         assertEquals(10, dto.pageSize)
@@ -101,7 +101,7 @@ class BerichtDtoMapperTest {
             pageSize = 10,
             totalElements = 1L,
         )
-        val dto = BerichtDtoMapper.toBerichtenLijst(pagina, Bsn("999993653"), afzender = null, baseUri())
+        val dto = BerichtDtoMapper.toBerichtenLijst(pagina, afzender = null, baseUri())
         assertNull(dto.links.next)
         assertNull(dto.links.prev)
     }
@@ -109,13 +109,13 @@ class BerichtDtoMapperTest {
     @Test
     fun `toBerichtenLijst voegt afzender query-param toe als die is gegeven`() {
         val pagina = PagedBerichten(berichten = emptyList(), page = 0, pageSize = 10, totalElements = 0L)
-        val dto = BerichtDtoMapper.toBerichtenLijst(pagina, Bsn("999993653"), afzender = "00000001003214345000", baseUri())
+        val dto = BerichtDtoMapper.toBerichtenLijst(pagina, afzender = "00000001003214345000", baseUri())
         assertTrue(dto.links.self.href.toString().contains("afzender=00000001003214345000"))
     }
 
     @Test
     fun `mapper ondersteunt elk Identificatienummer-type voor ontvanger`() {
-        val dto = BerichtDtoMapper.toBerichtMetInhoud(
+        val dto = BerichtDtoMapper.toBericht(
             bericht().copy(ontvanger = Kvk("12345678")),
             baseUri(),
         )

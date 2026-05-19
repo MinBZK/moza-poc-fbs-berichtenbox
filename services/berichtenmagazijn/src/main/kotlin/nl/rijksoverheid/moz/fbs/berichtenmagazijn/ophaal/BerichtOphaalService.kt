@@ -41,9 +41,16 @@ class BerichtOphaalService(
         pageSize: Int,
     ): PagedBerichten {
         val pagina = berichtRepository.lijstVoorOntvanger(ontvanger, afzender, page, pageSize)
-        // Statussen in één batch ophalen om N+1 te vermijden bij grote pages.
-        val statuses = statusRepository.findByBerichtIds(pagina.berichten.map { it.berichtId })
-        val verrijkt = pagina.berichten.map { it.copy(status = statuses[it.berichtId]) }
+        val ids = pagina.berichten.map { it.berichtId }
+        // Statussen + bijlage-metadata in twee batch-queries; vermijdt N+1.
+        val statuses = statusRepository.findByBerichtIds(ids)
+        val bijlagen = bijlageRepository.metadataVoorBerichten(ids)
+        val verrijkt = pagina.berichten.map {
+            it.copy(
+                status = statuses[it.berichtId],
+                bijlagen = bijlagen[it.berichtId] ?: emptyList(),
+            )
+        }
         return pagina.copy(berichten = verrijkt)
     }
 

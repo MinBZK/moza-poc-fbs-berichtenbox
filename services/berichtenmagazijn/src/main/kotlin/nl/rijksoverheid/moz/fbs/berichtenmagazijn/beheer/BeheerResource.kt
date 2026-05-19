@@ -7,8 +7,9 @@ import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.BeheerApi
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtMetInhoud
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtDtoMapper
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
 import java.util.UUID
@@ -31,13 +32,13 @@ class BeheerResource(
 
     @Logboek(
         name = "bijwerken-bericht-status",
-        processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-beheer",
+        processingActivityId = ProcessingActivities.MAGAZIJN_BEHEER,
     )
     override fun updateBerichtStatus(
         berichtId: UUID,
         xOntvanger: String,
         berichtStatusPatch: BerichtStatusPatchDto,
-    ): BerichtMetInhoud {
+    ): Bericht {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
         registreerLdvSubject(ontvanger)
         val bericht = beheerService.wijzigStatus(
@@ -48,12 +49,12 @@ class BeheerResource(
                 map = berichtStatusPatch.map,
             ),
         )
-        return BerichtDtoMapper.toBerichtMetInhoud(bericht, uriInfo.baseUriBuilder)
+        return BerichtDtoMapper.toBericht(bericht, uriInfo.baseUriBuilder)
     }
 
     @Logboek(
         name = "verwijderen-bericht",
-        processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-beheer",
+        processingActivityId = ProcessingActivities.MAGAZIJN_BEHEER,
     )
     override fun verwijderBericht(berichtId: UUID, xOntvanger: String) {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)

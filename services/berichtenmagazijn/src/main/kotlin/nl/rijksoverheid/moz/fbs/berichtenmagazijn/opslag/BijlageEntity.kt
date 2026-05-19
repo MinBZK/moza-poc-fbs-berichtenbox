@@ -22,9 +22,12 @@ import java.util.UUID
  * Soft-delete op `berichten.verwijderd_op` laat bijlagen ongemoeid; queries
  * filteren expliciet op `bericht.verwijderdOp IS NULL`.
  *
- * `content` is een onverpakte byte-array (PostgreSQL `BYTEA`). Voor de PoC houden
- * we de bijlage in dezelfde transactie als het bericht; bij grote bijlagen of
- * hoge volumes zou een aparte object-store (S3/Swift) passender zijn.
+ * `content` is een onverpakte byte-array (PostgreSQL `BYTEA`). De bijlage
+ * wordt in dezelfde transactie als het bericht opgeslagen. Bij grote bijlagen
+ * of hoge volumes verdient een aparte object-store (S3/Swift/Azure Blob) de
+ * voorkeur: relationele DB's zijn niet geoptimaliseerd voor blobs >25 MiB,
+ * en backups zwellen onnodig op. Dat is een vervolgstap zodra het gebruik en
+ * de retentie-eisen helder zijn.
  */
 @Entity
 @Table(name = "bijlagen")
@@ -42,10 +45,10 @@ internal class BijlageEntity {
     @JoinColumn(name = "bericht_db_id", nullable = false)
     lateinit var bericht: BerichtEntity
 
-    @Column(nullable = false, length = 255)
+    @Column(nullable = false, length = Bijlage.MAX_NAAM_LENGTE)
     var naam: String = ""
 
-    @Column(name = "mime_type", nullable = false, length = 127)
+    @Column(name = "mime_type", nullable = false, length = Bijlage.MAX_MIME_LENGTE)
     var mimeType: String = ""
 
     // Geen @Lob: op PostgreSQL mapt Hibernate 6 `@Lob byte[]` naar `oid`

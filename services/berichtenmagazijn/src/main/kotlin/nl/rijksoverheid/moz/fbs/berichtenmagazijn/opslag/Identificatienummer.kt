@@ -34,12 +34,13 @@ sealed interface Identificatienummer {
         }
 
         /**
-         * Parseert een `X-Ontvanger` header in formaat `<TYPE>:<WAARDE>` naar een
-         * getypeerd [Identificatienummer]. De header is op spec-niveau al gevalideerd
-         * (regex `^(BSN|RSIN|KVK|OIN):[0-9]{8,20}$`) door de JAX-RS Bean Validation
-         * annotaties op de gegenereerde interface; deze functie zet om naar het
-         * domein-model en delegeert verdere type-invarianten (elfproef, lengte per
-         * type) aan [of]. Gooit [DomainValidationException] bij invalide invoer.
+         * Leest een `X-Ontvanger` header in formaat `<TYPE>:<WAARDE>` en bouwt
+         * er een getypeerd [Identificatienummer] van. De header is op spec-niveau
+         * al gevalideerd (regex per type, zie `OntvangerHeader` in
+         * `berichtenmagazijn-api.yaml`) door de JAX-RS Bean Validation annotaties
+         * op de gegenereerde interface; deze functie zet om naar het domein-model
+         * en delegeert verdere type-invarianten (elfproef, niet-geheel-nullen) aan
+         * [of]. Gooit [DomainValidationException] bij ongeldige invoer.
          */
         fun fromHeader(header: String): Identificatienummer {
             val parts = header.split(':', limit = 2)

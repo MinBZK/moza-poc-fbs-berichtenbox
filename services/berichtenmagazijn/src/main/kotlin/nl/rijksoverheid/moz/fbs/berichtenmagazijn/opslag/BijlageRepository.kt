@@ -74,6 +74,35 @@ class BijlageRepository(
             )
             .setParameter("berichtId", berichtId)
             .resultList
+
+    /**
+     * Batch-variant voor lijst-endpoints: laadt bijlage-metadata voor een
+     * verzameling berichten in één query (anders N+1). Geretourneerd als map
+     * `berichtId → metadata-lijst`; berichten zonder bijlagen ontbreken in de
+     * map en moet de caller behandelen als lege lijst.
+     */
+    fun metadataVoorBerichten(berichtIds: Collection<UUID>): Map<UUID, List<BijlageMetadata>> {
+        if (berichtIds.isEmpty()) return emptyMap()
+        return getEntityManager()
+            .createQuery(
+                """
+                SELECT b.bericht.berichtId,
+                       new nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata(
+                           b.bijlageId, b.naam, b.mimeType
+                       )
+                FROM BijlageEntity b
+                WHERE b.bericht.berichtId IN :ids
+                  AND b.bericht.verwijderdOp IS NULL
+                """.trimIndent(),
+                Array<Any>::class.java,
+            )
+            .setParameter("ids", berichtIds)
+            .resultList
+            .groupBy(
+                keySelector = { it[0] as UUID },
+                valueTransform = { it[1] as BijlageMetadata },
+            )
+    }
 }
 
 // `berichtId` als parameter zodat we de LAZY `bericht`-associatie niet hoeven

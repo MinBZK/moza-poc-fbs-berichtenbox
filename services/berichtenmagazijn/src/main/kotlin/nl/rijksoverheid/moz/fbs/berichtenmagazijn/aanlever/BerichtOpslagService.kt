@@ -56,7 +56,7 @@ class BerichtOpslagService(
         ontvangerWaarde: String,
         onderwerp: String,
         inhoud: String,
-        bijlagen: List<NieuweBijlage> = emptyList(),
+        bijlagen: List<BijlageInvoer> = emptyList(),
     ): Bericht {
         val berichtId = UUID.randomUUID()
         val bericht = Bericht(
@@ -113,11 +113,13 @@ class BerichtOpslagService(
 }
 
 /**
- * Input-tuple voor een bijlage bij het opslaan van een bericht. Houdt de
- * service-API losgekoppeld van de gegenereerde JAX-RS DTO's (resource-laag
- * doet de DTO-mapping).
+ * Input-tuple voor één bijlage in de Aanlever-flow. Houdt de service-API
+ * losgekoppeld van de gegenereerde JAX-RS DTO's: de resource-laag mapt de
+ * inkomende `BijlageAanleverenRequest` om naar deze invoer-record, en de
+ * service zet er een [nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage]-
+ * domeinobject van.
  */
-data class NieuweBijlage(
+data class BijlageInvoer(
     val naam: String,
     val mimeType: String,
     val content: ByteArray,
@@ -125,7 +127,7 @@ data class NieuweBijlage(
     // contentEquals/hashCode zodat tests deterministisch met bytes kunnen werken.
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (other !is NieuweBijlage) return false
+        if (other !is BijlageInvoer) return false
         return naam == other.naam && mimeType == other.mimeType && content.contentEquals(other.content)
     }
 

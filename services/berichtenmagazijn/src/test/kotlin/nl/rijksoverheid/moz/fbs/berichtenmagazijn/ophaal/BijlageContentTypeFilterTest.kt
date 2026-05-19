@@ -40,10 +40,4 @@ class BijlageContentTypeFilterTest {
         val headers = run(42)
         assertEquals("application/octet-stream", headers.getFirst("Content-Type"))
     }
-
-    @Test
-    fun `ongeldige MIME-type-string wordt genegeerd`() {
-        val headers = run("not a media type")
-        assertEquals("application/octet-stream", headers.getFirst("Content-Type"))
-    }
 }

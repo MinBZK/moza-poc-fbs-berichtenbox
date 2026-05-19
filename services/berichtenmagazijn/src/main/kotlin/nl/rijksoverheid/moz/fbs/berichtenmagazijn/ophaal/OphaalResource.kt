@@ -1,15 +1,19 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.InternalServerErrorException
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.UriInfo
+import org.jboss.logging.Logger
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.OphaalApi
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtMetInhoud
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
 import java.util.UUID
@@ -20,7 +24,7 @@ import java.util.UUID
  *
  * Voor `getBijlage` wordt het werkelijke MIME-type van de bijlage in de
  * `Content-Type` response-header gezet via [BijlageContentTypeFilter]; de
- * resource zet het MIME-type op een request-attribute zodat de filter het
+ * resource zet het MIME-type op een request-attribute zodat het filter het
  * vlak voor het schrijven van de body kan toepassen.
  */
 @Path(ApiInfo.BASE_PATH + "/berichten")
@@ -34,7 +38,7 @@ class OphaalResource(
 
     @Logboek(
         name = "ophalen-berichtenlijst",
-        processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-ophalen",
+        processingActivityId = ProcessingActivities.MAGAZIJN_OPHALEN,
     )
     override fun getBerichten(
         xOntvanger: String,
@@ -50,29 +54,38 @@ class OphaalResource(
             page = page ?: 0,
             pageSize = pageSize ?: DEFAULT_PAGE_SIZE,
         )
-        return BerichtDtoMapper.toBerichtenLijst(pagina, ontvanger, afzender, uriInfo.baseUriBuilder)
+        return BerichtDtoMapper.toBerichtenLijst(pagina, afzender, uriInfo.baseUriBuilder)
     }
 
     @Logboek(
         name = "ophalen-bericht",
-        processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-ophalen",
+        processingActivityId = ProcessingActivities.MAGAZIJN_OPHALEN,
     )
-    override fun getBerichtById(berichtId: UUID, xOntvanger: String): BerichtMetInhoud {
+    override fun getBerichtById(berichtId: UUID, xOntvanger: String): Bericht {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
         registreerLdvSubject(ontvanger)
         val bericht = ophaalService.haalBerichtOp(berichtId, ontvanger)
-        return BerichtDtoMapper.toBerichtMetInhoud(bericht, uriInfo.baseUriBuilder)
+        return BerichtDtoMapper.toBericht(bericht, uriInfo.baseUriBuilder)
     }
 
     @Logboek(
         name = "ophalen-bijlage",
-        processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-ophalen",
+        processingActivityId = ProcessingActivities.MAGAZIJN_OPHALEN,
     )
     override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
         registreerLdvSubject(ontvanger)
         val bijlage = ophaalService.haalBijlageOp(berichtId, bijlageId, ontvanger)
-        request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, bijlage.mimeType)
+        // Een ongeldig MIME-type in de DB duidt op een aanlever-bug of data-corruptie:
+        // serveer in dat geval geen bytes onder een verkeerd Content-Type — werp 500
+        // zodat het uitvalt en zichtbaar wordt. De waarde komt niet in de response
+        // (alleen in de log) om geen interne details aan de client te lekken.
+        val mediaType = runCatching { MediaType.valueOf(bijlage.mimeType) }.getOrNull()
+        if (mediaType == null) {
+            log.warnf("Ongeldig MIME-type in bijlage; serveer geen content. berichtId=%s bijlageId=%s", berichtId, bijlageId)
+            throw InternalServerErrorException("Ongeldig MIME-type in bijlage")
+        }
+        request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mediaType.toString())
         return bijlage.content
     }
 
@@ -84,10 +97,12 @@ class OphaalResource(
     }
 
     private companion object {
-        // De gegenereerde interface levert `pageSize` als `Int?` — Quarkus REST dwingt
-        // de OpenAPI-default niet af op de Kotlin-parameter, dus zetten we hem hier
-        // expliciet wanneer de query-param ontbreekt. Waarde moet gelijk blijven aan
-        // de `default` in de spec, anders divergeert client-doc van server-gedrag.
+        private val log: Logger = Logger.getLogger(OphaalResource::class.java)
+
+        // Default voor `pageSize` als de query-param ontbreekt. De gegenereerde
+        // interface levert `pageSize` als `Int?`; Quarkus REST dwingt de
+        // OpenAPI-default niet af op de Kotlin-parameter. Waarde moet gelijk
+        // blijven aan `PageSizeParam.default` in `berichtenmagazijn-api.yaml`.
         const val DEFAULT_PAGE_SIZE = 20
     }
 }

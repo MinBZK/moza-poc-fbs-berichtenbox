@@ -40,7 +40,7 @@ class InternalError500ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                bijlagen: List<NieuweBijlage>,
+                bijlagen: List<BijlageInvoer>,
             ): Nothing = throw InternalServerErrorException("SELECT * FROM berichten WHERE secret=redacted")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

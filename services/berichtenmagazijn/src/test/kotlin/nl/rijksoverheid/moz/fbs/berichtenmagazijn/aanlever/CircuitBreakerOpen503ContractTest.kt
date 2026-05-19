@@ -39,7 +39,7 @@ class CircuitBreakerOpen503ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                bijlagen: List<NieuweBijlage>,
+                bijlagen: List<BijlageInvoer>,
             ): Nothing = throw CircuitBreakerOpenException("circuit open (test)")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

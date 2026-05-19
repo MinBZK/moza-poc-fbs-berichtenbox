@@ -12,10 +12,10 @@ import jakarta.persistence.Table
 import java.time.Instant
 
 /**
- * Leesstatus van een bericht. In de PoC heeft elk bericht hooguit één ontvanger;
- * de bericht-rij draagt al de ontvanger-identiteit, dus de status hangt enkel
- * aan het bericht. Afwezigheid van een rij betekent "nog niet bekeken, geen
- * map gekozen"; bij de eerste PATCH wordt de rij aangemaakt.
+ * Leesstatus van een bericht. Elk bericht heeft hooguit één ontvanger en
+ * daarmee hooguit één status-rij; de bericht-rij draagt al de ontvanger-identiteit.
+ * Afwezigheid van een rij betekent "nog niet bekeken, geen map gekozen"; bij
+ * de eerste PATCH wordt de rij aangemaakt.
  *
  * Surrogate `id` als PK; de relatie naar [BerichtEntity] loopt via
  * `bericht_db_id` (FK op `berichten.id`) met een unique-constraint zodat een
@@ -37,7 +37,7 @@ internal class BerichtStatusEntity {
     @Column(nullable = false)
     var gelezen: Boolean = false
 
-    @Column(length = 64)
+    @Column(length = BerichtStatus.MAX_MAP_LENGTE)
     var map: String? = null
 
     @Column(name = "gewijzigd_op", nullable = false)

@@ -71,10 +71,11 @@ paths:
       summary: Berichtenlijst ophalen voor een ontvanger
       operationId: getBerichten
       description: |
-        Geeft een gepagineerde lijst van berichten (zonder inhoud) terug voor de
-        ontvanger uit de `X-Ontvanger` header. Verwijderde berichten zijn uitgesloten.
-        De volledige berichtinhoud en bijlagen-metadata zijn op te halen via
-        `GET /berichten/{berichtId}`.
+        Geeft een gepagineerde lijst van berichten terug voor de ontvanger uit de
+        `X-Ontvanger` header. Verwijderde berichten zijn uitgesloten. De berichten
+        in de lijst bevatten dezelfde velden als `GET /berichten/{berichtId}`,
+        inclusief tekstuele inhoud en bijlagen-metadata; bijlage-bytes worden
+        separaat opgehaald via `GET /berichten/{berichtId}/bijlagen/{bijlageId}`.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
@@ -126,7 +127,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BerichtMetInhoud'
+                $ref: '#/components/schemas/Bericht'
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -161,7 +162,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BerichtMetInhoud'
+                $ref: '#/components/schemas/Bericht'
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -253,9 +254,13 @@ components:
         Ontvanger van het bericht in formaat `<TYPE>:<WAARDE>`, bijvoorbeeld
         `BSN:123456782`, `KVK:12345678`, `RSIN:002564440` of `OIN:00000001003214345000`.
         Wordt als header doorgegeven om persoonsgegevens uit URL en toegangslogs te houden.
+
+        De regex koppelt de lengte aan het type: BSN/RSIN = 9 cijfers (elfproef),
+        KVK = 8 cijfers, OIN = 20 cijfers. Verdere domein-invarianten (elfproef voor
+        BSN/RSIN, niet-geheel-nullen) worden in de service-laag afgedwongen.
       schema:
         type: string
-        pattern: '^(BSN|RSIN|KVK|OIN):[0-9]{8,20}$'
+        pattern: '^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$'
         minLength: 12
         maxLength: 24
     BerichtIdPath:
@@ -389,36 +394,14 @@ components:
         _links:
           $ref: '#/components/schemas/BerichtLinks'
 
-    BerichtSamenvatting:
-      type: object
-      description: |
-        Berichtmetadata zonder inhoud. Gebruikt in `GET /berichten` (lijst). De volledige
-        inhoud en bijlagen-metadata zijn op te halen via `_links.self`.
-      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, _links]
-      properties:
-        berichtId:
-          type: string
-          format: uuid
-        afzender:
-          type: string
-          description: OIN van de afzender
-        ontvanger:
-          $ref: '#/components/schemas/Identificatienummer'
-        onderwerp:
-          type: string
-        tijdstipOntvangst:
-          type: string
-          format: date-time
-        status:
-          $ref: '#/components/schemas/BerichtStatusInfo'
-        _links:
-          $ref: '#/components/schemas/BerichtLinks'
-
-    BerichtMetInhoud:
+    Bericht:
       type: object
       description: |
         Volledig bericht inclusief tekstuele inhoud en metadata van eventuele bijlagen.
-        Bijlage-inhoud (bytes) is op te halen via `GET /berichten/{id}/bijlagen/{id}`.
+        Bijlage-bytes worden separaat opgehaald via
+        `GET /berichten/{berichtId}/bijlagen/{bijlageId}`. Dit schema wordt gebruikt
+        door `GET /berichten` (lijst), `GET /berichten/{berichtId}` en
+        `PATCH /berichten/{berichtId}` zodat consumers één representatie kennen.
       required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, bijlagen, _links]
       properties:
         berichtId:
@@ -426,6 +409,7 @@ components:
           format: uuid
         afzender:
           type: string
+          description: OIN van de afzender
         ontvanger:
           $ref: '#/components/schemas/Identificatienummer'
         onderwerp:
@@ -491,11 +475,13 @@ components:
         Patch-body voor `PATCH /berichten/{berichtId}`. Stuur alleen de velden die
         je wilt wijzigen.
 
-        **PoC-beperking:** volledig RFC 7396-conforme "expliciet `null` wist de
-        waarde" semantiek is niet geïmplementeerd. Een ontbrekend veld én een
-        veld dat expliciet op `null` staat worden beide behandeld als "niet
-        wijzigen". Een eenmaal gezette map kan in de PoC dus niet meer gewist
-        worden via deze endpoint.
+        **Bewuste keuze**: een ontbrekend veld én een veld dat expliciet op `null`
+        staat worden beide behandeld als "niet wijzigen". Daardoor kan een eenmaal
+        gezette map niet via deze endpoint gewist worden — wel overschreven met
+        een nieuwe map-waarde. Wissen vergt een aparte sentinel-waarde in een
+        toekomstige API-versie (bv. expliciet `""` of een `verwijderMap=true`
+        flag); dat is bewust uitgesteld om JSON-merge-patch semantiek voorspelbaar
+        te houden zolang er nog geen duidelijke use-case voor wissen is.
       properties:
         gelezen:
           type: boolean
@@ -514,7 +500,7 @@ components:
         berichten:
           type: array
           items:
-            $ref: '#/components/schemas/BerichtSamenvatting'
+            $ref: '#/components/schemas/Bericht'
         page:
           type: integer
         pageSize:

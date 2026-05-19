@@ -51,11 +51,10 @@ class BerichtStatusRepository(
     }
 
     /**
-     * Maakt een status-rij aan of werkt een bestaande bij. PoC-semantiek (zie
-     * docstring van [BerichtStatusPatch]): alleen niet-`null` velden in [patch]
-     * vervangen de huidige waarde. Volledig RFC 7396-conforme "wis met `null`"
-     * vraagt om een tri-state model (bv. `JsonNullable<T>`); dat valt buiten
-     * scope voor de PoC.
+     * Maakt een status-rij aan of werkt een bestaande bij. Alleen niet-`null`
+     * velden in [patch] vervangen de huidige waarde — zie de kdoc van
+     * [BerichtStatusPatch] voor de semantiek en de bewuste keuze om een
+     * gezette `map` niet via deze endpoint te kunnen wissen.
      */
     fun upsert(
         berichtId: UUID,
@@ -84,11 +83,14 @@ private fun BerichtStatusEntity.toDomain(): BerichtStatus = BerichtStatus(
 )
 
 /**
- * In-memory representatie van een PATCH-body. PoC-semantiek: `null` =
- * "veld niet aanwezig in de body, niet wijzigen". Het verschil tussen
- * "afwezig" en "expliciet `null`" wordt niet bewaard — Jackson kan dat zonder
- * extra type-machinerie niet onderscheiden. Daardoor kan een map die eenmaal
- * gezet is, in de PoC niet via deze endpoint gewist worden.
+ * In-memory representatie van een PATCH-body. `null` betekent "veld niet
+ * aanwezig in de body, niet wijzigen". Het verschil tussen "afwezig" en
+ * "expliciet `null`" wordt bewust niet bewaard: Jackson kan dat zonder
+ * tri-state typemachinerie niet onderscheiden, en zolang er geen duidelijke
+ * use-case is voor het wissen van een map kiezen we voor de eenvoudige
+ * semantiek. Een eenmaal gezette map kan via deze endpoint dus alleen worden
+ * overschreven met een nieuwe waarde; wissen vergt een toekomstige
+ * sentinel-waarde of aparte endpoint.
  *
  * Een patch waar alle velden `null` zijn is een no-op die anders stil de
  * `gewijzigdOp`-timestamp zou bumpen zonder semantische wijziging; dat
