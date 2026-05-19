@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
 import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.persistence.Tuple
 import java.util.UUID
 
 /**
@@ -79,29 +80,39 @@ class BijlageRepository(
      * Batch-variant voor lijst-endpoints: laadt bijlage-metadata voor een
      * verzameling berichten in één query (anders N+1). Geretourneerd als map
      * `berichtId → metadata-lijst`; berichten zonder bijlagen ontbreken in de
-     * map en moet de caller behandelen als lege lijst.
+     * map en moeten door de caller behandeld worden als lege lijst.
+     *
+     * De query gebruikt [Tuple] met benoemde aliassen ([BERICHT_ID_ALIAS],
+     * [METADATA_ALIAS]) zodat de mapping niet leunt op positionele
+     * [Array]-casts: bij JPQL- of entity-drift komt er een duidelijke fout
+     * uit Hibernate i.p.v. een onbegrijpelijke `ClassCastException` → 500.
      */
     fun metadataVoorBerichten(berichtIds: Collection<UUID>): Map<UUID, List<BijlageMetadata>> {
         if (berichtIds.isEmpty()) return emptyMap()
         return getEntityManager()
             .createQuery(
                 """
-                SELECT b.bericht.berichtId,
+                SELECT b.bericht.berichtId AS $BERICHT_ID_ALIAS,
                        new nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata(
                            b.bijlageId, b.naam, b.mimeType
-                       )
+                       ) AS $METADATA_ALIAS
                 FROM BijlageEntity b
                 WHERE b.bericht.berichtId IN :ids
                   AND b.bericht.verwijderdOp IS NULL
                 """.trimIndent(),
-                Array<Any>::class.java,
+                Tuple::class.java,
             )
             .setParameter("ids", berichtIds)
             .resultList
             .groupBy(
-                keySelector = { it[0] as UUID },
-                valueTransform = { it[1] as BijlageMetadata },
+                keySelector = { it.get(BERICHT_ID_ALIAS, UUID::class.java) },
+                valueTransform = { it.get(METADATA_ALIAS, BijlageMetadata::class.java) },
             )
+    }
+
+    private companion object {
+        private const val BERICHT_ID_ALIAS = "berichtId"
+        private const val METADATA_ALIAS = "metadata"
     }
 }
 

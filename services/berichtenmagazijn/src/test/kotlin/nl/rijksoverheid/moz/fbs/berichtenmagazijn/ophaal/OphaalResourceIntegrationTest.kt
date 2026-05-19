@@ -87,8 +87,46 @@ class OphaalResourceIntegrationTest {
             .body("totalElements", `is`(2))
             .body("berichten", hasSize<Any>(2))
             .body("berichten[0].onderwerp", notNullValue())
+            .body("berichten[0].inhoud", containsString("Inhoud van"))
             .body("berichten[0]._links.self.href", containsString("/api/v1/berichten/"))
             .body("_links.self.href", containsString("/api/v1/berichten"))
+    }
+
+    @Test
+    fun `GET berichten batch-laadt bijlage-metadata zonder cross-bericht lekkage`() {
+        // Drie berichten met 0/1/2 bijlagen + één soft-deleted bericht met bijlage
+        // dat NIET in de lijst mag verschijnen. Dekt BijlageRepository.metadataVoorBerichten
+        // (Tuple-projection) tegen een echte DB en bewijst:
+        //   - berichten zonder bijlagen krijgen een lege list (geen null/ontbreken)
+        //   - per bericht klopt het aantal bijlagen (geen cross-bericht koppeling)
+        //   - soft-deleted berichten worden via verwijderdOp IS NULL gefilterd
+        val zonder = insertBericht(onderwerp = "Zonder")
+        val een = insertBericht(onderwerp = "Een")
+        val twee = insertBericht(onderwerp = "Twee")
+        val verwijderd = insertBericht(onderwerp = "Verwijderd")
+        insertBijlage(een.berichtId, "a".toByteArray())
+        insertBijlage(twee.berichtId, "b".toByteArray())
+        insertBijlage(twee.berichtId, "c".toByteArray())
+        insertBijlage(verwijderd.berichtId, "d".toByteArray())
+        markeerVerwijderd(verwijderd.berichtId)
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten?page=0&pageSize=10")
+            .then()
+            .statusCode(200)
+            .body("totalElements", `is`(3))
+            .body("berichten.find { it.berichtId == '${zonder.berichtId}' }.bijlagen", hasSize<Any>(0))
+            .body("berichten.find { it.berichtId == '${een.berichtId}' }.bijlagen", hasSize<Any>(1))
+            .body("berichten.find { it.berichtId == '${twee.berichtId}' }.bijlagen", hasSize<Any>(2))
+    }
+
+    @Transactional
+    fun markeerVerwijderd(berichtId: UUID) {
+        em.createQuery("UPDATE BerichtEntity b SET b.verwijderdOp = :nu WHERE b.berichtId = :id")
+            .setParameter("nu", Instant.now())
+            .setParameter("id", berichtId)
+            .executeUpdate()
     }
 
     @Test

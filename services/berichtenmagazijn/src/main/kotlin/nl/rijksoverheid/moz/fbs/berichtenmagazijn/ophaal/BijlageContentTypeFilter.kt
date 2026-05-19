@@ -3,7 +3,9 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.container.ContainerResponseFilter
+import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.ext.Provider
+import org.jboss.logging.Logger
 
 /**
  * Request-property waarmee een resource het MIME-type voor de response-Content-Type
@@ -18,9 +20,12 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.bijlage.mimeType"
  * Het filter doet niets als de property afwezig is, dus het is veilig om globaal
  * te draaien; alleen `OphaalResource.getBijlage` zet de property.
  *
- * De resource valideert het MIME-type vóór het zetten van de property: een
- * ongeldige waarde levert een 500 op (geen bytes onder een verkeerd content-type).
- * Deze filter mag er daarom van uitgaan dat de waarde een geldig MediaType is.
+ * De resource valideert het MIME-type vóór het zetten van de property en gooit
+ * 500 als de waarde ongeldig is. Dit filter parset de waarde nogmaals via
+ * [MediaType.valueOf] als defense-in-depth: een toekomstige caller (test,
+ * ander endpoint) zou de property kunnen zetten zonder pre-validatie, en
+ * zonder check zou een waarde met `\r\n` header-splitting toelaten. Bij een
+ * ongeldige waarde laat het filter de default `Content-Type` staan.
  *
  * NameBinding is overwogen voor expliciete scoping, maar Quarkus REST neemt de
  * annotatie op de override-methode niet over uit de gegenereerde interface;
@@ -30,6 +35,19 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.bijlage.mimeType"
 class BijlageContentTypeFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
-        responseContext.headers.putSingle("Content-Type", mimeType)
+        val parsed = runCatching { MediaType.valueOf(mimeType) }.getOrNull()
+        if (parsed == null) {
+            log.warnf(
+                "BIJLAGE_MIME_TYPE_PROPERTY bevat een ongeldige MediaType (%s); Content-Type ongewijzigd gelaten. " +
+                    "De resource zou dit horen te valideren — check de caller.",
+                mimeType,
+            )
+            return
+        }
+        responseContext.headers.putSingle("Content-Type", parsed.toString())
+    }
+
+    private companion object {
+        private val log: Logger = Logger.getLogger(BijlageContentTypeFilter::class.java)
     }
 }

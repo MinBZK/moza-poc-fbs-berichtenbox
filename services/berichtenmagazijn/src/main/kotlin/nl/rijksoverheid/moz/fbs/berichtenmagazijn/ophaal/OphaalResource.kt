@@ -79,10 +79,20 @@ class OphaalResource(
         // Een ongeldig MIME-type in de DB duidt op een aanlever-bug of data-corruptie:
         // serveer in dat geval geen bytes onder een verkeerd Content-Type — werp 500
         // zodat het uitvalt en zichtbaar wordt. De waarde komt niet in de response
-        // (alleen in de log) om geen interne details aan de client te lekken.
-        val mediaType = runCatching { MediaType.valueOf(bijlage.mimeType) }.getOrNull()
+        // (alleen in de log) om geen interne details aan de client te lekken;
+        // mimeType is geen PII en mag in de applicatielog staan voor diagnose.
+        val mediaType = runCatching { MediaType.valueOf(bijlage.mimeType) }
+            .onFailure { ex ->
+                log.warnf(
+                    ex,
+                    "Ongeldig MIME-type in bijlage; serveer geen content. berichtId=%s bijlageId=%s mimeType=%s",
+                    berichtId,
+                    bijlageId,
+                    bijlage.mimeType,
+                )
+            }
+            .getOrNull()
         if (mediaType == null) {
-            log.warnf("Ongeldig MIME-type in bijlage; serveer geen content. berichtId=%s bijlageId=%s", berichtId, bijlageId)
             throw InternalServerErrorException("Ongeldig MIME-type in bijlage")
         }
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mediaType.toString())

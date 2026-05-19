@@ -143,8 +143,8 @@ paths:
       description: |
         Werkt de leesstatus en/of map van een bericht bij voor de ontvanger uit de
         `X-Ontvanger` header. Velden die niet in het request voorkomen blijven
-        ongewijzigd. Zie `BerichtStatusPatch` voor PoC-beperkingen rond expliciete
-        `null`-waardes.
+        ongewijzigd. Zie `BerichtStatusPatch` voor de semantiek rond ontbrekende
+        en expliciete `null`-waardes.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
       requestBody:

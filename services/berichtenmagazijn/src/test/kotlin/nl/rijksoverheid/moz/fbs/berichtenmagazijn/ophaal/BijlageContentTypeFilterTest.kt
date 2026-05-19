@@ -40,4 +40,13 @@ class BijlageContentTypeFilterTest {
         val headers = run(42)
         assertEquals("application/octet-stream", headers.getFirst("Content-Type"))
     }
+
+    @Test
+    fun `ongeldige MediaType-string (defense-in-depth) wordt genegeerd`() {
+        // De resource zou dit normaal moeten vangen, maar als een toekomstige caller de
+        // property zou zetten zonder validatie, mag het filter geen header-splitting
+        // toestaan via bv. \r\n in de waarde. De default Content-Type blijft staan.
+        val headers = run("not a valid media type\r\nX-Injected: yes")
+        assertEquals("application/octet-stream", headers.getFirst("Content-Type"))
+    }
 }
