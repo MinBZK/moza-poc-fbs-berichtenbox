@@ -1,0 +1,31 @@
+meta {
+  name: 7. Bericht aanleveren met PDF-bijlage
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/berichten
+  body: json
+  auth: none
+}
+
+headers {
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "afzender": "{{afzender}}",
+    "ontvanger": { "type": "BSN", "waarde": "{{ontvangerPersoon}}" },
+    "onderwerp": "Voorlopige aanslag 2026 met bijlage",
+    "inhoud": "Beste belastingplichtige,\n\nIn de bijlage vindt u de uitwerking van uw voorlopige aanslag inkomstenbelasting 2026.",
+    "bijlagen": [
+      {
+        "naam": "voorlopige-aanslag-2026.pdf",
+        "mimeType": "application/pdf",
+        "inhoud": "JVBERi0xLjQKJeLjz9MKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4gZW5kb2JqCjIgMCBvYmogPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4gZW5kb2JqCjMgMCBvYmogPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSA+PiBlbmRvYmoKdHJhaWxlciA8PCAvUm9vdCAxIDAgUiA+PgolJUVPRgo="
+      }
+    ]
+  }
+}
