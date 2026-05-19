@@ -5,6 +5,7 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
+import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import org.eclipse.microprofile.rest.client.inject.RestClient
@@ -16,10 +17,7 @@ import java.util.Base64
 
 /**
  * End-to-end keten: HTTP POST → AanleverResource → BerichtOpslagService →
- * BerichtValidatieService → (gemockte) ToestemmingControle → ExceptionMappers.
- *
- * Borgt dat een ongeldig MIME-type een 400 oplevert en geweigerde toestemming
- * een 403 — beide in Problem JSON, met correct status-veld.
+ * BerichtValidatieService → (gemockte) ProfielServiceClient → ExceptionMappers.
  */
 @QuarkusTest
 class BerichtValidatieIntegrationTest {
@@ -32,7 +30,9 @@ class BerichtValidatieIntegrationTest {
 
     @Inject
     @RestClient
-    lateinit var toestemmingControle: ToestemmingControle
+    lateinit var profielServiceClient: ProfielServiceClient
+
+    private val testAfzender = "00000001003214345000"
 
     @BeforeEach
     @Transactional
@@ -43,13 +43,13 @@ class BerichtValidatieIntegrationTest {
 
     @BeforeEach
     fun resetMockNaarToegestaan() {
-        // Default: alles toegestaan. Per-test override gebeurt in de test zelf.
-        (toestemmingControle as MockToestemmingControle).resultaat =
-            ToestemmingAntwoord(toegestaan = true)
+        (profielServiceClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
+            MockProfielServiceClient.defaultPartij(afzenderOin = testAfzender)
+        }
     }
 
     @Test
-    fun `aanlever met PDF bijlage en toestemming retourneert 201`() {
+    fun `aanlever met PDF bijlage en actieve voorkeur retourneert 201`() {
         val payload = Base64.getEncoder().encodeToString("pdf-bytes".toByteArray())
 
         given()
@@ -57,7 +57,7 @@ class BerichtValidatieIntegrationTest {
             .body(
                 """
                 {
-                  "afzender": "00000001003214345000",
+                  "afzender": "$testAfzender",
                   "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Voorlopige aanslag",
                   "inhoud": "Inhoud",
@@ -81,7 +81,7 @@ class BerichtValidatieIntegrationTest {
             .body(
                 """
                 {
-                  "afzender": "00000001003214345000",
+                  "afzender": "$testAfzender",
                   "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Voorlopige aanslag",
                   "inhoud": "Inhoud",
@@ -102,9 +102,11 @@ class BerichtValidatieIntegrationTest {
     }
 
     @Test
-    fun `aanlever zonder toestemming retourneert 403 Problem JSON`() {
-        (toestemmingControle as MockToestemmingControle).resultaat =
-            ToestemmingAntwoord(toegestaan = false)
+    fun `aanlever zonder actieve berichtenbox-voorkeur retourneert 403 Problem JSON`() {
+        (profielServiceClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
+            // Partij heeft wel een profiel, maar geen OntvangViaBerichtenbox-voorkeur.
+            PartijResponse(voorkeuren = emptyList())
+        }
         val payload = Base64.getEncoder().encodeToString("pdf".toByteArray())
 
         given()
@@ -112,7 +114,7 @@ class BerichtValidatieIntegrationTest {
             .body(
                 """
                 {
-                  "afzender": "00000001003214345000",
+                  "afzender": "$testAfzender",
                   "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Voorlopige aanslag",
                   "inhoud": "Inhoud",
@@ -131,9 +133,10 @@ class BerichtValidatieIntegrationTest {
     }
 
     @Test
-    fun `aanlever voor ondernemer (KVK) zonder toestemming retourneert 403 Problem JSON`() {
-        (toestemmingControle as MockToestemmingControle).resultaat =
-            ToestemmingAntwoord(toegestaan = false)
+    fun `aanlever voor ondernemer (KVK) met voorkeur naar andere afzender retourneert 403 Problem JSON`() {
+        (profielServiceClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
+            MockProfielServiceClient.defaultPartij(afzenderOin = "00000001003214345999")
+        }
         val payload = Base64.getEncoder().encodeToString("pdf".toByteArray())
 
         given()
@@ -141,7 +144,7 @@ class BerichtValidatieIntegrationTest {
             .body(
                 """
                 {
-                  "afzender": "00000001003214345000",
+                  "afzender": "$testAfzender",
                   "ontvanger": {"type": "KVK", "waarde": "12345678"},
                   "onderwerp": "Factuur",
                   "inhoud": "Inhoud",
@@ -159,13 +162,42 @@ class BerichtValidatieIntegrationTest {
     }
 
     @Test
-    fun `aanlever zonder bijlagen en met toestemming retourneert 201`() {
+    fun `aanlever voor onbekende ontvanger (404 profielservice) retourneert 403`() {
+        (profielServiceClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
+            throw NotFoundException()
+        }
+        val payload = Base64.getEncoder().encodeToString("pdf".toByteArray())
+
         given()
             .contentType(ContentType.JSON)
             .body(
                 """
                 {
-                  "afzender": "00000001003214345000",
+                  "afzender": "$testAfzender",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
+                  "onderwerp": "Test",
+                  "inhoud": "Inhoud",
+                  "bijlagen": [
+                    {"naam": "doc.pdf", "mimeType": "application/pdf", "inhoud": "$payload"}
+                  ]
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(403)
+            .contentType("application/problem+json")
+            .body("status", `is`(403))
+    }
+
+    @Test
+    fun `aanlever zonder bijlagen en met actieve voorkeur retourneert 201`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "$testAfzender",
                   "ontvanger": {"type": "BSN", "waarde": "999993653"},
                   "onderwerp": "Voorlopige aanslag",
                   "inhoud": "Inhoud"

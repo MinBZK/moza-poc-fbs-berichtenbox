@@ -27,10 +27,11 @@ services:
       - ./wiremock/magazijn-b/__files:/home/wiremock/__files
     command: ["--verbose", "--global-response-templating"]
 
-  # Profiel Service stub voor berichtenmagazijn — controleert of een ontvanger
-  # toestemming heeft om berichten van de afzender te ontvangen (zowel burgers
-  # als ondernemers). Default mapping `toegestaan=true`; voor 403-rookproef is
-  # er een specifieke geweigerd-mapping op een vaste BSN-waarde.
+  # MOZA Profiel Service stub voor berichtenmagazijn — simuleert het ophalen van
+  # een partij (BSN/KVK/RSIN) inclusief OntvangViaBerichtenbox-voorkeur en scope
+  # naar een afzender-OIN. Default mapping geeft een actieve voorkeur voor het
+  # test-OIN 00000001003214345000; voor 403-rookproef is er een mapping op BSN
+  # 111222333 die een partij zonder voorkeuren teruggeeft.
   profiel-service:
     image: wiremock/wiremock:3.13.2
     ports:
