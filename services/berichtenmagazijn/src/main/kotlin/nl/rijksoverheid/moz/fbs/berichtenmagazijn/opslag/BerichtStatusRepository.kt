@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
 import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.persistence.Tuple
+import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.common.exception.requireValid
 import java.time.Instant
 import java.util.UUID
@@ -31,23 +33,45 @@ class BerichtStatusRepository(
 
     /**
      * Batch-variant voor lijst-endpoints: laadt statussen voor een verzameling
-     * berichten in één query (anders N+1). De parent wordt mee-fetched zodat
-     * de map-sleutel — `bericht.berichtId` — geen extra lazy-load triggert.
+     * berichten in één query (anders N+1). Projection-query met alleen de
+     * status-kolommen + de business-key van de parent — we hebben de
+     * `BerichtEntity`-row hier niet nodig (caller kent de UUIDs al), dus een
+     * `JOIN FETCH bs.bericht` zou onnodig de volledige bericht-row (incl. de
+     * tot 1 MiB grote `inhoud`-kolom) per status meeladen.
+     *
+     * Benoemde aliassen ([BERICHT_ID_ALIAS] etc.) voorkomen onbegrijpelijke
+     * `ClassCastException` bij JPQL- of entity-drift.
      */
     fun findByBerichtIds(berichtIds: Collection<UUID>): Map<UUID, BerichtStatus> {
         if (berichtIds.isEmpty()) return emptyMap()
         return getEntityManager()
             .createQuery(
                 """
-                SELECT bs FROM BerichtStatusEntity bs
-                JOIN FETCH bs.bericht be
-                WHERE be.berichtId IN :ids
+                SELECT bs.bericht.berichtId AS $BERICHT_ID_ALIAS,
+                       bs.gelezen          AS $GELEZEN_ALIAS,
+                       bs.map              AS $MAP_ALIAS,
+                       bs.gewijzigdOp      AS $GEWIJZIGD_OP_ALIAS
+                FROM BerichtStatusEntity bs
+                WHERE bs.bericht.berichtId IN :ids
                 """.trimIndent(),
-                BerichtStatusEntity::class.java,
+                Tuple::class.java,
             )
             .setParameter("ids", berichtIds)
             .resultList
-            .associate { it.bericht.berichtId to it.toDomain() }
+            .associate { tuple ->
+                tuple.get(BERICHT_ID_ALIAS, UUID::class.java) to BerichtStatus(
+                    gelezen = tuple.get(GELEZEN_ALIAS, java.lang.Boolean::class.java).booleanValue(),
+                    map = tuple.get(MAP_ALIAS, String::class.java),
+                    gewijzigdOp = tuple.get(GEWIJZIGD_OP_ALIAS, Instant::class.java),
+                )
+            }
+    }
+
+    private companion object {
+        private const val BERICHT_ID_ALIAS = "berichtId"
+        private const val GELEZEN_ALIAS = "gelezen"
+        private const val MAP_ALIAS = "map"
+        private const val GEWIJZIGD_OP_ALIAS = "gewijzigdOp"
     }
 
     /**
@@ -63,10 +87,12 @@ class BerichtStatusRepository(
     ): BerichtStatus {
         val entity = find("bericht.berichtId", berichtId).firstResult()
             ?: BerichtStatusEntity().apply {
+                // Race tussen find-in-de-service en deze upsert: parent kan
+                // tussentijds (soft-)deleted zijn. Consistent met
+                // [BerichtBeheerService.wijzigStatus]: 404 is de juiste 4xx,
+                // niet een gemaskeerde 500 via UncaughtExceptionMapper.
                 bericht = berichtRepository.findEntityByBerichtId(berichtId)
-                    ?: throw IllegalArgumentException(
-                        "Bericht niet gevonden voor berichtId=$berichtId",
-                    )
+                    ?: throw NotFoundException("Bericht niet gevonden")
             }
         if (patch.gelezen != null) entity.gelezen = patch.gelezen
         if (patch.map != null) entity.map = patch.map

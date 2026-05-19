@@ -10,9 +10,12 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import jakarta.ws.rs.NotFoundException
 import org.hamcrest.Matchers.`is`
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -198,6 +201,24 @@ class BeheerResourceIntegrationTest {
             .statusCode(200)
             .body("totalElements", `is`(1))
             .body("berichten[0].berichtId", `is`(zichtbaar.berichtId.toString()))
+    }
+
+    @Test
+    @Transactional
+    fun `upsert op ontbrekend bericht gooit NotFoundException`() {
+        // Race-condition op repository-niveau: tussen findByBerichtId (in de service)
+        // en deze upsert kan het parent-bericht verdwijnen. Dat moet een NotFoundException
+        // worden zodat ProblemExceptionMapper er 404 van maakt — niet een gemaskeerde
+        // 500 via UncaughtExceptionMapper (functioneel onjuist en niet diagnoseerbaar
+        // voor de client).
+        val onbekend = UUID.randomUUID()
+        assertThrows(NotFoundException::class.java) {
+            statusRepository.upsert(
+                berichtId = onbekend,
+                patch = BerichtStatusPatch(gelezen = true, map = null),
+                tijdstip = Instant.now(),
+            )
+        }
     }
 
     @Transactional

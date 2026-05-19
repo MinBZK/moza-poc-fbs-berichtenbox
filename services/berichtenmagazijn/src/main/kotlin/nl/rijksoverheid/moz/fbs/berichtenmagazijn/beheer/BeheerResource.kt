@@ -63,7 +63,8 @@ class BeheerResource(
     }
 
     private fun registreerLdvSubject(ontvanger: Identificatienummer) {
+        // dataSubjectType is identifier-type (BSN/RSIN/KVK/OIN) per Logboek-spec.
         logboekContext.dataSubjectId = ontvanger.waarde
-        logboekContext.dataSubjectType = "ontvanger"
+        logboekContext.dataSubjectType = ontvanger.type.name
     }
 }

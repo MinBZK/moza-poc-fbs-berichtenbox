@@ -49,8 +49,8 @@ sealed interface Identificatienummer {
             }
             val type = try {
                 IdentificatienummerType.valueOf(parts[0])
-            } catch (_: IllegalArgumentException) {
-                throw DomainValidationException("Onbekend identificatienummer-type: ${parts[0]}")
+            } catch (ex: IllegalArgumentException) {
+                throw DomainValidationException("Onbekend identificatienummer-type: ${parts[0]}", ex)
             }
             return of(type, parts[1])
         }

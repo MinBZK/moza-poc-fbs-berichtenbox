@@ -46,8 +46,12 @@ class AanleverResource(
         // ongevalideerde input in de AVG-logboekcontext zetten. Tot dat punt zorgt
         // LogboekContextDefaultFilter voor een safe default. Gebruik de door
         // [Bericht] gevalideerde waarde, niet het raw request-veld.
+        // dataSubjectType beschrijft hoe `dataSubjectId` geïnterpreteerd moet
+        // worden (BSN/RSIN/KVK/OIN) — niet de rol van het subject. Dat is wat
+        // het Logboek-spec verwacht zodat tooling die op type filtert (bv.
+        // "BSN") de juiste verwerkingen vindt.
         logboekContext.dataSubjectId = bericht.ontvanger.waarde
-        logboekContext.dataSubjectType = "ontvanger"
+        logboekContext.dataSubjectType = bericht.ontvanger.type.name
 
         val selfHref = uriInfo.baseUriBuilder
             .path(ApiInfo.BASE_PATH)

@@ -60,8 +60,14 @@ paths:
                 $ref: '#/components/schemas/BerichtResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '409':
           $ref: '#/components/responses/Conflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -101,6 +107,10 @@ paths:
                 $ref: '#/components/schemas/BerichtenLijst'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -130,10 +140,14 @@ paths:
                 $ref: '#/components/schemas/Bericht'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '500':
           $ref: '#/components/responses/InternalServerError'
     patch:
@@ -165,10 +179,16 @@ paths:
                 $ref: '#/components/schemas/Bericht'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
@@ -189,6 +209,8 @@ paths:
               $ref: '#/components/headers/API-Version'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
@@ -230,10 +252,14 @@ paths:
                 format: binary
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -553,6 +579,7 @@ components:
     Problem:
       type: object
       description: RFC 9457 Problem Details
+      required: [type, title, status]
       properties:
         type:
           type: string
@@ -625,3 +652,59 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: |
+        Geen of ongeldige authenticatie. In productie wordt de API afgeschermd via
+        OAuth 2.0 (`client_credentials` met `private_key_jwt`, NL GOV-profiel) en/of
+        mTLS met PKIoverheid (Digikoppeling REST-API). Deze respons wordt door de
+        gateway/service-mesh teruggegeven; de service zelf is in deze PoC nog niet
+        auth-bewust (zie AuthZEN PEP-issue).
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotAcceptable:
+      description: |
+        De server kan geen response leveren die voldoet aan de `Accept`-header van
+        de client. De magazijn-API serveert JSON (`application/json`,
+        `application/problem+json` voor fouten) en bij bijlage-download het
+        opgeslagen MIME-type van de bijlage.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnsupportedMediaType:
+      description: |
+        De `Content-Type` van het request is niet ondersteund. Aanlever en
+        PATCH-endpoints accepteren respectievelijk `application/json` en
+        `application/merge-patch+json`.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OAuth 2.0 Bearer token (JWT) volgens het NL GOV OAuth-profiel
+        (`client_credentials` grant met `private_key_jwt` client-auth).
+        Voor service-to-service-verkeer binnen FBS; afdwinging via API-gateway.
+
+        Naast bearer-tokens past de productie-omgeving mTLS met PKIoverheid-
+        certificaten toe (Digikoppeling REST-API v3) op de transport-laag — dat
+        is geen OpenAPI-3.0-securityScheme maar wordt op infra-niveau afgedwongen.
+
+security:
+  - bearerAuth: []

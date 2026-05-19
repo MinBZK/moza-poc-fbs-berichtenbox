@@ -183,6 +183,23 @@ class OphaalResourceIntegrationTest {
     }
 
     @Test
+    fun `GET bericht met zelfde waarde maar ander type geeft 403`() {
+        // BSN en RSIN zijn beide 9-cijferig + elfproef-gevalideerd, dus dezelfde
+        // numerieke waarde kan in beide typen voorkomen. BerichtAutorisatie moet
+        // op (type, waarde) matchen — anders zou een organisatie met RSIN-hetzelfde
+        // -nummer toegang krijgen tot een BSN-bericht (silent data-disclosure).
+        // 999993653 voldoet aan elfproef en is dus zowel een geldige BSN als RSIN.
+        val b = insertBericht()
+
+        given()
+            .header("X-Ontvanger", "RSIN:999993653")
+            .`when`().get("/api/v1/berichten/${b.berichtId}")
+            .then()
+            .statusCode(403)
+            .contentType("application/problem+json")
+    }
+
+    @Test
     fun `GET bericht by id voor onbekend bericht geeft 404`() {
         given()
             .header("X-Ontvanger", ontvangerHeader)

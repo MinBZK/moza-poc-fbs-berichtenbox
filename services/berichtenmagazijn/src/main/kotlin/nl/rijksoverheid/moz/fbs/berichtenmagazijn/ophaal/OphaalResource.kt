@@ -102,8 +102,10 @@ class OphaalResource(
     private fun registreerLdvSubject(ontvanger: Identificatienummer) {
         // Zet dataSubjectId nadat fromHeader is geslaagd — bij een 400 (ongeldige
         // header) blijft de safe default uit LogboekContextDefaultFilter staan.
+        // dataSubjectType is het identifier-type (BSN/RSIN/KVK/OIN) per Logboek-
+        // spec, niet de rol — tooling die op type filtert vindt anders niets.
         logboekContext.dataSubjectId = ontvanger.waarde
-        logboekContext.dataSubjectType = "ontvanger"
+        logboekContext.dataSubjectType = ontvanger.type.name
     }
 
     private companion object {
