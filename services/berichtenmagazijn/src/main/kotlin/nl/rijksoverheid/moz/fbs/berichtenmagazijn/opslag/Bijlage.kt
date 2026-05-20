@@ -7,8 +7,8 @@ import java.util.UUID
  * Volledig domeinmodel van een bijlage, inclusief inhoud (bytes).
  * Wordt gebruikt door de Aanlever-flow (opslaan) en door `getBijlage` (uitlevering).
  *
- * `content` wordt **niet** defensive gekopieerd; callers MOGEN deze bytes
- * niet muteren. Een copy bij elke read zou voor bijlagen tot 25 MiB de
+ * `content` wordt **niet** defensief gekopieerd; aanroepers MOGEN deze bytes
+ * niet muteren. Een kopie bij elke leesactie zou voor bijlagen tot 25 MiB de
  * heap-druk verdubbelen. De alternatieve aanpak (private backing field +
  * `bytes(): ByteArray`-getter) is bewust niet gekozen om dezelfde reden.
  */

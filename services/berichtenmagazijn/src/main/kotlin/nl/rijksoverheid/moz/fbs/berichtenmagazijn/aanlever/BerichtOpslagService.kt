@@ -113,9 +113,9 @@ class BerichtOpslagService(
 /**
  * Input-tuple voor één bijlage in de Aanlever-flow. Houdt de service-API
  * losgekoppeld van de gegenereerde JAX-RS DTO's: de resource-laag mapt de
- * inkomende `BijlageAanleverenRequest` om naar deze invoer-record, en de
- * service zet er een [nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage]-
- * domeinobject van.
+ * inkomende BijlageAanleverenRequest naar dit invoer-record, dat de
+ * service omzet naar een
+ * [nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage]-domeinobject.
  */
 data class BijlageInvoer(
     val naam: String,
