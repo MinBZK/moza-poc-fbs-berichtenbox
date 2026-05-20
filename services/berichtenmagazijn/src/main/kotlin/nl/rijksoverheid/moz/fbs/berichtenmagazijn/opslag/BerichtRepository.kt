@@ -4,6 +4,7 @@ import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import io.quarkus.panache.common.Page
 import io.quarkus.panache.common.Sort
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention.HardDeleteCandidaat
 import java.time.Instant
 import java.util.UUID
 
@@ -105,6 +106,56 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
             totalElements = totaal,
         )
     }
+
+    /**
+     * Claimt een batch soft-deleted berichten die aan beide retentie-drempels
+     * voldoen. Native query met `FOR UPDATE SKIP LOCKED` zodat parallelle pods
+     * disjuncte rij-sets claimen. Caller MOET claim+delete binnen één
+     * top-level transactie houden (rijen blijven gelockt totdat die commit).
+     */
+    fun claimVoorHardDelete(
+        receiptDeadline: Instant,
+        softDeleteDeadline: Instant,
+        batchSize: Int,
+    ): List<HardDeleteCandidaat> {
+        @Suppress("UNCHECKED_CAST")
+        val rijen = getEntityManager()
+            .createNativeQuery(
+                """
+                SELECT id, bericht_id, ontvanger_type, ontvanger_waarde,
+                       tijdstip_ontvangst, verwijderd_op
+                FROM berichten
+                WHERE verwijderd_op IS NOT NULL
+                  AND verwijderd_op      <= :softDeadline
+                  AND tijdstip_ontvangst <= :receiptDeadline
+                ORDER BY verwijderd_op ASC
+                LIMIT :batchSize
+                FOR UPDATE SKIP LOCKED
+                """.trimIndent(),
+            )
+            .setParameter("softDeadline", softDeleteDeadline)
+            .setParameter("receiptDeadline", receiptDeadline)
+            .setParameter("batchSize", batchSize)
+            .resultList as List<Array<Any?>>
+
+        return rijen.map { row ->
+            HardDeleteCandidaat(
+                id = (row[0] as Number).toLong(),
+                berichtId = row[1] as java.util.UUID,
+                ontvangerType = row[2] as String,
+                ontvangerWaarde = row[3] as String,
+                tijdstipOntvangst = (row[4] as java.sql.Timestamp).toInstant(),
+                verwijderdOp = (row[5] as java.sql.Timestamp).toInstant(),
+            )
+        }
+    }
+
+    /**
+     * Hard-delete van de bericht-rij op de surrogate PK. Caller MOET eerst de
+     * child-rijen (bijlagen, status) verwijderen — FK is RESTRICT.
+     */
+    fun hardDeleteByDbId(berichtDbId: Long): Int =
+        delete("id = ?1", berichtDbId).toInt()
 
     /**
      * Markeert een bericht als verwijderd voor de opgegeven ontvanger.
