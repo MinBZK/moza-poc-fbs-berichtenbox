@@ -95,7 +95,7 @@ class AanleverResourcePendingFailureLogTest {
         onderwerp = "Test",
         inhoud = "Inhoud",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
-        publicatieDatum = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
     )
 
     private val julLogger: Logger = Logger.getLogger(AanleverResource::class.java.name)
@@ -116,13 +116,13 @@ class AanleverResourcePendingFailureLogTest {
         every { processingHandler.startSpan("aanleveren-bericht", null) } returns span
         every { publicatieConfig.verwerkingsregisterAanleveren() } returns "https://register.example.com/aanleveren"
         every {
-            opslagService.opslaanBericht(
+            opslagService.slaBerichtOp(
                 afzender = any(),
                 ontvangerType = any(),
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatieDatum = any(),
+                publicatiedatum = any(),
             )
         } returns gevalideerdBericht
         // Default OK-pad voor finally; afzonderlijke tests overschrijven om IAE te triggeren.
@@ -140,13 +140,13 @@ class AanleverResourcePendingFailureLogTest {
         // de outer try faalt door opslagService te laten gooien.
         val piiMessage = "Upstream voor Jan de Vries (jan@example.nl) en BSN 999993653 mislukt"
         every {
-            opslagService.opslaanBericht(
+            opslagService.slaBerichtOp(
                 afzender = any(),
                 ontvangerType = any(),
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatieDatum = any(),
+                publicatiedatum = any(),
             )
         } throws RuntimeException(piiMessage)
         // Forceer dat addLogboekContextToSpan in finally een IAE gooit
@@ -191,13 +191,13 @@ class AanleverResourcePendingFailureLogTest {
         // mee-gaat — zonder dit verliest support de link tussen IAE-finally
         // en oorspronkelijke fout-categorie.
         every {
-            opslagService.opslaanBericht(
+            opslagService.slaBerichtOp(
                 afzender = any(),
                 ontvangerType = any(),
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatieDatum = any(),
+                publicatiedatum = any(),
             )
         } throws IllegalStateException("interne staat ongeldig", RuntimeException("DB-fout cause"))
         every {
@@ -227,13 +227,13 @@ class AanleverResourcePendingFailureLogTest {
         // zodat een operator beide log-regels (LDV-koppelen-faal + Server error)
         // kan koppelen, ook als de pipeline throwables filtert.
         every {
-            opslagService.opslaanBericht(
+            opslagService.slaBerichtOp(
                 afzender = any(),
                 ontvangerType = any(),
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatieDatum = any(),
+                publicatiedatum = any(),
             )
         } throws RuntimeException("origineel")
         every {

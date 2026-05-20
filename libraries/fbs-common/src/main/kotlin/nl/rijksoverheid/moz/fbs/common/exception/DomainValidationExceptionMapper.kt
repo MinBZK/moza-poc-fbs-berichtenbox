@@ -17,11 +17,9 @@ import java.util.UUID
  * via type-specificiteit boven [UncaughtExceptionMapper] (`<Exception>`).
  *
  * **Call-site-invariant** (afgedwongen door [DomainValidationCallSiteContractTest]):
- * `requireValid { ... }` en directe `throw DomainValidationException(...)`-call-sites
- * mogen GEEN user-input interpoleren in de message. Reden: `detail` wordt ongesaneerd
- * aan de client doorgegeven (zie hieronder). User-input interpolatie zou CRLF/JSON-
- * injection in `Problem.detail` toelaten of niet-numerieke PII (namen, e-mail) lekken.
- * Toegestaan: statische strings + numerieke/length-interpolatie (`"$length"`, `"$count"`).
+ * call-sites mogen GEEN user-input in de message interpoleren, want `detail` gaat
+ * ongesaneerd naar de client (zie [toResponse]). Toegestaan: statische strings +
+ * numerieke/length-interpolatie (`"$length"`, `"$count"`).
  */
 @Provider
 @Priority(Priorities.USER - 100)
@@ -30,21 +28,12 @@ class DomainValidationExceptionMapper : ExceptionMapper<DomainValidationExceptio
     private val log = Logger.getLogger(DomainValidationExceptionMapper::class.java)
 
     override fun toResponse(exception: DomainValidationException): Response {
-        // errorId borgt cross-correlatie: client ziet hem als `urn:uuid:...` in
-        // Problem.instance, support kan dezelfde id in de applicatielog terugvinden.
-        // Eerder ontbrak deze id hier — inconsistent met Problem/Uncaught/Aanlever-
-        // mapper-paden die hem allemaal genereren.
+        // errorId correleert client (`urn:uuid:...` in Problem.instance) met de
+        // applicatielog; consistent met de andere mapper-paden.
         val errorId = UUID.randomUUID()
-        // Saneer log met `FoutBeschrijving.saneer` (redact ≥7-cijfer-PII +
-        // strip CRLF, CWE-117 mitigatie). Domeinmessages zijn handgeschreven,
-        // maar string-interpolatie van user-input kan alsnog control-chars
-        // of BSN-achtige reeksen meedragen — saneer is goedkope verdediging.
-        // Cause-message wordt OOK gesaneerd gelogd als 2e correlatie-handvat:
-        // call-sites die context willen meegeven zonder die in `Problem.detail`
-        // te lekken (bv. `CloudEventBuilder` met `type=<bogus>`) gebruiken
-        // `cause = IllegalArgumentException("type=$x")`. Saneer dekt CWE-117
-        // (CRLF-strip) + ≥7-cijfer-PII redact. `cause`-type is sowieso al
-        // 3e handvat (klasse-naam, geen user-input).
+        // Log via `FoutBeschrijving.saneer` (zie daar voor de garanties). Cause-message
+        // en cause-type zijn extra correlatie-handvatten voor call-sites die context
+        // meegeven zonder die in `Problem.detail` te lekken.
         log.infof(
             "Domeinvalidatie geschonden (errorId=%s, causeType=%s, cause=%s): %s",
             errorId,
@@ -52,14 +41,10 @@ class DomainValidationExceptionMapper : ExceptionMapper<DomainValidationExceptio
             FoutBeschrijving.saneer(exception.cause?.message),
             FoutBeschrijving.saneer(exception.message),
         )
-        // `detail` BEWUST ongesaneerd doorgegeven: handgeschreven domeinmessages
-        // bevatten vaak API-pad-tokens (`/api/v1/berichten/{id}`) en validation-
-        // pointers die `sanitizeClientDetail.FILE_PATH_PATTERN` als file-pad
-        // zou stripen → client krijgt "URL  is ongeldig" zonder welk pad,
-        // niet-actionable. Call-site-invariant (zie KDoc) houdt user-input uit
-        // de message, dus geen stack-frame-injection-vector. `ProblemException`-
-        // pad blijft wel saneren — daar kan Jakarta defaults of upstream-message
-        // door komen.
+        // `detail` BEWUST ongesaneerd: domeinmessages bevatten vaak API-pad-tokens
+        // (`/api/v1/berichten/{id}`) die `sanitizeClientDetail` als file-pad zou
+        // stripen → niet-actionable client-fout. De call-site-invariant (zie KDoc)
+        // houdt user-input uit de message, dus geen injection-vector.
         return problemResponse(
             status = 400,
             title = "Bad Request",

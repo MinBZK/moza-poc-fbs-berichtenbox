@@ -40,13 +40,13 @@ class UncaughtException500ContractTest {
             repository = mockk(relaxed = true),
             publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
         ) {
-            override fun opslaanBericht(
+            override fun slaBerichtOp(
                 afzender: String,
                 ontvangerType: IdentificatienummerType,
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                publicatieDatum: Instant?,
+                publicatiedatum: Instant?,
             ): Nothing = throw IOException("ClickHouse onbereikbaar: connection refused at /1.2.3.4:8123 stacktrace at nl.example.Foo.bar(Foo.kt:42)")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

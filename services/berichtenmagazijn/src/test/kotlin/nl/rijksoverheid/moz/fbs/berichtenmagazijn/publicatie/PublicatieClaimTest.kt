@@ -11,23 +11,23 @@ class PublicatieClaimTest {
 
     @Test
     fun `valide claim wordt geaccepteerd`() {
-        PublicatieClaim(claimId = 1L, berichtId = berichtId, doel = PublicatieDoel("aanmeld"), pogingen = 0)
+        PublicatieClaim(claimId = 1L, berichtId = berichtId, doel = Publicatiedoel("aanmeld"), pogingen = 0)
     }
 
     @Test
     fun `nul of negatieve claimId wordt geweigerd`() {
         assertThrows(DomainValidationException::class.java) {
-            PublicatieClaim(claimId = 0L, berichtId = berichtId, doel = PublicatieDoel("aanmeld"), pogingen = 0)
+            PublicatieClaim(claimId = 0L, berichtId = berichtId, doel = Publicatiedoel("aanmeld"), pogingen = 0)
         }
         assertThrows(DomainValidationException::class.java) {
-            PublicatieClaim(claimId = -1L, berichtId = berichtId, doel = PublicatieDoel("aanmeld"), pogingen = 0)
+            PublicatieClaim(claimId = -1L, berichtId = berichtId, doel = Publicatiedoel("aanmeld"), pogingen = 0)
         }
     }
 
     @Test
     fun `negatieve pogingen wordt geweigerd`() {
         assertThrows(DomainValidationException::class.java) {
-            PublicatieClaim(claimId = 1L, berichtId = berichtId, doel = PublicatieDoel("aanmeld"), pogingen = -1)
+            PublicatieClaim(claimId = 1L, berichtId = berichtId, doel = Publicatiedoel("aanmeld"), pogingen = -1)
         }
     }
 }

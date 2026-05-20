@@ -67,7 +67,7 @@ class DownstreamClient(
      * [DownstreamResultaat.Mislukt]-subtype anders. Gooit zelf nooit — fouten
      * worden naar de stream gerapporteerd zodat retry-besluit één plek heeft.
      */
-    fun lever(doel: PublicatieDoel, event: CloudEvent): DownstreamResultaat {
+    fun lever(doel: Publicatiedoel, event: CloudEvent): DownstreamResultaat {
         val downstream = config.downstreams()[doel.key]
             ?: return DownstreamResultaat.ConfiguratieFout(
                 "Downstream '${doel.key}' niet geconfigureerd",
@@ -136,7 +136,7 @@ class DownstreamClient(
      * Een refactor die deze volgorde wijzigt zou eindeloos retry op een permanent
      * cert-faal — resource-verspilling + Black-Hole-aflevering.
      */
-    internal fun mapDeliveryException(ex: IOException, doel: PublicatieDoel): DownstreamResultaat = when (ex) {
+    internal fun mapDeliveryException(ex: IOException, doel: Publicatiedoel): DownstreamResultaat = when (ex) {
         is HttpConnectTimeoutException -> {
             log.warnf(ex, "Connect-timeout bij downstream-aflevering: doel=%s", doel)
             DownstreamResultaat.Timeout(FoutBeschrijving.saneer("Connect-timeout naar $doel: ${ex.message}"))

@@ -22,11 +22,11 @@ class BerichtOpslagServiceTest {
     private val service = BerichtOpslagService(repository, publicatieOutbox)
 
     @Test
-    fun `opslaanBericht roept repository opslaan aan en retourneert het domeinobject`() {
+    fun `slaBerichtOp roept repository opslaan aan en retourneert het domeinobject`() {
         val berichtSlot = slot<Bericht>()
         every { repository.save(capture(berichtSlot)) } answers { }
 
-        val bericht = service.opslaanBericht(
+        val bericht = service.slaBerichtOp(
             afzender = "00000001003214345000",
             ontvangerType = IdentificatienummerType.BSN,
             ontvangerWaarde = "999993653",
@@ -41,32 +41,32 @@ class BerichtOpslagServiceTest {
         assertEquals("999993653", bericht.ontvanger.waarde)
         assertEquals("Voorlopige aanslag 2026", bericht.onderwerp)
         assertEquals("Hierbij ontvangt u...", bericht.inhoud)
-        // Default publicatieDatum = tijdstipOntvangst (direct publiceren).
-        assertEquals(bericht.tijdstipOntvangst, bericht.publicatieDatum)
+        // Default publicatiedatum = tijdstipOntvangst (direct publiceren).
+        assertEquals(bericht.tijdstipOntvangst, bericht.publicatiedatum)
 
         verify { repository.save(any<Bericht>()) }
-        verify { publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatieDatum) }
+        verify { publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatiedatum) }
         assertEquals(bericht, berichtSlot.captured)
     }
 
     @Test
-    fun `opslaanBericht met publicatieDatum in de toekomst gebruikt die als planning`() {
+    fun `slaBerichtOp met publicatiedatum in de toekomst gebruikt die als planning`() {
         val toekomst = Instant.now().plusSeconds(3_600)
         val berichtIdSlot = slot<UUID>()
         val datumSlot = slot<Instant>()
         every { publicatieOutbox.planDeliveries(capture(berichtIdSlot), capture(datumSlot)) } returns Unit
 
-        val bericht = service.opslaanBericht(
+        val bericht = service.slaBerichtOp(
             afzender = "00000001003214345000",
             ontvangerType = IdentificatienummerType.BSN,
             ontvangerWaarde = "999993653",
             onderwerp = "Geplande publicatie",
             inhoud = "...",
-            publicatieDatum = toekomst,
+            publicatiedatum = toekomst,
         )
 
-        assertEquals(toekomst, bericht.publicatieDatum)
-        assertNotEquals(bericht.publicatieDatum, bericht.tijdstipOntvangst)
+        assertEquals(toekomst, bericht.publicatiedatum)
+        assertNotEquals(bericht.publicatiedatum, bericht.tijdstipOntvangst)
         assertEquals(bericht.berichtId, berichtIdSlot.captured)
         assertEquals(toekomst, datumSlot.captured)
     }

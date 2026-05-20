@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference
  * gemarkeerd (geen retry zonder bron-data) i.p.v. eindeloos opnieuw geclaimd.
  *
  * Geen `relaxed = true`: MockK genereert dan via reflectie sample-instanties
- * voor default-returntypes, en raakt onze [PublicatieDoel]-`init`-validatie
+ * voor default-returntypes, en raakt onze [Publicatiedoel]-`init`-validatie
  * met willekeurige strings.
  */
 class PublicatieClaimVerwerkerMissingBerichtTest {
@@ -53,7 +53,7 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
         val claim = PublicatieClaim(
             claimId = 1L,
             berichtId = UUID.randomUUID(),
-            doel = PublicatieDoel("aanmeld"),
+            doel = Publicatiedoel("aanmeld"),
             pogingen = 0,
         )
         every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim)

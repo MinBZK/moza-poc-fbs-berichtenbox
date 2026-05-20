@@ -63,19 +63,19 @@ class PublicatieClaimVerwerker(
      * accepteer wegens lage cardinaliteit, of vervang door size-bounded cache
      * als dat gedrag verandert.
      */
-    private val gestripeDownstreamUrls = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val gestripteDownstreamUrls = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /**
      * Begrenst de "doel niet meer in config"-warn tot één emit per
-     * [ONBEKEND_DOEL_WARN_COOLDOWN] per [PublicatieDoel]. Zonder begrenzing
+     * [ONBEKEND_DOEL_WARN_COOLDOWN] per [Publicatiedoel]. Zonder begrenzing
      * zou tijdens een config-removal-migratie elke claim, elke pollronde
      * een warn-regel produceren → log-storm.
      *
-     * Sleutel = [PublicatieDoel] (value-class met `equals` op de wrapped key),
+     * Sleutel = [Publicatiedoel] (value-class met `equals` op de wrapped key),
      * niet de rauwe `doel.key`-string: dat voorkomt dat een toekomstige
      * refactor per ongeluk een unrelated identifier doorgeeft.
      */
-    private val onbekendDoelWarnLimiter = LogStormLimiter<PublicatieDoel>(
+    private val onbekendDoelWarnLimiter = LogStormLimiter<Publicatiedoel>(
         cooldown = ONBEKEND_DOEL_WARN_COOLDOWN,
         clock = clock,
     )
@@ -149,7 +149,7 @@ class PublicatieClaimVerwerker(
                 )
             }
             val downstreamUrl = downstreamConfig?.url()?.let { url ->
-                gestripeDownstreamUrls.computeIfAbsent("${claim.doel.key}|$url") {
+                gestripteDownstreamUrls.computeIfAbsent("${claim.doel.key}|$url") {
                     stripUrlGeheimen(url, claim.doel)
                 }
             } ?: "<onbekend>"
@@ -189,26 +189,26 @@ class PublicatieClaimVerwerker(
                         pogingenNaFout = claim.pogingen + 1,
                         maxPogingen = config.maxPogingen(),
                         basis = config.backoff().basis(),
-                        cap = config.backoff().cap(),
+                        plafond = config.backoff().plafond(),
                         claimId = claim.claimId,
                         herstelbaar = resultaat.herstelbaar,
                         retryAfter = resultaat.retryAfter,
                     )
-                    val redenSaneerd = FoutBeschrijving.saneer(resultaat.reden)
-                    claimer.markeerMislukt(claim.claimId, redenSaneerd, volgendePoging)
+                    val gesaneerdeReden = FoutBeschrijving.saneer(resultaat.reden)
+                    claimer.markeerMislukt(claim.claimId, gesaneerdeReden, volgendePoging)
                     ldvContext.status = StatusCode.ERROR
                     if (volgendePoging == null) {
                         log.errorf(
                             "Bericht-publicatie definitief mislukt: berichtId=%s doel=%s pogingen=%d categorie=%s reden=%s",
                             claim.berichtId, claim.doel, claim.pogingen + 1,
-                            resultaat::class.simpleName, redenSaneerd,
+                            resultaat::class.simpleName, gesaneerdeReden,
                         )
                         span.setStatus(StatusCode.ERROR, "MISLUKT na ${claim.pogingen + 1} pogingen")
                     } else {
                         log.warnf(
                             "Bericht-publicatie mislukt; retry gepland: berichtId=%s doel=%s pogingen=%d volgendePoging=%s categorie=%s reden=%s",
                             claim.berichtId, claim.doel, claim.pogingen + 1, volgendePoging,
-                            resultaat::class.simpleName, redenSaneerd,
+                            resultaat::class.simpleName, gesaneerdeReden,
                         )
                         span.setStatus(StatusCode.ERROR, "Retry gepland")
                     }
@@ -255,7 +255,7 @@ class PublicatieClaimVerwerker(
      * i.p.v. `runCatching{}` zodat `OutOfMemoryError`/`StackOverflowError` niet
      * gemaskeerd worden.
      */
-    private fun stripUrlGeheimen(url: String, doel: PublicatieDoel): String = try {
+    private fun stripUrlGeheimen(url: String, doel: Publicatiedoel): String = try {
         val parsed = java.net.URI.create(url)
         java.net.URI(
             parsed.scheme,

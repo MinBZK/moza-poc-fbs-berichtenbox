@@ -17,9 +17,9 @@
 --    blijven uit de index. Houdt de index klein bij groei van de tabel.
 --  * `ON DELETE CASCADE`: als een bericht ooit verwijderd wordt, verdwijnen ook
 --    de bijbehorende deliveries — geen dangling outbox-state.
---  * `publicatie_datum` op `berichten`: bestaande rijen krijgen via backfill de
+--  * `publicatiedatum` op `berichten`: bestaande rijen krijgen via backfill de
 --    `tijdstip_ontvangst`-waarde i.p.v. `CURRENT_TIMESTAMP`, zodat de domein-
---    invariant `publicatieDatum >= tijdstipOntvangst - 1s` ook na hydratatie van
+--    invariant `publicatiedatum >= tijdstipOntvangst - 1s` ook na hydratatie van
 --    pre-migratie rijen blijft kloppen.
 --  * Alle nieuwe TIMESTAMPS staan met TIME ZONE (`TIMESTAMPTZ`). De V1-kolom
 --    `tijdstip_ontvangst` was nog `TIMESTAMP` en wordt hier gelijkgetrokken voor
@@ -43,12 +43,12 @@ ALTER TABLE berichten
     USING tijdstip_ontvangst AT TIME ZONE 'UTC';
 
 ALTER TABLE berichten
-    ADD COLUMN publicatie_datum TIMESTAMPTZ;
+    ADD COLUMN publicatiedatum TIMESTAMPTZ;
 
-UPDATE berichten SET publicatie_datum = tijdstip_ontvangst WHERE publicatie_datum IS NULL;
+UPDATE berichten SET publicatiedatum = tijdstip_ontvangst WHERE publicatiedatum IS NULL;
 
 ALTER TABLE berichten
-    ALTER COLUMN publicatie_datum SET NOT NULL;
+    ALTER COLUMN publicatiedatum SET NOT NULL;
 
 CREATE TABLE publicatie_deliveries (
     id              BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

@@ -15,13 +15,13 @@ import java.time.Instant
  * Borgt:
  *  - exponentiële backoff sequentie 1s, 2s, 4s, ... voor basis=1s
  *  - `null` bij pogingen >= max → MISLUKT
- *  - cap voorkomt runaway backoff
+ *  - plafond voorkomt runaway backoff
  *  - jitter deterministisch per claimId; verschillende claimIds → andere retry-tijden
  */
 class RetryBeleidTest {
 
     private val basis = Duration.ofSeconds(1)
-    private val cap = Duration.ofHours(1)
+    private val plafond = Duration.ofHours(1)
     private val nu = Instant.parse("2026-05-12T10:00:00Z")
 
     @Test
@@ -31,7 +31,7 @@ class RetryBeleidTest {
             pogingenNaFout = 1,
             maxPogingen = 5,
             basis = basis,
-            cap = cap,
+            plafond = plafond,
             claimId = 42L,
         )
         assertNotNull(volgende)
@@ -43,7 +43,7 @@ class RetryBeleidTest {
     @Test
     fun `pogingen exponentieel groeien met basis=1s tot pogingen=4`() {
         val basisMs = listOf(1, 2, 3, 4).map { pogingen ->
-            val v = RetryBeleid.volgendePoging(nu, pogingen, maxPogingen = 10, basis = basis, cap = cap, claimId = 0L)!!
+            val v = RetryBeleid.volgendePoging(nu, pogingen, maxPogingen = 10, basis = basis, plafond = plafond, claimId = 0L)!!
             Duration.between(nu, v).toMillis()
         }
         // basis=1s; 2^1..2^4 = 2..16s. claimId=0 → jitter=0.
@@ -57,7 +57,7 @@ class RetryBeleidTest {
             pogingenNaFout = 5,
             maxPogingen = 5,
             basis = basis,
-            cap = cap,
+            plafond = plafond,
             claimId = 0L,
         )
         assertNull(volgende)
@@ -70,29 +70,29 @@ class RetryBeleidTest {
             pogingenNaFout = 100,
             maxPogingen = 5,
             basis = basis,
-            cap = cap,
+            plafond = plafond,
             claimId = 0L,
         )
         assertNull(volgende)
     }
 
     @Test
-    fun `cap voorkomt runaway backoff bij hoge pogingen`() {
-        // pogingen=20, basis=1s → 2^20 s = ~12 dagen zonder cap. Cap=1u moet dat
+    fun `plafond voorkomt runaway backoff bij hoge pogingen`() {
+        // pogingen=20, basis=1s → 2^20 s = ~12 dagen zonder plafond. Plafond=1u moet dat
         // beperken tot 1u + jitter (max 25% = 15min).
         val volgende = RetryBeleid.volgendePoging(
             nu = nu,
             pogingenNaFout = 20,
             maxPogingen = 100,
             basis = basis,
-            cap = cap,
+            plafond = plafond,
             claimId = 0L,
         )
         assertNotNull(volgende)
         val vertragingMs = Duration.between(nu, volgende).toMillis()
         assertTrue(
-            vertragingMs <= cap.toMillis() + (cap.toMillis() / 4),
-            "verwacht <= cap+25%%, kreeg $vertragingMs ms",
+            vertragingMs <= plafond.toMillis() + (plafond.toMillis() / 4),
+            "verwacht <= plafond+25%%, kreeg $vertragingMs ms",
         )
     }
 
@@ -101,8 +101,8 @@ class RetryBeleidTest {
         // Borgt dat thundering herd voorkomen wordt: twee claims met dezelfde
         // pogingen-count én geclaimd op dezelfde tick krijgen verschillende
         // retry-tijden zolang hun claimId verschilt.
-        val a = RetryBeleid.volgendePoging(nu, 2, 5, basis, cap, claimId = 7L)!!
-        val b = RetryBeleid.volgendePoging(nu, 2, 5, basis, cap, claimId = 77L)!!
+        val a = RetryBeleid.volgendePoging(nu, 2, 5, basis, plafond, claimId = 7L)!!
+        val b = RetryBeleid.volgendePoging(nu, 2, 5, basis, plafond, claimId = 77L)!!
         assertTrue(a != b, "zelfde retry-tijd voor verschillende claimIds = geen jitter-spreiding")
     }
 
@@ -113,7 +113,7 @@ class RetryBeleidTest {
             pogingenNaFout = 1,
             maxPogingen = 5,
             basis = basis,
-            cap = cap,
+            plafond = plafond,
             claimId = 1L,
             herstelbaar = false,
         )
@@ -128,7 +128,7 @@ class RetryBeleidTest {
             pogingenNaFout = 1,
             maxPogingen = 5,
             basis = basis,
-            cap = cap,
+            plafond = plafond,
             claimId = 1L,
             retryAfter = hint,
         )!!
@@ -137,24 +137,24 @@ class RetryBeleidTest {
     }
 
     @Test
-    fun `retryAfter wordt gecaped op cap om runaway te voorkomen`() {
+    fun `retryAfter wordt begrensd op plafond om runaway te voorkomen`() {
         val absurdLangeHint = Duration.ofDays(7)
         val volgende = RetryBeleid.volgendePoging(
             nu = nu,
             pogingenNaFout = 1,
             maxPogingen = 5,
             basis = basis,
-            cap = cap,
+            plafond = plafond,
             claimId = 1L,
             retryAfter = absurdLangeHint,
         )!!
-        assertEquals(nu.plus(cap), volgende)
+        assertEquals(nu.plus(plafond), volgende)
     }
 
     @Test
     fun `negatieve pogingenNaFout faalt`() {
         val ex = assertThrows<IllegalArgumentException> {
-            RetryBeleid.volgendePoging(nu, -1, 5, basis, cap, 0L)
+            RetryBeleid.volgendePoging(nu, -1, 5, basis, plafond, 0L)
         }
         assertTrue(ex.message!!.contains("pogingenNaFout"))
     }
@@ -162,7 +162,7 @@ class RetryBeleidTest {
     @Test
     fun `negatieve claimId is OK voor jitter (defensive Math floorMod)`() {
         // Geen exception; floorMod hanteert negatieve waardes correct.
-        val volgende = RetryBeleid.volgendePoging(nu, 2, 5, basis, cap, claimId = -99L)
+        val volgende = RetryBeleid.volgendePoging(nu, 2, 5, basis, plafond, claimId = -99L)
         assertNotNull(volgende)
     }
 }

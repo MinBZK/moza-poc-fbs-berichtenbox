@@ -60,7 +60,7 @@ class DownstreamClientTest {
             onderwerp = "Test",
             inhoud = "Inhoud",
             tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
-            publicatieDatum = Instant.parse("2026-05-12T10:00:00Z"),
+            publicatiedatum = Instant.parse("2026-05-12T10:00:00Z"),
         ),
     )
 
@@ -81,7 +81,7 @@ class DownstreamClientTest {
 
     @Test
     fun `2xx response geeft Geslaagd`() {
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertEquals(DownstreamResultaat.Geslaagd, resultaat)
     }
 
@@ -93,7 +93,7 @@ class DownstreamClientTest {
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
         client = DownstreamClient(config, objectMapper, openTelemetry)
 
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.HttpFout)
         val httpFout = resultaat as DownstreamResultaat.HttpFout
         assertEquals(500, httpFout.statusCode)
@@ -108,14 +108,14 @@ class DownstreamClientTest {
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
         client = DownstreamClient(config, objectMapper, openTelemetry)
 
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.HttpFout)
         assertEquals(false, (resultaat as DownstreamResultaat.HttpFout).herstelbaar)
     }
 
     @Test
     fun `onbekend doel geeft ConfiguratieFout`() {
-        val resultaat = client.lever(PublicatieDoel("onbekend"), event)
+        val resultaat = client.lever(Publicatiedoel("onbekend"), event)
         assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout)
     }
 
@@ -131,7 +131,7 @@ class DownstreamClientTest {
 
         val resultaat = client.mapDeliveryException(
             javax.net.ssl.SSLHandshakeException("Unable to find valid certification path"),
-            PublicatieDoel("aanmeld"),
+            Publicatiedoel("aanmeld"),
         )
 
         assertTrue(
@@ -160,7 +160,7 @@ class DownstreamClientTest {
 
         val resultaat = client.mapDeliveryException(
             javax.net.ssl.SSLProtocolException("Connection reset during handshake"),
-            PublicatieDoel("aanmeld"),
+            Publicatiedoel("aanmeld"),
         )
 
         assertTrue(
@@ -189,7 +189,7 @@ class DownstreamClientTest {
         // Bewijs class-hierarchy: SSLHandshakeException IS-A SSLException
         assertTrue(handshake is javax.net.ssl.SSLException, "Java class-hierarchy assumption")
 
-        val resultaat = client.mapDeliveryException(handshake, PublicatieDoel("aanmeld"))
+        val resultaat = client.mapDeliveryException(handshake, Publicatiedoel("aanmeld"))
 
         // Specifiekere subklasse moet eerst matchen → ConfiguratieFout, niet NetwerkFout
         assertEquals(
@@ -210,7 +210,7 @@ class DownstreamClientTest {
         val ct = java.net.http.HttpConnectTimeoutException("connect timed out")
         assertTrue(ct is java.net.http.HttpTimeoutException, "Java class-hierarchy assumption")
 
-        val resultaat = client.mapDeliveryException(ct, PublicatieDoel("aanmeld"))
+        val resultaat = client.mapDeliveryException(ct, Publicatiedoel("aanmeld"))
 
         assertTrue(resultaat is DownstreamResultaat.Timeout)
         assertTrue(
@@ -228,7 +228,7 @@ class DownstreamClientTest {
 
         val resultaat = client.mapDeliveryException(
             java.io.IOException("Connection reset"),
-            PublicatieDoel("aanmeld"),
+            Publicatiedoel("aanmeld"),
         )
 
         assertTrue(resultaat is DownstreamResultaat.NetwerkFout)
@@ -246,7 +246,7 @@ class DownstreamClientTest {
     @Test
     fun `plain http naar niet-localhost geeft ConfiguratieFout`() {
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://prod.example.com/events"))
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout)
         assertTrue((resultaat as DownstreamResultaat.ConfiguratieFout).reden.contains("TLS"))
     }
@@ -254,14 +254,14 @@ class DownstreamClientTest {
     @Test
     fun `plain http naar localhost wordt toegestaan voor dev`() {
         // server.baseUrl is al http://127.0.0.1:* — dat moet door valideerUrl heen komen.
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertEquals(DownstreamResultaat.Geslaagd, resultaat)
     }
 
     @Test
     fun `ongeldige URL geeft ConfiguratieFout`() {
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("not a url at all"))
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout)
     }
 
@@ -271,14 +271,14 @@ class DownstreamClientTest {
         every { kapotteMapper.writeValueAsBytes(any()) } throws SimuleerdeJsonFout("ka-boom")
         client = DownstreamClient(config, kapotteMapper, openTelemetry)
 
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.SerialisatieFout)
     }
 
     @Test
     fun `connect-naar-niet-luisterende-poort geeft NetwerkFout of Timeout`() {
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://127.0.0.1:1/events"))
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(
             resultaat is DownstreamResultaat.NetwerkFout || resultaat is DownstreamResultaat.Timeout,
             "verwacht NetwerkFout of Timeout, kreeg $resultaat",
@@ -305,7 +305,7 @@ class DownstreamClientTest {
             )
             client = DownstreamClient(config, objectMapper, openTelemetry)
 
-            val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+            val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
             assertTrue(resultaat is DownstreamResultaat.HttpFout)
             val httpFout = resultaat as DownstreamResultaat.HttpFout
             assertEquals(503, httpFout.statusCode)
@@ -329,7 +329,7 @@ class DownstreamClientTest {
     ])
     fun `SSRF-guard weigert interne en cloud-metadata adressen`(url: String) {
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(url))
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(
             resultaat is DownstreamResultaat.ConfiguratieFout,
             "verwacht ConfiguratieFout voor $url, kreeg $resultaat",
@@ -343,7 +343,7 @@ class DownstreamClientTest {
 
     @Test
     fun `tracestate wordt NIET als header naar downstream gestuurd (vendor-leak voorkomen)`() {
-        val resultaat = client.lever(PublicatieDoel("aanmeld"), event)
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertEquals(DownstreamResultaat.Geslaagd, resultaat)
         // Wacht tot de server de request verwerkt heeft.
         org.awaitility.Awaitility.await()

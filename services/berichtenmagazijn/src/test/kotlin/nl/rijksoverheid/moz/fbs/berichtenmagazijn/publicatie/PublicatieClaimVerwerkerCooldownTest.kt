@@ -76,12 +76,12 @@ class PublicatieClaimVerwerkerCooldownTest {
         onderwerp = "X",
         inhoud = "x",
         tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
-        publicatieDatum = Instant.parse("2026-05-12T10:00:00Z"),
+        publicatiedatum = Instant.parse("2026-05-12T10:00:00Z"),
     )
     private val claim = PublicatieClaim(
         claimId = 7L,
         berichtId = bericht.berichtId,
-        doel = PublicatieDoel("aanmeld"),
+        doel = Publicatiedoel("aanmeld"),
         pogingen = 0,
     )
     private val event = CloudEvent(
@@ -94,7 +94,7 @@ class PublicatieClaimVerwerkerCooldownTest {
             ontvanger = OntvangerData("BSN", "999993653"),
             onderwerp = "X", inhoud = "x",
             tijdstipOntvangst = bericht.tijdstipOntvangst,
-            publicatieDatum = bericht.publicatieDatum,
+            publicatiedatum = bericht.publicatiedatum,
         ),
     )
 
@@ -130,7 +130,7 @@ class PublicatieClaimVerwerkerCooldownTest {
         every { config.maxPogingen() } returns 3
         val backoff = mockk<PublicatieConfig.Backoff> {
             every { basis() } returns Duration.ofSeconds(1)
-            every { cap() } returns Duration.ofHours(1)
+            every { plafond() } returns Duration.ofHours(1)
         }
         every { config.backoff() } returns backoff
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event

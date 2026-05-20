@@ -47,7 +47,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Voorlopige aanslag 2026",
             inhoud = "Hierbij ontvangt u de voorlopige aanslag.",
             tijdstipOntvangst = tijdstip,
-            publicatieDatum = tijdstip,
+            publicatiedatum = tijdstip,
         )
 
         repository.save(original)
@@ -68,7 +68,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Groot bericht",
             inhoud = largeContent,
             tijdstipOntvangst = tijdstip,
-            publicatieDatum = tijdstip,
+            publicatiedatum = tijdstip,
         )
 
         repository.save(bericht)
@@ -90,7 +90,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Aan organisatie",
             inhoud = "Inhoud",
             tijdstipOntvangst = tijdstip,
-            publicatieDatum = tijdstip,
+            publicatiedatum = tijdstip,
         )
 
         repository.save(bericht)
@@ -112,7 +112,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Eerste",
             inhoud = "1",
             tijdstipOntvangst = tijdstip,
-            publicatieDatum = tijdstip,
+            publicatiedatum = tijdstip,
         )
         val second = first.copy(onderwerp = "Tweede", inhoud = "2")
 
@@ -167,7 +167,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Test"
             inhoud = "Inhoud"
             tijdstipOntvangst = nu
-            publicatieDatum = nu
+            publicatiedatum = nu
         }
         entityManager.persist(corrupt)
     }

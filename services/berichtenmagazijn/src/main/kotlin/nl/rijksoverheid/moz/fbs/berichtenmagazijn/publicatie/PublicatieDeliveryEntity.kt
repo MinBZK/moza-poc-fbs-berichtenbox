@@ -38,12 +38,12 @@ internal class PublicatieDeliveryEntity {
         internal set
 
     /**
-     * Rauw opgeslagen als String i.p.v. via `AttributeConverter<PublicatieDoel,
+     * Rauw opgeslagen als String i.p.v. via `AttributeConverter<Publicatiedoel,
      * String>`: Kotlin value classes worden door de JVM ge-erased naar hun
      * onderliggende type, waardoor Hibernate de converter een raw String
-     * doorgeeft en de cast naar `PublicatieDoel` faalt met `ClassCastException`.
+     * doorgeeft en de cast naar `Publicatiedoel` faalt met `ClassCastException`.
      * `toClaim()` en `nieuwe()` valideren rondom de boundary via
-     * `PublicatieDoel(...)`, zodat een corrupte rij alsnog bij read-tijd faalt.
+     * `Publicatiedoel(...)`, zodat een corrupte rij alsnog bij read-tijd faalt.
      */
     @Column(nullable = false, length = 64)
     var doel: String = ""
@@ -76,7 +76,7 @@ internal class PublicatieDeliveryEntity {
     fun toClaim(): PublicatieClaim = PublicatieClaim(
         claimId = id,
         berichtId = berichtId,
-        doel = PublicatieDoel(doel),
+        doel = Publicatiedoel(doel),
         pogingen = pogingen,
     )
 
@@ -127,7 +127,7 @@ internal class PublicatieDeliveryEntity {
 
         internal fun nieuwe(
             berichtId: UUID,
-            doel: PublicatieDoel,
+            doel: Publicatiedoel,
             volgendePoging: Instant,
             aangemaaktOp: Instant,
         ): PublicatieDeliveryEntity = PublicatieDeliveryEntity().apply {

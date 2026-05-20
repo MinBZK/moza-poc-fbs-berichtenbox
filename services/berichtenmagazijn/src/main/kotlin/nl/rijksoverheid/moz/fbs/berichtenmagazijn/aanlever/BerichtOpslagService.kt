@@ -49,13 +49,13 @@ class BerichtOpslagService(
         ],
     )
     @Transactional
-    fun opslaanBericht(
+    fun slaBerichtOp(
         afzender: String,
         ontvangerType: IdentificatienummerType,
         ontvangerWaarde: String,
         onderwerp: String,
         inhoud: String,
-        publicatieDatum: Instant? = null,
+        publicatiedatum: Instant? = null,
     ): Bericht {
         val tijdstipOntvangst = Instant.now()
         val bericht = Bericht(
@@ -65,11 +65,11 @@ class BerichtOpslagService(
             onderwerp = onderwerp,
             inhoud = inhoud,
             tijdstipOntvangst = tijdstipOntvangst,
-            // Geen publicatieDatum meegegeven = direct publiceren. We gebruiken expliciet
+            // Geen publicatiedatum meegegeven = direct publiceren. We gebruiken expliciet
             // tijdstipOntvangst (niet Instant.now() opnieuw) zodat outbox-rij en bericht
             // dezelfde "T0" delen — anders zou volgende_poging een hair-trigger later
             // liggen dan tijdstipOntvangst en kan de domein-invariant per ongeluk falen.
-            publicatieDatum = publicatieDatum ?: tijdstipOntvangst,
+            publicatiedatum = publicatiedatum ?: tijdstipOntvangst,
         )
 
         try {
@@ -100,7 +100,7 @@ class BerichtOpslagService(
         // misconfigured downstream — anders zou de operator alleen een generieke
         // 500 zien zonder berichtId-context.
         try {
-            publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatieDatum)
+            publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatiedatum)
         } catch (ex: RuntimeException) {
             log.errorf(
                 ex,

@@ -35,13 +35,13 @@ class DbConstraintViolation409ContractTest {
             repository = mockk(relaxed = true),
             publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
         ) {
-            override fun opslaanBericht(
+            override fun slaBerichtOp(
                 afzender: String,
                 ontvangerType: IdentificatienummerType,
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                publicatieDatum: Instant?,
+                publicatiedatum: Instant?,
             ): Nothing = throw HibernateConstraintViolationException(
                 "unique violation",
                 SQLException("duplicate key", "23505"),

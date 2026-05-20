@@ -8,7 +8,7 @@ import kotlin.math.min
 /**
  * Pure functie voor het bepalen van de volgende-poging-tijd na een mislukte delivery.
  *
- * Exponentiële backoff: `basis * 2^pogingen`, gecaped op `cap`. Bij `pogingenNaFout
+ * Exponentiële backoff: `basis * 2^pogingen`, begrensd op `plafond`. Bij `pogingenNaFout
  * >= maxPogingen` of `niet herstelbaar` geeft de functie `null` terug zodat de
  * delivery als terminal `MISLUKT` wordt gemarkeerd. Inclusief deterministische jitter
  * (0..~25%) op basis van `claimId` zodat retries gespreid worden zonder thundering-
@@ -16,7 +16,7 @@ import kotlin.math.min
  *
  * Server-side `Retry-After` (uit een 429/503-response) overrided altijd: als de
  * downstream zelf een hint geeft, respecteren we die i.p.v. eigen backoff te draaien
- * (gecaped op `cap`).
+ * (begrensd op `plafond`).
  *
  * Pure functie i.p.v. CDI-bean: makkelijk unit-testbaar, geen mocks nodig.
  */
@@ -27,7 +27,7 @@ internal object RetryBeleid {
         pogingenNaFout: Int,
         maxPogingen: Int,
         basis: Duration,
-        cap: Duration,
+        plafond: Duration,
         claimId: Long,
         herstelbaar: Boolean = true,
         retryAfter: Duration? = null,
@@ -36,9 +36,9 @@ internal object RetryBeleid {
         if (!herstelbaar) return null
         if (pogingenNaFout >= maxPogingen) return null
 
-        // Server-hint heeft prioriteit; wel cappen tegen runaway.
+        // Server-hint heeft prioriteit; wel begrenzen tegen runaway.
         if (retryAfter != null) {
-            val begrensd = min(retryAfter.toMillis(), cap.toMillis())
+            val begrensd = min(retryAfter.toMillis(), plafond.toMillis())
             return nu.plusMillis(begrensd)
         }
 
@@ -46,11 +46,11 @@ internal object RetryBeleid {
         val veelvoud = 1L shl min(pogingenNaFout, MAX_SHIFT)
         val rauwBasisMs = basis.toMillis().coerceAtLeast(1L)
         val basisVertragingMs = rauwBasisMs * veelvoud
-        val gecapedMs = min(basisVertragingMs, cap.toMillis())
+        val begrensdMs = min(basisVertragingMs, plafond.toMillis())
         // Jitter 0..~25% deterministisch uit claimId; voorkomt dat veel parallel-failed
         // deliveries hun retries op dezelfde tick uitvoeren.
-        val jitterMs = Math.floorMod(claimId, 100L) * gecapedMs / 400L
-        return nu.plusMillis(gecapedMs + jitterMs)
+        val jitterMs = Math.floorMod(claimId, 100L) * begrensdMs / 400L
+        return nu.plusMillis(begrensdMs + jitterMs)
     }
 
     /** Voorkomt dat `1L shl pogingen` overflow geeft bij absurd hoge waardes. */

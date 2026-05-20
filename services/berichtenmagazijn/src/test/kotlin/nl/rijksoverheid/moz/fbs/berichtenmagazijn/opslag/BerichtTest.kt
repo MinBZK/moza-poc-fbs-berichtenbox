@@ -14,7 +14,7 @@ class BerichtTest {
         onderwerp: String = "Onderwerp",
         inhoud: String = "Inhoud",
         tijdstipOntvangst: Instant = Instant.now(),
-        publicatieDatum: Instant = tijdstipOntvangst,
+        publicatiedatum: Instant = tijdstipOntvangst,
     ) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = afzender,
@@ -22,7 +22,7 @@ class BerichtTest {
         onderwerp = onderwerp,
         inhoud = inhoud,
         tijdstipOntvangst = tijdstipOntvangst,
-        publicatieDatum = publicatieDatum,
+        publicatiedatum = publicatiedatum,
     )
 
     @Test
@@ -63,36 +63,36 @@ class BerichtTest {
     }
 
     @Test
-    fun `publicatieDatum gelijk aan tijdstipOntvangst is geldig`() {
+    fun `publicatiedatum gelijk aan tijdstipOntvangst is geldig`() {
         val nu = Instant.parse("2026-05-12T10:00:00Z")
-        val b = bericht(tijdstipOntvangst = nu, publicatieDatum = nu)
-        assertEquals(nu, b.publicatieDatum)
+        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = nu)
+        assertEquals(nu, b.publicatiedatum)
     }
 
     @Test
-    fun `publicatieDatum in de toekomst is geldig`() {
+    fun `publicatiedatum in de toekomst is geldig`() {
         val nu = Instant.parse("2026-05-12T10:00:00Z")
         val toekomst = nu.plusSeconds(86_400)
-        val b = bericht(tijdstipOntvangst = nu, publicatieDatum = toekomst)
-        assertEquals(toekomst, b.publicatieDatum)
+        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = toekomst)
+        assertEquals(toekomst, b.publicatiedatum)
     }
 
     @Test
-    fun `publicatieDatum significant voor tijdstipOntvangst faalt`() {
+    fun `publicatiedatum significant voor tijdstipOntvangst faalt`() {
         val nu = Instant.parse("2026-05-12T10:00:00Z")
         val ex = assertThrows(IllegalArgumentException::class.java) {
-            bericht(tijdstipOntvangst = nu, publicatieDatum = nu.minusSeconds(60))
+            bericht(tijdstipOntvangst = nu, publicatiedatum = nu.minusSeconds(60))
         }
         assertEquals("PublicatieDatum mag niet voor tijdstipOntvangst liggen", ex.message)
     }
 
     @Test
-    fun `publicatieDatum 1 seconde voor tijdstipOntvangst is toegestaan via klok-skew-slack`() {
+    fun `publicatiedatum 1 seconde voor tijdstipOntvangst is toegestaan via klok-skew-slack`() {
         // Domein-invariant heeft 1s slack tegen klok-skew tussen aanleveraar en server;
         // dit voorkomt dat een client-clock minimaal vooruit lopen direct als domeinfout
         // verschijnt. Borg het gedrag expliciet.
         val nu = Instant.parse("2026-05-12T10:00:00Z")
-        val b = bericht(tijdstipOntvangst = nu, publicatieDatum = nu.minusSeconds(1))
-        assertEquals(nu.minusSeconds(1), b.publicatieDatum)
+        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = nu.minusSeconds(1))
+        assertEquals(nu.minusSeconds(1), b.publicatiedatum)
     }
 }

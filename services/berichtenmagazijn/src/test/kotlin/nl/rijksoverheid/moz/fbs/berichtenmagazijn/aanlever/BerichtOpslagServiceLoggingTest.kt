@@ -69,7 +69,7 @@ class BerichtOpslagServiceLoggingTest {
 
     @Test
     fun `debug-log na succes bevat ontvangerType maar geen BSN-waarde`() {
-        service.opslaanBericht(
+        service.slaBerichtOp(
             afzender = "00000001003214345000",
             ontvangerType = IdentificatienummerType.BSN,
             ontvangerWaarde = bsn,
@@ -93,7 +93,7 @@ class BerichtOpslagServiceLoggingTest {
         every { repository.save(any<Bericht>()) } throws PersistenceException("infra fout")
 
         assertThrows(PersistenceException::class.java) {
-            service.opslaanBericht(
+            service.slaBerichtOp(
                 afzender = "00000001003214345000",
                 ontvangerType = IdentificatienummerType.BSN,
                 ontvangerWaarde = bsn,

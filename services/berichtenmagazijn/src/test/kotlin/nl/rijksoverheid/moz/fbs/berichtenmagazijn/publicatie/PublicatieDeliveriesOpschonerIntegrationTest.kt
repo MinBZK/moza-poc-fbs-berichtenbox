@@ -60,7 +60,7 @@ class PublicatieDeliveriesOpschonerIntegrationTest {
             afzender = Oin("00000001003214345000"),
             ontvanger = Bsn("999993653"),
             onderwerp = "X", inhoud = "x",
-            tijdstipOntvangst = nu, publicatieDatum = nu,
+            tijdstipOntvangst = nu, publicatiedatum = nu,
         )
         QuarkusTransaction.requiringNew().run {
             berichten.save(b)

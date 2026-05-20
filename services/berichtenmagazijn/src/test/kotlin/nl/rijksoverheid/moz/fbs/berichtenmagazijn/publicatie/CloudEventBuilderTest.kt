@@ -37,12 +37,12 @@ class CloudEventBuilderTest {
         onderwerp = "Voorlopige aanslag 2026",
         inhoud = "Hierbij ontvangt u uw aanslag.",
         tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
-        publicatieDatum = Instant.parse("2026-05-12T10:00:00Z"),
+        publicatiedatum = Instant.parse("2026-05-12T10:00:00Z"),
     )
     private val nu = Instant.parse("2026-05-12T10:00:05Z")
 
-    private val aanmeld = PublicatieDoel("aanmeld")
-    private val notificatie = PublicatieDoel("notificatie")
+    private val aanmeld = Publicatiedoel("aanmeld")
+    private val notificatie = Publicatiedoel("notificatie")
 
     @Test
     fun `verplichte NL GOV attributen aanwezig`() {
@@ -93,7 +93,7 @@ class CloudEventBuilderTest {
         assertEquals("BSN", event.data.ontvanger.type)
         assertEquals(bsnWaarde, event.data.ontvanger.waarde)
         assertEquals(bericht.tijdstipOntvangst, event.data.tijdstipOntvangst)
-        assertEquals(bericht.publicatieDatum, event.data.publicatieDatum)
+        assertEquals(bericht.publicatiedatum, event.data.publicatiedatum)
     }
 
     @Test

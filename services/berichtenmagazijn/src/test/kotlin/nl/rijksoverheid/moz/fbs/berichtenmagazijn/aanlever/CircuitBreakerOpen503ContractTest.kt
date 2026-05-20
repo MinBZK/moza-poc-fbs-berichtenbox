@@ -35,13 +35,13 @@ class CircuitBreakerOpen503ContractTest {
             repository = mockk(relaxed = true),
             publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
         ) {
-            override fun opslaanBericht(
+            override fun slaBerichtOp(
                 afzender: String,
                 ontvangerType: IdentificatienummerType,
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                publicatieDatum: Instant?,
+                publicatiedatum: Instant?,
             ): Nothing = throw CircuitBreakerOpenException("circuit open (test)")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

@@ -87,13 +87,13 @@ class AanleverResource(
             logboekContext.processingActivityId = publicatieConfig.verwerkingsregisterAanleveren()
             return span.makeCurrent().use { _ ->
                 val ontvangerDto = berichtAanleverenRequest.ontvanger
-                val bericht = opslagService.opslaanBericht(
+                val bericht = opslagService.slaBerichtOp(
                     afzender = berichtAanleverenRequest.afzender,
                     ontvangerType = IdentificatienummerType.valueOf(ontvangerDto.type.name),
                     ontvangerWaarde = ontvangerDto.waarde,
                     onderwerp = berichtAanleverenRequest.onderwerp,
                     inhoud = berichtAanleverenRequest.inhoud,
-                    publicatieDatum = berichtAanleverenRequest.publicatieDatum,
+                    publicatiedatum = berichtAanleverenRequest.publicatiedatum,
                 )
 
                 // Zet dataSubjectId pas na succesvolle domein-validatie, zodat we geen
@@ -120,7 +120,7 @@ class AanleverResource(
                     }
                     onderwerp = bericht.onderwerp
                     tijdstipOntvangst = bericht.tijdstipOntvangst
-                    publicatieDatum = bericht.publicatieDatum
+                    publicatiedatum = bericht.publicatiedatum
                     links = BerichtLinks().apply {
                         self = Link().apply { href = selfHref }
                     }

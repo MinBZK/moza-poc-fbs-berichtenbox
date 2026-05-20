@@ -92,7 +92,7 @@ components:
             characters; bij multibyte-tekens (bv. emoji's, 4 bytes elk) past dus minder
             tekst dan `maxLength` doet vermoeden. `maxLength` is in JSON-Schema in
             characters gedefinieerd en dient hier als grove bovengrens.
-        publicatieDatum:
+        publicatiedatum:
           type: string
           format: date-time
           description: |
@@ -126,7 +126,7 @@ components:
 
     BerichtResponse:
       type: object
-      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, publicatieDatum, _links]
+      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, publicatiedatum, _links]
       properties:
         berichtId:
           type: string
@@ -144,12 +144,12 @@ components:
           type: string
           format: date-time
           description: Tijdstip waarop het magazijn het bericht heeft ontvangen (server-side gezet, ISO 8601)
-        publicatieDatum:
+        publicatiedatum:
           type: string
           format: date-time
           description: |
             Effectieve publicatiedatum: de waarde uit de request, of `tijdstipOntvangst`
-            als de aanleveraar geen `publicatieDatum` meestuurde. ISO 8601.
+            als de aanleveraar geen `publicatiedatum` meestuurde. ISO 8601.
         _links:
           $ref: '#/components/schemas/BerichtLinks'
 

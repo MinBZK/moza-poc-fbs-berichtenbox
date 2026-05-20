@@ -15,7 +15,7 @@ Na succesvolle opslag van een bericht moet het magazijn op (of na) de publicatie
 - Postgres-adapter met `SELECT ... FOR UPDATE SKIP LOCKED` (domein-code blijft DB-onafhankelijk)
 - CloudEvent in NL GOV-profiel v1.1, structured mode (`application/cloudevents+json`)
 - Per-downstream retry met exponentiële backoff, `MISLUKT` na max-pogingen
-- Optioneel `publicatieDatum`-veld in Aanlever API (default = `now()`)
+- Optioneel `publicatiedatum`-veld in Aanlever API (default = `now()`)
 - WireMock-stubs in `compose.yaml` voor lokaal draaien
 - Unit-, integratie- en end-to-end-tests
 
@@ -25,7 +25,7 @@ Na succesvolle opslag van een bericht moet het magazijn op (of na) de publicatie
 
 | # | Keuze | Reden |
 |---|-------|-------|
-| 1 | `publicatieDatum` optioneel in Aanlever API | Aanleveraar kan publicatie uitstellen zonder API-breuk |
+| 1 | `publicatiedatum` optioneel in Aanlever API | Aanleveraar kan publicatie uitstellen zonder API-breuk |
 | 2 | Twee downstreams (Aanmeld + Notificatie) als WireMock | Volgt issue 412 letterlijk; C4-relaties E1/E2 |
 | 3 | Per-downstream status + retry met backoff | Partial failure mag de andere downstream niet blokkeren |
 | 4 | Port/adapter voor claim-mechanisme | Domein-code mag niet direct van Postgres `FOR UPDATE SKIP LOCKED` afhangen |
@@ -37,16 +37,16 @@ Na succesvolle opslag van een bericht moet het magazijn op (of na) de publicatie
 
 ```
 Aanleveraar
-   │ POST /api/v1/berichten { ..., publicatieDatum? }
+   │ POST /api/v1/berichten { ..., publicatiedatum? }
    ▼
 AanleverResource
    │
    ▼
 BerichtOpslagService.opslaanBericht(...)        @Transactional
    ├─► BerichtRepository.save(bericht)              -- berichten-rij
-   └─► PublicatieOutbox.planDeliveries(berichtId, publicatieDatum)
+   └─► PublicatieOutbox.planDeliveries(berichtId, publicatiedatum)
           └─► voor elke downstream-key in config:
-                PublicatieDeliveryRepository.persist(rij(status=TE_PUBLICEREN, volgende_poging=publicatieDatum))
+                PublicatieDeliveryRepository.persist(rij(status=TE_PUBLICEREN, volgende_poging=publicatiedatum))
 
 PublicatieStream  @Scheduled(every=60s)
    ├─► claimer.claimNuVerwerkbaar(batch)            -- SKIP LOCKED in adapter
@@ -72,11 +72,11 @@ data class Bericht(
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
-    val publicatieDatum: Instant,   // nieuw; default in service = tijdstipOntvangst
+    val publicatiedatum: Instant,   // nieuw; default in service = tijdstipOntvangst
 )
 ```
 
-Invariant: `publicatieDatum` mag niet voor `tijdstipOntvangst - 1s` liggen (1s slack tegen klok-skew). Geen bovengrens — uitgestelde publicaties mogen ver in de toekomst.
+Invariant: `publicatiedatum` mag niet voor `tijdstipOntvangst - 1s` liggen (1s slack tegen klok-skew). Geen bovengrens — uitgestelde publicaties mogen ver in de toekomst.
 
 ### `publicatie_deliveries`
 
@@ -104,7 +104,7 @@ CREATE INDEX idx_deliveries_claim
 `berichten` krijgt:
 
 ```sql
-ALTER TABLE berichten ADD COLUMN publicatie_datum TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE berichten ADD COLUMN publicatiedatum TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
 ```
 
 Migratie `V2__publicatie_outbox.sql` zet beide.
@@ -114,10 +114,10 @@ Migratie `V2__publicatie_outbox.sql` zet beide.
 | Bestand | Rol |
 |---------|-----|
 | `publicatie/PublicatieConfig.kt` | `@ConfigMapping("magazijn.publicatie")` — downstreams (map), max-pogingen, backoff-basis, batch-grootte, oin |
-| `publicatie/PublicatieDoel.kt` | Value class voor downstream-key (`AANMELD`, `NOTIFICATIE`, ...) |
+| `publicatie/Publicatiedoel.kt` | Value class voor downstream-key (`AANMELD`, `NOTIFICATIE`, ...) |
 | `publicatie/PublicatieClaim.kt` | Data class met (`claimId`, `berichtId`, `doel`, `pogingen`) — wat de stream nodig heeft |
 | `publicatie/PublicatieClaimer.kt` | Port-interface: `claimNuVerwerkbaar`, `markeerGeslaagd`, `markeerMislukt` |
-| `publicatie/PublicatieOutbox.kt` | API voor opslag: `planDeliveries(berichtId, publicatieDatum)` |
+| `publicatie/PublicatieOutbox.kt` | API voor opslag: `planDeliveries(berichtId, publicatiedatum)` |
 | `publicatie/PublicatieDeliveryEntity.kt` | JPA-entity (`internal`) |
 | `publicatie/PublicatieDeliveryRepository.kt` | Panache repository (`internal`) |
 | `publicatie/postgres/PostgresPublicatieClaimer.kt` | Adapter; `SELECT ... FOR UPDATE SKIP LOCKED` |
@@ -147,7 +147,7 @@ Content-Type: application/cloudevents+json
     "onderwerp": "...",
     "inhoud": "...",
     "tijdstipOntvangst": "...",
-    "publicatieDatum": "..."
+    "publicatiedatum": "..."
   }
 }
 ```
@@ -173,7 +173,7 @@ magazijn.publicatie.polling.interval=60s
 magazijn.publicatie.batch-grootte=50
 magazijn.publicatie.max-pogingen=5
 magazijn.publicatie.backoff.basis=PT1S
-magazijn.publicatie.backoff.cap=PT1H
+magazijn.publicatie.backoff.plafond=PT1H
 magazijn.publicatie.downstreams.aanmeld.url=http://localhost:8083/events
 magazijn.publicatie.downstreams.notificatie.url=http://localhost:8084/events
 
@@ -203,15 +203,15 @@ WireMock-stubs voor downstreams worden via `compose.yaml` gestart op poorten 808
 | Unit | `BerichtOpslagService` met mocked outbox (verifieert dat planDeliveries na save wordt aangeroepen) |
 | Integratie (`@QuarkusTest`) | `PostgresPublicatieClaimerTest`: claim respecteert `volgende_poging`, `SKIP LOCKED` voorkomt dubbel-claim |
 | Integratie | `AanleverPlanDeliveriesTest`: aanleveren → twee deliveries-rijen in DB |
-| End-to-end | `PublicatieStreamE2ETest`: aanleveren met `publicatieDatum=now()`, polling-interval 1s, WireMock op random port → beide stubs zien event |
+| End-to-end | `PublicatieStreamE2ETest`: aanleveren met `publicatiedatum=now()`, polling-interval 1s, WireMock op random port → beide stubs zien event |
 | End-to-end | Faalpath: WireMock geeft 500, retry-attempt 2 slaagt, status uiteindelijk GEPUBLICEERD |
-| Contract | OpenAPI-contracttest valideert request met optioneel `publicatieDatum` |
+| Contract | OpenAPI-contracttest valideert request met optioneel `publicatiedatum` |
 
 ## Implementatie-volgorde
 
 1. OpenAPI-spec uitbreiden + Bruno-collectie bijwerken
 2. Flyway V2-migratie
-3. `Bericht`/`BerichtEntity`/`BerichtRepository` uitbreiden met `publicatieDatum`
+3. `Bericht`/`BerichtEntity`/`BerichtRepository` uitbreiden met `publicatiedatum`
 4. `publicatie/`-package: config, port, entity, repository, adapter, outbox
 5. CloudEventBuilder + RetryBeleid (puur, eerst test)
 6. DownstreamClient (REST-client per doel)

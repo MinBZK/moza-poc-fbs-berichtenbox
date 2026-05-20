@@ -19,15 +19,15 @@ import java.util.UUID
  *
  * Privacy-richtlijn (NL GOV): geen persoonsgegevens in context-attributen. Daarom
  * is `subject` de `berichtId`, niet de BSN/RSIN/KvK van de ontvanger. De data-payload
- * bevat wél het volledige bericht — voor PoC bewust gekozen, in productie te
- * vervangen door Claim Check pattern via een toekomstige Ophaal API.
+ * bevat het volledige bericht inline; berichten zijn klein genoeg om direct mee te
+ * sturen.
  */
 @ApplicationScoped
 class CloudEventBuilder(
     private val config: PublicatieConfig,
 ) {
 
-    fun bouw(bericht: Bericht, doel: PublicatieDoel, tijdstip: Instant): CloudEvent {
+    fun bouw(bericht: Bericht, doel: Publicatiedoel, tijdstip: Instant): CloudEvent {
         val source = "urn:nld:oin:${config.organisatie().toOin().waarde}:systeem:fbs-magazijn"
         return CloudEvent(
             id = deterministischeEventId(bericht.berichtId, doel.key),
@@ -45,7 +45,7 @@ class CloudEventBuilder(
                 onderwerp = bericht.onderwerp,
                 inhoud = bericht.inhoud,
                 tijdstipOntvangst = bericht.tijdstipOntvangst,
-                publicatieDatum = bericht.publicatieDatum,
+                publicatiedatum = bericht.publicatiedatum,
             ),
         )
     }
@@ -108,11 +108,11 @@ data class BerichtData(
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
-    val publicatieDatum: Instant,
+    val publicatiedatum: Instant,
 )
 
 /**
- * DTO van de ontvanger zoals die in de CloudEvent-payload terechtkomt. Wraps geen
+ * DTO van de ontvanger zoals die in de CloudEvent-payload terechtkomt. Omhult geen
  * raw `(type, waarde)` strings maar valideert bij constructie via
  * [Identificatienummer.of]; downstream consumers krijgen daarmee dezelfde
  * formaat-garanties die het domein zelf hanteert (BSN: lengte 9 + elfproef;

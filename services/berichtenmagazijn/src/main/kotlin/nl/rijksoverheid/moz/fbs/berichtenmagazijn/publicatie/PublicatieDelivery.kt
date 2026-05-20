@@ -28,7 +28,7 @@ internal enum class DeliveryStatus {
  * leestekens uit die met config-property-keys interfereren.
  */
 @JvmInline
-value class PublicatieDoel(val key: String) {
+value class Publicatiedoel(val key: String) {
     init {
         requireValid(KEY_PATTERN.matches(key)) {
             "Doel-key '$key' voldoet niet aan pattern $KEY_PATTERN"
@@ -54,7 +54,7 @@ value class PublicatieDoel(val key: String) {
 data class PublicatieClaim(
     val claimId: Long,
     val berichtId: UUID,
-    val doel: PublicatieDoel,
+    val doel: Publicatiedoel,
     val pogingen: Int,
 ) {
     init {

@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * **Bounded cardinaliteit verwacht**: de interne map groeit monotoon met
  * unieke `K`-waarden en kent geen eviction. Gebruik dit type alleen voor
- * sleutels met een kleine, eindige domeinruimte (bv. `PublicatieDoel`,
+ * sleutels met een kleine, eindige domeinruimte (bv. `Publicatiedoel`,
  * config-driven downstream-keys). Voor high-cardinality keys (UUID,
  * client-IP, request-path) zou deze map onbegrensd groeien — wrap dan
  * in een size-bounded cache (Caffeine, etc.) i.p.v. dit type.
@@ -32,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Type-parameter `K : Any` lift de `ConcurrentHashMap`-null-key-restrictie
  * van runtime naar compile-time, en accepteert elk identifier-type met
- * value-semantiek (`PublicatieDoel` in deze codebase) — zo voorkomt de
+ * value-semantiek (`Publicatiedoel` in deze codebase) — zo voorkomt de
  * map-key-discipline dat een toekomstige refactor per ongeluk een rauwe
  * String of unrelated identifier doorgeeft.
  */

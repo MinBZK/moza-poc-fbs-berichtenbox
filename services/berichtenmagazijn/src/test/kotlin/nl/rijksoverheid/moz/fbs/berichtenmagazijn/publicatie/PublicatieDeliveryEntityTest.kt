@@ -15,7 +15,7 @@ class PublicatieDeliveryEntityTest {
 
     private fun nieuweEntity(): PublicatieDeliveryEntity = PublicatieDeliveryEntity.nieuwe(
         berichtId = berichtId,
-        doel = PublicatieDoel("aanmeld"),
+        doel = Publicatiedoel("aanmeld"),
         volgendePoging = nu,
         aangemaaktOp = nu,
     )
@@ -91,7 +91,7 @@ class PublicatieDeliveryEntityTest {
         val claim = entity.toClaim()
         assertEquals(42L, claim.claimId)
         assertEquals(berichtId, claim.berichtId)
-        assertEquals(PublicatieDoel("aanmeld"), claim.doel)
+        assertEquals(Publicatiedoel("aanmeld"), claim.doel)
         assertEquals(0, claim.pogingen)
     }
 }

@@ -110,7 +110,7 @@ interface PublicatieConfig {
 
         /** Bovengrens om runaway-backoff te voorkomen. */
         @WithDefault("PT1H")
-        fun cap(): Duration
+        fun plafond(): Duration
     }
 
     interface Downstream {

@@ -45,7 +45,7 @@ class PostgresPublicatieClaimerIntegrationTest {
         berichten.deleteAll()
     }
 
-    private fun maakBericht(publicatieDatum: Instant): UUID {
+    private fun maakBericht(publicatiedatum: Instant): UUID {
         val tijdstip = Instant.parse("2026-05-12T10:00:00Z")
         val b = Bericht(
             berichtId = UUID.randomUUID(),
@@ -54,10 +54,10 @@ class PostgresPublicatieClaimerIntegrationTest {
             onderwerp = "Test",
             inhoud = "Inhoud",
             tijdstipOntvangst = tijdstip,
-            publicatieDatum = publicatieDatum,
+            publicatiedatum = publicatiedatum,
         )
         berichten.save(b)
-        outbox.planDeliveries(b.berichtId, publicatieDatum)
+        outbox.planDeliveries(b.berichtId, publicatiedatum)
         return b.berichtId
     }
 

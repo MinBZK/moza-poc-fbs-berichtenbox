@@ -66,8 +66,8 @@ internal class BerichtEntity {
     @Column(name = "tijdstip_ontvangst", nullable = false)
     var tijdstipOntvangst: Instant = Instant.EPOCH
 
-    @Column(name = "publicatie_datum", nullable = false)
-    var publicatieDatum: Instant = Instant.EPOCH
+    @Column(name = "publicatiedatum", nullable = false)
+    var publicatiedatum: Instant = Instant.EPOCH
 
     fun toDomain(): Bericht = try {
         Bericht(
@@ -77,7 +77,7 @@ internal class BerichtEntity {
             onderwerp = onderwerp,
             inhoud = inhoud,
             tijdstipOntvangst = tijdstipOntvangst,
-            publicatieDatum = publicatieDatum,
+            publicatiedatum = publicatiedatum,
         )
     } catch (ex: DomainValidationException) {
         // Bij hydratatie zijn alle invarianten al door fromDomain geverifieerd vóór persist.
@@ -113,7 +113,7 @@ internal class BerichtEntity {
             onderwerp = bericht.onderwerp
             inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
-            publicatieDatum = bericht.publicatieDatum
+            publicatiedatum = bericht.publicatiedatum
         }
     }
 }

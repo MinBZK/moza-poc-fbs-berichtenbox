@@ -93,20 +93,20 @@ class AanleverResourceLdvSwallowTest {
         onderwerp = "Test",
         inhoud = "Inhoud",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
-        publicatieDatum = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
     )
 
     private fun stubBaseline() {
         every { processingHandler.startSpan("aanleveren-bericht", null) } returns span
         every { publicatieConfig.verwerkingsregisterAanleveren() } returns "https://register.example.com/aanleveren"
         every {
-            opslagService.opslaanBericht(
+            opslagService.slaBerichtOp(
                 afzender = any(),
                 ontvangerType = any(),
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatieDatum = any(),
+                publicatiedatum = any(),
             )
         } returns gevalideerdBericht
     }
