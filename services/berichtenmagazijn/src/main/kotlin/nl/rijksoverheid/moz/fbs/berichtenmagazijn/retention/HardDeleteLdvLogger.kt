@@ -1,38 +1,36 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.enterprise.context.control.ActivateRequestContext
-import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
-import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
+import org.jboss.logging.Logger
 
 /**
- * Schrijft één LDV-record per hard-delete. Wrapper omdat:
- *  1. `LogboekContext` is `@RequestScoped` — de scheduler-thread heeft geen
- *     actieve request, dus we activeren er handmatig één met
- *     `@ActivateRequestContext`.
- *  2. `@Logboek` werkt via een CDI-interceptor; die schiet alleen aan bij
- *     een proxy-call, dus de methode moet op een aparte bean staan (niet
- *     intern in [HardDeleteService]).
+ * Schrijft per hard-delete één gestructureerde log-regel met het processing-activity-ID,
+ * het type van de ontvanger en het berichtId.
  *
- * `dataSubjectId = ontvangerWaarde` is toegestaan zolang het LDV-endpoint TLS
- * gebruikt (BIO 13.2.1 / CLAUDE.md "BSN/PII-handling"); `LdvEndpointValidator`
- * uit `fbs-common` dwingt dit al af in %prod/%staging/%acceptatie.
+ * **Bewust geen `@Logboek`-annotatie:** die interceptor probeert via
+ * `W3CTraceContextPropagator` HTTP-headers te lezen voor trace-context, wat buiten
+ * een actieve REST-request faalt met `No REST request in progress`. De scheduler-thread
+ * heeft van zichzelf geen REST-context, dus de annotatie is hier niet bruikbaar.
+ * Volwaardige LDV-integratie (ClickHouse-span via `ProcessingHandler.startSpan` direct)
+ * is een vervolg-issue.
+ *
+ * Privacy: `ontvangerWaarde` (BSN/RSIN/KVK/OIN) staat conform CLAUDE.md *niet* in
+ * applicatie-logs; alleen het `type` en `berichtId` worden gelogd.
  */
 @ApplicationScoped
-class HardDeleteLdvLogger(
-    private val logboekContext: LogboekContext,
-) {
+class HardDeleteLdvLogger {
 
-    @ActivateRequestContext
-    @Logboek(
-        name = "hard-delete-bericht",
-        processingActivityId = ProcessingActivities.MAGAZIJN_RETENTIE,
-    )
+    private val log = Logger.getLogger(HardDeleteLdvLogger::class.java)
+
     fun logHardDelete(candidate: HardDeleteCandidaat) {
-        logboekContext.dataSubjectId = candidate.ontvangerWaarde
-        logboekContext.dataSubjectType = candidate.ontvangerType
-        // De Logboek-interceptor leest de context bij span-close; daarvoor moet
-        // de waarde gezet zijn vóór deze methode return.
+        log.infof(
+            "verwerkingsactiviteit=%s berichtId=%s ontvangerType=%s verwijderdOp=%s tijdstipOntvangst=%s",
+            ProcessingActivities.MAGAZIJN_RETENTIE,
+            candidate.berichtId,
+            candidate.ontvangerType,
+            candidate.verwijderdOp,
+            candidate.tijdstipOntvangst,
+        )
     }
 }
