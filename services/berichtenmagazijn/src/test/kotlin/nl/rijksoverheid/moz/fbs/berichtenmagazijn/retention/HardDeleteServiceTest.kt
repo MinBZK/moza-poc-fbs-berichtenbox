@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -12,7 +11,6 @@ import java.util.UUID
 
 class HardDeleteServiceTest {
 
-    private val berichtRepository = mockk<BerichtRepository>()
     private val ops = mockk<HardDeleteTransactionalOps>(relaxed = true)
     private val ldv = mockk<HardDeleteLdvLogger>(relaxed = true)
     private val config = mockk<RetentionConfig> {
@@ -22,7 +20,7 @@ class HardDeleteServiceTest {
         every { cron() } returns "0 0 3 * * ?"
     }
 
-    private val service = HardDeleteService(berichtRepository, ops, ldv, config)
+    private val service = HardDeleteService(ops, ldv, config)
 
     private fun kandidaat(id: Long = 1L) = HardDeleteCandidaat(
         id = id,
@@ -35,7 +33,7 @@ class HardDeleteServiceTest {
 
     @Test
     fun `lege claim — geen deletes`() {
-        every { berichtRepository.claimVoorHardDelete(any(), any(), any()) } returns emptyList()
+        every { ops.claim(any(), any(), any()) } returns emptyList()
 
         val result = service.run()
 
@@ -49,7 +47,7 @@ class HardDeleteServiceTest {
         val a = kandidaat(1L)
         val b = kandidaat(2L)
         every { ops.deleteOne(any()) } returns 1
-        every { berichtRepository.claimVoorHardDelete(any(), any(), any()) } returnsMany listOf(
+        every { ops.claim(any(), any(), any()) } returnsMany listOf(
             listOf(a, b),
             emptyList(),
         )
@@ -69,7 +67,7 @@ class HardDeleteServiceTest {
         val b = kandidaat(2L)
         every { ops.deleteOne(a) } throws RuntimeException("simuleer FK-violation")
         every { ops.deleteOne(b) } returns 1
-        every { berichtRepository.claimVoorHardDelete(any(), any(), any()) } returnsMany listOf(
+        every { ops.claim(any(), any(), any()) } returnsMany listOf(
             listOf(a, b),
             emptyList(),
         )
@@ -87,7 +85,7 @@ class HardDeleteServiceTest {
         val a = kandidaat(1L)
         every { ops.deleteOne(a) } returns 1
         every { ldv.logHardDelete(a) } throws RuntimeException("LDV down")
-        every { berichtRepository.claimVoorHardDelete(any(), any(), any()) } returnsMany listOf(
+        every { ops.claim(any(), any(), any()) } returnsMany listOf(
             listOf(a),
             emptyList(),
         )
@@ -102,7 +100,7 @@ class HardDeleteServiceTest {
     fun `volle batch leidt tot tweede claim-ronde`() {
         val batchVol = listOf(kandidaat(1L), kandidaat(2L))
         every { ops.deleteOne(any()) } returns 1
-        every { berichtRepository.claimVoorHardDelete(any(), any(), 2) } returnsMany listOf(
+        every { ops.claim(any(), any(), 2) } returnsMany listOf(
             batchVol,
             emptyList(),
         )
@@ -110,18 +108,18 @@ class HardDeleteServiceTest {
         val result = service.run()
 
         assertEquals(2, result.totaalVerwijderd)
-        verify(exactly = 2) { berichtRepository.claimVoorHardDelete(any(), any(), 2) }
+        verify(exactly = 2) { ops.claim(any(), any(), 2) }
     }
 
     @Test
     fun `niet-volle batch stopt de loop`() {
         val onvol = listOf(kandidaat(1L))
         every { ops.deleteOne(any()) } returns 1
-        every { berichtRepository.claimVoorHardDelete(any(), any(), 2) } returns onvol
+        every { ops.claim(any(), any(), 2) } returns onvol
 
         val result = service.run()
 
         assertEquals(1, result.totaalVerwijderd)
-        verify(exactly = 1) { berichtRepository.claimVoorHardDelete(any(), any(), 2) }
+        verify(exactly = 1) { ops.claim(any(), any(), 2) }
     }
 }

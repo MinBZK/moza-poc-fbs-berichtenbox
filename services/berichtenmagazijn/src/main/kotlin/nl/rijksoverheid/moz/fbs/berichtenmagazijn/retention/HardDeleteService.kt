@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 
 import jakarta.enterprise.context.ApplicationScoped
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.time.Instant
@@ -9,7 +8,7 @@ import java.time.Period
 import java.time.ZoneOffset
 
 /**
- * Orchestreert de retentie-run: claim batches via [BerichtRepository.claimVoorHardDelete],
+ * Orchestreert de retentie-run: claim batches via [HardDeleteTransactionalOps.claim],
  * verwijder per bericht via [HardDeleteTransactionalOps.deleteOne] en log één
  * LDV-record per bericht via [HardDeleteLdvLogger.logHardDelete].
  *
@@ -18,13 +17,12 @@ import java.time.ZoneOffset
  *  - een batch niet vol is (impliciet: minder kandidaten dan `batchGrootte` over), of
  *  - het totaal-geteld `MAX_PER_RUN` bereikt (veiligheidsplafond tegen ongelimiteerde runs).
  *
- * Multi-pod-veiligheid: [BerichtRepository.claimVoorHardDelete] gebruikt
- * `FOR UPDATE SKIP LOCKED`. Pods kunnen dus simultaan vuren maar claimen
- * disjuncte rij-sets. Een lege claim → andere pod is sneller / niets te doen.
+ * Multi-pod-veiligheid: claim gebruikt `FOR UPDATE SKIP LOCKED`. Pods kunnen dus
+ * simultaan vuren maar claimen disjuncte rij-sets. Een lege claim → andere pod
+ * is sneller / niets te doen.
  */
 @ApplicationScoped
 class HardDeleteService(
-    private val berichtRepository: BerichtRepository,
     private val ops: HardDeleteTransactionalOps,
     private val ldv: HardDeleteLdvLogger,
     private val config: RetentionConfig,
@@ -50,7 +48,7 @@ class HardDeleteService(
         var ldvFouten = 0
 
         loop@ while (totaal < MAX_PER_RUN) {
-            val candidates = berichtRepository.claimVoorHardDelete(
+            val candidates = ops.claim(
                 receiptDeadline = receiptDeadline,
                 softDeleteDeadline = softDeleteDeadline,
                 batchSize = remainingBatchSize(totaal, batchSize),
