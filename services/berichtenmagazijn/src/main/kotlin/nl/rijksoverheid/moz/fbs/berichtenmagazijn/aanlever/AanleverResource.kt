@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
 import io.opentelemetry.api.trace.StatusCode
+import io.opentelemetry.context.Context as OtelContext
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.core.Context
@@ -16,12 +17,9 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtResponse
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.LogStormLimiter
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import org.jboss.logging.Logger
-import java.time.Clock
-import java.time.Duration
 
 /**
  * REST-resource voor de Aanlever API.
@@ -33,14 +31,11 @@ import java.time.Duration
  * [nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimVerwerker]
  * en houdt de processingActivityId-bron op één plek (config).
  *
- * **Inbound W3C `traceparent` wordt NIET als parent geadopteerd**: het endpoint
- * is (in PoC) ongeauthentiseerd. Een aanvaller met netwerktoegang kan anders
- * een eigen trace-id meesturen die via [DownstreamClient.injecteerTraceparent]
- * cross-organisatie naar Aanmeld/Notificatie-services propageert, of requests
- * van verschillende afzenders kunstmatig aan dezelfde keten koppelt. We starten
- * daarom altijd een nieuwe root-span. Zodra mTLS (PKIoverheid) of OAuth-
- * authenticatie aanstaat kan deze keuze worden heroverwogen — dan is de upstream
- * vertrouwd genoeg om als parent te accepteren, of als `addLink` te koppelen.
+ * **Inbound W3C `traceparent` wordt als parent geadopteerd** ([OtelContext.current]):
+ * de keten loopt door zodat een aanlever-request cross-organisatie traceerbaar
+ * blijft (Logboek Dataverwerkingen). Authenticatie en TLS-terminatie zitten aan de
+ * clusterrand (mTLS PKIoverheid / OAuth, edge-gateway), dus de upstream is vertrouwd
+ * en de inzage-entry voor LDV ligt daar — niet bij dit endpoint.
  */
 @Path(ApiInfo.BASE_PATH + "/berichten")
 @ApplicationScoped
@@ -49,35 +44,17 @@ class AanleverResource(
     private val logboekContext: LogboekContext,
     private val processingHandler: ProcessingHandler,
     private val publicatieConfig: PublicatieConfig,
-    private val clock: Clock,
     @param:Context private val uriInfo: UriInfo,
     @param:Context private val httpHeaders: HttpHeaders,
 ) : AanleverApi {
 
     private val log = Logger.getLogger(AanleverResource::class.java)
 
-    /**
-     * Begrenst de whitelist-rejection warn tot één emit per
-     * [WHITELIST_REJECTION_COOLDOWN] over alle requests. Het endpoint is
-     * (in PoC) ongeauthentiseerd: zonder cooldown kan een aanvaller met N
-     * requests/sec N warn-regels/sec forceren → log-volume DoS, drift in
-     * alerting, mogelijke kostendoorberekening op centrale logging.
-     * Vaste sleutel (`Unit`) accepteert signaalverlies bij volume-aanvallen
-     * om logvolume te begrenzen — operator ziet nog steeds dat het gebeurt.
-     * Per-IP-sleutel zou X-Forwarded-For + trusted-proxy-validatie vereisen;
-     * dat is werk voor de mTLS/OAuth-fase die de authn al introduceert.
-     */
-    private val whitelistRejectionLimiter = LogStormLimiter<Unit>(
-        cooldown = WHITELIST_REJECTION_COOLDOWN,
-        clock = clock,
-    )
-
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
         // Span en LDV-context binnen try zodat een latere config-throw geen
-        // span-leak veroorzaakt; finally end()'t altijd. Nieuwe root-span
-        // (geen inbound parent) — zie KDoc voor rationale.
+        // span-leak veroorzaakt; finally end()'t altijd.
         var pendingFailure: Throwable? = null
-        val span = processingHandler.startSpan("aanleveren-bericht", null)
+        val span = processingHandler.startSpan("aanleveren-bericht", OtelContext.current())
         try {
             // processingActivityId vóór de eerste mogelijke fout zetten zodat
             // addLogboekContextToSpan in finally niet faalt op `require(!isNullOrEmpty)`.
@@ -132,28 +109,14 @@ class AanleverResource(
             throw ex
         } finally {
             // foreign_operation.processor-attribuut equivalent aan LogboekInterceptor
-            // — alleen koppelen als upstream een traceparent stuurde. Sanering
-            // tegen log-poisoning (CWE-117) en oversize-DoS: header-content komt
-            // van een ongeauthentiseerde caller. Striktere validatie dan
-            // FoutBeschrijving.saneer (die alleen lange cijferreeksen redact):
-            // whitelist op `^[A-Za-z0-9._=:/-]{1,256}$` weert hex-only of
-            // padding-payloads die de cijfer-redact zouden ontwijken.
+            // — alleen koppelen als upstream een traceparent stuurde.
             val traceparent = httpHeaders.getHeaderString("traceparent")
             if (traceparent != null) {
-                val raw = httpHeaders.getHeaderString("traceparent-processor") ?: ""
-                val veilig = if (TRACEPARENT_PROCESSOR_PATTERN.matches(raw)) raw else ""
-                if (raw.isNotEmpty() && veilig.isEmpty() && whitelistRejectionLimiter.magEmitten(Unit)) {
-                    // Whitelist-rejection is een security-event: mogelijk poisoning-poging
-                    // of vendor-mismatch. Op `warn` (niet `debug`) zodat het signaal in
-                    // productie-log-streams overkomt — debug is daar standaard uit.
-                    // FoutBeschrijving.saneer redact cijferreeksen + control-chars vóór log.
-                    // [whitelistRejectionLimiter] dempt log-volume DoS via N requests/sec.
-                    log.warnf(
-                        "traceparent-processor whitelist-rejection: snippet=%s",
-                        FoutBeschrijving.saneer(raw, 80),
-                    )
-                }
-                span.setAttribute("dpl.core.foreign_operation.processor", veilig)
+                val processor = httpHeaders.getHeaderString("traceparent-processor")
+                span.setAttribute(
+                    "dpl.core.foreign_operation.processor",
+                    FoutBeschrijving.saneer(processor),
+                )
             }
             // Genest try/finally rond `addLogboekContextToSpan`: een fout in deze
             // finally-tak (niet de oorspronkelijke business-exception) mag de
@@ -191,29 +154,5 @@ class AanleverResource(
                 span.end()
             }
         }
-    }
-
-    companion object {
-        /**
-         * Whitelist voor `traceparent-processor`-header voordat we hem als
-         * span-attribute zetten. Toegestaan: alfanumeriek + `_`/`=`/`-`/`/`/`:`/`.`
-         * (genoeg voor URLs, vendor-specifieke processor-IDs en versie-tags),
-         * max 256 chars. Strikter dan [FoutBeschrijving.saneer]: voorkomt dat
-         * een attacker hex-strings of padding-bytes injecteert in centrale
-         * tracing/audit (LDV cross-organisatie).
-         *
-         * Allowlist-aanpak (alleen toegestane chars doorlaten) is bewust gekozen
-         * boven blocklist/redact: nieuwe attack-payloads worden by-default
-         * geweigerd i.p.v. dat de redact-regex elke keer uitgebreid moet worden
-         * als attackers nieuwe omzeilings-vormen vinden.
-         */
-        private val TRACEPARENT_PROCESSOR_PATTERN = Regex("^[A-Za-z0-9._=:/-]{1,256}$")
-
-        /**
-         * Cooldown voor whitelist-rejection warn — zie [whitelistRejectionLimiter].
-         * 1 minuut: kort genoeg dat ops binnen één scrape-window gewaarschuwd
-         * wordt; lang genoeg om N-per-seconde request-floods te dempen.
-         */
-        val WHITELIST_REJECTION_COOLDOWN: Duration = Duration.ofMinutes(1)
     }
 }

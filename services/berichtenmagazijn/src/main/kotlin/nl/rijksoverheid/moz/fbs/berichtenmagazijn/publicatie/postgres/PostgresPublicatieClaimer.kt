@@ -42,12 +42,9 @@ internal class PostgresPublicatieClaimer(
             .setParameter("status", DeliveryStatus.TE_PUBLICEREN)
             .setParameter("nu", clock.instant())
             .setMaxResults(maxBatch)
-            .unwrap(Query::class.java)
-            .setHibernateLockMode(LockMode.UPGRADE_SKIPLOCKED)
 
-        @Suppress("UNCHECKED_CAST")
-        val rijen = query.resultList as List<PublicatieDeliveryEntity>
-        return rijen.map { it.toClaim() }
+        query.unwrap(Query::class.java).hibernateLockMode = LockMode.UPGRADE_SKIPLOCKED
+        return query.resultList.map { it.toClaim() }
     }
 
     /**

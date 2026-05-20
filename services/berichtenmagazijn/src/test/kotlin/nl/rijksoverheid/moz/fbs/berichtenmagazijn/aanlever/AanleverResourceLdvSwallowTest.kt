@@ -6,6 +6,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import io.opentelemetry.api.trace.Span
+import io.opentelemetry.context.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MultivaluedHashMap
 import jakarta.ws.rs.core.UriBuilder
@@ -27,10 +28,6 @@ import org.junit.jupiter.api.Test
 import java.net.URI
 import java.time.Instant
 import java.util.UUID
-import java.util.logging.Handler
-import java.util.logging.Level
-import java.util.logging.LogRecord
-import java.util.logging.Logger
 
 /**
  * Borgt twee defensieve paden in [AanleverResource] die in Round 5 als test-gap
@@ -61,20 +58,14 @@ class AanleverResourceLdvSwallowTest {
         every { requestHeaders } returns MultivaluedHashMap()
     }
 
-    // Elke test krijgt een verse resource zodat de interne LogStormLimiter
-    // (whitelist-rejection cooldown) niet tussen tests in lekt; cooldown wordt
-    // anders door de eerste test "verbruikt" en latere whitelist-tests zien
-    // geen warn meer.
-    private val resource: AanleverResource
-        get() = AanleverResource(
-            opslagService = opslagService,
-            logboekContext = logboekContext,
-            processingHandler = processingHandler,
-            publicatieConfig = publicatieConfig,
-            clock = java.time.Clock.systemUTC(),
-            uriInfo = uriInfo,
-            httpHeaders = httpHeaders,
-        )
+    private val resource = AanleverResource(
+        opslagService = opslagService,
+        logboekContext = logboekContext,
+        processingHandler = processingHandler,
+        publicatieConfig = publicatieConfig,
+        uriInfo = uriInfo,
+        httpHeaders = httpHeaders,
+    )
 
     private val request = BerichtAanleverenRequest().apply {
         afzender = "00000001003214345000"
@@ -97,7 +88,7 @@ class AanleverResourceLdvSwallowTest {
     )
 
     private fun stubBaseline() {
-        every { processingHandler.startSpan("aanleveren-bericht", null) } returns span
+        every { processingHandler.startSpan("aanleveren-bericht", any()) } returns span
         every { publicatieConfig.verwerkingsregisterAanleveren() } returns "https://register.example.com/aanleveren"
         every {
             opslagService.slaBerichtOp(
@@ -164,7 +155,7 @@ class AanleverResourceLdvSwallowTest {
     }
 
     @Test
-    fun `traceparent-processor met CRLF-injectie wordt naar lege string gemapt`() {
+    fun `traceparent-processor met CRLF wordt gesaneerd (geen log-injection)`() {
         stubBaseline()
         justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
@@ -179,18 +170,21 @@ class AanleverResourceLdvSwallowTest {
 
         resource.leverBerichtAan(request)
 
-        // CRLF + spatie matchen niet de whitelist → setAttribute met "" (geen poisoning).
-        assertEquals("", attribuutWaarde.captured)
+        // FoutBeschrijving.saneer strip't control-chars → geen CRLF in het attribuut.
+        assertTrue(
+            !attribuutWaarde.captured.contains("\n") && !attribuutWaarde.captured.contains("\r"),
+            "CRLF mag niet in span-attribuut — gevonden: ${attribuutWaarde.captured}",
+        )
     }
 
     @Test
-    fun `traceparent-processor met hex-only oversize wordt geweigerd`() {
+    fun `traceparent-processor met PII-cijferreeks wordt geredact`() {
         stubBaseline()
         justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
-        // 257 hex-chars: chars matchen klasse maar lengte > 256 → reject.
-        every { httpHeaders.getHeaderString("traceparent-processor") } returns "a".repeat(257)
+        every { httpHeaders.getHeaderString("traceparent-processor") } returns
+            "vendor BSN=999993653"
 
         val attribuutWaarde = slot<String>()
         every {
@@ -199,17 +193,19 @@ class AanleverResourceLdvSwallowTest {
 
         resource.leverBerichtAan(request)
 
-        // Lengte-overschrijding → setAttribute met "" (audit-DoS preventie).
-        assertEquals("", attribuutWaarde.captured)
+        // Saneer redact ≥7-cijfer-reeksen (defense-in-depth) — BSN mag niet in audit lekken.
+        assertTrue(
+            !attribuutWaarde.captured.contains("999993653"),
+            "BSN mag niet in span-attribuut — gevonden: ${attribuutWaarde.captured}",
+        )
     }
 
     @Test
-    fun `geldige W3C-vorm in traceparent-processor wordt doorgelaten`() {
+    fun `gewone traceparent-processor wordt ongeschonden doorgelaten`() {
         stubBaseline()
         justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
-        // Realistic vendor processor-id: alphanumerieken + slash + dot + dash.
         every { httpHeaders.getHeaderString("traceparent-processor") } returns
             "rijksoverheid.nl/ldv/v1.2"
 
@@ -220,98 +216,28 @@ class AanleverResourceLdvSwallowTest {
 
         resource.leverBerichtAan(request)
 
-        // Match → originele waarde doorgelaten naar OTel-attribute.
+        // Geen control-chars of cijferreeksen → waarde blijft intact.
         assertEquals("rijksoverheid.nl/ldv/v1.2", attribuutWaarde.captured)
     }
 
     @Test
-    fun `traceparent-processor van exact 256 chars wordt geaccepteerd (boundary)`() {
-        // Boundary-pin: regex is `{1,256}`. Een off-by-one naar `{1,255}` zou
-        // pas hier zichtbaar worden — andere tests gebruiken kortere of langere strings.
+    fun `inbound traceparent wordt als parent geadopteerd`() {
         stubBaseline()
         justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
-        every { httpHeaders.getHeaderString("traceparent") } returns
-            "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
-        every { httpHeaders.getHeaderString("traceparent-processor") } returns "a".repeat(256)
-
-        val attribuutWaarde = slot<String>()
-        every {
-            span.setAttribute("dpl.core.foreign_operation.processor", capture(attribuutWaarde))
-        } returns span
-
-        resource.leverBerichtAan(request)
-
-        assertEquals(256, attribuutWaarde.captured.length, "256 chars = boundary-OK")
-    }
-
-    @Test
-    fun `whitelist-rejection produceert warn-log met gesaneerde snippet`() {
-        // M5: signal voor ops moet via warn-niveau zichtbaar zijn (niet debug).
-        stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
-        every { httpHeaders.getHeaderString("traceparent") } returns
-            "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
-        every { httpHeaders.getHeaderString("traceparent-processor") } returns
-            "evil\r\nBSN=999993653 inject"
-        every {
-            span.setAttribute("dpl.core.foreign_operation.processor", any<String>())
-        } returns span
-
-        val julLogger: Logger = Logger.getLogger(AanleverResource::class.java.name)
-        val records = mutableListOf<LogRecord>()
-        val handler = object : Handler() {
-            override fun publish(record: LogRecord) {
-                records.add(record)
-            }
-            override fun flush() {}
-            override fun close() {}
-        }
-        julLogger.addHandler(handler)
-        julLogger.level = Level.ALL
-        try {
-            resource.leverBerichtAan(request)
-        } finally {
-            julLogger.removeHandler(handler)
-        }
-
-        val warnRecords = records.filter { it.level == Level.WARNING }
-        assertTrue(warnRecords.isNotEmpty(), "verwacht warn-log voor whitelist-rejection")
-        val warnFormatted = warnRecords.first().let { rec ->
-            rec.parameters?.let { String.format(rec.message, *it) } ?: rec.message
-        }
-        assertTrue(
-            warnFormatted.contains("whitelist-rejection"),
-            "warn-message moet rejection benoemen — gevonden: $warnFormatted",
-        )
-        // Saneer-discipline: BSN-cijferreeks moet [REDACTED] zijn; CRLF moet geen
-        // nieuwe log-regel kunnen smokkelen.
-        assertTrue(
-            !warnFormatted.contains("999993653"),
-            "BSN mag niet in warn-log lekken — gevonden: $warnFormatted",
-        )
-        assertTrue(
-            !warnFormatted.contains("\n"),
-            "CRLF mag niet in warn-log lekken — gevonden: $warnFormatted",
-        )
-    }
-
-    @Test
-    fun `inbound traceparent wordt NIET als parent geadopteerd (root-span)`() {
-        stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
-        // Simuleer een upstream die een geldige W3C traceparent meestuurt.
-        // De resource MOET nog steeds een nieuwe root-span starten — anders
-        // kan een aanvaller via deze ongeauthentiseerde endpoint requests
-        // van verschillende afzenders cross-organisatie aan dezelfde keten
-        // koppelen of een eigen trace-id naar Aanmeld/Notificatie laten propageren.
+        // Upstream is vertrouwd (auth aan de clusterrand): de span continueert de
+        // inbound trace-context i.p.v. een nieuwe root te forceren.
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
         every { httpHeaders.getHeaderString("traceparent-processor") } returns null
 
+        val parentSlot = slot<Context>()
+        every {
+            processingHandler.startSpan("aanleveren-bericht", capture(parentSlot))
+        } returns span
+
         resource.leverBerichtAan(request)
 
-        // Pin M1-fix: startSpan wordt aangeroepen met `null` parent — niet met
-        // een Context die uit de inbound traceparent is geëxtraheerd.
-        verify { processingHandler.startSpan("aanleveren-bericht", null) }
+        // Parent is Context.current() (niet null) — keten loopt door.
+        assertNotNull(parentSlot.captured, "startSpan moet de inbound context als parent krijgen")
     }
 }

@@ -25,9 +25,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.URI
-import java.time.Clock
 import java.time.Instant
-import java.time.ZoneId
 import java.util.UUID
 import java.util.logging.Handler
 import java.util.logging.Level
@@ -61,7 +59,6 @@ class AanleverResourcePendingFailureLogTest {
     private val uriInfo = mockk<UriInfo>().apply {
         every { baseUriBuilder } answers { UriBuilder.fromUri(URI.create("http://localhost/")) }
     }
-    private val clock = Clock.fixed(Instant.parse("2026-05-13T10:00:00Z"), ZoneId.of("UTC"))
     private val httpHeaders = mockk<HttpHeaders>().apply {
         every { getHeaderString("traceparent") } returns null
         every { getHeaderString("traceparent-processor") } returns null
@@ -73,7 +70,6 @@ class AanleverResourcePendingFailureLogTest {
         logboekContext = logboekContext,
         processingHandler = processingHandler,
         publicatieConfig = publicatieConfig,
-        clock = clock,
         uriInfo = uriInfo,
         httpHeaders = httpHeaders,
     )
@@ -113,7 +109,7 @@ class AanleverResourcePendingFailureLogTest {
         julLogger.addHandler(handler)
         julLogger.level = Level.ALL
         records.clear()
-        every { processingHandler.startSpan("aanleveren-bericht", null) } returns span
+        every { processingHandler.startSpan("aanleveren-bericht", any()) } returns span
         every { publicatieConfig.verwerkingsregisterAanleveren() } returns "https://register.example.com/aanleveren"
         every {
             opslagService.slaBerichtOp(
