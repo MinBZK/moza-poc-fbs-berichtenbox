@@ -2,10 +2,12 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.ws.rs.GET
+import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.MediaType
+import org.eclipse.microprofile.faulttolerance.Retry
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 
 /**
@@ -24,9 +26,16 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 @RegisterRestClient(configKey = "profiel-service")
 interface ProfielServiceClient {
 
+    /**
+     * `@Retry` op transient I/O-fouten zodat een korte hapering of TCP-reset
+     * geen 503 naar de aanleveraar veroorzaakt. `NotFoundException` (404) is
+     * een legitiem antwoord ("partij onbekend") en wordt afgehandeld door
+     * [BerichtValidatieService] — die wordt geabort, niet retried.
+     */
     @GET
     @Path("/api/profielservice/v1/{identificatieType}/{identificatieNummer}")
     @Produces(MediaType.APPLICATION_JSON)
+    @Retry(maxRetries = 2, delay = 200, abortOn = [NotFoundException::class])
     fun getPartij(
         @PathParam("identificatieType") identificatieType: String,
         @PathParam("identificatieNummer") identificatieNummer: String,

@@ -1,13 +1,14 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.NieuweBijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.rest.client.inject.RestClient
+import org.jboss.logging.Logger
 
 /**
  * CDI bean voor toepasselijke validatie vóór opslag (issue #541).
@@ -29,6 +30,8 @@ import org.eclipse.microprofile.rest.client.inject.RestClient
 class BerichtValidatieService(
     @RestClient private val profielServiceClient: ProfielServiceClient,
 ) {
+
+    private val log = Logger.getLogger(BerichtValidatieService::class.java)
 
     fun valideer(bericht: Bericht, bijlagen: List<NieuweBijlage>) {
         bijlagen.forEach { bijlage ->
@@ -53,8 +56,23 @@ class BerichtValidatieService(
 
         val partij = try {
             profielServiceClient.getPartij(ontvangerType, bericht.ontvanger.waarde)
-        } catch (_: NotFoundException) {
+        } catch (ex: WebApplicationException) {
+            // Quarkus REST Reactive werpt `ClientWebApplicationException` voor élke
+            // 4xx — niet de typespecifieke `NotFoundException`. We filteren expliciet
+            // op statuscode 404 en behandelen dat als fail-closed; andere 4xx (400
+            // op invalide path, 401/403 op auth-misser) propageren wél zodat het
+            // circuit breaker ze meetelt. 5xx en netwerk-fouten zijn geen
+            // `WebApplicationException` en passeren deze catch sowieso.
+            if (ex.response?.status != 404) throw ex
             // Onbekende ontvanger → fail-closed: behandel als geen toestemming.
+            // Log op WARN zodat een configuratiefout (verkeerd base-path → 404 op
+            // élke ontvanger) zichtbaar wordt; de ontvanger-waarde blijft uit de
+            // log om geen BSN/RSIN te lekken.
+            log.warnf(
+                "Profiel-service 404 voor ontvangerType=%s afzender=%s — fail-closed (geen toestemming)",
+                ontvangerType,
+                bericht.afzender.waarde,
+            )
             throw ToestemmingGeweigerdException(
                 "Ontvanger heeft geen profiel bij MOZA voor afzender ${bericht.afzender.waarde}",
             )
