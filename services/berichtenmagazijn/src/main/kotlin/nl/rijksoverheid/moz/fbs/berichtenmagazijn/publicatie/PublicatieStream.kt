@@ -11,14 +11,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * stap zit in [PublicatieClaimVerwerker], dat per claim een eigen
  * `REQUIRES_NEW`-transactie opent (zie daar voor onderbouwing).
  *
- * `every = "{magazijn.publicatie.polling.interval}"` — Quarkus Scheduler
- * resolveert deze property bij start zodat tests via `%test`-profile een
- * snellere cadens kunnen kiezen. Sub-1s waarden worden door Quarkus
- * geclampt naar 1s (`SimpleScheduler$IntervalTrigger`).
- *
- * `concurrentExecution = SKIP`: als een ronde langer duurt dan het interval
- * start de volgende pollronde niet parallel op dezelfde instantie. Row-level
- * `SKIP LOCKED` regelt parallelisme tussen meerdere instanties.
+ * `every` is config-driven (tests kiezen via `%test` een snellere cadens; sub-1s clampt
+ * Quarkus naar 1s). `concurrentExecution = SKIP` voorkomt parallelle rondes op dezelfde
+ * instantie; `SKIP LOCKED` regelt parallelisme tussen instanties.
  */
 @ApplicationScoped
 class PublicatieStream(
@@ -29,15 +24,10 @@ class PublicatieStream(
     private val log = Logger.getLogger(PublicatieStream::class.java)
 
     /**
-     * Poison-pill counter: na meerdere opeenvolgende mislukkingen zonder
-     * succes-tussendoor stopt de stream tijdelijk met polls (één ronde
-     * overslaan). Voorkomt dat één blijvend kapotte claim of een doorlopende
-     * DB-uitval CPU/IO blijft branden in een tight loop. Reset op elke
-     * succesvolle ronde.
-     *
-     * `AtomicInteger` i.p.v. `@Volatile Int` zodat increment-op-failure correct
-     * blijft als `concurrentExecution` ooit naar `PROCEED` zou wijzigen — `+=`
-     * op `@Volatile` is een non-atomic read-modify-write.
+     * Poison-pill counter: na N opeenvolgende mislukkingen slaat de stream één ronde over
+     * zodat een kapotte claim of DB-uitval geen tight loop CPU/IO laat branden. Reset bij
+     * elke succesvolle ronde. `AtomicInteger` zodat increment correct blijft mocht
+     * `concurrentExecution` ooit `PROCEED` worden (`+=` op `@Volatile` is niet atomair).
      */
     private val opeenvolgendeFouten = AtomicInteger(0)
 
@@ -63,11 +53,8 @@ class PublicatieStream(
             val isClaimVerwerkt = try {
                 verwerker.verwerkEenClaim()
             } catch (ex: RuntimeException) {
-                // Onverwachte fout: programmeerfout, DB-uitval, of een
-                // poison-claim die elke poging IllegalStateException gooit.
-                // Log + verhoog teller; volgende ronde mag het opnieuw proberen
-                // tot polling.maxOpeenvolgendeFouten. Niet door-gooien anders
-                // deactiveert de scheduler de baan in sommige Quarkus-versies.
+                // Onverwachte fout (programmeerfout, DB-uitval, poison-claim): log + teller++,
+                // niet door-gooien (dat deactiveert de scheduler-baan in sommige Quarkus-versies).
                 val nieuw = opeenvolgendeFouten.incrementAndGet()
                 log.errorf(
                     ex,

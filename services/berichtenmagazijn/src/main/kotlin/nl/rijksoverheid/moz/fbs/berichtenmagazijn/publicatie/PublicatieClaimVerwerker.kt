@@ -14,28 +14,17 @@ import java.time.Clock
 /**
  * Verwerkt één geclaimde delivery binnen een eigen transactie (`REQUIRES_NEW`).
  *
- * **Waarom een aparte bean i.p.v. een private methode in [PublicatieStream]?**
- * CDI interceptors (`@Transactional`) werken alleen op aanroepen via een CDI-
- * proxy. Een directe in-class `this.verwerkEenClaim(...)` zou de
- * transactie-interceptor overslaan. Door de logica in een aparte
- * `@ApplicationScoped`-bean te plaatsen gaat de aanroep wél door de proxy.
+ * **Aparte bean, geen private methode in [PublicatieStream]:** `@Transactional` werkt
+ * alleen via de CDI-proxy; een in-class call zou de interceptor overslaan.
  *
- * **Waarom `REQUIRES_NEW` per claim i.p.v. één transactie voor de hele batch?**
- * De HTTP-call naar de downstream kan tot 10s duren (timeout). Bij batch=50
- * en één trage downstream zou een batch-transactie >8 min open kunnen staan,
- * voorbij de typische `idle_in_transaction_session_timeout`. Postgres kapt
- * de transactie dan af → status-updates verdwijnen → outbox-rij blijft
- * `TE_PUBLICEREN` → duplicate downstream sends bij volgende poll. Per-claim
- * transactie houdt het lock kort vast (alleen tijdens de HTTP-call van dié
- * claim) en isoleert fouten — een NPE in claim N zet niet de status-updates
- * van claim 0..N-1 in dezelfde batch terug.
+ * **`REQUIRES_NEW` per claim, niet per batch:** een trage downstream (HTTP-timeout 10s ×
+ * batch 50) zou een batch-transactie voorbij `idle_in_transaction_session_timeout` open
+ * houden → Postgres kapt af → status-updates weg → duplicate sends. Per-claim houdt het
+ * lock kort en isoleert fouten tussen claims.
  *
- * **At-least-once delivery, geen exactly-once.** Tussen `downstreamClient.lever`
- * (succesvolle 2xx) en `commit` van `markeerGeslaagd` is een crash-venster waarin
- * de delivery wel afgeleverd maar nog niet als afgeleverd geregistreerd is. Bij
- * herstart wordt de claim opnieuw verzonden. Downstream-idempotency op
- * `(source, id)` is daarom verplicht; [CloudEventBuilder] levert daarvoor een
- * deterministische `id` per (berichtId, doel).
+ * **At-least-once, geen exactly-once:** crasht het tussen de 2xx en de commit van
+ * `markeerGeslaagd`, dan wordt de claim opnieuw verzonden. Downstream-idempotency op
+ * `(source, id)` is daarom verplicht; [CloudEventBuilder] geeft een deterministische id.
  */
 @ApplicationScoped
 class PublicatieClaimVerwerker(
@@ -51,29 +40,17 @@ class PublicatieClaimVerwerker(
     private val log = Logger.getLogger(PublicatieClaimVerwerker::class.java)
 
     /**
-     * Cache van per-doel gestripte downstream-URLs. URLs zijn config-stabiel
-     * (SmallRye Config rebindt geen properties at runtime — wijzigen alleen
-     * bij redeploy of bean-restart) dus per (doel.key, raw-url) éénmaal
-     * parsen + reconstrueren bespaart elke claim een URI-roundtrip.
-     * `ConcurrentHashMap` omdat scheduler en eventueel andere CDI-callers
-     * parallel kunnen lezen/schrijven.
-     *
-     * Cardinaliteit ≤ aantal geconfigureerde downstreams (typisch 2–5).
-     * Bij hypothetische runtime config-rotatie groeit deze map monotoon —
-     * accepteer wegens lage cardinaliteit, of vervang door size-bounded cache
-     * als dat gedrag verandert.
+     * Cache van per-doel gestripte downstream-URLs. URLs zijn config-stabiel (SmallRye
+     * rebindt niet at runtime), dus éénmaal parsen per (doel, url) bespaart elke claim
+     * een URI-roundtrip. `ConcurrentHashMap` wegens parallelle scheduler-/CDI-toegang;
+     * cardinaliteit ≤ aantal downstreams (2–5).
      */
     private val gestripteDownstreamUrls = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /**
-     * Begrenst de "doel niet meer in config"-warn tot één emit per
-     * [ONBEKEND_DOEL_WARN_COOLDOWN] per [Publicatiedoel]. Zonder begrenzing
-     * zou tijdens een config-removal-migratie elke claim, elke pollronde
-     * een warn-regel produceren → log-storm.
-     *
-     * Sleutel = [Publicatiedoel] (value-class met `equals` op de wrapped key),
-     * niet de rauwe `doel.key`-string: dat voorkomt dat een toekomstige
-     * refactor per ongeluk een unrelated identifier doorgeeft.
+     * Begrenst de "doel niet meer in config"-warn tot 1× per [ONBEKEND_DOEL_WARN_COOLDOWN]
+     * per [Publicatiedoel] — anders een log-storm tijdens config-removal. Sleutel is het
+     * value-class (niet de rauwe string) zodat een refactor geen vreemde identifier doorgeeft.
      */
     private val onbekendDoelWarnLimiter = LogStormLimiter<Publicatiedoel>(
         cooldown = ONBEKEND_DOEL_WARN_COOLDOWN,
@@ -109,15 +86,10 @@ class PublicatieClaimVerwerker(
         try {
             val bericht = berichten.findByBerichtId(claim.berichtId)
             if (bericht == null) {
-                // Bericht weg tussen plan en verwerking — CASCADE op
-                // `publicatie_deliveries.bericht_id` maakt deze tak in praktijk
-                // onbereikbaar (delete bericht ruimt deliveries op vóór claim).
-                // Vangnet voor handmatige DB-mutaties of toekomstige soft-delete.
-                //
-                // dataSubject is de ontvanger; die is hier niet meer beschikbaar
-                // omdat het bericht ontbreekt. Vervang door berichtId zodat het
-                // LDV-record auditbaar blijft (welke verwerkings-poging miste data?)
-                // en geen lege subject-velden krijgt.
+                // Bericht weg tussen plan en verwerking. CASCADE op bericht_id maakt dit in
+                // praktijk onbereikbaar; vangnet voor handmatige DB-mutaties/soft-delete.
+                // dataSubject = berichtId (ontvanger ontbreekt) zodat het LDV-record
+                // auditbaar blijft zonder lege subject-velden.
                 ldvContext.dataSubjectId = claim.berichtId.toString()
                 ldvContext.dataSubjectType = "BERICHT_ID_ONLY"
                 log.warnf(
@@ -130,19 +102,13 @@ class PublicatieClaimVerwerker(
                 return
             }
 
-            // LDV-attributen: verwerkingsactiviteit "publiceren" met ontvanger
-            // als dataSubject. URL van downstream als foreign_operation.processor
-            // (via span-attribute, naast LogboekContext). Query/userinfo wordt
-            // gestript zodat eventuele API-keys in URLs niet naar centrale tracing
-            // lekken.
+            // LDV-attributen voor verwerkingsactiviteit "publiceren": ontvanger als
+            // dataSubject, gestripte downstream-URL als foreign_operation.processor.
             val downstreamConfig = config.downstreams()[claim.doel.key]
             if (downstreamConfig == null && onbekendDoelWarnLimiter.magEmitten(claim.doel)) {
-                // Config-drift: doel staat in outbox-rij maar niet meer in config.
-                // Zonder log zou dit eindeloos retryen tegen `<onbekend>`-URL via
-                // DownstreamClient.ConfiguratieFout. [LogStormLimiter] dempt de
-                // warn tot 1× per cooldown-venster per doel zodat config-removal-
-                // migratie geen log-storm produceert; ops krijgt nog steeds een
-                // signaal om het lek te dichten vóór alle pogingen op zijn.
+                // Config-drift: doel staat in outbox-rij maar niet meer in config →
+                // eindeloze retry tegen `<onbekend>`-URL. Warn (gedempt door
+                // onbekendDoelWarnLimiter) zodat ops het lek dicht vóór de pogingen op zijn.
                 log.warnf(
                     "Doel '%s' niet (meer) in config.downstreams — claim wordt MISLUKT-gemarkeerd via DownstreamClient (claimId=%d)",
                     claim.doel.key, claim.claimId,
@@ -166,9 +132,8 @@ class PublicatieClaimVerwerker(
                     try {
                         claimer.markeerGeslaagd(claim.claimId, nu)
                     } catch (ex: IllegalStateException) {
-                        // 2xx ontvangen maar status niet bij te werken: duplicate-send
-                        // venster bij volgende pollronde gegarandeerd. Operators moeten
-                        // dit kunnen correleren met downstream-side duplicates.
+                        // 2xx ontvangen maar status niet bijgewerkt → gegarandeerd
+                        // duplicate-send volgende ronde; ops moet dit kunnen correleren.
                         log.errorf(
                             ex,
                             "Duplicate-send venster: HTTP 2xx ontvangen maar markeerGeslaagd faalde; berichtId=%s doel=%s",
@@ -215,17 +180,10 @@ class PublicatieClaimVerwerker(
                 }
             }
         } finally {
-            // LDV-context koppeling mag de transactie-commit nooit ondermijnen.
-            // Een kapotte ProcessingHandler zou anders de status-writes terugrollen
-            // → duplicate send. Smal vangen: brede `RuntimeException` zou
-            // programmeerfouten (NPE, ConcurrentModificationException, IllegalStateException)
-            // slikken; smal vangen op `IllegalArgumentException` (wat ProcessingHandler
-            // zelf gooit op niet-URI/leeg processingActivityId — config-fout) laat de
-            // rest doorvliegen zodat REQUIRES_NEW alsnog rolt en operators de bug zien.
-            //
-            // `span.end()` MOET altijd draaien (anders span-leak naar OTel-exporter),
-            // ook als addLogboekContextToSpan een niet-IAE doorgooit. Daarom een
-            // genest try/finally: outer borgt span.end(), inner saneert config-fout.
+            // LDV-koppeling mag de commit nooit terugrollen (→ duplicate send). Smal vangen
+            // op `IllegalArgumentException` (config-fout uit ProcessingHandler); andere
+            // exceptions vliegen door zodat REQUIRES_NEW rolt en de bug zichtbaar wordt.
+            // Genest try/finally zodat `span.end()` altijd draait (anders span-leak).
             try {
                 try {
                     processingHandler.addLogboekContextToSpan(span, ldvContext)
@@ -243,17 +201,10 @@ class PublicatieClaimVerwerker(
     }
 
     /**
-     * Verwijdert userinfo en query-string uit [url] zodat een eventuele API-key
-     * niet als span-attribuut naar centrale tracing lekt. Path-segmenten worden
-     * NIET gestript — wie path-tokens (`/secret-xyz/events`) als geheim
-     * gebruikt schendt expliciet de aanbeveling om credentials uit URL-paths
-     * te houden. Zie `docs/operator-handleiding.md` (sectie "Downstream-URL
-     * conventies"); dezelfde caveat staat in [DownstreamClient.blokkeerIntern]'s KDoc.
-     *
-     * Bij parse-fout: log op warn met context (scheduler-thread mag niet stil
-     * doorgaan zonder spoor) en vervang door marker. Smal `IllegalArgumentException`
-     * i.p.v. `runCatching{}` zodat `OutOfMemoryError`/`StackOverflowError` niet
-     * gemaskeerd worden.
+     * Strip userinfo en query uit [url] zodat een eventuele API-key niet als
+     * span-attribuut lekt. Path-segmenten blijven (credentials in URL-paths schendt
+     * de conventie in `docs/operator-handleiding.md`). Bij parse-fout: warn + marker;
+     * smal `IllegalArgumentException` zodat OOM/StackOverflow niet gemaskeerd worden.
      */
     private fun stripUrlGeheimen(url: String, doel: Publicatiedoel): String = try {
         val parsed = java.net.URI.create(url)
@@ -273,14 +224,8 @@ class PublicatieClaimVerwerker(
 
     companion object {
         /**
-         * Cooldown-venster voor de "doel niet meer in config"-warn.
-         * 5 min ≈ 5 polling-rondes bij default 60s `magazijn.publicatie.polling.interval`:
-         * kort genoeg dat ops binnen één deploy-window gewaarschuwd wordt,
-         * lang genoeg om alle in-flight claims voor één doel te dempen tot
-         * één regel per venster.
-         *
-         * Public-visible zodat tests deze constante kunnen importeren i.p.v.
-         * de waarde te dupliceren.
+         * Cooldown voor de "doel niet meer in config"-warn: 5 min ≈ 5 pollrondes bij
+         * default-interval 60s. Public zodat tests de waarde niet hoeven te dupliceren.
          */
         val ONBEKEND_DOEL_WARN_COOLDOWN: java.time.Duration = java.time.Duration.ofMinutes(5)
     }

@@ -17,18 +17,12 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 const val LDV_CONTEXT_DEFAULT_PRIORITY = Priorities.AUTHENTICATION - 100
 
 /**
- * Zet safe defaults op LogboekContext vóórdat resource-code (of een
- * `@Logboek`-CDI-interceptor in services die die nog gebruiken) de echte
- * `dataSubjectId` kan zetten. Voorkomt `IllegalArgumentException` van
- * `ProcessingHandler.addLogboekContextToSpan` als Bean Validation een request
- * afwijst voor de resource-methode iets vult, of als de service zelf
- * span-management doet (zoals `AanleverResource` in berichtenmagazijn).
+ * Zet safe defaults op LogboekContext vóór resource-code de echte `dataSubjectId` zet.
+ * Voorkomt `IllegalArgumentException` uit `addLogboekContextToSpan` als Bean Validation
+ * een request afwijst vóór de resource iets vult, of als de service zelf span-management
+ * doet (zoals `AanleverResource`).
  *
- * `@Priority(AUTHENTICATION - 100)` (= 900) zorgt voor expliciete vroege
- * ordening: andere filters (auth, logging) draaien daarna, zodat zij op een
- * gevulde LogboekContext kunnen rekenen. Zonder expliciete priority is
- * JAX-RS-volgorde niet gegarandeerd als ooit een tweede ContainerRequestFilter
- * de context muteert.
+ * Vroege [LDV_CONTEXT_DEFAULT_PRIORITY] zodat latere filters op een gevulde context rekenen.
  */
 @Provider
 @Priority(LDV_CONTEXT_DEFAULT_PRIORITY)

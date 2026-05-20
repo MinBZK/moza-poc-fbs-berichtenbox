@@ -129,33 +129,17 @@ data class OntvangerData(
     val waarde: String,
 ) {
     init {
-        // Roept de getypeerde fabriek aan; gooit DomainValidationException bij
-        // ongeldige waarde voor het opgegeven type. `valueOf` zou anders een
-        // raw IllegalArgumentException gooien voor een onbekende enum-naam,
-        // wat door de generieke UncaughtExceptionMapper als 500 zou worden
-        // gemaskeerd; expliciete wrap zorgt voor consistente 400.
+        // Getypeerde fabriek i.p.v. `valueOf`: die zou een raw IllegalArgumentException
+        // gooien (→ 500 via UncaughtExceptionMapper); de wrap geeft een consistente 400.
+        // Message is statisch: `OntvangerData` is Jackson-deserialiseerbaar uit cross-org
+        // payloads, dus `type` interpoleren zou CRLF/JSON-injection in `Problem.detail`
+        // toelaten (client kent de enum-namen al via de spec).
         //
-        // Message is BEWUST statisch (zonder $type-interpolatie). `OntvangerData`
-        // is Jackson-deserialiseerbaar uit downstream/cross-org payloads;
-        // ongesaneerde reflectie van `type` in `Problem.detail` zou CRLF/JSON-
-        // injection of oversize-DoS toelaten. De client krijgt enum-namen al
-        // via OpenAPI-spec — interpoleren voegt geen actionable info toe.
-        //
-        // Voor support-debug van "welk onbekend type kwam binnen?" geven we
-        // de raw `type`-waarde mee als `cause`-message. DomainValidationExceptionMapper
-        // logt nu `cause`-message via `FoutBeschrijving.saneer` (CWE-117 strip),
-        // zodat de waarde traceerbaar is in support-flow zonder dat-ie ongesaneerd
-        // in `Problem.detail` belandt.
-        //
-        // Whitelist-filter [A-Za-z0-9_] op `type`: legitieme enum-namen
-        // (`BSN`, `KVK`, `RSIN`, `OIN`) bestaan uit `[A-Z_]+`, dus blijven intact.
-        // Aanvaller-controlled JSON-input kan anders niet-numerieke PII
-        // (`type="jan.jansen@voorbeeld.nl"` of `type="Jan Jansen"`) door
-        // `FoutBeschrijving.saneer` heen smokkelen — saneer redact alleen
-        // ≥7-cijfer-runs + control-chars, niet namen/e-mail/adres
-        // (BIO 12.4.1, AVG art. 5.1.c minimalisatie). Alle "interessante"
-        // PII-bytes (`@`, spatie, `.`, `,`, `:`) worden weg-gefilterd vóór
-        // het cause-pad. `take(64)` begrenst oversize-DoS in log.
+        // De raw `type` gaat wél als `cause`-message mee voor support-debug, met een
+        // whitelist-filter [A-Za-z0-9_] erop: enum-namen (`BSN`/`KVK`/...) blijven intact,
+        // maar niet-numerieke PII (`type="jan@..."`) wordt weg-gefilterd vóór het log —
+        // `FoutBeschrijving.saneer` dekt die zelf niet (alleen ≥7-cijfer + control-chars).
+        // `take(64)` begrenst oversize-DoS (BIO 12.4.1, AVG art. 5.1.c).
         val typeVoorLog = type.take(64).filter { it.isLetterOrDigit() || it == '_' }
         val typed = enumValues<IdentificatienummerType>().firstOrNull { it.name == type }
             ?: throw nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException(

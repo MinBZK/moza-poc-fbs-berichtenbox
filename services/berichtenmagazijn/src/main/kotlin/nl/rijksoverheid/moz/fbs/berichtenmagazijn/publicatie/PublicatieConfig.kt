@@ -54,16 +54,10 @@ interface PublicatieConfig {
     }
 
     /**
-     * URI van de verwerkingsregister-entry voor de publicatie-activiteit. Wordt
-     * als `processingActivityId` aan elke LDV-context gekoppeld. Verplichte
-     * referentie naar het AVG art. 30-register; in productie wijzen naar de
-     * echte register-URI van de organisatie. Default-waarde bevat `example.com`
-     * om tijdens lokaal/dev draaien direct te signaleren dat dit nog gezet moet
-     * worden vóór productie.
-     *
-     * `@URL(regexp = "^https?://.*")`-parity met [Downstream.url]: weert
-     * operator-typo's met CRLF, `javascript:` of niet-URI strings vóór ze als
-     * span-attribute of LDV-record naar centrale tracing/audit reizen.
+     * URI van de verwerkingsregister-entry (AVG art. 30) voor de publicatie-activiteit,
+     * gekoppeld als `processingActivityId` aan elke LDV-context. Default met `example.com`
+     * signaleert dat dit vóór productie gezet moet worden. `@URL`-parity met [Downstream.url]
+     * weert CRLF/`javascript:`/niet-URI vóór ze in tracing/audit belanden.
      */
     @WithDefault("https://register.example.com/verwerkingen/berichtenmagazijn-publiceren")
     @NotBlank
@@ -71,13 +65,10 @@ interface PublicatieConfig {
     fun verwerkingsregisterPubliceren(): String
 
     /**
-     * URI van de verwerkingsregister-entry voor de aanlever-activiteit. Net
-     * als [verwerkingsregisterPubliceren] een AVG art. 30-referentie; gescheiden
-     * omdat aanleveren en publiceren twee verschillende verwerkingsactiviteiten
-     * zijn (verschillende doelen, dataminimalisatie-overwegingen). Wordt door
-     * [nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.AanleverResource]
-     * programmatisch op de [nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext]
-     * gezet zodat hij configureerbaar is i.p.v. hardcoded in een `@Logboek`-annotatie.
+     * Als [verwerkingsregisterPubliceren], maar voor de aanlever-activiteit; gescheiden
+     * omdat aanleveren en publiceren losse verwerkingsactiviteiten zijn. Wordt door
+     * [nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.AanleverResource] programmatisch
+     * gezet i.p.v. hardcoded in een `@Logboek`-annotatie.
      */
     @WithDefault("https://register.example.com/verwerkingen/berichtenmagazijn-aanleveren")
     @NotBlank
@@ -102,13 +93,8 @@ interface PublicatieConfig {
 
     interface Opschonen {
         /**
-         * Interval voor de outbox-cleanup-job ([PublicatieDeliveriesOpschoner]).
-         * Deze KDoc spiegelt de gebruiks-rationale; de operationele tuning-tabel
-         * (wanneer verlagen/verhogen, throughput-overwegingen) staat in
-         * `docs/operator-handleiding.md` sectie "Tuning-properties" om
-         * drift-risico bij duplicatie te vermijden.
-         *
-         * Default `24h` — voldoende voor typische throughput.
+         * Interval voor de outbox-cleanup-job ([PublicatieDeliveriesOpschoner]); default 24h.
+         * Tuning-overwegingen: `docs/operator-handleiding.md` sectie "Tuning-properties".
          */
         @WithDefault("24h")
         fun interval(): Duration
@@ -126,16 +112,10 @@ interface PublicatieConfig {
 
     interface Downstream {
         /**
-         * Volledige URL waar het CloudEvent met `POST` heen moet. Bean Validation
-         * weert al bij applicatie-start syntactisch ongeldige URL's én niet-
-         * `http`/`https`-schemes (`file:`, `ftp:`, `javascript:` etc.).
-         *
-         * **Wat de regex *niet* dekt**: host-component is door `^https?://.*`
-         * niet verplicht (`http://` voldoet syntactisch); host-aanwezigheid,
-         * loopback-uitzondering voor plain http, en SSRF-blocklist (RFC1918,
-         * link-local, ULA, cloud-metadata) worden runtime afgedwongen door
-         * [DownstreamClient.valideerUrl] omdat die checks DNS-resolutie
-         * nodig hebben.
+         * Volledige URL waar het CloudEvent met `POST` heen moet. Bean Validation weert
+         * bij start ongeldige syntax en niet-http(s)-schemes. Host-aanwezigheid, de
+         * loopback-uitzondering en de SSRF-blocklist worden runtime afgedwongen door
+         * [DownstreamClient.valideerUrl] (die checks vereisen DNS-resolutie).
          */
         @NotBlank
         @URL(regexp = "^https?://.*")
@@ -144,11 +124,8 @@ interface PublicatieConfig {
 }
 
 /**
- * Domein-veilige wrapper rond [PublicatieConfig.Organisatie.oin]. SmallRye Config
- * bindt @ConfigMapping-methods tegen primitieve types; daarom is de underlying
- * accessor `String`. Deze extension herstelt de typetoestand zodat callers met
- * een [Oin] werken — de constructor van `Oin` herhaalt de leading-zero- en
- * non-zero-regels die Bean Validation alleen syntactisch (`^[0-9]{20}$`) bewaakt.
- * (Logius OIN-spec mandateert geen elfproef; alleen lengte + numeriek.)
+ * Geeft callers een [Oin] i.p.v. de rauwe `String` waartegen SmallRye bindt. De
+ * `Oin`-constructor bewaakt de regels die Bean Validation syntactisch (`^[0-9]{20}$`)
+ * niet dekt. (Logius OIN-spec: alleen lengte + numeriek, geen elfproef.)
  */
 fun PublicatieConfig.Organisatie.toOin(): Oin = Oin(oin())

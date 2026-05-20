@@ -25,7 +25,7 @@ class BerichtOpslagService(
 
     private val log = Logger.getLogger(BerichtOpslagService::class.java)
 
-    // Thresholds zijn PoC-defaults.
+    // Circuit-breaker-thresholds; tunebaar per omgeving.
     //
     // skipOn — fouten die níét meetellen voor het circuit:
     //  - DomainValidationException, ClientErrorException: client-fouten, zeggen niets

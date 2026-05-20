@@ -45,19 +45,10 @@ class PublicatieDeliveriesOpschoner(
     )
     @Transactional
     fun verwijderTerminaleRijen() {
-        // Wrap rond `executeUpdate` zodat een DB-uitval, lock-timeout of
-        // schema-drift een greppable ERROR-regel produceert i.p.v. enkel een
-        // raw stack-trace via SimpleScheduler. De volgende ronde retried
-        // automatisch — de retentie-regel is idempotent (DELETE op id-set).
-        //
-        // Smal vangen: brede `RuntimeException` zou programmeerfouten
-        // (NPE, ConcurrentModificationException, IllegalStateException uit
-        // app-code) slikken; smal vangen op persistence/transactie-/EM-lifecycle-
-        // fouten (`IllegalStateException` uit closed EntityManager / scope-mismatch)
-        // laat de rest doorvliegen. Anders dan de JAX-RS code-paden waar
-        // [nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper] het
-        // overneemt, eindigt een scheduler-fout bij Quarkus' SimpleScheduler die
-        // automatisch ERROR + stack-trace logt — vandaar dat doorvliegen veilig is.
+        // Wrap rond `executeUpdate` zodat DB-uitval/lock-timeout/schema-drift een
+        // greppable ERROR geeft; de volgende ronde retried (DELETE is idempotent).
+        // Smal vangen op persistence/transactie/EM-lifecycle; programmeerfouten vliegen
+        // door naar SimpleScheduler (die logt zelf ERROR + stack-trace).
         try {
             val verwijderd = entityManager.createNativeQuery(
                 "DELETE FROM publicatie_deliveries WHERE id IN (SELECT id FROM publicatie_deliveries_oud)",
@@ -78,24 +69,17 @@ class PublicatieDeliveriesOpschoner(
                 ex.javaClass.simpleName,
             )
         } catch (ex: IllegalStateException) {
-            // Tijdens graceful shutdown kan de EntityManager al gesloten zijn als de
-            // scheduler-trigger nog vuurt. Niet ERROR-loggen — dit is normaal lifecycle-
-            // gedrag, geen incident. Andere ISE's (bv. transactie-scope-mismatch
-            // tijdens steady-state) blijven WARN waard zodat ops het kan inspecteren.
-            // `isOpen` zelf kan ook ISE gooien op een al-disposed EM — vang
-            // alleen die specifieke ISE af zodat OOM/StackOverflow niet geslikt
-            // worden (`runCatching` zou Throwable vangen → silent failure).
+            // Bij graceful shutdown kan de EM al gesloten zijn terwijl de trigger nog
+            // vuurt — normaal lifecycle-gedrag, geen incident. `isOpen` kan zelf ISE
+            // gooien op een disposed EM; alleen die specifiek vangen (niet OOM/SOF).
             val emOpen = try {
                 entityManager.isOpen
             } catch (_: IllegalStateException) {
                 false
             }
             if (emOpen) {
-                // ERROR (niet WARN): in veel ops-stacks alarmeert WARN niet en
-                // zou een steady-state transactie-scope-mismatch onopgemerkt
-                // blijven. Geen DB-uitval (anders zou PersistenceException
-                // gevangen zijn) → wijst op een echte programmer/lifecycle-bug
-                // die ops moet inspecteren.
+                // EM nog open → geen shutdown en geen DB-uitval (anders PersistenceException):
+                // wijst op een echte lifecycle-/programmeerbug. ERROR zodat ops het ziet.
                 log.errorf(
                     ex,
                     "Outbox-opschoning ISE buiten shutdown-window: onverwachte transactie-/sessie-state " +

@@ -19,18 +19,11 @@ import java.util.UUID
  * omdat externe code alleen via [BerichtRepository] (schrijven/lezen) mag werken;
  * directe entity-mutatie omzeilt de invarianten van [Bericht].
  *
- * De primary key [id] is een door de database gegenereerde surrogate key die
- * losstaat van de bedrijfs-identifier [berichtId]. Zo blijft de PK stabiel als de
- * business-id-semantiek ooit verandert, en kan er nooit een natuurlijke
- * eigenschap per ongeluk als PK fungeren. [berichtId] blijft uniek
- * (via UNIQUE-constraint) zodat de 409 Conflict-semantiek van de Aanlever API
- * bewaard blijft.
+ * [id] is een DB-gegenereerde surrogate key, los van de bedrijfs-id [berichtId] (die blijft
+ * UNIQUE voor de 409-semantiek van de Aanlever API) — zo blijft de PK stabiel.
  *
- * De velden hebben default-initialisers zodat Hibernate via de no-arg constructor kan
- * hydrateren en `fromDomain` meteen alle waarden zet. Daarmee bestaat er geen
- * gedeeltelijk-geïnitialiseerde staat tussen `BerichtEntity()` en de setters — in
- * tegenstelling tot `lateinit var`, dat een window met `UninitializedPropertyAccessException`
- * open laat wanneer Hibernate een subset van kolommen leest.
+ * Velden hebben default-initialisers zodat Hibernate via de no-arg constructor hydrateert
+ * zonder een `lateinit`-window met `UninitializedPropertyAccessException` bij een partiële read.
  */
 @Entity
 @Table(name = "berichten")
@@ -80,12 +73,9 @@ internal class BerichtEntity {
             publicatiedatum = publicatiedatum,
         )
     } catch (ex: DomainValidationException) {
-        // Bij hydratatie zijn alle invarianten al door fromDomain geverifieerd vóór persist.
-        // Een DVE hier betekent dat de DB-rij niet meer aan de huidige domein-invarianten
-        // voldoet (bv. handmatige edit, vorige schemaversie, aangescherpte validatie).
-        // Dat is een serverfout, geen clientfout — gooi een 500-WebApplicationException
-        // zodat ProblemExceptionMapper het maskeert met correlation-id i.p.v. de
-        // raw DomainValidationException als 400 te exposen.
+        // Invarianten zijn vóór persist al door fromDomain geverifieerd; een DVE hier
+        // betekent een niet-conforme DB-rij (handmatige edit, oude schemaversie). Dat is een
+        // serverfout → 500 zodat ProblemExceptionMapper maskeert i.p.v. een 400 te exposen.
         log.errorf(
             ex,
             "DB-rij corrupt of niet-conform: id=%d berichtId=%s afzender.length=%d ontvangerType=%s ontvangerWaarde.length=%d",

@@ -30,14 +30,11 @@ import javax.net.ssl.SSLParameters
  * REST-client voor de downstream-aflevering van CloudEvents (Aanmeld Service,
  * Notificatie Service, ... — wat in [PublicatieConfig.downstreams] staat).
  *
- * `java.net.http.HttpClient` (sinds Java 11, met `close()` sinds Java 21) i.p.v.
- * een Quarkus REST Client per downstream omdat het aantal en de URLs van
- * downstreams puur uit config komt — een `@RegisterRestClient` per stuk zou
- * minder flexibel zijn.
+ * `java.net.http.HttpClient` i.p.v. een Quarkus REST Client per downstream: aantal en
+ * URLs komen puur uit config, dus een `@RegisterRestClient` per stuk is minder flexibel.
  *
- * Structured content mode (`application/cloudevents+json`) i.p.v. binary mode:
- * één Content-Type voor alle attributen, makkelijker te debuggen, en sluit
- * direct aan op de NL GOV-voorbeelden in `ls-notif`.
+ * Structured content mode (`application/cloudevents+json`): één Content-Type voor alle
+ * attributen, en sluit aan op de NL GOV-voorbeelden in `ls-notif`.
  */
 @ApplicationScoped
 class DownstreamClient(
@@ -49,10 +46,8 @@ class DownstreamClient(
     private val log = Logger.getLogger(DownstreamClient::class.java)
     private val http: HttpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5))
-        // Forum Standaardisatie: TLS 1.3 voorkeur, TLS 1.2 nog toegestaan; oudere
-        // versies (SSLv3, TLS 1.0/1.1) afdwingen-uit voorkomt downgrade-aanvallen
-        // en zwakke ciphers. JDK21 default sluit 1.0/1.1 al uit, maar expliciet
-        // pinnen documenteert de baseline en beschermt tegen profile-overrides.
+        // Forum Standaardisatie: alleen TLS 1.3/1.2. JDK21 sluit oudere versies al uit,
+        // maar expliciet pinnen documenteert de baseline en weert profile-overrides.
         .sslContext(SSLContext.getDefault())
         .sslParameters(
             SSLParameters().apply {
@@ -119,22 +114,14 @@ class DownstreamClient(
     }
 
     /**
-     * Mapt een [IOException]-variant uit [HttpClient.send] naar het juiste
-     * [DownstreamResultaat]. Geëxtraheerd uit [lever] om deterministisch
-     * unit-testbaar te zijn (geen netwerk-trigger nodig om SSL-takken te raken):
-     * de catch-volgorde-invariant zit nu in `when (ex)`-`is`-branches, waarvan
-     * de **eerste match wint** zoals bij sequentiële `try/catch`-blokken.
+     * Mapt een [IOException] uit [HttpClient.send] naar het juiste [DownstreamResultaat].
+     * Geëxtraheerd uit [lever] zodat de SSL-takken zonder netwerk-trigger testbaar zijn.
      *
-     * **Volgorde-invariant** (gepin'd door [DownstreamClientExceptionMappingTest]):
-     *  1. [HttpConnectTimeoutException] vóór [HttpTimeoutException] (subklasse-relatie).
-     *  2. [SSLHandshakeException] vóór [SSLException] (subklasse + verschillende
-     *     herstelbaarheid: handshake-faal = cert-config = ConfiguratieFout, generiek
-     *     SSL = mogelijk transient = NetwerkFout).
-     *  3. SSL-takken vóór generieke [IOException]-tak (anders raakt code de
-     *     algemene "netwerk-hick"-pad en mist ops het ERROR-niveau cert-faal-signaal).
-     *
-     * Een refactor die deze volgorde wijzigt zou eindeloos retry op een permanent
-     * cert-faal — resource-verspilling + Black-Hole-aflevering.
+     * **Volgorde-invariant** (gepind door [DownstreamClientExceptionMappingTest]): de
+     * `when`-`is`-branches matchen op subklasse-volgorde, eerste match wint —
+     * [HttpConnectTimeoutException] vóór [HttpTimeoutException], [SSLHandshakeException]
+     * (cert-config, non-herstelbaar) vóór [SSLException] (mogelijk transient), beide vóór
+     * de generieke [IOException]-tak. Verkeerde volgorde → eindeloze retry op cert-faal.
      */
     internal fun mapDeliveryException(ex: IOException, doel: Publicatiedoel): DownstreamResultaat = when (ex) {
         is HttpConnectTimeoutException -> {
@@ -146,25 +133,18 @@ class DownstreamClient(
             DownstreamResultaat.Timeout(FoutBeschrijving.saneer("Read-timeout naar $doel: ${ex.message}"))
         }
         is SSLHandshakeException -> {
-            // TLS-handshake faalt: cert/CA-mismatch, untrusted CA, expired cert,
-            // SNI-mismatch, protocol-downgrade. Retry binnen pollvenster zinloos —
-            // herstel vereist cert-rotatie (pod-restart of config-reload), niet
-            // een nieuwe HTTP-poging. Categoriseren als ConfiguratieFout
-            // (non-herstelbaar) zodat de delivery direct MISLUKT-status krijgt
-            // i.p.v. retry tot maxPogingen → resource-besparing + ops ziet direct
-            // ERROR-log + status.
+            // Cert/CA-mismatch, expired cert, SNI/downgrade: herstel vereist cert-rotatie,
+            // niet een nieuwe poging. ConfiguratieFout (non-herstelbaar) → direct MISLUKT
+            // i.p.v. retry tot maxPogingen.
             log.errorf(ex, "TLS-handshake faalt bij downstream-aflevering: doel=%s", doel)
             DownstreamResultaat.ConfiguratieFout(
                 FoutBeschrijving.saneer("TLS-handshake naar $doel: ${ex.javaClass.simpleName}"),
             )
         }
         is SSLException -> {
-            // Overige TLS-laag fouten (SSLProtocolException, partial-handshake-RST
-            // tijdens server-overload, transient cert-rotatie-window). Geen
-            // handshake-failure dus mogelijk transient — retry kan slagen na
-            // pod-restart of server-recovery. Categoriseren als NetwerkFout
-            // (herstelbaar=true) maar log expliciet als TLS-laag fout zodat ops
-            // niet denkt dat het een TCP-hick is.
+            // Overige TLS-laag fouten (geen handshake-faal) zijn mogelijk transient →
+            // NetwerkFout (herstelbaar), maar log als TLS-fout zodat ops het niet voor
+            // een TCP-hick aanziet.
             log.warnf(ex, "TLS-laag fout (mogelijk transient) bij downstream-aflevering: doel=%s", doel)
             DownstreamResultaat.NetwerkFout(
                 FoutBeschrijving.saneer("TLS-fout naar $doel: ${ex.javaClass.simpleName}"),
@@ -193,12 +173,9 @@ class DownstreamClient(
         val host = parsed.host?.lowercase()
             ?: return DownstreamResultaat.ConfiguratieFout("URL mist host-component")
 
-        // Plain http alleen toegestaan tegen exact-loopback (geen wildcard `.local`
-        // of `.localhost`-subdomeinen — die kunnen door DNS-trucs naar willekeurige
-        // hosts wijzen). Andere `127.x.x.x`-adressen (bv. `127.0.0.2`) vallen
-        // hier expliciet niet onder: we whitelisten enkel `127.0.0.1` en
-        // `localhost`/`[::1]`. `URI.getHost()` retourneert IPv6-hosts met
-        // brackets, dus alleen die vorm hoeft hier te staan.
+        // Exact-loopback-whitelist: geen wildcard-subdomeinen of overige 127.x.x.x
+        // (DNS-trucs kunnen die naar willekeurige hosts wijzen). IPv6 met brackets
+        // omdat `URI.getHost()` die zo teruggeeft.
         val isLoopback = host == "localhost" || host == "127.0.0.1" || host == "[::1]"
         // Buiten loopback: TLS verplicht (BIO 13.2.1 — vertrouwelijkheid +
         // authenticiteit van data-in-transit naar federatieve dienstverleners).
@@ -208,11 +185,9 @@ class DownstreamClient(
             )
         }
 
-        // SSRF-blocklist: weiger interne adres-ranges + cloud-metadata-endpoints
-        // (AWS/GCP 169.254.169.254, Azure 169.254.169.254, RFC1918, link-local,
-        // 0.0.0.0). Operator met config-toegang kan anders de magazijn-pod als
-        // proxy gebruiken naar interne services. Loopback expliciet toegestaan
-        // voor dev-stubs (Wiremock/embedded HTTP server).
+        // SSRF-blocklist ([blokkeerIntern]): zonder dit kan een operator met
+        // config-toegang de magazijn-pod als proxy naar interne services gebruiken.
+        // Loopback is hierboven al toegestaan voor dev-stubs (WireMock/embedded HTTP).
         if (!isLoopback) {
             val ssrfFout = blokkeerIntern(host)
             if (ssrfFout != null) return ssrfFout
@@ -221,24 +196,13 @@ class DownstreamClient(
     }
 
     /**
-     * Weigert RFC1918, link-local, ULA (IPv6 unique-local `fc00::/7`),
-     * any-local en cloud-metadata-IPs (OWASP SSRF cheatsheet). Combineert
-     * de checks van [InetAddress] (`isAnyLocalAddress`/`isLinkLocalAddress`/
-     * `isSiteLocalAddress` — IPv4 RFC1918 + IPv6 link-local) met een
-     * expliciete byte-pattern check voor IPv6 ULA en literal-blocklist voor
-     * cloud-metadata IPs (AWS IMDSv1 v4 + v6, Azure, GCP).
+     * Weigert RFC1918, link-local, ULA (`fc00::/7`), any-local en cloud-metadata-IPs
+     * (OWASP SSRF). Combineert [InetAddress]-checks (RFC1918 + IPv6 link-local) met een
+     * byte-pattern-check voor ULA en een literal-blocklist voor metadata-IPs.
      *
-     * **DNS-rebinding**: deze check resolveert de naam, maar `http.send()`
-     * resolveert hem opnieuw — een korte-TTL DNS-record kan tussen de twee
-     * resoluties van interne naar externe IP wisselen. Mitigatie zou DNS-
-     * pinning vereisen (zelf de socket openen op het gevalideerde IP en
-     * `Host`-header zetten); voor de PoC wegen we de extra complexiteit niet
-     * op tegen het risico-niveau, gegeven dat downstream-URLs uit gefixeerde
-     * config komen en niet user-supplied zijn.
-     *
-     * Caveat is verder gedocumenteerd in `docs/operator-handleiding.md`
-     * (sectie "Downstream-URL conventies"). Operator-handleiding is de
-     * single source of truth; herhaal hier niet de regels (drift-risico).
+     * **DNS-rebinding** blijft mogelijk (`http.send()` resolveert opnieuw); DNS-pinning
+     * weegt niet op tegen het risico zolang downstream-URLs uit gefixeerde config komen.
+     * Conventies: `docs/operator-handleiding.md` (single source of truth).
      */
     private fun blokkeerIntern(host: String): DownstreamResultaat.ConfiguratieFout? {
         val adressen = try {
@@ -283,7 +247,7 @@ class DownstreamClient(
         propagator.inject(Context.current(), builder, traceparentOnlySetter)
     }
 
-    /** Parseert de `Retry-After`-header. Spec staat zowel seconden (Int) als HTTP-date toe; voor PoC alleen Int-seconden. */
+    /** Parseert de `Retry-After`-header. Spec staat seconden (Int) én HTTP-date toe; hier alleen Int-seconden. */
     private fun leesRetryAfter(value: String?): Duration? {
         val seconden = value?.trim()?.toLongOrNull() ?: return null
         return if (seconden in 0..3_600) Duration.ofSeconds(seconden) else null
@@ -291,10 +255,8 @@ class DownstreamClient(
 
     @PreDestroy
     fun stop() {
-        // Java 21 HttpClient implementeert AutoCloseable; netjes opruimen voorkomt
-        // dat selector-threads blijven draaien na shutdown van de Quarkus-app.
-        // Chronische fouten hier betekenen thread-leak over redeploys; ERROR-niveau
-        // zorgt dat productie-dashboards het signaal niet missen.
+        // Sluit de HttpClient zodat selector-threads niet doorlopen na shutdown;
+        // faalt dit chronisch → thread-leak over redeploys, daarom ERROR.
         runCatching { http.close() }.onFailure { ex ->
             log.errorf(ex, "HttpClient.close() faalde bij shutdown — risico op selector-thread-leak")
         }
@@ -302,11 +264,8 @@ class DownstreamClient(
 
     companion object {
         /**
-         * Whitelist-setter: laat alleen W3C `traceparent` door. `tracestate`
-         * (vendor-specifieke routings-/sampling-data) wordt expliciet
-         * gefilterd zodat interne details niet cross-organisatie lekken — een
-         * lege `tracestate`-header is ook niet acceptabel omdat downstream-
-         * parsers de aanwezigheid kunnen registreren.
+         * Laat alleen W3C `traceparent` door; `tracestate` (vendor-routing/sampling)
+         * wordt gefilterd zodat interne details niet cross-organisatie lekken.
          */
         private val traceparentOnlySetter = TextMapSetter<HttpRequest.Builder> { carrier, key, value ->
             if (key.equals("traceparent", ignoreCase = true)) {

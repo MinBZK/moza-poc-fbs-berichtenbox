@@ -25,11 +25,8 @@ class UncaughtExceptionMapper : ExceptionMapper<Exception> {
 
     override fun toResponse(exception: Exception): Response {
         val errorId = UUID.randomUUID()
-        // Consistent met ProblemExceptionMapper 4xx/5xx: laat `exception.message`
-        // weg uit de log-regel. `FoutBeschrijving.saneer` dekt cijfer-PII + CRLF
-        // maar geen niet-numerieke PII (namen, adres, telefoon, e-mail). Het
-        // exception-object blijft als 1e arg aanwezig zodat de stack-trace via
-        // errorId correleert in de full stack-log voor support.
+        // Als ProblemExceptionMapper: `exception.message` blijft uit de log (saneer dekt
+        // geen niet-numerieke PII); het exception-object geeft de stack mee via errorId.
         log.errorf(
             exception,
             "Onverwachte exception (errorId=%s, type=%s, cause=%s)",

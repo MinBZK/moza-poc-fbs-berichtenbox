@@ -24,12 +24,10 @@ import org.jboss.logging.Logger
 /**
  * REST-resource voor de Aanlever API.
  *
- * **Geen `@Logboek`-annotatie**: de bundeled CDI interceptor zet
- * `logboekContext.processingActivityId` op de hardcoded annotation-value vóór
- * `addLogboekContextToSpan`, wat config-driven URI's onmogelijk maakt. We
- * doen daarom zelf span-management; dit spiegelt de aanpak in
- * [nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimVerwerker]
- * en houdt de processingActivityId-bron op één plek (config).
+ * **Geen `@Logboek`-annotatie**: die interceptor zet `processingActivityId` op een
+ * hardcoded annotation-value, wat config-driven URI's onmogelijk maakt. Daarom zelf
+ * span-management (zoals [nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimVerwerker]),
+ * met de processingActivityId-bron op één plek (config).
  *
  * **Inbound W3C `traceparent` wordt als parent geadopteerd** ([OtelContext.current]):
  * de keten loopt door zodat een aanlever-request cross-organisatie traceerbaar
@@ -57,10 +55,8 @@ class AanleverResource(
         val span = processingHandler.startSpan("aanleveren-bericht", OtelContext.current())
         try {
             // processingActivityId vóór de eerste mogelijke fout zetten zodat
-            // addLogboekContextToSpan in finally niet faalt op `require(!isNullOrEmpty)`.
-            // dataSubjectId/-Type worden door LogboekContextDefaultFilter al op
-            // safe defaults gezet; we vervangen ze hieronder door de gevalideerde
-            // ontvanger-waarde + concrete type (BSN/RSIN/KVK), niet de relationele rol.
+            // addLogboekContextToSpan in finally niet faalt. dataSubjectId/-Type krijgen
+            // hieronder de gevalideerde ontvanger (tot dan: safe defaults via filter).
             logboekContext.processingActivityId = publicatieConfig.verwerkingsregisterAanleveren()
             return span.makeCurrent().use { _ ->
                 val ontvangerDto = berichtAanleverenRequest.ontvanger
@@ -73,13 +69,10 @@ class AanleverResource(
                     publicatiedatum = berichtAanleverenRequest.publicatiedatum,
                 )
 
-                // Zet dataSubjectId pas na succesvolle domein-validatie, zodat we geen
-                // ongevalideerde input in de AVG-logboekcontext zetten. Tot dat punt
-                // zorgt LogboekContextDefaultFilter voor een safe default.
+                // dataSubject pas na domein-validatie zetten (geen ongevalideerde input
+                // in de AVG-context). type.name (BSN/KVK/RSIN) i.p.v. de rol "ontvanger"
+                // zodat aanleveren- en publiceren-records op dezelfde taxonomie correleren.
                 logboekContext.dataSubjectId = bericht.ontvanger.waarde
-                // type.name (BSN/KVK/RSIN) i.p.v. relationele rol "ontvanger" zodat
-                // LDV-records over aanleveren én publiceren correleerbaar zijn op
-                // dezelfde subject-taxonomie (PublicatieClaimVerwerker doet hetzelfde).
                 logboekContext.dataSubjectType = bericht.ontvanger.type.name
 
                 val selfHref = uriInfo.baseUriBuilder
@@ -118,28 +111,16 @@ class AanleverResource(
                     FoutBeschrijving.saneer(processor),
                 )
             }
-            // Genest try/finally rond `addLogboekContextToSpan`: een fout in deze
-            // finally-tak (niet de oorspronkelijke business-exception) mag de
-            // span niet lekken naar OTel-exporter. Outer finally borgt `span.end()`,
-            // inner try vangt enkel IAE (= config/state-fout van ProcessingHandler).
-            // Andere RuntimeExceptions (NPE, ISE, CME) wijzen op programmeerfouten en
-            // mogen niet stilletjes verdwijnen — die vliegen door naar de exception-mapper.
+            // Genest try/finally: outer borgt `span.end()` (anders span-leak), inner vangt
+            // enkel de IAE die ProcessingHandler op config-fout gooit. Andere exceptions
+            // vliegen door naar de exception-mapper.
             try {
                 try {
                     processingHandler.addLogboekContextToSpan(span, logboekContext)
                 } catch (ex: IllegalArgumentException) {
-                    // Consistent met ExceptionMapper-discipline: laat pendingFailure-
-                    // message weg uit log (FoutBeschrijving.saneer dekt geen niet-
-                    // numerieke PII). Categorie + cause-type zijn voldoende correlatie-
-                    // handvatten; de oorspronkelijke exception-stack komt door naar
-                    // de mapper via de `throw ex` in de outer `catch (ex: Exception)`
-                    // hierboven (line-ref vermeden — overleeft refactors).
-                    //
-                    // errorId hier voegt een tweede correlatie-handvat toe: ProblemException
-                    // Mapper genereert zijn eigen errorId voor de oorspronkelijke ex.
-                    // Beide id's in dezelfde request-trace laten support twee log-regels
-                    // koppelen ("LDV-koppelen-faal" + "Server error 500") wanneer de
-                    // pipeline message-filter throwables strip't.
+                    // Eigen errorId als tweede correlatie-handvat naast die van de
+                    // ProblemExceptionMapper; pendingFailure-message blijft uit het log
+                    // (categorie + cause-type volstaan, geen niet-numerieke PII).
                     val ldvErrorId = java.util.UUID.randomUUID()
                     log.errorf(
                         ex,
