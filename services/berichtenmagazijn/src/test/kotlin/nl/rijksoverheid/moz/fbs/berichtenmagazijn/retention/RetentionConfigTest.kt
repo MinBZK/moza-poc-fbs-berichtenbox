@@ -4,7 +4,7 @@ import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
 import org.junit.jupiter.api.Test
 import java.time.Period
-import kotlin.test.assertEquals
+import org.junit.jupiter.api.Assertions.assertEquals
 
 @QuarkusTest
 class RetentionConfigTest {
