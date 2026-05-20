@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
@@ -37,10 +36,6 @@ import java.util.logging.Logger
  * deze pin — exact wat een test moet doen om silent regression te voorkomen.
  */
 class PublicatieClaimVerwerkerCooldownTest {
-
-    private class DownstreamStub(private val u: String) : PublicatieConfig.Downstream {
-        override fun url(): String = u
-    }
 
     /** Mutable clock die we tussen aanroepen verschuiven om de cooldown te triggeren. */
     private class MutableClock(start: Instant) : Clock() {
@@ -127,12 +122,6 @@ class PublicatieClaimVerwerkerCooldownTest {
         every { processingHandler.startSpan(any<String>(), any()) } returns span
         every { config.downstreams() } returns emptyMap()
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
-        every { config.maxPogingen() } returns 3
-        val backoff = mockk<PublicatieConfig.Backoff> {
-            every { basis() } returns Duration.ofSeconds(1)
-            every { plafond() } returns Duration.ofHours(1)
-        }
-        every { config.backoff() } returns backoff
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
         justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
         every { downstreamClient.lever(claim.doel, event) } returns

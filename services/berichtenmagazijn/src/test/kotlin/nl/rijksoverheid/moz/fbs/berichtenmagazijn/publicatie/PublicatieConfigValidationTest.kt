@@ -47,8 +47,6 @@ class PublicatieConfigValidationTest {
             "magazijn.publicatie.downstreams.aanmeld.url" to "https://aanmeld.example.nl/events",
             "magazijn.publicatie.polling.interval" to "PT60S",
             "magazijn.publicatie.opschonen.interval" to "PT24H",
-            "magazijn.publicatie.backoff.basis" to "PT1S",
-            "magazijn.publicatie.backoff.plafond" to "PT1H",
         )
         basis.putAll(extra)
         return bouwConfigMet(basis)

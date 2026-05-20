@@ -34,16 +34,11 @@ interface PublicatieConfig {
 
     fun organisatie(): Organisatie
     fun polling(): Polling
-    fun backoff(): Backoff
     fun opschonen(): Opschonen
 
     @WithDefault("50")
     @Min(1)
     fun batchGrootte(): Int
-
-    @WithDefault("5")
-    @Min(1)
-    fun maxPogingen(): Int
 
     fun downstreams(): Map<String, Downstream>
 
@@ -120,6 +115,15 @@ interface PublicatieConfig {
         @NotBlank
         @URL(regexp = "^https?://.*")
         fun url(): String
+
+        /** Max afleverpogingen voordat de delivery terminal MISLUKT wordt. Per downstream,
+         *  zodat een trage/onbetrouwbare doel meer pogingen kan krijgen dan een snelle. */
+        @WithDefault("5")
+        @Min(1)
+        fun maxPogingen(): Int
+
+        /** Backoff-grenzen per downstream. */
+        fun backoff(): Backoff
     }
 }
 

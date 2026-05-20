@@ -34,13 +34,9 @@ data class Bericht(
         requireValid(afzender.waarde != ontvanger.waarde) {
             "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
         }
-        // PublicatieDatum mag in de toekomst (uitgestelde publicatie). Niet ver in
-        // het verleden vóór tijdstipOntvangst — anders zou de outbox-poller direct
-        // afleveren met een misleidende "geplande" datum. Slack van 1s tegen
-        // klok-skew tussen aanleveraar en server.
-        requireValid(!publicatiedatum.isBefore(tijdstipOntvangst.minusSeconds(1))) {
-            "PublicatieDatum mag niet voor tijdstipOntvangst liggen"
-        }
+        // publicatiedatum mag zowel in de toekomst (uitgestelde publicatie) als in het
+        // verleden liggen: bij een late her-aanlevering kan de oorspronkelijke datum al
+        // verstreken zijn. Een datum in het verleden laat de outbox direct publiceren.
     }
 
     companion object {

@@ -149,16 +149,20 @@ class PublicatieClaimVerwerker(
                     )
                 }
                 is DownstreamResultaat.Mislukt -> {
-                    val volgendePoging = RetryBeleid.volgendePoging(
-                        nu = nu,
-                        pogingenNaFout = claim.pogingen + 1,
-                        maxPogingen = config.maxPogingen(),
-                        basis = config.backoff().basis(),
-                        plafond = config.backoff().plafond(),
-                        claimId = claim.claimId,
-                        herstelbaar = resultaat.herstelbaar,
-                        retryAfter = resultaat.retryAfter,
-                    )
+                    // Geen downstreamConfig (config-drift) → null volgendePoging → terminal
+                    // MISLUKT; dat klopt, een onbekend doel is een non-herstelbare config-fout.
+                    val volgendePoging = downstreamConfig?.let { dc ->
+                        RetryBeleid.volgendePoging(
+                            nu = nu,
+                            pogingenNaFout = claim.pogingen + 1,
+                            maxPogingen = dc.maxPogingen(),
+                            basis = dc.backoff().basis(),
+                            plafond = dc.backoff().plafond(),
+                            claimId = claim.claimId,
+                            herstelbaar = resultaat.herstelbaar,
+                            retryAfter = resultaat.retryAfter,
+                        )
+                    }
                     val gesaneerdeReden = FoutBeschrijving.saneer(resultaat.reden)
                     claimer.markeerMislukt(claim.claimId, gesaneerdeReden, volgendePoging)
                     ldvContext.status = StatusCode.ERROR

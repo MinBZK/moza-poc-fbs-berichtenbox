@@ -28,6 +28,11 @@ class DownstreamClientTest {
 
     private class DownstreamStub(private val u: String) : PublicatieConfig.Downstream {
         override fun url(): String = u
+        override fun maxPogingen(): Int = 5
+        override fun backoff(): PublicatieConfig.Backoff = object : PublicatieConfig.Backoff {
+            override fun basis(): java.time.Duration = java.time.Duration.ofSeconds(1)
+            override fun plafond(): java.time.Duration = java.time.Duration.ofHours(1)
+        }
     }
 
     private class SimuleerdeJsonFout(msg: String) : JsonProcessingException(msg)

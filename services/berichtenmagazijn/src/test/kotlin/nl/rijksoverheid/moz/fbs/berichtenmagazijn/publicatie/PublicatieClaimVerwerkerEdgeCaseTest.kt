@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
@@ -35,6 +36,11 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
 
     private class DownstreamStub(private val u: String) : PublicatieConfig.Downstream {
         override fun url(): String = u
+        override fun maxPogingen(): Int = 3
+        override fun backoff(): PublicatieConfig.Backoff = object : PublicatieConfig.Backoff {
+            override fun basis(): Duration = Duration.ofSeconds(1)
+            override fun plafond(): Duration = Duration.ofHours(1)
+        }
     }
 
     private val claimer = mockk<PublicatieClaimer>()
@@ -143,12 +149,6 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         every { processingHandler.startSpan(any<String>(), any()) } returns span
         every { config.downstreams() } returns emptyMap()
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
-        every { config.maxPogingen() } returns 3
-        val backoff = mockk<PublicatieConfig.Backoff> {
-            every { basis() } returns java.time.Duration.ofSeconds(1)
-            every { plafond() } returns java.time.Duration.ofHours(1)
-        }
-        every { config.backoff() } returns backoff
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
         justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
         every { downstreamClient.lever(claim.doel, event) } returns

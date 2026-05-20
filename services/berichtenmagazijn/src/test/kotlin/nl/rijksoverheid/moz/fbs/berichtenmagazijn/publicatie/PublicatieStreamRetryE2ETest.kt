@@ -102,9 +102,11 @@ class PublicatieStreamRetryE2ETest {
                 "magazijn.publicatie.downstreams.notificatie.url" to notificatie.baseUrl,
                 // Polling-interval 200ms — Quarkus clampt naar 1s, snelste optie.
                 "magazijn.publicatie.polling.interval" to "200ms",
-                // Lage backoff zodat retry binnen test-window valt.
-                "magazijn.publicatie.backoff.basis" to "PT0.05S",
-                "magazijn.publicatie.max-pogingen" to "3",
+                // Lage backoff per-downstream zodat retry binnen test-window valt.
+                "magazijn.publicatie.downstreams.aanmeld.backoff.basis" to "PT0.05S",
+                "magazijn.publicatie.downstreams.aanmeld.max-pogingen" to "3",
+                "magazijn.publicatie.downstreams.notificatie.backoff.basis" to "PT0.05S",
+                "magazijn.publicatie.downstreams.notificatie.max-pogingen" to "3",
                 "quarkus.scheduler.enabled" to "true",
             )
         }

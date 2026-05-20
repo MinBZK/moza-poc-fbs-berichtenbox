@@ -123,8 +123,8 @@ class PublicatieStream4xxTerminalE2ETest {
             return mapOf(
                 "magazijn.publicatie.downstreams.aanmeld.url" to aanmeld.baseUrl,
                 "magazijn.publicatie.polling.interval" to "200ms",
-                "magazijn.publicatie.backoff.basis" to "PT0.05S",
-                "magazijn.publicatie.max-pogingen" to "3",
+                "magazijn.publicatie.downstreams.aanmeld.backoff.basis" to "PT0.05S",
+                "magazijn.publicatie.downstreams.aanmeld.max-pogingen" to "3",
                 "quarkus.scheduler.enabled" to "true",
             )
         }

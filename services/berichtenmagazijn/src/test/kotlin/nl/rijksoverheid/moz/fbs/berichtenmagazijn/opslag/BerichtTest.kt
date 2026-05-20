@@ -78,21 +78,11 @@ class BerichtTest {
     }
 
     @Test
-    fun `publicatiedatum significant voor tijdstipOntvangst faalt`() {
+    fun `publicatiedatum in het verleden is toegestaan (late her-aanlevering)`() {
+        // Bij een late her-aanlevering kan de oorspronkelijke publicatiedatum al verstreken
+        // zijn; dat mag — de outbox publiceert dan direct.
         val nu = Instant.parse("2026-05-12T10:00:00Z")
-        val ex = assertThrows(IllegalArgumentException::class.java) {
-            bericht(tijdstipOntvangst = nu, publicatiedatum = nu.minusSeconds(60))
-        }
-        assertEquals("PublicatieDatum mag niet voor tijdstipOntvangst liggen", ex.message)
-    }
-
-    @Test
-    fun `publicatiedatum 1 seconde voor tijdstipOntvangst is toegestaan via klok-skew-slack`() {
-        // Domein-invariant heeft 1s slack tegen klok-skew tussen aanleveraar en server;
-        // dit voorkomt dat een client-clock minimaal vooruit lopen direct als domeinfout
-        // verschijnt. Borg het gedrag expliciet.
-        val nu = Instant.parse("2026-05-12T10:00:00Z")
-        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = nu.minusSeconds(1))
-        assertEquals(nu.minusSeconds(1), b.publicatiedatum)
+        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = nu.minusSeconds(60))
+        assertEquals(nu.minusSeconds(60), b.publicatiedatum)
     }
 }
