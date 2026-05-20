@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd (commit 96e11bc; M-6/M-7/B-CMT-7/B-PROC-1/B-OBS-1 expliciet als follow-up)
 
 # Plan: Review-bevindingen PR #55 (Ophaal- en Beheer-API)
 
