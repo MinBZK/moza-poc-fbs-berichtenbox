@@ -19,6 +19,12 @@ data class Bericht(
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
+    // Metadata van bijlagen bij het bericht. Bytes worden separaat opgehaald via
+    // de bijlage-repository; in de berichtenlijst is alleen metadata zichtbaar.
+    val bijlagen: List<BijlageMetadata> = emptyList(),
+    // Leesstatus voor de ontvanger die het bericht opvraagt. `null` als de
+    // ontvanger het bericht nog niet heeft aangeraakt.
+    val status: BerichtStatus? = null,
 ) {
     init {
         requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
@@ -26,11 +32,17 @@ data class Bericht(
             "Onderwerp mag max $MAX_ONDERWERP_LENGTE characters zijn"
         }
         requireValid(inhoud.isNotBlank()) { "Inhoud mag niet leeg zijn" }
-        val inhoudBytes = inhoud.toByteArray(Charsets.UTF_8).size
-        requireValid(inhoudBytes <= MAX_INHOUD_BYTES) {
-            "Inhoud mag max ${MAX_INHOUD_BYTES / 1024 / 1024} MiB UTF-8 zijn (kreeg $inhoudBytes bytes)"
+        // UTF-8 is hooguit 4 bytes/char. Als char-lengte × 4 onder de limiet blijft is
+        // bytes-encoding onnodig; dit pad raakt bij elke `copy()` (verrijking met
+        // status/bijlagen in de Ophaal-flow) en zou anders per lijst-element een
+        // ~MiB ByteArray-allocatie veroorzaken.
+        if (inhoud.length > MAX_INHOUD_BYTES / Charsets.UTF_8.newEncoder().maxBytesPerChar().toInt()) {
+            val inhoudBytes = inhoud.toByteArray(Charsets.UTF_8).size
+            requireValid(inhoudBytes <= MAX_INHOUD_BYTES) {
+                "Inhoud mag max ${MAX_INHOUD_BYTES / 1024 / 1024} MiB UTF-8 zijn (kreeg $inhoudBytes bytes)"
+            }
         }
-        requireValid(afzender.waarde != ontvanger.waarde) {
+        requireValid(afzender != ontvanger) {
             "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
         }
     }

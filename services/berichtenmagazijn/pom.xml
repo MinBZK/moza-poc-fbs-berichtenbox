@@ -42,6 +42,10 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-smallrye-fault-tolerance</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
 
         <!-- Persistentie -->
         <dependency>
@@ -149,6 +153,7 @@
                             </configOptions>
                             <typeMappings>
                                 <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
+                                <typeMapping>File=byte[]</typeMapping>
                             </typeMappings>
                             <generateSupportingFiles>false</generateSupportingFiles>
                             <generateApiTests>false</generateApiTests>
@@ -303,8 +308,10 @@ public final class ApiInfo {
                                 <rule>
                                     <element>BUNDLE</element>
                                     <excludes>
-                                        <exclude>nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.*</exclude>
-                                        <exclude>nl.rijksoverheid.moz.fbs.common.*</exclude>
+                                        <!-- `**` is nodig om ook subpackages (zoals api.model) uit te sluiten;
+                                             `*` matcht alleen het laatste segment. -->
+                                        <exclude>nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.**</exclude>
+                                        <exclude>nl.rijksoverheid.moz.fbs.common.**</exclude>
                                     </excludes>
                                     <limits>
                                         <limit>

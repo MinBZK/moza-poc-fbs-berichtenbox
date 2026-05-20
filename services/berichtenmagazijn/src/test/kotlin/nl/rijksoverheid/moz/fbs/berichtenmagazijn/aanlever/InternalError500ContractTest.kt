@@ -32,6 +32,7 @@ class InternalError500ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            bijlageRepository = mockk(relaxed = true),
         ) {
             override fun opslaanBericht(
                 afzender: String,
@@ -39,6 +40,7 @@ class InternalError500ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
+                bijlagen: List<BijlageInvoer>,
             ): Nothing = throw InternalServerErrorException("SELECT * FROM berichten WHERE secret=redacted")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

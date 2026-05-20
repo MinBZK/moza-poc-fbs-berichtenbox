@@ -1,0 +1,21 @@
+meta {
+  name: 1. Berichtenlijst ophalen (X-Ontvanger BSN)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/berichten?page=0&pageSize=20
+  body: none
+  auth: none
+}
+
+params:query {
+  page: 0
+  pageSize: 20
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}

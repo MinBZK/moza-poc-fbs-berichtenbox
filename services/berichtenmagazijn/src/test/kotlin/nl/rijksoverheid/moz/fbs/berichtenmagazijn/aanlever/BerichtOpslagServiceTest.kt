@@ -6,6 +6,7 @@ import io.mockk.slot
 import io.mockk.verify
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -14,7 +15,8 @@ import org.junit.jupiter.api.Test
 class BerichtOpslagServiceTest {
 
     private val repository = mockk<BerichtRepository>(relaxed = true)
-    private val service = BerichtOpslagService(repository)
+    private val bijlageRepository = mockk<BijlageRepository>(relaxed = true)
+    private val service = BerichtOpslagService(repository, bijlageRepository)
 
     @Test
     fun `opslaanBericht roept repository opslaan aan en retourneert het domeinobject`() {

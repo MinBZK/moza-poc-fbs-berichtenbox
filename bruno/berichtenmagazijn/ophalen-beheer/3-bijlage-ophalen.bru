@@ -1,0 +1,16 @@
+meta {
+  name: 3. Bijlage ophalen (bytes)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/berichten/{{berichtId}}/bijlagen/{{bijlageId}}
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}

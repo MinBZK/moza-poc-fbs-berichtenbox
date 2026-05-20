@@ -7,6 +7,7 @@ import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.AanleverApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
@@ -25,24 +26,32 @@ class AanleverResource(
 
     @Logboek(
         name = "aanleveren-bericht",
-        processingActivityId = "https://register.example.com/verwerkingen/berichtenmagazijn-aanleveren",
+        processingActivityId = ProcessingActivities.MAGAZIJN_AANLEVEREN,
     )
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
         val ontvangerDto = berichtAanleverenRequest.ontvanger
+        val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
+            BijlageInvoer(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
+        }
         val bericht = opslagService.opslaanBericht(
             afzender = berichtAanleverenRequest.afzender,
             ontvangerType = IdentificatienummerType.valueOf(ontvangerDto.type.name),
             ontvangerWaarde = ontvangerDto.waarde,
             onderwerp = berichtAanleverenRequest.onderwerp,
             inhoud = berichtAanleverenRequest.inhoud,
+            bijlagen = bijlagen,
         )
 
         // Zet dataSubjectId pas na succesvolle domein-validatie, zodat we geen
         // ongevalideerde input in de AVG-logboekcontext zetten. Tot dat punt zorgt
         // LogboekContextDefaultFilter voor een safe default. Gebruik de door
         // [Bericht] gevalideerde waarde, niet het raw request-veld.
+        // dataSubjectType beschrijft hoe `dataSubjectId` geïnterpreteerd moet
+        // worden (BSN/RSIN/KVK/OIN) — niet de rol van het subject. Dat is wat
+        // het Logboek-spec verwacht zodat tooling die op type filtert (bv.
+        // "BSN") de juiste verwerkingen vindt.
         logboekContext.dataSubjectId = bericht.ontvanger.waarde
-        logboekContext.dataSubjectType = "ontvanger"
+        logboekContext.dataSubjectType = bericht.ontvanger.type.name
 
         val selfHref = uriInfo.baseUriBuilder
             .path(ApiInfo.BASE_PATH)
