@@ -6,6 +6,7 @@ import io.mockk.slot
 import io.mockk.verify
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -18,8 +19,9 @@ import java.util.UUID
 class BerichtOpslagServiceTest {
 
     private val repository = mockk<BerichtRepository>(relaxed = true)
+    private val bijlageRepository = mockk<BijlageRepository>(relaxed = true)
     private val publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true)
-    private val service = BerichtOpslagService(repository, publicatieOutbox, java.time.Clock.systemUTC())
+    private val service = BerichtOpslagService(repository, bijlageRepository, publicatieOutbox, java.time.Clock.systemUTC())
 
     @Test
     fun `slaBerichtOp roept repository opslaan aan en retourneert het domeinobject`() {

@@ -60,6 +60,9 @@ class AanleverResource(
             logboekContext.processingActivityId = publicatieConfig.verwerkingsregisterAanleveren()
             return span.makeCurrent().use { _ ->
                 val ontvangerDto = berichtAanleverenRequest.ontvanger
+                val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
+                    BijlageInvoer(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
+                }
                 val bericht = opslagService.slaBerichtOp(
                     afzender = berichtAanleverenRequest.afzender,
                     ontvangerType = IdentificatienummerType.valueOf(ontvangerDto.type.name),
@@ -67,6 +70,7 @@ class AanleverResource(
                     onderwerp = berichtAanleverenRequest.onderwerp,
                     inhoud = berichtAanleverenRequest.inhoud,
                     publicatiedatum = berichtAanleverenRequest.publicatiedatum,
+                    bijlagen = bijlagen,
                 )
 
                 // dataSubject pas na domein-validatie zetten (geen ongevalideerde input

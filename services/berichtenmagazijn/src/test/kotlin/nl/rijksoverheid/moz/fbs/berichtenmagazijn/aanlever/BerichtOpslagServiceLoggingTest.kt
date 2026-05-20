@@ -32,8 +32,9 @@ import java.util.logging.Logger
 class BerichtOpslagServiceLoggingTest {
 
     private val repository = mockk<BerichtRepository>(relaxed = true)
+    private val bijlageRepository = mockk<nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository>(relaxed = true)
     private val publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true)
-    private val service = BerichtOpslagService(repository, publicatieOutbox, java.time.Clock.systemUTC())
+    private val service = BerichtOpslagService(repository, bijlageRepository, publicatieOutbox, java.time.Clock.systemUTC())
 
     private val julLogger: Logger = Logger.getLogger(BerichtOpslagService::class.java.name)
     private val records = mutableListOf<LogRecord>()

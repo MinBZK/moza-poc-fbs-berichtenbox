@@ -1,0 +1,16 @@
+meta {
+  name: 5. Bericht verwijderen (soft-delete)
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/berichten/{{berichtId}}
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}

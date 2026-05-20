@@ -33,6 +33,7 @@ class CircuitBreakerOpen503ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            bijlageRepository = mockk(relaxed = true),
             publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
             clock = java.time.Clock.systemUTC(),
         ) {
@@ -43,6 +44,7 @@ class CircuitBreakerOpen503ContractTest {
                 onderwerp: String,
                 inhoud: String,
                 publicatiedatum: Instant?,
+                bijlagen: List<BijlageInvoer>,
             ): Nothing = throw CircuitBreakerOpenException("circuit open (test)")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

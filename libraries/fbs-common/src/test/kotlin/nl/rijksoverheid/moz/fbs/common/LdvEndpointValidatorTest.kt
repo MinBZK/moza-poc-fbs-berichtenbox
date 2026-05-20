@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn
+package nl.rijksoverheid.moz.fbs.common
 
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

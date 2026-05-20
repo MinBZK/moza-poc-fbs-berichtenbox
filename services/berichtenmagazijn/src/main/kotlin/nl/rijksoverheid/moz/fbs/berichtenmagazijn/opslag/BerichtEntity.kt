@@ -62,6 +62,13 @@ internal class BerichtEntity {
     @Column(name = "publicatiedatum", nullable = false)
     var publicatiedatum: Instant = Instant.EPOCH
 
+    // Soft-delete marker. NULL = actief; niet-NULL betekent dat het bericht door
+    // de ontvanger is verwijderd via DELETE /berichten/{id}. Ophaal-endpoints
+    // filteren rijen met niet-NULL `verwijderdOp` uit; de rij blijft fysiek
+    // aanwezig voor audit en eventueel herstel.
+    @Column(name = "verwijderd_op")
+    var verwijderdOp: Instant? = null
+
     fun toDomain(): Bericht = try {
         Bericht(
             berichtId = berichtId,

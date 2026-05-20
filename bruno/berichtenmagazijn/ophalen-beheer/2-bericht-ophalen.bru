@@ -1,0 +1,16 @@
+meta {
+  name: 2. Bericht ophalen (incl. inhoud + bijlagen-metadata)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/berichten/{{berichtId}}
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}

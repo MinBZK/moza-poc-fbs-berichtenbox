@@ -33,6 +33,7 @@ class DbConstraintViolation409ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            bijlageRepository = mockk(relaxed = true),
             publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
             clock = java.time.Clock.systemUTC(),
         ) {
@@ -43,6 +44,7 @@ class DbConstraintViolation409ContractTest {
                 onderwerp: String,
                 inhoud: String,
                 publicatiedatum: Instant?,
+                bijlagen: List<BijlageInvoer>,
             ): Nothing = throw HibernateConstraintViolationException(
                 "unique violation",
                 SQLException("duplicate key", "23505"),

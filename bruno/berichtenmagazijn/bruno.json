@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "name": "Berichtenmagazijn Aanlever API",
+  "name": "Berichtenmagazijn API",
   "type": "collection",
   "ignore": ["node_modules", ".git"]
 }

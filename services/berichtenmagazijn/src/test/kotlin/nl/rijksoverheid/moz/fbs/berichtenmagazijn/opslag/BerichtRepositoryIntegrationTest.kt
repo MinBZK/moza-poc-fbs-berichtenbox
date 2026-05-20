@@ -174,4 +174,52 @@ class BerichtRepositoryIntegrationTest {
 
     @Transactional
     fun findByIdInTransaction(berichtId: UUID): Bericht? = repository.findByBerichtId(berichtId)
+
+    @Test
+    @Transactional
+    fun `softDelete tweede call op zelfde berichtId retourneert false zonder exception`() {
+        // De WHERE-clause filtert verwijderdOp IS NULL — een tweede update
+        // mag geen rij meer raken en retourneert false. check(rows lt= 1)
+        // mag in dit pad NIET vuren, anders zou de race-tak van
+        // BerichtBeheerService.verwijder kapot zijn.
+        val bericht = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = Oin("00000001003214345000"),
+            ontvanger = Bsn("999993653"),
+            onderwerp = "Twee deletes",
+            inhoud = "Inhoud",
+            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+        )
+        repository.save(bericht)
+        entityManager.flush()
+
+        val eerste = repository.softDelete(bericht.berichtId, Bsn("999993653"), Instant.now())
+        val tweede = repository.softDelete(bericht.berichtId, Bsn("999993653"), Instant.now())
+
+        assertTrue(eerste, "eerste softDelete moet succesvol zijn (1 rij)")
+        assertEquals(false, tweede, "tweede softDelete mag niets raken")
+    }
+
+    @Test
+    @Transactional
+    fun `softDelete door verkeerde ontvanger retourneert false zonder rij te wijzigen`() {
+        val bericht = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = Oin("00000001003214345000"),
+            ontvanger = Bsn("999993653"),
+            onderwerp = "Wrong recipient",
+            inhoud = "Inhoud",
+            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+        )
+        repository.save(bericht)
+        entityManager.flush()
+
+        val gewijzigd = repository.softDelete(bericht.berichtId, Bsn("123456782"), Instant.now())
+
+        assertEquals(false, gewijzigd, "ontvanger-mismatch mag geen rij wijzigen")
+        val nuNogSteedsActief = repository.findByBerichtId(bericht.berichtId)
+        assertNotNull(nuNogSteedsActief, "bericht moet nog steeds zichtbaar zijn")
+    }
 }

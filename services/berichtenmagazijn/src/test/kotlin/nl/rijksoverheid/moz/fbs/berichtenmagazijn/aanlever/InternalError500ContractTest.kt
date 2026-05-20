@@ -34,6 +34,7 @@ class InternalError500ContractTest {
     fun installFailingService() {
         val failingService = object : BerichtOpslagService(
             repository = mockk(relaxed = true),
+            bijlageRepository = mockk(relaxed = true),
             publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
             clock = java.time.Clock.systemUTC(),
         ) {
@@ -44,6 +45,7 @@ class InternalError500ContractTest {
                 onderwerp: String,
                 inhoud: String,
                 publicatiedatum: Instant?,
+                bijlagen: List<BijlageInvoer>,
             ): Nothing = throw InternalServerErrorException("SELECT * FROM berichten WHERE secret=redacted")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)

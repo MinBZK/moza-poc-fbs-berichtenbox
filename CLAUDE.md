@@ -17,7 +17,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
 - **Caching:** sessiecache-specifiek: Redis (60s sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via `BerichtenCache` interface — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes. Berichtenmagazijn heeft geen cache.
-- **Persistentie:** berichtenmagazijn-specifiek: H2 embedded + Hibernate ORM Panache.
+- **Persistentie:** berichtenmagazijn-specifiek: PostgreSQL 18 + Hibernate ORM Panache. Tests via Quarkus Dev Services (Testcontainers); dev via `compose.yaml`. Geen H2.
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
 
@@ -25,9 +25,12 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 - **OpenAPI-first:** De OpenAPI spec (`berichtensessiecache-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze.
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
-- **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`.
+- **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`. Spec valideren met Spectral-linter (zie Tooling).
 - **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
 - **ExceptionMappers in fbs-common:** `ProblemExceptionMapper` (WebApplicationException, maskeert 5xx met correlation-id), `ConstraintViolationExceptionMapper` (Bean Validation), `DomainValidationExceptionMapper` (domein-invarianten), `JsonProcessingExceptionMapper`/`MismatchedInputExceptionMapper` (Jackson, zonder originalMessage lek), `UncaughtExceptionMapper` (vangnet voor alle overige `Exception`s, 500 + correlation-id). Gedeelde response-helpers: `problemResponse(...)` en `maskedServerErrorProblem(...)` in `ProblemResponses.kt`.
+- **BSN/PII-handling:** elfproef-validatie via `Bsn`/`Rsin`. BSN nooit in URL of spec — alleen via header (`X-Ontvanger: BSN:<waarde>`). BSN nooit in applicatie-logs (`.type` mag, `.waarde` niet). LDV's `dataSubjectId` mag de waarde bevatten zolang het endpoint TLS gebruikt (BIO 13.2.1, afgedwongen door `fbs-common/LdvEndpointValidator` in `%prod`/`%staging`/`%acceptatie`).
+- **Centrale autorisatie:** `opslag/BerichtAutorisatie.vereisOntvanger(...)` voor alle ontvanger-checks in magazijn-services. Niet dupliceren; wordt later vervangen door AuthZEN PEP (Issue 10).
+- **Berichtgrootte = theoretisch plafond, niet realistisch werkpunt:** `Bericht.MAX_INHOUD_BYTES = 1 MiB` is een harde validatiegrens; in de praktijk zijn berichten een paar kilobytes (notificaties, korte mededelingen). Combinaties als "100 berichten × 1 MiB × meegeleverde bijlagen" zijn theoretische worst-cases die in productie niet voorkomen. Geen extra payload-caps, projection-parameters of view-varianten op `GET /berichten` toevoegen "voor het geval dat" — wacht op een concrete productieaanleiding voor je hier complexiteit toevoegt. Wel: `quarkus.http.limits.max-body-size` blijft als vangnet voor inkomende aanlever-requests.
 
 ## Conventies
 
@@ -40,6 +43,22 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Bruno-collectie:** per service met een OpenAPI-spec hoort een Bruno-collectie onder `bruno/<service-naam>/` (met `bruno.json`, `environments/lokaal.bru` en requests per functioneel pad). Nieuwe endpoints in de OpenAPI-spec krijgen direct een bijbehorende `.bru`-request; zo blijft de collectie een levend exempel van de spec.
 - **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
 - **Commentaar:** leg het *waarom* vast (niet-evidente beslissing, security-/contract-invariant), niet het *wat* dat de code al toont. Herhaal aan een call-site niet wat de KDoc van de aangeroepen functie/veld al beschrijft. Houd het kort: condenseer rationale tot enkele regels; laat opsommingen/voorbeelden weg die niets verduidelijken. Ga uit van werken-naar-productie — geen "PoC"/"voorlopig"/productie-twijfel in comments; verwijs naar toekomstig werk alleen via `TODO(#ticket)`.
+
+## Database & migraties
+
+- **Surrogate PK per tabel:** elke tabel heeft `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`. Business-keys (UUID's, OIN, etc.) zijn unique-constrained kolommen, nooit PK.
+- **FK's op surrogate PK:** child-tabellen verwijzen via `<parent>_db_id BIGINT` naar `parent.id`, niet via de business-key. JPA-relatie: `@ManyToOne(LAZY) @JoinColumn(name = "<parent>_db_id")`.
+- **FK's zonder `ON DELETE CASCADE` tenzij opzettelijk:** soft-delete is de default voor `berichten`; CASCADE ondergraaft de soft-delete-semantiek en is een voetkanon als ooit hard-delete wordt toegevoegd. Default = RESTRICT.
+- **Flyway migraties zijn immutable na toepassing:** wijzig een bestaande `V*.sql` nooit; voeg een nieuwe `V(N+1)__...sql` toe. Lokale rollback-scripts staan onder `src/main/resources/db/rollback/V*.sql` (handmatig draaien + `flyway_schema_history`-rij opruimen).
+- **Test-cleanup volgorde** met RESTRICT-FK's: child-tabellen eerst (`statusRepository.deleteAll()` → `bijlageRepository.deleteAll()` → `berichtRepository.deleteAll()`).
+- **`@Lob byte[]` NIET op PostgreSQL:** mapt naar `oid` (Large Object) i.p.v. `bytea`. Hibernate 6 default mapping (`byte[]` zonder annotatie) → VARBINARY → BYTEA is correct.
+
+## Quarkus configuratie
+
+- **Globale HTTP-headers vs JAX-RS filters:** `ContainerResponseFilter` dekt alleen JAX-RS-paden, niet `/openapi.json`, `/q/health`, `/q/metrics`, dev-UI. Security-headers daarom ÓÓK globaal via `quarkus.http.header."X-Frame-Options".value=DENY` etc. — `fbs-common/SecurityHeadersFilter` blijft als JAX-RS-defense-in-depth.
+- **`/openapi.json` expliciet configureren:** ADR-vereiste; default Quarkus-path is `/q/openapi`. Beide services hebben `quarkus.smallrye-openapi.path=/openapi.json`.
+- **`quarkus.jackson.serialization-inclusion=non_null`:** optionele HAL-velden (bv. `_links.next` op laatste pagina) moeten afwezig zijn i.p.v. `null`, anders faalt `swagger-request-validator` op de Problem-schema-check.
+- **Dynamic Content-Type pattern:** voor endpoints met variabel MIME-type (bv. bijlage-download) — OpenAPI `content: '*/*':` + een `ContainerResponseFilter` die `Content-Type` overschrijft uit een unieke request-property. **NameBinding (`@NameBinding`) werkt niet** op override-methodes vanuit gegenereerde JAX-RS interfaces in Quarkus REST; property-driven gating is de werkbare guard (zie `BijlageContentTypeFilter`).
 
 ## Build & test commando's
 
@@ -105,7 +124,7 @@ Bij elke codewijziging beoordelen of er tests toegevoegd of aangepast moeten wor
 - **Integratietests** (`@QuarkusTest`) wanneer de wijziging meerdere componenten raakt of externe afhankelijkheden (Redis, REST-clients) betreft.
 - **Fuzzing / property-based tests** overwegen bij input-parsing, validatielogica of security-gevoelige code.
 - Als integratietests of fuzzing een grote toevoeging vormen, dit eerst voorleggen aan de gebruiker voordat je begint.
-- **Coverage:** JaCoCo minimum 90% line coverage (`quarkus-jacoco`), gegenereerde code (`api.*`) uitgesloten
+- **Coverage:** JaCoCo minimum 90% line coverage (`quarkus-jacoco`), gegenereerde code (`api.**`) uitgesloten. **Let op:** `quarkus-jacoco` telt alleen `@QuarkusTest`-coverage in `jacoco-quarkus.exec` — pure unit-tests (JUnit + MockK zonder Quarkus) dragen NIET bij aan de drempel. Integratietests zijn dus vereist voor code dat alleen via HTTP/CDI bereikbaar is. JaCoCo BUNDLE-exclude pattern MOET `**` gebruiken voor subpackages (`api.**`, niet `api.*` — anders matchen alleen direct kinderen en tellen DTO's in `api.model.*` onbedoeld mee).
 
 ## Testlagen
 
@@ -134,3 +153,8 @@ Bij elke codewijziging beoordelen of er tests toegevoegd of aangepast moeten wor
 ## Review-aanpak
 
 Bij code reviews classificeren we bevindingen op ernst (Hoog/Medium/Laag) met een samenvattingstabel. Hoge punten worden direct aangepakt, medium in overleg, laag later.
+
+## Tooling
+
+- **ADR-spec-linting:** `npx @stoplight/spectral-cli lint <spec.yaml> --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml` valideert tegen Forum-Standaardisatie API Design Rules.
+- **CI-status volgen:** `gh pr checks <PR#>` en `gh run watch <run-id> --exit-status`. Bij falen: `gh run view <id> --log-failed`.
