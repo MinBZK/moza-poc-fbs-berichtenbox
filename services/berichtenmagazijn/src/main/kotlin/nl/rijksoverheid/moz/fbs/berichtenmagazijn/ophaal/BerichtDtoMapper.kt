@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 import jakarta.ws.rs.core.UriBuilder
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageLinks
@@ -47,13 +48,27 @@ internal object BerichtDtoMapper {
         afzender: String?,
         baseUri: UriBuilder,
     ): BerichtenLijst = BerichtenLijst().apply {
-        berichten = pagina.berichten.map { toBericht(it, baseUri) }
+        berichten = pagina.berichten.map { toBerichtSamenvatting(it, baseUri) }
         page = pagina.page
         pageSize = pagina.pageSize
         totalElements = pagina.totalElements
         totalPages = pagina.totalPages
         links = pagineerLinks(pagina, afzender, baseUri)
     }
+
+    private fun toBerichtSamenvatting(bericht: Bericht, baseUri: UriBuilder): BerichtSamenvatting =
+        BerichtSamenvatting().apply {
+            berichtId = bericht.berichtId
+            afzender = bericht.afzender.waarde
+            ontvanger = toIdentificatienummerDto(bericht.ontvanger)
+            onderwerp = bericht.onderwerp
+            tijdstipOntvangst = bericht.tijdstipOntvangst
+            aantalBijlagen = bericht.bijlagen.size
+            status = bericht.status?.let { toStatusDto(it) }
+            links = BerichtLinks().apply {
+                self = Link().apply { href = selfHrefVoorBericht(bericht.berichtId, baseUri) }
+            }
+        }
 
     private fun toBijlageMetadataDto(
         meta: DomainBijlageMetadata,

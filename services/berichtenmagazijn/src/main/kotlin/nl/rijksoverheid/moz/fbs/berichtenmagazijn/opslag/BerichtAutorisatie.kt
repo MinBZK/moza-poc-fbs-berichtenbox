@@ -4,10 +4,10 @@ import jakarta.ws.rs.ForbiddenException
 import org.jboss.logging.Logger
 
 /**
- * Centrale PEP voor toegang tot een bericht: ontvanger op het bericht moet
- * matchen met de ontvanger uit de `X-Ontvanger`-header. Wordt vervangen door
- * een AuthZEN PEP/PDP zodra die beschikbaar is — door dit centraal te houden
- * blijft die overstap één plek code.
+ * Centrale plek voor de ontvanger-check op een bericht: het bericht moet
+ * matchen met de ontvanger uit de `X-Ontvanger`-header. Door deze check op
+ * één plek te houden, blijft een eventuele uitbreiding (rolgebaseerde
+ * autorisatie, externe PDP) lokaal.
  *
  * Logging laat opzettelijk de `waarde` weg (kan een BSN zijn): alleen
  * `berichtId` + `ontvanger.type` is voor diagnose voldoende; de Problem-

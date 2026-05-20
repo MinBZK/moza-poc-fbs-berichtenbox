@@ -171,6 +171,59 @@ class BeheerResourceIntegrationTest {
     }
 
     @Test
+    fun `DELETE met zelfde waarde maar ander type geeft 403`() {
+        // Bsn(999993653) en RSIN met dezelfde 9 cijfers zijn elfproef-valide.
+        // Type-mismatch mag NIET door type-coercion een ander zijn-bericht raken.
+        val b = insertBericht()
+        given()
+            .header("X-Ontvanger", "RSIN:999993653")
+            .`when`().delete("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(403)
+    }
+
+    @Test
+    fun `PATCH met zelfde waarde maar ander type geeft 403`() {
+        val b = insertBericht()
+        given()
+            .header("X-Ontvanger", "RSIN:999993653")
+            .contentType("application/merge-patch+json")
+            .body("""{"gelezen": true}""")
+            .`when`().patch("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(403)
+    }
+
+    @Test
+    fun `PATCH op andermans soft-deleted bericht geeft 403 (geen bestaan-onthulling)`() {
+        // Spiegelt het bestaande DELETE-gedrag: 403 i.p.v. 404 op andermans soft-
+        // deleted bericht, zodat een UUID-rader het bestaan van andermans bericht
+        // niet kan afleiden uit een 404↔403-verschil.
+        val b = insertBericht()
+        given().header("X-Ontvanger", ontvangerHeader)
+            .`when`().delete("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(204)
+
+        given().header("X-Ontvanger", andereOntvangerHeader)
+            .contentType("application/merge-patch+json")
+            .body("""{"gelezen": true}""")
+            .`when`().patch("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(403)
+    }
+
+    @Test
+    fun `PATCH op eigen soft-deleted bericht geeft 404 (bestaat niet meer voor zichtbaarheid)`() {
+        val b = insertBericht()
+        given().header("X-Ontvanger", ontvangerHeader)
+            .`when`().delete("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(204)
+
+        given().header("X-Ontvanger", ontvangerHeader)
+            .contentType("application/merge-patch+json")
+            .body("""{"gelezen": true}""")
+            .`when`().patch("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(404)
+    }
+
+    @Test
     fun `DELETE door andere ontvanger op al-verwijderd bericht geeft 403 (geen bestaan-onthulling)`() {
         // 403 zowel vóór als ná soft-delete: anders zou een attacker uit het
         // verschil tussen 403 (bestaat, andere ontvanger) en 404 (bestaat niet)

@@ -16,16 +16,20 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.bijlage.mimeType"
 
 /**
  * Overschrijft de `Content-Type` van een response wanneer de resource expliciet
- * een MIME-type op de request-context heeft gezet via [BIJLAGE_MIME_TYPE_PROPERTY].
+ * een MIME-type op de request-context heeft gezet via [BIJLAGE_MIME_TYPE_PROPERTY],
+ * en forceert `Content-Disposition: attachment` om inline-rendering door de
+ * browser uit te sluiten. Dat dicht een stored-XSS-vector: een aangeleverde
+ * bijlage met `text/html` (of `image/svg+xml`) zou anders bij download in een
+ * browser kunnen draaien onder onze origin. CSP `frame-ancestors 'none'` dekt
+ * alleen iframes — top-level navigatie naar het download-endpoint niet.
+ *
  * Het filter doet niets als de property afwezig is, dus het is veilig om globaal
  * te draaien; alleen `OphaalResource.getBijlage` zet de property.
  *
- * De resource valideert het MIME-type vóór het zetten van de property en gooit
- * 500 als de waarde ongeldig is. Dit filter parset de waarde nogmaals via
- * [MediaType.valueOf] als defense-in-depth: een toekomstige caller (test,
- * ander endpoint) zou de property kunnen zetten zonder pre-validatie, en
- * zonder check zou een waarde met `\r\n` header-splitting toelaten. Bij een
- * ongeldige waarde laat het filter de default `Content-Type` staan.
+ * Defense-in-depth: parse het MIME-type opnieuw via [MediaType.valueOf]. Een
+ * toekomstige caller (test, ander endpoint) zou de property zonder
+ * pre-validatie kunnen zetten; ongeparste waarde zou `\r\n`-header-splitting
+ * toelaten. Bij een ongeldige waarde laten we de default `Content-Type` staan.
  *
  * NameBinding is overwogen voor expliciete scoping, maar Quarkus REST neemt de
  * annotatie op de override-methode niet over uit de gegenereerde interface;
@@ -45,6 +49,10 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
             return
         }
         responseContext.headers.putSingle("Content-Type", parsed.toString())
+        // Geen filename: de naam van de bijlage staat al in BijlageMetadata van
+        // de detail-call. Filename in Content-Disposition vereist sanitatie/
+        // RFC 5987-encoding; weglaten is veiliger en functioneel afdoende.
+        responseContext.headers.putSingle("Content-Disposition", "attachment")
     }
 
     private companion object {

@@ -77,11 +77,13 @@ paths:
       summary: Berichtenlijst ophalen voor een ontvanger
       operationId: getBerichten
       description: |
-        Geeft een gepagineerde lijst van berichten terug voor de ontvanger uit de
-        `X-Ontvanger` header. Verwijderde berichten zijn uitgesloten. De berichten
-        in de lijst bevatten dezelfde velden als `GET /berichten/{berichtId}`,
-        inclusief tekstuele inhoud en bijlagen-metadata; bijlage-bytes worden
-        separaat opgehaald via `GET /berichten/{berichtId}/bijlagen/{bijlageId}`.
+        Geeft een gepagineerde lijst van bericht-**samenvattingen** terug voor de
+        ontvanger uit de `X-Ontvanger` header. Verwijderde berichten zijn uitgesloten.
+        Een samenvatting bevat de header-velden (afzender, ontvanger, onderwerp,
+        tijdstipOntvangst, status, aantalBijlagen) maar geen tekstuele inhoud en geen
+        bijlagen-metadata; haal die op via `GET /berichten/{berichtId}`. Dit voorkomt
+        dat een lijst-response onnodig groot wordt (data-minimalisatie AVG art. 5(1)(c)
+        en bandbreedte-efficiëntie).
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
@@ -235,8 +237,9 @@ paths:
       description: |
         Levert de ruwe inhoud (bytes) van een bijlage. De `Content-Type` response-header
         bevat het MIME-type zoals geregistreerd bij aanlevering (bijvoorbeeld
-        `application/pdf`). Consumers die de bijlage doorzetten naar de eindgebruiker
-        kunnen zelf een `Content-Disposition`-header toevoegen met de bestandsnaam.
+        `application/pdf`). De response zet altijd `Content-Disposition: attachment`
+        zodat consumer-browsers de inhoud nooit inline renderen — voorkomt stored
+        XSS via aangeleverde `text/html`- of `image/svg+xml`-bijlagen.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
       responses:
@@ -245,6 +248,11 @@ paths:
           headers:
             API-Version:
               $ref: '#/components/headers/API-Version'
+            Content-Disposition:
+              description: Altijd `attachment` om browser-inline-rendering uit te sluiten.
+              schema:
+                type: string
+                example: attachment
           content:
             '*/*':
               schema:
@@ -520,6 +528,39 @@ components:
           description: Verplaats naar deze map
           example: archief
 
+    BerichtSamenvatting:
+      type: object
+      description: |
+        Lichtgewicht representatie van een bericht voor lijstweergaves. Bevat
+        header-data en `aantalBijlagen`; de volledige `inhoud` en bijlagen-metadata
+        komen pas via `GET /berichten/{berichtId}` beschikbaar. Hergebruik van
+        `Bericht` voor de lijst zou met `inhoud` tot 1 MiB en `pageSize` tot 100
+        responses van ~100 MiB veroorzaken — onwenselijk voor zowel bandbreedte
+        als data-minimalisatie.
+      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, aantalBijlagen, _links]
+      properties:
+        berichtId:
+          type: string
+          format: uuid
+        afzender:
+          type: string
+          description: OIN van de afzender
+        ontvanger:
+          $ref: '#/components/schemas/Identificatienummer'
+        onderwerp:
+          type: string
+        tijdstipOntvangst:
+          type: string
+          format: date-time
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+          description: Aantal bijlagen bij het bericht. Vraag de details op via de detail-endpoint.
+        status:
+          $ref: '#/components/schemas/BerichtStatusInfo'
+        _links:
+          $ref: '#/components/schemas/BerichtLinks'
+
     BerichtenLijst:
       type: object
       required: [berichten, page, pageSize, totalElements, totalPages, _links]
@@ -527,7 +568,7 @@ components:
         berichten:
           type: array
           items:
-            $ref: '#/components/schemas/Bericht'
+            $ref: '#/components/schemas/BerichtSamenvatting'
         page:
           type: integer
         pageSize:

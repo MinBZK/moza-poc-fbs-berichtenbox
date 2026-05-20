@@ -88,7 +88,9 @@ class OphaalResourceIntegrationTest {
             .body("totalElements", `is`(2))
             .body("berichten", hasSize<Any>(2))
             .body("berichten[0].onderwerp", notNullValue())
-            .body("berichten[0].inhoud", containsString("Inhoud van"))
+            // BerichtSamenvatting bevat GEEN inhoud-veld; alleen aantalBijlagen.
+            .body("berichten[0].inhoud", nullValue())
+            .body("berichten[0].aantalBijlagen", `is`(0))
             .body("berichten[0]._links.self.href", containsString("/api/v1/berichten/"))
             .body("_links.self.href", containsString("/api/v1/berichten"))
     }
@@ -117,9 +119,9 @@ class OphaalResourceIntegrationTest {
             .then()
             .statusCode(200)
             .body("totalElements", `is`(3))
-            .body("berichten.find { it.berichtId == '${zonder.berichtId}' }.bijlagen", hasSize<Any>(0))
-            .body("berichten.find { it.berichtId == '${een.berichtId}' }.bijlagen", hasSize<Any>(1))
-            .body("berichten.find { it.berichtId == '${twee.berichtId}' }.bijlagen", hasSize<Any>(2))
+            .body("berichten.find { it.berichtId == '${zonder.berichtId}' }.aantalBijlagen", `is`(0))
+            .body("berichten.find { it.berichtId == '${een.berichtId}' }.aantalBijlagen", `is`(1))
+            .body("berichten.find { it.berichtId == '${twee.berichtId}' }.aantalBijlagen", `is`(2))
     }
 
     @Transactional
@@ -332,16 +334,35 @@ class OphaalResourceIntegrationTest {
     }
 
     @Test
-    fun `GET berichten clampt te grote pageSize naar 100 (defense-in-depth)`() {
-        // OpenAPI bean validation begrenst pageSize tot 100; deze case mikt op de
-        // server-side coerceIn als die ooit per ongeluk de Bean-validation passeert.
+    fun `GET berichten wijst pageSize boven 100 af met 400`() {
         insertBericht()
 
         given()
             .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten?page=0&pageSize=999")
             .then()
-            // Bean validation pakt deze nu af met 400; dat is het gewenste gedrag.
+            .statusCode(400)
+    }
+
+    @Test
+    fun `GET berichten wijst pageSize=0 af met 400`() {
+        insertBericht()
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten?page=0&pageSize=0")
+            .then()
+            .statusCode(400)
+    }
+
+    @Test
+    fun `GET berichten wijst negatieve page af met 400`() {
+        insertBericht()
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten?page=-1&pageSize=10")
+            .then()
             .statusCode(400)
     }
 }

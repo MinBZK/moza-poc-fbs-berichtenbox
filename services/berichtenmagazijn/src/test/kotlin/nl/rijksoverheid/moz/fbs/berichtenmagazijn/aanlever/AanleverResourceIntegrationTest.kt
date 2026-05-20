@@ -168,10 +168,10 @@ class AanleverResourceIntegrationTest {
 
     @Test
     fun `POST berichten met afzender van 8 cijfers wordt afgewezen door OIN-validatie als 400`() {
-        // Border case voor de mapper-prioriteit: een afzender van 8 cijfers passeert
-        // het OpenAPI-pattern niet meer (we hebben dit aangescherpt naar exact 20). Maar
-        // mocht het ooit verzwakt worden, dan moet Oin.init alsnog een DomainValidationException
-        // gooien die door de juiste mapper als 400 wordt afgehandeld — niet 500.
+        // Border case voor de mapper-prioriteit: het OpenAPI-pattern eist exact 20
+        // cijfers. Mocht dat ooit verzwakt worden, dan moet Oin.init alsnog een
+        // DomainValidationException gooien die door de juiste mapper als 400 wordt
+        // afgehandeld — niet 500.
         given()
             .contentType(ContentType.JSON)
             .body(

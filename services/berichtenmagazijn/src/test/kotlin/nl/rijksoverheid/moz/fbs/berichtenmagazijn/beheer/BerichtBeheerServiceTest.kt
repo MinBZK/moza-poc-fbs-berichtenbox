@@ -47,7 +47,7 @@ class BerichtBeheerServiceTest {
         val patch = BerichtStatusPatch(gelezen = true, map = "archief")
         val nieuweStatus = BerichtStatus(gelezen = true, map = "archief", gewijzigdOp = Instant.now())
         val patchSlot = slot<BerichtStatusPatch>()
-        every { berichtRepository.findByBerichtId(b.berichtId) } returns b
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returns BerichtMetVerwijderdOp(b, null)
         every {
             statusRepository.upsert(b.berichtId, capture(patchSlot), any())
         } returns nieuweStatus
@@ -62,7 +62,7 @@ class BerichtBeheerServiceTest {
     @Test
     fun `wijzigStatus gooit Forbidden bij ontvanger-mismatch`() {
         val b = bericht(ontvangerOp = anderePersoon)
-        every { berichtRepository.findByBerichtId(b.berichtId) } returns b
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returns BerichtMetVerwijderdOp(b, null)
 
         assertThrows<ForbiddenException> {
             service.wijzigStatus(b.berichtId, ontvanger, BerichtStatusPatch(true, null))
@@ -74,10 +74,32 @@ class BerichtBeheerServiceTest {
     @Test
     fun `wijzigStatus gooit NotFound als bericht niet bestaat`() {
         val id = UUID.randomUUID()
-        every { berichtRepository.findByBerichtId(id) } returns null
+        every { berichtRepository.findIncludingDeleted(id) } returns null
 
         assertThrows<NotFoundException> {
             service.wijzigStatus(id, ontvanger, BerichtStatusPatch(true, null))
+        }
+    }
+
+    @Test
+    fun `wijzigStatus gooit NotFound op eigen soft-deleted bericht`() {
+        val b = bericht()
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returns
+            BerichtMetVerwijderdOp(b, Instant.parse("2026-05-13T11:00:00Z"))
+
+        assertThrows<NotFoundException> {
+            service.wijzigStatus(b.berichtId, ontvanger, BerichtStatusPatch(true, null))
+        }
+    }
+
+    @Test
+    fun `wijzigStatus gooit Forbidden op andermans soft-deleted bericht (geen 404-leak)`() {
+        val b = bericht(ontvangerOp = anderePersoon)
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returns
+            BerichtMetVerwijderdOp(b, Instant.parse("2026-05-13T11:00:00Z"))
+
+        assertThrows<ForbiddenException> {
+            service.wijzigStatus(b.berichtId, ontvanger, BerichtStatusPatch(true, null))
         }
     }
 
@@ -108,14 +130,46 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
-    fun `verwijder logt race-warning maar werpt niet bij softDelete=false`() {
-        // Race: tussen find en softDelete heeft een concurrente DELETE al
-        // verwijderd. Resultaat is identiek aan idempotent no-op (204).
+    fun `verwijder logt race-warning bij softDelete=false met bevestigde verwijdering door dezelfde ontvanger`() {
+        // Race: tussen eerste find en softDelete heeft een concurrente DELETE al
+        // verwijderd. De service re-checked findIncludingDeleted en ziet
+        // verwijderdOp != null + dezelfde ontvanger → no-op (204).
+        val b = bericht()
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returnsMany listOf(
+            BerichtMetVerwijderdOp(b, null),
+            BerichtMetVerwijderdOp(b, Instant.parse("2026-05-13T11:00:00Z")),
+        )
+        every { berichtRepository.softDelete(b.berichtId, ontvanger, any()) } returns false
+
+        service.verwijder(b.berichtId, ontvanger)
+    }
+
+    @Test
+    fun `verwijder faalt hard als softDelete=false en bericht is hard-verdwenen`() {
+        // Onverwachte hard-delete tussen eerste find en re-check: dit is geen
+        // race door dezelfde ontvanger maar een onbekende mutatie. Moet hard
+        // falen i.p.v. silently 204 — anders kan een gestolen DELETE de
+        // tweede client misleiden.
+        val b = bericht()
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returnsMany listOf(
+            BerichtMetVerwijderdOp(b, null),
+            null,
+        )
+        every { berichtRepository.softDelete(b.berichtId, ontvanger, any()) } returns false
+
+        assertThrows<IllegalStateException> { service.verwijder(b.berichtId, ontvanger) }
+    }
+
+    @Test
+    fun `verwijder faalt als softDelete=false maar bericht niet verwijderd blijkt`() {
+        // Pathologisch: race-tak meldt 0 rijen geraakt, maar verwijderdOp is null.
+        // Wijst op DB-inconsistentie of een toekomstige bug in WHERE-clause.
+        // Moet hard falen — geen silent 204.
         val b = bericht()
         every { berichtRepository.findIncludingDeleted(b.berichtId) } returns BerichtMetVerwijderdOp(b, null)
         every { berichtRepository.softDelete(b.berichtId, ontvanger, any()) } returns false
 
-        service.verwijder(b.berichtId, ontvanger)
+        assertThrows<IllegalStateException> { service.verwijder(b.berichtId, ontvanger) }
     }
 
     @Test

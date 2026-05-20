@@ -35,7 +35,7 @@ class BerichtBeheerService(
      * Patcht de leesstatus (gelezen, map) van een bericht voor de opgegeven
      * ontvanger en retourneert het bijgewerkte bericht inclusief bijlage-metadata
      * en de nieuwe status. Patch-velden die `null` zijn worden als "niet
-     * wijzigen" behandeld (zie [BerichtStatusPatch] voor de PoC-beperking).
+     * wijzigen" behandeld (zie [BerichtStatusPatch] voor de semantiek).
      */
     @Transactional
     fun wijzigStatus(
@@ -43,9 +43,15 @@ class BerichtBeheerService(
         ontvanger: Identificatienummer,
         patch: BerichtStatusPatch,
     ): Bericht {
-        val bericht = berichtRepository.findByBerichtId(berichtId)
+        // findIncludingDeleted ipv findByBerichtId: bestaan + ontvanger-check
+        // worden geëvalueerd vóór de soft-delete-check. Daardoor geeft PATCH op
+        // andermans soft-deleted bericht 403 (zelfde als DELETE), niet 404 —
+        // anders zou een UUID-rader uit het verschil 404 vs 403 het bestaan van
+        // andermans (verwijderde) bericht kunnen afleiden.
+        val record = berichtRepository.findIncludingDeleted(berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
-        BerichtAutorisatie.vereisOntvanger(bericht, ontvanger)
+        BerichtAutorisatie.vereisOntvanger(record.bericht, ontvanger)
+        if (record.isVerwijderd) throw NotFoundException("Bericht niet gevonden")
 
         val nieuweStatus = statusRepository.upsert(
             berichtId = berichtId,
@@ -53,7 +59,7 @@ class BerichtBeheerService(
             tijdstip = Instant.now(),
         )
 
-        return bericht.copy(
+        return record.bericht.copy(
             bijlagen = bijlageRepository.metadataVoorBericht(berichtId),
             status = nieuweStatus,
         )
@@ -80,14 +86,26 @@ class BerichtBeheerService(
 
         val ok = berichtRepository.softDelete(berichtId, ontvanger, Instant.now())
         if (!ok) {
-            // Race-condition: tussen find en update is een concurrente DELETE
-            // door dezelfde ontvanger geslaagd. Resultaat is identiek aan een
-            // tweede DELETE — 204 zonder mutatie. Log op WARN zodat een
-            // herhaalbaar patroon zichtbaar wordt; waarde blijft uit log.
+            // softDelete=false kan minstens vier scenario's omvatten (zie de
+            // KDoc op softDelete). De interessante happy-race is "concurrente
+            // DELETE door dezelfde ontvanger". Verifieer expliciet: bericht
+            // moet nu nog steeds bestaan, bij dezelfde ontvanger horen, én
+            // verwijderd zijn. Elke andere combinatie wijst op
+            // datacorruptie/autorisatie-mismatch en moet hard falen — anders
+            // zou een silente 204 een gestolen DELETE kunnen maskeren.
+            val nu = berichtRepository.findIncludingDeleted(berichtId)
+                ?: throw IllegalStateException(
+                    "softDelete=false maar bericht is niet meer aanwezig — onverwachte hard-delete?",
+                )
+            BerichtAutorisatie.vereisOntvanger(nu.bericht, ontvanger)
+            check(nu.isVerwijderd) {
+                "softDelete=false maar bericht is niet verwijderd — onverwachte state voor berichtId=$berichtId"
+            }
             log.warnf(
-                "Soft-delete-race: tweede update faalde maar bericht is verwijderd. berichtId=%s ontvangerType=%s",
+                "Soft-delete-race: tweede update faalde maar bericht is verwijderd. berichtId=%s ontvangerType=%s verwijderdOp=%s",
                 berichtId,
                 ontvanger.type,
+                nu.verwijderdOp,
             )
         }
     }

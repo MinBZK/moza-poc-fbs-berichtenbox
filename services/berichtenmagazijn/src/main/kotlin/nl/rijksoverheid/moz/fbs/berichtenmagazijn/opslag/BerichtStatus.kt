@@ -17,7 +17,7 @@ data class BerichtStatus(
 ) {
     init {
         if (map != null) {
-            requireValid(map.isNotBlank()) { "Map mag niet leeg zijn (gebruik null om te wissen)" }
+            requireValid(map.isNotBlank()) { "Map mag niet leeg zijn" }
             requireValid(map.length <= MAX_MAP_LENGTE) {
                 "Map mag max $MAX_MAP_LENGTE characters zijn"
             }
