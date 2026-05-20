@@ -17,11 +17,20 @@ Claude Code (Anthropic). AI is ingezet voor codegeneratie en voor ondersteuning
 bij refactoring en review. Architectuur- en ontwerpbeslissingen zijn vastgelegd
 in [`docs/plans/`](plans/).
 
-**Menselijke review.** Alle met AI gegenereerde bijdragen worden volledig door
-ontwikkelaars beoordeeld voordat ze worden opgenomen in de hoofdbranch. Dit
-gebeurt via de pull-request-workflow met code-eigenaarschap (`CODEOWNERS`) en een
-CI-pijplijn met onder andere CodeQL-securityscanning en OpenSSF Scorecard. De
-mens blijft eindverantwoordelijk; de AI is een hulpmiddel.
+**Menselijke review.** De review richt zich op de onderdelen die het gedrag en de
+kwaliteit van de PoC bepalen: de OpenAPI-specificaties en het ontwerp (het
+C4-model en de plannen in [`docs/plans/`](plans/)) worden inhoudelijk beoordeeld,
+en alle niet-testcode wordt door ontwikkelaars gereviewd voordat die in de
+hoofdbranch wordt opgenomen. Testcode wordt niet regel voor regel gereviewd; de
+werking wordt in plaats daarvan functioneel beproefd (met Bruno-requests en een
+demo-applicatie). Dit gebeurt via de pull-request-workflow met code-eigenaarschap
+(`CODEOWNERS`) en een CI-pijplijn met onder andere CodeQL-securityscanning en
+OpenSSF Scorecard. De mens blijft eindverantwoordelijk; de AI is een hulpmiddel.
+
+Deze afbakening is een bewust onderdeel van de beproeving: we onderzoeken hoeveel
+en hoe nauwkeurig menselijke review nodig én haalbaar is. De aanname die we
+daarbij toetsen, is dat codegeneratie door de OpenAPI-tooling correct verloopt en
+dat de AI met voldoende review-stappen code van voldoende kwaliteit oplevert.
 
 **Gegevens.** De PoC verwerkt geen persoonsgegevens. Er wordt uitsluitend
 gewerkt met fictieve en testgegevens.
@@ -76,8 +85,8 @@ Concrete governance-maatregelen:
 
 - Met AI gegenereerde bijdragen zijn herkenbaar gemarkeerd via de commit-trailer
   `Co-Authored-By`.
-- Alle bijdragen worden volledig menselijk gereviewd via de
-  pull-request-workflow vóór merge.
+- Niet-testcode wordt menselijk gereviewd via de pull-request-workflow vóór
+  merge; testcode wordt functioneel beproefd (zie "Menselijke review" hierboven).
 - Voor maximale transparantie is de repository openbaar en onder een open
   licentie ([EUPL-1.2](../LICENSE)); reageren kan via GitHub-issues.
 
@@ -130,10 +139,10 @@ en richtlijnen. AI is slechts een hulpmiddel.
 
 #### f. Kwaliteitsrisico: onjuiste of onveilige gegenereerde code
 
-De kwaliteit wordt op meerdere niveaus geborgd: volledige menselijke
-code-review, een teststrategie met onder meer ≥90% line coverage (JaCoCo), een
-spec-driven OpenAPI-first-aanpak (compilatie faalt bij afwijking van de spec) en
-geautomatiseerde CI-controles.
+De kwaliteit wordt op meerdere niveaus geborgd: menselijke review van de
+niet-testcode (zie "Menselijke review" hierboven), een teststrategie met onder
+meer ≥90% line coverage (JaCoCo), een spec-driven OpenAPI-first-aanpak
+(compilatie faalt bij afwijking van de spec) en geautomatiseerde CI-controles.
 
 #### g. Auteursrecht op brondocumenten als input
 
