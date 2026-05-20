@@ -155,7 +155,7 @@ data class OntvangerData(
         // ≥7-cijfer-runs + control-chars, niet namen/e-mail/adres
         // (BIO 12.4.1, AVG art. 5.1.c minimalisatie). Alle "interessante"
         // PII-bytes (`@`, spatie, `.`, `,`, `:`) worden weg-gefilterd vóór
-        // het cause-pad. `take(64)` cap't oversize-DoS in log.
+        // het cause-pad. `take(64)` begrenst oversize-DoS in log.
         val typeVoorLog = type.take(64).filter { it.isLetterOrDigit() || it == '_' }
         val typed = enumValues<IdentificatienummerType>().firstOrNull { it.name == type }
             ?: throw nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException(

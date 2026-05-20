@@ -84,7 +84,7 @@ class PublicatieClaimVerwerker(
      * Claimt één rij + verwerkt + markeert in één transactie. Retourneert
      * `true` als er een claim verwerkt is, `false` als er geen openstaand
      * werk meer is. [PublicatieStream] loopt hierop tot er niets meer is
-     * of de batch-cap bereikt is.
+     * of de batch-grens bereikt is.
      */
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     fun verwerkEenClaim(): Boolean {

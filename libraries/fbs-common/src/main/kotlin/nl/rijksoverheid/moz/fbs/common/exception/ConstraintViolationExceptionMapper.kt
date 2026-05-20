@@ -18,7 +18,7 @@ import org.jboss.logging.Logger
  * validators kunnen user-input echoen (bv. `@Pattern(regexp=…, message="waarde
  * '\${validatedValue}' ongeldig")`). Saneer voorkomt CRLF/file-pad-leak in detail
  * en kapt de lengte af (zie `MAX_CLIENT_DETAIL_LENGTH` in `sanitizeClientDetail`),
- * naast de eigen [MAX_VIOLATIONS_IN_DETAIL]-cap op het aantal violations hieronder
+ * naast de eigen [MAX_VIOLATIONS_IN_DETAIL]-grens op het aantal violations hieronder
  * — samen DoS-mitigatie bij N violations met lange messages.
  */
 @Provider
@@ -29,9 +29,9 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
     override fun toResponse(exception: ConstraintViolationException): Response {
         log.debugf("Validatiefout: %s", exception.constraintViolations)
 
-        // .take(MAX_VIOLATIONS_IN_DETAIL) cap't memory-pressure bij N=10000+
+        // .take(MAX_VIOLATIONS_IN_DETAIL) begrenst memory-pressure bij N=10000+
         // violations (groot request met veel @Pattern-velden) — sanitizeClientDetail
-        // cap't alleen het eindresultaat, niet de tussenstring-allocatie.
+        // begrenst alleen het eindresultaat, niet de tussenstring-allocatie.
         val rawDetail = exception.constraintViolations
             .asSequence()
             .take(MAX_VIOLATIONS_IN_DETAIL)

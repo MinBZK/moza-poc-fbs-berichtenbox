@@ -77,8 +77,8 @@ class ConstraintViolationExceptionMapperTest {
     }
 
     @Test
-    fun `lange detail wordt op 500 chars gecapt (DoS-mitigatie)`() {
-        // Round 13 H2: pin lengte-cap. Refactor die cap weghaalt → unbounded
+    fun `lange detail wordt op 500 chars begrensd (DoS-mitigatie)`() {
+        // Round 13 H2: pin lengte-grens. Refactor die de grens weghaalt → unbounded
         // detail-grootte → DoS-amplification.
         val longMsg = "a".repeat(2000)
         val exception = ConstraintViolationException(setOf(violation("veld", longMsg)))
@@ -88,7 +88,7 @@ class ConstraintViolationExceptionMapperTest {
 
         assertTrue(
             detail.length <= 500,
-            "detail moet capped zijn op 500 — lengte: ${detail.length}",
+            "detail moet begrensd zijn op 500 — lengte: ${detail.length}",
         )
     }
 
@@ -110,9 +110,9 @@ class ConstraintViolationExceptionMapperTest {
     }
 
     @Test
-    fun `meer dan 50 violations worden gecapt (memory-pressure mitigatie)`() {
-        // Round 13 L1: take(50) cap't tussenstring-allocatie. Pin tegen refactor
-        // die de cap weghaalt en N=10000 violations toelaat.
+    fun `meer dan 50 violations worden begrensd (memory-pressure mitigatie)`() {
+        // Round 13 L1: take(50) begrenst tussenstring-allocatie. Pin tegen refactor
+        // die de grens weghaalt en N=10000 violations toelaat.
         val violations = (1..200).map { violation("veld$it", "fout$it") }.toSet()
         val exception = ConstraintViolationException(violations)
 

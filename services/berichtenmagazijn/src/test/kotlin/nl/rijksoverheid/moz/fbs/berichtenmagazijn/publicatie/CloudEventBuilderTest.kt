@@ -185,9 +185,9 @@ class CloudEventBuilderTest {
     }
 
     @Test
-    fun `OntvangerData cap't oversize type in cause-message (DoS-mitigatie)`() {
+    fun `OntvangerData begrenst oversize type in cause-message (DoS-mitigatie)`() {
         // Voorkomt log-volume-DoS: aanvaller stuurt 1 MB type-waarde, cause
-        // mag niet ongebreideld groeien. take(64) cap't.
+        // mag niet ongebreideld groeien. take(64) begrenst.
         val oversizeType = "X".repeat(10_000)
         val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
             OntvangerData(type = oversizeType, waarde = "999993653")
@@ -195,7 +195,7 @@ class CloudEventBuilderTest {
         val causeMessage = ex.cause!!.message!!
         assertTrue(
             causeMessage.length <= 100,
-            "cause-message moet capped zijn — lengte: ${causeMessage.length}",
+            "cause-message moet begrensd zijn — lengte: ${causeMessage.length}",
         )
     }
 }
