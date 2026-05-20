@@ -127,8 +127,24 @@ class HardDeleteJobIntegrationTest {
             ontvangstOffsetDagen = -3000,
             verwijderdOpOffsetDagen = -3000,
         )
-        val berichtDbId = berichtRepository.findDbIdByBerichtId(berichtId)!!
+        saveBijlagenEnStatus(berichtId)
 
+        val resultaat = service.run()
+
+        assertEquals(1, resultaat.totaalVerwijderd, "verwacht 1 verwijderd bericht")
+        assertEquals(0, resultaat.fouten, "verwacht geen fouten")
+        assertEquals(0, resultaat.ldvFouten, "verwacht geen LDV-fouten")
+        assertNull(
+            berichtRepository.findIncludingDeleted(berichtId),
+            "bericht moet volledig uit DB zijn",
+        )
+        assertEquals(0L, bijlageRepository.count(), "bijlagen moeten weg zijn")
+        assertNull(statusRepository.findByBerichtId(berichtId), "status moet weg zijn")
+        verify(exactly = 1) { ldvMock.logHardDelete(match { it.berichtId == berichtId }) }
+    }
+
+    @Transactional
+    open fun saveBijlagenEnStatus(berichtId: UUID) {
         bijlageRepository.save(
             Bijlage(
                 bijlageId = UUID.randomUUID(),
@@ -148,19 +164,6 @@ class HardDeleteJobIntegrationTest {
             ),
         )
         statusRepository.upsert(berichtId, BerichtStatusPatch(gelezen = true, map = null), Instant.now())
-
-        val resultaat = service.run()
-
-        assertEquals(1, resultaat.totaalVerwijderd, "verwacht 1 verwijderd bericht")
-        assertEquals(0, resultaat.fouten, "verwacht geen fouten")
-        assertEquals(0, resultaat.ldvFouten, "verwacht geen LDV-fouten")
-        assertNull(
-            berichtRepository.findIncludingDeleted(berichtId),
-            "bericht moet volledig uit DB zijn",
-        )
-        assertEquals(0L, bijlageRepository.count(), "bijlagen moeten weg zijn")
-        assertNull(statusRepository.findByBerichtId(berichtId), "status moet weg zijn")
-        verify(exactly = 1) { ldvMock.logHardDelete(match { it.berichtId == berichtId }) }
     }
 
     @Test
