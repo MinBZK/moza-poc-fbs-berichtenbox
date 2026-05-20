@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Hard-delete-job voor soft-deleted berichten (Issue #58)
 

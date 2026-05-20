@@ -2,9 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 **Goal:** Een periodieke achtergrond-job in `services/berichtenmagazijn` die soft-deleted berichten (incl. bijlagen + status) fysiek verwijdert zodra ze aan twee configureerbare bewaardrempels (Archiefwet-conform, default 7 jaar) voldoen, met per verwijderd bericht één LDV-record.
+
+**Afwijkingen tijdens uitvoering:**
+- `HardDeleteService.run()` delegeert claim én delete aan `HardDeleteTransactionalOps` (i.p.v. dat `claimVoorHardDelete` direct vanuit de service wordt aangeroepen). Reden: scheduler-thread heeft van zichzelf geen actieve CDI-/transactie-context; `claim()` heeft daarom een eigen `@Transactional(REQUIRES_NEW)`. Concurrency-test legde dit bloot.
+- `HardDeleteLdvLogger` schrijft een gestructureerde INFO-log i.p.v. een `@Logboek`-call. De `@Logboek`-interceptor leest HTTP-headers voor W3C-trace-context-propagation en faalt buiten een REST-context. Volwaardige LDV-integratie via `ProcessingHandler.startSpan` is een vervolg-issue.
 
 **Architectuur:** Quarkus Scheduler (`@Scheduled`) + Postgres `FOR UPDATE SKIP LOCKED` voor multi-pod-veilige rij-claim. Per geclaimd bericht een eigen sub-transactie (`REQUIRES_NEW`) die bijlagen → status → bericht in juiste volgorde wist (FK-RESTRICT). LDV-write ná commit via bestaand `@Logboek`-annotatie-pattern, met `@ActivateRequestContext` omdat `LogboekContext` request-scoped is.
 
