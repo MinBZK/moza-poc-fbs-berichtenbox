@@ -43,13 +43,19 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 ## Build & test commando's
 
+> **Altijd `clean` vóór `test`/`verify`.** We wisselen vaak van branch en delen de
+> sources via een bind mount; een achtergebleven `target/` van een andere branch-state
+> laat Surefire stale `.class`-bestanden draaien → misleidende `NoSuchMethodError`/
+> "Failed to start quarkus"-fouten in ongewijzigde code. `mvn clean ...` voorkomt dit.
+
 ```bash
 docker compose up -d                                       # Start Redis, WireMock, ClickHouse
 ./mvnw compile -pl services/berichtensessiecache           # Compileren
-./mvnw test -pl services/berichtensessiecache              # Tests draaien
+./mvnw clean test -pl services/berichtensessiecache        # Tests draaien
 ./mvnw quarkus:dev -pl services/berichtensessiecache       # Dev mode
 ./mvnw compile -pl services/berichtenmagazijn -am                # Compileren berichtenmagazijn
-./mvnw test -pl services/berichtenmagazijn -am                   # Tests berichtenmagazijn
+./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn
+./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo (Docker vereist)
 ./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode
 ```
 
