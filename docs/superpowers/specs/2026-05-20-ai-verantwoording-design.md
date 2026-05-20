@@ -8,7 +8,7 @@
 
 Deze repository is een Proof of Concept (PoC) voor de Berichtenbox binnen het
 Federatief Berichtenstelsel (FBS). De code is **grotendeels gegenereerd met
-generatieve AI (Claude Code, Anthropic)** en **volledig menselijk gereviewed**.
+generatieve AI (Claude Code, Anthropic)** en **volledig menselijk gereviewd**.
 
 Issue #431 vraagt om een disclaimer/verantwoording over het gebruik van AI,
 naar voorbeeld van de
@@ -26,7 +26,7 @@ wordt daarop toegesneden.
 - **AI-assistant:** uitsluitend Claude Code (Anthropic). Eén leverancier →
   vendor lock-in als expliciet aandachtspunt.
 - **Codestatus:** PoC; code grotendeels met AI gegenereerd én volledig menselijk
-  gereviewed. Pilot/productie valt **buiten de huidige scope** en zou
+  gereviewd. Pilot/productie valt **buiten de huidige scope** en zou
   aanvullende toetsing vereisen (BIO, DPIA).
 - **Persoonsgegevens:** geen; uitsluitend fictieve/testdata. AVG/DPIA als
   aandachtspunt voor toekomstig gebruik.
@@ -38,11 +38,11 @@ wordt daarop toegesneden.
 Beknopt, in de stijl van het skills-marketplace-voorbeeld. Kopjes:
 
 - **Inleiding** — experimentele PoC; software grotendeels gegenereerd met
-  generatieve AI (Claude Code) en volledig menselijk gereviewed.
+  generatieve AI (Claude Code) en volledig menselijk gereviewd.
 - **Geen officiële dienst** — dit is geen productiesysteem en geen officiële
   Berichtenbox; geen rechten aan te ontlenen.
 - **AI-output is herkenbaar** — met AI gegenereerde bijdragen zijn gemarkeerd
-  (commit-trailer `Co-Authored-By`), en menselijk gereviewed vóór merge.
+  (commit-trailer `Co-Authored-By`), en menselijk gereviewd vóór merge.
 - **Gebruik van generatieve AI** — verwijzing naar het
   [Overheidsbreed standpunt voor de inzet van generatieve AI](https://open.overheid.nl/documenten/bc03ce31-0cf1-4946-9c94-e934a62ebe73/file).
 - **Geen garantie** — aangeboden zonder garantie van volledigheid, juistheid of
@@ -59,7 +59,7 @@ Structuur:
 - Wat de PoC is (Berichtensessiecache, Berichtenmagazijn, FBS-context).
 - Rol van AI: codegeneratie en ondersteuning bij review/refactor met Claude Code.
 - **Menselijke review:** alle AI-bijdragen worden volledig door ontwikkelaars
-  gereviewed vóór merge (PR-workflow, CODEOWNERS, CI met o.a. CodeQL/Scorecard).
+  gereviewd vóór merge (PR-workflow, CODEOWNERS, CI met o.a. CodeQL/Scorecard).
 - Geen persoonsgegevens; uitsluitend fictieve/testdata.
 - Scope-grens: pilot/productie buiten huidige scope → vereist aanvullende
   toetsing (BIO, DPIA, beveiligingseisen).

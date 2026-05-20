@@ -1,6 +1,6 @@
 # Verantwoording inzet van generatieve AI in de Berichtenbox-PoC
 
-**Toetsing en verantwoording i.h.k.v. het Overheidsbreed Standpunt Generatieve AI**
+**Verantwoording i.h.k.v. het Overheidsbreed Standpunt Generatieve AI, getoetst aan het stappenplan uit de bijbehorende handreiking**
 
 Dit document verantwoordt het gebruik van generatieve AI bij het bouwen van deze
 Proof of Concept (PoC). Voor een beknopte samenvatting, zie
@@ -101,7 +101,7 @@ de met AI gegenereerde output als zodanig.
 
 #### b. AVG en DPIA
 
-De PoC verwerkt geen persoonsgegevens; er wordt uitsluitend met fictieve/test­data
+De PoC verwerkt geen persoonsgegevens; er wordt uitsluitend met fictieve/testdata
 gewerkt. Organisaties die deze code later in een pilot of productie zouden
 gebruiken, dienen op dat moment zelf te beoordelen welke AVG-verplichtingen van
 toepassing zijn, waaronder een eventuele DPIA.
