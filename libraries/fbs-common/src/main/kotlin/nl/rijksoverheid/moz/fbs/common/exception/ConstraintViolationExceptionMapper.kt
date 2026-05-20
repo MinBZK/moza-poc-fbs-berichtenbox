@@ -17,7 +17,9 @@ import org.jboss.logging.Logger
  * komen uit `messages.properties`-bundles maar `@Pattern(message="…")` of custom
  * validators kunnen user-input echoen (bv. `@Pattern(regexp=…, message="waarde
  * '\${validatedValue}' ongeldig")`). Saneer voorkomt CRLF/file-pad-leak in detail
- * en cap't lengte op 500 chars (DoS-mitigatie bij N violations met lange messages).
+ * en kapt de lengte af (zie `MAX_CLIENT_DETAIL_LENGTH` in `sanitizeClientDetail`),
+ * naast de eigen [MAX_VIOLATIONS_IN_DETAIL]-cap op het aantal violations hieronder
+ * — samen DoS-mitigatie bij N violations met lange messages.
  */
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {

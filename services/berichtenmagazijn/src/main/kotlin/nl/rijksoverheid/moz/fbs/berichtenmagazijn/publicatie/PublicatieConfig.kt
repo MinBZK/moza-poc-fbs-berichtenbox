@@ -87,6 +87,17 @@ interface PublicatieConfig {
     interface Polling {
         @WithDefault("60s")
         fun interval(): Duration
+
+        /**
+         * Poison-pill drempel: na dit aantal opeenvolgende mislukte pollrondes
+         * (zonder succes ertussen) slaat [PublicatieStream] één ronde over als
+         * cooldown. Met de default (3) en interval (60s) is dat ~4 × interval
+         * (~4 min) rust — genoeg om een transiente DB-blip te overleven, weinig
+         * genoeg om CPU/IO-burnout op een poison-claim te voorkomen.
+         */
+        @WithDefault("3")
+        @Min(1)
+        fun maxOpeenvolgendeFouten(): Int
     }
 
     interface Opschonen {

@@ -89,7 +89,7 @@ private val CONTROL_CHARS_PATTERN = Regex("""[\u0000-\u001F\u007F]""")
  * - verwijdert stacktrace-frames (`at pkg.Class.method(File.java:42)`);
  * - verwijdert file-paden (Unix en Windows);
  * - strip controltekens die logs/terminals kunnen vervuilen;
- * - kapt af op 500 tekens.
+ * - kapt af op [MAX_CLIENT_DETAIL_LENGTH] tekens.
  *
  * Eigen exception-messages ("Header X ontbreekt") overleven dit ongeschonden; Jakarta-
  * defaults ("HTTP 404 Not Found") ook. Stack-achtige content uit onbedoelde code-paden

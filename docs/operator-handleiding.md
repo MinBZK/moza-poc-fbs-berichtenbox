@@ -27,6 +27,7 @@ direct opvalt; enkele hebben geen default en laten de service falen-te-starten
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
 | `magazijn.publicatie.polling.interval` | `60s` | Lager bij latency-gevoelige downstreams (let op DB-load); hoger bij idle-cluster om CPU/IO te sparen |
+| `magazijn.publicatie.polling.max-opeenvolgende-fouten` | `3` | Poison-pill drempel: na N mislukte pollrondes één ronde cooldown. Verhoog bij flaky-maar-herstelbare omgeving; verlaag om sneller te pauzeren bij aanhoudende fouten |
 | `magazijn.publicatie.batch-grootte` | `50` | Lager bij trage downstreams om transactie-duur te beperken; verhogen alleen bij hoge throughput + snelle downstreams (langere transactie verhoogt kans op `idle_in_transaction_session_timeout`) |
 | `magazijn.publicatie.max-pogingen` | `5` | 5×exponential backoff dekt ~1u; verhoog bij downstream met lange recovery |
 | `magazijn.publicatie.backoff.basis` / `plafond` | `PT1S` / `PT1H` | Backoff-grenzen; plafond voorkomt runaway-backoff |

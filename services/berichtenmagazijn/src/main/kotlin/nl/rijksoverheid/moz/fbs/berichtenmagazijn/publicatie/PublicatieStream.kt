@@ -47,7 +47,7 @@ class PublicatieStream(
     )
     fun pollronde() {
         val huidig = opeenvolgendeFouten.get()
-        if (huidig >= MAX_OPEENVOLGENDE_FOUTEN) {
+        if (huidig >= config.polling().maxOpeenvolgendeFouten()) {
             log.warnf(
                 "Pollronde overgeslagen na %d opeenvolgende fouten — wacht op volgende interval (cooldown 1 ronde)",
                 huidig,
@@ -66,7 +66,7 @@ class PublicatieStream(
                 // Onverwachte fout: programmeerfout, DB-uitval, of een
                 // poison-claim die elke poging IllegalStateException gooit.
                 // Log + verhoog teller; volgende ronde mag het opnieuw proberen
-                // tot MAX_OPEENVOLGENDE_FOUTEN. Niet door-gooien anders
+                // tot polling.maxOpeenvolgendeFouten. Niet door-gooien anders
                 // deactiveert de scheduler de baan in sommige Quarkus-versies.
                 val nieuw = opeenvolgendeFouten.incrementAndGet()
                 log.errorf(
@@ -84,13 +84,5 @@ class PublicatieStream(
         if (verwerkt > 0) {
             log.debugf("Pollronde verwerkt %d claims", verwerkt)
         }
-    }
-
-    companion object {
-        // Drie opeenvolgende foutrondes + 1 overgeslagen ronde (cooldown) =
-        // ~4 × polling-interval rust voordat we hervatten (default 60s × 4 = ~4 min).
-        // Genoeg om transiente DB-blip te overleven, weinig genoeg om burnout op
-        // een poison-claim te voorkomen.
-        const val MAX_OPEENVOLGENDE_FOUTEN: Int = 3
     }
 }

@@ -79,6 +79,7 @@ class CloudEventBuilder(
     }
 
     companion object {
+        // Contract-constanten
         const val SPEC_VERSION = "1.0"
         const val EVENT_TYPE = "nl.rijksoverheid.fbs.bericht.gepubliceerd"
         const val DATASCHEMA = "https://schemas.fbs.rijksoverheid.nl/bericht-gepubliceerd/v1"
