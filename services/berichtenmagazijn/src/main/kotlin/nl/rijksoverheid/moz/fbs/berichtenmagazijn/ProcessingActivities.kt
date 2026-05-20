@@ -20,4 +20,5 @@ object ProcessingActivities {
     const val MAGAZIJN_AANLEVEREN = "$NAMESPACE:aanleveren"
     const val MAGAZIJN_OPHALEN = "$NAMESPACE:ophalen"
     const val MAGAZIJN_BEHEER = "$NAMESPACE:beheer"
+    const val MAGAZIJN_RETENTIE = "$NAMESPACE:retentie"
 }
