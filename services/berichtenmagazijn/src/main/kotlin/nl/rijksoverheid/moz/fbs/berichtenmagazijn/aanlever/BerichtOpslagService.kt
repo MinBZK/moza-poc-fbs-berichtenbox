@@ -13,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker
 import org.jboss.logging.Logger
+import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
@@ -21,6 +22,7 @@ import org.hibernate.exception.ConstraintViolationException as HibernateConstrai
 class BerichtOpslagService(
     private val repository: BerichtRepository,
     private val publicatieOutbox: PublicatieOutbox,
+    private val clock: Clock,
 ) {
 
     private val log = Logger.getLogger(BerichtOpslagService::class.java)
@@ -57,7 +59,7 @@ class BerichtOpslagService(
         inhoud: String,
         publicatiedatum: Instant? = null,
     ): Bericht {
-        val tijdstipOntvangst = Instant.now()
+        val tijdstipOntvangst = clock.instant()
         val bericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = Oin(afzender),
@@ -65,10 +67,8 @@ class BerichtOpslagService(
             onderwerp = onderwerp,
             inhoud = inhoud,
             tijdstipOntvangst = tijdstipOntvangst,
-            // Geen publicatiedatum meegegeven = direct publiceren. We gebruiken expliciet
-            // tijdstipOntvangst (niet Instant.now() opnieuw) zodat outbox-rij en bericht
-            // dezelfde "T0" delen — anders zou volgende_poging een hair-trigger later
-            // liggen dan tijdstipOntvangst en kan de domein-invariant per ongeluk falen.
+            // Zonder meegestuurde publicatiedatum = direct publiceren. Hergebruik
+            // tijdstipOntvangst zodat bericht en outbox-rij dezelfde T0 delen.
             publicatiedatum = publicatiedatum ?: tijdstipOntvangst,
         )
 

@@ -237,7 +237,10 @@ class AanleverResourceLdvSwallowTest {
 
         resource.leverBerichtAan(request)
 
-        // Parent is Context.current() (niet null) — keten loopt door.
-        assertNotNull(parentSlot.captured, "startSpan moet de inbound context als parent krijgen")
+        // Parent is de ambiente OTel-context (`Context.current()`), niet een geforceerde
+        // null-root. In productie heeft Quarkus' HTTP-instrumentatie die context al uit de
+        // inbound `traceparent` gevuld; hier borgen we dat de resource hem adopteert i.p.v.
+        // hem te negeren. (Down­stream-propagatie gebeurt bewust níét — de outbox ontkoppelt.)
+        assertEquals(Context.current(), parentSlot.captured)
     }
 }

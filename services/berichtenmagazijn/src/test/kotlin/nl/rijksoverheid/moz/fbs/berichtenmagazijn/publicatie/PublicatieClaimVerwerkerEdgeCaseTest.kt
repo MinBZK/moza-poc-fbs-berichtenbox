@@ -34,9 +34,9 @@ import java.util.UUID
  */
 class PublicatieClaimVerwerkerEdgeCaseTest {
 
-    private class DownstreamStub(private val u: String) : PublicatieConfig.Downstream {
+    private class DownstreamStub(private val u: String, private val max: Int = 3) : PublicatieConfig.Downstream {
         override fun url(): String = u
-        override fun maxPogingen(): Int = 3
+        override fun maxPogingen(): Int = max
         override fun backoff(): PublicatieConfig.Backoff = object : PublicatieConfig.Backoff {
             override fun basis(): Duration = Duration.ofSeconds(1)
             override fun plafond(): Duration = Duration.ofHours(1)
@@ -164,6 +164,32 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
 
         assertEquals("<onbekend>", processorAttribuut.captured)
         // ConfiguratieFout is non-herstelbaar → MISLUKT met volgendePoging=null.
+        verify { claimer.markeerMislukt(claim.claimId, any(), null) }
+    }
+
+    @Test
+    fun `maxPogingen wordt per-downstream geresolved op claim doel, niet van een ander doel`() {
+        // Borgt per-doel-resolutie: aanmeld heeft maxPogingen=1, notificatie=5. De claim
+        // is voor aanmeld en faalt herstelbaar (NetwerkFout). pogingenNaFout=1 >= aanmeld.max
+        // → terminal MISLUKT (volgendePoging=null). Zou de verwerker per ongeluk notificatie's
+        // max=5 pakken, dan was er een retry gepland (volgendePoging != null) en faalt dit.
+        every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim)
+        every { berichten.findByBerichtId(claim.berichtId) } returns bericht
+        every { processingHandler.startSpan(any<String>(), any()) } returns span
+        every { config.downstreams() } returns mapOf(
+            "aanmeld" to DownstreamStub("http://localhost:1/events", max = 1),
+            "notificatie" to DownstreamStub("http://localhost:2/events", max = 5),
+        )
+        every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
+        every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        every { downstreamClient.lever(claim.doel, event) } returns
+            DownstreamResultaat.NetwerkFout("transient")
+        justRun { claimer.markeerMislukt(any(), any(), any()) }
+
+        verwerker.verwerkEenClaim()
+
+        // Terminal: volgendePoging == null omdat aanmeld.maxPogingen=1 is bereikt.
         verify { claimer.markeerMislukt(claim.claimId, any(), null) }
     }
 

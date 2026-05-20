@@ -31,7 +31,9 @@ data class Bericht(
         requireValid(inhoudBytes <= MAX_INHOUD_BYTES) {
             "Inhoud mag max ${MAX_INHOUD_BYTES / 1024 / 1024} MiB UTF-8 zijn (kreeg $inhoudBytes bytes)"
         }
-        requireValid(afzender.waarde != ontvanger.waarde) {
+        // Vergelijk de volledige identiteit (type + waarde): twee verschillende typen
+        // met dezelfde cijferreeks zijn verschillende identificatienummers.
+        requireValid(afzender != ontvanger) {
             "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
         }
         // publicatiedatum mag zowel in de toekomst (uitgestelde publicatie) als in het

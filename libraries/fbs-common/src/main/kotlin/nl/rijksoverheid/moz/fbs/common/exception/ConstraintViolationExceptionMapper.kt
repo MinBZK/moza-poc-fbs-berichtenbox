@@ -12,8 +12,8 @@ import org.jboss.logging.Logger
  * schending als `paramName: message`, gescheiden door `;`, zodat de client weet welk
  * veld ongeldig was zonder dat interne paths gelekt worden.
  *
- * **Sanering**: zowel `propertyPath`-segment als `it.message` gaan door
- * `sanitizeClientDetail` voordat ze in `detail` belanden. Bean Validation-messages
+ * **Sanering**: de samengestelde `paramName: message`-detailstring gaat in één keer
+ * door `sanitizeClientDetail` voordat hij wordt geretourneerd. Bean Validation-messages
  * komen uit `messages.properties`-bundles maar `@Pattern(message="…")` of custom
  * validators kunnen user-input echoen (bv. `@Pattern(regexp=…, message="waarde
  * '\${validatedValue}' ongeldig")`). Saneer voorkomt CRLF/file-pad-leak in detail

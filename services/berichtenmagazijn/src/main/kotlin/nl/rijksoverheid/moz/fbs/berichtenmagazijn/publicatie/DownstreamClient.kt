@@ -207,9 +207,11 @@ class DownstreamClient(
     private fun blokkeerIntern(host: String): DownstreamResultaat.ConfiguratieFout? {
         val adressen = try {
             InetAddress.getAllByName(host)
-        } catch (_: UnknownHostException) {
-            // DNS-resolutie hier alleen voor blocklist-check; resolution-failure
-            // bij de echte HTTP-call wordt afgevangen als NetwerkFout.
+        } catch (ex: UnknownHostException) {
+            // DNS-resolutie hier alleen voor blocklist-check; resolution-failure bij de
+            // echte HTTP-call wordt afgevangen als NetwerkFout. Wel een spoor laten zodat
+            // een SSRF-gate-skip door onresolvbare host forensisch correleerbaar is.
+            log.debugf(ex, "SSRF-blocklist-check overgeslagen: host niet resolvbaar")
             return null
         }
         for (adres in adressen) {

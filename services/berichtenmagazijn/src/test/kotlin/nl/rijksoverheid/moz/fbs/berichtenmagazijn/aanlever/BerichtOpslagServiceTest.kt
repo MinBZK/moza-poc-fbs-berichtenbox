@@ -19,7 +19,7 @@ class BerichtOpslagServiceTest {
 
     private val repository = mockk<BerichtRepository>(relaxed = true)
     private val publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true)
-    private val service = BerichtOpslagService(repository, publicatieOutbox)
+    private val service = BerichtOpslagService(repository, publicatieOutbox, java.time.Clock.systemUTC())
 
     @Test
     fun `slaBerichtOp roept repository opslaan aan en retourneert het domeinobject`() {

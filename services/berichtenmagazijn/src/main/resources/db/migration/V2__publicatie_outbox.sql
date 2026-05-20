@@ -18,9 +18,9 @@
 --  * `ON DELETE CASCADE`: als een bericht ooit verwijderd wordt, verdwijnen ook
 --    de bijbehorende deliveries — geen dangling outbox-state.
 --  * `publicatiedatum` op `berichten`: bestaande rijen krijgen via backfill de
---    `tijdstip_ontvangst`-waarde i.p.v. `CURRENT_TIMESTAMP`, zodat de domein-
---    invariant `publicatiedatum >= tijdstipOntvangst - 1s` ook na hydratatie van
---    pre-migratie rijen blijft kloppen.
+--    `tijdstip_ontvangst`-waarde i.p.v. `CURRENT_TIMESTAMP`, zodat pre-migratie
+--    rijen een betekenisvolle publicatiedatum (= ontvangstmoment) houden i.p.v.
+--    het migratiemoment, en de NOT NULL-constraint sluit.
 --  * Alle nieuwe TIMESTAMPS staan met TIME ZONE (`TIMESTAMPTZ`). De V1-kolom
 --    `tijdstip_ontvangst` was nog `TIMESTAMP` en wordt hier gelijkgetrokken voor
 --    schema-consistentie. Hibernate 6 hanteert beide via `Instant` correct op
