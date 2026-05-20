@@ -1,6 +1,6 @@
 # Ontwerp: AI-verantwoording voor de PoC
 
-**Status:** Concept
+**Status:** Uitgevoerd
 **Issue:** [MinBZK/MijnOverheidZakelijk#431](https://github.com/MinBZK/MijnOverheidZakelijk/issues/431) — Verantwoording AI-gebruik toevoegen
 **Datum:** 2026-05-20
 

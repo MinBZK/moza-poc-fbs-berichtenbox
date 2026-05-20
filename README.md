@@ -77,6 +77,14 @@ magazijnen.instances.magazijn-b.naam=Magazijn B
 
 Dit project is gelicenseerd onder de [EUPL-1.2](LICENSE).
 
+## AI-verantwoording
+
+De code in deze PoC is grotendeels gegenereerd met generatieve AI (Claude Code)
+en volledig menselijk gereviewd. Zie [DISCLAIMER.md](DISCLAIMER.md) voor de
+disclaimer en [docs/ai-verantwoording.md](docs/ai-verantwoording.md) voor de
+volledige verantwoording, getoetst aan de Overheidsbrede handreiking voor de
+verantwoorde inzet van generatieve AI.
+
 ## Ondersteuning
 
 Zie [SUPPORT.md](SUPPORT.md) voor informatie over hoe en waar je hulp kunt krijgen.
