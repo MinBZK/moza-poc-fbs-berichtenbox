@@ -84,6 +84,14 @@ class BerichtStatusRepository(
     }
 
     /**
+     * Verwijdert de status-rij van een bericht op basis van de surrogate PK
+     * van de parent. Retourneert het aantal verwijderde rijen (0 of 1; de
+     * unique-constraint op bericht_db_id staat hooguit één rij toe).
+     */
+    fun deleteByBerichtDbId(berichtDbId: Long): Int =
+        delete("bericht.id", berichtDbId).toInt()
+
+    /**
      * Maakt een status-rij aan of werkt een bestaande bij. Alleen niet-`null`
      * velden in [patch] vervangen de huidige waarde — zie de kdoc van
      * [BerichtStatusPatch] voor de semantiek en de bewuste keuze om een

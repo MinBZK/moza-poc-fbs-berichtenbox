@@ -118,6 +118,14 @@ class BijlageRepository(
             )
     }
 
+    /**
+     * Verwijdert alle bijlagen van een bericht op basis van de surrogate PK
+     * van de parent. Retourneert het aantal verwijderde rijen. Gebruikt door
+     * de retentie-job; child-rijen moeten vóór de parent weg vanwege RESTRICT-FK.
+     */
+    fun deleteByBerichtDbId(berichtDbId: Long): Int =
+        delete("bericht.id", berichtDbId).toInt()
+
     private companion object {
         private val log: Logger = Logger.getLogger(BijlageRepository::class.java)
         private const val BERICHT_ID_ALIAS = "berichtId"
