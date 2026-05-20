@@ -9,11 +9,8 @@ Proof of Concept (PoC). Voor een beknopte samenvatting, zie
 ## Beschrijving van de PoC en de rol van AI
 
 Deze repository is een PoC voor de Berichtenbox binnen het Federatief
-Berichtenstelsel (FBS). De PoC bestaat uit twee actieve services —
-**Berichtensessiecache** (ophalen en weergeven van berichten) en
-**Berichtenmagazijn** (opslaan van berichten) — plus een gedeelde library
-`fbs-common`. Het doel is het ontvangen, opslaan en ophalen van berichten binnen
-MijnOverheid Zakelijk (MOZa) te verkennen.
+Berichtenstelsel (FBS), in de context van MijnOverheid Zakelijk (MOZa). Zie de
+[`README.md`](../README.md) voor de actuele opzet en onderdelen.
 
 **Rol van AI.** De code is grotendeels gegenereerd met de AI-assistant
 Claude Code (Anthropic). AI is ingezet voor codegeneratie en voor ondersteuning
@@ -41,20 +38,31 @@ Hieronder volgen we het globale stappenplan uit hoofdstuk 4 van de
 
 ### 1) Doel en toepassingsgebied
 
-*Doel:* onderzoeken of een Berichtenbox-PoC verantwoord met behulp van
-generatieve AI te bouwen is, en of de resultaten aantoonbaar in lijn te brengen
-zijn met de standaarden, kaders en richtlijnen van de Nederlandse overheid
-(o.a. NL API Design Rules, FBS, relevante Logius-standaarden).
+De PoC heeft een breder doel dan alleen AI: we experimenteren onder meer met het
+Federatief Berichtenstelsel (FBS), de gebruikerservaring en de samenwerking met
+betrokken partijen. Dit document beperkt zich tot het AI-aspect daarvan.
+
+*Doel (AI-aspect):* onderzoeken of we verantwoord met behulp van generatieve AI
+software kunnen bouwen, en of de resultaten aantoonbaar in lijn te brengen zijn
+met de standaarden, kaders en richtlijnen van de Nederlandse overheid (o.a.
+NL API Design Rules, FBS, relevante Logius-standaarden), mede met behulp van de
+[overheidsskills](https://github.com/developer-overheid-nl/skills-marketplace).
 
 *Toepassingsgebied:* de ontwikkeling van deze experimentele PoC. Niet in scope:
 gebruik in pilot of productie.
 
 ### 2) Zorg voor de juiste mensen en vaardigheden
 
-Bij de PoC zijn ontwikkelaars met domein- en standaardenkennis betrokken. AI
-wordt ingezet als gereedschap onder menselijke regie; de beoordeling van
-gegenereerde code gebeurt door mensen die de betreffende standaarden en het
-domein begrijpen.
+De betrokken ontwikkelaars zijn niet op voorhand expert van alle betrokken
+standaarden. Een onderdeel van de PoC is juist om praktisch kennis van die
+standaarden op te bouwen door iets te bouwen, en om mede met behulp van de
+[overheidsskills](https://github.com/developer-overheid-nl/skills-marketplace) te
+borgen dat het resultaat eraan voldoet. AI wordt ingezet als gereedschap onder
+menselijke regie.
+
+Om de juiste expertise te betrekken streven we ernaar zo veel mogelijk betrokken
+partijen — waaronder beheerders en experts van de relevante standaarden — te
+laten meekijken met de PoC.
 
 ### 3) Creëer een (generatieve) AI-governance structuur
 
@@ -110,8 +118,8 @@ beveiligingseisen.
 
 Het risico op datadeling wordt beperkt doordat geen vertrouwelijke gegevens of
 persoonsgegevens worden gebruikt, en doordat in de instellingen van de
-AI-assistant is gekozen voor de opt-out voor modeltraining. De gebruikte
-AI-licenties worden aangeschaft door een overheidsorganisatie.
+AI-assistant is gekozen voor de opt-out voor modeltraining. De aanschaf van de
+AI-licenties door onze overheidsorganisatie is in voorbereiding.
 
 #### e. Risico op "schijnzekerheid"
 
