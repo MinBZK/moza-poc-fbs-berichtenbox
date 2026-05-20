@@ -45,6 +45,30 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
         find("berichtId", berichtId).firstResult()
 
     /**
+     * Lichtgewicht variant van [findEntityByBerichtId] die alleen de surrogate
+     * PK projecteert. Voor callers (bv. native `INSERT … ON CONFLICT`) die de
+     * FK-waarde nodig hebben zonder de hele rij in de PersistenceContext te
+     * willen laden.
+     */
+    internal fun findDbIdByBerichtId(berichtId: UUID): Long? =
+        getEntityManager()
+            .createQuery("SELECT b.id FROM BerichtEntity b WHERE b.berichtId = :id", Long::class.javaObjectType)
+            .setParameter("id", berichtId)
+            .resultList
+            .firstOrNull()
+
+    /**
+     * Variant van [findByBerichtId] die ook soft-deleted berichten teruggeeft.
+     * Bedoeld voor flows die idempotent moeten zijn over soft-delete heen, zoals
+     * de DELETE-endpoint die de tweede aanroep door dezelfde ontvanger als 204
+     * (geen verandering) moet beantwoorden.
+     */
+    fun findIncludingDeleted(berichtId: UUID): BerichtMetVerwijderdOp? =
+        find("berichtId", berichtId).firstResult()?.let { entity ->
+            BerichtMetVerwijderdOp(entity.toDomain(), entity.verwijderdOp)
+        }
+
+    /**
      * Paged lijst van actieve berichten voor een ontvanger, optioneel gefilterd
      * op afzender. Sortering: nieuwste bericht eerst — gebruikelijke UX in
      * berichtenbox-views.
@@ -87,6 +111,10 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
      * Soft-delete: zet `verwijderdOp` op het huidige tijdstip. Retourneert
      * `true` als precies één rij is bijgewerkt; `false` als het bericht niet
      * bestond of niet bij de ontvanger hoorde of al verwijderd was.
+     *
+     * Werpt [IllegalStateException] als meer dan één rij is bijgewerkt — de
+     * `(berichtId, ontvanger)`-combinatie is uniek voor actieve berichten,
+     * dus dat duidt op datacorruptie en mag niet stil falen.
      */
     fun softDelete(berichtId: UUID, ontvanger: Identificatienummer, tijdstip: Instant): Boolean {
         val rows = update(
@@ -96,8 +124,23 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
             ontvanger.type,
             ontvanger.waarde,
         )
+        check(rows <= 1) {
+            "softDelete heeft $rows rijen gewijzigd voor berichtId=$berichtId — verwacht 0 of 1 (mogelijke datacorruptie)"
+        }
         return rows == 1
     }
+}
+
+/**
+ * Resultaat van [BerichtRepository.findIncludingDeleted]. Maakt het mogelijk om
+ * voor idempotente flows onderscheid te maken tussen "bestaat niet", "bestaat
+ * maar verwijderd" en "actief".
+ */
+data class BerichtMetVerwijderdOp(
+    val bericht: Bericht,
+    val verwijderdOp: Instant?,
+) {
+    val isVerwijderd: Boolean get() = verwijderdOp != null
 }
 
 /**
@@ -110,6 +153,11 @@ data class PagedBerichten(
     val pageSize: Int,
     val totalElements: Long,
 ) {
-    val totalPages: Int = if (pageSize <= 0) 0
-        else ((totalElements + pageSize - 1) / pageSize).toInt()
+    init {
+        require(page >= 0) { "page mag niet negatief zijn (kreeg $page)" }
+        require(pageSize > 0) { "pageSize moet > 0 zijn (kreeg $pageSize)" }
+        require(totalElements >= 0) { "totalElements mag niet negatief zijn (kreeg $totalElements)" }
+    }
+
+    val totalPages: Int = ((totalElements + pageSize - 1) / pageSize).toInt()
 }

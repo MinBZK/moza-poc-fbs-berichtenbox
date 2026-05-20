@@ -44,7 +44,7 @@ class BerichtStatusRepository(
      */
     fun findByBerichtIds(berichtIds: Collection<UUID>): Map<UUID, BerichtStatus> {
         if (berichtIds.isEmpty()) return emptyMap()
-        return getEntityManager()
+        val rijen = getEntityManager()
             .createQuery(
                 """
                 SELECT bs.bericht.berichtId AS $BERICHT_ID_ALIAS,
@@ -58,8 +58,17 @@ class BerichtStatusRepository(
             )
             .setParameter("ids", berichtIds)
             .resultList
-            .associate { tuple ->
-                tuple.get(BERICHT_ID_ALIAS, UUID::class.java) to BerichtStatus(
+
+        // Statussen zijn 1-op-1 met bericht (unique constraint op bericht_db_id);
+        // `associate` zou een duplicaat stilletjes overschrijven en de fout
+        // verbergen. groupBy + size-check faalt expliciet bij datacorruptie.
+        return rijen.groupBy { it.get(BERICHT_ID_ALIAS, UUID::class.java) }
+            .mapValues { (id, groep) ->
+                check(groep.size == 1) {
+                    "Meerdere statusrijen voor berichtId=$id (uniciteit op bericht_db_id verloren?)"
+                }
+                val tuple = groep.single()
+                BerichtStatus(
                     gelezen = tuple.get(GELEZEN_ALIAS, java.lang.Boolean::class.java).booleanValue(),
                     map = tuple.get(MAP_ALIAS, String::class.java),
                     gewijzigdOp = tuple.get(GEWIJZIGD_OP_ALIAS, Instant::class.java),
@@ -79,26 +88,48 @@ class BerichtStatusRepository(
      * velden in [patch] vervangen de huidige waarde — zie de kdoc van
      * [BerichtStatusPatch] voor de semantiek en de bewuste keuze om een
      * gezette `map` niet via deze endpoint te kunnen wissen.
+     *
+     * Implementatie: Postgres `INSERT … ON CONFLICT (bericht_db_id) DO UPDATE`
+     * met `COALESCE`. Eén atomaire write voorkomt de race waarin twee
+     * gelijktijdige PATCHes op hetzelfde bericht beide de `find` missen, beide
+     * een nieuwe rij proberen te persisten, en de tweede faalt op het unieke-
+     * key. `COALESCE` bewaart bestaande waardes als de patch een veld op `null`
+     * laat. Een separate SELECT leest de persisted state terug binnen dezelfde
+     * transactie (Hibernate's native `RETURNING` mapt onbetrouwbaar).
      */
     fun upsert(
         berichtId: UUID,
         patch: BerichtStatusPatch,
         tijdstip: Instant,
     ): BerichtStatus {
-        val entity = find("bericht.berichtId", berichtId).firstResult()
-            ?: BerichtStatusEntity().apply {
-                // Race tussen find-in-de-service en deze upsert: parent kan
-                // tussentijds (soft-)deleted zijn. Consistent met
-                // [BerichtBeheerService.wijzigStatus]: 404 is de juiste 4xx,
-                // niet een gemaskeerde 500 via UncaughtExceptionMapper.
-                bericht = berichtRepository.findEntityByBerichtId(berichtId)
-                    ?: throw NotFoundException("Bericht niet gevonden")
-            }
-        if (patch.gelezen != null) entity.gelezen = patch.gelezen
-        if (patch.map != null) entity.map = patch.map
-        entity.gewijzigdOp = tijdstip
-        persist(entity)
-        return entity.toDomain()
+        val berichtDbId = berichtRepository.findDbIdByBerichtId(berichtId)
+            ?: throw NotFoundException("Bericht niet gevonden")
+
+        val em = getEntityManager()
+        em.createNativeQuery(
+            """
+            INSERT INTO bericht_status (bericht_db_id, gelezen, map, gewijzigd_op)
+            VALUES (:berichtDbId, COALESCE(:gelezen, false), :map, :tijdstip)
+            ON CONFLICT (bericht_db_id) DO UPDATE
+            SET gelezen      = COALESCE(:gelezen, bericht_status.gelezen),
+                map          = COALESCE(:map, bericht_status.map),
+                gewijzigd_op = :tijdstip
+            """.trimIndent(),
+        )
+            .setParameter("berichtDbId", berichtDbId)
+            .setParameter("gelezen", patch.gelezen)
+            .setParameter("map", patch.map)
+            .setParameter("tijdstip", tijdstip)
+            .executeUpdate()
+        em.flush()
+
+        return em.createQuery(
+            "SELECT bs FROM BerichtStatusEntity bs WHERE bs.bericht.id = :id",
+            BerichtStatusEntity::class.java,
+        )
+            .setParameter("id", berichtDbId)
+            .singleResult
+            .toDomain()
     }
 }
 

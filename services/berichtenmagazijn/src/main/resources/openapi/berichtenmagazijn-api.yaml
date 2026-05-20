@@ -480,6 +480,7 @@ components:
       description: |
         Berichtstatus per ontvanger. Veld wordt weggelaten als de ontvanger nog geen
         status heeft gezet (impliciet ongelezen, geen map).
+      required: [gelezen, gewijzigdOp]
       properties:
         gelezen:
           type: boolean

@@ -257,4 +257,111 @@ class AanleverResourceIntegrationTest {
         assertEquals("voorlopige-aanslag.pdf", bijlagen[0].naam)
         assertEquals("application/pdf", bijlagen[0].mimeType)
     }
+
+    @Test
+    fun `POST berichten met meerdere bijlagen persisteert alle in volgorde`() {
+        val payload1 = Base64.getEncoder().encodeToString("PDF-1".toByteArray())
+        val payload2 = Base64.getEncoder().encodeToString("PDF-2".toByteArray())
+        val payload3 = Base64.getEncoder().encodeToString("PDF-3".toByteArray())
+
+        val responseBerichtId: String = given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "00000001003214345000",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
+                  "onderwerp": "Drie bijlagen",
+                  "inhoud": "x",
+                  "bijlagen": [
+                    {"naam": "a.pdf", "mimeType": "application/pdf", "inhoud": "$payload1"},
+                    {"naam": "b.pdf", "mimeType": "application/pdf", "inhoud": "$payload2"},
+                    {"naam": "c.pdf", "mimeType": "application/pdf", "inhoud": "$payload3"}
+                  ]
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(201)
+            .extract().path("berichtId")
+
+        val bijlagen = bijlageRepository.metadataVoorBericht(UUID.fromString(responseBerichtId))
+        assertEquals(3, bijlagen.size)
+        assertEquals(setOf("a.pdf", "b.pdf", "c.pdf"), bijlagen.map { it.naam }.toSet())
+    }
+
+    @Test
+    fun `POST berichten met lege bijlage-inhoud wordt afgewezen door spec-validatie`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "00000001003214345000",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
+                  "onderwerp": "Lege bijlage",
+                  "inhoud": "x",
+                  "bijlagen": [
+                    {"naam": "leeg.pdf", "mimeType": "application/pdf", "inhoud": ""}
+                  ]
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `POST berichten met bijlage groter dan MAX_CONTENT_BYTES wordt afgewezen`() {
+        // 25 MiB + 1 byte aan synthetische content. Test borgt dat de domein-
+        // invariant op Bijlage.MAX_CONTENT_BYTES daadwerkelijk afgedwongen wordt
+        // door de aanlever-flow.
+        val teGroot = ByteArray(25 * 1024 * 1024 + 1) { 0x25 }
+        val base64 = Base64.getEncoder().encodeToString(teGroot)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "00000001003214345000",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
+                  "onderwerp": "Te groot",
+                  "inhoud": "x",
+                  "bijlagen": [
+                    {"naam": "groot.pdf", "mimeType": "application/pdf", "inhoud": "$base64"}
+                  ]
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            // Quarkus' max-body-size (40 MiB) staat de request toe; daarna pakt
+            // de domein-invariant het op met 400.
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `POST berichten met ontvanger zonder waarde retourneert 400`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "00000001003214345000",
+                  "ontvanger": {"type": "BSN", "waarde": ""},
+                  "onderwerp": "x",
+                  "inhoud": "y"
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
 }

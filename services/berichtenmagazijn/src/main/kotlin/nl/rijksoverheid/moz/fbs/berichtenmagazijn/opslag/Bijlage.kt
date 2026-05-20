@@ -74,9 +74,24 @@ data class Bijlage(
  * Metadata van een bijlage zonder de inhoud (bytes). Gebruikt in lijst- en
  * detail-responses van de Ophaal-API; consumers halen de inhoud separaat op via
  * `GET /berichten/{id}/bijlagen/{id}`.
+ *
+ * Dezelfde [Bijlage]-invarianten gelden voor naam en mimeType: een projection-
+ * query mag geen blanco of te lange waardes opleveren (zou wijzen op corruptie
+ * of een schema-mismatch).
  */
 data class BijlageMetadata(
     val bijlageId: UUID,
     val naam: String,
     val mimeType: String,
-)
+) {
+    init {
+        requireValid(naam.isNotBlank()) { "Bijlage-naam mag niet leeg zijn" }
+        requireValid(naam.length <= Bijlage.MAX_NAAM_LENGTE) {
+            "Bijlage-naam mag max ${Bijlage.MAX_NAAM_LENGTE} characters zijn"
+        }
+        requireValid(mimeType.isNotBlank()) { "Bijlage-mimeType mag niet leeg zijn" }
+        requireValid(mimeType.length <= Bijlage.MAX_MIME_LENGTE) {
+            "Bijlage-mimeType mag max ${Bijlage.MAX_MIME_LENGTE} characters zijn"
+        }
+    }
+}

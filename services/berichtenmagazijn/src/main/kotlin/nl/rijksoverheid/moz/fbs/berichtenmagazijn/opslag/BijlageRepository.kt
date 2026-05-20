@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.persistence.Tuple
+import org.jboss.logging.Logger
 import java.util.UUID
 
 /**
@@ -20,15 +21,22 @@ class BijlageRepository(
 
     /**
      * Persisteert een nieuwe bijlage. Wordt aangeroepen vanuit de Aanlever-flow
-     * voor elke bijlage in het aangeleverde bericht. Faalt met `IllegalArgumentException`
-     * als het parent-bericht (nog) niet bestaat — de Aanlever-service plaatst de
-     * bericht-save in dezelfde transactie, dus dat scenario duidt op een bug.
+     * voor elke bijlage in het aangeleverde bericht. Het parent-bericht hoort in
+     * dezelfde transactie al gepersisteerd te zijn; een ontbrekend parent duidt
+     * op een programmeerfout en wordt expliciet gelogd voor diagnose.
      */
     fun save(bijlage: Bijlage) {
         val berichtEntity = berichtRepository.findEntityByBerichtId(bijlage.berichtId)
-            ?: throw IllegalArgumentException(
-                "Bericht niet gevonden voor berichtId=${bijlage.berichtId}",
-            )
+            ?: run {
+                log.errorf(
+                    "Bijlage-save zonder parent: bijlageId=%s berichtId=%s",
+                    bijlage.bijlageId,
+                    bijlage.berichtId,
+                )
+                throw IllegalStateException(
+                    "Parent-bericht ontbreekt voor bijlage bijlageId=${bijlage.bijlageId}",
+                )
+            }
         persist(
             BijlageEntity().apply {
                 bijlageId = bijlage.bijlageId
@@ -111,6 +119,7 @@ class BijlageRepository(
     }
 
     private companion object {
+        private val log: Logger = Logger.getLogger(BijlageRepository::class.java)
         private const val BERICHT_ID_ALIAS = "berichtId"
         private const val METADATA_ALIAS = "metadata"
     }

@@ -17,6 +17,7 @@ import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.hasSize
+import org.hamcrest.Matchers.nullValue
 import org.hamcrest.Matchers.notNullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -298,5 +299,49 @@ class OphaalResourceIntegrationTest {
             .then()
             .statusCode(400)
             .body("status", equalTo(400))
+    }
+
+    @Test
+    fun `GET berichten met page voorbij totalPages levert lege lijst zonder _links_next`() {
+        insertBericht(onderwerp = "Enige")
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten?page=5&pageSize=10")
+            .then()
+            .statusCode(200)
+            .body("berichten", hasSize<Any>(0))
+            .body("page", `is`(5))
+            .body("totalElements", `is`(1))
+            // Op de laatste pagina (en daarvoorbij) MAG `next` niet aanwezig zijn.
+            .body("_links.next", nullValue())
+    }
+
+    @Test
+    fun `GET berichten op pagina 0 zonder voorgaande pagina laat _links_prev weg`() {
+        insertBericht()
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten?page=0&pageSize=10")
+            .then()
+            .statusCode(200)
+            .body("_links.prev", nullValue())
+            .body("_links.first.href", containsString("page=0"))
+            .body("_links.last.href", containsString("page=0"))
+    }
+
+    @Test
+    fun `GET berichten clampt te grote pageSize naar 100 (defense-in-depth)`() {
+        // OpenAPI bean validation begrenst pageSize tot 100; deze case mikt op de
+        // server-side coerceIn als die ooit per ongeluk de Bean-validation passeert.
+        insertBericht()
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten?page=0&pageSize=999")
+            .then()
+            // Bean validation pakt deze nu af met 400; dat is het gewenste gedrag.
+            .statusCode(400)
     }
 }

@@ -7,6 +7,7 @@ import io.mockk.verify
 import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtMetVerwijderdOp
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
@@ -83,7 +84,7 @@ class BerichtBeheerServiceTest {
     @Test
     fun `verwijder roept softDelete aan en eindigt zonder fout`() {
         val b = bericht()
-        every { berichtRepository.findByBerichtId(b.berichtId) } returns b
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returns BerichtMetVerwijderdOp(b, null)
         every { berichtRepository.softDelete(b.berichtId, ontvanger, any()) } returns true
 
         service.verwijder(b.berichtId, ontvanger)
@@ -92,21 +93,46 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
-    fun `verwijder gooit NotFound bij race-condition (softDelete raakt geen rijen)`() {
+    fun `verwijder is no-op (geen mutatie, geen 404) bij al-verwijderd bericht`() {
+        // RFC 9110 §9.3.5: een tweede DELETE door dezelfde rechtmatige ontvanger
+        // mag niet 404 geven (dat zou de client doen twijfelen of het bericht ooit
+        // bestond), maar simpelweg succesvol zijn zonder mutatie.
         val b = bericht()
-        every { berichtRepository.findByBerichtId(b.berichtId) } returns b
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returns
+            BerichtMetVerwijderdOp(b, Instant.parse("2026-05-13T11:00:00Z"))
+
+        service.verwijder(b.berichtId, ontvanger)
+
+        // softDelete mag niet aangeroepen worden — de mock is strikt zonder
+        // antwoord, dus een aanroep zou een MockKException werpen.
+    }
+
+    @Test
+    fun `verwijder logt race-warning maar werpt niet bij softDelete=false`() {
+        // Race: tussen find en softDelete heeft een concurrente DELETE al
+        // verwijderd. Resultaat is identiek aan idempotent no-op (204).
+        val b = bericht()
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returns BerichtMetVerwijderdOp(b, null)
         every { berichtRepository.softDelete(b.berichtId, ontvanger, any()) } returns false
 
-        assertThrows<NotFoundException> { service.verwijder(b.berichtId, ontvanger) }
+        service.verwijder(b.berichtId, ontvanger)
     }
 
     @Test
     fun `verwijder gooit Forbidden bij ontvanger-mismatch`() {
         val b = bericht(ontvangerOp = anderePersoon)
-        every { berichtRepository.findByBerichtId(b.berichtId) } returns b
+        every { berichtRepository.findIncludingDeleted(b.berichtId) } returns BerichtMetVerwijderdOp(b, null)
 
         assertThrows<ForbiddenException> { service.verwijder(b.berichtId, ontvanger) }
         // softDelete is niet gestubd; een aanroep had de assertThrows verstoord met
         // een mockk MissingAnswerException.
+    }
+
+    @Test
+    fun `verwijder gooit NotFound als bericht niet bestaat (ook niet soft-deleted)`() {
+        val id = UUID.randomUUID()
+        every { berichtRepository.findIncludingDeleted(id) } returns null
+
+        assertThrows<NotFoundException> { service.verwijder(id, ontvanger) }
     }
 }

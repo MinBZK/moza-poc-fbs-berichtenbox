@@ -30,6 +30,12 @@ internal class BerichtStatusEntity {
     @Column(nullable = false)
     var id: Long = 0
 
+    // `lateinit var` is hier het idiomatische Kotlin-patroon voor een
+    // verplichte @ManyToOne-referentie: Hibernate vult het veld tijdens
+    // hydratatie via reflectie; er bestaat geen zinvolle "default"-instantie
+    // van [BerichtEntity] om als initial value te gebruiken. De FK-kolom is
+    // NOT NULL op DB-niveau, dus het veld kan nooit als ongeïnitialiseerd
+    // worden waargenomen buiten de zeer korte window vóór hydratatie.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "bericht_db_id", nullable = false, unique = true)
     lateinit var bericht: BerichtEntity

@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
+import org.jboss.logging.Logger
 import java.time.Instant
 import java.util.UUID
 
@@ -27,6 +28,8 @@ class BerichtBeheerService(
     private val statusRepository: BerichtStatusRepository,
     private val bijlageRepository: BijlageRepository,
 ) {
+
+    private val log = Logger.getLogger(BerichtBeheerService::class.java)
 
     /**
      * Patcht de leesstatus (gelezen, map) van een bericht voor de opgegeven
@@ -57,21 +60,35 @@ class BerichtBeheerService(
     }
 
     /**
-     * Soft-delete: zet `verwijderdOp` op het bericht. Idempotent in de zin dat
-     * een tweede DELETE op hetzelfde bericht 404 oplevert (het bericht is dan
-     * vanuit de Ophaal-API-bril niet meer zichtbaar).
+     * Idempotente soft-delete conform RFC 9110 §9.3.5. Tweede DELETE door
+     * dezelfde rechtmatige ontvanger geeft 204 zonder mutatie, zodat een client
+     * die na een netwerk-fout de call herhaalt geen verwarrende 404 krijgt.
+     *
+     * Mapping:
+     * - bericht onbekend → 404
+     * - bericht bestaat, andere ontvanger → 403 (geen onthulling van bestaan
+     *   via 200/404, ongeacht soft-delete-staat)
+     * - bericht bestaat, juiste ontvanger, al verwijderd → no-op (204)
+     * - bericht bestaat, juiste ontvanger, actief → soft-delete (204)
      */
     @Transactional
     fun verwijder(berichtId: UUID, ontvanger: Identificatienummer) {
-        val bericht = berichtRepository.findByBerichtId(berichtId)
+        val record = berichtRepository.findIncludingDeleted(berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
-        BerichtAutorisatie.vereisOntvanger(bericht, ontvanger)
+        BerichtAutorisatie.vereisOntvanger(record.bericht, ontvanger)
+        if (record.isVerwijderd) return
 
         val ok = berichtRepository.softDelete(berichtId, ontvanger, Instant.now())
         if (!ok) {
-            // Race-condition: tussen find en update is iets anders gebeurd. Behandel
-            // als "niet meer aanwezig" — 404 is dan de consistente respons.
-            throw NotFoundException("Bericht niet gevonden")
+            // Race-condition: tussen find en update is een concurrente DELETE
+            // door dezelfde ontvanger geslaagd. Resultaat is identiek aan een
+            // tweede DELETE — 204 zonder mutatie. Log op WARN zodat een
+            // herhaalbaar patroon zichtbaar wordt; waarde blijft uit log.
+            log.warnf(
+                "Soft-delete-race: tweede update faalde maar bericht is verwijderd. berichtId=%s ontvangerType=%s",
+                berichtId,
+                ontvanger.type,
+            )
         }
     }
 }

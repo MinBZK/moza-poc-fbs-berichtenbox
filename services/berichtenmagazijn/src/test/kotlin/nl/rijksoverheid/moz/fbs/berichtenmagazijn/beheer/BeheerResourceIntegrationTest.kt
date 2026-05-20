@@ -147,15 +147,18 @@ class BeheerResourceIntegrationTest {
     }
 
     @Test
-    fun `DELETE op al-verwijderd bericht geeft 404 (idempotent vanuit clientzicht)`() {
+    fun `DELETE is idempotent conform RFC 9110 - tweede DELETE door dezelfde ontvanger geeft 204`() {
         val b = insertBericht()
         given().header("X-Ontvanger", ontvangerHeader)
             .`when`().delete("/api/v1/berichten/${b.berichtId}")
             .then().statusCode(204)
 
+        // Tweede DELETE door dezelfde rechtmatige ontvanger MOET 204 geven —
+        // anders kan een client die na netwerkfout opnieuw probeert niet
+        // onderscheiden of het bericht ooit bestond.
         given().header("X-Ontvanger", ontvangerHeader)
             .`when`().delete("/api/v1/berichten/${b.berichtId}")
-            .then().statusCode(404)
+            .then().statusCode(204)
     }
 
     @Test
@@ -165,6 +168,28 @@ class BeheerResourceIntegrationTest {
             .header("X-Ontvanger", andereOntvangerHeader)
             .`when`().delete("/api/v1/berichten/${b.berichtId}")
             .then().statusCode(403)
+    }
+
+    @Test
+    fun `DELETE door andere ontvanger op al-verwijderd bericht geeft 403 (geen bestaan-onthulling)`() {
+        // 403 zowel vóór als ná soft-delete: anders zou een attacker uit het
+        // verschil tussen 403 (bestaat, andere ontvanger) en 404 (bestaat niet)
+        // het bestaan van berichten kunnen afleiden.
+        val b = insertBericht()
+        given().header("X-Ontvanger", ontvangerHeader)
+            .`when`().delete("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(204)
+
+        given().header("X-Ontvanger", andereOntvangerHeader)
+            .`when`().delete("/api/v1/berichten/${b.berichtId}")
+            .then().statusCode(403)
+    }
+
+    @Test
+    fun `DELETE op niet-bestaand bericht geeft 404`() {
+        given().header("X-Ontvanger", ontvangerHeader)
+            .`when`().delete("/api/v1/berichten/${UUID.randomUUID()}")
+            .then().statusCode(404)
     }
 
     @Test

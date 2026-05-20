@@ -18,13 +18,11 @@ import java.util.UUID
  *
  * Verantwoordelijkheden:
  * 1. Berichten uit het magazijn lezen, gefilterd op ontvanger en soft-delete.
- * 2. PoC-autorisatie: ontvanger in `X-Ontvanger` moet matchen met de ontvanger
- *    op het bericht (single-bericht-GET). Bij lijsten gebeurt dat impliciet via
- *    het WHERE-clause in de repository.
+ * 2. Autorisatie via [BerichtAutorisatie]: ontvanger in `X-Ontvanger` moet
+ *    matchen met de ontvanger op het bericht (single-bericht-GET). Bij lijsten
+ *    gebeurt dat impliciet via het WHERE-clause in de repository.
  * 3. Verrijken van een bericht met bijlage-metadata en de leesstatus van de
  *    ontvanger die het opvraagt.
- *
- * De echte AuthZEN PEP/PDP komt in Issue 10; deze service-laag-check is de PoC.
  */
 @ApplicationScoped
 class BerichtOphaalService(

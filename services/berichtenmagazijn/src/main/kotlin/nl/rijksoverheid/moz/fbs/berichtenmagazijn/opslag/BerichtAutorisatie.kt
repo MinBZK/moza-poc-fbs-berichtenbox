@@ -4,10 +4,10 @@ import jakarta.ws.rs.ForbiddenException
 import org.jboss.logging.Logger
 
 /**
- * PoC-PEP voor toegang tot een bericht: ontvanger op het bericht moet matchen
- * met de ontvanger uit de `X-Ontvanger`-header. Wordt later vervangen door de
- * echte AuthZEN PEP/PDP (Issue 10) — tot die tijd centraliseren we de check
- * hier zodat Ophaal- en Beheer-services niet uit elkaar drijven.
+ * Centrale PEP voor toegang tot een bericht: ontvanger op het bericht moet
+ * matchen met de ontvanger uit de `X-Ontvanger`-header. Wordt vervangen door
+ * een AuthZEN PEP/PDP zodra die beschikbaar is — door dit centraal te houden
+ * blijft die overstap één plek code.
  *
  * Logging laat opzettelijk de `waarde` weg (kan een BSN zijn): alleen
  * `berichtId` + `ontvanger.type` is voor diagnose voldoende; de Problem-
@@ -18,7 +18,10 @@ internal object BerichtAutorisatie {
     private val log = Logger.getLogger(BerichtAutorisatie::class.java)
 
     fun vereisOntvanger(bericht: Bericht, ontvanger: Identificatienummer) {
-        if (bericht.ontvanger.type != ontvanger.type || bericht.ontvanger.waarde != ontvanger.waarde) {
+        // Value-class equals over (type, waarde): één check vangt zowel type- als
+        // waarde-mismatch, zonder dat callers het risico lopen één van beide te
+        // vergeten.
+        if (bericht.ontvanger != ontvanger) {
             log.warnf(
                 "Autorisatie geweigerd: ontvanger-mismatch berichtId=%s berichtOntvangerType=%s headerOntvangerType=%s",
                 bericht.berichtId,
