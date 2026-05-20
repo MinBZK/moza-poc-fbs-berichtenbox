@@ -5,6 +5,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.time.Instant
+import java.time.Period
+import java.time.ZoneOffset
 
 /**
  * Orchestreert de retentie-run: claim batches via [BerichtRepository.claimVoorHardDelete],
@@ -39,8 +41,8 @@ class HardDeleteService(
 
     fun run(): RunResultaat {
         val start = Instant.now()
-        val receiptDeadline = start.minus(config.minimaleLeeftijd())
-        val softDeleteDeadline = start.minus(config.minimaleSoftDeleteLeeftijd())
+        val receiptDeadline = subtract(start, config.minimaleLeeftijd())
+        val softDeleteDeadline = subtract(start, config.minimaleSoftDeleteLeeftijd())
         val batchSize = config.batchGrootte()
 
         var totaal = 0
@@ -108,6 +110,14 @@ class HardDeleteService(
 
     private fun remainingBatchSize(totaal: Int, batchSize: Int): Int =
         minOf(batchSize, MAX_PER_RUN - totaal)
+
+    /**
+     * `Instant.minus(Period)` werkt niet — `Period` heeft date-units (jaren/maanden)
+     * die `Instant` niet kent. We rekenen daarom via `OffsetDateTime` op UTC, wat
+     * leap-jaar-correct is voor `P7Y` etc.
+     */
+    private fun subtract(instant: Instant, period: Period): Instant =
+        instant.atOffset(ZoneOffset.UTC).minus(period).toInstant()
 
     companion object {
         /** Veiligheidsplafond: nooit meer dan dit aantal verwijderingen per cron-run. */
