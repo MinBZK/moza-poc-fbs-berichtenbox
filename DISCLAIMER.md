@@ -4,7 +4,8 @@ Dit project is een **experimentele Proof of Concept (PoC)** voor de Berichtenbox
 binnen het Federatief Berichtenstelsel (FBS). De code is **grotendeels
 gegenereerd met generatieve AI** (Claude Code, Anthropic). Alle **niet-testcode**
 wordt **menselijk gereviewd** voordat die in de hoofdbranch wordt opgenomen;
-testcode wordt functioneel beproefd in plaats van regel voor regel gereviewd.
+testcode wordt niet regel voor regel gereviewd, maar de werking van het geheel
+wordt functioneel beproefd.
 
 ## Geen officiële dienst
 
@@ -17,7 +18,8 @@ rechten worden ontleend.
 Bijdragen die met behulp van generatieve AI tot stand zijn gekomen, zijn
 gemarkeerd via de commit-trailer `Co-Authored-By`. Niet-testcode is door
 ontwikkelaars beoordeeld via de pull-request-workflow voordat die is gemerged;
-testcode wordt functioneel beproefd in plaats van regel voor regel gereviewd.
+testcode is niet regel voor regel gereviewd, maar de werking van het geheel is
+functioneel beproefd.
 
 ## Gebruik van generatieve AI
 

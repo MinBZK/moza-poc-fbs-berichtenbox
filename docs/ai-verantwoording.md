@@ -86,7 +86,8 @@ Concrete governance-maatregelen:
 - Met AI gegenereerde bijdragen zijn herkenbaar gemarkeerd via de commit-trailer
   `Co-Authored-By`.
 - Niet-testcode wordt menselijk gereviewd via de pull-request-workflow vóór
-  merge; testcode wordt functioneel beproefd (zie "Menselijke review" hierboven).
+  merge; de werking van het geheel wordt functioneel beproefd (zie "Menselijke
+  review" hierboven).
 - Voor maximale transparantie is de repository openbaar en onder een open
   licentie ([EUPL-1.2](../LICENSE)); reageren kan via GitHub-issues.
 
