@@ -32,3 +32,7 @@ docs/architecture/workspace.json
 node_modules/
 /docs/architecture/workspace.json
 /docs/architecture/.structurizr/
+
+# Claude Code (lokaal)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
