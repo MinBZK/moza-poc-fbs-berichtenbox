@@ -79,8 +79,9 @@ Dit project is gelicenseerd onder de [EUPL-1.2](LICENSE).
 
 ## AI-verantwoording
 
-De code in deze PoC is grotendeels gegenereerd met generatieve AI (Claude Code)
-en volledig menselijk gereviewd. Zie [DISCLAIMER.md](DISCLAIMER.md) voor de
+De code in deze PoC is grotendeels gegenereerd met generatieve AI (Claude Code);
+alle niet-testcode wordt menselijk gereviewd en testcode wordt functioneel
+beproefd. Zie [DISCLAIMER.md](DISCLAIMER.md) voor de
 disclaimer en [docs/ai-verantwoording.md](docs/ai-verantwoording.md) voor de
 volledige verantwoording, getoetst aan de Overheidsbrede handreiking voor de
 verantwoorde inzet van generatieve AI.
