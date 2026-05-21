@@ -34,14 +34,18 @@ class BerichtValidatieServiceTest {
     private val ontvangerOin: Identificatienummer =
         Identificatienummer.of(IdentificatienummerType.OIN, "00000001003214345001")
 
-    private fun maakBericht(ontvanger: Identificatienummer = ontvangerBsn): Bericht = Bericht(
-        berichtId = UUID.randomUUID(),
-        afzender = afzender,
-        ontvanger = ontvanger,
-        onderwerp = "Voorlopige aanslag",
-        inhoud = "Inhoud",
-        tijdstipOntvangst = Instant.now(),
-    )
+    private fun maakBericht(ontvanger: Identificatienummer = ontvangerBsn): Bericht {
+        val nu = Instant.now()
+        return Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = afzender,
+            ontvanger = ontvanger,
+            onderwerp = "Voorlopige aanslag",
+            inhoud = "Inhoud",
+            tijdstipOntvangst = nu,
+            publicatiedatum = nu,
+        )
+    }
 
     private fun pdfBijlage(naam: String = "doc.pdf"): BijlageInvoer =
         BijlageInvoer(naam = naam, mimeType = "application/pdf", content = byteArrayOf(1, 2, 3))
