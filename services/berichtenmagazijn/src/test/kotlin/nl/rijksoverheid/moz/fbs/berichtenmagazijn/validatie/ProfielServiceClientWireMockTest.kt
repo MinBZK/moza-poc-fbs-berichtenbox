@@ -101,15 +101,17 @@ class ProfielServiceClientWireMockTest {
     }
 
     @Test
-    fun `5xx wordt vertaald naar WebApplicationException (telt mee voor circuit breaker)`() {
+    fun `5xx wordt vertaald naar WebApplicationException`() {
         wireMock.stubFor(
             get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
                 .willReturn(aResponse().withStatus(500).withBody("internal error")),
         )
 
-        // @Retry(maxRetries=2) op de interface betekent: 3 pogingen, dan
-        // WebApplicationException(500). De buitenste circuit breaker in
-        // BerichtOpslagService telt deze fout mee (niet in skipOn).
+        // `@Retry(retryOn = [ProcessingException::class])` retryt alleen op transient
+        // netwerk-fouten; een expliciete 5xx-respons is een deterministisch upstream-
+        // antwoord en wordt direct doorgegeven. De buitenste service vangt het via
+        // skipOn (WebApplicationException) en laat het de circuit breaker NIET trippen
+        // — een single-shot 5xx mag niet de hele aanlever-flow offline halen.
         assertThrows(WebApplicationException::class.java) {
             client.getPartij("BSN", "999993653")
         }

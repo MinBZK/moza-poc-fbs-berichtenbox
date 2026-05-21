@@ -2,10 +2,10 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import jakarta.ws.rs.GET
-import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.Produces
+import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.MediaType
 import org.eclipse.microprofile.faulttolerance.Retry
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
@@ -28,14 +28,19 @@ interface ProfielServiceClient {
 
     /**
      * `@Retry` op transient I/O-fouten zodat een korte hapering of TCP-reset
-     * geen 503 naar de aanleveraar veroorzaakt. `NotFoundException` (404) is
-     * een legitiem antwoord ("partij onbekend") en wordt afgehandeld door
-     * [BerichtValidatieService] — die wordt geabort, niet retried.
+     * geen 503 naar de aanleveraar veroorzaakt. Alleen `ProcessingException`
+     * retryen: dat is het JAX-RS-wrapper-type voor connection-resets,
+     * read-timeouts en andere netwerk-fouten waar de upstream geen definitief
+     * antwoord op gaf. Een `WebApplicationException` (4xx/5xx) is een
+     * deterministisch upstream-antwoord en wordt NIET geretryed — anders zou
+     * elke onbekende ontvanger 3x worden opgevraagd (retry-storm) en zou een
+     * 401/403 (auth-misser) onnodig pogingen veroorzaken op een upstream die
+     * een rate-limit of token-lock kan triggeren.
      */
     @GET
     @Path("/api/profielservice/v1/{identificatieType}/{identificatieNummer}")
     @Produces(MediaType.APPLICATION_JSON)
-    @Retry(maxRetries = 2, delay = 200, abortOn = [NotFoundException::class])
+    @Retry(maxRetries = 2, delay = 200, retryOn = [ProcessingException::class])
     fun getPartij(
         @PathParam("identificatieType") identificatieType: String,
         @PathParam("identificatieNummer") identificatieNummer: String,

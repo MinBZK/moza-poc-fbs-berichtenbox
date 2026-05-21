@@ -3,7 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.persistence.PersistenceException
 import jakarta.transaction.Transactional
-import jakarta.ws.rs.ClientErrorException
+import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
@@ -30,11 +30,15 @@ class BerichtOpslagService(
     private val log = Logger.getLogger(BerichtOpslagService::class.java)
 
     // skipOn — fouten die níét meetellen voor het circuit:
-    //  - DomainValidationException, ClientErrorException, ToestemmingGeweigerdException:
-    //    client-fouten / policy-besluiten; zeggen niets over de gezondheid van de
-    //    infrastructuur.
+    //  - DomainValidationException, ToestemmingGeweigerdException: client-fouten en
+    //    policy-besluiten; zeggen niets over de gezondheid van de infrastructuur.
     //  - HibernateConstraintViolationException: unique-key (409) én NOT NULL/FK/CHECK
     //    (500) duiden op data/schema, niet op een onbereikbare DB.
+    //  - WebApplicationException: vangt zowel JAX-RS-mapper-fouten als de Quarkus
+    //    REST Reactive `ClientWebApplicationException` (extends WebApplicationException
+    //    direct, niet via ClientErrorException). Een 4xx/5xx van een upstream zegt
+    //    niets over de magazijn-DB-gezondheid waar deze CB primair tegen beschermt;
+    //    de REST-client heeft zijn eigen `@Retry` op transient I/O.
     //
     // Niet in skipOn: `jakarta.validation.ConstraintViolationException` — Bean Validation
     // vuurt vóór de resource-methode en bereikt deze service niet. Generieke
@@ -48,7 +52,7 @@ class BerichtOpslagService(
         skipOn = [
             DomainValidationException::class,
             HibernateConstraintViolationException::class,
-            ClientErrorException::class,
+            WebApplicationException::class,
             ToestemmingGeweigerdException::class,
         ],
     )
