@@ -86,8 +86,10 @@ class PublicatieClaimVerwerker(
         try {
             val bericht = berichten.findByBerichtId(claim.berichtId)
             if (bericht == null) {
-                // Bericht weg tussen plan en verwerking. CASCADE op bericht_db_id maakt dit in
-                // praktijk onbereikbaar; vangnet voor handmatige DB-mutaties/soft-delete.
+                // Bericht weg tussen plan en verwerking. Een hard-delete neemt via
+                // CASCADE op bericht_db_id ook de delivery-rij mee, dus die orphan-claim
+                // is onbereikbaar. Het live pad hierheen is soft-delete: findByBerichtId
+                // filtert verwijderdOp IS NULL, terwijl de delivery-rij blijft bestaan.
                 // dataSubject = berichtId (ontvanger ontbreekt) zodat het LDV-record
                 // auditbaar blijft zonder lege subject-velden.
                 ldvContext.dataSubjectId = claim.berichtId.toString()

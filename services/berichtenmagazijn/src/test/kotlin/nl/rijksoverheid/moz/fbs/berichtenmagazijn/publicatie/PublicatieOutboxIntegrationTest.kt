@@ -90,6 +90,40 @@ class PublicatieOutboxIntegrationTest {
         assertTrue(rijen.all { it.volgendePoging == toekomst })
     }
 
+    @Test
+    @Transactional
+    fun `hard-delete van bericht cascade-verwijdert de delivery-rijen`() {
+        // Borgt de load-bearing ON DELETE CASCADE: de retentie-job (HardDeleteTransactionalOps)
+        // ruimt bijlagen/status expliciet op maar NIET de deliveries — die verdwijnen alleen
+        // via de FK-CASCADE. Een regressie naar RESTRICT zou hard-delete laten falen voor elk
+        // bericht met (terminale) delivery-rijen.
+        val tijdstip = Instant.parse("2026-05-12T10:00:00Z")
+        val bericht = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = Oin("00000001003214345000"),
+            ontvanger = Bsn("999993653"),
+            onderwerp = "Cascade",
+            inhoud = "Inhoud",
+            tijdstipOntvangst = tijdstip,
+            publicatiedatum = tijdstip,
+        )
+        berichten.save(bericht)
+        outbox.planDeliveries(bericht.berichtId, tijdstip)
+        val dbId = berichten.findDbIdByBerichtId(bericht.berichtId)
+            ?: error("db-id niet gevonden voor zojuist opgeslagen bericht")
+        assertTrue(
+            deliveries.findByBerichtId(bericht.berichtId).isNotEmpty(),
+            "voorwaarde: er moeten delivery-rijen gepland zijn",
+        )
+
+        berichten.hardDeleteByDbId(dbId)
+
+        assertTrue(
+            deliveries.findByBerichtId(bericht.berichtId).isEmpty(),
+            "ON DELETE CASCADE moet de delivery-rijen meenemen bij hard-delete van het bericht",
+        )
+    }
+
     class TweeDownstreamsProfile : QuarkusTestProfile {
         override fun getConfigOverrides(): Map<String, String> = mapOf(
             "magazijn.publicatie.downstreams.aanmeld.url" to "http://localhost:1/events",
