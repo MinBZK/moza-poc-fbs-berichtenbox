@@ -5,7 +5,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.NotFoundException
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.NieuweBijlage
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
@@ -43,8 +43,8 @@ class BerichtValidatieServiceTest {
         tijdstipOntvangst = Instant.now(),
     )
 
-    private fun pdfBijlage(naam: String = "doc.pdf"): NieuweBijlage =
-        NieuweBijlage(naam = naam, mimeType = "application/pdf", content = byteArrayOf(1, 2, 3))
+    private fun pdfBijlage(naam: String = "doc.pdf"): BijlageInvoer =
+        BijlageInvoer(naam = naam, mimeType = "application/pdf", content = byteArrayOf(1, 2, 3))
 
     /** Profiel met een actieve OntvangViaBerichtenbox-voorkeur voor [afzenderOin]. */
     private fun profielMetAbonnement(
@@ -80,7 +80,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer niet-PDF bijlage gooit DomainValidationException met MIME-type in message`() {
-        val nietPdf = NieuweBijlage(naam = "plaatje.png", mimeType = "image/png", content = byteArrayOf(1))
+        val nietPdf = BijlageInvoer(naam = "plaatje.png", mimeType = "image/png", content = byteArrayOf(1))
 
         val ex = assertThrows(DomainValidationException::class.java) {
             service.valideer(maakBericht(), listOf(nietPdf))
@@ -93,7 +93,7 @@ class BerichtValidatieServiceTest {
     fun `valideer faalt op eerste niet-PDF bijlage bij gemengde lijst`() {
         val bijlagen = listOf(
             pdfBijlage("ok.pdf"),
-            NieuweBijlage(naam = "doc.docx", mimeType = "application/msword", content = byteArrayOf(1)),
+            BijlageInvoer(naam = "doc.docx", mimeType = "application/msword", content = byteArrayOf(1)),
             pdfBijlage("ook-ok.pdf"),
         )
 
@@ -105,7 +105,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer controleert MIME-type vóór profielservice (fail-fast bij PNG zonder REST-call)`() {
-        val nietPdf = NieuweBijlage(naam = "x.png", mimeType = "image/png", content = byteArrayOf(1))
+        val nietPdf = BijlageInvoer(naam = "x.png", mimeType = "image/png", content = byteArrayOf(1))
 
         assertThrows(DomainValidationException::class.java) {
             service.valideer(maakBericht(), listOf(nietPdf))
@@ -115,7 +115,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `MIME-type-check is case-sensitive — APPLICATION_PDF in hoofdletters wordt afgekeurd`() {
-        val hoofdletters = NieuweBijlage(
+        val hoofdletters = BijlageInvoer(
             naam = "doc.pdf",
             mimeType = "APPLICATION/PDF",
             content = byteArrayOf(1),

@@ -2,7 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.NieuweBijlage
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
@@ -33,7 +33,7 @@ class BerichtValidatieService(
 
     private val log = Logger.getLogger(BerichtValidatieService::class.java)
 
-    fun valideer(bericht: Bericht, bijlagen: List<NieuweBijlage>) {
+    fun valideer(bericht: Bericht, bijlagen: List<BijlageInvoer>) {
         bijlagen.forEach { bijlage ->
             if (bijlage.mimeType != PDF_MIME_TYPE) {
                 throw DomainValidationException(

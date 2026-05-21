@@ -59,7 +59,7 @@ class BerichtOpslagServiceTest {
             ontvangerWaarde = "999993653",
             onderwerp = "Test",
             inhoud = "Inhoud",
-            bijlagen = listOf(NieuweBijlage("doc.pdf", "application/pdf", byteArrayOf(1, 2))),
+            bijlagen = listOf(BijlageInvoer("doc.pdf", "application/pdf", byteArrayOf(1, 2))),
         )
 
         verifyOrder {
