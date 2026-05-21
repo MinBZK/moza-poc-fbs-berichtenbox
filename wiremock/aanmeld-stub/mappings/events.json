@@ -1,0 +1,25 @@
+{
+  "mappings": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "/events",
+        "headers": {
+          "Content-Type": {
+            "contains": "application/cloudevents+json"
+          }
+        }
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "stub": "aanmeld",
+          "ontvangen": true
+        }
+      }
+    }
+  ]
+}

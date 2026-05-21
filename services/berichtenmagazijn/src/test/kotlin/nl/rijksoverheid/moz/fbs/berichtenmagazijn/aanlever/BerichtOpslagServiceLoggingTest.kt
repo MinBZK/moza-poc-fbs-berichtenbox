@@ -6,6 +6,7 @@ import jakarta.persistence.PersistenceException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -34,7 +35,14 @@ class BerichtOpslagServiceLoggingTest {
     private val repository = mockk<BerichtRepository>(relaxed = true)
     private val bijlageRepository = mockk<nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository>(relaxed = true)
     private val validatieService = mockk<BerichtValidatieService>(relaxed = true)
-    private val service = BerichtOpslagService(repository, bijlageRepository, validatieService)
+    private val publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true)
+    private val service = BerichtOpslagService(
+        repository,
+        bijlageRepository,
+        validatieService,
+        publicatieOutbox,
+        java.time.Clock.systemUTC(),
+    )
 
     private val julLogger: Logger = Logger.getLogger(BerichtOpslagService::class.java.name)
     private val records = mutableListOf<LogRecord>()
@@ -70,7 +78,7 @@ class BerichtOpslagServiceLoggingTest {
 
     @Test
     fun `debug-log na succes bevat ontvangerType maar geen BSN-waarde`() {
-        service.opslaanBericht(
+        service.slaBerichtOp(
             afzender = "00000001003214345000",
             ontvangerType = IdentificatienummerType.BSN,
             ontvangerWaarde = bsn,
@@ -94,7 +102,7 @@ class BerichtOpslagServiceLoggingTest {
         every { repository.save(any<Bericht>()) } throws PersistenceException("infra fout")
 
         assertThrows(PersistenceException::class.java) {
-            service.opslaanBericht(
+            service.slaBerichtOp(
                 afzender = "00000001003214345000",
                 ontvangerType = IdentificatienummerType.BSN,
                 ontvangerWaarde = bsn,

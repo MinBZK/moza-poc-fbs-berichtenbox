@@ -40,6 +40,7 @@ class BerichtOphaalServiceTest {
         onderwerp = "Voorlopige aanslag 2026",
         inhoud = "Inhoud",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
     )
 
     @Test

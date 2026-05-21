@@ -9,7 +9,9 @@ import io.mockk.mockk
 import io.restassured.http.ContentType
 import jakarta.ws.rs.InternalServerErrorException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.hamcrest.Matchers.`is`
+import java.time.Instant
 import org.hamcrest.Matchers.matchesRegex
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.BeforeEach
@@ -34,13 +36,16 @@ class InternalError500ContractTest {
             repository = mockk(relaxed = true),
             bijlageRepository = mockk(relaxed = true),
             validatieService = mockk(relaxed = true),
+            publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
+            clock = java.time.Clock.systemUTC(),
         ) {
-            override fun opslaanBericht(
+            override fun slaBerichtOp(
                 afzender: String,
                 ontvangerType: IdentificatienummerType,
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
+                publicatiedatum: Instant?,
                 bijlagen: List<BijlageInvoer>,
             ): Nothing = throw InternalServerErrorException("SELECT * FROM berichten WHERE secret=redacted")
         }

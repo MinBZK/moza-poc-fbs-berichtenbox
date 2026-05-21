@@ -13,13 +13,16 @@ class BerichtTest {
         ontvanger: Identificatienummer = Bsn("999993653"),
         onderwerp: String = "Onderwerp",
         inhoud: String = "Inhoud",
+        tijdstipOntvangst: Instant = Instant.now(),
+        publicatiedatum: Instant = tijdstipOntvangst,
     ) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = afzender,
         ontvanger = ontvanger,
         onderwerp = onderwerp,
         inhoud = inhoud,
-        tijdstipOntvangst = Instant.now(),
+        tijdstipOntvangst = tijdstipOntvangst,
+        publicatiedatum = publicatiedatum,
     )
 
     @Test
@@ -57,5 +60,29 @@ class BerichtTest {
             "Inhoud mag max $miB MiB UTF-8 zijn (kreeg ${Bericht.MAX_INHOUD_BYTES + 1} bytes)",
             ex.message,
         )
+    }
+
+    @Test
+    fun `publicatiedatum gelijk aan tijdstipOntvangst is geldig`() {
+        val nu = Instant.parse("2026-05-12T10:00:00Z")
+        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = nu)
+        assertEquals(nu, b.publicatiedatum)
+    }
+
+    @Test
+    fun `publicatiedatum in de toekomst is geldig`() {
+        val nu = Instant.parse("2026-05-12T10:00:00Z")
+        val toekomst = nu.plusSeconds(86_400)
+        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = toekomst)
+        assertEquals(toekomst, b.publicatiedatum)
+    }
+
+    @Test
+    fun `publicatiedatum in het verleden is toegestaan (late her-aanlevering)`() {
+        // Bij een late her-aanlevering kan de oorspronkelijke publicatiedatum al verstreken
+        // zijn; dat mag — de outbox publiceert dan direct.
+        val nu = Instant.parse("2026-05-12T10:00:00Z")
+        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = nu.minusSeconds(60))
+        assertEquals(nu.minusSeconds(60), b.publicatiedatum)
     }
 }

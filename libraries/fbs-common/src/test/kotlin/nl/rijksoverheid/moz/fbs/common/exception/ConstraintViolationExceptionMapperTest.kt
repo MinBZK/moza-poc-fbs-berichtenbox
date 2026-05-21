@@ -59,6 +59,74 @@ class ConstraintViolationExceptionMapperTest {
         assertTrue(detail.contains("verplicht"), "message moet zichtbaar blijven: $detail")
     }
 
+    @Test
+    fun `CRLF in violation-message wordt gestript (CWE-117)`() {
+        // Round 13 H2: pin sanitizeClientDetail-wrap. Refactor die de wrap
+        // weghaalt (bv. om "performance" te winnen) zou log-injection terugbrengen.
+        val exception = ConstraintViolationException(
+            setOf(violation("veld", "ongeldig\r\nLevel: ERROR\nfake-line")),
+        )
+
+        val response = mapper.toResponse(exception)
+        val detail = (response.entity as Problem).detail ?: ""
+
+        org.junit.jupiter.api.Assertions.assertFalse(
+            detail.contains("\r") || detail.contains("\n"),
+            "CRLF mag niet in detail (log-injection-vector) — gevonden: $detail",
+        )
+    }
+
+    @Test
+    fun `lange detail wordt op 500 chars begrensd (DoS-mitigatie)`() {
+        // Round 13 H2: pin lengte-grens. Refactor die de grens weghaalt → unbounded
+        // detail-grootte → DoS-amplification.
+        val longMsg = "a".repeat(2000)
+        val exception = ConstraintViolationException(setOf(violation("veld", longMsg)))
+
+        val response = mapper.toResponse(exception)
+        val detail = (response.entity as Problem).detail ?: ""
+
+        assertTrue(
+            detail.length <= 500,
+            "detail moet begrensd zijn op 500 — lengte: ${detail.length}",
+        )
+    }
+
+    @Test
+    fun `file-pad in violation-message wordt geredact`() {
+        // Borgt sanitizeClientDetail FILE_PATH_PATTERN-strip op @Pattern-message
+        // die per ongeluk paden interpoleert.
+        val exception = ConstraintViolationException(
+            setOf(violation("config", "fout in /etc/passwd configuratie")),
+        )
+
+        val response = mapper.toResponse(exception)
+        val detail = (response.entity as Problem).detail ?: ""
+
+        org.junit.jupiter.api.Assertions.assertFalse(
+            detail.contains("/etc/passwd"),
+            "file-pad mag niet in detail — gevonden: $detail",
+        )
+    }
+
+    @Test
+    fun `meer dan 50 violations worden begrensd (memory-pressure mitigatie)`() {
+        // Round 13 L1: take(50) begrenst tussenstring-allocatie. Pin tegen refactor
+        // die de grens weghaalt en N=10000 violations toelaat.
+        val violations = (1..200).map { violation("veld$it", "fout$it") }.toSet()
+        val exception = ConstraintViolationException(violations)
+
+        val response = mapper.toResponse(exception)
+        val detail = (response.entity as Problem).detail ?: ""
+
+        // Niet alle 200 violations mogen in de detail staan
+        val gevondenAantal = detail.split(";").size
+        assertTrue(
+            gevondenAantal <= ConstraintViolationExceptionMapper.MAX_VIOLATIONS_IN_DETAIL,
+            "max ${ConstraintViolationExceptionMapper.MAX_VIOLATIONS_IN_DETAIL} violations in detail — gevonden: $gevondenAantal",
+        )
+    }
+
     private fun violation(propertyName: String, message: String): ConstraintViolation<Any> {
         val violation = mockk<ConstraintViolation<Any>>()
         val path = mockk<Path>()

@@ -42,6 +42,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
 - **Bruno-collectie:** per service met een OpenAPI-spec hoort een Bruno-collectie onder `bruno/<service-naam>/` (met `bruno.json`, `environments/lokaal.bru` en requests per functioneel pad). Nieuwe endpoints in de OpenAPI-spec krijgen direct een bijbehorende `.bru`-request; zo blijft de collectie een levend exempel van de spec.
 - **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
+- **Commentaar:** leg het *waarom* vast (niet-evidente beslissing, security-/contract-invariant), niet het *wat* dat de code al toont. Herhaal aan een call-site niet wat de KDoc van de aangeroepen functie/veld al beschrijft. Houd het kort: condenseer rationale tot enkele regels; laat opsommingen/voorbeelden weg die niets verduidelijken. Ga uit van werken-naar-productie — geen "PoC"/"voorlopig"/productie-twijfel in comments; verwijs naar toekomstig werk alleen via `TODO(#ticket)`.
 
 ## Code-stijl Kotlin
 
@@ -123,13 +124,19 @@ class Voorbeeld {
 
 ## Build & test commando's
 
+> **Altijd `clean` vóór `test`/`verify`.** We wisselen vaak van branch en delen de
+> sources via een bind mount; een achtergebleven `target/` van een andere branch-state
+> laat Surefire stale `.class`-bestanden draaien → misleidende `NoSuchMethodError`/
+> "Failed to start quarkus"-fouten in ongewijzigde code. `mvn clean ...` voorkomt dit.
+
 ```bash
 docker compose up -d                                       # Start Redis, WireMock, ClickHouse
 ./mvnw compile -pl services/berichtensessiecache           # Compileren
-./mvnw test -pl services/berichtensessiecache              # Tests draaien
+./mvnw clean test -pl services/berichtensessiecache        # Tests draaien
 ./mvnw quarkus:dev -pl services/berichtensessiecache       # Dev mode
 ./mvnw compile -pl services/berichtenmagazijn -am                # Compileren berichtenmagazijn
-./mvnw test -pl services/berichtenmagazijn -am                   # Tests berichtenmagazijn
+./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn
+./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo (Docker vereist)
 ./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode
 ```
 

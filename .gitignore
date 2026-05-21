@@ -36,3 +36,6 @@ node_modules/
 # Claude Code (lokaal)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+
+# Coredumps (root only — ignoreert geen toekomstige core/ source-map)
+/core

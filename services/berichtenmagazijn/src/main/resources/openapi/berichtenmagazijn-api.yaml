@@ -18,6 +18,11 @@ info:
     name: MijnOverheid Zakelijk
     email: moza@minbzk.nl
     url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+  license:
+    name: EUPL-1.2
+    url: https://eupl.eu/1.2/nl/
+  x-api-id: nl.rijksoverheid.moz.fbs.berichtenmagazijn-aanlever
+  x-summary: Aanlever-API voor het decentrale FBS berichtenmagazijn
 
 servers:
   - url: /api/v1
@@ -354,6 +359,15 @@ components:
             characters; bij multibyte-tekens (bv. emoji's, 4 bytes elk) past dus minder
             tekst dan `maxLength` doet vermoeden. `maxLength` is in JSON-Schema in
             characters gedefinieerd en dient hier als grove bovengrens.
+        publicatiedatum:
+          type: string
+          format: date-time
+          description: |
+            Tijdstip vanaf wanneer het magazijn dit bericht mag publiceren naar
+            downstreams (Aanmeld Service, Notificatie Service). Optioneel; bij
+            ontbreken publiceert het magazijn direct na opslag.
+            ISO 8601, voorbeeld `2026-05-13T08:00:00Z`. Mag in de toekomst liggen.
+          example: "2026-05-13T08:00:00Z"
         bijlagen:
           type: array
           description: Optionele bijlagen bij het bericht
@@ -407,7 +421,7 @@ components:
     BerichtResponse:
       type: object
       description: Response op `POST /berichten` (Aanlever).
-      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, _links]
+      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, publicatiedatum, _links]
       properties:
         berichtId:
           type: string
@@ -425,6 +439,12 @@ components:
           type: string
           format: date-time
           description: Tijdstip waarop het magazijn het bericht heeft ontvangen (server-side gezet, ISO 8601)
+        publicatiedatum:
+          type: string
+          format: date-time
+          description: |
+            Effectieve publicatiedatum: de waarde uit de request, of `tijdstipOntvangst`
+            als de aanleveraar geen `publicatiedatum` meestuurde. ISO 8601.
         _links:
           $ref: '#/components/schemas/BerichtLinks'
 
@@ -620,8 +640,14 @@ components:
 
     Problem:
       type: object
-      description: RFC 9457 Problem Details
+      description: |
+        RFC 9457 Problem Details. `type`, `title` en `status` zijn de stabiele velden
+        waar clients op kunnen koppelen; `detail` en `instance` zijn diagnostisch en
+        mogen niet voor besluitvorming worden gebruikt. `additionalProperties: true`
+        laat extension members toe (RFC 9457 §3.2) zodat domein-specifieke velden
+        kunnen meegestuurd worden zonder schema-breekverandering.
       required: [type, title, status]
+      additionalProperties: true
       properties:
         type:
           type: string

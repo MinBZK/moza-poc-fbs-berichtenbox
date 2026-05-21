@@ -51,6 +51,12 @@
             <artifactId>quarkus-scheduler</artifactId>
         </dependency>
 
+        <!-- Quarkus Scheduler: outbox-poller voor PublicatieStream (Issue 412). -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
+
         <!-- Persistentie -->
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -104,6 +110,12 @@
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock</artifactId>
             <version>3.13.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>4.3.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -300,6 +312,21 @@ public final class ApiInfo {
                     <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
                 </configuration>
                 <executions>
+                    <!--
+                      `quarkus-jacoco` instrumentaliseert alleen `@QuarkusTest`-runs. Pure
+                      unit-tests onder Surefire krijgen daardoor geen coverage-bijdrage,
+                      tenzij we hier ook de standaard jacoco-agent op de Surefire-fork
+                      hangen en in dezelfde `jacoco-quarkus.exec` laten appendend.
+                    -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <phase>initialize</phase>
+                        <goals><goal>prepare-agent</goal></goals>
+                        <configuration>
+                            <destFile>${project.build.directory}/jacoco-quarkus.exec</destFile>
+                            <append>true</append>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>report</id>
                         <phase>test</phase>

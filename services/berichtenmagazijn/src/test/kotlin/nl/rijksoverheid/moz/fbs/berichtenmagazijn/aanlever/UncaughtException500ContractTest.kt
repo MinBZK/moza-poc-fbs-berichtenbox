@@ -8,7 +8,9 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper
+import java.time.Instant
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.matchesRegex
@@ -38,13 +40,16 @@ class UncaughtException500ContractTest {
             repository = mockk(relaxed = true),
             bijlageRepository = mockk(relaxed = true),
             validatieService = mockk(relaxed = true),
+            publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
+            clock = java.time.Clock.systemUTC(),
         ) {
-            override fun opslaanBericht(
+            override fun slaBerichtOp(
                 afzender: String,
                 ontvangerType: IdentificatienummerType,
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
+                publicatiedatum: Instant?,
                 bijlagen: List<BijlageInvoer>,
             ): Nothing = throw IOException("ClickHouse onbereikbaar: connection refused at /1.2.3.4:8123 stacktrace at nl.example.Foo.bar(Foo.kt:42)")
         }

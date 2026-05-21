@@ -22,14 +22,18 @@ class BerichtEdgeCaseTest {
         ontvanger: Identificatienummer = Bsn("999993653"),
         onderwerp: String = "Onderwerp",
         inhoud: String = "Inhoud",
-    ) = Bericht(
-        berichtId = UUID.randomUUID(),
-        afzender = afzender,
-        ontvanger = ontvanger,
-        onderwerp = onderwerp,
-        inhoud = inhoud,
-        tijdstipOntvangst = Instant.now(),
-    )
+    ): Bericht {
+        val nu = Instant.now()
+        return Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = afzender,
+            ontvanger = ontvanger,
+            onderwerp = onderwerp,
+            inhoud = inhoud,
+            tijdstipOntvangst = nu,
+            publicatiedatum = nu,
+        )
+    }
 
     // Karakters die als "isNotBlank()" doorgaan maar bijzondere implicaties hebben
     // in logging, persistence of downstream systemen.
