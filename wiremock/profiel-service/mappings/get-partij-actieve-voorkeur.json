@@ -1,0 +1,33 @@
+{
+  "priority": 100,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/profielservice/v1/(BSN|KVK|RSIN)/[0-9]+"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "partijId": 1,
+      "identificaties": [],
+      "voorkeuren": [
+        {
+          "id": 1,
+          "voorkeurType": "OntvangViaBerichtenbox",
+          "waarde": "true",
+          "scopes": [
+            {
+              "partij": {
+                "identificatieType": "OIN",
+                "identificatieNummer": "00000001003214345000"
+              }
+            }
+          ]
+        }
+      ],
+      "contactgegevens": []
+    }
+  }
+}

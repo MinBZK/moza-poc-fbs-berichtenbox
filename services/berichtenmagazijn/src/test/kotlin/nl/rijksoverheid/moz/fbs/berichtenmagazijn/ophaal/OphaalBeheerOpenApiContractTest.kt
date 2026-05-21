@@ -154,4 +154,43 @@ class OphaalBeheerOpenApiContractTest {
             .then()
             .statusCode(403)
     }
+
+    // Voor expliciet invalide requests gebruiken we de validationFilter niet:
+    // hij weigert het request vóór verzending wanneer het zelf het schema schendt.
+    // De server-side response wordt nog wél tegen het Problem-schema gecheckt via
+    // de content-type/asserts.
+    @Test
+    fun `400 Problem response op ongeldige X-Ontvanger header`() {
+        given()
+            .header("X-Ontvanger", "BSN:nietnumeriek")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", org.hamcrest.Matchers.equalTo(400))
+    }
+
+    @Test
+    fun `400 Problem response op pageSize te hoog`() {
+        given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten?page=0&pageSize=999")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", org.hamcrest.Matchers.equalTo(400))
+    }
+
+    @Test
+    fun `400 Problem response op lege PATCH body respecteert spec`() {
+        val id = insertBericht()
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", "BSN:999993653")
+            .contentType("application/merge-patch+json")
+            .body("{}")
+            .`when`().patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(400)
+    }
 }

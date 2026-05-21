@@ -44,6 +44,68 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
 - **Commentaar:** leg het *waarom* vast (niet-evidente beslissing, security-/contract-invariant), niet het *wat* dat de code al toont. Herhaal aan een call-site niet wat de KDoc van de aangeroepen functie/veld al beschrijft. Houd het kort: condenseer rationale tot enkele regels; laat opsommingen/voorbeelden weg die niets verduidelijken. Ga uit van werken-naar-productie — geen "PoC"/"voorlopig"/productie-twijfel in comments; verwijs naar toekomstig werk alleen via `TODO(#ticket)`.
 
+## Code-stijl Kotlin
+
+- **Lege regels rond multi-line blokken:** plaats een lege regel vóór én ná elk statementblok tussen accolades dat over meerdere regels loopt. De regel scheidt het blok van naburige code op hetzelfde nesting-niveau. Geen lege regel nodig tussen twee opeenvolgende **openings**-accolades (het blok is het éérste in zijn bovenliggende scope) of tussen twee opeenvolgende **sluit**-accolades (het blok is het láátste). Single-line lambdas (`items.filter { it.actief }`) vallen buiten deze regel.
+- **Lege regels rond control-statements:** `if`, `when`, `for`, `while`, `do-while` en `try` krijgen — óók in single-line-vorm zonder accolades — een lege regel ervóór en erná wanneer ze als zelfstandig statement staan binnen een functie- of blokscope. Bij meertraps-vormen telt de héle keten als één statement: géén lege regels tussen `if`/`else if`/`else` of tussen `try`/`catch`/`finally`. Wanneer een control-expressie deel is van een assignment of return (`val y = if (x > 0) x else -x`, `return when (...) { ... }`), is geen lege regel nodig — de assignment/return is dan zelf het statement en valt onder zijn eigen scheiding.
+
+Goed:
+```kotlin
+class Voorbeeld {
+    fun bereken(x: Int): Int {
+        val basis = x * 2
+
+        if (basis < 0) return -1
+
+        val gecorrigeerd = basis + offset
+
+        return when {
+            gecorrigeerd > 100 -> 100
+            gecorrigeerd < 0 -> 0
+            else -> gecorrigeerd
+        }
+    }
+
+    fun classify(x: Int): String {
+        val genormaliseerd = normaliseer(x)
+
+        if (genormaliseerd > 0) {
+            return "positief"
+        } else if (genormaliseerd < 0) {
+            return "negatief"
+        } else {
+            return "nul"
+        }
+    }
+}
+```
+
+Niet:
+```kotlin
+class Voorbeeld {
+    fun bereken(x: Int): Int {
+        val basis = x * 2
+        if (basis < 0) return -1
+        val gecorrigeerd = basis + offset
+        return when {
+            gecorrigeerd > 100 -> 100
+            gecorrigeerd < 0 -> 0
+            else -> gecorrigeerd
+        }
+    }
+    fun classify(x: Int): String {
+        val genormaliseerd = normaliseer(x)
+        if (genormaliseerd > 0) {
+            return "positief"
+        } else if (genormaliseerd < 0) {
+            return "negatief"
+        } else {
+            return "nul"
+        }
+    }
+}
+```
+
 ## Database & migraties
 
 - **Surrogate PK per tabel:** elke tabel heeft `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`. Business-keys (UUID's, OIN, etc.) zijn unique-constrained kolommen, nooit PK.

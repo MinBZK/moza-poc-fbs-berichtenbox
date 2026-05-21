@@ -3,7 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.persistence.PersistenceException
 import jakarta.transaction.Transactional
-import jakarta.ws.rs.ClientErrorException
+import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
@@ -12,6 +12,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.ToestemmingGeweigerdException
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker
 import org.jboss.logging.Logger
@@ -24,6 +26,7 @@ import org.hibernate.exception.ConstraintViolationException as HibernateConstrai
 class BerichtOpslagService(
     private val repository: BerichtRepository,
     private val bijlageRepository: BijlageRepository,
+    private val validatieService: BerichtValidatieService,
     private val publicatieOutbox: PublicatieOutbox,
     private val clock: Clock,
 ) {
@@ -33,10 +36,15 @@ class BerichtOpslagService(
     // Circuit-breaker-thresholds; tunebaar per omgeving.
     //
     // skipOn — fouten die níét meetellen voor het circuit:
-    //  - DomainValidationException, ClientErrorException: client-fouten, zeggen niets
-    //    over de gezondheid van de infrastructuur.
+    //  - DomainValidationException, ToestemmingGeweigerdException: client-fouten en
+    //    policy-besluiten; zeggen niets over de gezondheid van de infrastructuur.
     //  - HibernateConstraintViolationException: unique-key (409) én NOT NULL/FK/CHECK
     //    (500) duiden op data/schema, niet op een onbereikbare DB.
+    //  - WebApplicationException: vangt zowel JAX-RS-mapper-fouten als de Quarkus
+    //    REST Reactive `ClientWebApplicationException` (extends WebApplicationException
+    //    direct, niet via ClientErrorException). Een 4xx/5xx van een upstream zegt
+    //    niets over de magazijn-DB-gezondheid waar deze CB primair tegen beschermt;
+    //    de REST-client heeft zijn eigen `@Retry` op transient I/O.
     //
     // Niet in skipOn: `jakarta.validation.ConstraintViolationException` — Bean Validation
     // vuurt vóór de resource-methode en bereikt deze service niet. Generieke
@@ -50,7 +58,8 @@ class BerichtOpslagService(
         skipOn = [
             DomainValidationException::class,
             HibernateConstraintViolationException::class,
-            ClientErrorException::class,
+            WebApplicationException::class,
+            ToestemmingGeweigerdException::class,
         ],
     )
     @Transactional
@@ -76,6 +85,11 @@ class BerichtOpslagService(
             // tijdstipOntvangst zodat bericht en outbox-rij dezelfde T0 delen.
             publicatiedatum = publicatiedatum ?: tijdstipOntvangst,
         )
+
+        // Validatie vóór persistentie: MIME-typen en toestemming (issue #541).
+        // Gooit DomainValidationException (→ 400) of ToestemmingGeweigerdException (→ 403),
+        // beide in skipOn van de circuit breaker hierboven.
+        validatieService.valideer(bericht, bijlagen)
 
         try {
             repository.save(bericht)

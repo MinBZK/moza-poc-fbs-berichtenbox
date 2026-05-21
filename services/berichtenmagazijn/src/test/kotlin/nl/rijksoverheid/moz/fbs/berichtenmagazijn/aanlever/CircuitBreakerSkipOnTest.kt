@@ -6,10 +6,16 @@ import io.quarkus.test.junit.QuarkusMock
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
+import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.MockProfielServiceClient
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.PartijResponse
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.sql.SQLException
@@ -24,6 +30,19 @@ import java.sql.SQLException
  */
 @QuarkusTest
 class CircuitBreakerSkipOnTest {
+
+    @Inject
+    @RestClient
+    lateinit var profielClient: ProfielServiceClient
+
+    @AfterEach
+    fun resetProfielMock() {
+        // De MockProfielServiceClient is een ApplicationScoped CDI-bean en wordt
+        // hergebruikt tussen tests; zet de antwoordSupplier terug naar de default.
+        (profielClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
+            MockProfielServiceClient.defaultPartij(afzenderOin = "00000001003214345000")
+        }
+    }
 
     private fun validPayload() = """
         {
@@ -70,5 +89,19 @@ class CircuitBreakerSkipOnTest {
         )
         // Hibernate ConstraintViolationException zit in skipOn → 30x 409, geen 503.
         assertAllResponsesHaveStatus(expectedStatus = 409)
+    }
+
+    @Test
+    fun `ToestemmingGeweigerdException opent circuit niet`() {
+        // ToestemmingGeweigerdException wordt vóór de repository gegooid door
+        // BerichtValidatieService — niet via de repo-mock maar via de Profiel-
+        // Service-mock: een lege PartijResponse (geen voorkeur) leidt tot weigering.
+        (profielClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
+            PartijResponse(partijId = 1L, voorkeuren = emptyList())
+        }
+        // Een aanleveraar die per ongeluk een loop start naar een ontvanger zonder
+        // voorkeur mag het circuit niet openen — anders veroorzaakt één
+        // misconfigureerde flow een DoS op alle legitieme aanleveraars.
+        assertAllResponsesHaveStatus(expectedStatus = 403)
     }
 }

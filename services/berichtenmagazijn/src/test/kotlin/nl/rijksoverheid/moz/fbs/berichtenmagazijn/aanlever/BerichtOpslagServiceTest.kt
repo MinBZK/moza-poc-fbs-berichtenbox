@@ -4,11 +4,13 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import io.mockk.verifyOrder
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -20,8 +22,15 @@ class BerichtOpslagServiceTest {
 
     private val repository = mockk<BerichtRepository>(relaxed = true)
     private val bijlageRepository = mockk<BijlageRepository>(relaxed = true)
+    private val validatieService = mockk<BerichtValidatieService>(relaxed = true)
     private val publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true)
-    private val service = BerichtOpslagService(repository, bijlageRepository, publicatieOutbox, java.time.Clock.systemUTC())
+    private val service = BerichtOpslagService(
+        repository,
+        bijlageRepository,
+        validatieService,
+        publicatieOutbox,
+        java.time.Clock.systemUTC(),
+    )
 
     @Test
     fun `slaBerichtOp roept repository opslaan aan en retourneert het domeinobject`() {
@@ -71,5 +80,27 @@ class BerichtOpslagServiceTest {
         assertNotEquals(bericht.publicatiedatum, bericht.tijdstipOntvangst)
         assertEquals(bericht.berichtId, berichtIdSlot.captured)
         assertEquals(toekomst, datumSlot.captured)
+    }
+
+    @Test
+    fun `slaBerichtOp roept validatie aan vóór repository save`() {
+        // Borgt het contract met issue #541: validatie hoort vóór persistentie.
+        // Anders zou een ongeldig bericht eerst in de DB landen (bij rollback ook nog
+        // ID-ruimte verbruiken) en faalt de keten op een onlogische plek.
+        every { repository.save(any()) } answers { }
+
+        service.slaBerichtOp(
+            afzender = "00000001003214345000",
+            ontvangerType = IdentificatienummerType.BSN,
+            ontvangerWaarde = "999993653",
+            onderwerp = "Test",
+            inhoud = "Inhoud",
+            bijlagen = listOf(BijlageInvoer("doc.pdf", "application/pdf", byteArrayOf(1, 2))),
+        )
+
+        verifyOrder {
+            validatieService.valideer(any(), any())
+            repository.save(any())
+        }
     }
 }

@@ -1,0 +1,19 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/profielservice/v1/BSN/111222333"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "partijId": 2,
+      "identificaties": [],
+      "voorkeuren": [],
+      "contactgegevens": []
+    }
+  }
+}
