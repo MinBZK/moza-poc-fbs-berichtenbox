@@ -32,7 +32,7 @@ class PublicatieOutboxIntegrationTest {
     @BeforeEach
     @Transactional
     fun clean() {
-        // CASCADE op `publicatie_deliveries.bericht_id` ruimt deliveries op via
+        // CASCADE op `publicatie_deliveries.bericht_db_id` ruimt deliveries op via
         // berichten.deleteAll(). Expliciet eerst zelf om volgorde te garanderen
         // bij wijzigingen in de cascade-instelling.
         deliveries.deleteAll()

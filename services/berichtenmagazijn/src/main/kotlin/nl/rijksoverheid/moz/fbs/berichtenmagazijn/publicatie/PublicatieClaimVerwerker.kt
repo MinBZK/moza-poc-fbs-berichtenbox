@@ -86,7 +86,7 @@ class PublicatieClaimVerwerker(
         try {
             val bericht = berichten.findByBerichtId(claim.berichtId)
             if (bericht == null) {
-                // Bericht weg tussen plan en verwerking. CASCADE op bericht_id maakt dit in
+                // Bericht weg tussen plan en verwerking. CASCADE op bericht_db_id maakt dit in
                 // praktijk onbereikbaar; vangnet voor handmatige DB-mutaties/soft-delete.
                 // dataSubject = berichtId (ontvanger ontbreekt) zodat het LDV-record
                 // auditbaar blijft zonder lege subject-velden.

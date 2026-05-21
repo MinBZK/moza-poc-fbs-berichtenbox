@@ -4,12 +4,15 @@ import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
+import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
+import jakarta.persistence.JoinColumn
+import jakarta.persistence.ManyToOne
 import jakarta.persistence.Table
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtEntity
 import java.time.Instant
-import java.util.UUID
 
 /**
  * JPA-entity voor `publicatie_deliveries`. Internal: alleen de
@@ -33,9 +36,13 @@ internal class PublicatieDeliveryEntity {
     @Column(nullable = false)
     var id: Long = 0
 
-    @Column(name = "bericht_id", nullable = false)
-    var berichtId: UUID = PLACEHOLDER_UUID
-        internal set
+    // FK op de surrogate PK `berichten.id` via `bericht_db_id`, conform de
+    // child-tabel-conventie (zie CLAUDE.md). De business-key `berichtId` blijft
+    // bereikbaar via deze relatie; LAZY zodat de claim-query niet onnodig het
+    // hele bericht (incl. `inhoud`-TEXT) inleest.
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "bericht_db_id", nullable = false)
+    lateinit var bericht: BerichtEntity
 
     /**
      * Rauw opgeslagen als String i.p.v. via `AttributeConverter<Publicatiedoel,
@@ -75,7 +82,7 @@ internal class PublicatieDeliveryEntity {
 
     fun toClaim(): PublicatieClaim = PublicatieClaim(
         claimId = id,
-        berichtId = berichtId,
+        berichtId = bericht.berichtId,
         doel = Publicatiedoel(doel),
         pogingen = pogingen,
     )
@@ -117,8 +124,6 @@ internal class PublicatieDeliveryEntity {
     }
 
     companion object {
-        private val PLACEHOLDER_UUID: UUID = UUID(0L, 0L)
-
         // Defense-in-depth dubbel met [FoutBeschrijving.saneer]: die saneert
         // upstream tot 4 KiB; deze entity-grens vangt rauwe inserts (bv. via
         // toekomstige DB-import) op zodat een 1 MiB stack trace de rij niet
@@ -126,12 +131,12 @@ internal class PublicatieDeliveryEntity {
         private const val MAX_FOUT_LENGTE = 4_096
 
         internal fun nieuwe(
-            berichtId: UUID,
+            bericht: BerichtEntity,
             doel: Publicatiedoel,
             volgendePoging: Instant,
             aangemaaktOp: Instant,
         ): PublicatieDeliveryEntity = PublicatieDeliveryEntity().apply {
-            this.berichtId = berichtId
+            this.bericht = bericht
             this.doel = doel.key
             this.status = DeliveryStatus.TE_PUBLICEREN
             this.pogingen = 0

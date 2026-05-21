@@ -47,7 +47,7 @@ class PublicatieOutbox(
      * Plant deliveries voor [berichtId] vanaf [publicatiedatum].
      *
      * Idempotency: dezelfde [berichtId] tweemaal aanleveren zou een UNIQUE-violation
-     * op (bericht_id, doel) opleveren — dat is acceptabel omdat de aanlever-flow
+     * op (bericht_db_id, doel) opleveren — dat is acceptabel omdat de aanlever-flow
      * dat scenario al als 409 afhandelt (zie `DbConstraintViolationExceptionMapper`).
      *
      * Itereert over `downstreams.keys.sorted()` zodat de insert-volgorde
@@ -66,13 +66,11 @@ class PublicatieOutbox(
         }
         val nu = clock.instant()
         downstreams.keys.sorted().forEach { key ->
-            deliveries.persist(
-                PublicatieDeliveryEntity.nieuwe(
-                    berichtId = berichtId,
-                    doel = Publicatiedoel(key),
-                    volgendePoging = publicatiedatum,
-                    aangemaaktOp = nu,
-                ),
+            deliveries.planNieuwe(
+                berichtId = berichtId,
+                doel = Publicatiedoel(key),
+                volgendePoging = publicatiedatum,
+                aangemaaktOp = nu,
             )
         }
         log.debugf(

@@ -53,7 +53,7 @@ class PublicatieDeliveriesOpschonerIntegrationTest {
         }
     }
 
-    private fun maakBerichtMet(): UUID {
+    private fun maakBerichtMet(): Long {
         val nu = Instant.now()
         val b = Bericht(
             berichtId = UUID.randomUUID(),
@@ -62,14 +62,15 @@ class PublicatieDeliveriesOpschonerIntegrationTest {
             onderwerp = "X", inhoud = "x",
             tijdstipOntvangst = nu, publicatiedatum = nu,
         )
-        QuarkusTransaction.requiringNew().run {
+        return QuarkusTransaction.requiringNew().call {
             berichten.save(b)
+            berichten.findDbIdByBerichtId(b.berichtId)
+                ?: error("db-id niet gevonden voor zojuist opgeslagen bericht ${b.berichtId}")
         }
-        return b.berichtId
     }
 
     private fun insertDelivery(
-        berichtId: UUID,
+        berichtDbId: Long,
         doel: String,
         status: String,
         gepubliceerdOp: Instant?,
@@ -78,11 +79,11 @@ class PublicatieDeliveriesOpschonerIntegrationTest {
             entityManager.createNativeQuery(
                 """
                 INSERT INTO publicatie_deliveries
-                  (bericht_id, doel, status, pogingen, volgende_poging, gepubliceerd_op, aangemaakt_op)
+                  (bericht_db_id, doel, status, pogingen, volgende_poging, gepubliceerd_op, aangemaakt_op)
                 VALUES (?, ?, ?, 0, ?, ?, ?)
                 """.trimIndent(),
             )
-                .setParameter(1, berichtId)
+                .setParameter(1, berichtDbId)
                 .setParameter(2, doel)
                 .setParameter(3, status)
                 .setParameter(4, Instant.now())
@@ -94,13 +95,13 @@ class PublicatieDeliveriesOpschonerIntegrationTest {
 
     @Test
     fun `view markeert alleen GEPUBLICEERD ouder dan 30 dagen`() {
-        val berichtId = maakBerichtMet()
+        val berichtDbId = maakBerichtMet()
         val oud = Instant.now().minus(31, ChronoUnit.DAYS)
         val recent = Instant.now().minus(1, ChronoUnit.DAYS)
 
-        insertDelivery(berichtId, "oud-gepubliceerd", "GEPUBLICEERD", oud)
-        insertDelivery(berichtId, "nieuw-gepubliceerd", "GEPUBLICEERD", recent)
-        insertDelivery(berichtId, "oud-mislukt", "MISLUKT", null)
+        insertDelivery(berichtDbId, "oud-gepubliceerd", "GEPUBLICEERD", oud)
+        insertDelivery(berichtDbId, "nieuw-gepubliceerd", "GEPUBLICEERD", recent)
+        insertDelivery(berichtDbId, "oud-mislukt", "MISLUKT", null)
 
         val viewResultaat = QuarkusTransaction.requiringNew().call {
             entityManager.createNativeQuery(
@@ -112,13 +113,13 @@ class PublicatieDeliveriesOpschonerIntegrationTest {
 
     @Test
     fun `opschoner verwijdert oude GEPUBLICEERD en laat MISLUKT en recente staan`() {
-        val berichtId = maakBerichtMet()
+        val berichtDbId = maakBerichtMet()
         val oud = Instant.now().minus(31, ChronoUnit.DAYS)
         val recent = Instant.now().minus(1, ChronoUnit.DAYS)
 
-        insertDelivery(berichtId, "oud-gepubliceerd", "GEPUBLICEERD", oud)
-        insertDelivery(berichtId, "nieuw-gepubliceerd", "GEPUBLICEERD", recent)
-        insertDelivery(berichtId, "oud-mislukt", "MISLUKT", null)
+        insertDelivery(berichtDbId, "oud-gepubliceerd", "GEPUBLICEERD", oud)
+        insertDelivery(berichtDbId, "nieuw-gepubliceerd", "GEPUBLICEERD", recent)
+        insertDelivery(berichtDbId, "oud-mislukt", "MISLUKT", null)
 
         opschoner.verwijderTerminaleRijen()
 

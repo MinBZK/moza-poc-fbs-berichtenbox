@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtEntity
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -12,9 +13,12 @@ class PublicatieDeliveryEntityTest {
 
     private val berichtId = UUID.randomUUID()
     private val nu = Instant.parse("2026-05-12T10:00:00Z")
+    private val berichtEntity = BerichtEntity().apply {
+        berichtId = this@PublicatieDeliveryEntityTest.berichtId
+    }
 
     private fun nieuweEntity(): PublicatieDeliveryEntity = PublicatieDeliveryEntity.nieuwe(
-        berichtId = berichtId,
+        bericht = berichtEntity,
         doel = Publicatiedoel("aanmeld"),
         volgendePoging = nu,
         aangemaaktOp = nu,

@@ -10,7 +10,7 @@
 --  * Geen `BEZIG`-status: claim-adapter (PostgresPublicatieClaimer) gebruikt
 --    `SELECT ... FOR UPDATE SKIP LOCKED` zodat het row-level lock zelf de
 --    exclusiviteit garandeert binnen de claim-transactie.
---  * Tweede unique key (bericht_id, doel) voorkomt dubbele insert per (bericht,
+--  * Tweede unique key (bericht_db_id, doel) voorkomt dubbele insert per (bericht,
 --    downstream) bij retries van de aanlever-transactie.
 --  * Partial index op (status, volgende_poging) WHERE status = 'TE_PUBLICEREN':
 --    de claim-query scant alleen openstaande rijen; voltooide / mislukte rijen
@@ -52,7 +52,10 @@ ALTER TABLE berichten
 
 CREATE TABLE publicatie_deliveries (
     id              BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    bericht_id      UUID         NOT NULL,
+    -- FK op de surrogate PK `berichten.id` (niet de business-key `bericht_id`),
+    -- conform de child-tabel-conventie (zie CLAUDE.md "Database & migraties" en
+    -- de siblings `bijlagen`/`bericht_status`).
+    bericht_db_id   BIGINT       NOT NULL,
     doel            VARCHAR(64)  NOT NULL,
     status          VARCHAR(16)  NOT NULL,
     pogingen        INT          NOT NULL DEFAULT 0,
@@ -60,9 +63,9 @@ CREATE TABLE publicatie_deliveries (
     laatste_fout    TEXT         NULL,
     gepubliceerd_op TIMESTAMPTZ  NULL,
     aangemaakt_op   TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_delivery_bericht_doel UNIQUE (bericht_id, doel),
+    CONSTRAINT uq_delivery_bericht_doel UNIQUE (bericht_db_id, doel),
     CONSTRAINT fk_delivery_bericht
-        FOREIGN KEY (bericht_id) REFERENCES berichten(bericht_id) ON DELETE CASCADE
+        FOREIGN KEY (bericht_db_id) REFERENCES berichten(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_deliveries_claim
@@ -81,7 +84,7 @@ CREATE INDEX idx_deliveries_gepubliceerd
     WHERE status = 'GEPUBLICEERD';
 
 CREATE OR REPLACE VIEW publicatie_deliveries_oud AS
-SELECT id, bericht_id, doel, gepubliceerd_op
+SELECT id, bericht_db_id, doel, gepubliceerd_op
 FROM publicatie_deliveries
 WHERE status = 'GEPUBLICEERD'
   AND gepubliceerd_op IS NOT NULL
