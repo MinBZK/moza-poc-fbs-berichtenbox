@@ -4,13 +4,16 @@ import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import org.eclipse.microprofile.config.inject.ConfigProperty
-import org.jboss.logging.Logger
 
 /**
  * Borgt dat het LDV (Logboek Dataverwerkingen) endpoint in productie-achtige
  * profielen TLS (https://) gebruikt. Persoonsgegevens (zoals dataSubjectId
  * met BSN) mogen niet onversleuteld over het netwerk — BIO 13.2.1 / AVG
  * art. 32. In `dev` en `test` mag http:// voor lokale containers.
+ *
+ * Delegeert naar [OutboundTlsValidator]; deze klasse bestaat alleen om de
+ * config-keys vast te leggen en als `@ApplicationScoped`-bean een startup-
+ * event te observeren.
  */
 @ApplicationScoped
 class LdvEndpointValidator(
@@ -23,19 +26,10 @@ class LdvEndpointValidator(
     }
 
     companion object {
-        private val log = Logger.getLogger(LdvEndpointValidator::class.java)
-        private val PROFIELEN_ZONDER_TLS_EIS = setOf("dev", "test")
+        private const val CONFIG_KEY = "logboekdataverwerking.clickhouse.endpoint"
 
         fun validate(profile: String, endpoint: String) {
-            if (profile in PROFIELEN_ZONDER_TLS_EIS) {
-                log.infof("LDV TLS-validator overgeslagen voor profiel '%s' (dev/test mag http)", profile)
-                return
-            }
-            require(endpoint.startsWith("https://")) {
-                "logboekdataverwerking.clickhouse.endpoint MOET https:// gebruiken in profiel '$profile' " +
-                    "(BIO 13.2.1: persoonsgegevens versleuteld over netwerk). Huidige waarde: '$endpoint'"
-            }
-            log.infof("LDV TLS-validator: endpoint voldoet aan https-eis voor profiel '%s'", profile)
+            OutboundTlsValidator.requireHttps(profile, endpoint, CONFIG_KEY)
         }
     }
 }

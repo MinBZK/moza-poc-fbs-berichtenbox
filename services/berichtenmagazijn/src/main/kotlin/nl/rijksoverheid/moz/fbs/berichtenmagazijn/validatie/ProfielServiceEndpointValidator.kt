@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
+import nl.rijksoverheid.moz.fbs.common.OutboundTlsValidator
 import org.eclipse.microprofile.config.inject.ConfigProperty
 
 /**
@@ -12,8 +13,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
  * intermediaire proxy-toegangslogs (BIO 13.2.1 / AVG art. 32). In `dev` en
  * `test` mag http:// voor lokale containers en WireMock.
  *
- * Spiegelt [nl.rijksoverheid.moz.fbs.common.LdvEndpointValidator]; staat
- * service-lokaal omdat de configuratie-key specifiek is voor het magazijn.
+ * Delegeert naar [OutboundTlsValidator]; deze klasse bestaat alleen om de
+ * config-keys vast te leggen en als `@ApplicationScoped`-bean een startup-
+ * event te observeren.
  */
 @ApplicationScoped
 class ProfielServiceEndpointValidator(
@@ -26,14 +28,10 @@ class ProfielServiceEndpointValidator(
     }
 
     companion object {
-        private val PROFIELEN_ZONDER_TLS_EIS = setOf("dev", "test")
+        private const val CONFIG_KEY = "quarkus.rest-client.profiel-service.url"
 
         fun validate(profile: String, endpoint: String) {
-            if (profile in PROFIELEN_ZONDER_TLS_EIS) return
-            require(endpoint.startsWith("https://")) {
-                "quarkus.rest-client.profiel-service.url MOET https:// gebruiken in profiel '$profile' " +
-                    "(BIO 13.2.1: persoonsgegevens versleuteld over netwerk). Huidige waarde: '$endpoint'"
-            }
+            OutboundTlsValidator.requireHttps(profile, endpoint, CONFIG_KEY)
         }
     }
 }

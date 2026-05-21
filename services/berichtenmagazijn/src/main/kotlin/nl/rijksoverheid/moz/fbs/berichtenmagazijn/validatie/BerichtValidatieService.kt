@@ -22,9 +22,9 @@ import org.jboss.logging.Logger
  *
  * Volgorde: MIME-typen eerst (lokaal, gratis), pas daarna de externe call. Bij een
  * 404 van de profiel-service: de ontvanger heeft geen profiel → geen toestemming
- * (fail-closed). Andere HTTP-fouten propageren — daar trippt het circuit breaker
- * niet op want `ToestemmingGeweigerdException` staat in `skipOn`, maar échte
- * infrastructuurfouten doen dat wél.
+ * (fail-closed). Andere HTTP-fouten propageren — `ToestemmingGeweigerdException`
+ * staat in `skipOn` zodat de circuit breaker daar niet door opent, maar échte
+ * infrastructuurfouten openen 'm wél.
  */
 @ApplicationScoped
 class BerichtValidatieService(
