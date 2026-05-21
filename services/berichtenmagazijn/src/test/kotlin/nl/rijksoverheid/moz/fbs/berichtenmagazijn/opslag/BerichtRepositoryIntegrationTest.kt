@@ -39,13 +39,15 @@ class BerichtRepositoryIntegrationTest {
     @Test
     @Transactional
     fun `opslaan en vind behoudt alle velden identiek`() {
+        val tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS)
         val original = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = Oin("00000001003214345000"),
             ontvanger = Bsn("999993653"),
             onderwerp = "Voorlopige aanslag 2026",
             inhoud = "Hierbij ontvangt u de voorlopige aanslag.",
-            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            tijdstipOntvangst = tijdstip,
+            publicatiedatum = tijdstip,
         )
 
         repository.save(original)
@@ -58,13 +60,15 @@ class BerichtRepositoryIntegrationTest {
     @Transactional
     fun `opslaan met grote CLOB-inhoud behoudt volledige inhoud zonder truncatie`() {
         val largeContent = "x".repeat(64_000) // ruim boven VARCHAR-grens in H2 (8K typisch)
+        val tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS)
         val bericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = Oin("00000001003214345000"),
             ontvanger = Bsn("999993653"),
             onderwerp = "Groot bericht",
             inhoud = largeContent,
-            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            tijdstipOntvangst = tijdstip,
+            publicatiedatum = tijdstip,
         )
 
         repository.save(bericht)
@@ -78,13 +82,15 @@ class BerichtRepositoryIntegrationTest {
     @Test
     @Transactional
     fun `opslaan met KVK-ontvanger roundtrip behoudt type`() {
+        val tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS)
         val bericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = Oin("00000001003214345000"),
             ontvanger = Kvk("12345678"),
             onderwerp = "Aan organisatie",
             inhoud = "Inhoud",
-            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            tijdstipOntvangst = tijdstip,
+            publicatiedatum = tijdstip,
         )
 
         repository.save(bericht)
@@ -98,13 +104,15 @@ class BerichtRepositoryIntegrationTest {
     @Transactional
     fun `opslaan van tweede bericht met zelfde berichtId gooit Hibernate ConstraintViolationException met SQL state 23505`() {
         val berichtId = UUID.randomUUID()
+        val tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS)
         val first = Bericht(
             berichtId = berichtId,
             afzender = Oin("00000001003214345000"),
             ontvanger = Bsn("999993653"),
             onderwerp = "Eerste",
             inhoud = "1",
-            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            tijdstipOntvangst = tijdstip,
+            publicatiedatum = tijdstip,
         )
         val second = first.copy(onderwerp = "Tweede", inhoud = "2")
 
@@ -150,6 +158,7 @@ class BerichtRepositoryIntegrationTest {
 
     @Transactional
     fun insertCorruptEntity(berichtId: UUID) {
+        val nu = Instant.now().truncatedTo(ChronoUnit.MILLIS)
         val corrupt = BerichtEntity().apply {
             this.berichtId = berichtId
             afzender = "kort"  // bewust ongeldig: geen 20-cijferige OIN
@@ -157,7 +166,8 @@ class BerichtRepositoryIntegrationTest {
             ontvangerWaarde = "999993653"
             onderwerp = "Test"
             inhoud = "Inhoud"
-            tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+            tijdstipOntvangst = nu
+            publicatiedatum = nu
         }
         entityManager.persist(corrupt)
     }
@@ -179,6 +189,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Twee deletes",
             inhoud = "Inhoud",
             tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
         repository.save(bericht)
         entityManager.flush()
@@ -200,6 +211,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Wrong recipient",
             inhoud = "Inhoud",
             tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
         repository.save(bericht)
         entityManager.flush()

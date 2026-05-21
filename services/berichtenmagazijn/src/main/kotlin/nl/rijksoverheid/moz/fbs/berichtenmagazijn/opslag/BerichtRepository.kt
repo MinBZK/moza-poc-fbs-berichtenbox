@@ -144,10 +144,11 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
                 berichtId = row[1] as java.util.UUID,
                 ontvangerType = row[2] as String,
                 ontvangerWaarde = row[3] as String,
-                // pgjdbc retourneert LocalDateTime voor TIMESTAMP WITHOUT TIME ZONE
-                // (V1-schema). Hibernate slaat Instant op als UTC, dus terugconverteren
-                // met ZoneOffset.UTC houdt round-trip stabiel.
-                tijdstipOntvangst = (row[4] as java.time.LocalDateTime).toInstant(java.time.ZoneOffset.UTC),
+                // tijdstip_ontvangst is TIMESTAMPTZ (V5 trok de V1-kolom gelijk) → pgjdbc
+                // geeft een Instant terug. verwijderd_op is nog TIMESTAMP WITHOUT TIME ZONE
+                // (V2) → pgjdbc geeft LocalDateTime; Hibernate slaat Instant op als UTC, dus
+                // terugconverteren met ZoneOffset.UTC houdt de round-trip stabiel.
+                tijdstipOntvangst = row[4] as java.time.Instant,
                 verwijderdOp = (row[5] as java.time.LocalDateTime).toInstant(java.time.ZoneOffset.UTC),
             )
         }

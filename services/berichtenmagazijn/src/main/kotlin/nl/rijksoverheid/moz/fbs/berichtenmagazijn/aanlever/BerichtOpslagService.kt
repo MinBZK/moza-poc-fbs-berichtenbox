@@ -11,9 +11,11 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker
 import org.jboss.logging.Logger
+import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
@@ -22,10 +24,14 @@ import org.hibernate.exception.ConstraintViolationException as HibernateConstrai
 class BerichtOpslagService(
     private val repository: BerichtRepository,
     private val bijlageRepository: BijlageRepository,
+    private val publicatieOutbox: PublicatieOutbox,
+    private val clock: Clock,
 ) {
 
     private val log = Logger.getLogger(BerichtOpslagService::class.java)
 
+    // Circuit-breaker-thresholds; tunebaar per omgeving.
+    //
     // skipOn — fouten die níét meetellen voor het circuit:
     //  - DomainValidationException, ClientErrorException: client-fouten, zeggen niets
     //    over de gezondheid van de infrastructuur.
@@ -48,14 +54,16 @@ class BerichtOpslagService(
         ],
     )
     @Transactional
-    fun opslaanBericht(
+    fun slaBerichtOp(
         afzender: String,
         ontvangerType: IdentificatienummerType,
         ontvangerWaarde: String,
         onderwerp: String,
         inhoud: String,
+        publicatiedatum: Instant? = null,
         bijlagen: List<BijlageInvoer> = emptyList(),
     ): Bericht {
+        val tijdstipOntvangst = clock.instant()
         val berichtId = UUID.randomUUID()
         val bericht = Bericht(
             berichtId = berichtId,
@@ -63,7 +71,10 @@ class BerichtOpslagService(
             ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
             onderwerp = onderwerp,
             inhoud = inhoud,
-            tijdstipOntvangst = Instant.now(),
+            tijdstipOntvangst = tijdstipOntvangst,
+            // Zonder meegestuurde publicatiedatum = direct publiceren. Hergebruik
+            // tijdstipOntvangst zodat bericht en outbox-rij dezelfde T0 delen.
+            publicatiedatum = publicatiedatum ?: tijdstipOntvangst,
         )
 
         try {
@@ -85,10 +96,6 @@ class BerichtOpslagService(
             // afzender/ontvanger blijft buiten de applicatielog: ontvanger kan een BSN zijn
             // en persoonsgegevens horen niet in de reguliere log (AVG art. 5 lid 1c,
             // BIO 12.4.1). LDV is de juiste plek voor dataSubjectId.
-            //
-            // Andere RuntimeExceptions (NPE, programmeerfout) vallen door — die worden
-            // door ProblemExceptionMapper / UncaughtExceptionMapper afgehandeld mét
-            // eigen errorId, zodat we hier geen verwarrende dubbele log-context maken.
             log.errorf(
                 ex,
                 "Opslaan mislukt berichtId=%s ontvangerType=%s onderwerp.length=%d inhoud.length=%d",
@@ -96,6 +103,27 @@ class BerichtOpslagService(
                 bericht.ontvanger.type,
                 bericht.onderwerp.length,
                 bericht.inhoud.length,
+            )
+            throw ex
+        }
+
+        // Outbox-deliveries in dezelfde transactie als de bericht-row: ofwel beide
+        // in de DB, ofwel geen van beide. Anders kan een crash tussen save en
+        // planDeliveries een bericht zonder publicatie-opdracht achterlaten.
+        // Outbox-fouten apart loggen: een UNIQUE-violation hier hoort niet thuis in
+        // de "Opslaan mislukt"-log-prefix omdat het bericht zelf wel persistable was.
+        // Vangt ook RuntimeException van bv. een kapotte SmallRye-config-proxy of
+        // misconfigured downstream — anders zou de operator alleen een generieke
+        // 500 zien zonder berichtId-context.
+        try {
+            publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatiedatum)
+        } catch (ex: RuntimeException) {
+            log.errorf(
+                ex,
+                "Plannen van publicatie-deliveries mislukt berichtId=%s ontvangerType=%s categorie=%s",
+                bericht.berichtId,
+                bericht.ontvanger.type,
+                ex.javaClass.simpleName,
             )
             throw ex
         }

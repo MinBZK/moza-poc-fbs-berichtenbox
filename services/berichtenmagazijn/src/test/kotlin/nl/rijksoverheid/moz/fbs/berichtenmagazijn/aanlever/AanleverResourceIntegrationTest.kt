@@ -163,7 +163,11 @@ class AanleverResourceIntegrationTest {
             .body("status", `is`(400))
             .body("title", `is`("Bad Request"))
             .body("detail", `is`("Onderwerp mag niet leeg zijn"))
-            .body("instance", nullValue())
+            // Round 12 H3: DomainValidationExceptionMapper genereert nu errorId
+            // in `urn:uuid:`-instance voor cross-correlatie tussen client-Problem
+            // en applicatielog. Refactor die instance terug naar null zet zou
+            // support-traceability slopen.
+            .body("instance", org.hamcrest.Matchers.startsWith("urn:uuid:"))
     }
 
     @Test

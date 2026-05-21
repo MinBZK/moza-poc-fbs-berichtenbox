@@ -18,13 +18,10 @@ sealed interface Identificatienummer {
 
     companion object {
         /**
-         * Bouwt een getypeerd [Identificatienummer] uit een expliciete type-keuze en waarde.
-         * Gooit [DomainValidationException] als de waarde niet aan de type-invarianten
-         * voldoet (lengte, cijfers-only, elfproef voor BSN/RSIN, niet-geheel-nullen).
-         *
-         * Geen impliciete trim of normalisatie: aanvullende whitespace is een clientfout.
-         * Dit voorkomt asymmetrie tussen `of(type, "  …  ")` en de directe value-class
-         * constructors (`Bsn(...)`) — die accepteren whitespace ook niet.
+         * Bouwt een getypeerd [Identificatienummer]; gooit [DomainValidationException] bij
+         * een type-invariant-schending (lengte, cijfers-only, elfproef voor BSN/RSIN,
+         * niet-geheel-nullen). Geen impliciete trim — whitespace is een clientfout, net als
+         * bij de directe value-class constructors.
          */
         fun of(type: IdentificatienummerType, waarde: String): Identificatienummer = when (type) {
             IdentificatienummerType.BSN -> Bsn(waarde)
@@ -59,7 +56,11 @@ sealed interface Identificatienummer {
 
 enum class IdentificatienummerType { BSN, RSIN, KVK, OIN }
 
-/** Organisatie-identificatienummer van Logius (20 cijfers). */
+/**
+ * Organisatie-identificatienummer van Logius (20 cijfers, **geen elfproef** — de
+ * OIN-spec eist enkel 20-cijferig numeriek). Expliciet vermeld zodat een refactor niet
+ * "alsnog" een elfproef-check toevoegt.
+ */
 @JvmInline
 value class Oin(override val waarde: String) : Identificatienummer {
     init {

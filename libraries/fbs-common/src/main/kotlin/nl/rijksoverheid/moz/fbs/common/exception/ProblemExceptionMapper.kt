@@ -31,12 +31,30 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         val errorId = UUID.randomUUID()
 
         return if (status >= 500) {
-            // Log met correlation-id zodat support de echte oorzaak kan terugvinden,
-            // maar expose de interne exception-message niet aan de client.
-            log.errorf(exception, "Server error %d (errorId=%s): %s", status, errorId, exception.message)
+            // Log met correlation-id; `exception.message` blijft eruit (saneer dekt geen
+            // niet-numerieke PII zoals namen/e-mail). Het exception-object geeft de stack
+            // mee zodat support via errorId correleert.
+            log.errorf(
+                exception,
+                "Server error %d (errorId=%s, type=%s, cause=%s)",
+                status,
+                errorId,
+                exception.javaClass.simpleName,
+                exception.cause?.javaClass?.simpleName ?: "geen",
+            )
             maskedServerErrorProblem(errorId = errorId, status = status, title = title)
         } else {
-            log.infov(exception, "Client error {0} (errorId={1}): {2}", status, errorId, exception.message)
+            // 4xx: gesaneerde message naar de client (`sanitizeClientDetail`), maar uit de
+            // log gelaten — 4xx-message is vaak user-input en saneer dekt geen niet-numerieke
+            // PII. Correlatie via errorId (= `urn:uuid:` in `instance`) + cause-type.
+            log.infov(
+                exception,
+                "Client error {0} (errorId={1}, type={2}, cause={3})",
+                status,
+                errorId,
+                exception.javaClass.simpleName,
+                exception.cause?.javaClass?.simpleName ?: "geen",
+            )
             problemResponse(
                 status = status,
                 title = title,
@@ -59,7 +77,7 @@ private val CONTROL_CHARS_PATTERN = Regex("""[\u0000-\u001F\u007F]""")
  * - verwijdert stacktrace-frames (`at pkg.Class.method(File.java:42)`);
  * - verwijdert file-paden (Unix en Windows);
  * - strip controltekens die logs/terminals kunnen vervuilen;
- * - kapt af op 500 tekens.
+ * - kapt af op [MAX_CLIENT_DETAIL_LENGTH] tekens.
  *
  * Eigen exception-messages ("Header X ontbreekt") overleven dit ongeschonden; Jakarta-
  * defaults ("HTTP 404 Not Found") ook. Stack-achtige content uit onbedoelde code-paden

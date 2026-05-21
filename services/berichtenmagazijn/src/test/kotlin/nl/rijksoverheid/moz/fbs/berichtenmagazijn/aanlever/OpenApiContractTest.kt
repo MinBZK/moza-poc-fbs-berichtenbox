@@ -80,4 +80,28 @@ class OpenApiContractTest {
             .then()
             .statusCode(400)
     }
+
+    @Test
+    fun `request met optionele publicatiedatum respecteert OpenAPI spec`() {
+        // Spec breidt BerichtAanleverenRequest uit met optioneel publicatiedatum;
+        // borg dat zowel request (RFC 3339) als response (BerichtResponse.publicatiedatum
+        // is required) tegen de spec valideren met de validatie-filter actief.
+        given()
+            .filter(validationFilter)
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "00000001003214345000",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
+                  "onderwerp": "Met publicatiedatum",
+                  "inhoud": "Inhoud",
+                  "publicatiedatum": "2026-12-31T08:00:00Z"
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/berichten")
+            .then()
+            .statusCode(201)
+    }
 }

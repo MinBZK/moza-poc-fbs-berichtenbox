@@ -37,6 +37,7 @@ class BerichtBeheerServiceRaceQuarkusTest {
         onderwerp = "Race-test",
         inhoud = "Inhoud",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
     )
 
     private fun installRepo(mock: BerichtRepository) {

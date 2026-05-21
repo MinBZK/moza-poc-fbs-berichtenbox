@@ -9,9 +9,10 @@ import org.jboss.logging.Logger
 import java.util.UUID
 
 /**
- * Vangnet voor alle exceptions waarvoor geen specifiekere mapper bestaat, dit voorkomt infolekken.
+ * Vangnet voor alle exceptions waarvoor geen specifiekere mapper bestaat. Voorkomt
+ * info-lekken via standaard servlet-error-pagina's.
  *
- * JAX-RS kiest mappers op type-specificiteit De `@Priority` op `USER + 100` is een extra tiebreaker (hogere waarde =
+ * JAX-RS kiest mappers op type-specificiteit. De `@Priority` op `USER + 100` is een extra tiebreaker (hogere waarde =
  * lagere prioriteit) voor het onwaarschijnlijke geval dat ooit een andere mapper hetzelfde generieke type zou claimen.
  *
  * Logt met correlation-id zodat support de oorzaak kan terugvinden.
@@ -24,12 +25,14 @@ class UncaughtExceptionMapper : ExceptionMapper<Exception> {
 
     override fun toResponse(exception: Exception): Response {
         val errorId = UUID.randomUUID()
+        // Als ProblemExceptionMapper: `exception.message` blijft uit de log (saneer dekt
+        // geen niet-numerieke PII); het exception-object geeft de stack mee via errorId.
         log.errorf(
             exception,
-            "Onverwachte exception (errorId=%s, type=%s): %s",
+            "Onverwachte exception (errorId=%s, type=%s, cause=%s)",
             errorId,
             exception.javaClass.name,
-            exception.message,
+            exception.cause?.javaClass?.simpleName ?: "geen",
         )
         return maskedServerErrorProblem(
             errorId = errorId,

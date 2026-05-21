@@ -92,6 +92,7 @@ class HardDeleteJobIntegrationTest {
                 onderwerp = "Retentietest $berichtId",
                 inhoud = "Inhoud voor hard-delete integratietest",
                 tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
             ),
         )
 

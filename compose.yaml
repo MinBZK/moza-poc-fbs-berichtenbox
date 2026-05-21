@@ -27,6 +27,32 @@ services:
       - ./wiremock/magazijn-b/__files:/home/wiremock/__files
     command: ["--verbose", "--global-response-templating"]
 
+  # Aanmeld Service stub voor Publicatie Stream. Ontvangt CloudEvents
+  # `nl.rijksoverheid.fbs.bericht.gepubliceerd` op POST /events.
+  #
+  # Gegated achter het `publicatie-stubs` profile zodat ze niet 24/7 draaien op
+  # dev-machines (geheugen + watt-besparing). Aanzetten met:
+  #     docker compose --profile publicatie-stubs up -d
+  # Tests gebruiken een embedded JDK HttpServer en hebben deze containers niet
+  # nodig.
+  aanmeld-stub:
+    image: wiremock/wiremock:3.13.2
+    profiles: ["publicatie-stubs"]
+    ports:
+      - "8083:8080"
+    volumes:
+      - ./wiremock/aanmeld-stub/mappings:/home/wiremock/mappings
+    command: ["--verbose", "--global-response-templating"]
+
+  notificatie-stub:
+    image: wiremock/wiremock:3.13.2
+    profiles: ["publicatie-stubs"]
+    ports:
+      - "8084:8080"
+    volumes:
+      - ./wiremock/notificatie-stub/mappings:/home/wiremock/mappings
+    command: ["--verbose", "--global-response-templating"]
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     ports:
