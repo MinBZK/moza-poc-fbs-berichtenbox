@@ -1,9 +1,11 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import io.smallrye.mutiny.Multi
+import io.smallrye.mutiny.TimeoutException
 import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
@@ -11,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.jboss.logging.Logger
+import java.net.ConnectException
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -108,12 +111,10 @@ class BerichtensessiecacheService(
         // blijft via GET-endpoints.
         if (clients.isEmpty()) {
             try {
-                val gereedStatus = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0)
-
                 Uni.combine().all()
                     .unis(
                         berichtenCache.store(cacheKey, emptyList()),
-                        berichtenCache.storeAggregationStatus(cacheKey, gereedStatus),
+                        berichtenCache.storeAggregationStatus(cacheKey, AggregationStatus(status = OphalenStatus.GEREED)),
                     )
                     .discardItems()
                     .await().atMost(Duration.ofSeconds(5))
@@ -164,9 +165,9 @@ class BerichtensessiecacheService(
                 }
                 .onFailure(Exception::class.java).recoverWithItem { error ->
                     when (error) {
-                        is io.smallrye.mutiny.TimeoutException ->
+                        is TimeoutException ->
                             log.warnf(error, "Magazijn %s (%s) timeout", magazijnId, naam)
-                        is jakarta.ws.rs.ProcessingException ->
+                        is ProcessingException ->
                             log.warnf(error, "Magazijn %s (%s) niet bereikbaar (network/processing)", magazijnId, naam)
                         is WebApplicationException -> {
                             val status = error.response?.status ?: 0
@@ -180,7 +181,7 @@ class BerichtensessiecacheService(
                                     log.warnf(error, "Magazijn %s (%s) WebApplicationException zonder bruikbare status", magazijnId, naam)
                             }
                         }
-                        is java.net.ConnectException ->
+                        is ConnectException ->
                             log.warnf(error, "Magazijn %s (%s) verbinding geweigerd", magazijnId, naam)
                         else ->
                             log.errorf(error, "Onverwachte fout bij magazijn %s (%s)", magazijnId, naam)
@@ -203,7 +204,7 @@ class BerichtensessiecacheService(
                     }
                     is MagazijnResult.Failure -> {
                         mislukt.incrementAndGet()
-                        val isTimeout = result.error is io.smallrye.mutiny.TimeoutException
+                        val isTimeout = result.error is TimeoutException
                         val foutmelding = when {
                             isTimeout -> "Magazijn reageerde niet binnen de timeout"
                             result.error is WebApplicationException &&
@@ -289,7 +290,7 @@ class BerichtensessiecacheService(
         try {
             berichtenCache.storeAggregationStatus(
                 cacheKey,
-                AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 0),
+                AggregationStatus(status = OphalenStatus.FOUT),
             ).await().atMost(Duration.ofSeconds(5))
         } catch (cleanupEx: Exception) {
             log.errorf(cleanupEx, "Lock-cleanup na fout mislukt voor key=%s: %s", cacheKey, foutmelding)

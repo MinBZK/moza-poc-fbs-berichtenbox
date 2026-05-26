@@ -6,7 +6,6 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.jboss.logging.Logger
 import java.net.URI
-import java.util.concurrent.ConcurrentHashMap
 
 @ApplicationScoped
 class MagazijnClientFactory(
