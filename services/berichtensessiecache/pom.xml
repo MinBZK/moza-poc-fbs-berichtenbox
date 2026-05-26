@@ -58,6 +58,13 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-hibernate-validator</artifactId>
         </dependency>
+        <!-- MicroProfile Fault Tolerance: activeert @Retry op ProfielServiceClient.getPartij
+             zodat kortstondige TCP-resets niet direct een 503 opleveren. Zonder deze
+             dependency is de annotatie aanwezig maar een no-op. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-fault-tolerance</artifactId>
+        </dependency>
         <!-- Test -->
         <dependency>
             <groupId>io.quarkus</groupId>

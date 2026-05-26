@@ -18,6 +18,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockProfielSer
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockProfielServiceTestProfile
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.`is`
+import org.hamcrest.CoreMatchers.not
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -160,5 +161,146 @@ class BerichtenOphalenResolverE2ETest {
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(503)
+    }
+
+    // ── A: Cache-overwrite bij lege resolver ──────────────────────────────
+
+    @Test
+    fun `lege resolver overschrijft bestaande cache met lege lijst`() {
+        // Eerste ophaal: opted-in voorkeur → magazijnen worden bevraagd en berichten gecached.
+        profielWireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody(
+                        """
+                        {
+                          "voorkeuren": [
+                            { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true",
+                              "scopes": [ { "partij": { "identificatieType": "OIN",
+                                                         "identificatieNummer": "00000001003214345000" } } ] }
+                          ]
+                        }
+                        """.trimIndent(),
+                    ),
+            ),
+        )
+
+        val eersteOphaal = given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(eersteOphaal.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed na eerste ophaal: $eersteOphaal")
+
+        // Re-stub: lege voorkeuren → resolver retourneert geen magazijnen.
+        profielWireMock.resetAll()
+        profielWireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"voorkeuren": []}"""),
+            ),
+        )
+
+        val tweedeOphaal = given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(tweedeOphaal.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed na tweede ophaal: $tweedeOphaal")
+        assertTrue(tweedeOphaal.contains("\"totaalBerichten\":0"), "Verwacht totaalBerichten:0 na lege voorkeur: $tweedeOphaal")
+        assertTrue(tweedeOphaal.contains("\"totaalMagazijnen\":0"), "Verwacht totaalMagazijnen:0 na lege voorkeur: $tweedeOphaal")
+
+        // Verifieer dat GET /berichten geen stale berichten toont.
+        given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", `is`(0))
+    }
+
+    // ── B: Lock-recovery na Profiel-fout ─────────────────────────────────
+
+    @Test
+    fun `Profiel-fout-503 release lock zodat retry mogelijk is`() {
+        // Eerste ophaal: Profiel-500 → 503 terug naar client, lock moet vrijgegeven worden.
+        profielWireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999991401")).willReturn(
+                aResponse().withStatus(500),
+            ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999991401")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(503)
+
+        // Re-stub: nu wél een geldige voorkeur.
+        profielWireMock.resetAll()
+        profielWireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999991401")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"voorkeuren": []}"""),
+            ),
+        )
+
+        // Tweede ophaal voor dezelfde ontvanger mag geen 409 geven; lock is vrijgegeven.
+        val tweedeOphaal = given()
+            .header("X-Ontvanger", "BSN:999991401")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(
+            tweedeOphaal.contains("\"event\":\"ophalen-gereed\""),
+            "Verwacht ophalen-gereed na lock-recovery: $tweedeOphaal",
+        )
+    }
+
+    // ── E: Malformed X-Ontvanger varianten ───────────────────────────────
+
+    @Test
+    fun `X-Ontvanger met onbekend type-prefix retourneert 400 zonder echo van attacker-input`() {
+        given()
+            .header("X-Ontvanger", "FOO:123")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType(containsString("application/problem+json"))
+            .body("status", `is`(400))
+            // Attacker-controlled prefix mag niet in de detail terugkomen (geen echo).
+            .body("detail", not(containsString("FOO")))
+    }
+
+    @Test
+    fun `X-Ontvanger BSN met lege waarde retourneert 400`() {
+        given()
+            .header("X-Ontvanger", "BSN:")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType(containsString("application/problem+json"))
+            .body("status", `is`(400))
+    }
+
+    @Test
+    fun `X-Ontvanger BSN die elfproef faalt retourneert 400`() {
+        // BSN 999993654 is een ongeldige BSN (elfproef mislukt); 999993653 is geldig.
+        given()
+            .header("X-Ontvanger", "BSN:999993654")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType(containsString("application/problem+json"))
+            .body("status", `is`(400))
     }
 }
