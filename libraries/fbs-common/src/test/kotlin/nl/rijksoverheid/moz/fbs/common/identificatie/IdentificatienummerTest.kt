@@ -1,9 +1,9 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
+package nl.rijksoverheid.moz.fbs.common.identificatie
 
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType.BSN
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType.KVK
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType.OIN
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType.RSIN
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.BSN
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.KVK
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.OIN
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.RSIN
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -139,7 +139,6 @@ class IdentificatienummerTest {
 
     @Test
     fun `of BSN geeft Bsn, niet Rsin, ook als waarde een geldige RSIN-pattern kon zijn`() {
-        // Expliciet type voorkomt silent-fallback zoals length-based parse dat wel deed.
         val id = Identificatienummer.of(BSN, "999993653")
         assertInstanceOf(Bsn::class.java, id)
         assertEquals(BSN, id.type)
@@ -161,9 +160,6 @@ class IdentificatienummerTest {
 
     @Test
     fun `of normaliseert NIET — whitespace wordt geweigerd`() {
-        // Strikt: of() verbergt geen clientfouten via trim. De OpenAPI-pattern
-        // dwingt cijfers-only af aan de rand; whitespace doorlaten zou inconsistent
-        // zijn met de directe value-class constructors.
         val ex = assertThrows(DomainValidationException::class.java) {
             Identificatienummer.of(BSN, "  999993653  ")
         }
@@ -176,5 +172,23 @@ class IdentificatienummerTest {
             Identificatienummer.of(BSN, "999993654")
         }
         assertEquals("BSN voldoet niet aan elfproef", ex.message)
+    }
+
+    // --- toCanonicalString -----------------------------------------------------
+
+    @Test
+    fun `toCanonicalString geeft TYPE WAARDE formaat`() {
+        assertEquals("BSN:999993653", Bsn("999993653").toCanonicalString())
+        assertEquals("RSIN:111222333", Rsin("111222333").toCanonicalString())
+        assertEquals("KVK:12345678", Kvk("12345678").toCanonicalString())
+        assertEquals("OIN:00000001003214345000", Oin("00000001003214345000").toCanonicalString())
+    }
+
+    @Test
+    fun `toCanonicalString roundtrip met fromHeader`() {
+        val origineel: Identificatienummer = Bsn("999993653")
+        val header = origineel.toCanonicalString()
+        val geparsed = Identificatienummer.fromHeader(header)
+        assertEquals(origineel, geparsed)
     }
 }

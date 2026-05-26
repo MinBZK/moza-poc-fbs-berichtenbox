@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
 import jakarta.ws.rs.ForbiddenException
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 
 /**

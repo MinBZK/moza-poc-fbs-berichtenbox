@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
+package nl.rijksoverheid.moz.fbs.common.identificatie
 
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.exception.requireValid
@@ -15,6 +15,14 @@ import nl.rijksoverheid.moz.fbs.common.exception.requireValid
 sealed interface Identificatienummer {
     val type: IdentificatienummerType
     val waarde: String
+
+    /**
+     * Canonical string-representatie `<TYPE>:<WAARDE>`. Identiek aan het format dat
+     * door `X-Ontvanger`-header wordt verwacht. Gebruikt door call-sites die een
+     * unieke string-key nodig hebben (cache-keys, log-correlatie) zonder de
+     * type/waarde-onderscheid te verliezen.
+     */
+    fun toCanonicalString(): String = "${type.name}:$waarde"
 
     companion object {
         /**
@@ -33,11 +41,11 @@ sealed interface Identificatienummer {
         /**
          * Leest een `X-Ontvanger` header in formaat `<TYPE>:<WAARDE>` en bouwt
          * er een getypeerd [Identificatienummer] van. De header is op spec-niveau
-         * al gevalideerd (regex per type, zie `OntvangerHeader` in
-         * `berichtenmagazijn-api.yaml`) door de JAX-RS Bean Validation annotaties
-         * op de gegenereerde interface; deze functie zet om naar het domein-model
-         * en delegeert verdere type-invarianten (elfproef, niet-geheel-nullen) aan
-         * [of]. Gooit [DomainValidationException] bij ongeldige invoer.
+         * al gevalideerd (regex per type, zie `OntvangerHeader` in de OpenAPI-spec)
+         * door de JAX-RS Bean Validation annotaties op de gegenereerde interface;
+         * deze functie zet om naar het domein-model en delegeert verdere
+         * type-invarianten (elfproef, niet-geheel-nullen) aan [of].
+         * Gooit [DomainValidationException] bij ongeldige invoer.
          */
         fun fromHeader(header: String): Identificatienummer {
             val parts = header.split(':', limit = 2)
