@@ -9,7 +9,6 @@ import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
-import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 import java.util.UUID
 
@@ -37,7 +36,7 @@ interface MagazijnClient {
     fun patchBericht(
         @HeaderParam("X-Ontvanger") xOntvanger: String,
         @PathParam("berichtId") berichtId: UUID,
-        patch: BerichtPatch,
+        patch: UitvraagDtoMapper.MagazijnPatch,
     ): Bericht
 
     @DELETE
