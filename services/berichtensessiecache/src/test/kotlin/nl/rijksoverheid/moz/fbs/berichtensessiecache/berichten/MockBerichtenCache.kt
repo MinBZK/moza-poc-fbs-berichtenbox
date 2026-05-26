@@ -41,7 +41,7 @@ class MockBerichtenCache : BerichtenCache {
     }
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
-        val sorted = berichten.sortedByDescending { it.tijdstip }
+        val sorted = berichten.sortedByDescending { it.publicatietijdstip }
         lists["$key:list"] = sorted
         berichten.forEach { byId[it.berichtId] = it }
         return Uni.createFrom().voidItem()
@@ -94,7 +94,7 @@ class MockBerichtenCache : BerichtenCache {
         val key = BerichtenCache.cacheKey(bericht.ontvanger)
         val listKey = "$key:list"
         val existing = lists[listKey] ?: emptyList()
-        lists[listKey] = (existing + bericht).sortedByDescending { it.tijdstip }
+        lists[listKey] = (existing + bericht).sortedByDescending { it.publicatietijdstip }
         byId[bericht.berichtId] = bericht
         return Uni.createFrom().voidItem()
     }

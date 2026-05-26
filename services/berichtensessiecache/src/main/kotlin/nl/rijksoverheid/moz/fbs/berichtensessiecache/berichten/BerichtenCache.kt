@@ -75,7 +75,7 @@ class RedisBerichtenCache(
                 .indexedField("onderwerp", FieldType.TEXT)
                 .indexedField("afzender", FieldType.TAG)
                 .indexedField("ontvanger", FieldType.TAG)
-                .indexedField("tijdstip", FieldType.TAG)
+                .indexedField("publicatietijdstip", FieldType.TAG)
             redis.search().ftCreate(BerichtenCache.SEARCH_INDEX, args)
                 .await().atMost(Duration.ofSeconds(5))
             log.infof("RediSearch index '%s' aangemaakt", BerichtenCache.SEARCH_INDEX)
@@ -100,7 +100,7 @@ class RedisBerichtenCache(
             return redis.key().del(listKey).replaceWithVoid()
         }
 
-        val sorted = berichten.sortedByDescending { it.tijdstip }
+        val sorted = berichten.sortedByDescending { it.publicatietijdstip }
         val jsonValues = sorted.map { objectMapper.writeValueAsString(it) }
 
         // Gebruik een Redis transaction (MULTI/EXEC) zodat alle commands in één round-trip gaan
@@ -208,7 +208,7 @@ class RedisBerichtenCache(
         val offset = page * pageSize
         val queryArgs = QueryArgs()
             .limit(offset, pageSize)
-            .sortByDescending("tijdstip")
+            .sortByDescending("publicatietijdstip")
 
         return redis.search().ftSearch(BerichtenCache.SEARCH_INDEX, query, queryArgs)
             .map { response ->
@@ -234,7 +234,7 @@ class RedisBerichtenCache(
         val offset = page * pageSize
         val queryArgs = QueryArgs()
             .limit(offset, pageSize)
-            .sortByDescending("tijdstip")
+            .sortByDescending("publicatietijdstip")
 
         return redis.search().ftSearch(BerichtenCache.SEARCH_INDEX, query, queryArgs)
             .map { response ->
@@ -301,7 +301,7 @@ class RedisBerichtenCache(
         put("afzender", bericht.afzender)
         put("ontvanger", bericht.ontvanger)
         put("onderwerp", bericht.onderwerp)
-        put("tijdstip", bericht.tijdstip.toString())
+        put("publicatietijdstip", bericht.publicatietijdstip.toString())
         put("magazijnId", bericht.magazijnId)
         bericht.status?.let { put("status", it) }
     }
@@ -311,7 +311,7 @@ class RedisBerichtenCache(
         afzender = fields["afzender"]!!,
         ontvanger = fields["ontvanger"]!!,
         onderwerp = fields["onderwerp"]!!,
-        tijdstip = Instant.parse(fields["tijdstip"]!!),
+        publicatietijdstip = Instant.parse(fields["publicatietijdstip"]!!),
         magazijnId = fields["magazijnId"]!!,
         status = fields["status"],
     )
@@ -321,7 +321,7 @@ class RedisBerichtenCache(
         afzender = doc.property("afzender").asString(),
         ontvanger = doc.property("ontvanger").asString(),
         onderwerp = doc.property("onderwerp").asString(),
-        tijdstip = Instant.parse(doc.property("tijdstip").asString()),
+        publicatietijdstip = Instant.parse(doc.property("publicatietijdstip").asString()),
         magazijnId = doc.property("magazijnId").asString(),
         status = doc.property("status")?.asString(),
     )

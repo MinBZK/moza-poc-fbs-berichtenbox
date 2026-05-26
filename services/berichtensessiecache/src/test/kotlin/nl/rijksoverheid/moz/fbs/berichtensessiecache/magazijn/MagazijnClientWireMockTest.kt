@@ -131,7 +131,7 @@ class MagazijnClientWireMockTest {
                                         "afzender": "00000001234567890000",
                                         "ontvanger": "$ontvanger",
                                         "onderwerp": "Test bericht van $magazijnId",
-                                        "tijdstip": "2026-03-10T10:00:00Z",
+                                        "publicatietijdstip": "2026-03-10T10:00:00Z",
                                         "magazijnId": "$magazijnId"
                                     }
                                 ]

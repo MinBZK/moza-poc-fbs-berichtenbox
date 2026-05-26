@@ -567,7 +567,7 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
                 }
             """.trimIndent())
@@ -591,7 +591,7 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
                 }
             """.trimIndent())
@@ -613,7 +613,7 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "999993653",
                     "onderwerp": "Nieuw bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
                 }
             """.trimIndent())
@@ -634,7 +634,7 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "999993653",
                     "onderwerp": "Nieuw bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
                 }
             """.trimIndent())

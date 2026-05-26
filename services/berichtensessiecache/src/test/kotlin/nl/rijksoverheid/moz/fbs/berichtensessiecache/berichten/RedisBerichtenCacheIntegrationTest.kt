@@ -29,7 +29,7 @@ class RedisBerichtenCacheIntegrationTest {
             afzender = "00000001234567890000",
             ontvanger = ontvanger,
             onderwerp = "Eerste bericht over belastingaangifte",
-            tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+            publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
         ),
         Bericht(
@@ -37,7 +37,7 @@ class RedisBerichtenCacheIntegrationTest {
             afzender = "00000009876543210000",
             ontvanger = ontvanger,
             onderwerp = "Tweede bericht over subsidie",
-            tijdstip = Instant.parse("2026-03-10T12:00:00Z"),
+            publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
         ),
         Bericht(
@@ -45,13 +45,13 @@ class RedisBerichtenCacheIntegrationTest {
             afzender = "00000001234567890000",
             ontvanger = ontvanger,
             onderwerp = "Derde bericht over vergunning",
-            tijdstip = Instant.parse("2026-03-10T11:00:00Z"),
+            publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
         ),
     )
 
     @Test
-    fun `store en getPage retourneert berichten gesorteerd op tijdstip descending`() {
+    fun `store en getPage retourneert berichten gesorteerd op publicatietijdstip descending`() {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
@@ -112,7 +112,7 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(original.afzender, retrieved.afzender)
         assertEquals(original.ontvanger, retrieved.ontvanger)
         assertEquals(original.onderwerp, retrieved.onderwerp)
-        assertEquals(original.tijdstip, retrieved.tijdstip)
+        assertEquals(original.publicatietijdstip, retrieved.publicatietijdstip)
         assertEquals(original.magazijnId, retrieved.magazijnId)
     }
 
@@ -142,7 +142,7 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(original.afzender, updated.afzender)
         assertEquals(original.ontvanger, updated.ontvanger)
         assertEquals(original.onderwerp, updated.onderwerp)
-        assertEquals(original.tijdstip, updated.tijdstip)
+        assertEquals(original.publicatietijdstip, updated.publicatietijdstip)
         assertEquals(original.magazijnId, updated.magazijnId)
     }
 
@@ -156,7 +156,7 @@ class RedisBerichtenCacheIntegrationTest {
             afzender = "00000005555555550000",
             ontvanger = ontvanger,
             onderwerp = "Nieuw bericht",
-            tijdstip = Instant.parse("2026-03-10T14:00:00Z"),
+            publicatietijdstip = Instant.parse("2026-03-10T14:00:00Z"),
             magazijnId = "magazijn-c",
         )
         berichtenCache.addBericht(nieuwBericht).await().indefinitely()

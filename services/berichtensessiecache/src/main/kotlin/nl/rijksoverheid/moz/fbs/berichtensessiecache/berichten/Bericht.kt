@@ -8,7 +8,7 @@ data class Bericht(
     val afzender: String,
     val ontvanger: String,
     val onderwerp: String,
-    val tijdstip: Instant,
+    val publicatietijdstip: Instant,
     val magazijnId: String,
     val status: String? = null,
 ) {

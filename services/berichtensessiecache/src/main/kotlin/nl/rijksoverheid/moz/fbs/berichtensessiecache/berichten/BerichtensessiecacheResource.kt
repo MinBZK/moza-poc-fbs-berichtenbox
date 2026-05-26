@@ -174,7 +174,7 @@ class BerichtensessiecacheResource(
             afzender = berichtInput.afzender,
             ontvanger = berichtInput.ontvanger,
             onderwerp = berichtInput.onderwerp,
-            tijdstip = berichtInput.tijdstip,
+            publicatietijdstip = berichtInput.publicatietijdstip,
             magazijnId = berichtInput.magazijnId,
         )
 
@@ -282,7 +282,7 @@ class BerichtensessiecacheResource(
             afzender = this@toApiModel.afzender
             ontvanger = this@toApiModel.ontvanger
             onderwerp = this@toApiModel.onderwerp
-            tijdstip = this@toApiModel.tijdstip
+            publicatietijdstip = this@toApiModel.publicatietijdstip
             magazijnId = this@toApiModel.magazijnId
             status = this@toApiModel.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {
@@ -298,7 +298,7 @@ class BerichtensessiecacheResource(
             afzender = this@toResponse.afzender
             ontvanger = this@toResponse.ontvanger
             onderwerp = this@toResponse.onderwerp
-            tijdstip = this@toResponse.tijdstip
+            publicatietijdstip = this@toResponse.publicatietijdstip
             magazijnId = this@toResponse.magazijnId
             status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {

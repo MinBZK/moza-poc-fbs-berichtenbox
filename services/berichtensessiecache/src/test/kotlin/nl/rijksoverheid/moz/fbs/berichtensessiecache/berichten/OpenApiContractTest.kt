@@ -131,7 +131,7 @@ class OpenApiContractTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Contract test bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
                 }
             """.trimIndent())
@@ -230,7 +230,7 @@ class OpenApiContractTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Test",
-                    "tijdstip": "2026-03-10T14:00:00Z",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
                 }
             """.trimIndent())

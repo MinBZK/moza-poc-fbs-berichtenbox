@@ -24,7 +24,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 afzender = "00000001234567890000",
                 ontvanger = "999993653",
                 onderwerp = "Test bericht 1",
-                tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+                publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
                 magazijnId = "magazijn-a",
             ),
             Bericht(
@@ -32,7 +32,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 afzender = "00000001234567890000",
                 ontvanger = "999993653",
                 onderwerp = "Test bericht 2",
-                tijdstip = Instant.parse("2026-03-10T11:00:00Z"),
+                publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
                 magazijnId = "magazijn-a",
             ),
             Bericht(
@@ -40,7 +40,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 afzender = "00000009876543210000",
                 ontvanger = "999993653",
                 onderwerp = "Test bericht 3",
-                tijdstip = Instant.parse("2026-03-10T12:00:00Z"),
+                publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
                 magazijnId = "magazijn-a",
             ),
         )
@@ -51,7 +51,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 afzender = "00000005555555550000",
                 ontvanger = "999993653",
                 onderwerp = "Test bericht 4",
-                tijdstip = Instant.parse("2026-03-10T13:00:00Z"),
+                publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
                 magazijnId = "magazijn-b",
             ),
         )

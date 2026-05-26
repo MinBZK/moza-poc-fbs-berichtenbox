@@ -32,7 +32,7 @@ object DomainValidationFuzzer {
                 afzender = data.consumeString(200),
                 ontvanger = data.consumeString(200),
                 onderwerp = data.consumeString(200),
-                tijdstip = Instant.now(),
+                publicatietijdstip = Instant.now(),
                 magazijnId = data.consumeString(200),
             )
         } catch (_: IllegalArgumentException) {
