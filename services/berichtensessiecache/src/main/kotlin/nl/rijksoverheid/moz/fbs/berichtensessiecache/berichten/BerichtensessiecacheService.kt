@@ -108,11 +108,15 @@ class BerichtensessiecacheService(
         // blijft via GET-endpoints.
         if (clients.isEmpty()) {
             try {
-                berichtenCache.store(cacheKey, emptyList()).await().atMost(Duration.ofSeconds(5))
-                berichtenCache.storeAggregationStatus(
-                    cacheKey,
-                    AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0),
-                ).await().atMost(Duration.ofSeconds(5))
+                val gereedStatus = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0)
+
+                Uni.combine().all()
+                    .unis(
+                        berichtenCache.store(cacheKey, emptyList()),
+                        berichtenCache.storeAggregationStatus(cacheKey, gereedStatus),
+                    )
+                    .discardItems()
+                    .await().atMost(Duration.ofSeconds(5))
             } catch (ex: Exception) {
                 log.errorf(ex, "Fout bij opslaan GEREED-status voor lege magazijn-set, key=%s", cacheKey)
                 cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set")
@@ -140,6 +144,8 @@ class BerichtensessiecacheService(
             bezigStatus.copy(totaalMagazijnen = clients.size),
         ).await().atMost(Duration.ofSeconds(5))
 
+        val ontvangerString = ontvanger.toCanonicalString()
+
         val magazijnStreams = clients.map { (magazijnId, client) ->
             val naam = clientFactory.getNaam(magazijnId)
 
@@ -150,7 +156,7 @@ class BerichtensessiecacheService(
             )
 
             val resultUni = Uni.createFrom().item { client }
-                .onItem().transform { c -> c.getBerichten(ontvanger.toCanonicalString(), null) }
+                .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
                 .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
                 .ifNoItem().after(Duration.ofSeconds(10)).fail()
                 .map<MagazijnResult> { response ->

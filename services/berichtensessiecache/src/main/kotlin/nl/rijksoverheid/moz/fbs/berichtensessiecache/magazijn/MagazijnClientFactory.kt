@@ -19,27 +19,38 @@ class MagazijnClientFactory(
 
     @PostConstruct
     fun init() {
-        require(config.instances().isNotEmpty()) { "Geen magazijnen geconfigureerd" }
-        cachedClients = config.instances().map { (id, instance) ->
+        val instances = config.instances()
+
+        require(instances.isNotEmpty()) { "Geen magazijnen geconfigureerd" }
+
+        val clientsBuilder = mutableMapOf<String, MagazijnClient>()
+        val namenBuilder = mutableMapOf<String, String?>()
+        val afzendersBuilder = mutableMapOf<String, Set<Oin>>()
+
+        instances.forEach { (id, instance) ->
             runCatching { URI.create(instance.url()) }.getOrElse {
                 throw IllegalStateException("Ongeldige URL voor magazijn '$id': ${instance.url()}", it)
             }
+
             require(instance.afzenders().isNotEmpty()) {
                 "Magazijn '$id' heeft geen afzenders geconfigureerd (magazijnen.instances.$id.afzenders)"
             }
-            instance.afzenders().forEach { oin ->
+
+            val afzendersOins = instance.afzenders().map { oin ->
                 runCatching { Oin(oin) }.getOrElse {
                     throw IllegalStateException("Ongeldige afzender-OIN voor magazijn '$id': '$oin'", it)
                 }
             }
-            id to createClient(instance)
-        }.toMap()
-        cachedNamen = config.instances().map { (id, instance) ->
-            id to instance.naam().orElse(null)
-        }.toMap()
-        cachedAfzenders = config.instances().map { (id, instance) ->
-            id to instance.afzenders().map { Oin(it) }.toSet()
-        }.toMap()
+
+            clientsBuilder[id] = createClient(instance)
+            namenBuilder[id] = instance.naam().orElse(null)
+            afzendersBuilder[id] = afzendersOins.toSet()
+        }
+
+        cachedClients = clientsBuilder.toMap()
+        cachedNamen = namenBuilder.toMap()
+        cachedAfzenders = afzendersBuilder.toMap()
+
         log.infof("Geconfigureerde magazijnen: %s", cachedClients.keys)
     }
 
