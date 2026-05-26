@@ -151,6 +151,7 @@
                             </configOptions>
                             <typeMappings>
                                 <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
+                                <typeMapping>File=byte[]</typeMapping>
                             </typeMappings>
                             <!-- Alleen tag "Uitvraag" genereren. _ophalen heeft tag "Ophalen" omdat
                                  het SSE retourneert; jaxrs-spec genereert geen Multi<T>. Zie
