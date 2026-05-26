@@ -101,10 +101,7 @@ class BerichtensessiecacheService(
 
             if (ex is ProfielServiceFoutException) throw ex
 
-            throw ProfielServiceFoutException(
-                "Resolver-aanroep mislukt (${ex.javaClass.simpleName})",
-                ex,
-            )
+            throw ProfielServiceFoutException.resolverMislukt(ex)
         }
 
         val clients = clientFactory.getAllClients().filterKeys { it in resolvedIds }

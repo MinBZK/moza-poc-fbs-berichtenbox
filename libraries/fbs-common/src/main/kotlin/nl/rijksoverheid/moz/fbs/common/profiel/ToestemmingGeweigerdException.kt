@@ -10,4 +10,4 @@ package nl.rijksoverheid.moz.fbs.common.profiel
  * (zou altijd waar moeten zijn) maar een policy-besluit van een externe partij,
  * waarbij 403 — niet 400 — de juiste status is.
  */
-class ToestemmingGeweigerdException(message: String) : RuntimeException(message)
+class ToestemmingGeweigerdException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)

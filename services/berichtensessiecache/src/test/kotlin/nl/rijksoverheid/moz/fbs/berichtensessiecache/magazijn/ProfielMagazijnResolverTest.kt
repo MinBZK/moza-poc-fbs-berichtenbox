@@ -214,4 +214,22 @@ class ProfielMagazijnResolverTest {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         }
     }
+
+    @Test
+    fun `onleesbare upstream-OIN wordt defensief overgeslagen zonder exception`() {
+        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+            voorkeuren = listOf(
+                VoorkeurResponse(
+                    voorkeurType = "OntvangViaBerichtenbox",
+                    waarde = "true",
+                    scopes = listOf(
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "NOT-AN-OIN")),
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "00000001003214345000")),
+                    ),
+                ),
+            ),
+        )
+        val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        assertEquals(setOf("magazijn-a"), result)
+    }
 }

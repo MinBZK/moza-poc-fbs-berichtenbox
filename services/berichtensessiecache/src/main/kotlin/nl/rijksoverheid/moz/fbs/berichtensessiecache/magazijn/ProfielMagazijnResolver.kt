@@ -8,6 +8,7 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
@@ -36,9 +37,7 @@ class ProfielMagazijnResolver(
             .ifNoItem().after(Duration.ofSeconds(15)).fail()
             .map { partij -> bepaalMagazijnen(partij) }
             .onFailure(io.smallrye.mutiny.TimeoutException::class.java).recoverWithUni { error ->
-                Uni.createFrom().failure(
-                    ProfielServiceFoutException("Profiel-service overschreed timeout", error),
-                )
+                Uni.createFrom().failure(ProfielServiceFoutException.timeout(error))
             }
             .onFailure(WebApplicationException::class.java).recoverWithUni { error ->
                 val webEx = error as WebApplicationException
@@ -48,46 +47,43 @@ class ProfielMagazijnResolver(
                     Uni.createFrom().item(emptySet<String>())
                 } else {
                     Uni.createFrom().failure(
-                        ProfielServiceFoutException(
-                            "Profiel-service onbereikbaar (HTTP ${webEx.response?.status})",
-                            error,
-                        ),
+                        ProfielServiceFoutException.upstreamError(webEx.response?.status ?: 0, error),
                     )
                 }
             }
             .onFailure(ProcessingException::class.java).recoverWithUni { error ->
-                val msg = if (error.cause is JsonProcessingException) {
-                    "Profiel-service onleesbaar antwoord (JSON-parse-fout)"
+                val ex = if (error.cause is JsonProcessingException) {
+                    ProfielServiceFoutException.malformed(error)
                 } else {
-                    "Profiel-service onbereikbaar (netwerkfout)"
+                    ProfielServiceFoutException.netwerk(error)
                 }
-                Uni.createFrom().failure(ProfielServiceFoutException(msg, error))
+                Uni.createFrom().failure(ex)
             }
             // Catch-all voor onverwachte RuntimeExceptions die niet eerder zijn afgevangen
             // (bv. NullPointerException uit de gegenereerde client of een interne fout in
             // bepaalMagazijnen). Wrap als ProfielServiceFoutException zodat de caller
             // consistent 503 + Retry-After krijgt in plaats van een onverwachte 500.
             .onFailure { it !is ProfielServiceFoutException }.recoverWithUni { error ->
-                Uni.createFrom().failure(
-                    ProfielServiceFoutException("Profiel-service onleesbaar antwoord", error),
-                )
+                Uni.createFrom().failure(ProfielServiceFoutException.onleesbaar(error))
             }
     }
 
     private fun bepaalMagazijnen(partij: PartijResponse): Set<String> {
-        val optedInOins = partij.voorkeuren
+        val optedInOins: Set<Oin> = partij.voorkeuren
             .filter { it.voorkeurType == VOORKEUR_ONTVANG_BERICHTEN }
             .filter { it.waarde?.lowercase() in INGESCHAKELDE_WAARDEN }
             .flatMap { it.scopes }
             .mapNotNull { it.partij }
             .filter { it.identificatieType == "OIN" }
-            .map { it.identificatieNummer }
+            // Defensief: ongeldige upstream-OINs worden stil overgeslagen zodat
+            // een upstream-typefout niet de héle resolver laat falen.
+            .mapNotNull { runCatching { Oin(it.identificatieNummer) }.getOrNull() }
             .toSet()
 
         if (optedInOins.isEmpty()) return emptySet()
 
         return clientFactory.getAlleAfzenders()
-            .filter { (_, afzenders) -> afzenders.any { it.waarde in optedInOins } }
+            .filter { (_, afzenders) -> afzenders.any { it in optedInOins } }
             .keys
     }
 
