@@ -149,6 +149,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
     delete:
@@ -165,6 +166,7 @@ paths:
           description: Verwijderd
           headers:
             API-Version: { $ref: '#/components/headers/API-Version' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -177,6 +179,7 @@ paths:
         in: path
         required: true
         schema: { type: string, format: uuid }
+        description: Uniek ID van de bijlage binnen het bericht
     get:
       tags: [Uitvraag]
       summary: Bijlage ophalen (octet-stream, dynamic Content-Type)
@@ -194,13 +197,15 @@ paths:
               description: Werkelijk MIME-type van de bijlage
             Content-Disposition:
               schema: { type: string }
-              description: '`attachment`'
+              description: Altijd `attachment` om browser-inline-rendering uit te sluiten.
+              example: attachment
           content:
             '*/*':
               schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
 
 components:
   parameters:
@@ -234,6 +239,11 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     NotFound:
       description: Bericht niet gevonden
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnsupportedMediaType:
+      description: Onverwacht request-content-type (bv. PATCH zonder `application/merge-patch+json`)
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -307,6 +317,7 @@ components:
       description: |
         JSON Merge Patch (RFC 7396). Beide velden optioneel; minimaal één veld
         vereist. `status` wijzigt leesstatus; `map` verplaatst het bericht.
+        Ontbrekend veld én `null` worden beide behandeld als "niet wijzigen".
       properties:
         status: { $ref: '#/components/schemas/BerichtStatus' }
         map: { type: string, minLength: 1, maxLength: 64 }
