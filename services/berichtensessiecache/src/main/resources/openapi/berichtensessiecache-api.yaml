@@ -275,6 +275,9 @@ paths:
           description: |
             Berichten worden momenteel al opgehaald voor deze ontvanger.
             Wacht tot het ophalen is afgerond.
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
           content:
             application/problem+json:
               schema:
@@ -286,6 +289,8 @@ paths:
             De Profiel Service is tijdelijk niet bereikbaar. De toestemmingscontrole
             kon niet uitgevoerd worden; client kan over 30 seconden opnieuw proberen.
           headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
             Retry-After:
               description: Aantal seconden waarna client opnieuw mag proberen.
               schema:
