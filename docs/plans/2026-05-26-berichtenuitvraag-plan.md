@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Berichten Uitvraag Service — implementatieplan
 
