@@ -4,6 +4,8 @@ import io.opentelemetry.api.trace.StatusCode
 import io.smallrye.common.annotation.Blocking
 import io.smallrye.mutiny.Multi
 import jakarta.inject.Inject
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Size
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.HeaderParam
 import jakarta.ws.rs.Path
@@ -39,7 +41,15 @@ class BerichtenOphalenResource(
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     fun ophalenBerichten(
-        @HeaderParam("X-Ontvanger") ontvanger: String?,
+        // Hand-rolled SSE-endpoint krijgt geen Bean-Validation via de gegenereerde JAX-RS
+        // interface; @Pattern + @Size hier spiegelen de OntvangerHeader-parameter uit de
+        // OpenAPI-spec zodat input-validatie aan de rand consistent is met de gegenereerde
+        // endpoints. Voorkomt dat attacker-controlled prefix doorlekt naar Problem.detail
+        // via DomainValidationException.
+        @HeaderParam("X-Ontvanger")
+        @Pattern(regexp = "^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$")
+        @Size(min = 12, max = 24)
+        ontvanger: String?,
     ): Multi<MagazijnEvent> {
         if (ontvanger.isNullOrBlank()) {
             throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)

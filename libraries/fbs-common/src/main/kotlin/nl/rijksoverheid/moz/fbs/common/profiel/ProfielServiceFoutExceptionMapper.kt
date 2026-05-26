@@ -20,7 +20,16 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
     private val log = Logger.getLogger(ProfielServiceFoutExceptionMapper::class.java)
 
     override fun toResponse(exception: ProfielServiceFoutException): Response {
-        log.warnf(exception, "Profiel-service onbereikbaar: %s", exception.message)
+        // Bewust geen full stacktrace via .warnf(exception, …): de cause-chain van
+        // lower-level HTTP-clients kan in randgevallen de upstream-URL bevatten,
+        // die de BSN/RSIN/KVK in het pad heeft (extern Profiel-contract). Log alleen
+        // de message + cause-type voor diagnose; correlation-id verbindt naar de
+        // applicatielog elders waar de stacktrace correct gesaneerd wordt.
+        log.warnf(
+            "Profiel-service onbereikbaar: %s (cause=%s)",
+            exception.message,
+            exception.cause?.javaClass?.simpleName ?: "geen",
+        )
 
         val problem = Problem(
             type = URI.create("https://moza.nl/problems/profiel-service-onbereikbaar"),
