@@ -1,8 +1,9 @@
 package nl.rijksoverheid.moz.fbs.common.profiel
 
 /**
- * Gegooid wanneer de Profiel Service expliciet `toegestaan=false` retourneert
- * voor de combinatie van afzender en ontvanger. Wordt door
+ * Gegooid wanneer er geen actieve `OntvangViaBerichtenbox`-voorkeur bij de Profiel
+ * Service bestaat voor de combinatie afzender-OIN ↔ ontvanger (inclusief het
+ * 404-pad: ontvanger heeft geen profiel). Wordt door
  * [ToestemmingGeweigerdExceptionMapper] vertaald naar HTTP 403 Problem JSON.
  *
  * Geen subklasse van DomainValidationException: dit is geen domein-invariant

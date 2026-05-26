@@ -63,7 +63,10 @@ class ProfielMagazijnResolver(
                 }
                 Uni.createFrom().failure(ProfielServiceFoutException(msg, error))
             }
-            // Onder andere malformed JSON komt als RuntimeException; vang restcategorie.
+            // Catch-all voor onverwachte RuntimeExceptions die niet eerder zijn afgevangen
+            // (bv. NullPointerException uit de gegenereerde client of een interne fout in
+            // bepaalMagazijnen). Wrap als ProfielServiceFoutException zodat de caller
+            // consistent 503 + Retry-After krijgt in plaats van een onverwachte 500.
             .onFailure { it !is ProfielServiceFoutException }.recoverWithUni { error ->
                 Uni.createFrom().failure(
                     ProfielServiceFoutException("Profiel-service onleesbaar antwoord", error),

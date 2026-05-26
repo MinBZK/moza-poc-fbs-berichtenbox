@@ -66,8 +66,10 @@ class BerichtensessiecacheService(
     }
 
     /**
-     * Orkestreert het ophalen van berichten uit alle magazijnen, slaat ze op in de cache,
-     * en retourneert een SSE-compatible Multi met statusevents per magazijn.
+     * Orkestreert het ophalen van berichten uit de magazijnen die de [MagazijnResolver]
+     * voor deze ontvanger relevant acht (voorkeur-gestuurd voor BSN/RSIN/KVK, alle voor
+     * OIN-B2B), slaat ze op in de cache, en retourneert een SSE-compatible Multi met
+     * statusevents per magazijn.
      */
     fun ophalenBerichten(ontvanger: Identificatienummer): Multi<MagazijnEvent> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
@@ -77,10 +79,11 @@ class BerichtensessiecacheService(
             totaalMagazijnen = 0,
         )
 
-        // Atomaire lock: voorkom concurrent ophalen voor dezelfde ontvanger (SETNX).
-        // N.B. Blokkerende await() is hier bewust: het aanroepende endpoint (BerichtenOphalenResource)
-        // is @Blocking gemarkeerd. De lock-check moet synchroon afgerond zijn voordat de
-        // Multi-stream gestart wordt, omdat de 409-response anders niet meer mogelijk is.
+        // Atomaire lock via trySetAggregationStatus (SET NX EX in één commando): voorkom
+        // concurrent ophalen voor dezelfde ontvanger. Blokkerende await() is hier bewust:
+        // het aanroepende endpoint (BerichtenOphalenResource) is @Blocking gemarkeerd. De
+        // lock-check moet synchroon afgerond zijn voordat de Multi-stream gestart wordt,
+        // omdat de 409-response anders niet meer mogelijk is.
         val wasSet = berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
             .await().atMost(Duration.ofSeconds(5))
 
@@ -284,7 +287,12 @@ class BerichtensessiecacheService(
 
     /**
      * Best-effort: zet FOUT-status om de lock vrij te geven na een niet-herstelbare fout.
-     * Timeout op 5s zodat een hangende Redis de thread niet eeuwig blokkeert.
+     * `storeAggregationStatus` doet intern `del(lockKey)`, dus deze ene call ruimt zowel
+     * status als lock op. Timeout op 5s zodat een hangende Redis de thread niet eeuwig
+     * blokkeert; falen wordt geslikt (ook al blijft de lock dan tot Redis-TTL hangen,
+     * dat is acceptabel — beter dan een tweede exception over de eerste heen).
+     *
+     * @param foutmelding korte oorzaak-omschrijving die alleen in de fout-log gebruikt wordt.
      */
     private fun cleanupLockMetFoutStatus(cacheKey: String, foutmelding: String) {
         try {

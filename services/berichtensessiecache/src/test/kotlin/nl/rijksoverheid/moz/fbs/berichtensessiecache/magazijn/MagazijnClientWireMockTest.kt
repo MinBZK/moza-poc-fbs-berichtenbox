@@ -38,7 +38,6 @@ class MagazijnClientWireMockTest {
             .then().statusCode(200)
             .extract().body().asString()
 
-        // SSE stream moet ophalen-gereed event bevatten
         assertTrue(response.contains("ophalen-gereed"))
     }
 
@@ -56,7 +55,6 @@ class MagazijnClientWireMockTest {
             .then().statusCode(200)
             .extract().body().asString()
 
-        // Stream moet FOUT status event bevatten voor het falende magazijn
         assertTrue(response.contains("FOUT"))
     }
 

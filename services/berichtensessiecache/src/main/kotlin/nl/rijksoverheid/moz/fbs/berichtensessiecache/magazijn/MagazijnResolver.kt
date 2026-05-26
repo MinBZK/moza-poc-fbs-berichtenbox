@@ -12,7 +12,8 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
  * krijgen alle magazijn-IDs terug.
  *
  * Foutpaden: 200/404 zonder voorkeur leidt tot een lege set (caller toont lege
- * resultaten). 5xx/timeout/malformed leidt tot een [ProfielServiceFoutException]
+ * resultaten). 5xx, niet-404 4xx, ProcessingException, timeout, malformed JSON
+ * of overige onverwachte fouten leiden tot een [ProfielServiceFoutException]
  * (caller propageert 503 + Retry-After).
  */
 interface MagazijnResolver {
