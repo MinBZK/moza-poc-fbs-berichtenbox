@@ -20,7 +20,7 @@
           "afzender": "00000001234567890000",
           "ontvanger": "999993653",
           "onderwerp": "Besluit aanvraag subsidie",
-          "tijdstip": "2026-03-10T14:30:00Z",
+          "publicatietijdstip": "2026-03-10T14:30:00Z",
           "magazijnId": "magazijn-a"
         },
         {
@@ -28,7 +28,7 @@
           "afzender": "00000001234567890000",
           "ontvanger": "999993653",
           "onderwerp": "Bevestiging inschrijving",
-          "tijdstip": "2026-03-09T09:15:00Z",
+          "publicatietijdstip": "2026-03-09T09:15:00Z",
           "magazijnId": "magazijn-a"
         },
         {
@@ -36,7 +36,7 @@
           "afzender": "00000009876543210000",
           "ontvanger": "999993653",
           "onderwerp": "Kennisgeving handhaving",
-          "tijdstip": "2026-03-08T16:45:00Z",
+          "publicatietijdstip": "2026-03-08T16:45:00Z",
           "magazijnId": "magazijn-a"
         },
         {
@@ -44,7 +44,7 @@
           "afzender": "00000001234567890000",
           "ontvanger": "999993653",
           "onderwerp": "Herinnering belastingaangifte",
-          "tijdstip": "2026-03-07T11:00:00Z",
+          "publicatietijdstip": "2026-03-07T11:00:00Z",
           "magazijnId": "magazijn-a"
         },
         {
@@ -52,7 +52,7 @@
           "afzender": "00000009876543210000",
           "ontvanger": "999993653",
           "onderwerp": "Uitnodiging informatieavond",
-          "tijdstip": "2026-03-06T08:30:00Z",
+          "publicatietijdstip": "2026-03-06T08:30:00Z",
           "magazijnId": "magazijn-a"
         }
       ],

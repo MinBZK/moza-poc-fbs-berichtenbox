@@ -20,7 +20,7 @@
           "afzender": "00000001234567890000",
           "ontvanger": "{{request.headers.X-Ontvanger}}",
           "onderwerp": "Besluit aanvraag subsidie",
-          "tijdstip": "2026-03-10T14:30:00Z",
+          "publicatietijdstip": "2026-03-10T14:30:00Z",
           "magazijnId": "magazijn-a"
         },
         {
@@ -28,7 +28,7 @@
           "afzender": "00000001234567890000",
           "ontvanger": "{{request.headers.X-Ontvanger}}",
           "onderwerp": "Bevestiging inschrijving KVK",
-          "tijdstip": "2026-03-09T09:15:00Z",
+          "publicatietijdstip": "2026-03-09T09:15:00Z",
           "magazijnId": "magazijn-a"
         },
         {
@@ -36,7 +36,7 @@
           "afzender": "00000009876543210000",
           "ontvanger": "{{request.headers.X-Ontvanger}}",
           "onderwerp": "Kennisgeving handhaving",
-          "tijdstip": "2026-03-08T16:45:00Z",
+          "publicatietijdstip": "2026-03-08T16:45:00Z",
           "magazijnId": "magazijn-a"
         }
       ]
