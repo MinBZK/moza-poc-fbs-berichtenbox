@@ -1,0 +1,241 @@
+openapi: 3.0.3
+info:
+  title: Berichten Uitvraag API
+  version: 0.1.0
+  description: |
+    Frontend-API voor het MijnOverheid-Zakelijk portaal. Aggregeert berichten
+    uit de berichtensessiecache (lees) en het berichtenmagazijn (bijlagen,
+    persistente status-mutaties).
+  contact:
+    name: MijnOverheid Zakelijk
+servers:
+  - url: /api/v1
+
+tags:
+  - name: Uitvraag
+    description: Berichten-uitvraag voor het portaal
+
+paths:
+  /berichten:
+    get:
+      tags: [Uitvraag]
+      summary: Berichtenlijst per map
+      operationId: getBerichten
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+        - name: map
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 64 }
+        - name: pagina
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: paginaGrootte
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+      responses:
+        '200':
+          description: Berichtenlijst
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BerichtenLijst' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /berichten/_ophalen:
+    get:
+      tags: [Uitvraag]
+      summary: Vul cache voor alle mappen (Server-Sent Events)
+      operationId: ophalenBerichten
+      description: |
+        Triggert de sessiecache om alle mappen op te halen uit de aangesloten
+        magazijnen. Antwoordt met Server-Sent Events; events worden 1-op-1
+        doorgegeven aan de client. Geen query-parameters: alle mappen worden
+        opgehaald.
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '200':
+          description: SSE-stream
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /berichten/_zoeken:
+    get:
+      tags: [Uitvraag]
+      summary: Zoeken in berichten
+      operationId: zoekenBerichten
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: map
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: Zoekresultaten
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BerichtenLijst' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /berichten/{berichtId}:
+    parameters:
+      - $ref: '#/components/parameters/BerichtIdPath'
+    get:
+      tags: [Uitvraag]
+      summary: Bericht ophalen
+      operationId: getBerichtById
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '200':
+          description: Bericht
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bericht' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+components:
+  parameters:
+    OntvangerHeader:
+      name: X-Ontvanger
+      in: header
+      required: true
+      schema: { type: string, pattern: '^(BSN|RSIN|KVK|OIN):[0-9]+$' }
+      description: 'Type:waarde, bijv. `BSN:123456782`'
+    BerichtIdPath:
+      name: berichtId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  headers:
+    API-Version:
+      schema: { type: string }
+      description: API-majorversie, bv. `v1`
+
+  responses:
+    BadRequest:
+      description: Ongeldige aanvraag
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Niet geauthenticeerd
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Bericht niet gevonden
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InternalServerError:
+      description: Serverfout
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    BerichtenLijst:
+      type: object
+      required: [berichten]
+      properties:
+        berichten:
+          type: array
+          items: { $ref: '#/components/schemas/BerichtSamenvatting' }
+        _links:
+          $ref: '#/components/schemas/PaginaLinks'
+
+    BerichtSamenvatting:
+      type: object
+      required: [id, onderwerp, ontvangenOp]
+      properties:
+        id: { type: string, format: uuid }
+        onderwerp: { type: string }
+        afzender: { type: string }
+        ontvangenOp: { type: string, format: date-time }
+        map: { type: string }
+        status: { $ref: '#/components/schemas/BerichtStatus' }
+        _links: { $ref: '#/components/schemas/BerichtLinks' }
+
+    Bericht:
+      type: object
+      required: [id, onderwerp, ontvangenOp]
+      properties:
+        id: { type: string, format: uuid }
+        onderwerp: { type: string }
+        afzender: { type: string }
+        inhoud: { type: string }
+        ontvangenOp: { type: string, format: date-time }
+        map: { type: string }
+        status: { $ref: '#/components/schemas/BerichtStatus' }
+        bijlagen:
+          type: array
+          items: { $ref: '#/components/schemas/BijlageMetadata' }
+        _links: { $ref: '#/components/schemas/BerichtLinks' }
+
+    BijlageMetadata:
+      type: object
+      required: [id, naam]
+      properties:
+        id: { type: string, format: uuid }
+        naam: { type: string }
+        mimeType: { type: string }
+        groottebytes: { type: integer, format: int64 }
+        _links: { $ref: '#/components/schemas/BijlageLinks' }
+
+    BerichtStatus:
+      type: string
+      enum: [gelezen, ongelezen]
+      nullable: true
+
+    Link:
+      type: object
+      properties:
+        href: { type: string, format: uri-reference }
+
+    BerichtLinks:
+      type: object
+      properties:
+        self: { $ref: '#/components/schemas/Link' }
+
+    BijlageLinks:
+      type: object
+      properties:
+        self: { $ref: '#/components/schemas/Link' }
+
+    PaginaLinks:
+      type: object
+      properties:
+        self: { $ref: '#/components/schemas/Link' }
+        next: { $ref: '#/components/schemas/Link' }
+        prev: { $ref: '#/components/schemas/Link' }
+
+    Problem:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
