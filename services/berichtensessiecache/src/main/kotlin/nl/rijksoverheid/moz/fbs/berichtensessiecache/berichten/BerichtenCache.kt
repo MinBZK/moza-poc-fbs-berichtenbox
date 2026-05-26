@@ -8,6 +8,7 @@ import io.quarkus.redis.datasource.search.QueryArgs
 import io.smallrye.mutiny.Uni
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.security.MessageDigest
@@ -20,25 +21,23 @@ interface BerichtenCache {
     fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
     fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean>
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
-    fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: String? = null): Uni<BerichtenPage?>
-    fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
-    fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
-    fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?>
-    fun addBericht(bericht: Bericht): Uni<Void>
+    fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: Identificatienummer? = null): Uni<BerichtenPage?>
+    fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
+    fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?>
+    fun updateStatus(berichtId: UUID, ontvanger: Identificatienummer, status: String): Uni<Bericht?>
+    fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
 
     companion object {
-        fun cacheKey(ontvanger: String): String {
-            val hash = sha256(ontvanger)
+        fun cacheKey(ontvanger: Identificatienummer): String {
+            val canonical = ontvanger.toCanonicalString()
+            val hash = MessageDigest.getInstance("SHA-256")
+                .digest(canonical.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
             return "berichtensessiecache:v1:$hash"
         }
         fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
         const val BERICHT_PREFIX = "bericht:v1:"
         const val SEARCH_INDEX = "berichten-idx"
-
-        private fun sha256(input: String): String {
-            val digest = MessageDigest.getInstance("SHA-256")
-            return digest.digest(input.toByteArray()).joinToString("") { "%02x".format(it) }
-        }
     }
 }
 
@@ -161,7 +160,7 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis getAggregationStatus mislukt voor key=%s", key) }
     }
 
-    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: String?): Uni<BerichtenPage?> {
+    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?): Uni<BerichtenPage?> {
         if (afzender != null && ontvanger != null) {
             return getPageFiltered(page, pageSize, ontvanger, afzender)
         }
@@ -200,8 +199,8 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
-    private fun getPageFiltered(page: Int, pageSize: Int, ontvanger: String, afzender: String): Uni<BerichtenPage?> {
-        val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger)}}"
+    private fun getPageFiltered(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String): Uni<BerichtenPage?> {
+        val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger.waarde)}}"
         val afzenderFilter = "@afzender:{${escapeTag(afzender)}}"
         val query = "$ontvangerFilter $afzenderFilter"
 
@@ -225,8 +224,8 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt voor afzender=%s", afzender) }
     }
 
-    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
-        val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger)}}"
+    override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
+        val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger.waarde)}}"
         val escapedQ = escapeRedisSearch(q)
         val afzenderFilter = if (afzender != null) " @afzender:{${escapeTag(afzender)}}" else ""
         val query = "$ontvangerFilter (@onderwerp:$escapedQ)$afzenderFilter".trim()
@@ -247,13 +246,13 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "RediSearch query mislukt voor q=%s", q) }
     }
 
-    override fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?> {
+    override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         return redis.hash(String::class.java).hgetall(berichtKey)
             .map { fields ->
                 if (fields.isEmpty()) return@map null
                 val bericht = hashToBericht(fields)
-                if (bericht.ontvanger != ontvanger) null else bericht
+                if (bericht.ontvanger != ontvanger.waarde) null else bericht
             }
             .call { bericht ->
                 if (bericht != null) renewReadTtl(ontvanger, listOf(bericht))
@@ -283,7 +282,7 @@ class RedisBerichtenCache(
      * Verlengt TTL op sessie-keys én op de per-bericht hash keys die via een read zijn geraakt.
      * Zo blijven zowel de lijst als de berichten-hashes in sync qua TTL.
      */
-    private fun renewReadTtl(ontvanger: String, berichten: List<Bericht>?): Uni<Void> {
+    private fun renewReadTtl(ontvanger: Identificatienummer, berichten: List<Bericht>?): Uni<Void> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val sessionRenew = renewSessionTtl(cacheKey)
         if (berichten.isNullOrEmpty()) return sessionRenew
@@ -326,13 +325,13 @@ class RedisBerichtenCache(
         status = doc.property("status")?.asString(),
     )
 
-    override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+    override fun updateStatus(berichtId: UUID, ontvanger: Identificatienummer, status: String): Uni<Bericht?> {
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         return redis.hash(String::class.java).hgetall(berichtKey)
             .chain { fields ->
                 if (fields.isEmpty()) return@chain Uni.createFrom().nullItem<Bericht>()
                 val bericht = hashToBericht(fields)
-                if (bericht.ontvanger != ontvanger) return@chain Uni.createFrom().nullItem<Bericht>()
+                if (bericht.ontvanger != ontvanger.waarde) return@chain Uni.createFrom().nullItem<Bericht>()
                 val updated = bericht.copy(status = status)
                 redis.hash(String::class.java).hset(berichtKey, "status", status)
                     .replaceWith(updated)
@@ -340,8 +339,8 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis updateStatus mislukt voor berichtId=%s", berichtId) }
     }
 
-    override fun addBericht(bericht: Bericht): Uni<Void> {
-        val cacheKey = BerichtenCache.cacheKey(bericht.ontvanger)
+    override fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
         val json = objectMapper.writeValueAsString(bericht)

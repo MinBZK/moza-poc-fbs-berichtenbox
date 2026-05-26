@@ -3,6 +3,8 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -19,7 +21,9 @@ class RedisBerichtenCacheIntegrationTest {
     @Inject
     lateinit var berichtenCache: BerichtenCache
 
-    private val ontvanger = "integration-test-${System.nanoTime()}"
+    // OIN gebruikt als test-ontvanger: geen elfproef-vereiste, 20-cijferig uniek per test-run.
+    private val ontvangerWaarde = System.nanoTime().toString().padStart(20, '0').takeLast(20)
+    private val ontvanger = Oin(ontvangerWaarde)
 
     private fun cacheKey() = BerichtenCache.cacheKey(ontvanger)
 
@@ -27,7 +31,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
-            ontvanger = ontvanger,
+            ontvanger = ontvanger.waarde,
             onderwerp = "Eerste bericht over belastingaangifte",
             tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
@@ -35,7 +39,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000009876543210000",
-            ontvanger = ontvanger,
+            ontvanger = ontvanger.waarde,
             onderwerp = "Tweede bericht over subsidie",
             tijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
@@ -43,7 +47,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
-            ontvanger = ontvanger,
+            ontvanger = ontvanger.waarde,
             onderwerp = "Derde bericht over vergunning",
             tijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
@@ -121,7 +125,9 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
-        val result = berichtenCache.getById(berichten[0].berichtId, "andere-ontvanger")
+        // OIN met andere waarde: 20 cijfers, niet geheel nullen
+        val andereOntvanger = Oin("00000001003214345000")
+        val result = berichtenCache.getById(berichten[0].berichtId, andereOntvanger)
             .await().indefinitely()
 
         assertNull(result)
@@ -154,12 +160,12 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuwBericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000005555555550000",
-            ontvanger = ontvanger,
+            ontvanger = ontvanger.waarde,
             onderwerp = "Nieuw bericht",
             tijdstip = Instant.parse("2026-03-10T14:00:00Z"),
             magazijnId = "magazijn-c",
         )
-        berichtenCache.addBericht(nieuwBericht).await().indefinitely()
+        berichtenCache.addBericht(nieuwBericht, ontvanger).await().indefinitely()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
         assertNotNull(page)

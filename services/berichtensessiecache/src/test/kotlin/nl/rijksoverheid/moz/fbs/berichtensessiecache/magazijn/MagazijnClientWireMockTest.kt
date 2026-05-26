@@ -16,7 +16,10 @@ import org.junit.jupiter.api.Test
 @QuarkusTestResource(WireMockMagazijnResource::class)
 class MagazijnClientWireMockTest {
 
-    private val ontvanger = "999993653"
+    // Header-waarde (TYPE:WAARDE-formaat)
+    private val ontvanger = "BSN:999993653"
+    // Raw identificatiewaarde voor gebruik in bericht-body's (Bericht.ontvanger slaat geen type-prefix op)
+    private val ontvangerWaarde = "999993653"
 
     @BeforeEach
     fun setUp() {
@@ -129,7 +132,7 @@ class MagazijnClientWireMockTest {
                                     {
                                         "berichtId": "${java.util.UUID.randomUUID()}",
                                         "afzender": "00000001234567890000",
-                                        "ontvanger": "$ontvanger",
+                                        "ontvanger": "$ontvangerWaarde",
                                         "onderwerp": "Test bericht van $magazijnId",
                                         "tijdstip": "2026-03-10T10:00:00Z",
                                         "magazijnId": "$magazijnId"

@@ -13,6 +13,7 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.resteasy.reactive.RestStreamElementType
 
 /**
@@ -44,10 +45,12 @@ class BerichtenOphalenResource(
             throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
         }
 
-        logboekContext.dataSubjectId = ontvanger
+        val ontvangerId = Identificatienummer.fromHeader(ontvanger)
+
+        logboekContext.dataSubjectId = ontvangerId.waarde
         logboekContext.dataSubjectType = "ontvanger"
 
-        val aggregation = service.ophalenBerichten(ontvanger)
+        val aggregation = service.ophalenBerichten(ontvangerId)
 
         // SSE-stream is een observer: stuurt events door zolang de client verbonden is.
         // Client disconnect stopt alleen de emitter, de aggregatie loopt onafhankelijk door.

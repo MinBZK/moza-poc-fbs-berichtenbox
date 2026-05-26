@@ -4,6 +4,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.CoreMatchers.containsString
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -24,6 +25,12 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
         (berichtenCache as MockBerichtenCache).clear()
+    }
+
+    // Genereer een unieke geldige OIN per test (20 cijfers, niet geheel nullen).
+    private fun uniqueOin(): String {
+        val nanos = System.nanoTime().toString().takeLast(19).padStart(19, '0')
+        return "OIN:0$nanos"
     }
 
     @Test
@@ -52,7 +59,7 @@ class BerichtenOphalenResourceTest {
     @Test
     fun `GET ophalen retourneert SSE-stream met magazijn events`() {
         val response = given()
-            .header("X-Ontvanger", "999993653")
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -70,7 +77,7 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = true
 
         val response = given()
-            .header("X-Ontvanger", "999993653")
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -84,16 +91,16 @@ class BerichtenOphalenResourceTest {
     fun `GET berichten na mislukt ophalen retourneert 200 met GEREED status en lege lijst`() {
         MockMagazijnClientFactory.shouldFailA = true
         MockMagazijnClientFactory.shouldFailB = true
-        val ontvanger = "fout-test-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -105,8 +112,10 @@ class BerichtenOphalenResourceTest {
 
     @Test
     fun `berichten in cache na ophalen`() {
+        val ontvangerHeader = "BSN:999991401"
+
         val sseResponse = given()
-            .header("X-Ontvanger", "cache-test")
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -118,7 +127,7 @@ class BerichtenOphalenResourceTest {
         )
 
         val berichtenResponse = given()
-            .header("X-Ontvanger", "cache-test")
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -133,7 +142,7 @@ class BerichtenOphalenResourceTest {
     @Test
     fun `GET ophalen multi-magazijn aggregatie beide OK`() {
         val response = given()
-            .header("X-Ontvanger", "multi-ok-${System.nanoTime()}")
+            .header("X-Ontvanger", uniqueOin())
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -145,12 +154,12 @@ class BerichtenOphalenResourceTest {
 
     @Test
     fun `GET ophalen terwijl aggregatie al bezig is retourneert 409`() {
-        val ontvanger = "conflict-test-${System.nanoTime()}"
-        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+        val ontvangerHeader = uniqueOin()
+        val cacheKey = BerichtenCache.cacheKey(Identificatienummer.fromHeader(ontvangerHeader))
         (berichtenCache as MockBerichtenCache).simuleerBezig(cacheKey)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(409)
@@ -163,7 +172,7 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = true
 
         val response = given()
-            .header("X-Ontvanger", "partial-fail-${System.nanoTime()}")
+            .header("X-Ontvanger", uniqueOin())
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)

@@ -9,6 +9,7 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -49,7 +50,11 @@ class OpenApiContractTest {
             .build()
     )
 
-    private val ontvanger = "999993653"
+    // BSN:999990286 (elfproef-geldig) als vaste test-ontvanger voor contract-tests.
+    // ontvanger = TYPE:WAARDE voor gebruik als header; ontvangerWaarde = enkel de WAARDE
+    // voor gebruik in JSON-body (Bericht.ontvanger slaat raw identificatiewaarde op).
+    private val ontvanger = "BSN:999993653"
+    private val ontvangerWaarde = "999993653"
 
     @BeforeEach
     fun setUp() {
@@ -129,7 +134,7 @@ class OpenApiContractTest {
                 {
                     "berichtId": "55555555-5555-5555-5555-555555555555",
                     "afzender": "00000001234567890000",
-                    "ontvanger": "$ontvanger",
+                    "ontvanger": "$ontvangerWaarde",
                     "onderwerp": "Contract test bericht",
                     "tijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
@@ -228,7 +233,7 @@ class OpenApiContractTest {
                 {
                     "berichtId": "55555555-5555-5555-5555-555555555555",
                     "afzender": "00000001234567890000",
-                    "ontvanger": "$ontvanger",
+                    "ontvanger": "$ontvangerWaarde",
                     "onderwerp": "Test",
                     "tijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
@@ -270,7 +275,7 @@ class OpenApiContractTest {
 
     @Test
     fun `GET berichten tijdens ophalen retourneert 409 conform Problem schema`() {
-        (berichtenCache as MockBerichtenCache).simuleerBezig(BerichtenCache.cacheKey(ontvanger))
+        (berichtenCache as MockBerichtenCache).simuleerBezig(BerichtenCache.cacheKey(Identificatienummer.fromHeader(ontvanger)))
 
         given()
             .filter(validationFilter)
@@ -284,7 +289,7 @@ class OpenApiContractTest {
     @Test
     fun `GET berichten na mislukt ophalen retourneert 500 conform Problem schema`() {
         // Simuleer een mislukt ophalen door status FOUT in de cache te zetten
-        val key = BerichtenCache.cacheKey(ontvanger)
+        val key = BerichtenCache.cacheKey(Identificatienummer.fromHeader(ontvanger))
         val foutStatus = AggregationStatus(
             status = OphalenStatus.FOUT,
             totaalMagazijnen = 2,

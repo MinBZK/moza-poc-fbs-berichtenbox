@@ -4,6 +4,8 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.not
@@ -26,6 +28,17 @@ class BerichtensessiecacheResourceTest {
         MockMagazijnClientFactory.shouldFailB = false
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
+    }
+
+    // Genereer een unieke geldige OIN per test (20 cijfers, niet geheel nullen).
+    private fun uniqueOin(): String {
+        val nanos = System.nanoTime().toString().takeLast(19).padStart(19, '0')
+        return "OIN:0$nanos"
+    }
+
+    private fun ontvangerKey(header: String): String {
+        val id = nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer.fromHeader(header)
+        return BerichtenCache.cacheKey(id)
     }
 
     @Test
@@ -55,7 +68,7 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `GET berichten retourneert 409 als ophalen niet is aangeroepen`() {
         given()
-            .header("X-Ontvanger", "onbekend-${System.nanoTime()}")
+            .header("X-Ontvanger", uniqueOin())
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(409)
@@ -66,14 +79,14 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET berichten retourneert 409 als ophalen nog bezig is`() {
-        val ontvanger = "bezig-test-${System.nanoTime()}"
-        val key = BerichtenCache.cacheKey(ontvanger)
+        val ontvangerHeader = uniqueOin()
+        val key = ontvangerKey(ontvangerHeader)
 
         berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
             .await().indefinitely()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(409)
@@ -84,14 +97,14 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET berichten retourneert 500 als ophalen is mislukt`() {
-        val ontvanger = "fout-test-${System.nanoTime()}"
-        val key = BerichtenCache.cacheKey(ontvanger)
+        val ontvangerHeader = uniqueOin()
+        val key = ontvangerKey(ontvangerHeader)
 
         berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 2, mislukt = 2))
             .await().indefinitely()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(500)
@@ -102,15 +115,15 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET zoeken retourneert 500 als ophalen is mislukt`() {
-        val ontvanger = "fout-zoek-${System.nanoTime()}"
-        val key = BerichtenCache.cacheKey(ontvanger)
+        val ontvangerHeader = uniqueOin()
+        val key = ontvangerKey(ontvangerHeader)
 
         berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 2, mislukt = 2))
             .await().indefinitely()
 
         given()
             .queryParam("q", "test")
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(500)
@@ -122,13 +135,13 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `GET berichten retourneert gepagineerde resultaten na ophalen`() {
         given()
-            .header("X-Ontvanger", "test-paginering")
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", "test-paginering")
+            .header("X-Ontvanger", "BSN:999993653")
             .queryParam("page", 0)
             .queryParam("pageSize", 2)
             .`when`().get("/api/v1/berichten")
@@ -152,13 +165,13 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `GET berichten paginering page 1 geeft andere resultaten`() {
         given()
-            .header("X-Ontvanger", "test-page1")
+            .header("X-Ontvanger", "BSN:999991401")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", "test-page1")
+            .header("X-Ontvanger", "BSN:999991401")
             .queryParam("page", 1)
             .queryParam("pageSize", 2)
             .`when`().get("/api/v1/berichten")
@@ -183,7 +196,7 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `GET bericht by id retourneert 409 als ophalen niet is aangeroepen`() {
         given()
-            .header("X-Ontvanger", "onbekend-byid-${System.nanoTime()}")
+            .header("X-Ontvanger", uniqueOin())
             .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
             .then()
             .statusCode(409)
@@ -194,14 +207,14 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert 409 als ophalen nog bezig is`() {
-        val ontvanger = "bezig-byid-${System.nanoTime()}"
-        val key = BerichtenCache.cacheKey(ontvanger)
+        val ontvangerHeader = uniqueOin()
+        val key = ontvangerKey(ontvangerHeader)
 
         berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
             .await().indefinitely()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
             .then()
             .statusCode(409)
@@ -212,14 +225,14 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert 500 als ophalen is mislukt`() {
-        val ontvanger = "fout-byid-${System.nanoTime()}"
-        val key = BerichtenCache.cacheKey(ontvanger)
+        val ontvangerHeader = uniqueOin()
+        val key = ontvangerKey(ontvangerHeader)
 
         berichtenCache.storeAggregationStatus(key, AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 2, mislukt = 2))
             .await().indefinitely()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/00000000-0000-0000-0000-000000000000")
             .then()
             .statusCode(500)
@@ -264,17 +277,15 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert bericht uit cache met correcte velden`() {
-        val ontvanger = "999993653"
-
-        // Eerst ophalen zodat berichten in cache komen
+        // Ophalen met BSN:999993653; berichten in MockMagazijnClientFactory hebben ontvanger="999993653"
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then()
             .statusCode(200)
@@ -287,7 +298,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert 404 als ontvanger niet overeenkomt`() {
-        val eigenOntvanger = "andere-ontvanger-${System.nanoTime()}"
+        val eigenOntvanger = uniqueOin()
 
         // Ophalen zodat aggregation status GEREED is
         given()
@@ -308,17 +319,17 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET zoeken retourneert gefilterde resultaten`() {
-        val ontvanger = "zoek-test-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
             .queryParam("q", "bericht 1")
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(200)
@@ -328,10 +339,10 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET zoeken met afzender filter retourneert gefilterde resultaten`() {
-        val ontvanger = "zoek-afzender-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -340,7 +351,7 @@ class BerichtensessiecacheResourceTest {
         given()
             .queryParam("q", "Test")
             .queryParam("afzender", "00000005555555550000")
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(200)
@@ -352,7 +363,7 @@ class BerichtensessiecacheResourceTest {
     fun `GET zoeken retourneert 409 als ophalen niet is aangeroepen`() {
         given()
             .queryParam("q", "test")
-            .header("X-Ontvanger", "onbekend-zoek-${System.nanoTime()}")
+            .header("X-Ontvanger", uniqueOin())
             .`when`().get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(409)
@@ -363,17 +374,17 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET berichten met afzender filter retourneert alleen berichten van die afzender`() {
-        val ontvanger = "afzender-filter-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         // Filter op afzender van magazijn-b bericht
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .queryParam("afzender", "00000005555555550000")
             .`when`().get("/api/v1/berichten")
             .then()
@@ -384,16 +395,16 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET berichten zonder afzender filter retourneert alle berichten`() {
-        val ontvanger = "geen-afzender-filter-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -402,16 +413,16 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET berichten paginering buiten bereik retourneert lege lijst`() {
-        val ontvanger = "page-range-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .queryParam("page", 999)
             .queryParam("pageSize", 2)
             .`when`().get("/api/v1/berichten")
@@ -431,16 +442,14 @@ class BerichtensessiecacheResourceTest {
         "bekeken,   400",
     )
     fun `PATCH bericht status validatie`(status: String, expectedHttpStatus: Int) {
-        val ontvanger = "999993653"
-
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         val patchSpec = given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", "BSN:999993653")
             .contentType("application/merge-patch+json")
             .body("""{"status": "$status"}""")
             .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
@@ -454,7 +463,7 @@ class BerichtensessiecacheResourceTest {
 
             // Na de PATCH moet een volgende GET de nieuwe status teruggeven
             given()
-                .header("X-Ontvanger", ontvanger)
+                .header("X-Ontvanger", "BSN:999993653")
                 .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
                 .then()
                 .statusCode(200)
@@ -473,16 +482,14 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH malformed JSON-body retourneert 400 problem+json`() {
-        val ontvanger = "999993653"
-
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then().statusCode(200)
 
         // Ongeldige JSON syntax → JsonProcessingException → JsonProcessingExceptionMapper
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", "BSN:999993653")
             .contentType("application/merge-patch+json")
             .body("""{"status": """) // afgekapt, parse-fout
             .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
@@ -495,16 +502,16 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH bericht niet gevonden retourneert 404`() {
-        val ontvanger = "patch-404-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .contentType("application/merge-patch+json")
             .body("""{"status": "gelezen"}""")
             .`when`().patch("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
@@ -515,7 +522,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH bericht ontvanger mismatch retourneert 404`() {
-        val eigenOntvanger = "andere-patch-${System.nanoTime()}"
+        val eigenOntvanger = uniqueOin()
 
         given()
             .header("X-Ontvanger", eigenOntvanger)
@@ -549,23 +556,24 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `POST bericht toevoegen retourneert 201`() {
-        val ontvanger = "post-201-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
+        val ontvangerWaarde = ontvangerHeader.removePrefix("OIN:")
 
         // Aanmeld Service mag alleen actieve sessies bijwerken: zorg eerst voor aggregatie.
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .contentType("application/json")
             .body("""
                 {
                     "berichtId": "55555555-5555-5555-5555-555555555555",
                     "afzender": "00000001234567890000",
-                    "ontvanger": "$ontvanger",
+                    "ontvanger": "$ontvangerWaarde",
                     "onderwerp": "Nieuw bericht",
                     "tijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
@@ -580,16 +588,17 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `POST bericht zonder actieve sessie retourneert 404`() {
-        val ontvanger = "post-zonder-sessie-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
+        val ontvangerWaarde = ontvangerHeader.removePrefix("OIN:")
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .contentType("application/json")
             .body("""
                 {
                     "berichtId": "66666666-6666-6666-6666-666666666666",
                     "afzender": "00000001234567890000",
-                    "ontvanger": "$ontvanger",
+                    "ontvanger": "$ontvangerWaarde",
                     "onderwerp": "Nieuw bericht",
                     "tijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a"
@@ -605,7 +614,7 @@ class BerichtensessiecacheResourceTest {
     @Test
     fun `POST bericht met afwijkende ontvanger retourneert 400`() {
         given()
-            .header("X-Ontvanger", "andere-ontvanger")
+            .header("X-Ontvanger", "OIN:00000001003214345000")
             .contentType("application/json")
             .body("""
                 {
@@ -646,17 +655,17 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert 404 als bericht niet in cache zit`() {
-        val ontvanger = "byid-404-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         // Ophalen zodat aggregation status GEREED is
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
             .then()
             .statusCode(404)

@@ -99,10 +99,12 @@ private class MockMagazijnenConfig : MagazijnenConfig {
             "magazijn-a" to object : MagazijnenConfig.MagazijnInstance {
                 override fun url(): String = "http://localhost:8081"
                 override fun naam(): Optional<String> = Optional.of("Magazijn A")
+                override fun afzenders(): List<String> = listOf("00000001003214345000")
             },
             "magazijn-b" to object : MagazijnenConfig.MagazijnInstance {
                 override fun url(): String = "http://localhost:8082"
                 override fun naam(): Optional<String> = Optional.of("Magazijn B")
+                override fun afzenders(): List<String> = listOf("00000001823288444000")
             },
         )
     }

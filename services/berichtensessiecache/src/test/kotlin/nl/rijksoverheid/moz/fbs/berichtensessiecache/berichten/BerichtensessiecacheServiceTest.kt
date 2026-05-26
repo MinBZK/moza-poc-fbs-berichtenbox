@@ -5,6 +5,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.smallrye.mutiny.Uni
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
@@ -19,7 +20,7 @@ class BerichtensessiecacheServiceTest {
     private val clientFactory = mockk<MagazijnClientFactory>()
     private val service = BerichtensessiecacheService(berichtenCache, clientFactory)
 
-    private val ontvanger = "999993653"
+    private val ontvanger = Bsn("999993653")
     private val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
     @Test
@@ -71,9 +72,9 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `addBericht retourneert het bericht zelf`() {
         val bericht = testBericht()
-        every { berichtenCache.addBericht(bericht) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.addBericht(bericht, ontvanger) } returns Uni.createFrom().voidItem()
 
-        val result = service.addBericht(bericht).await().indefinitely()
+        val result = service.addBericht(bericht, ontvanger).await().indefinitely()
 
         assertNotNull(result)
         assertEquals(bericht.berichtId, result.berichtId)
@@ -105,7 +106,7 @@ class BerichtensessiecacheServiceTest {
     private fun testBericht() = Bericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",
-        ontvanger = ontvanger,
+        ontvanger = ontvanger.waarde,
         onderwerp = "Test bericht",
         tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",

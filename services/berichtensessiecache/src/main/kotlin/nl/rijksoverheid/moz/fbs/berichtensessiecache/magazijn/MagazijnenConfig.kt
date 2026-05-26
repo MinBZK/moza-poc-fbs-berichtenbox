@@ -10,5 +10,12 @@ interface MagazijnenConfig {
     interface MagazijnInstance {
         fun url(): String
         fun naam(): Optional<String>
+
+        /**
+         * OIN(s) van afzenders die dit magazijn serveert. Gebruikt door
+         * MagazijnResolver om dienstvoorkeuren te koppelen aan magazijnen.
+         * Mag niet leeg zijn (fail-fast in MagazijnClientFactory.init).
+         */
+        fun afzenders(): List<String>
     }
 }

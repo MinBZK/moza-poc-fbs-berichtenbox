@@ -7,6 +7,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.UUID
@@ -20,43 +21,43 @@ class BerichtensessiecacheService(
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
-    fun getBerichten(page: Int, pageSize: Int, ontvanger: String, afzender: String?): Uni<BerichtenPage> {
+    fun getBerichten(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?): Uni<BerichtenPage> {
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d", page, pageSize)
         val key = BerichtenCache.cacheKey(ontvanger)
         return berichtenCache.getPage(key, page, pageSize, afzender, ontvanger)
             .map { it ?: BerichtenPage(emptyList(), page, pageSize, 0L, 0) }
     }
 
-    fun getAggregationStatus(ontvanger: String): Uni<AggregationStatus?> {
+    fun getAggregationStatus(ontvanger: Identificatienummer): Uni<AggregationStatus?> {
         val key = BerichtenCache.cacheKey(ontvanger)
         return berichtenCache.getAggregationStatus(key)
     }
 
-    fun getBerichtById(berichtId: UUID, ontvanger: String): Uni<Bericht?> {
+    fun getBerichtById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
         log.debugf("Ophalen bericht uit cache: %s", berichtId)
         return berichtenCache.getById(berichtId, ontvanger)
     }
 
-    fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: String, afzender: String?): Uni<BerichtenPage> {
+    fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?): Uni<BerichtenPage> {
         log.debugf("Zoeken berichten via RediSearch: q=%s, page=%d, pageSize=%d", q, page, pageSize)
         return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
     }
 
-    fun updateBerichtStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+    fun updateBerichtStatus(berichtId: UUID, ontvanger: Identificatienummer, status: String): Uni<Bericht?> {
         log.debugf("Bijwerken berichtstatus: berichtId=%s, status=%s", berichtId, status)
         return berichtenCache.updateStatus(berichtId, ontvanger, status)
     }
 
-    fun addBericht(bericht: Bericht): Uni<Bericht> {
+    fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Bericht> {
         log.debugf("Toevoegen bericht aan cache: berichtId=%s", bericht.berichtId)
-        return berichtenCache.addBericht(bericht).replaceWith(bericht)
+        return berichtenCache.addBericht(bericht, ontvanger).replaceWith(bericht)
     }
 
     /**
      * Orkestreert het ophalen van berichten uit alle magazijnen, slaat ze op in de cache,
      * en retourneert een SSE-compatible Multi met statusevents per magazijn.
      */
-    fun ophalenBerichten(ontvanger: String): Multi<MagazijnEvent> {
+    fun ophalenBerichten(ontvanger: Identificatienummer): Multi<MagazijnEvent> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
         val clients = clientFactory.getAllClients()
@@ -94,7 +95,7 @@ class BerichtensessiecacheService(
             )
 
             val resultUni = Uni.createFrom().item { client }
-                .onItem().transform { c -> c.getBerichten(ontvanger, null) }
+                .onItem().transform { c -> c.getBerichten(ontvanger.toCanonicalString(), null) }
                 .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
                 .ifNoItem().after(Duration.ofSeconds(10)).fail()
                 .map<MagazijnResult> { response ->
