@@ -202,7 +202,7 @@ class BerichtenOphalenResourceTest {
     }
 
     @Test
-    fun `GET ophalen met magazijn 4xx toont FOUT met raadplegen-bericht`() {
+    fun `GET ophalen met magazijn 4xx toont FOUT met configuratiefout-bericht`() {
         MockMagazijnClientFactory.shouldHttpFailA = 403
         MockMagazijnClientFactory.shouldHttpFailB = 403
 
@@ -214,6 +214,11 @@ class BerichtenOphalenResourceTest {
             .extract().body().asString()
 
         assertTrue(response.contains("\"status\":\"FOUT\""), "Verwacht FOUT status in: $response")
-        assertTrue(response.contains("kon niet geraadpleegd worden"), "Verwacht 4xx-bericht in: $response")
+        // 4xx krijgt aparte foutmelding (configuratie/auth) zodat operator dit niet als
+        // transient verwart. Generieke "kon niet geraadpleegd worden" is voor onbekende fouten.
+        assertTrue(
+            response.contains("aanvraag geweigerd") && response.contains("configuratiefout"),
+            "Verwacht 4xx-configuratiefout-bericht in: $response",
+        )
     }
 }

@@ -15,8 +15,8 @@ import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.jboss.logging.Logger
 import java.net.ConnectException
 import java.time.Duration
+import java.util.Collections
 import java.util.UUID
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 @ApplicationScoped
@@ -95,7 +95,10 @@ class BerichtensessiecacheService(
         }
 
         val resolvedIds = try {
-            resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(20))
+            // 25s = inner-timeout (18s) van ProfielMagazijnResolver + marge zodat de
+            // outer-timeout nooit aanslaat vóór de inner — anders verliest de caller
+            // de juiste foutclassificatie (timeout vs onbereikbaar).
+            resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(25))
         } catch (ex: Exception) {
             cleanupLockMetFoutStatus(cacheKey, "resolver-fout: ${ex.javaClass.simpleName}")
 
@@ -104,7 +107,15 @@ class BerichtensessiecacheService(
             throw ProfielServiceFoutException.resolverMislukt(ex)
         }
 
-        val clients = clientFactory.getAllClients().filterKeys { it in resolvedIds }
+        // De resolver mag alleen magazijn-IDs teruggeven die de factory kent;
+        // contract van MagazijnResolver. Een onbekende ID is een bug (drift tussen
+        // resolver-config en magazijn-config) en moet hard falen, niet stil leeg-degraderen.
+        val allClients = clientFactory.getAllClients()
+        val onbekend = resolvedIds - allClients.keys
+
+        require(onbekend.isEmpty()) { "Resolver leverde onbekende magazijn-IDs: $onbekend" }
+
+        val clients = allClients.filterKeys { it in resolvedIds }
 
         // Geen magazijnen → lege resultaten + GEREED-status. Cache overschrijven met
         // lege lijst zodat eventuele stale data uit eerdere sessies niet zichtbaar
@@ -121,7 +132,10 @@ class BerichtensessiecacheService(
             } catch (ex: Exception) {
                 log.errorf(ex, "Fout bij opslaan GEREED-status voor lege magazijn-set, key=%s", cacheKey)
                 cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set")
-                throw ProfielServiceFoutException("Interne fout bij opslaan resultaten", ex)
+                // Geen ProfielServiceFoutException: de Profiel-call is geslaagd, de cache-write
+                // faalde. UncaughtExceptionMapper levert een gemaskeerde 500 + errorId; aparte 503
+                // met "toestemmingscontrole" zou misleiden over root-cause.
+                throw RuntimeException("Interne fout bij opslaan resultaten", ex)
             }
 
             return Multi.createFrom().item(
@@ -135,11 +149,17 @@ class BerichtensessiecacheService(
             )
         }
 
-        val alleBerichten = ConcurrentLinkedQueue<Bericht>()
+        // synchronizedList(ArrayList) i.p.v. ConcurrentLinkedQueue: Mutiny's merging-stream
+        // kan callbacks parallel emitten, dus sync is nodig. Geen lock-free CAS per Node
+        // (queue) maar wel goedkoop blocking; payload-size is paar honderd berichten.
+        val alleBerichten: MutableList<Bericht> = Collections.synchronizedList(ArrayList())
         val geslaagd = AtomicInteger(0)
         val mislukt = AtomicInteger(0)
 
         // Bewaar lock door updateAggregationStatus te gebruiken (geen del(lockKey)).
+        // Bij Redis-fout hier leunt de lock op de TTL (60s); volgende ophaal kan dan
+        // tijdelijk 409 zien. Acceptabel: cleanup hier zou de status-key alsnog raken
+        // (zelfde Redis), dus geen extra robuustheid. De fout-mapper produceert 500.
         berichtenCache.updateAggregationStatus(
             cacheKey,
             bezigStatus.copy(totaalMagazijnen = clients.size),
@@ -205,11 +225,14 @@ class BerichtensessiecacheService(
                     is MagazijnResult.Failure -> {
                         mislukt.incrementAndGet()
                         val isTimeout = result.error is TimeoutException
+                        val httpStatus = (result.error as? WebApplicationException)?.response?.status ?: 0
                         val foutmelding = when {
                             isTimeout -> "Magazijn reageerde niet binnen de timeout"
-                            result.error is WebApplicationException &&
-                                (result.error.response?.status ?: 0) in 500..599 ->
-                                "Magazijn tijdelijk niet bereikbaar"
+                            httpStatus in 500..599 -> "Magazijn tijdelijk niet bereikbaar"
+                            // 4xx = onze aanvraag wordt geweigerd (auth, contract, ontbrekend record).
+                            // Aparte foutmelding zodat eindgebruiker dit niet als transient netwerkfout
+                            // verwart en operations weet dat dit een configuratie-/integratiefout is.
+                            httpStatus in 400..499 -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
                             else -> "Magazijn kon niet geraadpleegd worden"
                         }
                         MagazijnEvent(
@@ -237,16 +260,22 @@ class BerichtensessiecacheService(
             Uni.createFrom().voidItem()
                 .chain { _ ->
                     val berichten = alleBerichten.toList()
-                    berichtenCache.store(cacheKey, berichten)
-                        .chain { _ ->
-                            val status = AggregationStatus(
-                                status = OphalenStatus.GEREED,
-                                totaalMagazijnen = clients.size,
-                                geslaagd = geslaagd.get(),
-                                mislukt = mislukt.get(),
-                            )
-                            berichtenCache.storeAggregationStatus(cacheKey, status)
-                        }
+                    val status = AggregationStatus(
+                        status = OphalenStatus.GEREED,
+                        totaalMagazijnen = clients.size,
+                        geslaagd = geslaagd.get(),
+                        mislukt = mislukt.get(),
+                    )
+
+                    // Parallel: store(berichten) en storeAggregationStatus(GEREED) hebben
+                    // verschillende keys en geen ordering-afhankelijkheid. Bespaart 1 Redis-RTT
+                    // t.o.v. sequentiële .chain (consistent met het lege-magazijn-pad hierboven).
+                    Uni.combine().all()
+                        .unis(
+                            berichtenCache.store(cacheKey, berichten),
+                            berichtenCache.storeAggregationStatus(cacheKey, status),
+                        )
+                        .discardItems()
                         .map { _ ->
                             MagazijnEvent(
                                 event = EventType.OPHALEN_GEREED,
@@ -258,7 +287,13 @@ class BerichtensessiecacheService(
                         }
                 }
                 .onFailure(Exception::class.java).recoverWithUni { error ->
-                    log.errorf(error, "Fout bij opslaan in cache na aggregatie")
+                    // Eerste fout = store(berichten) of storeAggregationStatus(GEREED) faalde;
+                    // cacheKey + counters in log zodat ops kan correleren naar specifieke sessie.
+                    log.errorf(
+                        error,
+                        "Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
+                        cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                    )
                     val foutStatus = AggregationStatus(
                         status = OphalenStatus.FOUT,
                         totaalMagazijnen = clients.size,
@@ -266,7 +301,9 @@ class BerichtensessiecacheService(
                         mislukt = mislukt.get(),
                     )
                     berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
-                        .onFailure().invoke { e -> log.errorf(e, "Best-effort FOUT status opslaan ook mislukt") }
+                        // FATAL-niveau: dubbele Redis-fout = cache effectief onbruikbaar voor
+                        // deze sessie. Lock blijft tot Redis-TTL hangen. Vereist alerting.
+                        .onFailure().invoke { e -> log.fatalf(e, "Cache-write FAIL/FAIL (key=%s): Redis onbruikbaar voor sessie, lock leunt op TTL", cacheKey) }
                         .onFailure().recoverWithNull()
                         .replaceWith(
                             MagazijnEvent(
@@ -289,16 +326,19 @@ class BerichtensessiecacheService(
      * blokkeert; falen wordt geslikt (ook al blijft de lock dan tot Redis-TTL hangen,
      * dat is acceptabel — beter dan een tweede exception over de eerste heen).
      *
-     * @param foutmelding korte oorzaak-omschrijving die alleen in de fout-log gebruikt wordt.
+     * @param oorzaak korte oorzaak-omschrijving voor de log; zichtbaar zowel bij geslaagde
+     *   cleanup (warn met context welke ophaal-fout de lock vrijgaf) als bij cleanup-fail.
      */
-    private fun cleanupLockMetFoutStatus(cacheKey: String, foutmelding: String) {
+    private fun cleanupLockMetFoutStatus(cacheKey: String, oorzaak: String) {
         try {
             berichtenCache.storeAggregationStatus(
                 cacheKey,
                 AggregationStatus(status = OphalenStatus.FOUT),
             ).await().atMost(Duration.ofSeconds(5))
+
+            log.warnf("Lock vrijgegeven na fout voor key=%s: %s", cacheKey, oorzaak)
         } catch (cleanupEx: Exception) {
-            log.errorf(cleanupEx, "Lock-cleanup na fout mislukt voor key=%s: %s", cacheKey, foutmelding)
+            log.errorf(cleanupEx, "Lock-cleanup na fout mislukt voor key=%s: %s", cacheKey, oorzaak)
         }
     }
 }

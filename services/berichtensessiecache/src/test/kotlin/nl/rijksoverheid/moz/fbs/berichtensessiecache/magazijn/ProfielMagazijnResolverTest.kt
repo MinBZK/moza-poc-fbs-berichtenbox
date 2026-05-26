@@ -20,21 +20,37 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.time.Duration
+import java.util.Optional
 
 class ProfielMagazijnResolverTest {
 
     private val profielClient = mockk<ProfielServiceClient>()
-    private val factory = mockk<MagazijnClientFactory>(relaxed = true).also {
-        every { it.getAllClients() } returns mapOf(
-            "magazijn-a" to mockk(),
-            "magazijn-b" to mockk(),
-        )
-        every { it.getAlleAfzenders() } returns mapOf(
-            "magazijn-a" to setOf(Oin("00000001003214345000")),
-            "magazijn-b" to setOf(Oin("00000001823288444000")),
-        )
-    }
+
+    // Echte factory + stub-config i.p.v. mockk: MockK kan de Oin-value-class niet
+    // synthesiseren tijdens matcher-recording (`any<Oin>()` triggert de validerende
+    // constructor met dummy-waarden → DomainValidationException). De factory bouwt
+    // de reverse-index in init() zelf op, identiek aan productie. Subclass overschrijft
+    // createClient zodat geen Quarkus-CDI-context nodig is voor de REST-client-builder.
+    private val factory = object : MagazijnClientFactory(
+        config = object : MagazijnenConfig {
+            override fun instances() = mapOf(
+                "magazijn-a" to instance("http://test-a", "00000001003214345000"),
+                "magazijn-b" to instance("http://test-b", "00000001823288444000"),
+            )
+        },
+        profile = "test",
+    ) {
+        override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
+    }.also { it.init() }
+
     private val resolver = ProfielMagazijnResolver(profielClient, factory)
+
+    private fun instance(url: String, afzender: String): MagazijnenConfig.MagazijnInstance =
+        object : MagazijnenConfig.MagazijnInstance {
+            override fun url() = url
+            override fun naam() = Optional.empty<String>()
+            override fun afzenders() = listOf(afzender)
+        }
 
     @Test
     fun `BSN met 1 OIN-match levert 1 magazijn`() {

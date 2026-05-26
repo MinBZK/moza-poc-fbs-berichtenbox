@@ -32,9 +32,13 @@ class ProfielMagazijnResolver(
 
         val profielType = naarProfielType(ontvanger.type)
 
+        // Inner-timeout-budget = retry-budget van de REST-client + marge:
+        //   3 pogingen × read-timeout 5s + 2 × delay 200ms = ~15.4s. Op 15s zou de
+        //   Mutiny-timeout vóór de laatste retry kunnen afslaan; op 18s heeft elke
+        //   retry zijn beurt en blijft er nog ~2s marge onder de caller-await (25s).
         return Uni.createFrom().item { profielClient.getPartij(profielType, ontvanger.waarde) }
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-            .ifNoItem().after(Duration.ofSeconds(15)).fail()
+            .ifNoItem().after(Duration.ofSeconds(18)).fail()
             .map { partij -> bepaalMagazijnen(partij) }
             .onFailure(io.smallrye.mutiny.TimeoutException::class.java).recoverWithUni { error ->
                 Uni.createFrom().failure(ProfielServiceFoutException.timeout(error))
@@ -63,28 +67,52 @@ class ProfielMagazijnResolver(
             // (bv. NullPointerException uit de gegenereerde client of een interne fout in
             // bepaalMagazijnen). Wrap als ProfielServiceFoutException zodat de caller
             // consistent 503 + Retry-After krijgt in plaats van een onverwachte 500.
+            // Expliciet errorf-loggen vóór de wrap: zonder dit verbergt het 503-pad een
+            // eigen-code-bug als upstream-fout en gaat de bug in productie ongezien.
             .onFailure { it !is ProfielServiceFoutException }.recoverWithUni { error ->
+                log.errorf(
+                    error,
+                    "Onverwachte fout in Profiel-resolver (mogelijke bug, niet upstream) voor type=%s",
+                    profielType,
+                )
                 Uni.createFrom().failure(ProfielServiceFoutException.onleesbaar(error))
             }
     }
 
     private fun bepaalMagazijnen(partij: PartijResponse): Set<String> {
-        val optedInOins: Set<Oin> = partij.voorkeuren
-            .filter { it.voorkeurType == VOORKEUR_ONTVANG_BERICHTEN }
-            .filter { it.waarde?.lowercase() in INGESCHAKELDE_WAARDEN }
-            .flatMap { it.scopes }
-            .mapNotNull { it.partij }
-            .filter { it.identificatieType == "OIN" }
-            // Defensief: ongeldige upstream-OINs worden stil overgeslagen zodat
-            // een upstream-typefout niet de héle resolver laat falen.
-            .mapNotNull { runCatching { Oin(it.identificatieNummer) }.getOrNull() }
-            .toSet()
+        // Single-pass walk: bouwt direct de magazijn-set zonder tussenliggende List-allocaties.
+        // Defensief: ongeldige upstream-OINs worden stil overgeslagen zodat een upstream-
+        // typefout niet de héle resolver laat falen. Wel warn-loggen (niet error: upstream-
+        // fout, niet onze fout) zodat structurele drift zichtbaar wordt; maskeer de
+        // OIN-waarde tot prefix om geen volledige identificator in logs te zetten.
+        // Reverse-index lookup via clientFactory.magazijnenVoorAfzender: O(1) per OIN i.p.v.
+        // O(N×M) scan over alle magazijn-afzender-paren.
+        return buildSet {
+            partij.voorkeuren.forEach { voorkeur ->
+                if (voorkeur.voorkeurType != VOORKEUR_ONTVANG_BERICHTEN) return@forEach
+                if (voorkeur.waarde?.lowercase() !in INGESCHAKELDE_WAARDEN) return@forEach
 
-        if (optedInOins.isEmpty()) return emptySet()
+                voorkeur.scopes.forEach { scope ->
+                    val partijId = scope.partij ?: return@forEach
 
-        return clientFactory.getAlleAfzenders()
-            .filter { (_, afzenders) -> afzenders.any { it in optedInOins } }
-            .keys
+                    if (partijId.identificatieType != "OIN") return@forEach
+
+                    val oin = runCatching { Oin(partijId.identificatieNummer) }
+                        .onFailure { ex ->
+                            val masked = partijId.identificatieNummer.take(4) + "***"
+
+                            log.warnf(
+                                "Profiel-service leverde ongeldige OIN '%s' (cause=%s); overslaan",
+                                masked,
+                                ex.javaClass.simpleName,
+                            )
+                        }
+                        .getOrNull() ?: return@forEach
+
+                    addAll(clientFactory.magazijnenVoorAfzender(oin))
+                }
+            }
+        }
     }
 
     /**
@@ -102,6 +130,11 @@ class ProfielMagazijnResolver(
 
     companion object {
         private const val VOORKEUR_ONTVANG_BERICHTEN = "OntvangViaBerichtenbox"
+
+        // Profiel-service ondersteunt zowel boolean-strings ("true"/"false") als
+        // Nederlandstalige waarden ("ja"/"nee") per legacy upstream-contract; beide
+        // worden case-insensitive vergeleken (waarde.lowercase). Uitbreiding hier =
+        // contract-wijziging, niet een config-knop — Profiel-team bevestigt eerst.
         private val INGESCHAKELDE_WAARDEN = setOf("true", "ja")
     }
 }

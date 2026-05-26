@@ -122,7 +122,10 @@ class BerichtensessiecacheServiceTest {
             service.ophalenBerichten(ontvanger)
         }
 
-        assertTrue(ex.message!!.contains("RuntimeException"), "Wrapped message moet oorspronkelijk type bevatten: ${ex.message}")
+        // Message lekt geen interne classname meer (security/contract-hygiëne). cause-chain
+        // bewaart het oorspronkelijke type voor troubleshooting via logs.
+        assertEquals("Resolver-aanroep mislukt", ex.message)
+        assertTrue(ex.cause is RuntimeException, "Cause moet oorspronkelijk RuntimeException zijn: ${ex.cause}")
         verify {
             berichtenCache.storeAggregationStatus(
                 cacheKey,

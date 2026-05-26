@@ -25,7 +25,7 @@ class MagazijnClientFactoryInitTest {
 
     @Test
     fun `init met lege instances faalt met 'Geen magazijnen geconfigureerd'`() {
-        val factory = MagazijnClientFactory(makeConfig(emptyMap()))
+        val factory = MagazijnClientFactory(makeConfig(emptyMap()), profile = "test")
 
         val ex = assertThrows<IllegalArgumentException> { factory.init() }
 
@@ -39,6 +39,7 @@ class MagazijnClientFactoryInitTest {
             makeConfig(
                 mapOf("mag-a" to makeInstance(url = "http://host met spaties/pad", afzenders = listOf("00000001003214345000"))),
             ),
+            profile = "test",
         )
 
         val ex = assertThrows<IllegalStateException> { factory.init() }
@@ -52,6 +53,7 @@ class MagazijnClientFactoryInitTest {
             makeConfig(
                 mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = emptyList())),
             ),
+            profile = "test",
         )
 
         val ex = assertThrows<IllegalArgumentException> { factory.init() }
@@ -65,6 +67,7 @@ class MagazijnClientFactoryInitTest {
             makeConfig(
                 mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf("12345"))),
             ),
+            profile = "test",
         )
 
         val ex = assertThrows<IllegalStateException> { factory.init() }
@@ -73,11 +76,27 @@ class MagazijnClientFactoryInitTest {
     }
 
     @Test
+    fun `init met http-URL in prod-profiel faalt met TLS-verplichting`() {
+        val factory = MagazijnClientFactory(
+            makeConfig(
+                mapOf("mag-a" to makeInstance(url = "http://magazijn-a.prod.local", afzenders = listOf("00000001003214345000"))),
+            ),
+            profile = "prod",
+        )
+
+        val ex = assertThrows<IllegalArgumentException> { factory.init() }
+
+        assertTrue(ex.message!!.contains("https://"), "Bericht was: ${ex.message}")
+        assertTrue(ex.message!!.contains("magazijnen.instances.mag-a.url"), "Bericht was: ${ex.message}")
+    }
+
+    @Test
     fun `init met afzender bestaande uit geheel nullen faalt met 'Ongeldige afzender-OIN'`() {
         val factory = MagazijnClientFactory(
             makeConfig(
                 mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf("00000000000000000000"))),
             ),
+            profile = "test",
         )
 
         val ex = assertThrows<IllegalStateException> { factory.init() }

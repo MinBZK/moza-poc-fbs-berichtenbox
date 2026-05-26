@@ -145,6 +145,83 @@ class BerichtenOphalenResolverE2ETest {
         profielWireMock.verify(0, getRequestedFor(urlEqualTo("/api/profielservice/v1/OIN/00000001003214345000")))
     }
 
+    // ── D: Defensief — malformed upstream-OIN wordt overgeslagen ──────────
+
+    @Test
+    fun `Profiel met ongeldige OIN in scope slaat die OIN over en logt warn`() {
+        // Profiel levert een scope met een identificatieNummer dat de Oin-elfproef niet
+        // haalt ("12345" is geen 20-cijferige OIN). De resolver mag niet falen — de
+        // ongeldige OIN wordt overgeslagen en omdat geen geldige OIN overblijft, zijn er
+        // geen magazijnen om te bevragen.
+        profielWireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999996915")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody(
+                        """
+                        {
+                          "voorkeuren": [
+                            { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true",
+                              "scopes": [ { "partij": { "identificatieType": "OIN",
+                                                         "identificatieNummer": "12345" } } ] }
+                          ]
+                        }
+                        """.trimIndent(),
+                    ),
+            ),
+        )
+
+        val response = given()
+            .header("X-Ontvanger", "BSN:999996915")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(response.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed in: $response")
+        assertTrue(response.contains("\"totaalMagazijnen\":0"), "Verwacht totaalMagazijnen:0 in: $response")
+        magazijnA.verify(0, getRequestedFor(urlPathMatching("/.*")))
+        magazijnB.verify(0, getRequestedFor(urlPathMatching("/.*")))
+    }
+
+    // ── R: Routing — opted-in OIN filtert magazijn-bevraging ──────────────
+
+    @Test
+    fun `BSN met opt-in voor magazijn-a bevraagt alleen magazijn-a en niet magazijn-b`() {
+        // Scope = afzender-OIN van magazijn-a (zie WireMockMagazijnResource).
+        // De resolver mag alleen magazijn-a in de bevraging meenemen, niet magazijn-b.
+        profielWireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody(
+                        """
+                        {
+                          "voorkeuren": [
+                            { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true",
+                              "scopes": [ { "partij": { "identificatieType": "OIN",
+                                                         "identificatieNummer": "00000001003214345000" } } ] }
+                          ]
+                        }
+                        """.trimIndent(),
+                    ),
+            ),
+        )
+
+        val response = given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(response.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed in: $response")
+        assertTrue(response.contains("\"totaalMagazijnen\":1"), "Verwacht totaalMagazijnen:1 in: $response")
+
+        magazijnA.verify(1, getRequestedFor(urlPathMatching("/.*")))
+        magazijnB.verify(0, getRequestedFor(urlPathMatching("/.*")))
+    }
+
     // ── E8: OpenAPI contract — 503-response matcht Problem-schema ─────────
 
     @Test

@@ -31,6 +31,6 @@ class ProfielServiceFoutException(message: String, cause: Throwable? = null) : R
             ProfielServiceFoutException("Profiel-service onleesbaar antwoord", cause)
 
         fun resolverMislukt(cause: Throwable) =
-            ProfielServiceFoutException("Resolver-aanroep mislukt (${cause.javaClass.simpleName})", cause)
+            ProfielServiceFoutException("Resolver-aanroep mislukt", cause)
     }
 }
