@@ -87,7 +87,14 @@ class ProfielMagazijnResolverIntegrationTest {
 }
 
 class WireMockProfielServiceTestProfile : QuarkusTestProfile {
+
+    override fun getEnabledAlternatives(): Set<Class<*>> = setOf(
+        nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockBerichtenCache::class.java,
+    )
+
     override fun getConfigOverrides(): Map<String, String> = mapOf(
         "quarkus.arc.exclude-types" to MockProfielServiceClient::class.java.name,
+        "quarkus.redis.devservices.enabled" to "false",
+        "quarkus.redis.hosts" to "redis://localhost:6379",
     )
 }

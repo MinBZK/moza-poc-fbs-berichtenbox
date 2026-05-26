@@ -5,12 +5,15 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.smallrye.mutiny.Uni
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import jakarta.ws.rs.WebApplicationException
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
@@ -18,7 +21,8 @@ class BerichtensessiecacheServiceTest {
 
     private val berichtenCache = mockk<BerichtenCache>()
     private val clientFactory = mockk<MagazijnClientFactory>()
-    private val service = BerichtensessiecacheService(berichtenCache, clientFactory)
+    private val resolver = mockk<MagazijnResolver>(relaxed = true)
+    private val service = BerichtensessiecacheService(berichtenCache, clientFactory, resolver)
 
     private val ontvanger = Bsn("999993653")
     private val cacheKey = BerichtenCache.cacheKey(ontvanger)
@@ -60,13 +64,49 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `ophalenBerichten gooit 409 als lock niet verkregen`() {
-        every { clientFactory.getAllClients() } returns emptyMap()
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(false)
 
         val ex = assertThrows<WebApplicationException> {
             service.ophalenBerichten(ontvanger)
         }
+
         assertEquals(409, ex.response.status)
+    }
+
+    @Test
+    fun `lege resolver-set leidt tot OPHALEN_GEREED met totaal 0`() {
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
+        every { clientFactory.getAllClients() } returns emptyMap()
+        every { berichtenCache.store(cacheKey, emptyList()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.ophalenBerichten(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(5))
+
+        assertEquals(1, events.size)
+        assertEquals(EventType.OPHALEN_GEREED, events[0].event)
+        assertEquals(0, events[0].totaalBerichten)
+        assertEquals(0, events[0].totaalMagazijnen)
+        verify { berichtenCache.store(cacheKey, emptyList()) }
+    }
+
+    @Test
+    fun `ProfielServiceFoutException uit resolver propageert en zet FOUT-status`() {
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns
+            Uni.createFrom().failure(ProfielServiceFoutException("upstream 500"))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        assertThrows<ProfielServiceFoutException> {
+            service.ophalenBerichten(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(5))
+        }
+
+        verify {
+            berichtenCache.storeAggregationStatus(
+                cacheKey,
+                match { it.status == OphalenStatus.FOUT },
+            )
+        }
     }
 
     @Test

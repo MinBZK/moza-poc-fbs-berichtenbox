@@ -19,6 +19,7 @@ import java.util.UUID
 interface BerichtenCache {
     fun store(key: String, berichten: List<Bericht>): Uni<Void>
     fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
+    fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
     fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean>
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: Identificatienummer? = null): Uni<BerichtenPage?>
@@ -134,6 +135,14 @@ class RedisBerichtenCache(
             .chain { _ -> redis.key().del(lockKey(key)) }
             .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis storeAggregationStatus mislukt voor key=%s", key) }
+    }
+
+    override fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
+        val statusKey = statusKey(key)
+        val json = objectMapper.writeValueAsString(status)
+        return redis.value(String::class.java).setex(statusKey, ttl.seconds, json)
+            .replaceWithVoid()
+            .onFailure().invoke { e -> log.errorf(e, "Redis updateAggregationStatus mislukt voor key=%s", key) }
     }
 
     override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {

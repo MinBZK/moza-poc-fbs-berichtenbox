@@ -6,8 +6,10 @@ import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.UUID
@@ -18,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class BerichtensessiecacheService(
     private val berichtenCache: BerichtenCache,
     private val clientFactory: MagazijnClientFactory,
+    private val resolver: MagazijnResolver,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
@@ -60,15 +63,9 @@ class BerichtensessiecacheService(
     fun ophalenBerichten(ontvanger: Identificatienummer): Multi<MagazijnEvent> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
-        val clients = clientFactory.getAllClients()
-
-        val alleBerichten = ConcurrentLinkedQueue<Bericht>()
-        val geslaagd = AtomicInteger(0)
-        val mislukt = AtomicInteger(0)
-
         val bezigStatus = AggregationStatus(
             status = OphalenStatus.BEZIG,
-            totaalMagazijnen = clients.size,
+            totaalMagazijnen = 0,
         )
 
         // Atomaire lock: voorkom concurrent ophalen voor dezelfde ontvanger (SETNX).
@@ -84,6 +81,50 @@ class BerichtensessiecacheService(
                 409,
             )
         }
+
+        val resolvedIds = try {
+            resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(20))
+        } catch (ex: ProfielServiceFoutException) {
+            // Lock vrijgeven via storeAggregationStatus (doet del(lockKey) intern).
+            berichtenCache.storeAggregationStatus(
+                cacheKey,
+                AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 0),
+            ).await().indefinitely()
+            throw ex
+        }
+
+        val clients = clientFactory.getAllClients().filterKeys { it in resolvedIds }
+
+        // Geen magazijnen → lege resultaten + GEREED-status. Cache overschrijven met
+        // lege lijst zodat eventuele stale data uit eerdere sessies niet zichtbaar
+        // blijft via GET-endpoints.
+        if (clients.isEmpty()) {
+            berichtenCache.store(cacheKey, emptyList()).await().indefinitely()
+            berichtenCache.storeAggregationStatus(
+                cacheKey,
+                AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0),
+            ).await().indefinitely()
+
+            return Multi.createFrom().item(
+                MagazijnEvent(
+                    event = EventType.OPHALEN_GEREED,
+                    totaalBerichten = 0,
+                    geslaagd = 0,
+                    mislukt = 0,
+                    totaalMagazijnen = 0,
+                ),
+            )
+        }
+
+        val alleBerichten = ConcurrentLinkedQueue<Bericht>()
+        val geslaagd = AtomicInteger(0)
+        val mislukt = AtomicInteger(0)
+
+        // Bewaar lock door updateAggregationStatus te gebruiken (geen del(lockKey)).
+        berichtenCache.updateAggregationStatus(
+            cacheKey,
+            bezigStatus.copy(totaalMagazijnen = clients.size),
+        ).await().indefinitely()
 
         val magazijnStreams = clients.map { (magazijnId, client) ->
             val naam = clientFactory.getNaam(magazijnId)

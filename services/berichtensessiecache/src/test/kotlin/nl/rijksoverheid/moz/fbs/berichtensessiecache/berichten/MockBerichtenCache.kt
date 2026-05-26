@@ -54,6 +54,11 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().voidItem()
     }
 
+    override fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
+        statuses["$key:status"] = status
+        return Uni.createFrom().voidItem()
+    }
+
     override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {
         val lockAcquired = locks.add("$key:lock")
         if (lockAcquired) {
