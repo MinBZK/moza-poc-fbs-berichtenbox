@@ -325,7 +325,7 @@ components:
         - afzender
         - ontvanger
         - onderwerp
-        - tijdstip
+        - publicatietijdstip
         - magazijnId
       properties:
         berichtId:
@@ -341,10 +341,10 @@ components:
         onderwerp:
           type: string
           description: Onderwerp van het bericht
-        tijdstip:
+        publicatietijdstip:
           type: string
           format: date-time
-          description: Tijdstip van het bericht
+          description: Effectieve publicatie-tijd, overgenomen uit het magazijn
         magazijnId:
           type: string
           description: ID van het bronmagazijn
@@ -482,7 +482,7 @@ components:
         - afzender
         - ontvanger
         - onderwerp
-        - tijdstip
+        - publicatietijdstip
         - magazijnId
       properties:
         berichtId:
@@ -494,7 +494,7 @@ components:
           type: string
         onderwerp:
           type: string
-        tijdstip:
+        publicatietijdstip:
           type: string
           format: date-time
         magazijnId:
@@ -519,7 +519,7 @@ components:
         - afzender
         - ontvanger
         - onderwerp
-        - tijdstip
+        - publicatietijdstip
         - magazijnId
       properties:
         berichtId:
@@ -535,10 +535,10 @@ components:
         onderwerp:
           type: string
           description: Onderwerp van het bericht
-        tijdstip:
+        publicatietijdstip:
           type: string
           format: date-time
-          description: Tijdstip van het bericht
+          description: Effectieve publicatie-tijd, overgenomen uit het magazijn
         magazijnId:
           type: string
           description: ID van het bronmagazijn
