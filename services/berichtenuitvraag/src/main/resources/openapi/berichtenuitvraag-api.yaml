@@ -7,7 +7,12 @@ info:
     uit de berichtensessiecache (lees) en het berichtenmagazijn (bijlagen,
     persistente status-mutaties).
   contact:
-    name: MijnOverheid Zakelijk
+    name: MOZA Team
+    email: moza@minbzk.nl
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+  license:
+    name: EUPL-1.2
+    url: https://eupl.eu/1.2/nl/
 servers:
   - url: /api/v1
 
