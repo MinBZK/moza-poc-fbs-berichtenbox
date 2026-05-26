@@ -4,9 +4,12 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
+import nl.rijksoverheid.moz.fbs.common.profiel.ToestemmingGeweigerdException
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.jboss.logging.Logger
 
@@ -99,8 +102,10 @@ class BerichtValidatieService(
             voorkeur.voorkeurType == VOORKEUR_ONTVANG_BERICHTEN &&
                 voorkeur.waarde?.lowercase() in INGESCHAKELDE_WAARDEN &&
                 voorkeur.scopes.any { scope ->
-                    scope.partij?.identificatieType == "OIN" &&
-                        scope.partij.identificatieNummer == afzender.waarde
+                    val partijInScope = scope.partij
+                    partijInScope != null &&
+                        partijInScope.identificatieType == "OIN" &&
+                        partijInScope.identificatieNummer == afzender.waarde
                 }
         }
 

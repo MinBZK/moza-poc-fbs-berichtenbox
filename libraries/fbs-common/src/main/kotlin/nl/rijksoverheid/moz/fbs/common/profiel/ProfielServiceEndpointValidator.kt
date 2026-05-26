@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
+package nl.rijksoverheid.moz.fbs.common.profiel
 
 import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
@@ -12,6 +12,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
  * contract); onversleuteld verkeer zou de waarde lekken naar netwerk en
  * intermediaire proxy-toegangslogs (BIO 13.2.1 / AVG art. 32). In `dev` en
  * `test` mag http:// voor lokale containers en WireMock.
+ *
+ * Eén bean per JVM via fbs-common; eerdere service-lokale wrappers zijn
+ * vervallen (zelfde config-key, zelfde policy in alle services).
  *
  * Delegeert naar [OutboundTlsValidator]; deze klasse bestaat alleen om de
  * config-keys vast te leggen en als `@ApplicationScoped`-bean een startup-

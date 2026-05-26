@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
+package nl.rijksoverheid.moz.fbs.common.profiel
 
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
@@ -9,7 +9,7 @@ import org.jboss.logging.Logger
 
 /**
  * Mapt [ToestemmingGeweigerdException] naar 403 Problem JSON. Het feit dát
- * een aanvraag geweigerd is, is geen lek: de aanlevernde organisatie wist
+ * een aanvraag geweigerd is, is geen lek: de aanleverende organisatie wist
  * al dat ze geprobeerd hebben te leveren. De waarde van de ontvanger blijft
  * uit het response-body — die wordt niet door deze exception gedragen.
  */

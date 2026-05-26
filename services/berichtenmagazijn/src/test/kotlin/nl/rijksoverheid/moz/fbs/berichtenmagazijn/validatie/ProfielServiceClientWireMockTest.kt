@@ -12,6 +12,7 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
