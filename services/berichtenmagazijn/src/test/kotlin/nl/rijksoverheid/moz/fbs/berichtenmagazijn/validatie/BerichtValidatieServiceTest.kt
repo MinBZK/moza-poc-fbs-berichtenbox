@@ -43,7 +43,7 @@ class BerichtValidatieServiceTest {
             onderwerp = "Voorlopige aanslag",
             inhoud = "Inhoud",
             tijdstipOntvangst = nu,
-            publicatiedatum = nu,
+            publicatietijdstip = nu,
         )
     }
 

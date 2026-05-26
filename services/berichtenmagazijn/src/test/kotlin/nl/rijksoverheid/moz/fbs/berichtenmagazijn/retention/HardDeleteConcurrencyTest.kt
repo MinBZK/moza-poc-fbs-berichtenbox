@@ -81,7 +81,7 @@ class HardDeleteConcurrencyTest {
                 onderwerp = "Concurrencytest $berichtId",
                 inhoud = "Inhoud voor concurrency hard-delete test",
                 tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
-                publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                publicatietijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
             ),
         )
 

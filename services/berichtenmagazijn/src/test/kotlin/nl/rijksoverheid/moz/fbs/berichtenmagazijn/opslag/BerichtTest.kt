@@ -14,7 +14,7 @@ class BerichtTest {
         onderwerp: String = "Onderwerp",
         inhoud: String = "Inhoud",
         tijdstipOntvangst: Instant = Instant.now(),
-        publicatiedatum: Instant = tijdstipOntvangst,
+        publicatietijdstip: Instant = tijdstipOntvangst,
     ) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = afzender,
@@ -22,7 +22,7 @@ class BerichtTest {
         onderwerp = onderwerp,
         inhoud = inhoud,
         tijdstipOntvangst = tijdstipOntvangst,
-        publicatiedatum = publicatiedatum,
+        publicatietijdstip = publicatietijdstip,
     )
 
     @Test
@@ -63,26 +63,26 @@ class BerichtTest {
     }
 
     @Test
-    fun `publicatiedatum gelijk aan tijdstipOntvangst is geldig`() {
+    fun `publicatietijdstip gelijk aan tijdstipOntvangst is geldig`() {
         val nu = Instant.parse("2026-05-12T10:00:00Z")
-        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = nu)
-        assertEquals(nu, b.publicatiedatum)
+        val b = bericht(tijdstipOntvangst = nu, publicatietijdstip = nu)
+        assertEquals(nu, b.publicatietijdstip)
     }
 
     @Test
-    fun `publicatiedatum in de toekomst is geldig`() {
+    fun `publicatietijdstip in de toekomst is geldig`() {
         val nu = Instant.parse("2026-05-12T10:00:00Z")
         val toekomst = nu.plusSeconds(86_400)
-        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = toekomst)
-        assertEquals(toekomst, b.publicatiedatum)
+        val b = bericht(tijdstipOntvangst = nu, publicatietijdstip = toekomst)
+        assertEquals(toekomst, b.publicatietijdstip)
     }
 
     @Test
-    fun `publicatiedatum in het verleden is toegestaan (late her-aanlevering)`() {
-        // Bij een late her-aanlevering kan de oorspronkelijke publicatiedatum al verstreken
+    fun `publicatietijdstip in het verleden is toegestaan (late her-aanlevering)`() {
+        // Bij een late her-aanlevering kan de oorspronkelijke publicatietijdstip al verstreken
         // zijn; dat mag — de outbox publiceert dan direct.
         val nu = Instant.parse("2026-05-12T10:00:00Z")
-        val b = bericht(tijdstipOntvangst = nu, publicatiedatum = nu.minusSeconds(60))
-        assertEquals(nu.minusSeconds(60), b.publicatiedatum)
+        val b = bericht(tijdstipOntvangst = nu, publicatietijdstip = nu.minusSeconds(60))
+        assertEquals(nu.minusSeconds(60), b.publicatietijdstip)
     }
 }

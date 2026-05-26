@@ -69,7 +69,7 @@ class BerichtOpslagService(
         ontvangerWaarde: String,
         onderwerp: String,
         inhoud: String,
-        publicatiedatum: Instant? = null,
+        publicatietijdstip: Instant? = null,
         bijlagen: List<BijlageInvoer> = emptyList(),
     ): Bericht {
         val tijdstipOntvangst = clock.instant()
@@ -81,9 +81,9 @@ class BerichtOpslagService(
             onderwerp = onderwerp,
             inhoud = inhoud,
             tijdstipOntvangst = tijdstipOntvangst,
-            // Zonder meegestuurde publicatiedatum = direct publiceren. Hergebruik
+            // Zonder meegestuurd publicatietijdstip = direct publiceren. Hergebruik
             // tijdstipOntvangst zodat bericht en outbox-rij dezelfde T0 delen.
-            publicatiedatum = publicatiedatum ?: tijdstipOntvangst,
+            publicatietijdstip = publicatietijdstip ?: tijdstipOntvangst,
         )
 
         // Validatie vóór persistentie: MIME-typen en toestemming (issue #541).
@@ -130,7 +130,7 @@ class BerichtOpslagService(
         // misconfigured downstream — anders zou de operator alleen een generieke
         // 500 zien zonder berichtId-context.
         try {
-            publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatiedatum)
+            publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatietijdstip)
         } catch (ex: RuntimeException) {
             log.errorf(
                 ex,

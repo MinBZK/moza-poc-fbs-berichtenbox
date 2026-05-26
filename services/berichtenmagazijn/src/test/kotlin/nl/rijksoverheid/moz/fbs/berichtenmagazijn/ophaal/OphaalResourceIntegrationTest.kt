@@ -53,7 +53,7 @@ class OphaalResourceIntegrationTest {
             onderwerp = onderwerp,
             inhoud = "Inhoud van $onderwerp",
             tijdstipOntvangst = Instant.now(),
-            publicatiedatum = Instant.now(),
+            publicatietijdstip = Instant.now(),
         )
         berichtRepository.save(b)
         return b

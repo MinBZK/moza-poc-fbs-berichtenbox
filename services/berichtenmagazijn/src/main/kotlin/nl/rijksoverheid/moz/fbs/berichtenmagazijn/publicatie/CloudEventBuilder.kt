@@ -45,7 +45,7 @@ class CloudEventBuilder(
                 onderwerp = bericht.onderwerp,
                 inhoud = bericht.inhoud,
                 tijdstipOntvangst = bericht.tijdstipOntvangst,
-                publicatiedatum = bericht.publicatiedatum,
+                publicatietijdstip = bericht.publicatietijdstip,
             ),
         )
     }
@@ -109,7 +109,7 @@ data class BerichtData(
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
-    val publicatiedatum: Instant,
+    val publicatietijdstip: Instant,
 )
 
 /**

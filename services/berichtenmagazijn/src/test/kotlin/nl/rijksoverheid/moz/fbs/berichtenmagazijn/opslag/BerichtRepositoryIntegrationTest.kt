@@ -47,7 +47,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Voorlopige aanslag 2026",
             inhoud = "Hierbij ontvangt u de voorlopige aanslag.",
             tijdstipOntvangst = tijdstip,
-            publicatiedatum = tijdstip,
+            publicatietijdstip = tijdstip,
         )
 
         repository.save(original)
@@ -68,7 +68,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Groot bericht",
             inhoud = largeContent,
             tijdstipOntvangst = tijdstip,
-            publicatiedatum = tijdstip,
+            publicatietijdstip = tijdstip,
         )
 
         repository.save(bericht)
@@ -90,7 +90,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Aan organisatie",
             inhoud = "Inhoud",
             tijdstipOntvangst = tijdstip,
-            publicatiedatum = tijdstip,
+            publicatietijdstip = tijdstip,
         )
 
         repository.save(bericht)
@@ -112,7 +112,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Eerste",
             inhoud = "1",
             tijdstipOntvangst = tijdstip,
-            publicatiedatum = tijdstip,
+            publicatietijdstip = tijdstip,
         )
         val second = first.copy(onderwerp = "Tweede", inhoud = "2")
 
@@ -167,7 +167,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Test"
             inhoud = "Inhoud"
             tijdstipOntvangst = nu
-            publicatiedatum = nu
+            publicatietijdstip = nu
         }
         entityManager.persist(corrupt)
     }
@@ -189,7 +189,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Twee deletes",
             inhoud = "Inhoud",
             tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
-            publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            publicatietijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
         repository.save(bericht)
         entityManager.flush()
@@ -211,7 +211,7 @@ class BerichtRepositoryIntegrationTest {
             onderwerp = "Wrong recipient",
             inhoud = "Inhoud",
             tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
-            publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+            publicatietijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
         )
         repository.save(bericht)
         entityManager.flush()

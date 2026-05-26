@@ -31,7 +31,7 @@ class BerichtDtoMapperTest {
         onderwerp = "Aanslag",
         inhoud = "Tekst",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
         bijlagen = bijlagen,
         status = status,
     )

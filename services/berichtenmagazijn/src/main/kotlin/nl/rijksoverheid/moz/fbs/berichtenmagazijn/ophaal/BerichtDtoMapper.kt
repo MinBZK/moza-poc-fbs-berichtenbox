@@ -36,6 +36,7 @@ internal object BerichtDtoMapper {
             onderwerp = bericht.onderwerp
             inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
+            publicatietijdstip = bericht.publicatietijdstip
             bijlagen = bericht.bijlagen.map { toBijlageMetadataDto(it, bericht.berichtId, baseUri) }
             status = bericht.status?.let { toStatusDto(it) }
             links = BerichtLinks().apply {
