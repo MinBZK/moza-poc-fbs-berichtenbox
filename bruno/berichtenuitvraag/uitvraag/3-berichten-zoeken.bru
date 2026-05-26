@@ -1,0 +1,19 @@
+meta {
+  name: 3. Berichten zoeken
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/berichten/_zoeken?q=rente
+  auth: none
+}
+
+params:query {
+  q: rente
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}

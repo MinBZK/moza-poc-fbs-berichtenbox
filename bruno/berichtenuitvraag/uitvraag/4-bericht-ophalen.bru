@@ -1,0 +1,15 @@
+meta {
+  name: 4. Bericht ophalen (detail)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/berichten/{{berichtId}}
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
