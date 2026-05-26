@@ -22,9 +22,10 @@ De Profiel Service (`github.com/MinBZK/moza-profiel-service`) is al in gebruik i
 | Magazijn ↔ afzender-mapping | `magazijnen.instances.<id>.afzenders` configuratie-lijst van OIN(s). Resolver kruist opted-in OINs met magazijn-afzenders. |
 | OIN-ontvanger | Profiel-call skippen → alle magazijnen. B2B is contractueel buiten Profiel-service. |
 | X-Ontvanger-spec | Uitlijnen op magazijn-API: regex `^(BSN:[0-9]{9}\|RSIN:[0-9]{9}\|KVK:[0-9]{8}\|OIN:[0-9]{20})$`. |
-| Identificatienummer.kt | Verplaatsen van `berichtenmagazijn/opslag/` naar `libraries/fbs-common/.../identificatie/`. 75 callsites — pure import-vervanging. |
-| ProfielServiceClient | Verplaatsen van `berichtenmagazijn/validatie/` naar `libraries/fbs-common/.../profiel/`. Eén gedeelde upstream → één client/DTO/endpoint-validator. |
-| Foutpaden | Fail-closed: 200/404 zonder voorkeur → lege resultaten + `OPHALEN_GEREED`. 5xx/timeout/malformed → 503 + `Retry-After`. Geen "alle magazijnen bij Profiel-fout"-fallback — toestemming-onbekend is geen impliciete toestemming. |
+| Identificatienummer.kt | Verplaatsen van `berichtenmagazijn/opslag/` naar `libraries/fbs-common/.../identificatie/`. Alleen 6 symbolen verplaatsen — `Identificatienummer` (sealed interface), `IdentificatienummerType` (enum), `Bsn`, `Rsin`, `Kvk`, `Oin` (value classes). Overige `opslag/`-types (`Bericht`, `BerichtRepository`, `BerichtAutorisatie`, enz.) blijven in berichtenmagazijn. Import-rewrite per symbool, geen wildcard. |
+| ProfielServiceClient | Verplaatsen van `berichtenmagazijn/validatie/` naar `libraries/fbs-common/.../profiel/`. Eén gedeelde upstream → één client/DTO/endpoint-validator. Inclusief `ProfielServiceFoutException` + `ToestemmingGeweigerdException` + bijbehorende mappers — gedeelde fout-paden tussen magazijn en sessiecache. |
+| Ontvanger-representatie | Service-laag wordt service-breed getypeerd: `Identificatienummer`. Conversie aan resource-grens (`fromHeader`). `BerichtenCache.cacheKey(ontvanger: Identificatienummer)` → `sha256("${type.name}:${waarde}")`. Voorkomt stille cache-miss bij ondiepe typering. |
+| Foutpaden | Fail-closed: 200/404 zonder voorkeur → lege resultaten + `OPHALEN_GEREED`. 5xx/4xx≠404/timeout/malformed → 503 + `Retry-After`. Geen "alle magazijnen bij Profiel-fout"-fallback — toestemming-onbekend is geen impliciete toestemming. |
 
 ## Architectuur
 
@@ -41,7 +42,9 @@ BerichtensessiecacheService.ophalenBerichten(ontvanger: Identificatienummer)
 MagazijnResolver.resolve(ontvanger): Uni<Set<MagazijnId>>
     │  ┌─ Oin → return alle config-IDs (skip Profiel)
     │  └─ Bsn/Rsin/Kvk →
-    │       ProfielServiceClient.getPartij(type.name, waarde)
+    │       ProfielServiceClient.getPartij(naarProfielType(type), waarde)
+    │       (expliciete when-mapping, niet `.name` — loskoppelt interne enum
+    │        van extern profiel-contract)
     │       └─ filter OntvangViaBerichtenbox=true → opted-in OINs
     │       └─ intersect met magazijnen.instances.*.afzenders → magazijn-IDs
     │
@@ -56,15 +59,25 @@ Magazijn-streams + cache.store + OPHALEN_GEREED   (bestaande pipeline, ongewijzi
 
 ### Nieuw in `fbs-common`
 
-**`nl.rijksoverheid.moz.fbs.common.identificatie`** (verplaatst uit `berichtenmagazijn/opslag/`):
+**`libraries/fbs-common/pom.xml`** — voeg dependencies toe (in `<scope>provided</scope>` waar Quarkus al levert):
+- `org.eclipse.microprofile.rest.client:microprofile-rest-client-api`
+- `org.eclipse.microprofile.fault-tolerance:microprofile-fault-tolerance-api`
+- `com.fasterxml.jackson.core:jackson-annotations` (voor `@JsonIgnoreProperties` op DTO's — al transitief via Quarkus, expliciteren voor duidelijkheid).
+
+JAX-RS-annotaties (`@GET`, `@Path`, …) en CDI-annotaties zijn al beschikbaar; geen extra dependencies vereist.
+
+**`nl.rijksoverheid.moz.fbs.common.identificatie`** (verplaatst uit `berichtenmagazijn/opslag/Identificatienummer.kt`):
 - `sealed interface Identificatienummer` + `Bsn`, `Rsin`, `Kvk`, `Oin` value-classes.
 - `enum IdentificatienummerType { BSN, RSIN, KVK, OIN }`.
 - `Identificatienummer.fromHeader(header: String)` — parser voor `TYPE:WAARDE`.
+- **Nieuw:** `Identificatienummer.toCanonicalString(): String` = `"${type.name}:${waarde}"`. Identiek aan header-format; één canonical representatie voor cache-keys.
 
 **`nl.rijksoverheid.moz.fbs.common.profiel`** (verplaatst uit `berichtenmagazijn/validatie/`):
 - `ProfielServiceClient` (`@RegisterRestClient(configKey = "profiel-service")`).
 - DTO's: `PartijResponse`, `VoorkeurResponse`, `ScopeResponse`, `IdentificatieResponse`, `DienstResponse`.
-- `ProfielServiceEndpointValidator` (TLS-check in non-dev/test profielen). Dunne service-specifieke `@ApplicationScoped`-wrapper die `StartupEvent` observeert blijft per service (anders éénmalige bean conflicteert tussen services in dezelfde JVM — wat hier niet voorkomt, maar het patroon houdt validatie service-lokaal aan-of-uit).
+- `ProfielServiceFoutException(message, cause)` — gemapt naar 503 + `Retry-After: 30` door `ProfielServiceFoutExceptionMapper`. Gedeeld: zowel sessiecache als (toekomstig) magazijn kunnen dezelfde fout-respons leveren.
+- `ToestemmingGeweigerdException` + mapper — verplaatst (geen wijziging). 403-pad blijft beschikbaar voor magazijn-validatie; sessiecache-resolver gebruikt 'm niet (lege set i.p.v. weigering).
+- `ProfielServiceEndpointValidator` — `@ApplicationScoped` bean in `fbs-common` met `@Startup` observer. Eén bean per JVM volstaat; sessiecache en magazijn delen exact dezelfde TLS-eis op dezelfde config-key. Service-lokale wrapper vervalt. Conventie-uitlijning met bestaande `LdvEndpointValidator` (al in fbs-common).
 
 ### Nieuw in `berichtensessiecache`
 
@@ -77,15 +90,14 @@ interface MagazijnResolver {
 
 **`magazijn/ProfielMagazijnResolver.kt`** (`@ApplicationScoped` impl):
 - `Oin`-ontvanger: skip Profiel-call → alle magazijn-IDs uit `clientFactory`.
-- Andere typen: `profielClient.getPartij(type.name, waarde)` op `Infrastructure.getDefaultWorkerPool()`.
-- Filter voorkeuren op `voorkeurType == "OntvangViaBerichtenbox"` + `waarde.lowercase() in {"true","ja"}`.
+- Andere typen: `profielClient.getPartij(naarProfielType(ontvanger.type), ontvanger.waarde)` op `Infrastructure.getDefaultWorkerPool()`. Mapping via expliciete `when (type) { BSN → "BSN"; RSIN → "RSIN"; KVK → "KVK"; OIN → error("…") }` zoals `BerichtValidatieService.controleerAbonnement` doet — niet `.name` (loskoppeling intern enum vs extern contract).
+- Filter voorkeuren op `voorkeurType == "OntvangViaBerichtenbox"` + `waarde?.lowercase() in {"true","ja"}` (case-insensitief; exacte set zoals magazijn).
 - Verzamel `scope.partij.identificatieNummer` waar `identificatieType == "OIN"`.
 - Kruis met `magazijnen.instances.*.afzenders` → return magazijn-ID-set.
-- 404 (`WebApplicationException.response.status == 404`) → `Uni.createFrom().item(emptySet())`.
-- 5xx / `ProcessingException` / timeout / malformed → werp `ProfielServiceFoutException`.
+- **404** (`WebApplicationException.response?.status == 404`) → `emptySet()` (deterministisch geen profiel).
+- **5xx, 4xx ≠ 404, `ProcessingException`, timeout, malformed JSON** → werp `ProfielServiceFoutException`. Geen onderscheid in caller-respons; 401/403/418 enz. duiden op contract-mismatch en zijn voor sessiecache transient infra-fouten.
 
-**`magazijn/ProfielServiceFoutException.kt`** + **`ProfielServiceFoutExceptionMapper`**:
-- 503 Problem+JSON, type `profiel-service-onbereikbaar`, header `Retry-After: 30`.
+Geen `@Retry` op resolver-niveau: `ProfielServiceClient.getPartij` heeft al `@Retry(maxRetries = 2, delay = 200, retryOn = [ProcessingException::class])` voor transient netwerkfouten. Worst-case voor SSE-lock: 3 × (5 s read-timeout + 200 ms delay) ≈ 15.4 s vóór `ProfielServiceFoutException`. Acceptabel binnen lock-TTL (60 s); SSE-client hangt deze ~15 s ofwel ziet 503 ofwel happy-pad. Documenteren in code-comment.
 
 **`magazijn/MagazijnenConfig.kt`** (uitbreiding):
 ```kotlin
@@ -99,24 +111,40 @@ interface MagazijnInstance {
 
 ### Wijziging in `berichtensessiecache`
 
-**`BerichtensessiecacheService.ophalenBerichten(ontvanger: Identificatienummer): Multi<MagazijnEvent>`** (signatuur-wijziging):
+**`BerichtensessiecacheService` signatuur-wijzigingen** (consistent service-breed):
+
+| Methode | Was | Wordt |
+|---|---|---|
+| `getBerichten` | `(page, pageSize, ontvanger: String, afzender)` | `(page, pageSize, ontvanger: Identificatienummer, afzender)` |
+| `getAggregationStatus` | `(ontvanger: String)` | `(ontvanger: Identificatienummer)` |
+| `getBerichtById` | `(berichtId, ontvanger: String)` | `(berichtId, ontvanger: Identificatienummer)` |
+| `zoekBerichten` | `(q, page, pageSize, ontvanger: String, afzender)` | `(q, page, pageSize, ontvanger: Identificatienummer, afzender)` |
+| `updateBerichtStatus` | `(berichtId, ontvanger: String, status)` | `(berichtId, ontvanger: Identificatienummer, status)` |
+| `ophalenBerichten` | `(ontvanger: String)` | `(ontvanger: Identificatienummer)` |
+| `BerichtenCache.cacheKey` | `(ontvanger: String)` | `(ontvanger: Identificatienummer)` — sha256 over `ontvanger.toCanonicalString()` |
+| `BerichtenCache.*`-methodes met `ontvanger: String`-params | idem | typed door |
+
+`ophalenBerichten`-flow:
 1. `trySetAggregationStatus(cacheKey, BEZIG)` — zoals nu.
-2. `resolver.resolve(ontvanger).await()` — sync vóór SSE-Multi-build.
-3. Bij `ProfielServiceFoutException`: `storeAggregationStatus(FOUT, 0, 0, 0)` → werp door.
+2. `resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(20))` — sync vóór SSE-Multi-build. Timeout ruim boven worst-case 15.4 s retry-budget.
+3. Bij `ProfielServiceFoutException`: `storeAggregationStatus(cacheKey, FOUT(0,0,0)).await()` (waarvan `BerichtenCache` regel 135 ook `del(lockKey)` doet → lock vrij) → werp door.
 4. Filter `clientFactory.getAllClients()` op resolved-set → `clients`.
-5. `bezigStatus.totaalMagazijnen = clients.size`.
-6. Als `clients.isEmpty()` → emit direct `OPHALEN_GEREED(totaal=0, geslaagd=0, mislukt=0, totaalMagazijnen=0)` + `storeAggregationStatus(GEREED, …)`.
+5. `bezigStatus.totaalMagazijnen = clients.size` (overschrijven via `storeAggregationStatus` is hier niet nodig; bestaande pipeline updatet 'm in finale GEREED-status).
+6. Als `clients.isEmpty()` → `cache.store(cacheKey, emptyList())` + emit `OPHALEN_GEREED(0,0,0,0)` + `storeAggregationStatus(GEREED, 0, 0, 0)`. Cache-overschrijven is expliciet (anders blijft eventuele stale data uit eerdere ophaal-sessie zichtbaar via `getBerichten`/`zoekBerichten`).
 7. Anders: bestaande magazijn-pipeline.
 
 **`BerichtenOphalenResource`** + **`BerichtensessiecacheResource`**:
-- Vervang raw `ontvanger: String` door `Identificatienummer.fromHeader(headerString)`.
-- `DomainValidationException` op invalide header → bestaande mapper (400 Problem+JSON).
+- Parse header met `Identificatienummer.fromHeader(headerString)` aan resource-grens. Service-aanroepen krijgen typed object.
+- `DomainValidationException` van `fromHeader` → bestaande `ConstraintViolationException`-mapper of `DomainValidationExceptionMapper` (400 Problem+JSON). Bean Validation op de OpenAPI-pattern is de eerste defensie-laag — `fromHeader` is de tweede (defense-in-depth voor domein-invarianten zoals elfproef).
+- **LDV `dataSubjectId`**: zet op `ontvanger.waarde` (rauwe BSN/RSIN/KVK/OIN-waarde), niet inclusief type-prefix. CLAUDE.md BSN/PII-sectie: LDV's `dataSubjectId` mag de waarde bevatten zolang het endpoint TLS gebruikt (BIO 13.2.1, afgedwongen door endpoint-validator).
 
 **`berichtensessiecache-api.yaml`**:
 - `OntvangerHeader.schema.pattern` = `^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$` (gelijk aan magazijn).
 - `minLength: 12`, `maxLength: 24`.
-- Voeg 503-response toe op `/berichten/ophalen` met Problem-schema.
-- Voeg `Retry-After`-header definitie toe.
+- Pattern geldt **alle 6 endpoints** die `X-Ontvanger` consumeren (GET /berichten, GET /berichten/{id}, POST /berichten/ophalen, GET /berichten/zoeken, POST /berichten, PATCH /berichten/{id}/status). Eén gedeelde `OntvangerHeader`-parameter-reference is voldoende; controleer dat alle path-items er naar verwijzen.
+- **Breaking change** voor bestaande callers die de bare-string-vorm gebruiken (vandaag dezelfde laxiteit). Documenteer in PR + CHANGELOG.
+- Voeg 503-response **alleen op `POST /berichten/ophalen`** toe met Problem-schema + `Retry-After`-header. Overige endpoints raken Profiel-service niet en behouden hun huidige fout-set.
+- Definieer `Retry-After`-response-header (numeriek of HTTP-date).
 
 **`application.properties` (sessiecache)**:
 ```properties
@@ -132,11 +160,17 @@ magazijnen.instances.magazijn-a.afzenders=00000001003214345000
 magazijnen.instances.magazijn-b.afzenders=00000001823288444000
 ```
 
+**`services/berichtensessiecache/src/test/resources/application.properties`** (en test-fixtures `MockedDependenciesProfile`, `WireMockTestProfile`, `RealRedisTestProfile`):
+- Voeg `magazijnen.instances.magazijn-a.afzenders` + `.magazijn-b.afzenders` toe — anders faalt `MagazijnClientFactory.init()` op de fail-fast-check.
+- Voeg `quarkus.rest-client.profiel-service.url=http://localhost:8089` toe (overschreven door dynamische `WireMockProfielServiceResource` per testklasse die de Profiel-stub nodig heeft).
+- Mock-CDI-bean (`MockProfielServiceClient`) toevoegen, gespiegeld aan magazijn-test-setup, zodat unit-tests Profiel niet hoeven te benaderen.
+
 ### Wijziging in `berichtenmagazijn`
 
-- Imports `nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.{Identificatienummer,Bsn,Rsin,Kvk,Oin,IdentificatienummerType}` → `nl.rijksoverheid.moz.fbs.common.identificatie.*` (~75 sites, mechanisch).
-- Imports `nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.{ProfielServiceClient,PartijResponse,VoorkeurResponse,ScopeResponse,IdentificatieResponse,DienstResponse}` → `nl.rijksoverheid.moz.fbs.common.profiel.*`.
-- `ProfielServiceEndpointValidator` — tweetraps: shared static `validate(profile, endpoint)` in fbs-common; service-lokale `@ApplicationScoped`-wrapper-bean die `StartupEvent` observeert blijft in elke service.
+- Imports `nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.{Identificatienummer,Bsn,Rsin,Kvk,Oin,IdentificatienummerType}` → `nl.rijksoverheid.moz.fbs.common.identificatie.*` (74 imports gemeten, alleen deze 6 symbolen). Per-symbool import-rewrite; geen wildcard, anders raken andere `opslag/`-types geraakt.
+- Imports `nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.{ProfielServiceClient,PartijResponse,VoorkeurResponse,ScopeResponse,IdentificatieResponse,DienstResponse,ToestemmingGeweigerdException}` → `nl.rijksoverheid.moz.fbs.common.profiel.*`.
+- `ProfielServiceEndpointValidator` — verplaatst naar fbs-common (één bean per JVM, identieke logica voor alle services).
+- Magazijn-test `ProfielServiceClientWireMockTest` blijft staan als consumer-contract-test; sessiecache krijgt een eigen variant. Beide draaien tegen lokale dynamische WireMock — voorkomt cross-service test-coupling.
 
 ## Dataflow-voorbeelden
 
@@ -224,10 +258,11 @@ Spiegelt `ProfielServiceClientWireMockTest` uit magazijn (post-verplaatsing leef
 ### E2E (`BerichtenOphalenResourceTest` uitbreiden)
 
 - Header `BSN:999993653` met opted-in profiel → 200 SSE
-- Header `BSN:999993653` met 200/lege profiel → SSE `OPHALEN_GEREED 0/0/0`
-- Header `BSN:999993653` met 500 profiel → 503 + `Retry-After`
-- Header zonder `:`-prefix → 400 Problem+JSON
-- Header `OIN:…` → alle magazijnen, geen Profiel-call
+- Header `BSN:999993653` met 200/lege profiel → SSE `OPHALEN_GEREED 0/0/0` + cache overschreven met lege lijst
+- Header `BSN:999993653` met 500 profiel → 503 + `Retry-After`, `getAggregationStatus`-poll levert `FOUT`
+- Header zonder `:`-prefix (`"999993653"`) → 400 Problem+JSON. Bean-Validation op OpenAPI-pattern is eerste laag; `fromHeader` is defense-in-depth voor het geval Bean-Validation niet geraakt wordt (bv. unit-tests die de resource direct aanroepen). Eén test forceert specifiek het `fromHeader`-pad door Bean-Validation te omzeilen.
+- Header `OIN:00000001003214345000` → alle magazijnen, geen Profiel-call (verify WireMock niet aangeroepen)
+- Bestaande tests met bare-string-header (`"cache-test"`, `"multi-ok-…"`) → moeten omgezet naar TYPE:WAARDE-vorm (`"BSN:999993653"` etc.). Inventariseer en update.
 
 ### Contract (`OpenApiContractTest` uitbreiden)
 
@@ -235,11 +270,14 @@ Spiegelt `ProfielServiceClientWireMockTest` uit magazijn (post-verplaatsing leef
 - `X-Ontvanger`-regex valideert
 - Spectral-linter: `npx @stoplight/spectral-cli lint berichtensessiecache-api.yaml --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml` → 0 errors
 
-### Bruno-collectie
+### Bruno-collectie + WireMock-mappings
 
-- Bestaande requests: update `X-Ontvanger` waarden naar `BSN:999993653`-formaat
-- Nieuw: `ophalen-zonder-voorkeur.bru` (BSN waar lokale WireMock 404 retourneert)
-- Nieuw: `ophalen-profiel-fout.bru` (forceer 503-pad)
+- Bestaande requests in `bruno/berichtensessiecache/`: update `X-Ontvanger` waarden naar `BSN:999993653`-formaat (zelfde BSN als magazijn-collectie gebruikt).
+- Nieuw: `bruno/berichtensessiecache/berichten/ophalen-zonder-voorkeur.bru` — `X-Ontvanger: BSN:111222333` (matcht nieuwe `wiremock/profiel-service/mappings/get-partij-onbekend-404.json`).
+- Nieuw: `bruno/berichtensessiecache/berichten/ophalen-profiel-fout.bru` — `X-Ontvanger: BSN:444555666` (matcht nieuwe `wiremock/profiel-service/mappings/get-partij-server-error-500.json`).
+- Bestaande `wiremock/profiel-service/mappings/get-partij-actieve-voorkeur.json` blijft voor happy-path; voeg twee nieuwe mappings toe:
+  - `get-partij-onbekend-404.json` — 404 op specifieke BSN.
+  - `get-partij-server-error-500.json` — 500 op specifieke BSN.
 
 ### Coverage
 
@@ -249,7 +287,7 @@ ProfielMagazijnResolver bereikbaar via `@QuarkusTest`-integratietest → telt me
 
 ```bash
 ./mvnw clean verify -pl libraries/fbs-common -am
-./mvnw clean verify -pl services/berichtenmagazijn -am   # 75 import-rewrites
+./mvnw clean verify -pl services/berichtenmagazijn -am   # 74 import-rewrites
 ./mvnw clean verify -pl services/berichtensessiecache -am
 
 # Spec-linter
@@ -266,4 +304,22 @@ docker compose up -d
 ## Open punten
 
 - AC-tekst issue #416 zegt "Fallback: alle magazijnen bij Profiel-fout (graceful degradation)" — design herformuleert tot fail-closed (toestemming-semantiek). Stem af in PR-omschrijving + reactie op issue.
-- Optioneel: voeg `dienst`-filter toe in resolver (huidige berichtenmagazijn-code negeert `scope.dienst`). Geen concrete eis nu — laten voor opvolg-ticket.
+
+## Aandachtspunten code-review (2026-05-26)
+
+Verwerkt in dit document na review-iteratie:
+- 74 (niet 75) import-rewrites in magazijn-module, alleen 6 symbolen uit `opslag/Identificatienummer.kt`.
+- `fbs-common/pom.xml` krijgt expliciete dependencies voor REST-client + fault-tolerance.
+- `ProfielServiceFoutException` + `ToestemmingGeweigerdException` + mappers naar `fbs-common` (gedeeld tussen magazijn en sessiecache).
+- Test-fixtures + `src/test/resources/application.properties` updaten voor verplichte `magazijnen.*.afzenders`.
+- Service-laag en `BerichtenCache.cacheKey` consistent typed naar `Identificatienummer` om cache-mismatch te voorkomen.
+- `storeAggregationStatus` doet al `del(lockKey)` (`BerichtenCache.kt:135`) — geen extra cleanup nodig bij fail-fast.
+- Profiel-type-mapping via expliciete `when`, niet `.name` (loskoppeling enum vs extern contract).
+- 503 alleen op `POST /berichten/ophalen`; overige endpoints blijven Profiel-onafhankelijk.
+- Non-404 4xx-respons → behandelen als infra-fout (`ProfielServiceFoutException`).
+- LDV `dataSubjectId` = `ontvanger.waarde` (zonder type-prefix).
+- `ProfielServiceEndpointValidator` als enkele bean in fbs-common (was per-service wrapper).
+- Bruno + WireMock-mapping-bestanden expliciet benoemd.
+
+Bewust **niet** verwerkt:
+- `dienst`-filter (alleen `scope.dienst` ipv breder voorkeur-model). Geen concrete eis nu; opvolg-ticket bij toekomstige aanleiding.
