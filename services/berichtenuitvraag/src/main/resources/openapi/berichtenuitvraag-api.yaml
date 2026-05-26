@@ -19,12 +19,15 @@ servers:
 tags:
   - name: Uitvraag
     description: Berichten-uitvraag voor het portaal
+  - name: Ophalen
+    description: SSE-passthrough voor cache-warming; wordt buiten codegen afgehandeld
 
 paths:
   /berichten:
     get:
       tags: [Uitvraag]
       summary: Berichtenlijst per map
+      description: Berichtenlijst per map; bron is de sessiecache.
       operationId: getBerichten
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -51,7 +54,7 @@ paths:
 
   /berichten/_ophalen:
     get:
-      tags: [Uitvraag]
+      tags: [Ophalen]
       summary: Vul cache voor alle mappen (Server-Sent Events)
       operationId: ophalenBerichten
       description: |
@@ -76,6 +79,7 @@ paths:
     get:
       tags: [Uitvraag]
       summary: Zoeken in berichten
+      description: Volledig-tekst zoeken in berichten via de sessiecache.
       operationId: zoekenBerichten
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -104,6 +108,7 @@ paths:
     get:
       tags: [Uitvraag]
       summary: Bericht ophalen
+      description: Volledig bericht inclusief inhoud en bijlage-metadata, via de sessiecache.
       operationId: getBerichtById
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -163,6 +168,10 @@ components:
   schemas:
     BerichtenLijst:
       type: object
+      description: |
+        Paginatie via HAL `_links.next`/`prev`. Aantallen (totalElements,
+        totalPages) bewust niet opgenomen — frontend navigeert via links zonder
+        absolute paginavoortgang.
       required: [berichten]
       properties:
         berichten:
@@ -173,25 +182,26 @@ components:
 
     BerichtSamenvatting:
       type: object
-      required: [id, onderwerp, ontvangenOp]
+      required: [berichtId, onderwerp, tijdstipOntvangst, aantalBijlagen]
       properties:
-        id: { type: string, format: uuid }
+        berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
         afzender: { type: string }
-        ontvangenOp: { type: string, format: date-time }
+        tijdstipOntvangst: { type: string, format: date-time }
+        aantalBijlagen: { type: integer, minimum: 0 }
         map: { type: string }
         status: { $ref: '#/components/schemas/BerichtStatus' }
         _links: { $ref: '#/components/schemas/BerichtLinks' }
 
     Bericht:
       type: object
-      required: [id, onderwerp, ontvangenOp]
+      required: [berichtId, onderwerp, tijdstipOntvangst]
       properties:
-        id: { type: string, format: uuid }
+        berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
         afzender: { type: string }
         inhoud: { type: string }
-        ontvangenOp: { type: string, format: date-time }
+        tijdstipOntvangst: { type: string, format: date-time }
         map: { type: string }
         status: { $ref: '#/components/schemas/BerichtStatus' }
         bijlagen:
@@ -201,12 +211,12 @@ components:
 
     BijlageMetadata:
       type: object
-      required: [id, naam]
+      required: [bijlageId, naam]
       properties:
-        id: { type: string, format: uuid }
+        bijlageId: { type: string, format: uuid }
         naam: { type: string }
         mimeType: { type: string }
-        groottebytes: { type: integer, format: int64 }
+        grootteInBytes: { type: integer, format: int64 }
         _links: { $ref: '#/components/schemas/BijlageLinks' }
 
     BerichtStatus:

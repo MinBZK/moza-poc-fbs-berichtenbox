@@ -152,6 +152,9 @@
                             <typeMappings>
                                 <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
                             </typeMappings>
+                            <!-- Alleen tag "Uitvraag" genereren. _ophalen heeft tag "Ophalen" omdat
+                                 het SSE retourneert; jaxrs-spec genereert geen Multi<T>. Zie
+                                 SsePassthroughResource. -->
                             <apisToGenerate>Uitvraag</apisToGenerate>
                             <generateSupportingFiles>false</generateSupportingFiles>
                             <generateApiTests>false</generateApiTests>
