@@ -24,6 +24,8 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = false
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
+        MockMagazijnClientFactory.shouldHttpFailA = null
+        MockMagazijnClientFactory.shouldHttpFailB = null
         (berichtenCache as MockBerichtenCache).clear()
     }
 
@@ -181,5 +183,37 @@ class BerichtenOphalenResourceTest {
         assertTrue(response.contains("\"totaalMagazijnen\":2"), "Verwacht totaalMagazijnen=2 in: $response")
         assertTrue(response.contains("\"geslaagd\":1"), "Verwacht geslaagd=1 in: $response")
         assertTrue(response.contains("\"mislukt\":1"), "Verwacht mislukt=1 in: $response")
+    }
+
+    @Test
+    fun `GET ophalen met magazijn 5xx toont FOUT met tijdelijk-bericht`() {
+        MockMagazijnClientFactory.shouldHttpFailA = 503
+        MockMagazijnClientFactory.shouldHttpFailB = 503
+
+        val response = given()
+            .header("X-Ontvanger", uniqueOin())
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(response.contains("\"status\":\"FOUT\""), "Verwacht FOUT status in: $response")
+        assertTrue(response.contains("tijdelijk niet bereikbaar"), "Verwacht 5xx-bericht in: $response")
+    }
+
+    @Test
+    fun `GET ophalen met magazijn 4xx toont FOUT met raadplegen-bericht`() {
+        MockMagazijnClientFactory.shouldHttpFailA = 403
+        MockMagazijnClientFactory.shouldHttpFailB = 403
+
+        val response = given()
+            .header("X-Ontvanger", uniqueOin())
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(response.contains("\"status\":\"FOUT\""), "Verwacht FOUT status in: $response")
+        assertTrue(response.contains("kon niet geraadpleegd worden"), "Verwacht 4xx-bericht in: $response")
     }
 }

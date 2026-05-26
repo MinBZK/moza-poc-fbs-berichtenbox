@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import jakarta.ws.rs.WebApplicationException
@@ -97,10 +98,31 @@ class BerichtensessiecacheServiceTest {
             Uni.createFrom().failure(ProfielServiceFoutException("upstream 500"))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
+        // ophalenBerichten gooit de fout synchroon omdat resolver.resolve().await() blokkeert.
         assertThrows<ProfielServiceFoutException> {
-            service.ophalenBerichten(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(5))
+            service.ophalenBerichten(ontvanger)
         }
 
+        verify {
+            berichtenCache.storeAggregationStatus(
+                cacheKey,
+                match { it.status == OphalenStatus.FOUT },
+            )
+        }
+    }
+
+    @Test
+    fun `RuntimeException uit resolver wordt ge-wrapped als ProfielServiceFoutException en zet FOUT-status`() {
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns
+            Uni.createFrom().failure(RuntimeException("onverwachte fout"))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val ex = assertThrows<ProfielServiceFoutException> {
+            service.ophalenBerichten(ontvanger)
+        }
+
+        assertTrue(ex.message!!.contains("RuntimeException"), "Wrapped message moet oorspronkelijk type bevatten: ${ex.message}")
         verify {
             berichtenCache.storeAggregationStatus(
                 cacheKey,

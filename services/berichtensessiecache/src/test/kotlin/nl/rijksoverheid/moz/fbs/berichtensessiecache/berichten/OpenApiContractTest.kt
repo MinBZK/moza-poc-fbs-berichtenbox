@@ -62,6 +62,8 @@ class OpenApiContractTest {
         MockMagazijnClientFactory.shouldFailB = false
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
+        MockMagazijnClientFactory.shouldHttpFailA = null
+        MockMagazijnClientFactory.shouldHttpFailB = null
         (berichtenCache as MockBerichtenCache).clear()
     }
 

@@ -253,6 +253,44 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `updateAggregationStatus laat lock-key intact`() {
+        val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
+
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+
+        assertTrue(lockVerkregen, "Eerste trySet moet slagen")
+
+        // updateAggregationStatus werkt de waarde bij maar houdt de lock (key) intact.
+        berichtenCache.updateAggregationStatus(
+            cacheKey(),
+            bezigStatus.copy(totaalMagazijnen = 3),
+        ).await().indefinitely()
+
+        val lockNogAanwezig = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+
+        assertFalse(lockNogAanwezig, "Lock moet nog aanwezig zijn na updateAggregationStatus")
+    }
+
+    @Test
+    fun `storeAggregationStatus geeft lock vrij`() {
+        val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
+
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+
+        assertTrue(lockVerkregen, "Eerste trySet moet slagen")
+
+        // storeAggregationStatus schrijft eindstatus en verwijdert de lock-key.
+        berichtenCache.storeAggregationStatus(
+            cacheKey(),
+            AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0),
+        ).await().indefinitely()
+
+        val lockVrij = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+
+        assertTrue(lockVrij, "Lock moet vrij zijn na storeAggregationStatus")
+    }
+
+    @Test
     fun `sliding TTL - getById verlengt TTL van berichthash`() {
         val berichten = testBerichten().take(1)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()

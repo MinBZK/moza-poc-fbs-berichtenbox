@@ -39,3 +39,6 @@ node_modules/
 
 # Coredumps (root only — ignoreert geen toekomstige core/ source-map)
 /core
+
+# Tijdelijke files van import-rewrite-scripts
+*.kt.tmp

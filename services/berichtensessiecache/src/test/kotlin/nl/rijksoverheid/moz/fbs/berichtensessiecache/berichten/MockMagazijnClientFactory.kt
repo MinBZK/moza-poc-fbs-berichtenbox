@@ -5,6 +5,7 @@ import io.mockk.mockk
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
 import jakarta.ws.rs.ProcessingException
+import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
@@ -60,12 +61,14 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
         var shouldFailB = false
         var shouldTimeoutA = false
         var shouldTimeoutB = false
+        var shouldHttpFailA: Int? = null
+        var shouldHttpFailB: Int? = null
     }
 
     override fun getAllClients(): Map<String, MagazijnClient> {
         return mapOf(
-            "magazijn-a" to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }),
-            "magazijn-b" to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }),
+            "magazijn-a" to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }, { shouldHttpFailA }),
+            "magazijn-b" to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }, { shouldHttpFailB }),
         )
     }
 
@@ -79,10 +82,12 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
         berichten: List<Bericht>,
         shouldFail: () -> Boolean,
         shouldTimeout: () -> Boolean,
+        httpFailStatus: () -> Int? = { null },
     ): MagazijnClient = mockk<MagazijnClient>().also { client ->
         every { client.getBerichten(any(), any()) } answers {
             if (shouldTimeout()) Thread.sleep(15_000)
             if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
+            httpFailStatus()?.let { status -> throw WebApplicationException(status) }
             MagazijnBerichtenResponse(berichten = berichten)
         }
         every { client.getBerichtById(any()) } answers {

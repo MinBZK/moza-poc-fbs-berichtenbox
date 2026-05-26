@@ -28,6 +28,8 @@ class BerichtensessiecacheResourceTest {
         MockMagazijnClientFactory.shouldFailB = false
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
+        MockMagazijnClientFactory.shouldHttpFailA = null
+        MockMagazijnClientFactory.shouldHttpFailB = null
     }
 
     // Genereer een unieke geldige OIN per test (20 cijfers, niet geheel nullen).

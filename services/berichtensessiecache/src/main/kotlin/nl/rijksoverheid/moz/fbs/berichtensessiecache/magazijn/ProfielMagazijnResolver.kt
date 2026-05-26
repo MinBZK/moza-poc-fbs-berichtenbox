@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
+import com.fasterxml.jackson.core.JsonProcessingException
 import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.enterprise.context.ApplicationScoped
@@ -12,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.jboss.logging.Logger
+import java.time.Duration
 
 @ApplicationScoped
 class ProfielMagazijnResolver(
@@ -31,7 +33,13 @@ class ProfielMagazijnResolver(
 
         return Uni.createFrom().item { profielClient.getPartij(profielType, ontvanger.waarde) }
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
+            .ifNoItem().after(Duration.ofSeconds(15)).fail()
             .map { partij -> bepaalMagazijnen(partij) }
+            .onFailure(io.smallrye.mutiny.TimeoutException::class.java).recoverWithUni { error ->
+                Uni.createFrom().failure(
+                    ProfielServiceFoutException("Profiel-service overschreed timeout", error),
+                )
+            }
             .onFailure(WebApplicationException::class.java).recoverWithUni { error ->
                 val webEx = error as WebApplicationException
 
@@ -48,9 +56,12 @@ class ProfielMagazijnResolver(
                 }
             }
             .onFailure(ProcessingException::class.java).recoverWithUni { error ->
-                Uni.createFrom().failure(
-                    ProfielServiceFoutException("Profiel-service onbereikbaar (netwerkfout)", error),
-                )
+                val msg = if (error.cause is JsonProcessingException) {
+                    "Profiel-service onleesbaar antwoord (JSON-parse-fout)"
+                } else {
+                    "Profiel-service onbereikbaar (netwerkfout)"
+                }
+                Uni.createFrom().failure(ProfielServiceFoutException(msg, error))
             }
             // Onder andere malformed JSON komt als RuntimeException; vang restcategorie.
             .onFailure { it !is ProfielServiceFoutException }.recoverWithUni { error ->

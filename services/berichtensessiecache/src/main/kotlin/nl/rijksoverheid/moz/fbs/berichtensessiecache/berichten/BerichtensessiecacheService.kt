@@ -27,32 +27,38 @@ class BerichtensessiecacheService(
     fun getBerichten(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?): Uni<BerichtenPage> {
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d", page, pageSize)
         val key = BerichtenCache.cacheKey(ontvanger)
+
         return berichtenCache.getPage(key, page, pageSize, afzender, ontvanger)
             .map { it ?: BerichtenPage(emptyList(), page, pageSize, 0L, 0) }
     }
 
     fun getAggregationStatus(ontvanger: Identificatienummer): Uni<AggregationStatus?> {
         val key = BerichtenCache.cacheKey(ontvanger)
+
         return berichtenCache.getAggregationStatus(key)
     }
 
     fun getBerichtById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
         log.debugf("Ophalen bericht uit cache: %s", berichtId)
+
         return berichtenCache.getById(berichtId, ontvanger)
     }
 
     fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?): Uni<BerichtenPage> {
         log.debugf("Zoeken berichten via RediSearch: q=%s, page=%d, pageSize=%d", q, page, pageSize)
+
         return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
     }
 
     fun updateBerichtStatus(berichtId: UUID, ontvanger: Identificatienummer, status: String): Uni<Bericht?> {
         log.debugf("Bijwerken berichtstatus: berichtId=%s, status=%s", berichtId, status)
+
         return berichtenCache.updateStatus(berichtId, ontvanger, status)
     }
 
     fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Bericht> {
         log.debugf("Toevoegen bericht aan cache: berichtId=%s", bericht.berichtId)
+
         return berichtenCache.addBericht(bericht, ontvanger).replaceWith(bericht)
     }
 
@@ -84,13 +90,15 @@ class BerichtensessiecacheService(
 
         val resolvedIds = try {
             resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(20))
-        } catch (ex: ProfielServiceFoutException) {
-            // Lock vrijgeven via storeAggregationStatus (doet del(lockKey) intern).
-            berichtenCache.storeAggregationStatus(
-                cacheKey,
-                AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 0),
-            ).await().indefinitely()
-            throw ex
+        } catch (ex: Exception) {
+            cleanupLockMetFoutStatus(cacheKey, "resolver-fout: ${ex.javaClass.simpleName}")
+
+            if (ex is ProfielServiceFoutException) throw ex
+
+            throw ProfielServiceFoutException(
+                "Resolver-aanroep mislukt (${ex.javaClass.simpleName})",
+                ex,
+            )
         }
 
         val clients = clientFactory.getAllClients().filterKeys { it in resolvedIds }
@@ -99,11 +107,17 @@ class BerichtensessiecacheService(
         // lege lijst zodat eventuele stale data uit eerdere sessies niet zichtbaar
         // blijft via GET-endpoints.
         if (clients.isEmpty()) {
-            berichtenCache.store(cacheKey, emptyList()).await().indefinitely()
-            berichtenCache.storeAggregationStatus(
-                cacheKey,
-                AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0),
-            ).await().indefinitely()
+            try {
+                berichtenCache.store(cacheKey, emptyList()).await().atMost(Duration.ofSeconds(5))
+                berichtenCache.storeAggregationStatus(
+                    cacheKey,
+                    AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0),
+                ).await().atMost(Duration.ofSeconds(5))
+            } catch (ex: Exception) {
+                log.errorf(ex, "Fout bij opslaan GEREED-status voor lege magazijn-set, key=%s", cacheKey)
+                cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set")
+                throw ProfielServiceFoutException("Interne fout bij opslaan resultaten", ex)
+            }
 
             return Multi.createFrom().item(
                 MagazijnEvent(
@@ -124,7 +138,7 @@ class BerichtensessiecacheService(
         berichtenCache.updateAggregationStatus(
             cacheKey,
             bezigStatus.copy(totaalMagazijnen = clients.size),
-        ).await().indefinitely()
+        ).await().atMost(Duration.ofSeconds(5))
 
         val magazijnStreams = clients.map { (magazijnId, client) ->
             val naam = clientFactory.getNaam(magazijnId)
@@ -144,11 +158,24 @@ class BerichtensessiecacheService(
                 }
                 .onFailure(Exception::class.java).recoverWithItem { error ->
                     when (error) {
-                        is jakarta.ws.rs.ProcessingException,
-                        is WebApplicationException,
-                        is io.smallrye.mutiny.TimeoutException,
+                        is io.smallrye.mutiny.TimeoutException ->
+                            log.warnf(error, "Magazijn %s (%s) timeout", magazijnId, naam)
+                        is jakarta.ws.rs.ProcessingException ->
+                            log.warnf(error, "Magazijn %s (%s) niet bereikbaar (network/processing)", magazijnId, naam)
+                        is WebApplicationException -> {
+                            val status = error.response?.status ?: 0
+
+                            when {
+                                status in 500..599 ->
+                                    log.warnf(error, "Magazijn %s (%s) 5xx (%d)", magazijnId, naam, status)
+                                status >= 400 ->
+                                    log.errorf(error, "Magazijn %s (%s) onverwacht status %d (mogelijk configuratie/auth-fout)", magazijnId, naam, status)
+                                else ->
+                                    log.warnf(error, "Magazijn %s (%s) WebApplicationException zonder bruikbare status", magazijnId, naam)
+                            }
+                        }
                         is java.net.ConnectException ->
-                            log.warnf(error, "Magazijn %s (%s) niet bereikbaar", magazijnId, naam)
+                            log.warnf(error, "Magazijn %s (%s) verbinding geweigerd", magazijnId, naam)
                         else ->
                             log.errorf(error, "Onverwachte fout bij magazijn %s (%s)", magazijnId, naam)
                     }
@@ -171,12 +198,19 @@ class BerichtensessiecacheService(
                     is MagazijnResult.Failure -> {
                         mislukt.incrementAndGet()
                         val isTimeout = result.error is io.smallrye.mutiny.TimeoutException
+                        val foutmelding = when {
+                            isTimeout -> "Magazijn reageerde niet binnen de timeout"
+                            result.error is WebApplicationException &&
+                                (result.error.response?.status ?: 0) in 500..599 ->
+                                "Magazijn tijdelijk niet bereikbaar"
+                            else -> "Magazijn kon niet geraadpleegd worden"
+                        }
                         MagazijnEvent(
                             event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
                             magazijnId = magazijnId,
                             naam = naam,
                             status = if (isTimeout) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
-                            foutmelding = if (isTimeout) "Magazijn reageerde niet binnen de timeout" else "Magazijn tijdelijk niet bereikbaar",
+                            foutmelding = foutmelding,
                         )
                     }
                 }
@@ -239,6 +273,21 @@ class BerichtensessiecacheService(
                 }
                 .toMulti()
         )
+    }
+
+    /**
+     * Best-effort: zet FOUT-status om de lock vrij te geven na een niet-herstelbare fout.
+     * Timeout op 5s zodat een hangende Redis de thread niet eeuwig blokkeert.
+     */
+    private fun cleanupLockMetFoutStatus(cacheKey: String, foutmelding: String) {
+        try {
+            berichtenCache.storeAggregationStatus(
+                cacheKey,
+                AggregationStatus(status = OphalenStatus.FOUT, totaalMagazijnen = 0),
+            ).await().atMost(Duration.ofSeconds(5))
+        } catch (cleanupEx: Exception) {
+            log.errorf(cleanupEx, "Lock-cleanup na fout mislukt voor key=%s: %s", cacheKey, foutmelding)
+        }
     }
 }
 
