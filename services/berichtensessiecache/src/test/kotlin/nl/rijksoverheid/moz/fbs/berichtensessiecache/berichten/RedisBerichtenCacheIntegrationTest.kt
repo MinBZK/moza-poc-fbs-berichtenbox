@@ -272,6 +272,29 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `trySetAggregationStatus - lock heeft TTL en verdwijnt automatisch`() {
+        // Bewijst dat SET NX EX atomair werkt: na verlopen TTL is de lock vrij
+        // zodat een nieuwe aanroep kan slagen (geen eeuwig-lock na EXPIRE-failure).
+        val status = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1)
+
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertTrue(lockVerkregen, "Eerste trySet moet slagen")
+
+        // Tweede aanroep faalt meteen: lock bestaat nog.
+        val dubbel = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertFalse(dubbel, "Lock moet geblokkeerd zijn terwijl hij actief is")
+
+        // TTL is 2s in RealRedisTestProfile; na 3s is de lock automatisch verdwenen.
+        Thread.sleep(3_000)
+
+        val naVerloop = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertTrue(naVerloop, "Lock moet na TTL-verloop opnieuw verkregen kunnen worden")
+    }
+
+    @Test
     fun `storeAggregationStatus geeft lock vrij`() {
         val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
 

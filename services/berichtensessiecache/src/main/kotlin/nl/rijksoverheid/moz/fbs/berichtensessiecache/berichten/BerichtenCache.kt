@@ -5,6 +5,7 @@ import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.redis.datasource.search.CreateArgs
 import io.quarkus.redis.datasource.search.FieldType
 import io.quarkus.redis.datasource.search.QueryArgs
+import io.quarkus.redis.datasource.value.SetArgs
 import io.smallrye.mutiny.Uni
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
@@ -149,11 +150,17 @@ class RedisBerichtenCache(
         val lockKey = lockKey(key)
         val statusKey = statusKey(key)
         val json = objectMapper.writeValueAsString(status)
-        return redis.value(String::class.java).setnx(lockKey, "1")
+
+        // SET NX EX in één commando: atomair — geen tussenliggend venster waarbij de lock
+        // bestaat zonder TTL (wat bij losse SETNX + EXPIRE zou kunnen optreden als EXPIRE faalt).
+        val lockArgs = SetArgs().nx().ex(ttl.seconds)
+
+        return redis.value(String::class.java).setAndChanged(lockKey, "1", lockArgs)
             .chain { wasSet ->
                 if (wasSet) {
-                    redis.key().expire(lockKey, ttl)
-                        .chain { _ -> redis.value(String::class.java).setex(statusKey, ttl.seconds, json) }
+                    // statusKey is een afzonderlijke key; een fout hier raakt de lock-correctheid
+                    // niet — de lock staat al vast met TTL.
+                    redis.value(String::class.java).setex(statusKey, ttl.seconds, json)
                         .replaceWith(true)
                 } else {
                     Uni.createFrom().item(false)
