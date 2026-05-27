@@ -75,7 +75,7 @@ services:
       CLICKHOUSE_PASSWORD: ldv
       CLICKHOUSE_DB: ldv_logging
 
-  postgres:
+  postgres-a:
     image: postgres:18
     ports:
       - "5432:5432"
@@ -88,7 +88,23 @@ services:
     # Zo blijft `pg_upgrade --link` mogelijk bij toekomstige major upgrades.
     # Zie https://github.com/docker-library/postgres/pull/1259.
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - postgres-data-a:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U berichtenmagazijn -d berichtenmagazijn"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres-b:
+    image: postgres:18
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: berichtenmagazijn
+      POSTGRES_PASSWORD: berichtenmagazijn
+      POSTGRES_DB: berichtenmagazijn
+    volumes:
+      - postgres-data-b:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U berichtenmagazijn -d berichtenmagazijn"]
       interval: 5s
@@ -96,4 +112,5 @@ services:
       retries: 5
 
 volumes:
-  postgres-data:
+  postgres-data-a:
+  postgres-data-b:
