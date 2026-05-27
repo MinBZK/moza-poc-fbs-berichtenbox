@@ -131,6 +131,7 @@ class MagazijnClientWireMockTest {
                                         "afzender": "00000001234567890000",
                                         "ontvanger": { "type": "BSN", "waarde": "$ontvanger" },
                                         "onderwerp": "Test bericht van $magazijnId",
+                                        "inhoud": "Inhoud van $magazijnId",
                                         "publicatietijdstip": "2026-03-10T10:00:00Z",
                                         "magazijnId": "$magazijnId",
                                         "aantalBijlagen": 0
