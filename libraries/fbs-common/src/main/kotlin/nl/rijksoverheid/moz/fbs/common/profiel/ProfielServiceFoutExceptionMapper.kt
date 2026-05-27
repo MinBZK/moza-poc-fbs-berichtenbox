@@ -7,7 +7,6 @@ import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import nl.rijksoverheid.moz.fbs.common.exception.ProblemMediaType
 import org.jboss.logging.Logger
 import java.net.URI
-import java.util.UUID
 
 /**
  * Vertaalt [ProfielServiceFoutException] naar HTTP 503 + Problem+JSON met
@@ -16,6 +15,11 @@ import java.util.UUID
  * `instance = urn:uuid:<errorId>` koppelt de client-response aan de applicatielog
  * (consistent met `UncaughtExceptionMapper`/`ProblemExceptionMapper`/etc.) zodat
  * support een 503 kan terugzoeken zonder dat de client interne details ziet.
+ *
+ * De `errorId` wordt door [ProfielServiceFoutException] zelf gedragen (gegenereerd
+ * op constructie) zodat de service-laag dezelfde id kan loggen in cleanup-paden;
+ * support kan dan vanuit een client-response alle service-side log-regels rond
+ * de fout vinden, niet alleen deze mapper-regel.
  */
 @Provider
 class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutException> {
@@ -23,7 +27,7 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
     private val log = Logger.getLogger(ProfielServiceFoutExceptionMapper::class.java)
 
     override fun toResponse(exception: ProfielServiceFoutException): Response {
-        val errorId = UUID.randomUUID()
+        val errorId = exception.errorId
         // Bewust geen full stacktrace via .warnf(exception, …): de cause-chain van
         // lower-level HTTP-clients kan in randgevallen de upstream-URL bevatten,
         // die de BSN/RSIN/KVK in het pad heeft (extern Profiel-contract). Log alleen

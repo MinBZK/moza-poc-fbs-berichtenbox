@@ -150,7 +150,10 @@ class BerichtensessiecacheService(
             // de juiste foutclassificatie (timeout vs onbereikbaar).
             resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(outerAwaitSeconds))
         } catch (ex: ProfielServiceFoutException) {
-            cleanupLockMetFoutStatus(cacheKey, "profiel-service-fout: ${ex.categorie.name}")
+            // Geef ex.errorId mee zodat de cleanup-log dezelfde id draagt als de
+            // mapper-respons (Problem.instance = urn:uuid:<errorId>); support kan
+            // dan vanuit een client-side 503 alle service-side regels vinden.
+            cleanupLockMetFoutStatus(cacheKey, "profiel-service-fout: ${ex.categorie.name}", ex.errorId)
             throw ex
         } catch (ex: InterruptedException) {
             // Pod-graceful-shutdown of test-cancellation. Interrupt-flag herstellen
@@ -173,9 +176,14 @@ class BerichtensessiecacheService(
                 ex is java.util.concurrent.TimeoutException
 
             if (isOuterTimeout) {
-                log.errorf(ex, "Resolver await overschreed outer-budget (%ds) voor key=%s", outerAwaitSeconds, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "resolver outer-await timeout")
-                throw ProfielServiceFoutException.resolverMislukt(ex)
+                // Bouw eerst de exception (genereert errorId) zodat we 'm aan zowel de
+                // root-cause-log als de cleanup-log kunnen meegeven; mapper hergebruikt
+                // dezelfde id voor Problem.instance.
+                val foutException = ProfielServiceFoutException.resolverMislukt(ex)
+
+                log.errorf(ex, "Resolver await overschreed outer-budget (%ds) (errorId=%s) voor key=%s", outerAwaitSeconds, foutException.errorId, cacheKey)
+                cleanupLockMetFoutStatus(cacheKey, "resolver outer-await timeout", foutException.errorId)
+                throw foutException
             }
 
             log.errorf(ex, "Onverwachte fout in resolver-await voor key=%s (cause=%s)", cacheKey, ex.javaClass.simpleName)
@@ -467,14 +475,27 @@ class BerichtensessiecacheService(
      * @param oorzaak korte oorzaak-omschrijving voor de log; zichtbaar zowel bij geslaagde
      *   cleanup (warn met context welke ophaal-fout de lock vrijgaf) als bij cleanup-fail.
      */
-    private fun cleanupLockMetFoutStatus(cacheKey: String, oorzaak: String) {
+    /**
+     * @param errorId optionele correlatie-id. Wanneer de caller een [ProfielServiceFoutException]
+     *   afhandelt geeft hij `ex.errorId` mee zodat support een client-side
+     *   `urn:uuid:<errorId>` (uit `Problem.instance`) direct kan correleren naar deze
+     *   cleanup-logregel én naar de root-cause-logregel hieronder. Voor non-Profiel
+     *   foutpaden (Redis-blip, onverwachte Exception) genereert de helper zelf een
+     *   nieuwe id zodat ook die fouten een correlatie-anker krijgen in `[ALERT
+     *   cache_doublefail]`-routing.
+     */
+    private fun cleanupLockMetFoutStatus(
+        cacheKey: String,
+        oorzaak: String,
+        errorId: java.util.UUID = java.util.UUID.randomUUID(),
+    ) {
         try {
             berichtenCache.storeAggregationStatus(
                 cacheKey,
                 AggregationStatus(status = OphalenStatus.FOUT),
             ).await().atMost(Duration.ofSeconds(5))
 
-            log.warnf("Lock vrijgegeven na fout voor key=%s: %s", cacheKey, oorzaak)
+            log.warnf("Lock vrijgegeven na fout (errorId=%s) voor key=%s: %s", errorId, cacheKey, oorzaak)
         } catch (cleanupEx: Exception) {
             // FATAL + ALERT-marker: oorspronkelijke fout PLUS cleanup-fail = lock blijft
             // tot Redis-TTL hangen, ontvanger 60s onbedienbaar. Zelfde marker als het
@@ -483,7 +504,8 @@ class BerichtensessiecacheService(
             // onder de radar blijven van de log-aggregator-rules.
             log.fatalf(
                 cleanupEx,
-                "[ALERT cache_doublefail] Lock-cleanup na fout mislukt voor key=%s: %s — lock leunt op TTL",
+                "[ALERT cache_doublefail] Lock-cleanup na fout mislukt (errorId=%s) voor key=%s: %s — lock leunt op TTL",
+                errorId,
                 cacheKey,
                 oorzaak,
             )

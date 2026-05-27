@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.common.profiel
 
+import java.util.UUID
+
 /**
  * Gegooid wanneer de Profiel Service onbereikbaar is of een onleesbare respons gaf.
  * Wordt door [ProfielServiceFoutExceptionMapper] vertaald naar HTTP 503 Problem JSON
@@ -9,10 +11,17 @@ package nl.rijksoverheid.moz.fbs.common.profiel
  * alle messages zijn statisch zodat de mapper-log/detail geen call-site-injecties bevat.
  * [categorie] is verplicht zodat log-aggregatie (Loki/CloudWatch) per fault-mode kan
  * filteren zonder regex op message; [httpStatus] alleen gezet bij `UPSTREAM_ERROR`.
+ *
+ * [errorId] wordt bij constructie gegenereerd zodat de service-laag (cleanup-paden,
+ * orchestratie-logs) dezelfde id kan loggen die de mapper later in `Problem.instance`
+ * en de mapper-log neerzet. Daardoor kan support een client-side `urn:uuid:<errorId>`
+ * direct correleren naar alle service-log-regels rond de fout (cleanup + root-cause),
+ * niet alleen de mapper-regel.
  */
 class ProfielServiceFoutException private constructor(
     val categorie: Categorie,
     val httpStatus: Int? = null,
+    val errorId: UUID = UUID.randomUUID(),
     message: String,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause) {
