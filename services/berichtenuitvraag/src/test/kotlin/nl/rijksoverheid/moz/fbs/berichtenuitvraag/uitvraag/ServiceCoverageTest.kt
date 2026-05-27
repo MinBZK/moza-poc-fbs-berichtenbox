@@ -81,7 +81,7 @@ class ServiceCoverageTest {
                     aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""),
+                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""),
                 ),
         )
 
@@ -130,7 +130,7 @@ class ServiceCoverageTest {
             .statusCode(404)
     }
 
-    private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "default") {
+    private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "magazijn-a") {
         WireMockBackendsResource.sessiecache!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId"))
                 .willReturn(

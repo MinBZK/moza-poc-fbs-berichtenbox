@@ -23,7 +23,7 @@ class BerichtOphaalServiceTest {
     }
     private val service = BerichtOphaalService(sessiecache, router)
 
-    private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "default") {
+    private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "magazijn-a") {
         val bericht = Bericht().apply {
             this.berichtId = berichtId
             this.magazijnId = magazijnId

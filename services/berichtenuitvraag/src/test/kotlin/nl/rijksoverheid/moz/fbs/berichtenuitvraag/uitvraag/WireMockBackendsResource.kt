@@ -31,7 +31,10 @@ class WireMockBackendsResource : QuarkusTestResourceLifecycleManager {
         return mapOf(
             "quarkus.rest-client.\"nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.SessiecacheClient\".url" to s.baseUrl(),
             "quarkus.rest-client.sessiecache-sse.url" to s.baseUrl(),
-            "magazijnen.urls.default" to m.baseUrl(),
+            // Stubs gebruiken `magazijnId="magazijn-a"` (zelfde id als sessiecache-
+            // config); beide endpoints routeren in tests naar dezelfde mock.
+            "magazijnen.urls.magazijn-a" to m.baseUrl(),
+            "magazijnen.urls.magazijn-b" to m.baseUrl(),
         )
     }
 

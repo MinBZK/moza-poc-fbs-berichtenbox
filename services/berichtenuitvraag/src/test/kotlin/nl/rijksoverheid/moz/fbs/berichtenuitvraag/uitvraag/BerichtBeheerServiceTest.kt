@@ -31,12 +31,12 @@ class BerichtBeheerServiceTest {
     private val patch = BerichtPatch().apply { status = BerichtStatus.GELEZEN }
     private val updated = Bericht().apply {
         berichtId = id
-        magazijnId = "default"
+        magazijnId = "magazijn-a"
     }
 
     init {
-        // Default-stub: lookup levert een bericht met `magazijnId=default`; tests
-        // die een ander pad nodig hebben (cache-miss → 404) overrulen deze.
+        // Default-stub: lookup levert een bericht met `magazijnId=magazijn-a`;
+        // tests die een ander pad nodig hebben (cache-miss → 404) overrulen deze.
         every { sessiecache.bericht(any(), id) } returns updated
     }
 

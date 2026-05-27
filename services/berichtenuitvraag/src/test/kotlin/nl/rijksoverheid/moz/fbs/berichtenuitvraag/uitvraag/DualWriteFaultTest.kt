@@ -26,7 +26,7 @@ class DualWriteFaultTest {
         WireMockBackendsResource.magazijn?.resetAll()
         // Default-lookup voor multi-magazijn routering: BerichtBeheerService doet
         // vóór elke patch/verwijder een sessiecache.bericht() om de magazijnId te
-        // bepalen. Wildcard-stub levert "magazijnId=default" voor elk bericht;
+        // bepalen. Wildcard-stub levert `magazijnId="magazijn-a"` voor elk bericht;
         // tests die de cache-miss-tak willen raken kunnen dit overschrijven.
         WireMockBackendsResource.sessiecache!!.stubFor(
             get(urlPathMatching("/api/v1/berichten/[0-9a-fA-F-]{36}"))
@@ -34,7 +34,7 @@ class DualWriteFaultTest {
                     aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"00000000-0000-0000-0000-000000000000","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""),
+                        .withBody("""{"berichtId":"00000000-0000-0000-0000-000000000000","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""),
                 ),
         )
     }
@@ -44,7 +44,7 @@ class DualWriteFaultTest {
     @Test
     fun `PATCH happy-path doet magazijn-eerst dan cache en geeft 200`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""
 
         WireMockBackendsResource.magazijn!!.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
@@ -91,7 +91,7 @@ class DualWriteFaultTest {
     @Test
     fun `PATCH cache-faal na magazijn-OK geeft 502 en triggert invalidate-DELETE`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""
 
         // magazijn OK
         WireMockBackendsResource.magazijn!!.stubFor(
@@ -167,7 +167,7 @@ class DualWriteFaultTest {
         // i.p.v. als 502 maskeren, anders ziet ops "magazijn bijgewerkt" terwijl
         // het probleem in de cache-implementatie zit.
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""
 
         WireMockBackendsResource.magazijn!!.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
@@ -218,7 +218,7 @@ class DualWriteFaultTest {
         // Connection-reset triggert een ProcessingException in de REST-client
         // (geen WAE met status). Dat valt onder "transport-fout" → 502 + invalidate.
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""
 
         WireMockBackendsResource.magazijn!!.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
