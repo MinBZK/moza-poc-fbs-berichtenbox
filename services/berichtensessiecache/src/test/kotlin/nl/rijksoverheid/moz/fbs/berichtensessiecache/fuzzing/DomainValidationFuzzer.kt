@@ -34,6 +34,7 @@ object DomainValidationFuzzer {
                 onderwerp = data.consumeString(200),
                 publicatietijdstip = Instant.now(),
                 magazijnId = data.consumeString(200),
+                aantalBijlagen = data.consumeInt(),
             )
         } catch (_: IllegalArgumentException) {
             return
@@ -42,6 +43,7 @@ object DomainValidationFuzzer {
         check(bericht.ontvanger.isNotBlank()) { "ontvanger moet niet-blank zijn na constructie" }
         check(bericht.onderwerp.isNotBlank()) { "onderwerp moet niet-blank zijn na constructie" }
         check(bericht.magazijnId.isNotBlank()) { "magazijnId moet niet-blank zijn na constructie" }
+        check(bericht.aantalBijlagen >= 0) { "aantalBijlagen moet niet-negatief zijn na constructie" }
     }
 
     private fun fuzzAggregationStatus(data: FuzzedDataProvider) {

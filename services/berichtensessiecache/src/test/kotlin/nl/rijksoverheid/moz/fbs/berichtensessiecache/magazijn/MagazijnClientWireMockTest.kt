@@ -132,7 +132,8 @@ class MagazijnClientWireMockTest {
                                         "ontvanger": "$ontvanger",
                                         "onderwerp": "Test bericht van $magazijnId",
                                         "publicatietijdstip": "2026-03-10T10:00:00Z",
-                                        "magazijnId": "$magazijnId"
+                                        "magazijnId": "$magazijnId",
+                                        "aantalBijlagen": 0
                                     }
                                 ]
                             }

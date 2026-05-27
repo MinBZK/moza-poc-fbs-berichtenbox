@@ -10,6 +10,7 @@ data class Bericht(
     val onderwerp: String,
     val publicatietijdstip: Instant,
     val magazijnId: String,
+    val aantalBijlagen: Int,
     val status: String? = null,
 ) {
     init {
@@ -17,5 +18,6 @@ data class Bericht(
         require(ontvanger.isNotBlank()) { "ontvanger mag niet leeg zijn" }
         require(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }
         require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
+        require(aantalBijlagen >= 0) { "aantalBijlagen mag niet negatief zijn" }
     }
 }

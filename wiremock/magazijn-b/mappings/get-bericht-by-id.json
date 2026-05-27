@@ -14,7 +14,8 @@
       "ontvanger": "{{request.headers.X-Ontvanger}}",
       "onderwerp": "Vergunning omgevingswet",
       "publicatietijdstip": "2026-03-10T10:00:00Z",
-      "magazijnId": "magazijn-b"
+      "magazijnId": "magazijn-b",
+      "aantalBijlagen": 3
     }
   }
 }

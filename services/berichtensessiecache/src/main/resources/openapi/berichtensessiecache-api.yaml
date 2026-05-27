@@ -327,6 +327,7 @@ components:
         - onderwerp
         - publicatietijdstip
         - magazijnId
+        - aantalBijlagen
       properties:
         berichtId:
           type: string
@@ -348,6 +349,10 @@ components:
         magazijnId:
           type: string
           description: ID van het bronmagazijn
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+          description: Aantal bijlagen bij het bericht (overgenomen uit het magazijn).
         status:
           $ref: '#/components/schemas/BerichtStatus'
         _links:
@@ -484,6 +489,7 @@ components:
         - onderwerp
         - publicatietijdstip
         - magazijnId
+        - aantalBijlagen
       properties:
         berichtId:
           type: string
@@ -499,6 +505,10 @@ components:
           format: date-time
         magazijnId:
           type: string
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+          description: Aantal bijlagen bij het bericht (overgenomen uit het magazijn).
         status:
           $ref: '#/components/schemas/BerichtStatus'
         _links:
@@ -521,6 +531,7 @@ components:
         - onderwerp
         - publicatietijdstip
         - magazijnId
+        - aantalBijlagen
       properties:
         berichtId:
           type: string
@@ -542,6 +553,10 @@ components:
         magazijnId:
           type: string
           description: ID van het bronmagazijn
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+          description: Aantal bijlagen bij het bericht (overgenomen uit het magazijn).
 
     Problem:
       type: object

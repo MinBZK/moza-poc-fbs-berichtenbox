@@ -283,6 +283,7 @@ class BerichtensessiecacheResourceTest {
             .body("ontvanger", `is`("999993653"))
             .body("onderwerp", `is`("Test bericht 1"))
             .body("magazijnId", `is`("magazijn-a"))
+            .body("aantalBijlagen", `is`(0))
     }
 
     @Test
@@ -568,7 +569,8 @@ class BerichtensessiecacheResourceTest {
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")
@@ -576,6 +578,7 @@ class BerichtensessiecacheResourceTest {
             .statusCode(201)
             .body("berichtId", `is`("55555555-5555-5555-5555-555555555555"))
             .body("onderwerp", `is`("Nieuw bericht"))
+            .body("aantalBijlagen", `is`(0))
     }
 
     @Test
@@ -592,7 +595,8 @@ class BerichtensessiecacheResourceTest {
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")
@@ -614,7 +618,8 @@ class BerichtensessiecacheResourceTest {
                     "ontvanger": "999993653",
                     "onderwerp": "Nieuw bericht",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")
@@ -635,7 +640,8 @@ class BerichtensessiecacheResourceTest {
                     "ontvanger": "999993653",
                     "onderwerp": "Nieuw bericht",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")

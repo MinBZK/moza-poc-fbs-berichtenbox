@@ -132,7 +132,8 @@ class OpenApiContractTest {
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Contract test bericht",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")
@@ -231,7 +232,8 @@ class OpenApiContractTest {
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Test",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")

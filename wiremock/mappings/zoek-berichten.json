@@ -21,7 +21,8 @@
           "ontvanger": "999993653",
           "onderwerp": "Besluit aanvraag subsidie",
           "publicatietijdstip": "2026-03-10T14:30:00Z",
-          "magazijnId": "magazijn-a"
+          "magazijnId": "magazijn-a",
+          "aantalBijlagen": 1
         }
       ],
       "totalElements": 1,

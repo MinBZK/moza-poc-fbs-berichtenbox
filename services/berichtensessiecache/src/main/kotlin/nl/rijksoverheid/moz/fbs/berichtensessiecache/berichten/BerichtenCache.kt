@@ -303,6 +303,7 @@ class RedisBerichtenCache(
         put("onderwerp", bericht.onderwerp)
         put("publicatietijdstip", bericht.publicatietijdstip.toString())
         put("magazijnId", bericht.magazijnId)
+        put("aantalBijlagen", bericht.aantalBijlagen.toString())
         bericht.status?.let { put("status", it) }
     }
 
@@ -313,6 +314,9 @@ class RedisBerichtenCache(
         onderwerp = fields["onderwerp"]!!,
         publicatietijdstip = Instant.parse(fields["publicatietijdstip"]!!),
         magazijnId = fields["magazijnId"]!!,
+        // Backwards-compat: ontbrekend `aantalBijlagen`-veld in oude hash-entries valt
+        // terug op 0; nieuwe `store`/`addBericht` schrijven het altijd mee.
+        aantalBijlagen = fields["aantalBijlagen"]?.toInt() ?: 0,
         status = fields["status"],
     )
 
@@ -323,6 +327,7 @@ class RedisBerichtenCache(
         onderwerp = doc.property("onderwerp").asString(),
         publicatietijdstip = Instant.parse(doc.property("publicatietijdstip").asString()),
         magazijnId = doc.property("magazijnId").asString(),
+        aantalBijlagen = doc.property("aantalBijlagen")?.asString()?.toInt() ?: 0,
         status = doc.property("status")?.asString(),
     )
 

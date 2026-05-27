@@ -21,7 +21,8 @@
           "ontvanger": "{{request.headers.X-Ontvanger}}",
           "onderwerp": "Vergunning omgevingswet",
           "publicatietijdstip": "2026-03-10T10:00:00Z",
-          "magazijnId": "magazijn-b"
+          "magazijnId": "magazijn-b",
+          "aantalBijlagen": 3
         },
         {
           "berichtId": "22222222-aaaa-bbbb-cccc-222222222222",
@@ -29,7 +30,8 @@
           "ontvanger": "{{request.headers.X-Ontvanger}}",
           "onderwerp": "Herinnering WOZ-bezwaar",
           "publicatietijdstip": "2026-03-07T13:20:00Z",
-          "magazijnId": "magazijn-b"
+          "magazijnId": "magazijn-b",
+          "aantalBijlagen": 0
         }
       ]
     }

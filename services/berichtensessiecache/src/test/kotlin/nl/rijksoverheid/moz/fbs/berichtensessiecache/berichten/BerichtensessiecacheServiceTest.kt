@@ -109,5 +109,6 @@ class BerichtensessiecacheServiceTest {
         onderwerp = "Test bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
+        aantalBijlagen = 0,
     )
 }

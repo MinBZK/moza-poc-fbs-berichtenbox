@@ -15,6 +15,7 @@ class BerichtTest {
         onderwerp = "Test bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
+        aantalBijlagen = 0,
     )
 
     @Test
@@ -54,5 +55,13 @@ class BerichtTest {
             geldigBericht.copy(magazijnId = "")
         }
         assertEquals("magazijnId mag niet leeg zijn", ex.message)
+    }
+
+    @Test
+    fun `negatief aantalBijlagen wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            geldigBericht.copy(aantalBijlagen = -1)
+        }
+        assertEquals("aantalBijlagen mag niet negatief zijn", ex.message)
     }
 }

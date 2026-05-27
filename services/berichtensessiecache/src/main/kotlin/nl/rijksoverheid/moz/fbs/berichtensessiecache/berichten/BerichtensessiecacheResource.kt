@@ -176,6 +176,7 @@ class BerichtensessiecacheResource(
             onderwerp = berichtInput.onderwerp,
             publicatietijdstip = berichtInput.publicatietijdstip,
             magazijnId = berichtInput.magazijnId,
+            aantalBijlagen = berichtInput.aantalBijlagen,
         )
 
         val result = awaitOrServiceUnavailable {
@@ -284,6 +285,7 @@ class BerichtensessiecacheResource(
             onderwerp = this@toApiModel.onderwerp
             publicatietijdstip = this@toApiModel.publicatietijdstip
             magazijnId = this@toApiModel.magazijnId
+            aantalBijlagen = this@toApiModel.aantalBijlagen
             status = this@toApiModel.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiModel.berichtId}") }
@@ -300,6 +302,7 @@ class BerichtensessiecacheResource(
             onderwerp = this@toResponse.onderwerp
             publicatietijdstip = this@toResponse.publicatietijdstip
             magazijnId = this@toResponse.magazijnId
+            aantalBijlagen = this@toResponse.aantalBijlagen
             status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toResponse.berichtId}") }

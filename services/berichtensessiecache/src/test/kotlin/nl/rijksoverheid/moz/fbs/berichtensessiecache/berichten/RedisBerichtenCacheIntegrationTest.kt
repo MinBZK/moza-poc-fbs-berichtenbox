@@ -31,6 +31,7 @@ class RedisBerichtenCacheIntegrationTest {
             onderwerp = "Eerste bericht over belastingaangifte",
             publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
+            aantalBijlagen = 0,
         ),
         Bericht(
             berichtId = UUID.randomUUID(),
@@ -39,6 +40,7 @@ class RedisBerichtenCacheIntegrationTest {
             onderwerp = "Tweede bericht over subsidie",
             publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
+            aantalBijlagen = 2,
         ),
         Bericht(
             berichtId = UUID.randomUUID(),
@@ -47,6 +49,7 @@ class RedisBerichtenCacheIntegrationTest {
             onderwerp = "Derde bericht over vergunning",
             publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
+            aantalBijlagen = 1,
         ),
     )
 
@@ -114,6 +117,7 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(original.onderwerp, retrieved.onderwerp)
         assertEquals(original.publicatietijdstip, retrieved.publicatietijdstip)
         assertEquals(original.magazijnId, retrieved.magazijnId)
+        assertEquals(original.aantalBijlagen, retrieved.aantalBijlagen)
     }
 
     @Test
@@ -158,6 +162,7 @@ class RedisBerichtenCacheIntegrationTest {
             onderwerp = "Nieuw bericht",
             publicatietijdstip = Instant.parse("2026-03-10T14:00:00Z"),
             magazijnId = "magazijn-c",
+            aantalBijlagen = 3,
         )
         berichtenCache.addBericht(nieuwBericht).await().indefinitely()
 
