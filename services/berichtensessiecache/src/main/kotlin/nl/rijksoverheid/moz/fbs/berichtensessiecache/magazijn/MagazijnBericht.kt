@@ -10,7 +10,9 @@ import java.util.UUID
 /**
  * Vorm van een bericht zoals het magazijn het levert: `ontvanger` is een
  * getypeerd object (`{type, waarde}`). De cache-[Bericht] gebruikt een plain
- * string als ontvanger — [toBericht] vlakt het object naar `waarde`.
+ * string als ontvanger — [toBericht] formatteert het object als
+ * `"TYPE:waarde"` (consistent met de `X-Ontvanger`-header), zodat reads via
+ * de header dezelfde sleutel raken als writes via een magazijn-call.
  *
  * Bestaat naast cache-[Bericht] zodat Jackson-deserialisatie matcht met de
  * magazijn-spec zonder dat het cache-domein de getypeerde vorm hoeft te
@@ -36,7 +38,7 @@ data class MagazijnBericht(
     fun toBericht(magazijnId: String): Bericht = Bericht(
         berichtId = berichtId,
         afzender = afzender,
-        ontvanger = ontvanger.waarde,
+        ontvanger = "${ontvanger.type}:${ontvanger.waarde}",
         onderwerp = onderwerp,
         inhoud = inhoud,
         publicatietijdstip = publicatietijdstip,

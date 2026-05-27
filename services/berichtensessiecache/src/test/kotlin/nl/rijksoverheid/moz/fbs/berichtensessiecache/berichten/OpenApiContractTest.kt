@@ -49,7 +49,7 @@ class OpenApiContractTest {
             .build()
     )
 
-    private val ontvanger = "999993653"
+    private val ontvanger = "BSN:999993653"
 
     @BeforeEach
     fun setUp() {

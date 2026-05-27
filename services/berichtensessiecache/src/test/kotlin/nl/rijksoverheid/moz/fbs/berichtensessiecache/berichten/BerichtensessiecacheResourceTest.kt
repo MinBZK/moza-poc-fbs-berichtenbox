@@ -265,7 +265,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert bericht uit cache met correcte velden`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         // Eerst ophalen zodat berichten in cache komen
         given()
@@ -283,7 +283,7 @@ class BerichtensessiecacheResourceTest {
             .statusCode(200)
             .body("berichtId", `is`("11111111-1111-1111-1111-111111111111"))
             .body("afzender", `is`("00000001234567890000"))
-            .body("ontvanger", `is`("999993653"))
+            .body("ontvanger", `is`("BSN:999993653"))
             .body("onderwerp", `is`("Test bericht 1"))
             .body("magazijnId", `is`("magazijn-a"))
             .body("aantalBijlagen", `is`(0))
@@ -293,7 +293,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET berichten lijst-respons bevat geen inhoud of bijlagen op samenvatting`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -329,7 +329,7 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
 
-        // Bericht bestaat in cache maar hoort bij ontvanger "999993653", niet bij eigenOntvanger
+        // Bericht bestaat in cache maar hoort bij ontvanger "BSN:999993653", niet bij eigenOntvanger
         given()
             .header("X-Ontvanger", eigenOntvanger)
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
@@ -464,7 +464,7 @@ class BerichtensessiecacheResourceTest {
         "bekeken,   400",
     )
     fun `PATCH bericht status validatie`(status: String, expectedHttpStatus: Int) {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -506,7 +506,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH malformed JSON-body retourneert 400 problem+json`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -556,7 +556,7 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
 
-        // Bericht hoort bij "999993653", niet bij eigenOntvanger
+        // Bericht hoort bij "BSN:999993653", niet bij eigenOntvanger
         given()
             .header("X-Ontvanger", eigenOntvanger)
             .contentType("application/merge-patch+json")
@@ -580,7 +580,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH alleen status update wijzigt status laat map ongemoeid`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -609,7 +609,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH alleen map update wijzigt map laat status ongemoeid`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -638,7 +638,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH status en map gecombineerd wijzigt beide velden`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -658,7 +658,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH met lege body retourneert 400`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -680,7 +680,7 @@ class BerichtensessiecacheResourceTest {
     fun `PATCH met te lange map retourneert 400`() {
         // Bean Validation (@Size(max=64) op de DTO-getter, geactiveerd via @Valid in de
         // gegenereerde JAX-RS interface) vangt dit af vóór de resource-body draait.
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -703,7 +703,7 @@ class BerichtensessiecacheResourceTest {
     fun `PATCH met lege map retourneert 400`() {
         // Bean Validation (@Size(min=1) op de DTO-getter) vangt dit af; zie ook
         // `PATCH met te lange map retourneert 400`.
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -725,7 +725,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `DELETE bestaand bericht retourneert 204 en daarna GET retourneert 404`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -760,7 +760,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `DELETE met andere ontvanger retourneert 204 en lekt niet`() {
-        // Bericht 11111111 hoort bij ontvanger "999993653". Een DELETE met een andere
+        // Bericht 11111111 hoort bij ontvanger "BSN:999993653". Een DELETE met een andere
         // ontvanger moet idempotent 204 retourneren (geen 404 — anders zou een aanvaller
         // berichten-bestaan kunnen probe-en), én het bericht moet bewaard blijven.
         val anderOntvanger = "delete-mismatch-${System.nanoTime()}"
@@ -771,7 +771,7 @@ class BerichtensessiecacheResourceTest {
             .then().statusCode(200)
 
         given()
-            .header("X-Ontvanger", "999993653")
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then().statusCode(200)
 
@@ -782,7 +782,7 @@ class BerichtensessiecacheResourceTest {
 
         // Bericht moet nog steeds te benaderen zijn voor de échte ontvanger
         given()
-            .header("X-Ontvanger", "999993653")
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then().statusCode(200)
     }
