@@ -15,6 +15,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtStatus as ApiBerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtStatusUpdate
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtensessiecacheResponse
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BijlageSamenvatting as ApiBijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.PaginationLinks
 import org.jboss.logging.Logger
@@ -127,14 +128,52 @@ class BerichtensessiecacheResource(
 
         val ontvanger = requireOntvanger(xOntvanger)
 
+        // `status` is sinds Batch A optioneel in de spec; `minProperties: 1` zou een lege
+        // body al moeten weren, maar een onbekende enum-waarde komt door Jackson als `null`
+        // binnen (geen `@NotNull` meer afdwingbaar). Tot Batch B de volledige status+map
+        // merge-PATCH implementeert, vangen we die hier expliciet af als 400.
+        if (berichtStatusUpdate.status == null && berichtStatusUpdate.map == null) {
+            throw WebApplicationException(
+                "Minimaal één van 'status' of 'map' is vereist (geen geldige waarde meegegeven).",
+                Response.Status.BAD_REQUEST,
+            )
+        }
+
+        // Batch A laat alleen status-PATCH werken; map-PATCH komt in Batch B. Tot dan: 400 als
+        // alleen `map` is meegegeven, zodat callers geen impliciete no-op krijgen.
+        val nieuweStatus = berichtStatusUpdate.status ?: throw WebApplicationException(
+            "Alleen 'status'-PATCH is in deze versie ondersteund; 'map'-PATCH volgt.",
+            Response.Status.BAD_REQUEST,
+        )
+
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, berichtStatusUpdate.status.toString())
+            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, nieuweStatus.toString())
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )
 
         logboekContext.status = StatusCode.OK
         return bericht.toResponse()
+    }
+
+    @Logboek(
+        name = "verwijderen-bericht",
+        processingActivityId = "https://register.example.com/verwerkingen/bericht-verwijderen",
+    )
+    override fun verwijderBericht(berichtId: UUID, xOntvanger: String?) {
+        logboekContext.dataSubjectId = berichtId.toString()
+        logboekContext.dataSubjectType = "berichtId"
+
+        val ontvanger = requireOntvanger(xOntvanger)
+
+        // Idempotent: "niet in cache" is geen fout (TTL kan verlopen zijn, of een andere
+        // instance heeft de dual-write-invalidate al uitgevoerd). Resource gooit dus geen
+        // 404 — de delete-implementatie negeert ontbrekende entries stil.
+        awaitOrServiceUnavailable {
+            berichtensessiecacheService.verwijderBericht(berichtId, ontvanger)
+        }
+
+        logboekContext.status = StatusCode.OK
     }
 
     @Logboek(
@@ -174,9 +213,12 @@ class BerichtensessiecacheResource(
             afzender = berichtInput.afzender,
             ontvanger = berichtInput.ontvanger,
             onderwerp = berichtInput.onderwerp,
+            inhoud = berichtInput.inhoud,
             publicatietijdstip = berichtInput.publicatietijdstip,
             magazijnId = berichtInput.magazijnId,
             aantalBijlagen = berichtInput.aantalBijlagen,
+            bijlagen = berichtInput.bijlagen.orEmpty().map { BijlageSamenvatting(it.bijlageId, it.naam) },
+            map = berichtInput.map,
         )
 
         val result = awaitOrServiceUnavailable {
@@ -283,9 +325,12 @@ class BerichtensessiecacheResource(
             afzender = this@toApiModel.afzender
             ontvanger = this@toApiModel.ontvanger
             onderwerp = this@toApiModel.onderwerp
+            inhoud = this@toApiModel.inhoud
             publicatietijdstip = this@toApiModel.publicatietijdstip
             magazijnId = this@toApiModel.magazijnId
             aantalBijlagen = this@toApiModel.aantalBijlagen
+            bijlagen = this@toApiModel.bijlagen.map { it.toApiModel() }
+            map = this@toApiModel.map
             status = this@toApiModel.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiModel.berichtId}") }
@@ -300,15 +345,24 @@ class BerichtensessiecacheResource(
             afzender = this@toResponse.afzender
             ontvanger = this@toResponse.ontvanger
             onderwerp = this@toResponse.onderwerp
+            inhoud = this@toResponse.inhoud
             publicatietijdstip = this@toResponse.publicatietijdstip
             magazijnId = this@toResponse.magazijnId
             aantalBijlagen = this@toResponse.aantalBijlagen
+            bijlagen = this@toResponse.bijlagen.map { it.toApiModel() }
+            map = this@toResponse.map
             status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toResponse.berichtId}") }
             }
         }
     }
+
+    private fun BijlageSamenvatting.toApiModel(): ApiBijlageSamenvatting =
+        ApiBijlageSamenvatting().apply {
+            bijlageId = this@toApiModel.bijlageId
+            naam = this@toApiModel.naam
+        }
 
     companion object {
         private val TIMEOUT = Duration.ofSeconds(5)

@@ -462,10 +462,10 @@ class BerichtensessiecacheResourceTest {
                 .body("status", `is`(status))
         } else {
             // Ongeldige enum-waarde komt door Jackson's `BerichtStatus.fromValue(...)`
-            // niet door als typed enum, maar als `null`. Bean Validation `@NotNull` op
-            // `BerichtStatusUpdate.status` triggert dan een 400 Problem+JSON via de
-            // ConstraintViolationExceptionMapper. Voor pure malformed JSON zie de
-            // aparte test "PATCH malformed JSON-body".
+            // niet door als typed enum, maar als `null`. Sinds Batch A is `status` optioneel
+            // in de spec (i.v.m. map-PATCH); de resource vangt de "geen geldige status én
+            // geen map"-combinatie expliciet af als 400 Problem+JSON. Voor pure malformed
+            // JSON zie de aparte test "PATCH malformed JSON-body".
             patchSpec
                 .contentType("application/problem+json")
                 .body("status", `is`(400))
@@ -568,6 +568,7 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
+                    "inhoud": "Inhoud nieuw bericht",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a",
                     "aantalBijlagen": 0
@@ -594,6 +595,7 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
+                    "inhoud": "Inhoud zonder sessie",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a",
                     "aantalBijlagen": 0
@@ -617,6 +619,7 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "999993653",
                     "onderwerp": "Nieuw bericht",
+                    "inhoud": "Inhoud",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a",
                     "aantalBijlagen": 0
@@ -639,6 +642,7 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "999993653",
                     "onderwerp": "Nieuw bericht",
+                    "inhoud": "Inhoud",
                     "publicatietijdstip": "2026-03-10T14:00:00Z",
                     "magazijnId": "magazijn-a",
                     "aantalBijlagen": 0

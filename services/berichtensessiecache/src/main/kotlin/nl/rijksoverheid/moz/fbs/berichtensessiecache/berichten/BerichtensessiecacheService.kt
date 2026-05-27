@@ -52,6 +52,11 @@ class BerichtensessiecacheService(
         return berichtenCache.addBericht(bericht).replaceWith(bericht)
     }
 
+    fun verwijderBericht(berichtId: UUID, ontvanger: String): Uni<Void> {
+        log.debugf("Verwijderen bericht uit cache: berichtId=%s", berichtId)
+        return berichtenCache.delete(berichtId, ontvanger)
+    }
+
     /**
      * Orkestreert het ophalen van berichten uit alle magazijnen, slaat ze op in de cache,
      * en retourneert een SSE-compatible Multi met statusevents per magazijn.

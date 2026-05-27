@@ -13,6 +13,7 @@ class BerichtTest {
         afzender = "00000001234567890000",
         ontvanger = "999993653",
         onderwerp = "Test bericht",
+        inhoud = "Inhoud van het bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,
@@ -63,5 +64,62 @@ class BerichtTest {
             geldigBericht.copy(aantalBijlagen = -1)
         }
         assertEquals("aantalBijlagen mag niet negatief zijn", ex.message)
+    }
+
+    @Test
+    fun `lege inhoud is toegestaan voor backwards-compat met oude cache-entries`() {
+        // Bewuste keuze: domein staat lege inhoud toe (oude hash-entries hebben geen
+        // veld; OpenAPI-spec dwingt het wel af op de wire). Hier vooral als regressie-
+        // vangnet zodat de fallback in hashToBericht (`fields["inhoud"] ?: ""`) niet
+        // alsnog een require-fout krijgt.
+        val bericht = geldigBericht.copy(inhoud = "")
+        assertEquals("", bericht.inhoud)
+    }
+
+    @Test
+    fun `te veel bijlagen wordt geweigerd`() {
+        val tooMany = (1..Bericht.MAX_BIJLAGEN + 1).map {
+            BijlageSamenvatting(UUID.randomUUID(), "bijlage-$it.pdf")
+        }
+
+        val ex = assertThrows<IllegalArgumentException> {
+            geldigBericht.copy(bijlagen = tooMany)
+        }
+        assertEquals("Maximaal ${Bericht.MAX_BIJLAGEN} bijlagen per bericht", ex.message)
+    }
+
+    @Test
+    fun `te lange map wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            geldigBericht.copy(map = "x".repeat(Bericht.MAP_MAX_LENGTE + 1))
+        }
+        assertEquals("map-naam moet 1..${Bericht.MAP_MAX_LENGTE} tekens zijn", ex.message)
+    }
+
+    @Test
+    fun `lege map wordt geweigerd`() {
+        assertThrows<IllegalArgumentException> {
+            geldigBericht.copy(map = "")
+        }
+    }
+
+    @Test
+    fun `null map is toegestaan`() {
+        val bericht = geldigBericht.copy(map = null)
+        assertEquals(null, bericht.map)
+    }
+
+    @Test
+    fun `BijlageSamenvatting weigert lege naam`() {
+        assertThrows<IllegalArgumentException> {
+            BijlageSamenvatting(UUID.randomUUID(), "")
+        }
+    }
+
+    @Test
+    fun `BijlageSamenvatting weigert te lange naam`() {
+        assertThrows<IllegalArgumentException> {
+            BijlageSamenvatting(UUID.randomUUID(), "x".repeat(BijlageSamenvatting.NAAM_MAX_LENGTE + 1))
+        }
     }
 }

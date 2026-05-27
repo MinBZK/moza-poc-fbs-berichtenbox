@@ -99,6 +99,17 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().voidItem()
     }
 
+    override fun delete(berichtId: UUID, ontvanger: String): Uni<Void> {
+        val existing = byId[berichtId]
+        if (existing != null && existing.ontvanger == ontvanger) {
+            byId.remove(berichtId)
+            val key = BerichtenCache.cacheKey(ontvanger)
+            val listKey = "$key:list"
+            lists[listKey]?.let { lists[listKey] = it.filter { b -> b.berichtId != berichtId } }
+        }
+        return Uni.createFrom().voidItem()
+    }
+
     override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: String?): Uni<BerichtenPage?> {
         val allBerichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()
         val berichten = if (afzender != null) allBerichten.filter { it.afzender == afzender } else allBerichten
