@@ -98,7 +98,7 @@ class OpenApiContractTest {
                     aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"Test","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
+                        .withBody("""{"berichtId":"$id","onderwerp":"Test","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""),
                 ),
         )
 
@@ -114,7 +114,7 @@ class OpenApiContractTest {
     @Test
     fun `PATCH bericht doet dual-write en levert valide Bericht`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"Test","publicatietijdstip":"2026-05-26T10:00:00Z"}"""
+        val body = """{"berichtId":"$id","onderwerp":"Test","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
         // Magazijn-PATCH OK
         WireMockBackendsResource.magazijn!!.stubFor(
             patch(urlPathMatching("/api/v1/berichten/$id"))
@@ -172,6 +172,16 @@ class OpenApiContractTest {
     fun `GET bijlage streamt bytes met juist Content-Type`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
+        // De service haalt eerst het bericht op om de magazijnId te bepalen.
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichtId":"$berichtId","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""),
+                ),
+        )
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(

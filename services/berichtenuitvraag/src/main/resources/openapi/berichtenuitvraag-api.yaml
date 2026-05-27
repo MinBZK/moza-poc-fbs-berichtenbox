@@ -275,7 +275,7 @@ components:
 
     BerichtSamenvatting:
       type: object
-      required: [berichtId, onderwerp, publicatietijdstip, aantalBijlagen]
+      required: [berichtId, onderwerp, publicatietijdstip, aantalBijlagen, magazijnId]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
@@ -287,11 +287,14 @@ components:
         aantalBijlagen: { type: integer, minimum: 0 }
         map: { type: string }
         status: { $ref: '#/components/schemas/BerichtStatus' }
+        magazijnId:
+          type: string
+          description: Identifier van het decentrale magazijn waar dit bericht is opgeslagen; nodig voor bijlage-routering.
         _links: { $ref: '#/components/schemas/BerichtLinks' }
 
     Bericht:
       type: object
-      required: [berichtId, onderwerp, publicatietijdstip]
+      required: [berichtId, onderwerp, publicatietijdstip, magazijnId]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
@@ -303,6 +306,9 @@ components:
           description: Effectieve publicatie-tijd, overgenomen uit het magazijn
         map: { type: string }
         status: { $ref: '#/components/schemas/BerichtStatus' }
+        magazijnId:
+          type: string
+          description: Identifier van het decentrale magazijn waar dit bericht is opgeslagen; nodig voor bijlage-routering.
         bijlagen:
           type: array
           items: { $ref: '#/components/schemas/BijlageMetadata' }

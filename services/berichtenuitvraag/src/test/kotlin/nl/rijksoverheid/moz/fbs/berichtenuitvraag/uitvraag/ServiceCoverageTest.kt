@@ -81,7 +81,7 @@ class ServiceCoverageTest {
                     aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
+                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""),
                 ),
         )
 
@@ -98,6 +98,7 @@ class ServiceCoverageTest {
     fun `bijlage-error met 5xx vanuit magazijn mapt naar 502 BadGateway`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(503)),
@@ -115,6 +116,7 @@ class ServiceCoverageTest {
     fun `bijlage-error met 404 vanuit magazijn propageert als 404`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(404)),
@@ -126,5 +128,17 @@ class ServiceCoverageTest {
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
             .statusCode(404)
+    }
+
+    private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "default") {
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichtId":"$berichtId","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"$magazijnId"}"""),
+                ),
+        )
     }
 }

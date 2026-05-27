@@ -18,7 +18,20 @@ class BerichtOphaalServiceTest {
 
     private val sessiecache: SessiecacheClient = mockk()
     private val magazijn: MagazijnClient = mockk()
-    private val service = BerichtOphaalService(sessiecache, magazijn)
+    private val router: MagazijnRouter = mockk {
+        every { forMagazijn(any()) } returns magazijn
+    }
+    private val service = BerichtOphaalService(sessiecache, router)
+
+    private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "default") {
+        val bericht = Bericht().apply {
+            this.berichtId = berichtId
+            this.magazijnId = magazijnId
+            this.onderwerp = "X"
+            this.publicatietijdstip = java.time.Instant.parse("2026-05-26T10:00:00Z")
+        }
+        every { sessiecache.bericht(any(), berichtId) } returns bericht
+    }
 
     @Test
     fun `haalBericht delegeert naar sessiecache`() {
@@ -42,6 +55,7 @@ class BerichtOphaalServiceTest {
             every { getHeaderString("Content-Type") } returns "application/pdf"
             every { close() } returns Unit
         }
+        stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
         val (mimeType, content) = service.haalBijlage("BSN:1", berichtId, bijlageId)
@@ -61,6 +75,7 @@ class BerichtOphaalServiceTest {
             every { getHeaderString("Content-Type") } returns "not-a-mime-type"
             every { close() } returns Unit
         }
+        stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
         val (mimeType, _) = service.haalBijlage("BSN:1", berichtId, bijlageId)
@@ -77,6 +92,7 @@ class BerichtOphaalServiceTest {
             every { status } returns 503
             every { close() } returns Unit
         }
+        stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
         val ex = assertThrows(WebApplicationException::class.java) {
@@ -93,6 +109,7 @@ class BerichtOphaalServiceTest {
             every { status } returns 404
             every { close() } returns Unit
         }
+        stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
         assertThrows(NotFoundException::class.java) {
@@ -108,6 +125,7 @@ class BerichtOphaalServiceTest {
             every { status } returns 403
             every { close() } returns Unit
         }
+        stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
         assertThrows(ForbiddenException::class.java) {
@@ -123,6 +141,7 @@ class BerichtOphaalServiceTest {
             every { status } returns 401
             every { close() } returns Unit
         }
+        stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
         assertThrows(NotAuthorizedException::class.java) {
@@ -139,6 +158,7 @@ class BerichtOphaalServiceTest {
             every { getHeaderString("Content-Type") } returns null
             every { close() } returns Unit
         }
+        stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
         val ex = assertThrows(WebApplicationException::class.java) {

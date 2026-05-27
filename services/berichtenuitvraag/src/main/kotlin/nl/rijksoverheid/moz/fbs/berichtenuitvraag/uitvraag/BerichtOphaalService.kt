@@ -23,16 +23,29 @@ import java.util.UUID
  * (zodat de OpenAPI-belofte van 404 en de LDV-audittrail klopt), 5xx mapt naar
  * 502 (downstream-faal). De catch-all `InternalServerErrorException` blijft
  * gereserveerd voor échte malformed responses (geen Content-Type bij 2xx).
+ *
+ * Multi-magazijn routering (bijlage-download): de sessiecache levert per bericht
+ * het bron-`magazijnId`. We halen eerst het bericht-detail op (we vertrouwen de
+ * cache, niet een client-meegegeven id — anders zou een aanvaller bijlages uit
+ * een ander magazijn kunnen opvragen). Daarna routeert [MagazijnRouter] naar de
+ * juiste magazijn-URL voor het downloaden van de bytes.
  */
 @ApplicationScoped
 class BerichtOphaalService(
     @RestClient private val sessiecache: SessiecacheClient,
-    @RestClient private val magazijn: MagazijnClient,
+    private val magazijnRouter: MagazijnRouter,
 ) {
     fun haalBericht(xOntvanger: String, berichtId: UUID): Bericht =
         sessiecache.bericht(xOntvanger, berichtId)
 
     fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): Pair<String, ByteArray> {
+        // Lookup-then-route: cache is authoritative voor welke magazijn de
+        // bron is. De extra round-trip is acceptabel: Redis-cache is snel en
+        // het bericht-detail is hoe dan ook nodig om de bijlage-toegang te
+        // autoriseren (404 op cache → 404 op uitvraag i.p.v. lekken via 502).
+        val bericht = sessiecache.bericht(xOntvanger, berichtId)
+        val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
+
         // De Quarkus REST-client gooit zelf al een WAE bij upstream >=400 (ook
         // wanneer de signature `Response` retourneert via de default exception-
         // mapper). Vang dat hier en hermap zodat 401/403/404 1-op-1 propageren

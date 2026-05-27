@@ -29,7 +29,7 @@ class DualWriteFaultTest {
     @Test
     fun `PATCH happy-path doet magazijn-eerst dan cache en geeft 200`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
 
         WireMockBackendsResource.magazijn!!.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
@@ -76,7 +76,7 @@ class DualWriteFaultTest {
     @Test
     fun `PATCH cache-faal na magazijn-OK geeft 502 en triggert invalidate-DELETE`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
 
         // magazijn OK
         WireMockBackendsResource.magazijn!!.stubFor(
@@ -152,7 +152,7 @@ class DualWriteFaultTest {
         // i.p.v. als 502 maskeren, anders ziet ops "magazijn bijgewerkt" terwijl
         // het probleem in de cache-implementatie zit.
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
 
         WireMockBackendsResource.magazijn!!.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
@@ -203,7 +203,7 @@ class DualWriteFaultTest {
         // Connection-reset triggert een ProcessingException in de REST-client
         // (geen WAE met status). Dat valt onder "transport-fout" → 502 + invalidate.
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""
 
         WireMockBackendsResource.magazijn!!.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
