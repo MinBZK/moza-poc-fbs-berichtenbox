@@ -1,0 +1,68 @@
+@startuml
+set separator none
+title Berichtenmagazijn (per deelnemende organisatie) - Bericht Validatie Service - Components
+
+top to bottom direction
+skinparam ranksep 60
+skinparam nodesep 30
+
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
+}
+
+hide stereotype
+
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<ProfielService>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> {
+  BorderColor #2d8a4e
+  FontColor #2d8a4e
+  shadowing false
+}
+
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
+rectangle "==Berichtenmagazijn Aanlever API\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nREST API voor het aanleveren van berichten door organisaties" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI
+
+rectangle "Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService>> {
+  rectangle "==Validatie API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoint voor berichtvalidatie" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI
+  rectangle "==Technische Validatie\n<size:10>[Component: CDI Bean]</size>\n\nValideert PDF-type, grootte en aantal bijlagen" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie
+  rectangle "==Toestemming Controle\n<size:10>[Component: CDI Bean]</size>\n\nControleert of de ontvanger toestemming gegeven heeft voor digitale communicatie" <<Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle>> as Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle
+}
+
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.TechnischeValidatie : "<color:#707070>Valideert technische eisen\n<color:#707070><size:8>[CDI]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ToestemmingControle : "<color:#707070>Controleert toestemming\n<color:#707070><size:8>[CDI]</size>"
+Berichtenmagazijnperdeelnemendeorganisatie.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie.BerichtValidatieService.ValidatieAPI : "<color:#707070>Stuurt bericht ter validatie\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
+@enduml
