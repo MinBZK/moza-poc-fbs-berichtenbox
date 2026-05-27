@@ -654,23 +654,20 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `classifyMagazijnFault termineert binnen 1s op circular cause-chain`() {
-        // hasCauseOf en findCauseOf moeten via IdentityHashMap een cycle detecteren
-        // (e1.initCause(e2); e2.initCause(e1)). Zonder seen-set zou de cause-walk
-        // oneindig loopen → worker-thread vast → SSE hangt. assertTimeoutPreemptively
-        // killt de test bij regressie i.p.v. de hele suite te laten hangen.
-        val e1 = RuntimeException("first")
-        val e2 = RuntimeException("second")
-        e1.initCause(e2)
-        // initCause weigert self-cycle direct; bouwen via reflectie zou nog kunnen,
-        // maar mutual cycle is voldoende voor regressie-vangnet.
-        val fakeCircular = object : Throwable("circular") {
+        // Zonder seen-set zou cause-walk oneindig loopen → SSE-stream vast.
+        // Twee cycle-varianten: self-cycle (test-mock) + mutual cycle (proxy-wrap).
+        val selfCycle = object : Throwable("self") {
             override val cause: Throwable get() = this
         }
 
+        val e1 = RuntimeException("first")
+        val e2 = RuntimeException("second")
+        e1.initCause(e2)
+        e2.initCause(e1)
+
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
-            service.classifyMagazijnFault(fakeCircular)
+            service.classifyMagazijnFault(selfCycle)
         }
-        // Ook met mutual cycle moet classifier termineren.
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
             service.classifyMagazijnFault(e1)
         }

@@ -36,7 +36,9 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
         // af in een SSE-OPHALEN_FOUT-pad; deze mapper-tak is defense-in-depth voor
         // paden waar het exception buiten de service-catch doorlekt.
         if (exception.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
+            // Stacktrace meegeven onthult welk call-site bypass deed (server-side log).
             log.errorf(
+                exception,
                 "Config-drift naar mapper-pad doorgelekt (errorId=%s) — service-catch zou dit normaal opvangen",
                 errorId,
             )

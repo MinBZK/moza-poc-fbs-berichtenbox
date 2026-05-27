@@ -153,23 +153,24 @@ class ProfielMagazijnResolver(
             }
         }
 
-        // 100%-effective-empty bij non-empty opt-ins → gestructureerde fout zodat caller
-        // OPHALEN_FOUT kan emitten i.p.v. silent OPHALEN_GEREED met 0 berichten.
-        // Onderscheid in log tussen "alle parses faalden" (upstream-data-issue) en
-        // "alle valid OINs onbekend bij config" (echte config-drift).
+        // 100%-effective-empty → gestructureerde fout (geen silent GEREED).
+        // Onderscheid log "alle parses faalden" (upstream-issue) vs "alle valid OINs
+        // onbekend" (drift). Exception eerst zodat errorf+mapper+cleanup dezelfde id dragen.
         if (totaal > 0 && result.isEmpty()) {
+            val foutException = ProfielServiceFoutException.configDrift()
+
             if (driftSkips > 0) {
                 log.errorf(
-                    "Config-drift: %d van %d opted-in afzender-OIN(s) onbekend bij magazijn-config (ongeldig=%d)",
-                    driftSkips, totaal, ongeldig,
+                    "Config-drift (errorId=%s): %d van %d opted-in afzender-OIN(s) onbekend bij magazijn-config (ongeldig=%d)",
+                    foutException.errorId, driftSkips, totaal, ongeldig,
                 )
             } else {
                 log.errorf(
-                    "Upstream-data-issue: alle %d opted-in afzender-OIN(s) ongeldig — Profiel-respons gecorrumpeerd?",
-                    totaal,
+                    "Upstream-data-issue (errorId=%s): alle %d opted-in afzender-OIN(s) ongeldig — Profiel-respons gecorrumpeerd?",
+                    foutException.errorId, totaal,
                 )
             }
-            throw ProfielServiceFoutException.configDrift()
+            throw foutException
         }
 
         return result

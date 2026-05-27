@@ -177,13 +177,13 @@ class BerichtensessiecacheService(
             // OPHALEN_FOUT i.p.v. 503 zodat client weet "geen ophaling mogelijk", niet
             // "Profiel offline, retry over 30s". Cache wordt NIET overschreven met empty.
             if (ex.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
-                // errorId in foutmelding zodat support de cleanup-log + resolver-log kan
-                // correleren (cleanupLockMetFoutStatus gebruikt dezelfde ex.errorId).
+                // referentie correleert naar cleanup-log + resolver-log.
                 return Multi.createFrom().item(
                     MagazijnEvent(
                         event = EventType.OPHALEN_FOUT,
                         totaalMagazijnen = 0,
-                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: ${ex.errorId})",
+                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder",
+                        referentie = ex.errorId.toString(),
                     ),
                 )
             }
@@ -494,34 +494,32 @@ class BerichtensessiecacheService(
     }
 
     /**
-     * Cause-chain walker met cycle-protection (IdentityHashMap). Mutiny wrapt failures,
-     * dus directe `instanceof` matched de echte cause niet; circular causes komen
-     * zeldzaam voor via proxy-exceptions of test-mocks. Geeft de eerste match terug
-     * of `null`.
+     * Cause-chain walker met cycle-protection (IdentityHashMap) + depth-cap.
+     * Eén bron-van-waarheid; depth-cap dekt pathologische `cause`-getters die
+     * per call een nieuw wrapper teruggeven (IdentityHashMap zou anders groeien).
      */
-    private inline fun <reified T : Throwable> Throwable.findCauseOf(): T? {
+    private fun Throwable.findCauseOfClass(cls: Class<*>): Throwable? {
         val seen = java.util.IdentityHashMap<Throwable, Unit>()
         var cur: Throwable? = this
+        var depth = 0
 
-        while (cur != null && seen.put(cur, Unit) == null) {
-            if (cur is T) return cur
+        while (cur != null && depth < MAX_CAUSE_DEPTH && seen.put(cur, Unit) == null) {
+            if (cls.isInstance(cur)) return cur
             cur = cur.cause
+            depth++
         }
 
         return null
     }
 
-    /** Convenience: of de cause-chain een [cls]-instance bevat. Gebruikt [findCauseOf] onder. */
-    private fun Throwable.hasCauseOf(cls: Class<*>): Boolean {
-        val seen = java.util.IdentityHashMap<Throwable, Unit>()
-        var cur: Throwable? = this
+    private inline fun <reified T : Throwable> Throwable.findCauseOf(): T? =
+        @Suppress("UNCHECKED_CAST")
+        (findCauseOfClass(T::class.java) as T?)
 
-        while (cur != null && seen.put(cur, Unit) == null) {
-            if (cls.isInstance(cur)) return true
-            cur = cur.cause
-        }
+    private fun Throwable.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
 
-        return false
+    private companion object {
+        private const val MAX_CAUSE_DEPTH = 32
     }
 
     private enum class LockAcquireError { JSON_SERIALIZATION, TIMEOUT, IO_FAULT, INTERRUPTED, UNEXPECTED }
