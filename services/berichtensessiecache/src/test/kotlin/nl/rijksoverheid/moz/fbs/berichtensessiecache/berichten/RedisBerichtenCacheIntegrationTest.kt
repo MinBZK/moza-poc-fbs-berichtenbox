@@ -217,6 +217,34 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `delete bestaand bericht verwijdert ook list-entry`() {
+        // Regressie: list-cache bevat JSON-blobs van berichten (via addBericht.rpush /
+        // store.rpush). `getPage` deserialiseert direct uit die list — zonder list-prune
+        // bleef een verwijderd bericht zichtbaar in `GET /berichten`.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
+        assertNotNull(page)
+        assertEquals(berichten.size - 1, page!!.berichten.size)
+        assertTrue(page.berichten.none { it.berichtId == target.berichtId })
+    }
+
+    @Test
+    fun `delete laatste bericht laat lege list achter`() {
+        val bericht = testBerichten().take(1)
+        berichtenCache.store(cacheKey(), bericht).await().indefinitely()
+
+        berichtenCache.delete(bericht[0].berichtId, ontvanger).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
+        assertNull(page)
+    }
+
+    @Test
     fun `delete onbestaand bericht is no-op`() {
         // Geen exceptie en geen kerneffect — er is simpelweg niets om te verwijderen.
         berichtenCache.delete(UUID.randomUUID(), ontvanger).await().indefinitely()

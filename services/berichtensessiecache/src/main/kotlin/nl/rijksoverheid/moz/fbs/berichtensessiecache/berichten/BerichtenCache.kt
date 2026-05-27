@@ -399,16 +399,43 @@ class RedisBerichtenCache(
 
     override fun delete(berichtId: UUID, ontvanger: String): Uni<Void> {
         // Idempotent cache-invalidate: ontbrekende of niet-bijbehorende entries leveren geen fout op.
-        // De hash-key (DEL) is autoritatief voor de bericht-by-id-lookup en de RediSearch-index;
-        // de eventuele list-entry op de sessie-list raakt vanzelf "verweesd" maar wordt door de
-        // berichtId-hash-miss in getById/getPage genegeerd — opruimen is hier niet nodig.
+        // De sessie-`list` bevat JSON-blobs (gevuld via `addBericht.rpush`) die `getPage` direct
+        // deserialiseert — dus na DEL op de hash blijft het bericht zonder list-prune zichtbaar
+        // in `GET /berichten`. We lezen de list, filteren de matchende `berichtId`-entries eruit
+        // en schrijven de gefilterde list terug binnen één transactie. Robuust onder eventuele
+        // update-staat-mismatches: we filteren op `berichtId` uit de geparseerde JSON, niet op
+        // exacte stringequality.
         val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+        val listKey = listKey(cacheKey)
         return redis.hash(String::class.java).hgetall(berichtKey)
             .chain { fields ->
                 if (fields.isEmpty() || fields["ontvanger"] != ontvanger) {
                     Uni.createFrom().voidItem()
                 } else {
-                    redis.key().del(berichtKey).replaceWithVoid()
+                    redis.list(String::class.java).lrange(listKey, 0, -1)
+                        .chain { entries ->
+                            val gefilterd = entries.filterNot { json ->
+                                runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
+                                    .getOrNull() == berichtId.toString()
+                            }
+                            redis.withTransaction { tx ->
+                                val txKey = tx.key()
+                                val txList = tx.list(String::class.java)
+                                val rebuildList = if (gefilterd.isNotEmpty()) {
+                                    txKey.del(listKey)
+                                        .chain { _ -> txList.rpush(listKey, *gefilterd.toTypedArray()) }
+                                        .chain { _ -> txKey.expire(listKey, ttl) }
+                                        .replaceWithVoid()
+                                } else {
+                                    txKey.del(listKey).replaceWithVoid()
+                                }
+
+                                txKey.del(berichtKey)
+                                    .chain { _ -> rebuildList }
+                                    .replaceWithVoid()
+                            }.replaceWithVoid()
+                        }
                 }
             }
             .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor berichtId=%s", berichtId) }
