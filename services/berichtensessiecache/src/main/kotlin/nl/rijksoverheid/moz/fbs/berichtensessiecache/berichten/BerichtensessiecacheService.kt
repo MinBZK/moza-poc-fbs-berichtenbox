@@ -270,10 +270,17 @@ class BerichtensessiecacheService(
 
                 log.errorf(ex, "(errorId=%s) Store-fout bij lege magazijn-set voor key=%s", errorId, cacheKey)
                 cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set", errorId)
-                // Geen ProfielServiceFoutException: de Profiel-call is geslaagd, de cache-write
-                // faalde. 500 (cache-fout) routeert via ProblemExceptionMapper en
-                // signaleert eigen-infra-issue; 503 met "toestemmingscontrole" zou misleiden.
-                throw WebApplicationException("Interne fout bij opslaan resultaten", 500)
+                // SSE-stream is al actief op dit punt; OPHALEN_FOUT-event geeft de client
+                // dezelfde UX als het aggregatie-faalpad (regel ~448) i.p.v. een mid-stream
+                // HTTP-500. referentie verbindt event naar cleanup-log.
+                return Multi.createFrom().item(
+                    MagazijnEvent(
+                        event = EventType.OPHALEN_FOUT,
+                        totaalMagazijnen = 0,
+                        foutmelding = "Interne fout bij opslaan resultaten",
+                        referentie = errorId.toString(),
+                    ),
+                )
             }
 
             return Multi.createFrom().item(
@@ -421,12 +428,15 @@ class BerichtensessiecacheService(
                         }
                 }
                 .onFailure(Exception::class.java).recoverWithUni { error ->
+                    val errorId = UUID.randomUUID()
+
                     // Eerste fout = store(berichten) of storeAggregationStatus(GEREED) faalde;
-                    // cacheKey + counters in log zodat ops kan correleren naar specifieke sessie.
+                    // cacheKey + counters + errorId in log zodat ops kan correleren naar
+                    // specifieke sessie én naar het MagazijnEvent.referentie veld.
                     log.errorf(
                         error,
-                        "Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
-                        cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                        "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
+                        errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
                     )
                     val foutStatus = AggregationStatus(
                         status = OphalenStatus.FOUT,
@@ -441,8 +451,8 @@ class BerichtensessiecacheService(
                         .onFailure().invoke { e ->
                             log.fatalf(
                                 e,
-                                "[ALERT cache_doublefail] Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
-                                cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                                "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
+                                errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
                             )
                         }
                         .onFailure().recoverWithNull()
@@ -453,6 +463,7 @@ class BerichtensessiecacheService(
                                 mislukt = mislukt.get(),
                                 totaalMagazijnen = clients.size,
                                 foutmelding = "Interne fout bij opslaan van resultaten",
+                                referentie = errorId.toString(),
                             )
                         )
                 }
@@ -510,9 +521,13 @@ class BerichtensessiecacheService(
         while (cur != null && seen.put(cur, Unit) == null) {
             result.add(cur)
             if (result.size >= MAX_CAUSE_DEPTH) {
+                // Chain-namen meeloggen — anders kan on-call niet zien welke wrapper-types
+                // de chain dieper dan depth-cap maakten (misclassificatie als INTERNAL_BUG).
                 log.warnf(
-                    "Cause-chain depth-cap (%d) bereikt in root=%s — classificatie kan onnauwkeurig zijn",
-                    MAX_CAUSE_DEPTH, this::class.java.simpleName,
+                    "Cause-chain depth-cap (%d) bereikt in root=%s, chain=%s — classificatie kan onnauwkeurig zijn",
+                    MAX_CAUSE_DEPTH,
+                    this::class.java.simpleName,
+                    result.joinToString(",") { it::class.java.simpleName },
                 )
                 break
             }
@@ -535,9 +550,10 @@ class BerichtensessiecacheService(
         private const val MAX_CAUSE_DEPTH = 32
     }
 
-    private enum class LockAcquireError { JSON_SERIALIZATION, TIMEOUT, IO_FAULT, INTERRUPTED, UNEXPECTED }
+    internal enum class LockAcquireError { JSON_SERIALIZATION, TIMEOUT, IO_FAULT, INTERRUPTED, UNEXPECTED }
 
-    private fun classifyLockAcquireError(ex: Throwable): LockAcquireError {
+    // Internal voor directe unit-test van classificatie + cycle-/depth-cap-gedrag.
+    internal fun classifyLockAcquireError(ex: Throwable): LockAcquireError {
         val chain = ex.causeChain()
 
         return when {

@@ -91,6 +91,43 @@ class ProfielServiceFoutExceptionMapperTest {
     }
 
     @Test
+    fun `CONFIG_DRIFT log heeft geen thrown - stacktrace blijft uit log voor PII-defense`() {
+        // KDoc-invariant op factory + require() in mapper pinnen "geen cause" vast;
+        // dit test pint vast dat het log-record GEEN thrown heeft — anders zou een
+        // toekomstige refactor `log.errorf(exception, ...)` kunnen herinvoeren zonder
+        // dat een test stuk gaat.
+        val targetLogger = java.util.logging.Logger.getLogger(ProfielServiceFoutExceptionMapper::class.java.name)
+        val captured = mutableListOf<java.util.logging.LogRecord>()
+        val handler = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) { captured.add(record) }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        val previousLevel = targetLogger.level
+
+        targetLogger.addHandler(handler)
+        targetLogger.level = java.util.logging.Level.ALL
+
+        try {
+            mapper.toResponse(ProfielServiceFoutException.configDrift())
+
+            val configDriftLog = captured.firstOrNull { it.message?.contains("Config-drift") == true }
+
+            org.junit.jupiter.api.Assertions.assertNotNull(
+                configDriftLog,
+                "Mapper moet CONFIG_DRIFT log-regel produceren",
+            )
+            org.junit.jupiter.api.Assertions.assertNull(
+                configDriftLog!!.thrown,
+                "CONFIG_DRIFT log-record mag GEEN thrown bevatten (anders stacktrace-PII-leak via upstream-URL)",
+            )
+        } finally {
+            targetLogger.removeHandler(handler)
+            targetLogger.level = previousLevel
+        }
+    }
+
+    @Test
     fun `configDrift-factory garandeert geen cause (PII-invariant - upstream-URL met BSN mag niet lekken via stacktrace)`() {
         // KDoc op configDrift() expliciteert deze invariant; test pint hem vast zodat
         // een refactor die cause toevoegt direct stuk gaat. Defense-in-depth voor de

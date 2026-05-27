@@ -297,7 +297,15 @@ class RedisBerichtenCache(
                 BerichtenPage(berichten, page, pageSize, total, totalPages)
             }
             .call { result -> renewReadTtl(cacheKey, result.berichten) }
-            .onFailure().invoke { e -> log.errorf(e, "RediSearch query mislukt voor q=%s", q) }
+            // Splitsing zodat document-corruptie niet als query-fout in metrics belandt.
+            // q.length i.p.v. q-waarde: q is user-controlled (RediSearch-query) en zou
+            // log-injectie via CRLF kunnen veroorzaken.
+            .onFailure(CacheCorruptedException::class.java).invoke { e ->
+                log.errorf(e, "Cache-document corrupt bij search (key=%s, q.length=%d)", cacheKey, q.length)
+            }
+            .onFailure { it !is CacheCorruptedException }.invoke { e ->
+                log.errorf(e, "RediSearch query mislukt (key=%s, q.length=%d)", cacheKey, q.length)
+            }
     }
 
     override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {

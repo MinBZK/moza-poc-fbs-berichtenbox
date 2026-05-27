@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import com.fasterxml.jackson.core.JsonParseException
+import com.fasterxml.jackson.core.JsonProcessingException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -9,6 +10,7 @@ import io.quarkus.test.junit.TestProfile
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.ProcessingException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
@@ -245,8 +247,9 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `lege resolver-set met store-failure levert 500 en zet FOUT-status`() {
-        // Profiel-call gelukt; cache-write faalde → 500 (cache-fout), niet 503 (zou misleiden).
+    fun `lege resolver-set met store-failure emit OPHALEN_FOUT-event met referentie en zet FOUT-status`() {
+        // SSE-stream is al gestart bij empty-resolver-set; client krijgt OPHALEN_FOUT-event
+        // i.p.v. mid-stream HTTP-500. Referentie verbindt event naar cleanup-log.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
         every { clientFactory.getAllClients() } returns emptyMap()
@@ -254,11 +257,16 @@ class BerichtensessiecacheServiceTest {
             Uni.createFrom().failure(RuntimeException("Redis store down"))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
-        }
+        val events = service.ophalenBerichten(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(5))
 
-        assertEquals(500, ex.response.status)
+        assertEquals(1, events.size)
+        assertEquals(EventType.OPHALEN_FOUT, events[0].event)
+        assertEquals(0, events[0].totaalMagazijnen)
+        assertNotNull(events[0].referentie)
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow {
+            UUID.fromString(events[0].referentie!!)
+        }
         verify {
             berichtenCache.storeAggregationStatus(
                 cacheKey,
@@ -650,9 +658,11 @@ class BerichtensessiecacheServiceTest {
         org.junit.jupiter.api.Assertions.assertDoesNotThrow {
             UUID.fromString(events[0].referentie!!)
         }
+        // Strakker dan contains() — pint de "(ref: <id>)"-suffix-conventie vast die
+        // de service-comment expliciet belooft; voorkomt stille refactor naar prefix/midden.
         assertTrue(
-            events[0].foutmelding!!.contains(events[0].referentie!!),
-            "foutmelding moet referentie-veld als substring bevatten (anders format-drift)",
+            events[0].foutmelding!!.endsWith("(ref: ${events[0].referentie})"),
+            "foutmelding moet '(ref: <id>)'-suffix hebben: ${events[0].foutmelding}",
         )
         verify {
             berichtenCache.storeAggregationStatus(
@@ -694,6 +704,62 @@ class BerichtensessiecacheServiceTest {
         }
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
             service.classifyMagazijnFault(e1)
+        }
+    }
+
+    @Test
+    fun `classifyMagazijnFault matched root-class (cause==null edge)`() {
+        // causeChain() includes ex zelf als chain[0]; chain.hasCauseOf(X) moet dus
+        // matchen wanneer root direct van type X is en cause==null. Eerdere refactor
+        // verwijderde `ex is X` directe checks; deze test borgt dat causeChain dat dekt.
+        assertEquals(MagazijnFault.TIMEOUT, service.classifyMagazijnFault(io.smallrye.mutiny.TimeoutException()))
+        assertEquals(MagazijnFault.MALFORMED, service.classifyMagazijnFault(JsonParseException(null, "bare")))
+        assertEquals(MagazijnFault.INTERNAL_BUG, service.classifyMagazijnFault(RuntimeException("bare")))
+    }
+
+    @Test
+    fun `classifyMagazijnFault doorloopt cause-chain exact EEN keer per call`() {
+        // Regressie-guard: P3-refactor verving N losse hasCauseOf-walks (elk depth-cap-warnf
+        // kandidaat → Loki-storm) door één causeChain()-materialisatie + N instanceof-checks
+        // tegen de cached list. Counting-Throwable telt cause-accesses; één walk ≈ MAX_CAUSE_DEPTH,
+        // een refactor terug naar per-check-walks zou een veelvoud opleveren.
+        val counter = java.util.concurrent.atomic.AtomicInteger()
+
+        class CountingGrowingThrowable : Throwable("counting") {
+            override val cause: Throwable get() {
+                counter.incrementAndGet()
+                return CountingGrowingThrowable()
+            }
+        }
+
+        service.classifyMagazijnFault(CountingGrowingThrowable())
+
+        // Eén walk hoogstens MAX_CAUSE_DEPTH (32) cause-accesses; ruime bovengrens 50
+        // dekt eventuele toekomstige cap-verhoging, maar vlagt ≥2 walks (>=64).
+        assertTrue(
+            counter.get() < 50,
+            "Verwacht 1 causeChain-walk (≈32 cause-accesses), maar telde ${counter.get()} — refactor terug naar per-check-walks?",
+        )
+    }
+
+    @Test
+    fun `classifyLockAcquireError termineert binnen 1s op circular cause-chain`() {
+        // classifyLockAcquireError deelt causeChain() met classifyMagazijnFault;
+        // symmetrische cycle-test voorkomt regressie bij toekomstige divergentie.
+        val selfCycle = object : Throwable("self") {
+            override val cause: Throwable get() = this
+        }
+
+        val e1 = RuntimeException("first")
+        val e2 = RuntimeException("second")
+        e1.initCause(e2)
+        e2.initCause(e1)
+
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
+            service.classifyLockAcquireError(selfCycle)
+        }
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
+            service.classifyLockAcquireError(e1)
         }
     }
 

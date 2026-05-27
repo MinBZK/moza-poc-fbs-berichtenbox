@@ -16,6 +16,7 @@ import jakarta.ws.rs.core.Response
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.RestStreamElementType
 
 /**
@@ -29,6 +30,8 @@ import org.jboss.resteasy.reactive.RestStreamElementType
 class BerichtenOphalenResource(
     private val service: BerichtensessiecacheService,
 ) {
+    private val log = Logger.getLogger(BerichtenOphalenResource::class.java)
+
     @Inject
     lateinit var logboekContext: LogboekContext
 
@@ -78,7 +81,17 @@ class BerichtenOphalenResource(
                     if (!emitter.isCancelled) emitter.emit(event)
                 },
                 { error ->
+                    // Async-aggregatie-fouten ná SSE-stream-open hebben geen JAX-RS-mapper-
+                    // pad meer (response-headers zijn al verzonden); zonder log hier verdwijnt
+                    // de fout uit server-side observability. ontvanger.type i.p.v. waarde
+                    // (BSN/RSIN PII; type-context volstaat voor incident-triage).
                     logboekContext.status = StatusCode.ERROR
+                    log.errorf(
+                        error,
+                        "SSE-stream gefaald na open (ontvanger.type=%s, cause=%s)",
+                        ontvangerId.type,
+                        error.javaClass.simpleName,
+                    )
                     if (!emitter.isCancelled) emitter.fail(error)
                 },
                 { if (!emitter.isCancelled) emitter.complete() },

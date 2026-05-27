@@ -36,10 +36,15 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
         // af in een SSE-OPHALEN_FOUT-pad; deze mapper-tak is defense-in-depth voor
         // paden waar het exception buiten de service-catch doorlekt.
         if (exception.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
-            // Bewust GEEN exception-arg meegeven: configDrift()-factory garandeert geen
-            // cause, maar mapper houdt het ook stacktrace-vrij als defense-in-depth tegen
-            // toekomstige call-sites die per ongeluk wel een cause zouden injecteren —
-            // anders zou een upstream-URL met BSN/RSIN/KVK in pad alsnog lekken naar log.
+            // Fail-fast als toekomstige tweede factory cause introduceert; categorie-check
+            // alleen dekt CONFIG_DRIFT als geheel, niet enkel configDrift()-factory.
+            // Stacktrace via cause zou upstream-URL (BSN/RSIN/KVK in pad) lekken naar log.
+            require(exception.cause == null) {
+                "CONFIG_DRIFT mag geen cause hebben — PII-leak risico via stacktrace (errorId=$errorId)"
+            }
+
+            // GEEN exception-arg: anders zou de zelf-gegooide ProfielServiceFoutException
+            // alsnog een stacktrace renderen die in toekomst PII zou kunnen lekken.
             log.errorf(
                 "Config-drift naar mapper-pad doorgelekt (errorId=%s) — service-catch zou dit normaal opvangen",
                 errorId,
