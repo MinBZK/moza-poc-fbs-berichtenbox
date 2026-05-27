@@ -251,6 +251,7 @@ class RedisBerichtenCache(
     }
 
     private fun getPageFiltered(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String): Uni<BerichtenPage?> {
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger.waarde)}}"
         val afzenderFilter = "@afzender:{${escapeTag(afzender)}}"
         val query = "$ontvangerFilter $afzenderFilter"
@@ -271,11 +272,12 @@ class RedisBerichtenCache(
                     BerichtenPage(berichten, page, pageSize, total, totalPages)
                 }
             }
-            .call { result -> renewReadTtl(ontvanger, result?.berichten) }
+            .call { result -> renewReadTtl(cacheKey, result?.berichten) }
             .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt voor afzender=%s", afzender) }
     }
 
     override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger.waarde)}}"
         val escapedQ = escapeRedisSearch(q)
         val afzenderFilter = if (afzender != null) " @afzender:{${escapeTag(afzender)}}" else ""
@@ -293,11 +295,12 @@ class RedisBerichtenCache(
                 val totalPages = if (total == 0L) 0 else ((total + pageSize - 1) / pageSize).toInt()
                 BerichtenPage(berichten, page, pageSize, total, totalPages)
             }
-            .call { result -> renewReadTtl(ontvanger, result.berichten) }
+            .call { result -> renewReadTtl(cacheKey, result.berichten) }
             .onFailure().invoke { e -> log.errorf(e, "RediSearch query mislukt voor q=%s", q) }
     }
 
     override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         return redis.hash(String::class.java).hgetall(berichtKey)
             .map { fields ->
@@ -306,7 +309,7 @@ class RedisBerichtenCache(
                 if (bericht.ontvanger != ontvanger.waarde) null else bericht
             }
             .call { bericht ->
-                if (bericht != null) renewReadTtl(ontvanger, listOf(bericht))
+                if (bericht != null) renewReadTtl(cacheKey, listOf(bericht))
                 else Uni.createFrom().voidItem()
             }
             .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor berichtId=%s", berichtId) }
@@ -332,9 +335,11 @@ class RedisBerichtenCache(
     /**
      * Verlengt TTL op sessie-keys én op de per-bericht hash keys die via een read zijn geraakt.
      * Zo blijven zowel de lijst als de berichten-hashes in sync qua TTL.
+     *
+     * Caller geeft de `cacheKey` mee — vermijdt een tweede SHA-256-pass per read op
+     * de hot path (callers hebben de key al berekend).
      */
-    private fun renewReadTtl(ontvanger: Identificatienummer, berichten: List<Bericht>?): Uni<Void> {
-        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+    private fun renewReadTtl(cacheKey: String, berichten: List<Bericht>?): Uni<Void> {
         if (berichten.isNullOrEmpty()) return renewSessionTtl(cacheKey)
 
         // MULTI/EXEC pipeline-batch: alle EXPIRE-commands (2 sessie-keys + N bericht-hashes)

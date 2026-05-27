@@ -10,6 +10,7 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.MediaType
 import org.eclipse.microprofile.faulttolerance.Retry
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
+import java.net.UnknownHostException
 
 /**
  * REST-client naar de MOZA Profiel Service (zie github.com/MinBZK/moza-profiel-service).
@@ -38,10 +39,13 @@ interface ProfielServiceClient {
      * 401/403 (auth-misser) onnodig pogingen veroorzaken op een upstream die
      * een rate-limit of token-lock kan triggeren.
      *
-     * `abortOn = [JsonProcessingException::class]`: de REST-client wrap't parse-fouten
-     * in een `ProcessingException` met `JsonProcessingException`-cause. Een parse-fout
-     * is deterministisch (upstream-contract-drift), retry herhaalt dezelfde fout en
-     * verspilt resources.
+     * `abortOn`: deterministische fouten waar retry geen waarde toevoegt en alleen
+     * upstream-druk genereert:
+     * - `JsonProcessingException` — parse-fout = contract-drift, herhaal levert
+     *   dezelfde fout en verspilt resources.
+     * - `UnknownHostException` — DNS-miss = config-fout (verkeerde hostname of
+     *   ontbrekende DNS-record); retry herhaalt dezelfde DNS-lookup en vertraagt
+     *   de 503-response zonder zinvolle herstel-kans.
      */
     @GET
     @Path("/api/profielservice/v1/{identificatieType}/{identificatieNummer}")
@@ -50,7 +54,7 @@ interface ProfielServiceClient {
         maxRetries = 2,
         delay = 200,
         retryOn = [ProcessingException::class],
-        abortOn = [JsonProcessingException::class],
+        abortOn = [JsonProcessingException::class, UnknownHostException::class],
     )
     fun getPartij(
         @PathParam("identificatieType") identificatieType: String,
