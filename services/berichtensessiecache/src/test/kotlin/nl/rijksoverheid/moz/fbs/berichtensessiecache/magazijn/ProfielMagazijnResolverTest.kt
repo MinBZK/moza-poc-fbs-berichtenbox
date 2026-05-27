@@ -54,7 +54,9 @@ class ProfielMagazijnResolverTest {
 
     // Korte inner-timeout (2s) in unit-tests: prod-defaults zou tests vertragen
     // bij hangende mocks; bestaande `await().atMost(Duration.ofSeconds(2))` matcht.
-    private val resolver = ProfielMagazijnResolver(profielClient, factory, innerTimeoutSeconds = 2L)
+    // cacheTtlSeconds=0 schakelt de Caffeine-cache effectief uit: per-test isolatie
+    // op exact-N-Profiel-calls blijft deterministisch.
+    private val resolver = ProfielMagazijnResolver(profielClient, factory, innerTimeoutSeconds = 2L, cacheTtlSeconds = 0L, cacheMaxSize = 100L)
 
     private fun instance(url: String, afzender: String): MagazijnenConfig.MagazijnInstance =
         object : MagazijnenConfig.MagazijnInstance {
@@ -333,7 +335,7 @@ class ProfielMagazijnResolverTest {
             override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
         }.also { it.init() }
 
-        val overlapResolver = ProfielMagazijnResolver(profielClient, overlapFactory, innerTimeoutSeconds = 2L)
+        val overlapResolver = ProfielMagazijnResolver(profielClient, overlapFactory, innerTimeoutSeconds = 2L, cacheTtlSeconds = 0L, cacheMaxSize = 100L)
 
         every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
             voorkeuren = listOf(

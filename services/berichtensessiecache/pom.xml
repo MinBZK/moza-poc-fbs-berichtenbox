@@ -41,6 +41,15 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-redis-client</artifactId>
         </dependency>
+        <!-- In-JVM Caffeine-cache voor Profiel-respons in MagazijnResolver: absorbeert
+             burst-load richting Profiel-service zonder Redis-RTT in het hot-pad.
+             Caffeine direct (geen `quarkus-cache`) omdat de annotatie-gebaseerde
+             Quarkus-cache vanaf 3.7 óók failures cacht; wij willen alléén succes
+             cachen om geen 503-loop bij tijdelijke Profiel-storing te veroorzaken. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.jetbrains.kotlin</groupId>
             <artifactId>kotlin-stdlib</artifactId>

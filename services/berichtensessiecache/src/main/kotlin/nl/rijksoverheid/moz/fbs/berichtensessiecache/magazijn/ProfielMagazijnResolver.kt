@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.fasterxml.jackson.core.JsonProcessingException
+import com.github.benmanes.caffeine.cache.Cache
+import com.github.benmanes.caffeine.cache.Caffeine
 import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.enterprise.context.ApplicationScoped
@@ -17,6 +19,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.jboss.logging.Logger
 import java.time.Duration
+import java.util.concurrent.TimeUnit
 
 @ApplicationScoped
 class ProfielMagazijnResolver(
@@ -24,11 +27,50 @@ class ProfielMagazijnResolver(
     private val clientFactory: MagazijnClientFactory,
     @param:ConfigProperty(name = "profiel.resolver.inner-timeout-seconds", defaultValue = "18")
     private val innerTimeoutSeconds: Long,
+    @param:ConfigProperty(name = "profiel.resolver.cache.ttl-seconds", defaultValue = "30")
+    private val cacheTtlSeconds: Long,
+    @param:ConfigProperty(name = "profiel.resolver.cache.max-size", defaultValue = "10000")
+    private val cacheMaxSize: Long,
 ) : MagazijnResolver {
 
     private val log = Logger.getLogger(ProfielMagazijnResolver::class.java)
 
+    /**
+     * Per-ontvanger cache op de uiteindelijke magazijn-set (niet op `PartijResponse`):
+     * smaller cached value, dezelfde absorberende werking richting Profiel-service.
+     *
+     * Bewust *handmatige* Caffeine-cache i.p.v. Quarkus `@CacheResult`: vanaf Quarkus 3.7
+     * worden Uni-failures óók in de annotatie-gebaseerde cache geplaatst, waardoor een
+     * tijdelijke Profiel-storing TTL-lang een 503-loop zou veroorzaken. Hier cachen we
+     * uitsluitend bij succesvolle emissie (`onItem().invoke { ... cache.put(...) }`).
+     *
+     * Een 404 wordt door deze resolver gemapt naar `emptySet()` (succes-pad) en dus
+     * wél gecacht; system-wide 404-rate-alert via Loki blijft het mechanisme om
+     * een config-misser te onderscheiden van "ontvanger heeft geen profiel".
+     *
+     * Cache-key = `Identificatienummer` (value-class equals/hashCode op `waarde`).
+     * BSN/RSIN-waarde leeft daarmee voor de TTL-duur in JVM-heap; consistent met
+     * de bestaande 60s sessiecache-window. Geen Redis: privacy-vlak blijft per-pod.
+     * `maximumSize` capt heap-gebruik bij hoge unieke-ontvanger-rate.
+     */
+    private val magazijnSetCache: Cache<Identificatienummer, Set<String>> by lazy {
+        Caffeine.newBuilder()
+            .expireAfterWrite(cacheTtlSeconds, TimeUnit.SECONDS)
+            .maximumSize(cacheMaxSize)
+            .build()
+    }
+
     override fun resolve(ontvanger: Identificatienummer): Uni<Set<String>> {
+        magazijnSetCache.getIfPresent(ontvanger)?.let { cached ->
+            return Uni.createFrom().item(cached)
+        }
+
+        return doResolve(ontvanger).onItem().invoke { result ->
+            magazijnSetCache.put(ontvanger, result)
+        }
+    }
+
+    private fun doResolve(ontvanger: Identificatienummer): Uni<Set<String>> {
         // OIN-ontvanger (B2B): geen Profiel-pad bestaat upstream; lever alle magazijnen.
         if (ontvanger.type == IdentificatienummerType.OIN) {
             return Uni.createFrom().item(clientFactory.getAllClients().keys)
