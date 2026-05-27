@@ -180,7 +180,11 @@ class RedisBerichtenCache(
                         .onFailure().call { _ ->
                             redis.key().del(lockKey)
                                 .onFailure().invoke { delErr ->
-                                    log.errorf(delErr, "Lock-rollback na statusKey-fout faalde voor key=%s; lock leunt op TTL", key)
+                                    // FATAL + ALERT-marker consistent met cleanupLockMetFoutStatus
+                                    // in service-laag: setex én rollback-DEL allebei fail = lock
+                                    // hangt tot Redis-TTL. Loki/CloudWatch alert-routing pikt het
+                                    // [ALERT cache_doublefail]-prefix op.
+                                    log.fatalf(delErr, "[ALERT cache_doublefail] Lock-rollback na statusKey-fout faalde voor key=%s; lock leunt op TTL", key)
                                 }
                                 .onFailure().recoverWithNull()
                         }
@@ -399,11 +403,15 @@ class RedisBerichtenCache(
     }
 
     private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht {
-        // Wrap parse-fouten in CacheCorruptedException zodat zoek-/filter-pad een
-        // corrupte cache-entry niet als generieke "RediSearch query mislukt" rapporteert
-        // (verkeerde diagnose). Consistent met hashToBericht-pad voor getById.
-        val berichtIdStr = doc.property("berichtId").asString()
-        val tijdstipStr = doc.property("tijdstip").asString()
+        // Wrap zowel parse-fouten ALS ontbrekende velden in CacheCorruptedException zodat
+        // zoek-/filter-pad een corrupte cache-entry of index-drift (na schema-wijziging)
+        // niet als generieke "RediSearch query mislukt" rapporteert — caller heeft een
+        // dedicated diagnose-pad voor CacheCorruptedException. Consistent met hashToBericht.
+        fun requiredProp(name: String): String = (doc.property(name)?.asString())
+            ?: throw CacheCorruptedException.veldOntbreekt(name)
+
+        val berichtIdStr = requiredProp("berichtId")
+        val tijdstipStr = requiredProp("tijdstip")
 
         return Bericht(
             berichtId = try {
@@ -411,15 +419,15 @@ class RedisBerichtenCache(
             } catch (ex: IllegalArgumentException) {
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
-            afzender = doc.property("afzender").asString(),
-            ontvanger = doc.property("ontvanger").asString(),
-            onderwerp = doc.property("onderwerp").asString(),
+            afzender = requiredProp("afzender"),
+            ontvanger = requiredProp("ontvanger"),
+            onderwerp = requiredProp("onderwerp"),
             tijdstip = try {
                 Instant.parse(tijdstipStr)
             } catch (ex: java.time.format.DateTimeParseException) {
                 throw CacheCorruptedException.onleesbareWaarde("tijdstip", ex)
             },
-            magazijnId = doc.property("magazijnId").asString(),
+            magazijnId = requiredProp("magazijnId"),
             status = doc.property("status")?.asString(),
         )
     }

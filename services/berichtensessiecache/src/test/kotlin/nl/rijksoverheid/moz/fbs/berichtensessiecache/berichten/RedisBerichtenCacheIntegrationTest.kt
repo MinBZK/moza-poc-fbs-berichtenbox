@@ -404,7 +404,7 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `getPage met corrupte JSON-entry gooit JsonProcessingException (geen Redis-onbereikbaar-misdiagnose)`() {
-        // K7 regressie-vangnet: corrupte cache-entry (handmatig non-JSON gepushed) MOET
+        // Regressie-vangnet: corrupte cache-entry (handmatig non-JSON gepushed) MOET
         // als JsonProcessingException propageren naar caller — niet als generieke
         // "Redis-getPage-mislukt"-fout wegfilteren via het catch-all-onFailure-pad. De
         // resource-laag (BerichtensessiecacheResource) heeft een dedicated 500-pad voor

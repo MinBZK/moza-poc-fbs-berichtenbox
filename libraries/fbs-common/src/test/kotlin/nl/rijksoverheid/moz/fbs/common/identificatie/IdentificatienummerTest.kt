@@ -264,7 +264,7 @@ class IdentificatienummerTest {
 
     @Test
     fun `fromHeader zonder colon werpt DomainValidationException`() {
-        // B4 regressie-vangnet: bij ontbrekende ':' moet de helper een gestructureerde
+        // Regressie-vangnet: bij ontbrekende ':' moet de helper een gestructureerde
         // domeinfout gooien (niet IndexOutOfBounds of generieke IllegalArgument).
         val ex = assertThrows(DomainValidationException::class.java) {
             Identificatienummer.fromHeader("999993653")

@@ -50,6 +50,9 @@ interface ProfielServiceClient {
     @GET
     @Path("/api/profielservice/v1/{identificatieType}/{identificatieNummer}")
     @Produces(MediaType.APPLICATION_JSON)
+    // TODO(test): regressie-test voor UnknownHostException-abort vereist DNS-niveau
+    // mock (WireMock kan UHE niet gooien — WireMock zelf IS bereikbaar). Mogelijk via
+    // %test-profile override naar `.invalid`-TLD + count-assert op effective-1-call.
     @Retry(
         maxRetries = 2,
         delay = 200,

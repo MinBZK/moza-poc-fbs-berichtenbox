@@ -99,7 +99,7 @@ class MagazijnClientFactoryInitTest {
 
     @Test
     fun `init met meerdere afzenders per magazijn bouwt reverse-index correct`() {
-        // B6 regressie-vangnet: cachedOinToMagazijnen-buildMap moet alle OINs van een
+        // Regressie-vangnet: cachedOinToMagazijnen-buildMap moet alle OINs van een
         // multi-afzender-magazijn correct indexeren. Zonder test kan een refactor van
         // de `forEach { oin -> getOrPut(oin) { mutableSetOf() }.add(id) }`-loop stil
         // alleen de eerste OIN registreren en de andere droppen.

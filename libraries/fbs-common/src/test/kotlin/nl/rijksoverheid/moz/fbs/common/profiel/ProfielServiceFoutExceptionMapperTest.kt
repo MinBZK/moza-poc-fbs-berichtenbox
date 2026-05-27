@@ -82,7 +82,7 @@ class ProfielServiceFoutExceptionMapperTest {
 
     @Test
     fun `Problem-instance hergebruikt errorId uit de exception (geen nieuwe generatie)`() {
-        // B9 regressie-vangnet: mapper MOET exception.errorId gebruiken zodat de service-
+        // Regressie-vangnet: mapper MOET exception.errorId gebruiken zodat de service-
         // laag (cleanup-paden, root-cause-log) dezelfde id kan loggen die de client in
         // urn:uuid:<errorId> ziet. Een refactor die hier randomUUID() terugzet zou de
         // cross-log-correlatie stilzwijgend breken — support-debug-loop wordt dan
