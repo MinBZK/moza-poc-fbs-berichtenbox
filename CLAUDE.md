@@ -177,6 +177,13 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 - Branch naming: `feature/`, `fix/`, `chore/` prefix.
 - Bij aanmaken van een pull request **nooit** een reviewer toevoegen.
 
+## Issues / tickets
+
+- **Titel en inleiding zijn functioneel en niet-technisch.** De Product Owner leest mee en moet aanleiding, effect voor gebruikers, wenselijk gedrag en acceptatiecriteria kunnen volgen zonder Kotlin/Quarkus/Redis-kennis. Geen klasse-namen, file:line-verwijzingen, framework-jargon in het bovenste deel van het issue.
+- **Technische details horen in een aparte sectie verderop** (bv. "Technische context", "Oplossingsrichtingen"). Daar mogen wel code-locaties, klasse-namen, libraries en concrete refactor-opties.
+- **Acceptatiecriteria functioneel formuleren** in termen van gedrag voor de gebruiker of het systeem (latency-grenzen, foutgedrag, beschikbaarheid), niet in termen van implementatie ("gebruik X-pattern").
+- Verwijs altijd naar de parent-issue (`> Onderdeel van #N.`) zodat de PO de context-keten kan volgen.
+
 ## Teststrategie
 
 Bij elke codewijziging beoordelen of er tests toegevoegd of aangepast moeten worden:
