@@ -177,12 +177,14 @@ class BerichtensessiecacheService(
             // OPHALEN_FOUT i.p.v. 503 zodat client weet "geen ophaling mogelijk", niet
             // "Profiel offline, retry over 30s". Cache wordt NIET overschreven met empty.
             if (ex.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
-                // referentie correleert naar cleanup-log + resolver-log.
+                // Riem-en-bretels: gestructureerd `referentie`-veld (machine-leesbaar) +
+                // ref-suffix in foutmelding (toont in UIs die nog geen referentie-veld
+                // renderen). Beide dragen dezelfde ex.errorId voor support-correlatie.
                 return Multi.createFrom().item(
                     MagazijnEvent(
                         event = EventType.OPHALEN_FOUT,
                         totaalMagazijnen = 0,
-                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder",
+                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: ${ex.errorId})",
                         referentie = ex.errorId.toString(),
                     ),
                 )
@@ -503,18 +505,27 @@ class BerichtensessiecacheService(
         var cur: Throwable? = this
         var depth = 0
 
-        while (cur != null && depth < MAX_CAUSE_DEPTH && seen.put(cur, Unit) == null) {
+        while (cur != null && seen.put(cur, Unit) == null) {
             if (cls.isInstance(cur)) return cur
+            if (++depth >= MAX_CAUSE_DEPTH) {
+                // Depth-cap onthult zoekverlies — anders mis-classificatie als INTERNAL_BUG
+                // zonder spoor (errorf-tak wekt on-call voor transient fault).
+                log.warnf(
+                    "Cause-chain depth-cap (%d) bereikt voor zoek-cls=%s in root=%s — classificatie kan onnauwkeurig zijn",
+                    MAX_CAUSE_DEPTH, cls.simpleName, this::class.java.simpleName,
+                )
+                return null
+            }
             cur = cur.cause
-            depth++
         }
 
         return null
     }
 
+    // Cast safe: findCauseOfClass filtert op cls.isInstance dus result is gegarandeerd T?.
+    @Suppress("UNCHECKED_CAST")
     private inline fun <reified T : Throwable> Throwable.findCauseOf(): T? =
-        @Suppress("UNCHECKED_CAST")
-        (findCauseOfClass(T::class.java) as T?)
+        findCauseOfClass(T::class.java) as T?
 
     private fun Throwable.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
 

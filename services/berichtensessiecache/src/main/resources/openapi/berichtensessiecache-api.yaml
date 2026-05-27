@@ -488,6 +488,10 @@ components:
           type: integer
         totaalMagazijnen:
           type: integer
+        referentie:
+          type: string
+          format: uuid
+          description: Correlatie-id richting support-log (alleen bij `ophalen-fout`).
 
     PaginationLinks:
       type: object

@@ -644,11 +644,29 @@ class BerichtensessiecacheServiceTest {
             events[0].foutmelding!!.contains("configuratie"),
             "Foutmelding moet config-mismatch noemen: ${events[0].foutmelding}",
         )
+        // referentie-veld voor support-correlatie moet geldige UUID-string zijn.
+        assertNotNull(events[0].referentie)
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow {
+            UUID.fromString(events[0].referentie!!)
+        }
         verify {
             berichtenCache.storeAggregationStatus(
                 cacheKey,
                 match { it.status == OphalenStatus.FOUT },
             )
+        }
+    }
+
+    @Test
+    fun `classifyMagazijnFault termineert op steeds-nieuwe-wrapper cause-getter (depth-cap)`() {
+        // IdentityHashMap helpt niet als elke cause-call een nieuw object retourneert
+        // (pathologisch geval). MAX_CAUSE_DEPTH=32 moet de loop alsnog afkappen.
+        val pathological = object : Throwable("growing") {
+            override val cause: Throwable get() = Throwable("nieuwe-wrap-elke-call")
+        }
+
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
+            service.classifyMagazijnFault(pathological)
         }
     }
 

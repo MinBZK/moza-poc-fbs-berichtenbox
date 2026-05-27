@@ -73,7 +73,13 @@ class ProfielServiceFoutException private constructor(
         fun resolverMislukt(cause: Throwable) =
             ProfielServiceFoutException(Categorie.RESOLVER_MISLUKT, message = "Resolver-aanroep mislukt", cause = cause)
 
-        /** Alle opted-in OINs onbekend bij magazijn-config; caller geeft eigen foutmelding. */
+        /**
+         * Alle opted-in OINs onbekend bij magazijn-config; caller geeft eigen foutmelding.
+         *
+         * **Invariant**: geen dynamische `message` of `cause` toevoegen zonder PII-review
+         * van [ProfielServiceFoutExceptionMapper] — die mapper logt voor CONFIG_DRIFT een
+         * stacktrace; een cause met upstream-URL (BSN/RSIN in pad) zou daarmee lekken.
+         */
         fun configDrift() =
             ProfielServiceFoutException(Categorie.CONFIG_DRIFT, message = "Configuratie-mismatch: opt-in OINs onbekend bij magazijn-config")
     }
