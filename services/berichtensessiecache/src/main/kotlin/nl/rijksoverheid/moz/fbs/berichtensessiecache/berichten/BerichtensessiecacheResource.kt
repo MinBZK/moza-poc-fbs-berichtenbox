@@ -12,6 +12,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtInput
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtResponse
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtSamenvatting as ApiBerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtStatus as ApiBerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtStatusUpdate
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtensessiecacheResponse
@@ -290,7 +291,7 @@ class BerichtensessiecacheResource(
         }
 
         return BerichtensessiecacheResponse().apply {
-            berichten = this@toResponse.berichten.map { it.toApiModel() }
+            berichten = this@toResponse.berichten.map { it.toSamenvatting() }
             page = this@toResponse.page
             pageSize = this@toResponse.pageSize
             totalElements = this@toResponse.totalElements
@@ -319,22 +320,20 @@ class BerichtensessiecacheResource(
         }
     }
 
-    private fun Bericht.toApiModel(): nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.Bericht {
+    private fun Bericht.toSamenvatting(): ApiBerichtSamenvatting {
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        return nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.Bericht().apply {
-            berichtId = this@toApiModel.berichtId
-            afzender = this@toApiModel.afzender
-            ontvanger = this@toApiModel.ontvanger
-            onderwerp = this@toApiModel.onderwerp
-            inhoud = this@toApiModel.inhoud
-            publicatietijdstip = this@toApiModel.publicatietijdstip
-            magazijnId = this@toApiModel.magazijnId
-            aantalBijlagen = this@toApiModel.aantalBijlagen
-            bijlagen = this@toApiModel.bijlagen.map { it.toApiModel() }
-            map = this@toApiModel.map
-            status = this@toApiModel.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
+        return ApiBerichtSamenvatting().apply {
+            berichtId = this@toSamenvatting.berichtId
+            afzender = this@toSamenvatting.afzender
+            ontvanger = this@toSamenvatting.ontvanger
+            onderwerp = this@toSamenvatting.onderwerp
+            publicatietijdstip = this@toSamenvatting.publicatietijdstip
+            magazijnId = this@toSamenvatting.magazijnId
+            aantalBijlagen = this@toSamenvatting.aantalBijlagen
+            map = this@toSamenvatting.map
+            status = this@toSamenvatting.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
             links = BerichtLinks().apply {
-                self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiModel.berichtId}") }
+                self = Link().apply { href = URI.create("$basePath/berichten/${this@toSamenvatting.berichtId}") }
             }
         }
     }

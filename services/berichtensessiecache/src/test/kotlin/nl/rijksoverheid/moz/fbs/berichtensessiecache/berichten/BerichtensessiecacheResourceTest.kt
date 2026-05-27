@@ -8,6 +8,7 @@ import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.not
 import org.hamcrest.CoreMatchers.notNullValue
+import org.hamcrest.CoreMatchers.nullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -273,6 +274,8 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
 
+        // Detail-respons bevat WEL inhoud (en bijlagen-veld als array — leeg bij aantalBijlagen=0).
+        // Anders dan de lijst-respons; die splitsing is de invariant die we hier vastleggen.
         given()
             .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
@@ -284,6 +287,35 @@ class BerichtensessiecacheResourceTest {
             .body("onderwerp", `is`("Test bericht 1"))
             .body("magazijnId", `is`("magazijn-a"))
             .body("aantalBijlagen", `is`(0))
+            .body("inhoud", `is`("Inhoud van test bericht 1"))
+            .body("bijlagen", notNullValue())
+    }
+
+    @Test
+    fun `GET berichten lijst-respons bevat geen inhoud of bijlagen op samenvatting`() {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Lichte BerichtSamenvatting: cache heeft inhoud + bijlagen-IDs, maar de
+        // publieke lijst-vorm exposeert ze niet — daarvoor is GET /berichten/{id}.
+        // `quarkus.jackson.serialization-inclusion=non_null` zorgt dat afwezige
+        // velden ook echt afwezig zijn in JSON (geen `null`).
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].berichtId", notNullValue())
+            .body("berichten[0].onderwerp", notNullValue())
+            .body("berichten[0].inhoud", nullValue())
+            .body("berichten[0].bijlagen", nullValue())
+            .body("berichten.find { it.aantalBijlagen > 0 }.inhoud", nullValue())
+            .body("berichten.find { it.aantalBijlagen > 0 }.bijlagen", nullValue())
     }
 
     @Test
