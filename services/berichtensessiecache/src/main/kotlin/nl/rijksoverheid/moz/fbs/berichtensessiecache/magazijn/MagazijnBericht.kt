@@ -1,6 +1,5 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
-import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
@@ -20,7 +19,7 @@ import java.util.UUID
  * blijven bewust buiten de cache (alleen-magazijn-gegevens).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class MagazijnBericht @JsonCreator constructor(
+data class MagazijnBericht(
     @param:JsonProperty("berichtId") val berichtId: UUID,
     @param:JsonProperty("afzender") val afzender: String,
     @param:JsonProperty("ontvanger") val ontvanger: Identificatienummer,
@@ -46,13 +45,13 @@ data class MagazijnBericht @JsonCreator constructor(
         map = status?.map,
     )
 
-    data class Identificatienummer @JsonCreator constructor(
+    data class Identificatienummer(
         @param:JsonProperty("type") val type: String,
         @param:JsonProperty("waarde") val waarde: String,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    data class MagazijnBijlage @JsonCreator constructor(
+    data class MagazijnBijlage(
         @param:JsonProperty("bijlageId") val bijlageId: UUID,
         @param:JsonProperty("naam") val naam: String,
         // mimeType, _links en eventuele grootte worden bewust genegeerd: de cache
@@ -60,7 +59,7 @@ data class MagazijnBericht @JsonCreator constructor(
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    data class MagazijnBerichtStatus @JsonCreator constructor(
+    data class MagazijnBerichtStatus(
         @param:JsonProperty("gelezen") val gelezen: Boolean? = null,
         @param:JsonProperty("map") val map: String? = null,
         // gewijzigdOp is alleen voor audit binnen het magazijn; niet relevant voor sessiecache.
