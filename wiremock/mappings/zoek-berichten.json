@@ -20,9 +20,14 @@
           "afzender": "00000001234567890000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Besluit aanvraag subsidie",
+          "inhoud": "Uw subsidie-aanvraag is toegekend. Zie de bijlage voor de toekenningsbrief.",
+          "tijdstipOntvangst": "2026-03-10T14:30:05Z",
           "publicatietijdstip": "2026-03-10T14:30:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 1
+          "aantalBijlagen": 1,
+          "bijlagen": [],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-10T14:30:05Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/a1b2c3d4-e5f6-7890-abcd-ef1234567890" } }
         }
       ],
       "totalElements": 1,

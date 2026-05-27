@@ -20,45 +20,70 @@
           "afzender": "00000001234567890000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Besluit aanvraag subsidie",
+          "inhoud": "Uw subsidie-aanvraag is toegekend. Zie de bijlage voor de toekenningsbrief.",
+          "tijdstipOntvangst": "2026-03-10T14:30:05Z",
           "publicatietijdstip": "2026-03-10T14:30:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 1
+          "aantalBijlagen": 1,
+          "bijlagen": [],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-10T14:30:05Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/a1b2c3d4-e5f6-7890-abcd-ef1234567890" } }
         },
         {
           "berichtId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
           "afzender": "00000001234567890000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Bevestiging inschrijving",
+          "inhoud": "Uw inschrijving is succesvol verwerkt.",
+          "tijdstipOntvangst": "2026-03-09T09:15:02Z",
           "publicatietijdstip": "2026-03-09T09:15:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 0
+          "aantalBijlagen": 0,
+          "bijlagen": [],
+          "status": { "gelezen": true, "map": "archief", "gewijzigdOp": "2026-03-09T10:00:00Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/b2c3d4e5-f6a7-8901-bcde-f12345678901" } }
         },
         {
           "berichtId": "c3d4e5f6-a7b8-9012-cdef-123456789012",
           "afzender": "00000009876543210000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Kennisgeving handhaving",
+          "inhoud": "Wij hebben een overtreding geconstateerd. Reageer binnen 14 dagen.",
+          "tijdstipOntvangst": "2026-03-08T16:45:03Z",
           "publicatietijdstip": "2026-03-08T16:45:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 2
+          "aantalBijlagen": 2,
+          "bijlagen": [],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-08T16:45:03Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/c3d4e5f6-a7b8-9012-cdef-123456789012" } }
         },
         {
           "berichtId": "d4e5f6a7-b8c9-0123-defa-234567890123",
           "afzender": "00000001234567890000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Herinnering belastingaangifte",
+          "inhoud": "Vergeet niet uw belastingaangifte voor 1 mei in te dienen.",
+          "tijdstipOntvangst": "2026-03-07T11:00:01Z",
           "publicatietijdstip": "2026-03-07T11:00:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 0
+          "aantalBijlagen": 0,
+          "bijlagen": [],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-07T11:00:01Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/d4e5f6a7-b8c9-0123-defa-234567890123" } }
         },
         {
           "berichtId": "e5f6a7b8-c9d0-1234-efab-345678901234",
           "afzender": "00000009876543210000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Uitnodiging informatieavond",
+          "inhoud": "U bent van harte uitgenodigd voor de informatieavond op 15 maart.",
+          "tijdstipOntvangst": "2026-03-06T08:30:01Z",
           "publicatietijdstip": "2026-03-06T08:30:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 1
+          "aantalBijlagen": 1,
+          "bijlagen": [],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-06T08:30:01Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/e5f6a7b8-c9d0-1234-efab-345678901234" } }
         }
       ],
       "totalElements": 5,
