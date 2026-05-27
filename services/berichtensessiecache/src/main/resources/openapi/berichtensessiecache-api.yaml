@@ -14,8 +14,12 @@ info:
     url: https://eupl.eu/1.2/nl/
 
 servers:
+  - url: https://berichtensessiecache.moza.example.nl/api/v1
+    description: Productie (placeholder — overschrijven per omgeving)
+  - url: http://localhost:8080/api/v1
+    description: Lokale dev-mode (quarkus:dev)
   - url: /api/v1
-    description: API v1
+    description: Relatieve fallback (reverse-proxy/ingress)
 
 paths:
   /berichten:
@@ -583,7 +587,21 @@ components:
 
     Problem:
       type: object
-      description: Problem Details (RFC 9457)
+      description: |
+        Problem Details voor REST APIs (RFC 9457). `type` identificeert het soort
+        fout en is stabiel per fout-categorie; clients mogen op deze waarde
+        schakelen voor afwijkende UX-gedrag (bv. retry-strategie of melding).
+        Bekende `type`-waarden uitgegeven door deze API:
+
+        | type                                                            | status | semantiek                                                                 |
+        |-----------------------------------------------------------------|--------|---------------------------------------------------------------------------|
+        | `about:blank`                                                   | 4xx/5xx | Generiek; titel en detail beschrijven het probleem                       |
+        | `https://moza.nl/problems/profiel-service-onbereikbaar`         | 503    | Profiel-service tijdelijk niet bereikbaar; `Retry-After` aanwezig         |
+        | `https://moza.nl/problems/configuratie-mismatch`                | 500    | Eigen-configuratie-fout; client retry heeft geen effect (contact beheerder) |
+
+        `instance` is consistent gevuld met `urn:uuid:<errorId>` — dezelfde id
+        is terugvindbaar in de server-side log-regels rondom de fout (zowel
+        het foutpad als eventuele cleanup-acties).
       properties:
         type:
           type: string

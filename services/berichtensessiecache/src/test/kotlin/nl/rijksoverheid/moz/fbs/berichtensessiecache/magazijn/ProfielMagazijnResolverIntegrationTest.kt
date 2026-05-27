@@ -97,6 +97,55 @@ class ProfielMagazijnResolverIntegrationTest {
     }
 
     @Test
+    fun `RSIN-pad gebruikt URL-template per type (200 met opt-in retourneert magazijn-b)`() {
+        // naarProfielType-mapping is alleen unit-getest via MockK; deze test pinned dat
+        // het echte URL-pad `/RSIN/...` wordt geraakt op de upstream-stub (geen drift
+        // tussen interne enum-naam en extern contract-pad).
+        wireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/RSIN/002564440")).willReturn(
+                aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
+                    """
+                    {
+                      "partijId": 2,
+                      "voorkeuren": [
+                        { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true",
+                          "scopes": [ { "partij": { "identificatieType": "OIN", "identificatieNummer": "00000001823288444000" } } ] }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        val result = resolver.resolve(nl.rijksoverheid.moz.fbs.common.identificatie.Rsin("002564440")).await().atMost(Duration.ofSeconds(5))
+
+        assertEquals(setOf("magazijn-b"), result)
+    }
+
+    @Test
+    fun `KVK-pad gebruikt URL-template per type (200 met opt-in retourneert magazijn-a)`() {
+        wireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/KVK/12345678")).willReturn(
+                aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
+                    """
+                    {
+                      "partijId": 3,
+                      "voorkeuren": [
+                        { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true",
+                          "scopes": [ { "partij": { "identificatieType": "OIN", "identificatieNummer": "00000001003214345000" } } ] }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        val result = resolver.resolve(nl.rijksoverheid.moz.fbs.common.identificatie.Kvk("12345678")).await().atMost(Duration.ofSeconds(5))
+
+        assertEquals(setOf("magazijn-a"), result)
+    }
+
+    @Test
     fun `200 met voorkeuren null wordt als malformed gemeld (geen stille lege set)`() {
         // `voorkeuren` is in `PartijResponse` een non-nullable List met default emptyList.
         // Een expliciete null in de upstream-body is een contract-breuk: Jackson Kotlin
