@@ -580,7 +580,7 @@ components:
         kunnen vullen zonder vervolg-detail-call per bericht. Bijlage-bytes
         worden separaat opgehaald via
         `GET /berichten/{berichtId}/bijlagen/{bijlageId}`.
-      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, aantalBijlagen, bijlagen, _links]
+      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, publicatietijdstip, aantalBijlagen, bijlagen, _links]
       properties:
         berichtId:
           type: string
@@ -598,6 +598,14 @@ components:
         tijdstipOntvangst:
           type: string
           format: date-time
+          description: Audit-tijd waarop het magazijn het bericht ontving (server-side gezet).
+        publicatietijdstip:
+          type: string
+          format: date-time
+          description: |
+            Effectieve publicatie-tijd: aanleveraar-input of fallback `tijdstipOntvangst`.
+            Vereist op samenvatting zodat consumers (sessiecache) berichten kunnen sorteren
+            of filteren op publicatiemoment zonder vervolg-detail-call.
         aantalBijlagen:
           type: integer
           minimum: 0

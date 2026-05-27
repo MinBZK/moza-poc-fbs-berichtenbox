@@ -130,6 +130,10 @@ class BerichtDtoMapperTest {
         assertEquals(1, samenvatting.bijlagen.size)
         assertEquals(bijlageId, samenvatting.bijlagen[0].bijlageId)
         assertEquals("brief.pdf", samenvatting.bijlagen[0].naam)
+        // publicatietijdstip is verplicht op de samenvatting zodat consumers (sessiecache)
+        // berichten op publicatiemoment kunnen sorteren zonder vervolg-detail-call.
+        assertEquals(Instant.parse("2026-05-13T10:00:00Z"), samenvatting.publicatietijdstip)
+        assertEquals(Instant.parse("2026-05-13T10:00:00Z"), samenvatting.tijdstipOntvangst)
     }
 
     @Test

@@ -66,6 +66,7 @@ internal object BerichtDtoMapper {
             onderwerp = bericht.onderwerp
             inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
+            publicatietijdstip = bericht.publicatietijdstip
             aantalBijlagen = bericht.bijlagen.size
             bijlagen = bericht.bijlagen.map { toBijlageSamenvattingDto(it) }
             status = bericht.status?.let { toStatusDto(it) }
