@@ -69,7 +69,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         onderwerp = "X",
         inhoud = "x",
         tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-12T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-12T10:00:00Z"),
     )
     private val claim = PublicatieClaim(
         claimId = 7L,
@@ -87,7 +87,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
             ontvanger = OntvangerData("BSN", "999993653"),
             onderwerp = "X", inhoud = "x",
             tijdstipOntvangst = bericht.tijdstipOntvangst,
-            publicatiedatum = bericht.publicatiedatum,
+            publicatietijdstip = bericht.publicatietijdstip,
         ),
     )
 

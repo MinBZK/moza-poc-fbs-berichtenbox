@@ -44,7 +44,7 @@ class PublicatieOutbox(
     }
 
     /**
-     * Plant deliveries voor [berichtId] vanaf [publicatiedatum].
+     * Plant deliveries voor [berichtId] vanaf [publicatietijdstip].
      *
      * Idempotency: dezelfde [berichtId] tweemaal aanleveren zou een UNIQUE-violation
      * op (bericht_db_id, doel) opleveren — dat is acceptabel omdat de aanlever-flow
@@ -55,7 +55,7 @@ class PublicatieOutbox(
      * gegarandeerd).
      */
     @Transactional(Transactional.TxType.MANDATORY)
-    fun planDeliveries(berichtId: UUID, publicatiedatum: Instant) {
+    fun planDeliveries(berichtId: UUID, publicatietijdstip: Instant) {
         val downstreams = config.downstreams()
         check(downstreams.isNotEmpty()) {
             // Geen warn-and-return: dat zou een "phantom-published" bericht
@@ -69,15 +69,15 @@ class PublicatieOutbox(
             deliveries.planNieuwe(
                 berichtId = berichtId,
                 doel = Publicatiedoel(key),
-                volgendePoging = publicatiedatum,
+                volgendePoging = publicatietijdstip,
                 aangemaaktOp = nu,
             )
         }
         log.debugf(
-            "Publicatie-deliveries gepland: berichtId=%s aantalDoelen=%d publicatiedatum=%s",
+            "Publicatie-deliveries gepland: berichtId=%s aantalDoelen=%d publicatietijdstip=%s",
             berichtId,
             downstreams.size,
-            publicatiedatum,
+            publicatietijdstip,
         )
     }
 }

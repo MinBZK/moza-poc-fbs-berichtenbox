@@ -29,29 +29,35 @@ class RedisBerichtenCacheIntegrationTest {
             afzender = "00000001234567890000",
             ontvanger = ontvanger,
             onderwerp = "Eerste bericht over belastingaangifte",
-            tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+            inhoud = "Inhoud eerste bericht",
+            publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
+            aantalBijlagen = 0,
         ),
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000009876543210000",
             ontvanger = ontvanger,
             onderwerp = "Tweede bericht over subsidie",
-            tijdstip = Instant.parse("2026-03-10T12:00:00Z"),
+            inhoud = "Inhoud tweede bericht",
+            publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
+            aantalBijlagen = 2,
         ),
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
             ontvanger = ontvanger,
             onderwerp = "Derde bericht over vergunning",
-            tijdstip = Instant.parse("2026-03-10T11:00:00Z"),
+            inhoud = "Inhoud derde bericht",
+            publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
+            aantalBijlagen = 1,
         ),
     )
 
     @Test
-    fun `store en getPage retourneert berichten gesorteerd op tijdstip descending`() {
+    fun `store en getPage retourneert berichten gesorteerd op publicatietijdstip descending`() {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
@@ -112,8 +118,9 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(original.afzender, retrieved.afzender)
         assertEquals(original.ontvanger, retrieved.ontvanger)
         assertEquals(original.onderwerp, retrieved.onderwerp)
-        assertEquals(original.tijdstip, retrieved.tijdstip)
+        assertEquals(original.publicatietijdstip, retrieved.publicatietijdstip)
         assertEquals(original.magazijnId, retrieved.magazijnId)
+        assertEquals(original.aantalBijlagen, retrieved.aantalBijlagen)
     }
 
     @Test
@@ -128,22 +135,130 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `updateStatus wijzigt alleen status-veld`() {
+    fun `update wijzigt alleen status-veld`() {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
         val original = berichten[0]
-        val updated = berichtenCache.updateStatus(original.berichtId, ontvanger, "GELEZEN")
+        val updated = berichtenCache.update(original.berichtId, ontvanger, "GELEZEN", null)
             .await().indefinitely()
 
         assertNotNull(updated)
         assertEquals("GELEZEN", updated!!.status)
+        assertNull(updated.map)
         assertEquals(original.berichtId, updated.berichtId)
         assertEquals(original.afzender, updated.afzender)
         assertEquals(original.ontvanger, updated.ontvanger)
         assertEquals(original.onderwerp, updated.onderwerp)
-        assertEquals(original.tijdstip, updated.tijdstip)
+        assertEquals(original.publicatietijdstip, updated.publicatietijdstip)
         assertEquals(original.magazijnId, updated.magazijnId)
+    }
+
+    @Test
+    fun `update wijzigt alleen map-veld zonder status aan te raken`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val original = berichten[0]
+        // Zet eerst status zodat we kunnen verifiëren dat een map-only update die niet wist
+        berichtenCache.update(original.berichtId, ontvanger, "gelezen", null).await().indefinitely()
+
+        val updated = berichtenCache.update(original.berichtId, ontvanger, null, "archief")
+            .await().indefinitely()
+
+        assertNotNull(updated)
+        assertEquals("gelezen", updated!!.status)
+        assertEquals("archief", updated.map)
+    }
+
+    @Test
+    fun `update wijzigt status en map gecombineerd`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val original = berichten[0]
+        val updated = berichtenCache.update(original.berichtId, ontvanger, "gelezen", "archief")
+            .await().indefinitely()
+
+        assertNotNull(updated)
+        assertEquals("gelezen", updated!!.status)
+        assertEquals("archief", updated.map)
+    }
+
+    @Test
+    fun `update met verkeerde ontvanger retourneert null`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val result = berichtenCache.update(berichten[0].berichtId, "andere-ontvanger", "gelezen", null)
+            .await().indefinitely()
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `update op niet-bestaand bericht retourneert null`() {
+        val result = berichtenCache.update(UUID.randomUUID(), ontvanger, "gelezen", null)
+            .await().indefinitely()
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `delete bestaand bericht verwijdert hash`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        val result = berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()
+        assertNull(result)
+    }
+
+    @Test
+    fun `delete onbestaand bericht is no-op`() {
+        // Geen exceptie en geen kerneffect — er is simpelweg niets om te verwijderen.
+        berichtenCache.delete(UUID.randomUUID(), ontvanger).await().indefinitely()
+    }
+
+    @Test
+    fun `roundtrip bewaart bijlagen-lijst correct`() {
+        val bijlageId = UUID.randomUUID()
+        val bericht = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = "00000001234567890000",
+            ontvanger = ontvanger,
+            onderwerp = "Bericht met bijlage",
+            inhoud = "Met bijlage",
+            publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
+            magazijnId = "magazijn-a",
+            aantalBijlagen = 1,
+            bijlagen = listOf(BijlageSamenvatting(bijlageId, "factuur.pdf")),
+            map = "inkomend",
+            status = "ongelezen",
+        )
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
+
+        val retrieved = berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()
+        assertNotNull(retrieved)
+        assertEquals(1, retrieved!!.bijlagen.size)
+        assertEquals(bijlageId, retrieved.bijlagen[0].bijlageId)
+        assertEquals("factuur.pdf", retrieved.bijlagen[0].naam)
+        assertEquals("inkomend", retrieved.map)
+        assertEquals("ongelezen", retrieved.status)
+    }
+
+    @Test
+    fun `delete met andere ontvanger laat bericht intact`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, "andere-ontvanger").await().indefinitely()
+
+        val result = berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()
+        assertNotNull(result)
     }
 
     @Test
@@ -156,8 +271,10 @@ class RedisBerichtenCacheIntegrationTest {
             afzender = "00000005555555550000",
             ontvanger = ontvanger,
             onderwerp = "Nieuw bericht",
-            tijdstip = Instant.parse("2026-03-10T14:00:00Z"),
+            inhoud = "Inhoud nieuw bericht",
+            publicatietijdstip = Instant.parse("2026-03-10T14:00:00Z"),
             magazijnId = "magazijn-c",
+            aantalBijlagen = 3,
         )
         berichtenCache.addBericht(nieuwBericht).await().indefinitely()
 

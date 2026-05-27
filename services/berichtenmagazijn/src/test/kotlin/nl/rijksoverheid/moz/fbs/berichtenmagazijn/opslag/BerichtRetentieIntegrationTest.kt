@@ -68,7 +68,7 @@ class BerichtRetentieIntegrationTest {
                 onderwerp = "Retentietest $berichtId",
                 inhoud = "Inhoud voor retentietest",
                 tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
-                publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                publicatietijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
             ),
         )
 

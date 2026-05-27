@@ -18,14 +18,25 @@
         {
           "berichtId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
           "afzender": "00000001234567890000",
-          "ontvanger": "999993653",
+          "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Besluit aanvraag subsidie",
-          "tijdstip": "2026-03-10T14:30:00Z",
-          "magazijnId": "magazijn-a"
+          "inhoud": "Uw subsidie-aanvraag is toegekend. Zie de bijlage voor de toekenningsbrief.",
+          "tijdstipOntvangst": "2026-03-10T14:30:05Z",
+          "publicatietijdstip": "2026-03-10T14:30:00Z",
+          "magazijnId": "magazijn-a",
+          "aantalBijlagen": 1,
+          "bijlagen": [
+            { "bijlageId": "aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa", "naam": "toekenningsbrief.pdf" }
+          ],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-10T14:30:05Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/a1b2c3d4-e5f6-7890-abcd-ef1234567890" } }
         }
       ],
+      "page": 0,
+      "pageSize": 20,
       "totalElements": 1,
-      "totalPages": 1
+      "totalPages": 1,
+      "_links": { "self": { "href": "/api/v1/berichten/zoeken?page=0&pageSize=20" } }
     }
   }
 }

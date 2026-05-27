@@ -98,7 +98,7 @@ class OpenApiContractTest {
                     aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"Test","tijdstipOntvangst":"2026-05-26T10:00:00Z"}"""),
+                        .withBody("""{"berichtId":"$id","onderwerp":"Test","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
                 ),
         )
 
@@ -114,7 +114,7 @@ class OpenApiContractTest {
     @Test
     fun `PATCH bericht doet dual-write en levert valide Bericht`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"Test","tijdstipOntvangst":"2026-05-26T10:00:00Z"}"""
+        val body = """{"berichtId":"$id","onderwerp":"Test","publicatietijdstip":"2026-05-26T10:00:00Z"}"""
         // Magazijn-PATCH OK
         WireMockBackendsResource.magazijn!!.stubFor(
             patch(urlPathMatching("/api/v1/berichten/$id"))

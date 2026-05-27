@@ -28,7 +28,7 @@ class DualWriteFaultTest {
     @Test
     fun `PATCH happy-path doet magazijn-eerst dan cache en geeft 200`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","tijdstipOntvangst":"2026-05-26T10:00:00Z"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""
 
         WireMockBackendsResource.magazijn!!.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
@@ -75,7 +75,7 @@ class DualWriteFaultTest {
     @Test
     fun `PATCH cache-faal na magazijn-OK geeft 502 en triggert invalidate-DELETE`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"X","tijdstipOntvangst":"2026-05-26T10:00:00Z"}"""
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""
 
         // magazijn OK
         WireMockBackendsResource.magazijn!!.stubFor(

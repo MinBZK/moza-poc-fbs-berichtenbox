@@ -141,6 +141,36 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - berichten
+      summary: Bericht uit cache verwijderen (cache-invalidate)
+      description: |
+        Verwijdert het bericht uit de cache. Idempotent: ook als het bericht
+        niet (meer) in de cache zit retourneert dit endpoint 204. Dat is een
+        bewuste keuze: de dual-write-invalidate stuurt de DELETE nadat het
+        magazijn al verwijderd heeft; "niet in cache" is dan een normaal
+        gevolg (TTL verlopen, andere instance heeft al gewist) en geen fout.
+      operationId: verwijderBericht
+      parameters:
+        - name: berichtId
+          in: path
+          required: true
+          description: Uniek ID van het bericht
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '204':
+          description: Verwijderd (of niet aanwezig)
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     get:
       operationId: getBerichtById
       summary: Enkel berichtrecord ophalen
@@ -318,41 +348,6 @@ components:
         example: "0.1.0"
 
   schemas:
-    Bericht:
-      type: object
-      required:
-        - berichtId
-        - afzender
-        - ontvanger
-        - onderwerp
-        - tijdstip
-        - magazijnId
-      properties:
-        berichtId:
-          type: string
-          format: uuid
-          description: Uniek ID van het bericht
-        afzender:
-          type: string
-          description: OIN van de afzender
-        ontvanger:
-          type: string
-          description: BSN of KVK-nummer van de ontvanger
-        onderwerp:
-          type: string
-          description: Onderwerp van het bericht
-        tijdstip:
-          type: string
-          format: date-time
-          description: Tijdstip van het bericht
-        magazijnId:
-          type: string
-          description: ID van het bronmagazijn
-        status:
-          $ref: '#/components/schemas/BerichtStatus'
-        _links:
-          $ref: '#/components/schemas/BerichtLinks'
-
     BerichtStatus:
       type: string
       enum: [gelezen, ongelezen]
@@ -389,7 +384,7 @@ components:
         berichten:
           type: array
           items:
-            $ref: '#/components/schemas/Bericht'
+            $ref: '#/components/schemas/BerichtSamenvatting'
         page:
           type: integer
           description: Huidig paginanummer
@@ -475,15 +470,20 @@ components:
         next:
           $ref: '#/components/schemas/Link'
 
-    BerichtResponse:
+    BerichtSamenvatting:
       type: object
+      description: |
+        Lichte representatie voor lijst-weergave. Bevat geen `inhoud` of
+        bijlage-lijst — die zitten op de volledige `BerichtResponse` via
+        `GET /berichten/{berichtId}`.
       required:
         - berichtId
         - afzender
         - ontvanger
         - onderwerp
-        - tijdstip
+        - publicatietijdstip
         - magazijnId
+        - aantalBijlagen
       properties:
         berichtId:
           type: string
@@ -494,11 +494,66 @@ components:
           type: string
         onderwerp:
           type: string
-        tijdstip:
+        publicatietijdstip:
+          type: string
+          format: date-time
+        map:
+          type: string
+          minLength: 1
+          maxLength: 64
+        magazijnId:
+          type: string
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/BerichtStatus'
+        _links:
+          $ref: '#/components/schemas/BerichtLinks'
+
+    BerichtResponse:
+      type: object
+      required:
+        - berichtId
+        - afzender
+        - ontvanger
+        - onderwerp
+        - inhoud
+        - publicatietijdstip
+        - magazijnId
+        - aantalBijlagen
+      properties:
+        berichtId:
+          type: string
+          format: uuid
+        afzender:
+          type: string
+        ontvanger:
+          type: string
+        onderwerp:
+          type: string
+        inhoud:
+          type: string
+          description: Tekstuele inhoud van het bericht (overgenomen uit het magazijn).
+        publicatietijdstip:
           type: string
           format: date-time
         magazijnId:
           type: string
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+          description: Aantal bijlagen bij het bericht (overgenomen uit het magazijn).
+        bijlagen:
+          type: array
+          description: Lijst van bijlagen (alleen identifier en naam).
+          items:
+            $ref: '#/components/schemas/BijlageSamenvatting'
+        map:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Map waarin het bericht is geplaatst door de ontvanger.
         status:
           $ref: '#/components/schemas/BerichtStatus'
         _links:
@@ -506,11 +561,41 @@ components:
 
     BerichtStatusUpdate:
       type: object
-      required:
-        - status
+      description: |
+        JSON Merge Patch (RFC 7396) op een berichtrecord. `status` wijzigt de
+        leesstatus, `map` verplaatst het bericht naar een ontvanger-map. Beide
+        velden zijn optioneel; minimaal één veld is vereist (`minProperties: 1`).
+        Naam behouden voor backwards-compat met de aanmeld-service.
+      minProperties: 1
       properties:
         status:
           $ref: '#/components/schemas/BerichtStatus'
+        map:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Nieuwe map waarin het bericht geplaatst moet worden.
+
+    BijlageSamenvatting:
+      type: object
+      description: |
+        Lichte representatie van een bijlage in de cache: alleen identifier en
+        naam, zodat de portal kan opsommen en doorklikken. Volledige metadata
+        (mimeType, grootte, _links) en de bytes blijven exclusief in het
+        magazijn — die worden niet in de sessiecache opgeslagen.
+      required:
+        - bijlageId
+        - naam
+      properties:
+        bijlageId:
+          type: string
+          format: uuid
+          description: Uniek ID van de bijlage; te gebruiken in het magazijn-bijlage-download-endpoint.
+        naam:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Bestandsnaam zoals zichtbaar voor de ontvanger.
 
     BerichtInput:
       type: object
@@ -519,8 +604,10 @@ components:
         - afzender
         - ontvanger
         - onderwerp
-        - tijdstip
+        - inhoud
+        - publicatietijdstip
         - magazijnId
+        - aantalBijlagen
       properties:
         berichtId:
           type: string
@@ -535,13 +622,30 @@ components:
         onderwerp:
           type: string
           description: Onderwerp van het bericht
-        tijdstip:
+        inhoud:
+          type: string
+          description: Tekstuele inhoud van het bericht.
+        publicatietijdstip:
           type: string
           format: date-time
-          description: Tijdstip van het bericht
+          description: Effectieve publicatie-tijd, overgenomen uit het magazijn
         magazijnId:
           type: string
           description: ID van het bronmagazijn
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+          description: Aantal bijlagen bij het bericht (overgenomen uit het magazijn).
+        bijlagen:
+          type: array
+          description: Lijst van bijlagen (alleen identifier en naam).
+          items:
+            $ref: '#/components/schemas/BijlageSamenvatting'
+        map:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Map waarin het bericht is geplaatst door de ontvanger.
 
     Problem:
       type: object

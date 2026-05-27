@@ -82,7 +82,7 @@ class ServiceCoverageTest {
                     aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"X","tijdstipOntvangst":"2026-05-26T10:00:00Z"}"""),
+                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
                 ),
         )
 

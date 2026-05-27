@@ -91,7 +91,7 @@ class AanleverResourcePendingFailureLogTest {
         onderwerp = "Test",
         inhoud = "Inhoud",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
     )
 
     private val julLogger: Logger = Logger.getLogger(AanleverResource::class.java.name)
@@ -118,7 +118,7 @@ class AanleverResourcePendingFailureLogTest {
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatiedatum = any(),
+                publicatietijdstip = any(),
             )
         } returns gevalideerdBericht
         // Default OK-pad voor finally; afzonderlijke tests overschrijven om IAE te triggeren.
@@ -142,7 +142,7 @@ class AanleverResourcePendingFailureLogTest {
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatiedatum = any(),
+                publicatietijdstip = any(),
             )
         } throws RuntimeException(piiMessage)
         // Forceer dat addLogboekContextToSpan in finally een IAE gooit
@@ -193,7 +193,7 @@ class AanleverResourcePendingFailureLogTest {
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatiedatum = any(),
+                publicatietijdstip = any(),
             )
         } throws IllegalStateException("interne staat ongeldig", RuntimeException("DB-fout cause"))
         every {
@@ -229,7 +229,7 @@ class AanleverResourcePendingFailureLogTest {
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatiedatum = any(),
+                publicatietijdstip = any(),
             )
         } throws RuntimeException("origineel")
         every {

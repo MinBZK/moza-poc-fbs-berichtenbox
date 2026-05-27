@@ -49,7 +49,7 @@ class BeheerResourceIntegrationTest {
             onderwerp = "Beheer-test",
             inhoud = "Inhoud",
             tijdstipOntvangst = Instant.now(),
-            publicatiedatum = Instant.now(),
+            publicatietijdstip = Instant.now(),
         )
         berichtRepository.save(b)
         return b

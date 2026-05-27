@@ -42,14 +42,19 @@ class BerichtensessiecacheService(
         return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
     }
 
-    fun updateBerichtStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
-        log.debugf("Bijwerken berichtstatus: berichtId=%s, status=%s", berichtId, status)
-        return berichtenCache.updateStatus(berichtId, ontvanger, status)
+    fun updateBericht(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+        log.debugf("Bijwerken bericht: berichtId=%s, status=%s, map=%s", berichtId, status, map)
+        return berichtenCache.update(berichtId, ontvanger, status, map)
     }
 
     fun addBericht(bericht: Bericht): Uni<Bericht> {
         log.debugf("Toevoegen bericht aan cache: berichtId=%s", bericht.berichtId)
         return berichtenCache.addBericht(bericht).replaceWith(bericht)
+    }
+
+    fun verwijderBericht(berichtId: UUID, ontvanger: String): Uni<Void> {
+        log.debugf("Verwijderen bericht uit cache: berichtId=%s", berichtId)
+        return berichtenCache.delete(berichtId, ontvanger)
     }
 
     /**
@@ -98,7 +103,8 @@ class BerichtensessiecacheService(
                 .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
                 .ifNoItem().after(Duration.ofSeconds(10)).fail()
                 .map<MagazijnResult> { response ->
-                    MagazijnResult.Success(magazijnId, naam, response.berichten)
+                    val berichten = response.berichten.map { it.toBericht(magazijnId) }
+                    MagazijnResult.Success(magazijnId, naam, berichten)
                 }
                 .onFailure(Exception::class.java).recoverWithItem { error ->
                     when (error) {

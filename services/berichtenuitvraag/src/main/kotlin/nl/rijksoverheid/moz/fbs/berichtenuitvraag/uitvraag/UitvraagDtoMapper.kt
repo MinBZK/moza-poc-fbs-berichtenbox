@@ -7,7 +7,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
  * Mapt tussen de uitvraag-API-DTO's en de DTO's van downstream-services. Op
  * één punt zijn de vormen niet identiek: magazijn modelleert `gelezen` als
  * boolean, uitvraag/sessiecache als enum `gelezen|ongelezen`. Alle andere
- * velden zijn naam-gealigneerd (`berichtId`, `tijdstipOntvangst`,
+ * velden zijn naam-gealigneerd (`berichtId`, `publicatietijdstip`,
  * `grootteInBytes`).
  */
 object UitvraagDtoMapper {

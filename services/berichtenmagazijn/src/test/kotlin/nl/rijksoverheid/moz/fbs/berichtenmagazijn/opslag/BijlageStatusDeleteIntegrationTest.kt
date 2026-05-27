@@ -113,7 +113,7 @@ class BijlageStatusDeleteIntegrationTest {
                 onderwerp = "Test bericht",
                 inhoud = "Test inhoud",
                 tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
-                publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                publicatietijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
             ),
         )
     }
