@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Hernoem `tijdstip`/`publicatiedatum` → `publicatietijdstip`
 
