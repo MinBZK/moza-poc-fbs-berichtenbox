@@ -20,20 +20,39 @@
           "afzender": "00000005555555550000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Vergunning omgevingswet",
+          "inhoud": "Uw aanvraag voor een omgevingsvergunning is ontvangen en in behandeling.",
+          "tijdstipOntvangst": "2026-03-10T10:00:02Z",
           "publicatietijdstip": "2026-03-10T10:00:00Z",
           "magazijnId": "magazijn-b",
-          "aantalBijlagen": 3
+          "aantalBijlagen": 3,
+          "bijlagen": [
+            { "bijlageId": "bbbbbbbb-1111-2222-3333-bbbbbbbbbbbb", "naam": "ontvangstbevestiging.pdf" },
+            { "bijlageId": "bbbbbbbb-2222-3333-4444-bbbbbbbbbbbb", "naam": "aanvraagformulier.pdf" },
+            { "bijlageId": "bbbbbbbb-3333-4444-5555-bbbbbbbbbbbb", "naam": "tekening.dwg" }
+          ],
+          "status": { "gelezen": false, "map": "inbox", "gewijzigdOp": "2026-03-10T10:00:02Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/11111111-aaaa-bbbb-cccc-111111111111" } }
         },
         {
           "berichtId": "22222222-aaaa-bbbb-cccc-222222222222",
           "afzender": "00000005555555550000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Herinnering WOZ-bezwaar",
+          "inhoud": "Uw bezwaar tegen de WOZ-waarde dient binnen 6 weken te worden ingediend.",
+          "tijdstipOntvangst": "2026-03-07T13:20:01Z",
           "publicatietijdstip": "2026-03-07T13:20:00Z",
           "magazijnId": "magazijn-b",
-          "aantalBijlagen": 0
+          "aantalBijlagen": 0,
+          "bijlagen": [],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-07T13:20:01Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/22222222-aaaa-bbbb-cccc-222222222222" } }
         }
-      ]
+      ],
+      "page": 0,
+      "pageSize": 20,
+      "totalElements": 2,
+      "totalPages": 1,
+      "_links": { "self": { "href": "/api/v1/berichten?page=0&pageSize=20" } }
     }
   }
 }

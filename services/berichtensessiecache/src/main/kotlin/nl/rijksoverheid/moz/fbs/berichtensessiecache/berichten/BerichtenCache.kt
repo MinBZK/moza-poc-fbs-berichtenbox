@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.redis.datasource.search.CreateArgs
@@ -23,8 +24,9 @@ interface BerichtenCache {
     fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: String? = null): Uni<BerichtenPage?>
     fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
-    fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?>
+    fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?>
     fun addBericht(bericht: Bericht): Uni<Void>
+    fun delete(berichtId: UUID, ontvanger: String): Uni<Void>
 
     companion object {
         fun cacheKey(ontvanger: String): String {
@@ -301,9 +303,16 @@ class RedisBerichtenCache(
         put("afzender", bericht.afzender)
         put("ontvanger", bericht.ontvanger)
         put("onderwerp", bericht.onderwerp)
+        put("inhoud", bericht.inhoud)
         put("publicatietijdstip", bericht.publicatietijdstip.toString())
         put("magazijnId", bericht.magazijnId)
         put("aantalBijlagen", bericht.aantalBijlagen.toString())
+        // Bijlagen worden als één JSON-string opgeslagen — RediSearch heeft geen index op
+        // dit veld, en de lijst is zelden meer dan een handvol items, dus de overhead is laag.
+        if (bericht.bijlagen.isNotEmpty()) {
+            put("bijlagen", objectMapper.writeValueAsString(bericht.bijlagen))
+        }
+        bericht.map?.let { put("map", it) }
         bericht.status?.let { put("status", it) }
     }
 
@@ -312,11 +321,14 @@ class RedisBerichtenCache(
         afzender = fields["afzender"]!!,
         ontvanger = fields["ontvanger"]!!,
         onderwerp = fields["onderwerp"]!!,
+        // Backwards-compat: oude hash-entries hebben nog geen `inhoud`/`bijlagen`/`map`.
+        // Default leeg/null zodat een upgrade tijdens een lopende sessie niet faalt.
+        inhoud = fields["inhoud"] ?: "",
         publicatietijdstip = Instant.parse(fields["publicatietijdstip"]!!),
         magazijnId = fields["magazijnId"]!!,
-        // Backwards-compat: ontbrekend `aantalBijlagen`-veld in oude hash-entries valt
-        // terug op 0; nieuwe `store`/`addBericht` schrijven het altijd mee.
         aantalBijlagen = fields["aantalBijlagen"]?.toInt() ?: 0,
+        bijlagen = fields["bijlagen"]?.let { objectMapper.readValue(it, BIJLAGE_LIST_TYPE) } ?: emptyList(),
+        map = fields["map"],
         status = fields["status"],
     )
 
@@ -325,24 +337,42 @@ class RedisBerichtenCache(
         afzender = doc.property("afzender").asString(),
         ontvanger = doc.property("ontvanger").asString(),
         onderwerp = doc.property("onderwerp").asString(),
+        inhoud = doc.property("inhoud")?.asString() ?: "",
         publicatietijdstip = Instant.parse(doc.property("publicatietijdstip").asString()),
         magazijnId = doc.property("magazijnId").asString(),
         aantalBijlagen = doc.property("aantalBijlagen")?.asString()?.toInt() ?: 0,
+        bijlagen = doc.property("bijlagen")?.asString()?.let { objectMapper.readValue(it, BIJLAGE_LIST_TYPE) } ?: emptyList(),
+        map = doc.property("map")?.asString(),
         status = doc.property("status")?.asString(),
     )
 
-    override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+    override fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+        // Merge-PATCH: alleen de meegegeven velden worden bijgewerkt; ontbrekende velden
+        // (null op deze laag) blijven onveranderd. HSET met meerdere field/value-paren in
+        // één call beperkt round-trips; bij geen wijzigingen retourneren we direct.
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         return redis.hash(String::class.java).hgetall(berichtKey)
             .chain { fields ->
                 if (fields.isEmpty()) return@chain Uni.createFrom().nullItem<Bericht>()
                 val bericht = hashToBericht(fields)
                 if (bericht.ontvanger != ontvanger) return@chain Uni.createFrom().nullItem<Bericht>()
-                val updated = bericht.copy(status = status)
-                redis.hash(String::class.java).hset(berichtKey, "status", status)
-                    .replaceWith(updated)
+
+                val updated = bericht.copy(
+                    status = status ?: bericht.status,
+                    map = map ?: bericht.map,
+                )
+                val toWrite = buildMap {
+                    status?.let { put("status", it) }
+                    map?.let { put("map", it) }
+                }
+                if (toWrite.isEmpty()) {
+                    Uni.createFrom().item(updated)
+                } else {
+                    redis.hash(String::class.java).hset(berichtKey, toWrite)
+                        .replaceWith(updated)
+                }
             }
-            .onFailure().invoke { e -> log.errorf(e, "Redis updateStatus mislukt voor berichtId=%s", berichtId) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis update mislukt voor berichtId=%s", berichtId) }
     }
 
     override fun addBericht(bericht: Bericht): Uni<Void> {
@@ -367,10 +397,30 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis addBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }
 
+    override fun delete(berichtId: UUID, ontvanger: String): Uni<Void> {
+        // Idempotent cache-invalidate: ontbrekende of niet-bijbehorende entries leveren geen fout op.
+        // De hash-key (DEL) is autoritatief voor de bericht-by-id-lookup en de RediSearch-index;
+        // de eventuele list-entry op de sessie-list raakt vanzelf "verweesd" maar wordt door de
+        // berichtId-hash-miss in getById/getPage genegeerd — opruimen is hier niet nodig.
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        return redis.hash(String::class.java).hgetall(berichtKey)
+            .chain { fields ->
+                if (fields.isEmpty() || fields["ontvanger"] != ontvanger) {
+                    Uni.createFrom().voidItem()
+                } else {
+                    redis.key().del(berichtKey).replaceWithVoid()
+                }
+            }
+            .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor berichtId=%s", berichtId) }
+    }
+
     companion object {
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"
         private fun lockKey(key: String) = "$key:lock"
+
+        // TypeReference voor Jackson-deserialisatie van de `bijlagen`-hash-field (JSON-array).
+        private val BIJLAGE_LIST_TYPE = object : TypeReference<List<BijlageSamenvatting>>() {}
 
         // Escape niet-alfanumerieke tekens voor RediSearch full-text queries (whitelist-benadering)
         internal val SEARCH_SPECIAL = Regex("[^a-zA-Z0-9]")

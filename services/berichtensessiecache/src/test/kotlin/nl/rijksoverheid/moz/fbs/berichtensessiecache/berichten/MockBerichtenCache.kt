@@ -82,10 +82,13 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
     }
 
-    override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+    override fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
         val bericht = byId[berichtId]
         if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
-        val updated = bericht.copy(status = status)
+        val updated = bericht.copy(
+            status = status ?: bericht.status,
+            map = map ?: bericht.map,
+        )
         byId[berichtId] = updated
         return Uni.createFrom().item(updated)
     }
@@ -96,6 +99,17 @@ class MockBerichtenCache : BerichtenCache {
         val existing = lists[listKey] ?: emptyList()
         lists[listKey] = (existing + bericht).sortedByDescending { it.publicatietijdstip }
         byId[bericht.berichtId] = bericht
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun delete(berichtId: UUID, ontvanger: String): Uni<Void> {
+        val existing = byId[berichtId]
+        if (existing != null && existing.ontvanger == ontvanger) {
+            byId.remove(berichtId)
+            val key = BerichtenCache.cacheKey(ontvanger)
+            val listKey = "$key:list"
+            lists[listKey]?.let { lists[listKey] = it.filter { b -> b.berichtId != berichtId } }
+        }
         return Uni.createFrom().voidItem()
     }
 

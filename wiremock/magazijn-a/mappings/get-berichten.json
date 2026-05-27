@@ -20,29 +20,54 @@
           "afzender": "00000001234567890000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Besluit aanvraag subsidie",
+          "inhoud": "Uw subsidie-aanvraag is toegekend. Zie de bijlage voor de toekenningsbrief.",
+          "tijdstipOntvangst": "2026-03-10T14:30:05Z",
           "publicatietijdstip": "2026-03-10T14:30:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 1
+          "aantalBijlagen": 1,
+          "bijlagen": [
+            { "bijlageId": "aaaaaaaa-1111-2222-3333-aaaaaaaaaaaa", "naam": "toekenningsbrief.pdf" }
+          ],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-10T14:30:05Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/a1b2c3d4-e5f6-7890-abcd-ef1234567890" } }
         },
         {
           "berichtId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
           "afzender": "00000001234567890000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Bevestiging inschrijving KVK",
+          "inhoud": "Uw inschrijving bij de Kamer van Koophandel is succesvol verwerkt.",
+          "tijdstipOntvangst": "2026-03-09T09:15:02Z",
           "publicatietijdstip": "2026-03-09T09:15:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 0
+          "aantalBijlagen": 0,
+          "bijlagen": [],
+          "status": { "gelezen": true, "map": "archief", "gewijzigdOp": "2026-03-09T10:00:00Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/b2c3d4e5-f6a7-8901-bcde-f12345678901" } }
         },
         {
           "berichtId": "c3d4e5f6-a7b8-9012-cdef-123456789012",
           "afzender": "00000009876543210000",
           "ontvanger": { "type": "BSN", "waarde": "999993653" },
           "onderwerp": "Kennisgeving handhaving",
+          "inhoud": "Wij hebben een overtreding geconstateerd. Reageer binnen 14 dagen.",
+          "tijdstipOntvangst": "2026-03-08T16:45:03Z",
           "publicatietijdstip": "2026-03-08T16:45:00Z",
           "magazijnId": "magazijn-a",
-          "aantalBijlagen": 2
+          "aantalBijlagen": 2,
+          "bijlagen": [
+            { "bijlageId": "cccccccc-1111-2222-3333-cccccccccccc", "naam": "kennisgeving.pdf" },
+            { "bijlageId": "cccccccc-2222-3333-4444-cccccccccccc", "naam": "bewijsstukken.zip" }
+          ],
+          "status": { "gelezen": false, "gewijzigdOp": "2026-03-08T16:45:03Z" },
+          "_links": { "self": { "href": "/api/v1/berichten/c3d4e5f6-a7b8-9012-cdef-123456789012" } }
         }
-      ]
+      ],
+      "page": 0,
+      "pageSize": 20,
+      "totalElements": 3,
+      "totalPages": 1,
+      "_links": { "self": { "href": "/api/v1/berichten?page=0&pageSize=20" } }
     }
   }
 }

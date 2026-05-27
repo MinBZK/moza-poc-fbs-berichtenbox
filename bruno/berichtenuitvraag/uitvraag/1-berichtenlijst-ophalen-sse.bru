@@ -1,15 +1,16 @@
 meta {
-  name: 1. Berichtenlijst (default map)
+  name: 1. Berichtenlijst ophalen (SSE, alle mappen)
   type: http
   seq: 1
 }
 
 get {
-  url: {{baseUrl}}/berichten
+  url: {{baseUrlUitvraag}}/berichten/_ophalen
   auth: none
 }
 
 headers {
   X-Ontvanger: {{ontvangerHeaderPersoon}}
+  Accept: text/event-stream
   traceparent: 00-{{traceId}}-{{parentSpanId}}-01
 }
