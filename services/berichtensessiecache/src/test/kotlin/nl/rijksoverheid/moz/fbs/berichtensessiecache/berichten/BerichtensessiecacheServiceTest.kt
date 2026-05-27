@@ -91,15 +91,40 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `updateBerichtStatus delegeert naar cache`() {
+    fun `updateBericht delegeert status-update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(status = "GELEZEN")
-        every { berichtenCache.updateStatus(bericht.berichtId, ontvanger, "GELEZEN") } returns Uni.createFrom().item(updated)
+        every { berichtenCache.update(bericht.berichtId, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
 
-        val result = service.updateBerichtStatus(bericht.berichtId, ontvanger, "GELEZEN").await().indefinitely()
+        val result = service.updateBericht(bericht.berichtId, ontvanger, "GELEZEN", null).await().indefinitely()
 
         assertNotNull(result)
         assertEquals("GELEZEN", result!!.status)
+    }
+
+    @Test
+    fun `updateBericht delegeert map-update naar cache`() {
+        val bericht = testBericht()
+        val updated = bericht.copy(map = "archief")
+        every { berichtenCache.update(bericht.berichtId, ontvanger, null, "archief") } returns Uni.createFrom().item(updated)
+
+        val result = service.updateBericht(bericht.berichtId, ontvanger, null, "archief").await().indefinitely()
+
+        assertNotNull(result)
+        assertEquals("archief", result!!.map)
+    }
+
+    @Test
+    fun `updateBericht delegeert gecombineerde update naar cache`() {
+        val bericht = testBericht()
+        val updated = bericht.copy(status = "gelezen", map = "archief")
+        every { berichtenCache.update(bericht.berichtId, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
+
+        val result = service.updateBericht(bericht.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
+
+        assertNotNull(result)
+        assertEquals("gelezen", result!!.status)
+        assertEquals("archief", result.map)
     }
 
     private fun testBericht() = Bericht(

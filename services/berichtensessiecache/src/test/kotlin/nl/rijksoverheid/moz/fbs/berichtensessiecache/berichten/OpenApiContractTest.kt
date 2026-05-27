@@ -155,6 +155,30 @@ class OpenApiContractTest {
     }
 
     @Test
+    fun `PATCH bericht map conform BerichtResponse schema`() {
+        ophalenBerichten()
+
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "archief"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(200)
+    }
+
+    @Test
+    fun `DELETE bericht conform spec retourneert 204`() {
+        ophalenBerichten()
+
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", ontvanger)
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(204)
+    }
+
+    @Test
     fun `GET zoeken conform BerichtensessiecacheResponse schema`() {
         ophalenBerichten()
 

@@ -128,10 +128,10 @@ class BerichtensessiecacheResource(
 
         val ontvanger = requireOntvanger(xOntvanger)
 
-        // `status` is sinds Batch A optioneel in de spec; `minProperties: 1` zou een lege
-        // body al moeten weren, maar een onbekende enum-waarde komt door Jackson als `null`
-        // binnen (geen `@NotNull` meer afdwingbaar). Tot Batch B de volledige status+map
-        // merge-PATCH implementeert, vangen we die hier expliciet af als 400.
+        // JSON Merge Patch (RFC 7396): alleen meegegeven velden worden gewijzigd. `minProperties: 1`
+        // in de spec zou een lege body al moeten weren, maar een onbekende enum-waarde komt door
+        // Jackson als `null` binnen — dus controleren we hier nog expliciet dat er *iets* te
+        // patchen valt. Anders krijgen callers stilzwijgend een no-op die "succes" lijkt.
         if (berichtStatusUpdate.status == null && berichtStatusUpdate.map == null) {
             throw WebApplicationException(
                 "Minimaal één van 'status' of 'map' is vereist (geen geldige waarde meegegeven).",
@@ -139,15 +139,16 @@ class BerichtensessiecacheResource(
             )
         }
 
-        // Batch A laat alleen status-PATCH werken; map-PATCH komt in Batch B. Tot dan: 400 als
-        // alleen `map` is meegegeven, zodat callers geen impliciete no-op krijgen.
-        val nieuweStatus = berichtStatusUpdate.status ?: throw WebApplicationException(
-            "Alleen 'status'-PATCH is in deze versie ondersteund; 'map'-PATCH volgt.",
-            Response.Status.BAD_REQUEST,
-        )
+        // Lengte-validatie op `map` (1..64) is in de gegenereerde DTO afgedwongen via
+        // `@Size(min=1,max=64)` op de getter + `@Valid` op de parameter; lege/te lange
+        // waarden komen via ConstraintViolationExceptionMapper als 400 terug. Geen extra
+        // check hier; zou enkel dode code zijn.
+
+        val nieuweStatus = berichtStatusUpdate.status?.toString()
+        val nieuweMap = berichtStatusUpdate.map
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, nieuweStatus.toString())
+            berichtensessiecacheService.updateBericht(berichtId, ontvanger, nieuweStatus, nieuweMap)
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )

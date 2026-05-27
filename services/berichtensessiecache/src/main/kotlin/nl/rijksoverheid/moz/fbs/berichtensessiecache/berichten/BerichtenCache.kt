@@ -24,7 +24,7 @@ interface BerichtenCache {
     fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: String? = null): Uni<BerichtenPage?>
     fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
-    fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?>
+    fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?>
     fun addBericht(bericht: Bericht): Uni<Void>
     fun delete(berichtId: UUID, ontvanger: String): Uni<Void>
 
@@ -346,18 +346,33 @@ class RedisBerichtenCache(
         status = doc.property("status")?.asString(),
     )
 
-    override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+    override fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+        // Merge-PATCH: alleen de meegegeven velden worden bijgewerkt; ontbrekende velden
+        // (null op deze laag) blijven onveranderd. HSET met meerdere field/value-paren in
+        // één call beperkt round-trips; bij geen wijzigingen retourneren we direct.
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         return redis.hash(String::class.java).hgetall(berichtKey)
             .chain { fields ->
                 if (fields.isEmpty()) return@chain Uni.createFrom().nullItem<Bericht>()
                 val bericht = hashToBericht(fields)
                 if (bericht.ontvanger != ontvanger) return@chain Uni.createFrom().nullItem<Bericht>()
-                val updated = bericht.copy(status = status)
-                redis.hash(String::class.java).hset(berichtKey, "status", status)
-                    .replaceWith(updated)
+
+                val updated = bericht.copy(
+                    status = status ?: bericht.status,
+                    map = map ?: bericht.map,
+                )
+                val toWrite = buildMap {
+                    status?.let { put("status", it) }
+                    map?.let { put("map", it) }
+                }
+                if (toWrite.isEmpty()) {
+                    Uni.createFrom().item(updated)
+                } else {
+                    redis.hash(String::class.java).hset(berichtKey, toWrite)
+                        .replaceWith(updated)
+                }
             }
-            .onFailure().invoke { e -> log.errorf(e, "Redis updateStatus mislukt voor berichtId=%s", berichtId) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis update mislukt voor berichtId=%s", berichtId) }
     }
 
     override fun addBericht(bericht: Bericht): Uni<Void> {

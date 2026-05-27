@@ -546,6 +546,244 @@ class BerichtensessiecacheResourceTest {
             .contentType("application/problem+json")
     }
 
+    @Test
+    fun `PATCH alleen status update wijzigt status laat map ongemoeid`() {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        // Zet eerst een map zodat we kunnen verifiëren dat een alleen-status-PATCH die niet wist
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "werk"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(200)
+            .body("map", `is`("werk"))
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("status", `is`("gelezen"))
+            .body("map", `is`("werk"))
+    }
+
+    @Test
+    fun `PATCH alleen map update wijzigt map laat status ongemoeid`() {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        // Zet eerst een status zodat we kunnen verifiëren dat een alleen-map-PATCH die niet wist
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(200)
+            .body("status", `is`("gelezen"))
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "archief"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("map", `is`("archief"))
+            .body("status", `is`("gelezen"))
+    }
+
+    @Test
+    fun `PATCH status en map gecombineerd wijzigt beide velden`() {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen", "map": "archief"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("status", `is`("gelezen"))
+            .body("map", `is`("archief"))
+    }
+
+    @Test
+    fun `PATCH met lege body retourneert 400`() {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    @Test
+    fun `PATCH met te lange map retourneert 400`() {
+        // Bean Validation (@Size(max=64) op de DTO-getter, geactiveerd via @Valid in de
+        // gegenereerde JAX-RS interface) vangt dit af vóór de resource-body draait.
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        val teLang = "x".repeat(65)
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "$teLang"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    @Test
+    fun `PATCH met lege map retourneert 400`() {
+        // Bean Validation (@Size(min=1) op de DTO-getter) vangt dit af; zie ook
+        // `PATCH met te lange map retourneert 400`.
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": ""}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    // --- DELETE /berichten/{berichtId} ---
+
+    @Test
+    fun `DELETE bestaand bericht retourneert 204 en daarna GET retourneert 404`() {
+        val ontvanger = "999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(204)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(404)
+    }
+
+    @Test
+    fun `DELETE niet-bestaand bericht retourneert 204 idempotent`() {
+        val ontvanger = "delete-onbekend-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().delete("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+            .then().statusCode(204)
+    }
+
+    @Test
+    fun `DELETE met andere ontvanger retourneert 204 en lekt niet`() {
+        // Bericht 11111111 hoort bij ontvanger "999993653". Een DELETE met een andere
+        // ontvanger moet idempotent 204 retourneren (geen 404 — anders zou een aanvaller
+        // berichten-bestaan kunnen probe-en), én het bericht moet bewaard blijven.
+        val anderOntvanger = "delete-mismatch-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", anderOntvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "999993653")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", anderOntvanger)
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(204)
+
+        // Bericht moet nog steeds te benaderen zijn voor de échte ontvanger
+        given()
+            .header("X-Ontvanger", "999993653")
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(200)
+    }
+
+    @Test
+    fun `DELETE zonder ontvanger retourneert 400`() {
+        given()
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `DELETE herhaald op zelfde bericht retourneert 204 idempotent`() {
+        val ontvanger = "delete-herhaald-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        val berichtId = "aaaaaaaa-1111-2222-3333-444444444444"
+
+        // Twee opeenvolgende DELETE's: tweede is geen 404 maar 204 (idempotent)
+        repeat(2) {
+            given()
+                .header("X-Ontvanger", ontvanger)
+                .`when`().delete("/api/v1/berichten/$berichtId")
+                .then().statusCode(204)
+        }
+    }
+
     // --- POST /berichten ---
 
     @Test
