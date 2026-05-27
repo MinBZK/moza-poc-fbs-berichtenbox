@@ -1,5 +1,9 @@
 **Status:** Concept (analyse, geen plan)
 
+> **Update 2026-05-27:** P1-items 1-4 zijn afgerond in PR voor branch
+> `feature/keten-p1-fixes` (zie `docs/plans/2026-05-27-keten-p1-fixes.md`).
+> P2- en P3-items staan open.
+
 # Gap-analyse: keten uitvraag → sessiecache → magazijn
 
 Onderzoek naar de drie OpenAPI-specs om vast te stellen wat er nodig is om de uitvraag-service correct te bedienen. Geen implementatie — basis voor vervolg-PRs.

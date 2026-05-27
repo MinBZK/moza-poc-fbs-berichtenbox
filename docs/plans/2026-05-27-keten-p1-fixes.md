@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Keten P1-fixes: sessiecache uitbreiden voor uitvraag-detail + dual-write
 
