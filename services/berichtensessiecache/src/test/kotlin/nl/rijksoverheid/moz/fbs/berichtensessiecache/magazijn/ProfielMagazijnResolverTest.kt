@@ -22,10 +22,15 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockedDependenciesProfile
 import java.io.IOException
 import java.time.Duration
 import java.util.Optional
 
+@QuarkusTest
+@TestProfile(MockedDependenciesProfile::class)
 class ProfielMagazijnResolverTest {
 
     private val profielClient = mockk<ProfielServiceClient>()

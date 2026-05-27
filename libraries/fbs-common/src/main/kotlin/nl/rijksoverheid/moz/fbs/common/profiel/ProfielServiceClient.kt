@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.common.profiel
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.core.JsonProcessingException
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
@@ -36,11 +37,21 @@ interface ProfielServiceClient {
      * elke onbekende ontvanger 3x worden opgevraagd (retry-storm) en zou een
      * 401/403 (auth-misser) onnodig pogingen veroorzaken op een upstream die
      * een rate-limit of token-lock kan triggeren.
+     *
+     * `abortOn = [JsonProcessingException::class]`: de REST-client wrap't parse-fouten
+     * in een `ProcessingException` met `JsonProcessingException`-cause. Een parse-fout
+     * is deterministisch (upstream-contract-drift), retry herhaalt dezelfde fout en
+     * verspilt resources.
      */
     @GET
     @Path("/api/profielservice/v1/{identificatieType}/{identificatieNummer}")
     @Produces(MediaType.APPLICATION_JSON)
-    @Retry(maxRetries = 2, delay = 200, retryOn = [ProcessingException::class])
+    @Retry(
+        maxRetries = 2,
+        delay = 200,
+        retryOn = [ProcessingException::class],
+        abortOn = [JsonProcessingException::class],
+    )
     fun getPartij(
         @PathParam("identificatieType") identificatieType: String,
         @PathParam("identificatieNummer") identificatieNummer: String,

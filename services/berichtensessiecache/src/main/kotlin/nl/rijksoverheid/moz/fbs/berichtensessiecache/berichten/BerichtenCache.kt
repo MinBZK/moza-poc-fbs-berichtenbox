@@ -15,6 +15,7 @@ import org.jboss.logging.Logger
 import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
+import java.util.HexFormat
 import java.util.UUID
 
 interface BerichtenCache {
@@ -30,12 +31,19 @@ interface BerichtenCache {
     fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
 
     companion object {
+        // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
+        // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
+        // request meerdere keren aangeroepen (getBerichten, getById, addBericht, etc.).
+        private val SHA256_DIGEST: ThreadLocal<MessageDigest> = ThreadLocal.withInitial {
+            MessageDigest.getInstance("SHA-256")
+        }
+        private val HEX = HexFormat.of()
+
         fun cacheKey(ontvanger: Identificatienummer): String {
             val canonical = ontvanger.toCanonicalString()
-            val hash = MessageDigest.getInstance("SHA-256")
+            val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
-            return "berichtensessiecache:v1:$hash"
+            return "berichtensessiecache:v1:${HEX.formatHex(digest)}"
         }
         fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
         const val BERICHT_PREFIX = "bericht:v1:"
@@ -155,7 +163,6 @@ class RedisBerichtenCache(
     override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {
         val lockKey = lockKey(key)
         val statusKey = statusKey(key)
-        val json = objectMapper.writeValueAsString(status)
 
         // SET NX EX in één commando: atomair — geen tussenliggend venster waarbij de lock
         // bestaat zonder TTL (wat bij losse SETNX + EXPIRE zou kunnen optreden als EXPIRE faalt).
@@ -164,9 +171,19 @@ class RedisBerichtenCache(
         return redis.value(String::class.java).setAndChanged(lockKey, "1", lockArgs)
             .chain { wasSet ->
                 if (wasSet) {
-                    // statusKey is een afzonderlijke key; een fout hier raakt de lock-correctheid
-                    // niet — de lock staat al vast met TTL.
+                    // Lazy JSON-serialisatie: alleen serializen als lock daadwerkelijk genomen is.
+                    // Bij hoge concurrent-409-druk bespaart dit Jackson-werk voor afgewezen requests.
+                    val json = objectMapper.writeValueAsString(status)
+                    // statusKey-fout na geslaagde lock-set: rollback de lock via best-effort DEL,
+                    // anders blijft de ontvanger 60s op TTL hangen voor wat een transient Redis-blip was.
                     redis.value(String::class.java).setex(statusKey, ttl.seconds, json)
+                        .onFailure().call { _ ->
+                            redis.key().del(lockKey)
+                                .onFailure().invoke { delErr ->
+                                    log.errorf(delErr, "Lock-rollback na statusKey-fout faalde voor key=%s; lock leunt op TTL", key)
+                                }
+                                .onFailure().recoverWithNull()
+                        }
                         .replaceWith(true)
                 } else {
                     Uni.createFrom().item(false)
@@ -352,35 +369,55 @@ class RedisBerichtenCache(
 
     private fun hashToBericht(fields: Map<String, String>): Bericht {
         fun required(name: String): String = fields[name]
-            ?: throw CacheCorruptedException("Veld '$name' ontbreekt in gecachte hash")
+            ?: throw CacheCorruptedException.veldOntbreekt(name)
 
-        return try {
-            Bericht(
-                berichtId = UUID.fromString(required("berichtId")),
-                afzender = required("afzender"),
-                ontvanger = required("ontvanger"),
-                onderwerp = required("onderwerp"),
-                tijdstip = Instant.parse(required("tijdstip")),
-                magazijnId = required("magazijnId"),
-                status = fields["status"],
-            )
-        } catch (ex: IllegalArgumentException) {
-            // UUID.fromString of Instant.parse faalde op een onleesbare waarde.
-            throw CacheCorruptedException("Onleesbare waarde in gecachte hash: ${ex.message}", ex)
-        } catch (ex: java.time.format.DateTimeParseException) {
-            throw CacheCorruptedException("Onleesbare 'tijdstip' in gecachte hash: ${ex.message}", ex)
-        }
+        val berichtIdStr = required("berichtId")
+        val tijdstipStr = required("tijdstip")
+
+        return Bericht(
+            berichtId = try {
+                UUID.fromString(berichtIdStr)
+            } catch (ex: IllegalArgumentException) {
+                throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
+            },
+            afzender = required("afzender"),
+            ontvanger = required("ontvanger"),
+            onderwerp = required("onderwerp"),
+            tijdstip = try {
+                Instant.parse(tijdstipStr)
+            } catch (ex: java.time.format.DateTimeParseException) {
+                throw CacheCorruptedException.onleesbareWaarde("tijdstip", ex)
+            },
+            magazijnId = required("magazijnId"),
+            status = fields["status"],
+        )
     }
 
-    private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht = Bericht(
-        berichtId = UUID.fromString(doc.property("berichtId").asString()),
-        afzender = doc.property("afzender").asString(),
-        ontvanger = doc.property("ontvanger").asString(),
-        onderwerp = doc.property("onderwerp").asString(),
-        tijdstip = Instant.parse(doc.property("tijdstip").asString()),
-        magazijnId = doc.property("magazijnId").asString(),
-        status = doc.property("status")?.asString(),
-    )
+    private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht {
+        // Wrap parse-fouten in CacheCorruptedException zodat zoek-/filter-pad een
+        // corrupte cache-entry niet als generieke "RediSearch query mislukt" rapporteert
+        // (verkeerde diagnose). Consistent met hashToBericht-pad voor getById.
+        val berichtIdStr = doc.property("berichtId").asString()
+        val tijdstipStr = doc.property("tijdstip").asString()
+
+        return Bericht(
+            berichtId = try {
+                UUID.fromString(berichtIdStr)
+            } catch (ex: IllegalArgumentException) {
+                throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
+            },
+            afzender = doc.property("afzender").asString(),
+            ontvanger = doc.property("ontvanger").asString(),
+            onderwerp = doc.property("onderwerp").asString(),
+            tijdstip = try {
+                Instant.parse(tijdstipStr)
+            } catch (ex: java.time.format.DateTimeParseException) {
+                throw CacheCorruptedException.onleesbareWaarde("tijdstip", ex)
+            },
+            magazijnId = doc.property("magazijnId").asString(),
+            status = doc.property("status")?.asString(),
+        )
+    }
 
     override fun updateStatus(berichtId: UUID, ontvanger: Identificatienummer, status: String): Uni<Bericht?> {
         val berichtKey = BerichtenCache.berichtKey(berichtId)

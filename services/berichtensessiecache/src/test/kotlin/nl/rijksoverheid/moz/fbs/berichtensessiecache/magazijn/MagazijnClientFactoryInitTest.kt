@@ -1,10 +1,17 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
+import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockedDependenciesProfile
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.util.Optional
 
+@QuarkusTest
+@TestProfile(MockedDependenciesProfile::class)
 class MagazijnClientFactoryInitTest {
 
     private fun makeConfig(instances: Map<String, MagazijnenConfig.MagazijnInstance>): MagazijnenConfig =
@@ -88,6 +95,47 @@ class MagazijnClientFactoryInitTest {
 
         assertTrue(ex.message!!.contains("https://"), "Bericht was: ${ex.message}")
         assertTrue(ex.message!!.contains("magazijnen.instances.mag-a.url"), "Bericht was: ${ex.message}")
+    }
+
+    @Test
+    fun `init met meerdere afzenders per magazijn bouwt reverse-index correct`() {
+        // B6 regressie-vangnet: cachedOinToMagazijnen-buildMap moet alle OINs van een
+        // multi-afzender-magazijn correct indexeren. Zonder test kan een refactor van
+        // de `forEach { oin -> getOrPut(oin) { mutableSetOf() }.add(id) }`-loop stil
+        // alleen de eerste OIN registreren en de andere droppen.
+        val oinA = "00000001003214345000"
+        val oinB = "00000001003214345001"
+        val factory = MagazijnClientFactory(
+            makeConfig(
+                mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf(oinA, oinB))),
+            ),
+            profile = "test",
+        )
+
+        factory.init()
+
+        assertEquals(setOf("mag-a"), factory.magazijnenVoorAfzender(Oin(oinA)))
+        assertEquals(setOf("mag-a"), factory.magazijnenVoorAfzender(Oin(oinB)))
+        assertEquals(setOf(Oin(oinA), Oin(oinB)), factory.getAfzenders("mag-a"))
+    }
+
+    @Test
+    fun `init met overlappende OIN over meerdere magazijnen merget reverse-index sets`() {
+        // Zelfde OIN bij twee magazijnen → set-union; reverse-index moet beide IDs bevatten.
+        val gedeeld = "00000001003214345000"
+        val factory = MagazijnClientFactory(
+            makeConfig(
+                mapOf(
+                    "mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf(gedeeld)),
+                    "mag-b" to makeInstance(url = "http://localhost:8082", afzenders = listOf(gedeeld)),
+                ),
+            ),
+            profile = "test",
+        )
+
+        factory.init()
+
+        assertEquals(setOf("mag-a", "mag-b"), factory.magazijnenVoorAfzender(Oin(gedeeld)))
     }
 
     @Test

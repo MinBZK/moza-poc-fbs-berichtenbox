@@ -201,6 +201,63 @@ class BerichtenOphalenResourceTest {
         assertTrue(response.contains("tijdelijk niet bereikbaar"), "Verwacht 5xx-bericht in: $response")
     }
 
+    // ── B3: Bean-Validation @Pattern + @Size aan de rand ──────────────────
+
+    @Test
+    fun `GET ophalen met BSN-pattern violation (niet-cijfer) levert 400 vóór fromHeader-parsing`() {
+        // @Pattern op de header moet de request afkappen vóór fromHeader/elfproef.
+        // Zonder Pattern-vangnet zou de attacker-controlled prefix naar DomainValidationException
+        // doorgaan en kunnen lekken in Problem.detail.
+        given()
+            .header("X-Ontvanger", "BSN:abc12345")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met OIN-pattern violation (te kort) levert 400 vóór fromHeader-parsing`() {
+        given()
+            .header("X-Ontvanger", "OIN:123")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met KVK-pattern violation (9 cijfers ipv 8) levert 400`() {
+        given()
+            .header("X-Ontvanger", "KVK:123456789")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met onbekend type-prefix (FOO) levert 400`() {
+        given()
+            .header("X-Ontvanger", "FOO:123456789")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met lowercase prefix (bsn) levert 400`() {
+        // IdentificatienummerType.valueOf is hoofdletter-gevoelig. Lowercase prefix moet
+        // door Pattern of fromHeader geweigerd worden, niet als valide doorgaan.
+        given()
+            .header("X-Ontvanger", "bsn:999993653")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
     @Test
     fun `GET ophalen met magazijn 4xx toont FOUT met configuratiefout-bericht`() {
         MockMagazijnClientFactory.shouldHttpFailA = 403

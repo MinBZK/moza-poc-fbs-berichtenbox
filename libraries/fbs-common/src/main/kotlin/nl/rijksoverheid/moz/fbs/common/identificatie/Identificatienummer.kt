@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.common.identificatie
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.exception.requireValid
 import java.security.MessageDigest
+import java.util.HexFormat
 
 /**
  * Polymorfe identificatie van een natuurlijk persoon of organisatie in FBS.
@@ -175,10 +176,19 @@ value class Rsin(override val waarde: String) : Identificatienummer {
  * voor log-correlatie binnen één sessie/incident; voor cross-sessie-correlatie bij
  * grote BSN-populaties zal er ~1 op 65536 collision optreden — acceptabel voor
  * troubleshooting, niet als unieke identificator (gebruik daarvoor `.waarde`).
+ *
+ * `MessageDigest` is niet thread-safe; ThreadLocal hergebruikt instance per thread
+ * en bespaart `getInstance("SHA-256")`-allocatie op het log-pad (Bsn/Rsin.toString
+ * wordt potentieel per request meerdere keren aangeroepen).
  */
+private val SHA256_DIGEST: ThreadLocal<MessageDigest> = ThreadLocal.withInitial {
+    MessageDigest.getInstance("SHA-256")
+}
+private val HEX = HexFormat.of()
+
 private fun hashSuffix(waarde: String): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest(waarde.toByteArray(Charsets.UTF_8))
-    return digest.take(2).joinToString("") { "%02x".format(it) }
+    val digest = SHA256_DIGEST.get().apply { reset() }.digest(waarde.toByteArray(Charsets.UTF_8))
+    return HEX.formatHex(digest, 0, 2)
 }
 
 // Standaard elfproef voor BSN en RSIN: posities 1-8 met gewichten 9..2,

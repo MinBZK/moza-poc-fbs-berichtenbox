@@ -269,24 +269,62 @@ public final class ApiInfo {
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.13</version>
                 <configuration>
+                    <!-- Whitelist: alleen sessiecache-eigen klassen meten. fbs-common heeft
+                         eigen JaCoCo-coverage; api/** is gegenereerd uit OpenAPI. Quarkus-
+                         instrumented dep-classes verschijnen anders ongewenst in de BUNDLE. -->
+                    <includes>
+                        <include>nl/rijksoverheid/moz/fbs/berichtensessiecache/berichten/**</include>
+                        <include>nl/rijksoverheid/moz/fbs/berichtensessiecache/magazijn/**</include>
+                    </includes>
                     <excludes>
-                        <!-- Gegenereerde OpenAPI model-klassen -->
-                        <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/api/**</exclude>
+                        <!-- Kotlin compiler-generated bridges voor interface-methods met
+                             default-parameters ($default) en default-method-impls. Geen
+                             user-logic; productie roept de concrete impl direct aan. -->
+                        <exclude>**/*$DefaultImpls.class</exclude>
+                        <!-- BerichtenCache.class = pure interface declaration + $default
+                             static bridges. Coverage zit op de RedisBerichtenCache-impl. -->
+                        <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/berichten/BerichtenCache.class</exclude>
                     </excludes>
-                    <!-- quarkus-jacoco schrijft naar target/jacoco-quarkus.exec -->
-                    <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
                 </configuration>
                 <executions>
+                    <!-- prepare-agent zet jacoco.exec voor pure JUnit-tests (niet @QuarkusTest).
+                         Quarkus-tests schrijven naar jacoco-quarkus.exec via eigen instrumentatie. -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <!-- Merge beide exec-bestanden tot één combined.exec voor report+check. -->
+                    <execution>
+                        <id>merge-exec</id>
+                        <phase>test</phase>
+                        <goals><goal>merge</goal></goals>
+                        <configuration>
+                            <fileSets>
+                                <fileSet>
+                                    <directory>${project.build.directory}</directory>
+                                    <includes>
+                                        <include>jacoco.exec</include>
+                                        <include>jacoco-quarkus.exec</include>
+                                    </includes>
+                                </fileSet>
+                            </fileSets>
+                            <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>report</id>
                         <phase>test</phase>
                         <goals><goal>report</goal></goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+                        </configuration>
                     </execution>
                     <execution>
                         <id>check</id>
                         <phase>test</phase>
                         <goals><goal>check</goal></goals>
                         <configuration>
+                            <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>

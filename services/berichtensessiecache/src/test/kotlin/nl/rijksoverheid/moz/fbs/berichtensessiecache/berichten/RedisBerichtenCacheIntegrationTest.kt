@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 import java.util.UUID
 
@@ -20,6 +22,9 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Inject
     lateinit var berichtenCache: BerichtenCache
+
+    @Inject
+    lateinit var redis: ReactiveRedisDataSource
 
     // OIN gebruikt als test-ontvanger: geen elfproef-vereiste, 20-cijferig uniek per test-run.
     private val ontvangerWaarde = System.nanoTime().toString().padStart(20, '0').takeLast(20)
@@ -324,6 +329,106 @@ class RedisBerichtenCacheIntegrationTest {
             val bericht = berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
             assertNotNull(bericht, "Bericht-hash is vroegtijdig verlopen op iteratie $it")
         }
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij ontbrekend verplicht veld`() {
+        // Schema-drift / corruptie: hash bestaat maar mist een verplicht veld.
+        // hashToBericht MOET CacheCorruptedException werpen (niet RuntimeException of upcast),
+        // anders wordt het pad in BerichtensessiecacheResource verkeerd geclassificeerd (503 i.p.v. 500).
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val partialHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "onderwerp" to "test",
+            "tijdstip" to "2026-03-10T10:00:00Z",
+            // `magazijnId` ontbreekt opzettelijk
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, partialHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("magazijnId"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij onleesbare UUID-waarde`() {
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corruptHash = mapOf(
+            "berichtId" to "geen-uuid-meer",
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "onderwerp" to "test",
+            "tijdstip" to "2026-03-10T10:00:00Z",
+            "magazijnId" to "magazijn-a",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("berichtId"), "Was: ${ex.message}")
+        assertTrue(ex.cause is IllegalArgumentException, "Cause moet UUID-parse-fout zijn: ${ex.cause}")
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij onleesbare tijdstip-waarde`() {
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corruptHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "onderwerp" to "test",
+            "tijdstip" to "niet-een-iso-instant",
+            "magazijnId" to "magazijn-a",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("tijdstip"), "Was: ${ex.message}")
+        assertTrue(ex.cause is java.time.format.DateTimeParseException, "Cause moet Instant-parse-fout zijn: ${ex.cause}")
+    }
+
+    @Test
+    fun `getPage met corrupte JSON-entry gooit JsonProcessingException (geen Redis-onbereikbaar-misdiagnose)`() {
+        // K7 regressie-vangnet: corrupte cache-entry (handmatig non-JSON gepushed) MOET
+        // als JsonProcessingException propageren naar caller — niet als generieke
+        // "Redis-getPage-mislukt"-fout wegfilteren via het catch-all-onFailure-pad. De
+        // resource-laag (BerichtensessiecacheResource) heeft een dedicated 500-pad voor
+        // JsonProcessingException; zonder rethrow zou een schema-drift als "Redis down"
+        // gerapporteerd worden en zou ops Redis-health gaan checken voor een serialisatie-issue.
+        val key = cacheKey()
+        val listKey = "$key:list"
+
+        // Push een niet-deserialiseerbare string in de LIST. EXISTS LLEN > 0 → getPage
+        // probeert te parsen → JsonProcessingException.
+        redis.list(String::class.java).rpush(listKey, "{niet-geldig-json-payload}")
+            .await().indefinitely()
+
+        // Mutiny's blocking await() wrapt sync-throws in CompletionException —
+        // assertThrows<Throwable> + cause-chain-walk om de root-cause-class te checken.
+        val ex = assertThrows<Throwable> {
+            berichtenCache.getPage(key, 0, 20, null, null).await().indefinitely()
+        }
+        val rootCause = generateSequence(ex as Throwable?) { it.cause }.last()
+
+        assertTrue(
+            rootCause is com.fasterxml.jackson.core.JsonProcessingException,
+            "Verwachtte JsonProcessingException als root-cause; was: ${rootCause.javaClass.name} (${rootCause.message})",
+        )
     }
 
     @Test

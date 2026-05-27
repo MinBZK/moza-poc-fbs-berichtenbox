@@ -91,6 +91,33 @@ class ProfielServiceRetryWireMockTest {
         wireMock.verify(3, getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653")))
     }
 
+    // ── E: abortOn JsonProcessingException — malformed JSON 1 upstream call ──
+
+    @Test
+    fun `malformed JSON wordt niet geretryd (abortOn JsonProcessingException)`() {
+        // B5 regressie-vangnet: een 200-OK met niet-valide JSON-body produceert
+        // ProcessingException met JsonProcessingException-cause. Het @Retry-contract
+        // declareert abortOn=[JsonProcessingException::class] — retry zou hetzelfde
+        // contract-defect herhalen (deterministisch, geen netwerk-fluctuatie) en de
+        // upstream verspilt drie keer dezelfde parse. Zonder count-assert kan een
+        // weghalen van abortOn een retry-storm op contract-drift veroorzaken.
+        wireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{niet-valide-json"""),
+                ),
+        )
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(20))
+        }
+
+        wireMock.verify(1, getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653")))
+    }
+
     // ── D: 5xx wordt niet geretryd — exactly 1 upstream call ─────────────
 
     @Test

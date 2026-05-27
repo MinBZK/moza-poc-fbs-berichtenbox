@@ -18,3 +18,11 @@ sealed class MagazijnResult {
         val error: Throwable,
     ) : MagazijnResult()
 }
+
+/**
+ * Marker-exception voor de availability-cap op magazijn-responses (zie
+ * `berichtensessiecache.max-berichten-per-magazijn`). Geen subclass van
+ * `WebApplicationException`/`ProcessingException` — dit is een interne signalering,
+ * geen upstream-fault, en wordt door de service in een aparte foutmelding gemapt.
+ */
+class MagazijnResponseOverflow(message: String) : RuntimeException(message)

@@ -259,4 +259,58 @@ class IdentificatienummerTest {
         assertTrue(gelogd.matches(Regex("^ontvanger=BSN:#[0-9a-f]{4}$")), "Onverwacht: $gelogd")
         assertTrue("999993653" !in gelogd)
     }
+
+    // --- fromHeader fout-paden -------------------------------------------------
+
+    @Test
+    fun `fromHeader zonder colon werpt DomainValidationException`() {
+        // B4 regressie-vangnet: bij ontbrekende ':' moet de helper een gestructureerde
+        // domeinfout gooien (niet IndexOutOfBounds of generieke IllegalArgument).
+        val ex = assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("999993653")
+        }
+        assertTrue(ex.message!!.contains("<TYPE>:<WAARDE>"), "Bericht moet format-hint bevatten: ${ex.message}")
+    }
+
+    @Test
+    fun `fromHeader met onbekend prefix werpt DomainValidationException`() {
+        val ex = assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("FOO:123456789")
+        }
+        assertTrue(ex.message!!.contains("FOO"), "Bericht moet prefix vermelden: ${ex.message}")
+    }
+
+    @Test
+    fun `fromHeader met lowercase prefix werpt DomainValidationException`() {
+        // IdentificatienummerType.valueOf is hoofdletter-gevoelig — lowercase mag niet
+        // stilzwijgend slagen (anders bypassen attackers de canonical-form-invariant).
+        assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("bsn:999993653")
+        }
+    }
+
+    @Test
+    fun `fromHeader met geldig BSN geeft Bsn-instance`() {
+        val resultaat = Identificatienummer.fromHeader("BSN:999993653")
+        assertInstanceOf(Bsn::class.java, resultaat)
+        assertEquals("999993653", resultaat.waarde)
+    }
+
+    @Test
+    fun `fromHeader met BSN-waarde die niet aan elfproef voldoet werpt DomainValidationException`() {
+        // Type-prefix is geldig, waarde-validatie (elfproef) faalt — moet doorrijden
+        // naar dezelfde foutklasse zodat caller één catch-pad heeft.
+        assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("BSN:999993654")
+        }
+    }
+
+    @Test
+    fun `fromHeader doet geen impliciete trim (whitespace = clientfout)`() {
+        // Productie-comment in Identificatienummer expliciet: "Geen impliciete trim".
+        // Pinned-test: spaties in waarde-deel laten de elfproef falen i.p.v. stil te normaliseren.
+        assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("BSN: 999993653")
+        }
+    }
 }

@@ -27,11 +27,14 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
         // Bewust geen full stacktrace via .warnf(exception, …): de cause-chain van
         // lower-level HTTP-clients kan in randgevallen de upstream-URL bevatten,
         // die de BSN/RSIN/KVK in het pad heeft (extern Profiel-contract). Log alleen
-        // de message + cause-type voor diagnose; errorId verbindt naar deze response.
+        // de categorie + cause-type voor diagnose; errorId verbindt naar deze response.
+        // Categorie als gestructureerd veld zodat log-aggregatie op fault-mode kan filteren.
+        val httpStatusLabel = exception.httpStatus?.toString() ?: "n.v.t."
         log.warnf(
-            "Profiel-service onbereikbaar (errorId=%s): %s (cause=%s)",
+            "Profiel-service onbereikbaar (errorId=%s, categorie=%s, httpStatus=%s, cause=%s)",
             errorId,
-            exception.message,
+            exception.categorie.name,
+            httpStatusLabel,
             exception.cause?.javaClass?.simpleName ?: "geen",
         )
 

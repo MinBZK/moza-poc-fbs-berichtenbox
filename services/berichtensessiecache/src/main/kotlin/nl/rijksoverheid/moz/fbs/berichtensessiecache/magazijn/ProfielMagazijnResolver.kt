@@ -36,10 +36,12 @@ class ProfielMagazijnResolver(
 
         val profielType = naarProfielType(ontvanger.type)
 
-        // Inner-timeout budget = retry-budget van de REST-client + marge. Configureerbaar
-        // via `profiel.resolver.inner-timeout-seconds`. Outer-await in
-        // BerichtensessiecacheService MOET groter zijn (startup-validatie); anders verliest
-        // de caller de juiste foutclassificatie (timeout vs onbereikbaar).
+        // Inner-timeout dekt de hele `getPartij`-call inclusief het `@Retry`-budget (max 3
+        // pogingen × read-timeout + 2× `delay`-tussenpauze). Configureerbaar via
+        // `profiel.resolver.inner-timeout-seconds`. Outer-await in BerichtensessiecacheService
+        // MOET groter zijn — startup-validatie in `valideerTimeouts()` borgt dit — anders
+        // verliest de caller de juiste foutclassificatie (Mutiny-TimeoutException vs
+        // j.u.c.TimeoutException).
         return Uni.createFrom().item { profielClient.getPartij(profielType, ontvanger.waarde) }
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
             .ifNoItem().after(Duration.ofSeconds(innerTimeoutSeconds)).fail()
@@ -126,7 +128,26 @@ class ProfielMagazijnResolver(
                     return@forEach
                 }
 
-                addAll(clientFactory.magazijnenVoorAfzender(oin))
+                val matched = clientFactory.magazijnenVoorAfzender(oin)
+
+                if (matched.isEmpty()) {
+                    // Drift-detectie: Profiel kent een OIN die bij geen geconfigureerd
+                    // magazijn hoort. Productie-aanleiding is config-mismatch (nieuwe
+                    // afzender bij Profiel geactiveerd vóór magazijn-config gedeployd).
+                    // Zonder warn-log zou de ontvanger stil "0 berichten" zien en ops
+                    // geen signaal hebben. OIN gemaskeerd tot 4-prefix (volledige
+                    // identificator hoort niet in logs ook al is OIN publiek).
+                    val masked = oinString.take(4) + "***"
+
+                    log.warnf(
+                        "Profiel-service noemt afzender-OIN '%s' die bij geen geconfigureerd magazijn hoort — config-drift (nieuwe afzender niet in magazijn-config?)",
+                        masked,
+                    )
+
+                    return@forEach
+                }
+
+                addAll(matched)
             }
         }
     }
