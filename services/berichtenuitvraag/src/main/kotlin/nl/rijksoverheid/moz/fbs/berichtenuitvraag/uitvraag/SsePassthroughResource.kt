@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import io.smallrye.mutiny.Multi
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.validation.constraints.NotNull
+import jakarta.validation.constraints.Pattern
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.HeaderParam
 import jakarta.ws.rs.Path
@@ -19,6 +21,11 @@ import org.jboss.logging.Logger
  * ondersteunt geen `Multi<>` return-types; daarom is dit endpoint expliciet
  * hier gedefinieerd. Triggert in de sessiecache het ophalen van alle mappen
  * en pijpt elk event 1-op-1 door naar de client.
+ *
+ * `X-Ontvanger` wordt lokaal gevalideerd (zelfde pattern als de gegenereerde
+ * UitvraagApi): het endpoint zet de waarde in `logboekContext.dataSubjectId`
+ * (AVG art. 30) en vóór die write moet de input integriteit hebben — anders
+ * raakt een willekeurige header-waarde de LDV-audittrail.
  */
 @Path(ApiInfo.BASE_PATH + "/berichten/_ophalen")
 @ApplicationScoped
@@ -30,22 +37,28 @@ class SsePassthroughResource(
     @GET
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @Logboek(name = "uitvraag-ophalen-sse", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
-    fun ophalen(@HeaderParam("X-Ontvanger") xOntvanger: String): Multi<String> {
+    fun ophalen(
+        @HeaderParam("X-Ontvanger")
+        @NotNull
+        @Pattern(regexp = ONTVANGER_PATTERN)
+        xOntvanger: String,
+    ): Multi<String> {
         registreerLdvSubject(xOntvanger)
 
         return streamingClient.ophalen(xOntvanger).onFailure().invoke { e ->
-            log.warnf(e, "SSE-passthrough faalde tijdens streaming")
+            // Client-aborts en upstream-fouten zijn semantisch verschillend; pin
+            // upstream op `error` zodat alerting niet door client-disconnects
+            // (verwacht) wordt opgeschud, maar wel triggert op echte upstream-faal.
+            if (e is jakarta.ws.rs.WebApplicationException || e is jakarta.ws.rs.ProcessingException) {
+                log.errorf(e, "SSE-passthrough: upstream sessiecache-fout")
+            } else {
+                log.debugf(e, "SSE-passthrough afgebroken")
+            }
         }
     }
 
-    private fun registreerLdvSubject(xOntvanger: String) {
-        val delen = xOntvanger.split(':', limit = 2)
-
-        if (delen.size == 2) {
-            logboekContext.dataSubjectId = delen[1]
-            logboekContext.dataSubjectType = delen[0]
-        }
-    }
+    private fun registreerLdvSubject(xOntvanger: String) =
+        registreerLdvSubject(logboekContext, xOntvanger)
 
     private companion object {
         private val log: Logger = Logger.getLogger(SsePassthroughResource::class.java)

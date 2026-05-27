@@ -31,12 +31,17 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
         val mimeType = req.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
 
         val parsed = runCatching { MediaType.valueOf(mimeType) }.getOrNull()
-        if (parsed == null) {
-            log.warnf("BIJLAGE_MIME_TYPE_PROPERTY ongeldig (%s); Content-Type ongewijzigd.", mimeType)
-            return
+
+        // Fail-closed: een onparsebaar MIME-type duidt op een upstream-fout of
+        // een poging tot header-splitting. Geen passthrough naar de browser
+        // (zou stored-XSS-bescherming ondergraven); fallback op
+        // `application/octet-stream` met `Content-Disposition: attachment` zodat
+        // de browser het ALTIJD als download behandelt.
+        val effectief = parsed ?: MediaType.APPLICATION_OCTET_STREAM_TYPE.also {
+            log.warnf("BIJLAGE_MIME_TYPE_PROPERTY ongeldig (%s); fallback naar application/octet-stream.", mimeType)
         }
 
-        resp.headers.putSingle("Content-Type", parsed.toString())
+        resp.headers.putSingle("Content-Type", effectief.toString())
         resp.headers.putSingle("Content-Disposition", "attachment")
     }
 

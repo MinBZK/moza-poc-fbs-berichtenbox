@@ -5,6 +5,8 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
 import jakarta.ws.rs.InternalServerErrorException
+import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
@@ -109,5 +111,70 @@ class BerichtBeheerServiceTest {
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify(exactly = 2) { sessiecache.verwijderBericht(ontvanger, id) }
+    }
+
+    @Test
+    fun `patch cache-4xx propageert onveranderd zonder compensatie`() {
+        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { sessiecache.patchBericht(any(), any(), any()) } throws NotFoundException("cache-mist-bericht")
+
+        // 4xx betekent contract-bug (bericht niet in cache), geen transport-fout.
+        // De fout moet 1-op-1 propageren; we triggeren GEEN invalidate (cache is
+        // al niet de bron van waarheid en kan stale state houden tot TTL).
+        assertThrows(NotFoundException::class.java) {
+            service.patch(ontvanger, id, patch)
+        }
+        verify(exactly = 0) { sessiecache.verwijderBericht(any(), any()) }
+    }
+
+    @Test
+    fun `patch cache-transport-fout (timeout) gooit 502 met compensatie`() {
+        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { sessiecache.patchBericht(any(), any(), any()) } throws ProcessingException("connect timeout")
+        every { sessiecache.verwijderBericht(any(), any()) } returns Unit
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.patch(ontvanger, id, patch)
+        }
+        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
+        verify { sessiecache.verwijderBericht(ontvanger, id) }
+    }
+
+    @Test
+    fun `verwijder cache-4xx propageert onveranderd zonder compensatie`() {
+        every { magazijn.verwijderBericht(any(), any()) } returns Unit
+        every { sessiecache.verwijderBericht(any(), any()) } throws NotFoundException("cache-mist-bericht")
+
+        assertThrows(NotFoundException::class.java) {
+            service.verwijder(ontvanger, id)
+        }
+        verify(exactly = 1) { sessiecache.verwijderBericht(ontvanger, id) }
+    }
+
+    @Test
+    fun `verwijder cache-transport-fout (timeout) gooit 502 met compensatie`() {
+        every { magazijn.verwijderBericht(any(), any()) } returns Unit
+        // Eerste call gooit ProcessingException, compensatie-call slaagt.
+        every { sessiecache.verwijderBericht(any(), any()) } throws ProcessingException("connect timeout") andThen Unit
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.verwijder(ontvanger, id)
+        }
+        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
+        verify(exactly = 2) { sessiecache.verwijderBericht(ontvanger, id) }
+    }
+
+    @Test
+    fun `verwijder cache-faal + compensatie-ProcessingException gooit 502`() {
+        every { magazijn.verwijderBericht(any(), any()) } returns Unit
+        every { sessiecache.verwijderBericht(any(), any()) } throwsMany listOf(
+            InternalServerErrorException("cache-down"),
+            ProcessingException("compensatie-timeout"),
+        )
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.verwijder(ontvanger, id)
+        }
+        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
     }
 }

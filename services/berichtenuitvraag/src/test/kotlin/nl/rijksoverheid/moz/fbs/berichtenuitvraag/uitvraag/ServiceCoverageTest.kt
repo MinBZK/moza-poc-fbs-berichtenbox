@@ -6,7 +6,6 @@ import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
-import org.hamcrest.Matchers.anyOf
 import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -96,7 +95,7 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `bijlage-error met 5xx vanuit magazijn geeft 5xx via haalBijlage`() {
+    fun `bijlage-error met 5xx vanuit magazijn mapt naar 502 BadGateway`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         WireMockBackendsResource.magazijn!!.stubFor(
@@ -109,10 +108,23 @@ class ServiceCoverageTest {
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
-            // BerichtOphaalService.haalBijlage gooit een InternalServerErrorException
-            // bij upstream >=400. Mappers in fbs-common kunnen die op 500 mappen;
-            // afhankelijk van filter-volgorde kan ook de upstream-503 doorgegeven
-            // worden — beide bewijzen dat de error-tak gedekt is.
-            .statusCode(anyOf(equalTo(500), equalTo(503)))
+            .statusCode(502)
+    }
+
+    @Test
+    fun `bijlage-error met 404 vanuit magazijn propageert als 404`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        WireMockBackendsResource.magazijn!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
+                .willReturn(aResponse().withStatus(404)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(404)
     }
 }

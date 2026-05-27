@@ -78,12 +78,6 @@ class UitvraagResource(
         beheerService.verwijder(xOntvanger, berichtId)
     }
 
-    private fun registreerLdvSubject(xOntvanger: String) {
-        val delen = xOntvanger.split(':', limit = 2)
-
-        if (delen.size == 2) {
-            logboekContext.dataSubjectId = delen[1]
-            logboekContext.dataSubjectType = delen[0]
-        }
-    }
+    private fun registreerLdvSubject(xOntvanger: String) =
+        registreerLdvSubject(logboekContext, xOntvanger)
 }

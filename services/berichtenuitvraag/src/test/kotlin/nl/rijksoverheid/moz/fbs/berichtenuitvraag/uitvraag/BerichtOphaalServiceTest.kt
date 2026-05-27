@@ -2,8 +2,10 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import io.mockk.every
 import io.mockk.mockk
-import jakarta.ws.rs.InternalServerErrorException
-import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.ForbiddenException
+import jakarta.ws.rs.NotAuthorizedException
+import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import org.junit.jupiter.api.Assertions.assertArrayEquals
@@ -37,7 +39,7 @@ class BerichtOphaalServiceTest {
         val mockResp = mockk<Response> {
             every { status } returns 200
             every { readEntity(ByteArray::class.java) } returns bytes
-            every { mediaType } returns MediaType.valueOf("application/pdf")
+            every { getHeaderString("Content-Type") } returns "application/pdf"
             every { close() } returns Unit
         }
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
@@ -49,7 +51,26 @@ class BerichtOphaalServiceTest {
     }
 
     @Test
-    fun `haalBijlage gooit 500 als magazijn-respons status fout is`() {
+    fun `haalBijlage geeft raw Content-Type ook door als het ongeldig is (filter handelt fallback af)`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val bytes = byteArrayOf(1, 2, 3)
+        val mockResp = mockk<Response> {
+            every { status } returns 200
+            every { readEntity(ByteArray::class.java) } returns bytes
+            every { getHeaderString("Content-Type") } returns "not-a-mime-type"
+            every { close() } returns Unit
+        }
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
+
+        val (mimeType, _) = service.haalBijlage("BSN:1", berichtId, bijlageId)
+
+        // Service zélf valideert niet; raw value doorgeven aan filter.
+        assertEquals("not-a-mime-type", mimeType)
+    }
+
+    @Test
+    fun `haalBijlage mapt magazijn-5xx naar 502`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         val mockResp = mockk<Response> {
@@ -58,24 +79,71 @@ class BerichtOphaalServiceTest {
         }
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
-        assertThrows(InternalServerErrorException::class.java) {
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+        assertEquals(502, ex.response.status)
+    }
+
+    @Test
+    fun `haalBijlage propageert magazijn-404 als NotFound`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val mockResp = mockk<Response> {
+            every { status } returns 404
+            every { close() } returns Unit
+        }
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
+
+        assertThrows(NotFoundException::class.java) {
             service.haalBijlage("BSN:1", berichtId, bijlageId)
         }
     }
 
     @Test
-    fun `haalBijlage gooit 500 als magazijn-respons geen Content-Type heeft`() {
+    fun `haalBijlage propageert magazijn-403 als Forbidden`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         val mockResp = mockk<Response> {
-            every { status } returns 200
-            every { mediaType } returns null
+            every { status } returns 403
             every { close() } returns Unit
         }
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
-        assertThrows(InternalServerErrorException::class.java) {
+        assertThrows(ForbiddenException::class.java) {
             service.haalBijlage("BSN:1", berichtId, bijlageId)
         }
+    }
+
+    @Test
+    fun `haalBijlage propageert magazijn-401 als NotAuthorized`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val mockResp = mockk<Response> {
+            every { status } returns 401
+            every { close() } returns Unit
+        }
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
+
+        assertThrows(NotAuthorizedException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+    }
+
+    @Test
+    fun `haalBijlage mapt ontbrekend Content-Type naar 502`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val mockResp = mockk<Response> {
+            every { status } returns 200
+            every { getHeaderString("Content-Type") } returns null
+            every { close() } returns Unit
+        }
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+        assertEquals(502, ex.response.status)
     }
 }

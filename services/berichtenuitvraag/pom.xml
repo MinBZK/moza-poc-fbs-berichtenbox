@@ -262,6 +262,8 @@ public final class ApiInfo {
                     <excludes>
                         <!-- Gegenereerde OpenAPI model-klassen -->
                         <exclude>nl/rijksoverheid/moz/fbs/berichtenuitvraag/api/**</exclude>
+                        <!-- fbs-common heeft eigen testsuite; uitsluiten voorkomt dubbele meting. -->
+                        <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
                     </excludes>
                     <!-- quarkus-jacoco schrijft naar target/jacoco-quarkus.exec -->
                     <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
@@ -277,9 +279,19 @@ public final class ApiInfo {
                         <phase>test</phase>
                         <goals><goal>check</goal></goals>
                         <configuration>
+                            <excludes>
+                                <exclude>nl/rijksoverheid/moz/fbs/berichtenuitvraag/api/**</exclude>
+                                <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
+                                    <excludes>
+                                        <!-- `**` is nodig om ook subpackages (zoals api.model) uit te sluiten;
+                                             `*` matcht alleen het laatste segment. -->
+                                        <exclude>nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.**</exclude>
+                                        <exclude>nl.rijksoverheid.moz.fbs.common.**</exclude>
+                                    </excludes>
                                     <limits>
                                         <limit>
                                             <counter>LINE</counter>
