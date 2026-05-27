@@ -25,7 +25,11 @@
           "publicatietijdstip": "2026-03-10T10:00:00Z",
           "magazijnId": "magazijn-b",
           "aantalBijlagen": 3,
-          "bijlagen": [],
+          "bijlagen": [
+            { "bijlageId": "bbbbbbbb-1111-2222-3333-bbbbbbbbbbbb", "naam": "ontvangstbevestiging.pdf" },
+            { "bijlageId": "bbbbbbbb-2222-3333-4444-bbbbbbbbbbbb", "naam": "aanvraagformulier.pdf" },
+            { "bijlageId": "bbbbbbbb-3333-4444-5555-bbbbbbbbbbbb", "naam": "tekening.dwg" }
+          ],
           "status": { "gelezen": false, "map": "inbox", "gewijzigdOp": "2026-03-10T10:00:02Z" },
           "_links": { "self": { "href": "/api/v1/berichten/11111111-aaaa-bbbb-cccc-111111111111" } }
         },
