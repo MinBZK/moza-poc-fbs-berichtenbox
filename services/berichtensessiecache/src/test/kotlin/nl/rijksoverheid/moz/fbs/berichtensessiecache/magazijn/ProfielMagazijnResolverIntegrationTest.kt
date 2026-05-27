@@ -84,6 +84,33 @@ class ProfielMagazijnResolverIntegrationTest {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
         }
     }
+
+    @Test
+    fun `200 met lege body retourneert lege voorkeurenset`() {
+        // Profiel-service stuurt geldig JSON-object zonder voorkeuren-veld → default emptyList.
+        wireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody("{}")),
+        )
+        val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
+        assertEquals(emptySet<String>(), result)
+    }
+
+    @Test
+    fun `200 met voorkeuren null wordt als malformed gemeld (geen stille lege set)`() {
+        // `voorkeuren` is in `PartijResponse` een non-nullable List met default emptyList.
+        // Een expliciete null in de upstream-body is een contract-breuk: Jackson Kotlin
+        // module weigert (KotlinInvalidNullException). Dit MOET zichtbaar zijn als
+        // ProfielServiceFoutException.malformed, niet stilzwijgend tot een lege set
+        // worden gedegradeerd.
+        wireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody("""{"voorkeuren": null}""")),
+        )
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
+        }
+    }
 }
 
 class WireMockProfielServiceTestProfile : QuarkusTestProfile {

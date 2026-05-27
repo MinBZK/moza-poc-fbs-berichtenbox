@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Kvk
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
+import nl.rijksoverheid.moz.fbs.common.profiel.DienstResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.IdentificatieResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
@@ -17,8 +18,11 @@ import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import nl.rijksoverheid.moz.fbs.common.profiel.ScopeResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.VoorkeurResponse
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.IOException
 import java.time.Duration
 import java.util.Optional
 
@@ -229,6 +233,109 @@ class ProfielMagazijnResolverTest {
         assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         }
+    }
+
+    @Test
+    fun `Mutiny TimeoutException wordt gemapt op ProfielServiceFoutException timeout`() {
+        // Het ifNoItem(18s)-pad in de resolver levert deze TimeoutException op
+        // bij een hangende upstream — de happy path daarvoor zelf testen vergt
+        // een 18s WireMock-delay (te duur in CI). Hier valideren we alleen dat
+        // de mapping naar `timeout()` werkt; de timing zelf wordt door
+        // bestaande Mutiny-tests gedekt.
+        every { profielClient.getPartij("BSN", "999993653") } throws io.smallrye.mutiny.TimeoutException()
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertTrue(ex.message!!.contains("timeout"), "Was: ${ex.message}")
+        assertTrue(ex.cause is io.smallrye.mutiny.TimeoutException, "Cause: ${ex.cause}")
+    }
+
+    @Test
+    fun `NullPointerException uit client wraps als ProfielServiceFoutException onverwacht`() {
+        every { profielClient.getPartij("BSN", "999993653") } throws NullPointerException("client interne NPE")
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertNotNull(ex.cause)
+        assertTrue(ex.cause is NullPointerException, "Cause moet NPE zijn: ${ex.cause}")
+        assertTrue(ex.message!!.contains("onverwacht"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `ProcessingException met JsonProcessingException cause routes naar malformed`() {
+        val cause = com.fasterxml.jackson.core.JsonParseException(null, "bad json")
+        every { profielClient.getPartij("BSN", "999993653") } throws jakarta.ws.rs.ProcessingException(cause)
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertTrue(ex.message!!.contains("onleesbare JSON-respons"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `ProcessingException met IOException cause routes naar netwerk`() {
+        every { profielClient.getPartij("BSN", "999993653") } throws jakarta.ws.rs.ProcessingException(IOException("conn reset"))
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertTrue(ex.message!!.contains("netwerkfout"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `scope met alleen dienst (partij null) wordt genegeerd`() {
+        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+            voorkeuren = listOf(
+                VoorkeurResponse(
+                    voorkeurType = "OntvangViaBerichtenbox",
+                    waarde = "true",
+                    scopes = listOf(
+                        ScopeResponse(partij = null, dienst = DienstResponse(id = 42, beschrijving = "X")),
+                    ),
+                ),
+            ),
+        )
+        val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        assertEquals(emptySet<String>(), result)
+    }
+
+    @Test
+    fun `OIN die door beide magazijnen wordt geserveerd levert beide magazijnen op`() {
+        // Reverse-index overlap-case: zelfde afzender-OIN op magazijn-a EN magazijn-b.
+        // De resolver moet dan beide magazijnen leveren (set-union via reverse-index).
+        val gedeeldeOin = "00000001003214345000"
+        val overlapFactory = object : MagazijnClientFactory(
+            config = object : MagazijnenConfig {
+                override fun instances() = mapOf(
+                    "magazijn-a" to instance("http://test-a", gedeeldeOin),
+                    "magazijn-b" to instance("http://test-b", gedeeldeOin),
+                )
+            },
+            profile = "test",
+        ) {
+            override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
+        }.also { it.init() }
+
+        val overlapResolver = ProfielMagazijnResolver(profielClient, overlapFactory)
+
+        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+            voorkeuren = listOf(
+                VoorkeurResponse(
+                    voorkeurType = "OntvangViaBerichtenbox",
+                    waarde = "true",
+                    scopes = listOf(ScopeResponse(partij = IdentificatieResponse("OIN", gedeeldeOin))),
+                ),
+            ),
+        )
+
+        val result = overlapResolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        assertEquals(setOf("magazijn-a", "magazijn-b"), result)
     }
 
     @Test

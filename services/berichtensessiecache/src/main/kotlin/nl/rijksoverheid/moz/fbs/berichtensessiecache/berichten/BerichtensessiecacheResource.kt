@@ -225,10 +225,24 @@ class BerichtensessiecacheResource(
     private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {
         try {
             return block().await().atMost(TIMEOUT)
-        } catch (_: java.util.concurrent.TimeoutException) {
+        } catch (timeoutEx: java.util.concurrent.TimeoutException) {
+            // Cache-operatie hing langer dan TIMEOUT — log warn met cause zodat operations
+            // niet alleen het 503-pad ziet maar ook welke await het was. Silent discard
+            // verbergt prestatie-regressies in Redis.
+            log.warnf(timeoutEx, "Cache-operatie overschreed timeout van %s", TIMEOUT)
             throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
         } catch (e: WebApplicationException) {
             throw e
+        } catch (e: com.fasterxml.jackson.core.JsonProcessingException) {
+            // Cache-deserialisatie-fout = data-integriteit-issue (verkeerde versie, corrupte hash),
+            // niet "Redis onbereikbaar". 500 routeert via ProblemExceptionMapper zonder
+            // de verkeerde infrastructuur-diagnose te suggereren.
+            log.errorf(e, "Cache-data niet deserialiseerbaar (corruptie of schema-drift)")
+            throw WebApplicationException("Cache-data niet leesbaar.", 500)
+        } catch (e: CacheCorruptedException) {
+            // Hash-velden ontbreken of onleesbaar → eigen data-issue, niet bereikbaarheids-issue.
+            log.errorf(e, "Cache-hash corrupt")
+            throw WebApplicationException("Cache-data niet leesbaar.", 500)
         } catch (e: Exception) {
             log.errorf(e, "Cache-operatie mislukt")
             throw WebApplicationException("Cache niet bereikbaar.", 503)

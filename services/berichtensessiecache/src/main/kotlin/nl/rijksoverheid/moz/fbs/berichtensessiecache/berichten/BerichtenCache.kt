@@ -54,21 +54,32 @@ class RedisBerichtenCache(
 
     @PostConstruct
     fun init() {
-        try {
-            redis.search().ftDropIndex(BerichtenCache.SEARCH_INDEX)
-                .await().atMost(Duration.ofSeconds(5))
-            log.debugf("Bestaande RediSearch index '%s' verwijderd", BerichtenCache.SEARCH_INDEX)
+        // Presence-check via FT._LIST i.p.v. drop-en-catch op message-match. Vermijdt
+        // fragility bij Redis-versie-bump (foutmelding-tekst is geen API-contract).
+        val bestaandeIndexen = try {
+            redis.search().ft_list().await().atMost(Duration.ofSeconds(5))
         } catch (e: Exception) {
-            if (isUnknownIndex(e)) {
-                log.debugf("Geen bestaande RediSearch index '%s' om te verwijderen", BerichtenCache.SEARCH_INDEX)
-            } else {
-                // Redis onbereikbaar / permissie-issue / onverwachte fout → fail-fast bij startup
+            throw IllegalStateException(
+                "Kan RediSearch indexen niet opvragen (Redis onbereikbaar bij startup?)",
+                e,
+            )
+        }
+
+        if (BerichtenCache.SEARCH_INDEX in bestaandeIndexen) {
+            try {
+                redis.search().ftDropIndex(BerichtenCache.SEARCH_INDEX)
+                    .await().atMost(Duration.ofSeconds(5))
+                log.debugf("Bestaande RediSearch index '%s' verwijderd", BerichtenCache.SEARCH_INDEX)
+            } catch (e: Exception) {
                 throw IllegalStateException(
-                    "Kan RediSearch index '${BerichtenCache.SEARCH_INDEX}' niet benaderen voor cleanup",
+                    "Kan RediSearch index '${BerichtenCache.SEARCH_INDEX}' niet verwijderen",
                     e,
                 )
             }
+        } else {
+            log.debugf("Geen bestaande RediSearch index '%s' om te verwijderen", BerichtenCache.SEARCH_INDEX)
         }
+
         try {
             val args = CreateArgs()
                 .onHash()
@@ -90,11 +101,6 @@ class RedisBerichtenCache(
         }
     }
 
-    private fun isUnknownIndex(e: Throwable): Boolean {
-        val msg = (e.message ?: "").lowercase()
-        return "unknown index" in msg || "no such index" in msg
-    }
-
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
         val listKey = listKey(key)
         if (berichten.isEmpty()) {
@@ -104,7 +110,6 @@ class RedisBerichtenCache(
         val sorted = berichten.sortedByDescending { it.tijdstip }
         val jsonValues = sorted.map { objectMapper.writeValueAsString(it) }
 
-        // Gebruik een Redis transaction (MULTI/EXEC) zodat alle commands in één round-trip gaan
         return redis.withTransaction { tx ->
             val txList = tx.list(String::class.java)
             val txKey = tx.key()
@@ -114,7 +119,6 @@ class RedisBerichtenCache(
                 .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
                 .chain { _ -> txKey.expire(listKey, ttl) }
                 .chain { _ ->
-                    // Sla elk bericht op als Hash voor RediSearch full-text index en lookup by ID
                     val stores = sorted.map { bericht ->
                         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
                         val fields = berichtToHash(bericht)
@@ -198,7 +202,16 @@ class RedisBerichtenCache(
                 if (total == 0L && jsonList.isEmpty()) {
                     null
                 } else {
-                    val berichten = jsonList.map { objectMapper.readValue(it, Bericht::class.java) }
+                    val berichten = try {
+                        jsonList.map { objectMapper.readValue(it, Bericht::class.java) }
+                    } catch (ex: com.fasterxml.jackson.core.JsonProcessingException) {
+                        // Cache-data niet deserialiseerbaar = schema-drift of corruptie. Aparte
+                        // log + rethrow zodat dit niet als "Redis onbereikbaar" wegfiltert in het
+                        // generieke onFailure-pad; caller (BerichtensessiecacheResource) heeft
+                        // een eigen 500-pad voor JsonProcessingException.
+                        log.errorf(ex, "Cache-bericht niet deserialiseerbaar voor key=%s (corruptie of schema-drift)", key)
+                        throw ex
+                    }
                     val totalPages = ((total + pageSize - 1) / pageSize).toInt()
                     BerichtenPage(
                         berichten = berichten,
@@ -212,7 +225,10 @@ class RedisBerichtenCache(
             // Sliding TTL: elke succesvolle read verlengt de sessie-keys zodat actieve gebruikers
             // hun cache niet verliezen tijdens een sessie.
             .call { result -> if (result != null) renewSessionTtl(key) else Uni.createFrom().voidItem() }
-            .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
+            .onFailure(com.fasterxml.jackson.core.JsonProcessingException::class.java)
+                .invoke { _ -> /* al gelogd hierboven, geen dubbele log */ }
+            .onFailure { ex -> ex !is com.fasterxml.jackson.core.JsonProcessingException }
+                .invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
     private fun getPageFiltered(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String): Uni<BerichtenPage?> {
@@ -300,14 +316,25 @@ class RedisBerichtenCache(
      */
     private fun renewReadTtl(ontvanger: Identificatienummer, berichten: List<Bericht>?): Uni<Void> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
-        val sessionRenew = renewSessionTtl(cacheKey)
-        if (berichten.isNullOrEmpty()) return sessionRenew
-        val hashRenews = berichten.map { bericht ->
-            redis.key().expire(BerichtenCache.berichtKey(bericht.berichtId), ttl)
-        }
-        return Uni.combine().all()
-            .unis(sessionRenew, Uni.join().all(hashRenews).andFailFast())
-            .discardItems()
+        if (berichten.isNullOrEmpty()) return renewSessionTtl(cacheKey)
+
+        // MULTI/EXEC pipeline-batch: alle EXPIRE-commands (2 sessie-keys + N bericht-hashes)
+        // in één round-trip i.p.v. losse calls. Op pageSize=100 scheelt dit 100+ RTT's.
+        val listKey = listKey(cacheKey)
+        val statusKey = statusKey(cacheKey)
+        return redis.withTransaction { tx ->
+            val txKey = tx.key()
+            val expires = mutableListOf<Uni<Void>>()
+            expires.add(txKey.expire(listKey, ttl))
+            expires.add(txKey.expire(statusKey, ttl))
+            berichten.forEach { bericht ->
+                expires.add(txKey.expire(BerichtenCache.berichtKey(bericht.berichtId), ttl))
+            }
+            Uni.join().all(expires).andFailFast().replaceWithVoid()
+        }.replaceWithVoid()
+            // Log + slik: TTL-renew is best-effort. Bij stille discard zou een Redis-storing
+            // in de batch ongezien blijven; de read zelf is al gelukt.
+            .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
             .onFailure().recoverWithNull().replaceWithVoid()
     }
 
@@ -321,15 +348,27 @@ class RedisBerichtenCache(
         bericht.status?.let { put("status", it) }
     }
 
-    private fun hashToBericht(fields: Map<String, String>): Bericht = Bericht(
-        berichtId = UUID.fromString(fields["berichtId"]),
-        afzender = fields["afzender"]!!,
-        ontvanger = fields["ontvanger"]!!,
-        onderwerp = fields["onderwerp"]!!,
-        tijdstip = Instant.parse(fields["tijdstip"]!!),
-        magazijnId = fields["magazijnId"]!!,
-        status = fields["status"],
-    )
+    private fun hashToBericht(fields: Map<String, String>): Bericht {
+        fun required(name: String): String = fields[name]
+            ?: throw CacheCorruptedException("Veld '$name' ontbreekt in gecachte hash")
+
+        return try {
+            Bericht(
+                berichtId = UUID.fromString(required("berichtId")),
+                afzender = required("afzender"),
+                ontvanger = required("ontvanger"),
+                onderwerp = required("onderwerp"),
+                tijdstip = Instant.parse(required("tijdstip")),
+                magazijnId = required("magazijnId"),
+                status = fields["status"],
+            )
+        } catch (ex: IllegalArgumentException) {
+            // UUID.fromString of Instant.parse faalde op een onleesbare waarde.
+            throw CacheCorruptedException("Onleesbare waarde in gecachte hash: ${ex.message}", ex)
+        } catch (ex: java.time.format.DateTimeParseException) {
+            throw CacheCorruptedException("Onleesbare 'tijdstip' in gecachte hash: ${ex.message}", ex)
+        }
+    }
 
     private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht = Bericht(
         berichtId = UUID.fromString(doc.property("berichtId").asString()),

@@ -74,6 +74,23 @@ class ProfielServiceRetryWireMockTest {
         assertEquals(emptySet<String>(), result)
     }
 
+    @Test
+    fun `aanhoudende ProcessingException doet maximaal 3 upstream-calls (1 + 2 retries)`() {
+        // Regressie-vangnet voor @Retry(maxRetries = 2): zonder count-assert kan een
+        // herconfiguratie naar maxRetries=5 of een retry-storm ongezien doorgaan.
+        wireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
+        )
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(20))
+        }
+
+        // 1 originele call + maxRetries=2 retries = 3 upstream-calls totaal.
+        wireMock.verify(3, getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653")))
+    }
+
     // ── D: 5xx wordt niet geretryd — exactly 1 upstream call ─────────────
 
     @Test

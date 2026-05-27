@@ -11,11 +11,12 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
  * geconfigureerd magazijn. OIN-ontvangers (B2B) slaan de Profiel-call over en
  * krijgen alle magazijn-IDs terug.
  *
- * Foutpaden: 200/404 zonder voorkeur leidt tot een lege set (caller toont lege
- * resultaten). 5xx, niet-404 4xx, ProcessingException, timeout, malformed JSON
- * of overige onverwachte fouten leiden tot een [ProfielServiceFoutException]
- * (caller propageert 503 + Retry-After).
+ * Voor de fout-taxonomie (welke upstream-fault leidt tot welke wrap), zie
+ * [nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException].
+ *
+ * `fun interface` zodat tests inline-lambda's kunnen gebruiken zonder anonieme
+ * subclass-boilerplate.
  */
-interface MagazijnResolver {
+fun interface MagazijnResolver {
     fun resolve(ontvanger: Identificatienummer): Uni<Set<String>>
 }

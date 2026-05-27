@@ -11,9 +11,7 @@ import java.util.UUID
 
 /**
  * Vertaalt [ProfielServiceFoutException] naar HTTP 503 + Problem+JSON met
- * `Retry-After: 30`. Caller weet niet welke specifieke fault (5xx, timeout,
- * malformed) erachter zit — alleen dat de toestemmingscontrole nu niet
- * uitgevoerd kan worden. Retry-After geeft een afgesproken back-off-window.
+ * `Retry-After: 30`. Voor de fout-taxonomie zie [ProfielServiceFoutException].
  *
  * `instance = urn:uuid:<errorId>` koppelt de client-response aan de applicatielog
  * (consistent met `UncaughtExceptionMapper`/`ProblemExceptionMapper`/etc.) zodat

@@ -97,7 +97,7 @@ class CircuitBreakerSkipOnTest {
         // BerichtValidatieService — niet via de repo-mock maar via de Profiel-
         // Service-mock: een lege PartijResponse (geen voorkeur) leidt tot weigering.
         (profielClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
-            PartijResponse(partijId = 1L, voorkeuren = emptyList())
+            PartijResponse(voorkeuren = emptyList())
         }
         // Een aanleveraar die per ongeluk een loop start naar een ontvanger zonder
         // voorkeur mag het circuit niet openen — anders veroorzaakt één

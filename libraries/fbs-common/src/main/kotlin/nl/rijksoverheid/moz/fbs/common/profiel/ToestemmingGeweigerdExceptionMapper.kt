@@ -12,6 +12,10 @@ import org.jboss.logging.Logger
  * een aanvraag geweigerd is, is geen lek: de aanleverende organisatie wist
  * al dat ze geprobeerd hebben te leveren. De waarde van de ontvanger blijft
  * uit het response-body — die wordt niet door deze exception gedragen.
+ *
+ * `Problem.detail` is gebaseerd op de [ToestemmingGeweigerdException.Reden]-enum
+ * en bevat geen call-site-injecties; de specifieke afzender-OIN gaat alleen via
+ * de applicatielog (niet via response-body) zodat AVG-risico minimaal blijft.
  */
 @Provider
 class ToestemmingGeweigerdExceptionMapper : ExceptionMapper<ToestemmingGeweigerdException> {
@@ -20,12 +24,17 @@ class ToestemmingGeweigerdExceptionMapper : ExceptionMapper<ToestemmingGeweigerd
 
     override fun toResponse(exception: ToestemmingGeweigerdException): Response {
         // info-niveau: dit is geen serverfout maar een normaal policy-besluit.
-        log.infof("Toestemming geweigerd: %s", exception.message)
+        log.infof("Toestemming geweigerd (reden=%s)", exception.reden)
 
         val problem = Problem(
             title = "Forbidden",
             status = 403,
-            detail = exception.message,
+            detail = when (exception.reden) {
+                ToestemmingGeweigerdException.Reden.GEEN_PROFIEL ->
+                    "Ontvanger heeft geen profiel bij MOZA."
+                ToestemmingGeweigerdException.Reden.GEEN_ACTIEVE_VOORKEUR ->
+                    "Ontvanger heeft geen actieve berichtenbox-voorkeur voor deze afzender."
+            },
         )
 
         return Response.status(403)

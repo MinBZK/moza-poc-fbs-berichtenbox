@@ -76,16 +76,18 @@ class BerichtValidatieService(
                 ontvangerType,
                 bericht.afzender.waarde,
             )
-            throw ToestemmingGeweigerdException(
-                "Ontvanger heeft geen profiel bij MOZA voor afzender ${bericht.afzender.waarde}",
-            )
+            throw ToestemmingGeweigerdException.geenProfiel()
         }
 
         if (!isAbonneeOp(partij, bericht.afzender)) {
-            // Bewust geen ontvanger-waarde in de boodschap: kan PII zijn (BSN).
-            throw ToestemmingGeweigerdException(
-                "Ontvanger heeft geen actieve berichtenbox-voorkeur voor afzender ${bericht.afzender.waarde}",
+            // afzender-OIN in de log (geen PII van burger; organisatie-identificatie) zodat
+            // ops kan diagnosticeren welke combinatie geweigerd werd. Body lekt afzender niet —
+            // de factory hardcodeert de message.
+            log.infof(
+                "Toestemming geweigerd: geen actieve voorkeur voor afzender=%s",
+                bericht.afzender.waarde,
             )
+            throw ToestemmingGeweigerdException.geenActieveVoorkeur()
         }
     }
 

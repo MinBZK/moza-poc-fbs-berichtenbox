@@ -95,7 +95,7 @@ class BerichtensessiecacheServiceTest {
     fun `ProfielServiceFoutException uit resolver propageert en zet FOUT-status`() {
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns
-            Uni.createFrom().failure(ProfielServiceFoutException("upstream 500"))
+            Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(500))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         // ophalenBerichten gooit de fout synchroon omdat resolver.resolve().await() blokkeert.
@@ -103,6 +103,30 @@ class BerichtensessiecacheServiceTest {
             service.ophalenBerichten(ontvanger)
         }
 
+        verify {
+            berichtenCache.storeAggregationStatus(
+                cacheKey,
+                match { it.status == OphalenStatus.FOUT },
+            )
+        }
+    }
+
+    @Test
+    fun `resolver levert onbekende magazijn-ID werpt IllegalArgumentException en zet FOUT-status`() {
+        // Drift-detector-invariant: resolver leverde IDs die de factory niet kent.
+        // ophalenBerichten MOET hard falen i.p.v. stil leeg-degraderen (anders blijft
+        // een config-drift tussen resolver en factory ongezien). Cleanup vóór throw
+        // zodat de lock niet tot TTL hangt.
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("ghost-magazijn"))
+        every { clientFactory.getAllClients() } returns emptyMap()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val ex = assertThrows<IllegalArgumentException> {
+            service.ophalenBerichten(ontvanger)
+        }
+
+        assertTrue(ex.message!!.contains("ghost-magazijn"), "Was: ${ex.message}")
         verify {
             berichtenCache.storeAggregationStatus(
                 cacheKey,

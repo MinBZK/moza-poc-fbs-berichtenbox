@@ -76,7 +76,6 @@ class ProfielServiceClientWireMockTest {
 
         val partij = client.getPartij("BSN", "999993653")
 
-        assertEquals(42L, partij.partijId)
         assertEquals(1, partij.voorkeuren.size)
         assertEquals("OntvangViaBerichtenbox", partij.voorkeuren[0].voorkeurType)
         assertEquals("true", partij.voorkeuren[0].waarde)
@@ -177,7 +176,7 @@ class ProfielServiceClientWireMockTest {
         )
 
         val partij = client.getPartij("BSN", "999993653")
-        assertEquals(1L, partij.partijId)
+        assertEquals(0, partij.voorkeuren.size)
     }
 
     @Test

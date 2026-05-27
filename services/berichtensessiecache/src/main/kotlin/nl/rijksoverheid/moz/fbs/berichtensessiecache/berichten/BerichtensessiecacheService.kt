@@ -10,6 +10,7 @@ import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.ProfielMagazijnResolver
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.jboss.logging.Logger
@@ -95,25 +96,37 @@ class BerichtensessiecacheService(
         }
 
         val resolvedIds = try {
-            // 25s = inner-timeout (18s) van ProfielMagazijnResolver + marge zodat de
-            // outer-timeout nooit aanslaat vóór de inner — anders verliest de caller
+            // Outer-budget = ProfielMagazijnResolver.INNER_TIMEOUT_SECONDS + marge,
+            // zodat de outer nooit aanslaat vóór de inner — anders verliest de caller
             // de juiste foutclassificatie (timeout vs onbereikbaar).
-            resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(25))
+            resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(ProfielMagazijnResolver.OUTER_AWAIT_SECONDS))
+        } catch (ex: java.util.concurrent.TimeoutException) {
+            // Outer-budget overschreden: resolver kwam binnen ~25s niet terug terwijl
+            // de inner ~18s zou moeten respecteren. Wijst op een resource-hang, geen
+            // upstream-issue — log apart zodat ops dit niet als gewone Profiel-storing leest.
+            log.errorf(ex, "Resolver await overschreed outer-budget (%ds) voor key=%s", ProfielMagazijnResolver.OUTER_AWAIT_SECONDS, cacheKey)
+            cleanupLockMetFoutStatus(cacheKey, "resolver outer-await timeout")
+            throw ProfielServiceFoutException.resolverMislukt(ex)
+        } catch (ex: ProfielServiceFoutException) {
+            cleanupLockMetFoutStatus(cacheKey, "profiel-service-fout: ${ex.javaClass.simpleName}")
+            throw ex
         } catch (ex: Exception) {
             cleanupLockMetFoutStatus(cacheKey, "resolver-fout: ${ex.javaClass.simpleName}")
-
-            if (ex is ProfielServiceFoutException) throw ex
-
             throw ProfielServiceFoutException.resolverMislukt(ex)
         }
 
         // De resolver mag alleen magazijn-IDs teruggeven die de factory kent;
         // contract van MagazijnResolver. Een onbekende ID is een bug (drift tussen
         // resolver-config en magazijn-config) en moet hard falen, niet stil leeg-degraderen.
+        // Cleanup vóór de throw: zonder dit blijft de lock tot TTL hangen en blokkeert
+        // legitieme retries na de drift-fix.
         val allClients = clientFactory.getAllClients()
         val onbekend = resolvedIds - allClients.keys
 
-        require(onbekend.isEmpty()) { "Resolver leverde onbekende magazijn-IDs: $onbekend" }
+        if (onbekend.isNotEmpty()) {
+            cleanupLockMetFoutStatus(cacheKey, "drift: resolver leverde onbekende magazijn-IDs")
+            throw IllegalArgumentException("Resolver leverde onbekende magazijn-IDs: $onbekend")
+        }
 
         val clients = allClients.filterKeys { it in resolvedIds }
 
@@ -133,9 +146,10 @@ class BerichtensessiecacheService(
                 log.errorf(ex, "Fout bij opslaan GEREED-status voor lege magazijn-set, key=%s", cacheKey)
                 cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set")
                 // Geen ProfielServiceFoutException: de Profiel-call is geslaagd, de cache-write
-                // faalde. UncaughtExceptionMapper levert een gemaskeerde 500 + errorId; aparte 503
-                // met "toestemmingscontrole" zou misleiden over root-cause.
-                throw RuntimeException("Interne fout bij opslaan resultaten", ex)
+                // faalde. WebApplicationException(500) routeert via ProblemExceptionMapper en
+                // maskeert de message; UncaughtExceptionMapper-vangnet zou een minder specifieke
+                // bron-classificatie geven. Aparte 503 met "toestemmingscontrole" zou misleiden.
+                throw WebApplicationException("Interne fout bij opslaan resultaten", 500)
             }
 
             return Multi.createFrom().item(
@@ -160,10 +174,17 @@ class BerichtensessiecacheService(
         // Bij Redis-fout hier leunt de lock op de TTL (60s); volgende ophaal kan dan
         // tijdelijk 409 zien. Acceptabel: cleanup hier zou de status-key alsnog raken
         // (zelfde Redis), dus geen extra robuustheid. De fout-mapper produceert 500.
-        berichtenCache.updateAggregationStatus(
-            cacheKey,
-            bezigStatus.copy(totaalMagazijnen = clients.size),
-        ).await().atMost(Duration.ofSeconds(5))
+        try {
+            berichtenCache.updateAggregationStatus(
+                cacheKey,
+                bezigStatus.copy(totaalMagazijnen = clients.size),
+            ).await().atMost(Duration.ofSeconds(5))
+        } catch (ex: Exception) {
+            log.errorf(ex, "Update aggregatie-status (BEZIG, totaalMagazijnen=%d) mislukt voor key=%s", clients.size, cacheKey)
+            // Cleanup best-effort; bij faal leunt lock op TTL.
+            cleanupLockMetFoutStatus(cacheKey, "update-aggregatie-status mislukt")
+            throw WebApplicationException("Cache niet bereikbaar tijdens initialisatie ophaalsessie.", 503)
+        }
 
         val ontvangerString = ontvanger.toCanonicalString()
 
@@ -301,9 +322,16 @@ class BerichtensessiecacheService(
                         mislukt = mislukt.get(),
                     )
                     berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
-                        // FATAL-niveau: dubbele Redis-fout = cache effectief onbruikbaar voor
-                        // deze sessie. Lock blijft tot Redis-TTL hangen. Vereist alerting.
-                        .onFailure().invoke { e -> log.fatalf(e, "Cache-write FAIL/FAIL (key=%s): Redis onbruikbaar voor sessie, lock leunt op TTL", cacheKey) }
+                        // FATAL + ALERT-marker: dubbele Redis-fout = cache effectief onbruikbaar
+                        // voor deze sessie. Lock blijft tot Redis-TTL hangen. Het prefix wordt
+                        // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
+                        .onFailure().invoke { e ->
+                            log.fatalf(
+                                e,
+                                "[ALERT cache_doublefail] Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
+                                cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                            )
+                        }
                         .onFailure().recoverWithNull()
                         .replaceWith(
                             MagazijnEvent(

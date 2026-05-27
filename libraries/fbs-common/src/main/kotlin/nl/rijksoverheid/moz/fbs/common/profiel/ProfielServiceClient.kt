@@ -49,7 +49,6 @@ interface ProfielServiceClient {
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class PartijResponse(
-    val partijId: Long? = null,
     val voorkeuren: List<VoorkeurResponse> = emptyList(),
 )
 

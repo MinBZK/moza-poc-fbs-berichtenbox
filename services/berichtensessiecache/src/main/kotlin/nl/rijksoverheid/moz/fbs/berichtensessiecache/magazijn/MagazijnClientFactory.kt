@@ -34,8 +34,10 @@ class MagazijnClientFactory(
         val afzendersBuilder = mutableMapOf<String, Set<Oin>>()
 
         instances.forEach { (id, instance) ->
-            runCatching { URI.create(instance.url()) }.getOrElse {
-                throw IllegalStateException("Ongeldige URL voor magazijn '$id': ${instance.url()}", it)
+            try {
+                URI.create(instance.url())
+            } catch (ex: IllegalArgumentException) {
+                throw IllegalStateException("Ongeldige URL voor magazijn '$id': ${instance.url()}", ex)
             }
 
             // Magazijn-responses bevatten persoonsgegevens (berichten + ontvanger in
@@ -51,11 +53,17 @@ class MagazijnClientFactory(
                 "Magazijn '$id' heeft geen afzenders geconfigureerd (magazijnen.instances.$id.afzenders)"
             }
 
+            // Specifiek IllegalArgumentException vangen (validatie-fout in Oin-constructor)
+            // i.p.v. brede runCatching: een Error (bv. NoClassDefFoundError op cold-start)
+            // moet doorvloeien naar de container-startup en niet als config-fout
+            // gerapporteerd worden.
             val afzendersOins = instance.afzenders().mapIndexed { index, oin ->
-                runCatching { Oin(oin) }.getOrElse {
+                try {
+                    Oin(oin)
+                } catch (ex: IllegalArgumentException) {
                     throw IllegalStateException(
                         "Ongeldige afzender-OIN op positie $index voor magazijn '$id': '$oin'",
-                        it,
+                        ex,
                     )
                 }
             }
