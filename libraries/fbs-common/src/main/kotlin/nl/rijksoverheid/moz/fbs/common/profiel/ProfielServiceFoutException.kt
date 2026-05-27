@@ -33,6 +33,12 @@ class ProfielServiceFoutException private constructor(
         MALFORMED,
         ONVERWACHT,
         RESOLVER_MISLUKT,
+        /**
+         * Profiel-respons gelukt, maar geen enkele opt-in OIN matched een geconfigureerd
+         * magazijn (volledige config-drift). Geen Profiel-storing; eigen-config-fout.
+         * Caller handelt apart af (eigen foutmelding richting eindgebruiker, niet 503).
+         */
+        CONFIG_DRIFT,
     }
 
     companion object {
@@ -66,5 +72,9 @@ class ProfielServiceFoutException private constructor(
 
         fun resolverMislukt(cause: Throwable) =
             ProfielServiceFoutException(Categorie.RESOLVER_MISLUKT, message = "Resolver-aanroep mislukt", cause = cause)
+
+        /** Alle opted-in OINs onbekend bij magazijn-config; caller geeft eigen foutmelding. */
+        fun configDrift() =
+            ProfielServiceFoutException(Categorie.CONFIG_DRIFT, message = "Configuratie-mismatch: opt-in OINs onbekend bij magazijn-config")
     }
 }

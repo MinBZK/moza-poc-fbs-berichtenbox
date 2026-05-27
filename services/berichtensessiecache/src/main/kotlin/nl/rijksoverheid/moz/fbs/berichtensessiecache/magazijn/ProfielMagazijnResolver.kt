@@ -111,16 +111,19 @@ class ProfielMagazijnResolver(
         // OIN-waarde tot prefix om geen volledige identificator in logs te zetten.
         // Reverse-index lookup via clientFactory.magazijnenVoorAfzender: O(1) per OIN i.p.v.
         // O(N×M) scan over alle magazijn-afzender-paren.
-        // toList(): drift-escalatie hieronder heeft .size + .isNotEmpty() nodig.
-        val oinStrings = ProfielVoorkeuren.optedInAfzenderOinStrings(partij).toList()
+        var totaal = 0
+        var ongeldig = 0
+        var driftSkips = 0
 
         val result = buildSet {
-            oinStrings.forEach { oinString ->
+            ProfielVoorkeuren.optedInAfzenderOinStrings(partij).forEach { oinString ->
+                totaal++
                 val oin = try {
                     Oin(oinString)
                 } catch (ex: IllegalArgumentException) {
                     // Specifiek IllegalArgumentException — validatiefout uit Oin-constructor.
                     // Brede runCatching zou Error-types (LinkageError, OOM) inslikken.
+                    ongeldig++
                     val masked = oinString.take(4) + "***"
 
                     log.warnf(
@@ -135,6 +138,7 @@ class ProfielMagazijnResolver(
 
                 if (matched.isEmpty()) {
                     // Config-drift: Profiel kent een OIN die niet in magazijn-config staat.
+                    driftSkips++
                     val masked = oinString.take(4) + "***"
 
                     log.warnf(
@@ -149,13 +153,23 @@ class ProfielMagazijnResolver(
             }
         }
 
-        // 100%-drift: alle opt-in OIN's onbekend → aggregate errorf voor alert-routing
-        // (anders ziet ops alleen losse warns en blijft empty-cache van 60s ongezien).
-        if (oinStrings.isNotEmpty() && result.isEmpty()) {
-            log.errorf(
-                "Config-drift: alle %d opted-in afzender-OIN(s) onbekend bij magazijn-config — cache wordt 60s leeg",
-                oinStrings.size,
-            )
+        // 100%-effective-empty bij non-empty opt-ins → gestructureerde fout zodat caller
+        // OPHALEN_FOUT kan emitten i.p.v. silent OPHALEN_GEREED met 0 berichten.
+        // Onderscheid in log tussen "alle parses faalden" (upstream-data-issue) en
+        // "alle valid OINs onbekend bij config" (echte config-drift).
+        if (totaal > 0 && result.isEmpty()) {
+            if (driftSkips > 0) {
+                log.errorf(
+                    "Config-drift: %d van %d opted-in afzender-OIN(s) onbekend bij magazijn-config (ongeldig=%d)",
+                    driftSkips, totaal, ongeldig,
+                )
+            } else {
+                log.errorf(
+                    "Upstream-data-issue: alle %d opted-in afzender-OIN(s) ongeldig — Profiel-respons gecorrumpeerd?",
+                    totaal,
+                )
+            }
+            throw ProfielServiceFoutException.configDrift()
         }
 
         return result

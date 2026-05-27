@@ -400,10 +400,23 @@ class RedisBerichtenCache(
     }
 
     private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht {
-        // Wrap parse-fouten én ontbrekende velden in CacheCorruptedException; consistent
+        // Wrap parse-fouten, ontbrekende velden ÉN type-mismatch (ClassCast bij asString
+        // op numeric/vector-veld na schema-drift) in CacheCorruptedException; consistent
         // met hashToBericht zodat zoek-/filter-pad corruptie niet als "RediSearch-fout" misduidt.
-        fun requiredProp(name: String): String = (doc.property(name)?.asString())
-            ?: throw CacheCorruptedException.veldOntbreekt(name)
+        fun requiredProp(name: String): String = try {
+            doc.property(name)?.asString()
+                ?: throw CacheCorruptedException.veldOntbreekt(name)
+        } catch (ex: CacheCorruptedException) {
+            throw ex
+        } catch (ex: Exception) {
+            throw CacheCorruptedException.onleesbareWaarde(name, ex)
+        }
+
+        fun optionalProp(name: String): String? = try {
+            doc.property(name)?.asString()
+        } catch (ex: Exception) {
+            throw CacheCorruptedException.onleesbareWaarde(name, ex)
+        }
 
         val berichtIdStr = requiredProp("berichtId")
         val tijdstipStr = requiredProp("tijdstip")
@@ -423,7 +436,7 @@ class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("tijdstip", ex)
             },
             magazijnId = requiredProp("magazijnId"),
-            status = doc.property("status")?.asString(),
+            status = optionalProp("status"),
         )
     }
 

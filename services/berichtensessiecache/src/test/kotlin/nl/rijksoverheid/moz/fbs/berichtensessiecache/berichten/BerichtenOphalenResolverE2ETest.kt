@@ -149,11 +149,10 @@ class BerichtenOphalenResolverE2ETest {
     // ── D: Defensief — malformed upstream-OIN wordt overgeslagen ──────────
 
     @Test
-    fun `Profiel met ongeldige OIN in scope slaat die OIN over en logt warn`() {
-        // Profiel levert een scope met een identificatieNummer dat de Oin-elfproef niet
-        // haalt ("12345" is geen 20-cijferige OIN). De resolver mag niet falen — de
-        // ongeldige OIN wordt overgeslagen en omdat geen geldige OIN overblijft, zijn er
-        // geen magazijnen om te bevragen.
+    fun `Profiel met enkel ongeldige OIN in scope emit OPHALEN_FOUT (geen silent empty)`() {
+        // Profiel levert één scope met ongeldige OIN. 100% effective-empty → resolver
+        // gooit configDrift → service emit OPHALEN_FOUT zodat client weet dat configuratie-
+        // mismatch speelt i.p.v. legitiem "geen berichten".
         profielWireMock.stubFor(
             get(urlEqualTo("/api/profielservice/v1/BSN/999996915")).willReturn(
                 aResponse().withStatus(200)
@@ -179,8 +178,8 @@ class BerichtenOphalenResolverE2ETest {
             .statusCode(200)
             .extract().body().asString()
 
-        assertTrue(response.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed in: $response")
-        assertTrue(response.contains("\"totaalMagazijnen\":0"), "Verwacht totaalMagazijnen:0 in: $response")
+        assertTrue(response.contains("\"event\":\"ophalen-fout\""), "Verwacht ophalen-fout in: $response")
+        assertTrue(response.contains("configuratie"), "Verwacht configuratie-mismatch melding in: $response")
         magazijnA.verify(0, getRequestedFor(urlPathMatching("/.*")))
         magazijnB.verify(0, getRequestedFor(urlPathMatching("/.*")))
     }

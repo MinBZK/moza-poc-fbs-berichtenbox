@@ -96,7 +96,9 @@ class ProfielMagazijnResolverTest {
     }
 
     @Test
-    fun `BSN met scope-OIN buiten config-lijst levert lege set`() {
+    fun `BSN met scope-OIN buiten config-lijst gooit configDrift exception`() {
+        // 100% drift: alle opt-in OINs zijn onbekend bij magazijn-config → CONFIG_DRIFT.
+        // Caller (service) emit dan OPHALEN_FOUT i.p.v. silent empty-result.
         every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
@@ -105,8 +107,10 @@ class ProfielMagazijnResolverTest {
                 ),
             ),
         )
-        val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(emptySet<String>(), result)
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+        assertEquals(ProfielServiceFoutException.Categorie.CONFIG_DRIFT, ex.categorie)
     }
 
     @Test

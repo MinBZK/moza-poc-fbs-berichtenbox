@@ -527,6 +527,125 @@ class BerichtensessiecacheServiceTest {
         assertEquals(2, voltooid.aantalBerichten)
     }
 
+    @Test
+    fun `lock-acquire JSON-fout via 2-niveau cause-wrap classificeert nog steeds als 500`() {
+        // Productie-pad is CompletionException → SyncFailure → JPE (>=2 niveaus).
+        // Pinned dat hasCauseOf de volledige chain afloopt (geen 1-niveau-shortcut).
+        val jpe = com.fasterxml.jackson.core.JsonParseException(null, "diep genest")
+        val gewrapt = RuntimeException("outer", RuntimeException("middle", jpe))
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns
+            Uni.createFrom().failure(gewrapt)
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val ex = assertThrows<WebApplicationException> {
+            service.ophalenBerichten(ontvanger)
+        }
+
+        assertEquals(500, ex.response.status)
+    }
+
+    @Test
+    fun `lock-acquire-fout (cause-gewrapt InterruptedException) levert 503 en herstelt interrupt-flag`() {
+        // Pod-shutdown tijdens lock-acquire: classifier moet INTERRUPTED detecteren en de
+        // interrupt-flag herstellen voor bovenliggende graceful-shutdown.
+        val gewrapt = RuntimeException("wrap", InterruptedException("pod-shutdown"))
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns
+            Uni.createFrom().failure(gewrapt)
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val ex = assertThrows<WebApplicationException> {
+            service.ophalenBerichten(ontvanger)
+        }
+
+        assertEquals(503, ex.response.status)
+        assertTrue(Thread.interrupted(), "Interrupt-flag moet zijn hersteld na catch")
+    }
+
+    @Test
+    fun `lock-acquire-fout (TimeoutException-cause) levert 503 met timeout-melding`() {
+        val gewrapt = RuntimeException("wrap", java.util.concurrent.TimeoutException("await overschreden"))
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns
+            Uni.createFrom().failure(gewrapt)
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val ex = assertThrows<WebApplicationException> {
+            service.ophalenBerichten(ontvanger)
+        }
+
+        assertEquals(503, ex.response.status)
+        assertTrue(
+            ex.message!!.contains("timeout", ignoreCase = true),
+            "Foutmelding moet timeout-specifiek zijn: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `ConnectException uit MagazijnClient classificeert als NETWORK met generieke foutmelding`() {
+        val client = mockk<MagazijnClient>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
+        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { client.getBerichten(any(), any()) } throws java.net.ConnectException("connection refused")
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.ophalenBerichten(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(15))
+
+        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+
+        assertEquals(MagazijnStatus.FOUT, voltooid.status)
+        assertEquals("Magazijn kon niet geraadpleegd worden", voltooid.foutmelding)
+    }
+
+    @Test
+    fun `magazijn-response met 0 berichten is succesvol (boundary)`() {
+        val client = mockk<MagazijnClient>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
+        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { client.getBerichten(any(), any()) } returns MagazijnBerichtenResponse(emptyList())
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.ophalenBerichten(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(15))
+
+        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+
+        assertEquals(MagazijnStatus.OK, voltooid.status)
+        assertEquals(0, voltooid.aantalBerichten)
+    }
+
+    @Test
+    fun `CONFIG_DRIFT exception uit resolver emit OPHALEN_FOUT-event ipv 503`() {
+        // Resolver gooit configDrift wanneer alle opt-in OINs onbekend zijn. Service
+        // mag NIET 503 throwen (Profiel werkt prima); moet zichtbaar OPHALEN_FOUT-
+        // event emitten zodat client geen "retry over 30s" probeert maar weet dat
+        // configuratie-actie nodig is.
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns
+            Uni.createFrom().failure(ProfielServiceFoutException.configDrift())
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.ophalenBerichten(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(5))
+
+        assertEquals(1, events.size)
+        assertEquals(EventType.OPHALEN_FOUT, events[0].event)
+        assertTrue(
+            events[0].foutmelding!!.contains("configuratie"),
+            "Foutmelding moet config-mismatch noemen: ${events[0].foutmelding}",
+        )
+    }
+
     private fun testBericht() = Bericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",

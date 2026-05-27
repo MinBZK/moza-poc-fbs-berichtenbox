@@ -16,8 +16,18 @@ sealed class MagazijnResult {
         override val magazijnId: String,
         override val naam: String?,
         val error: Throwable,
+        // Classificatie eenmaal bepaald in service-laag en hier vastgezet zodat
+        // downstream-mapping niet opnieuw classificeert (voorkomt drift).
+        val fault: MagazijnFault,
     ) : MagazijnResult()
 }
+
+/**
+ * Classificatie van een magazijn-fout. Bepaalt log-niveau (errorf vs warnf voor
+ * alert-routing) en eindgebruiker-foutmelding. Top-level zodat zowel service als
+ * MagazijnResult op één enum kunnen leunen.
+ */
+enum class MagazijnFault { TIMEOUT, MALFORMED, OVERFLOW, HTTP_5XX, HTTP_4XX, NETWORK, INTERNAL_BUG }
 
 /**
  * Marker-exception voor de availability-cap op magazijn-responses (zie

@@ -34,13 +34,14 @@ class MagazijnResultTest {
     }
 
     @Test
-    fun `Failure bevat magazijn-id naam en error`() {
+    fun `Failure bevat magazijn-id naam error en fault`() {
         val ex = RuntimeException("test")
-        val failure = MagazijnResult.Failure("magazijn-b", "Magazijn B", ex)
+        val failure = MagazijnResult.Failure("magazijn-b", "Magazijn B", ex, MagazijnFault.INTERNAL_BUG)
 
         assertEquals("magazijn-b", failure.magazijnId)
         assertEquals("Magazijn B", failure.naam)
         assertEquals(ex, failure.error)
+        assertEquals(MagazijnFault.INTERNAL_BUG, failure.fault)
     }
 
     @Test
@@ -58,7 +59,7 @@ class MagazijnResultTest {
     @Test
     fun `Success en Failure zijn niet gelijk`() {
         val success: MagazijnResult = MagazijnResult.Success("id", "n", emptyList())
-        val failure: MagazijnResult = MagazijnResult.Failure("id", "n", RuntimeException())
+        val failure: MagazijnResult = MagazijnResult.Failure("id", "n", RuntimeException(), MagazijnFault.INTERNAL_BUG)
 
         assertNotEquals(success, failure)
     }

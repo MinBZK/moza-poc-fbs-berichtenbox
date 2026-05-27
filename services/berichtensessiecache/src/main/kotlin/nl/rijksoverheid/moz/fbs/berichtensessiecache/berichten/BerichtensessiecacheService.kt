@@ -10,6 +10,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
@@ -127,6 +128,13 @@ class BerichtensessiecacheService(
             val classification = classifyLockAcquireError(ex)
 
             when (classification) {
+                LockAcquireError.INTERRUPTED -> {
+                    // Herstel interrupt-flag voor graceful pod-shutdown; 503 (transient), geen eigen-bug.
+                    Thread.currentThread().interrupt()
+                    log.warnf(ex, "(errorId=%s) Lock-acquire onderbroken voor key=%s", errorId, cacheKey)
+                    cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId)
+                    throw WebApplicationException("Service shutdown tijdens ophaalstart", 503)
+                }
                 LockAcquireError.JSON_SERIALIZATION -> {
                     log.errorf(ex, "(errorId=%s) Lock-acquire JSON-serialisatie-fout voor key=%s", errorId, cacheKey)
                     cleanupLockMetFoutStatus(cacheKey, "json-serialisatie-fout bij lock-acquire", errorId)
@@ -165,11 +173,25 @@ class BerichtensessiecacheService(
         } catch (ex: ProfielServiceFoutException) {
             // ex.errorId doorgeven zodat cleanup-log dezelfde id draagt als mapper-respons.
             cleanupLockMetFoutStatus(cacheKey, "profiel-service-fout: ${ex.categorie.name}", ex.errorId)
+            // CONFIG_DRIFT: eigen-config-fout, niet Profiel-storing — emit zichtbare
+            // OPHALEN_FOUT i.p.v. 503 zodat client weet "geen ophaling mogelijk", niet
+            // "Profiel offline, retry over 30s". Cache wordt NIET overschreven met empty.
+            if (ex.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
+                return Multi.createFrom().item(
+                    MagazijnEvent(
+                        event = EventType.OPHALEN_FOUT,
+                        totaalMagazijnen = 0,
+                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder",
+                    ),
+                )
+            }
             throw ex
         } catch (ex: Exception) {
-            // Cause-walking: Mutiny wrapt InterruptedException/TimeoutException, dus direct
-            // instanceof matched niet.
-            val wasInterrupted = Thread.interrupted() || ex.hasCauseOf(InterruptedException::class.java)
+            // Cause-walking: Mutiny wrapt InterruptedException/TimeoutException; direct
+            // instanceof matched niet. isInterrupted (non-destructive) — Thread.interrupted()
+            // zou de flag wissen ook in niet-interrupt-branches.
+            val wasInterrupted = Thread.currentThread().isInterrupted ||
+                ex.hasCauseOf(InterruptedException::class.java)
             val isOuterTimeout = ex is io.smallrye.mutiny.TimeoutException ||
                 ex is java.util.concurrent.TimeoutException ||
                 ex.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
@@ -177,7 +199,7 @@ class BerichtensessiecacheService(
 
             when {
                 wasInterrupted -> {
-                    // Interrupt-flag herstellen voor graceful pod-shutdown; 503 (transient).
+                    // Interrupt-flag (her)bevestigen voor graceful pod-shutdown; 503 (transient).
                     Thread.currentThread().interrupt()
                     val errorId = UUID.randomUUID()
 
@@ -306,14 +328,16 @@ class BerichtensessiecacheService(
                         )
                         val foutMessage = "Magazijn leverde meer berichten dan toegestaan (${response.berichten.size} > $maxBerichtenPerMagazijn)"
 
-                        MagazijnResult.Failure(magazijnId, naam, MagazijnResponseOverflow(foutMessage))
+                        MagazijnResult.Failure(magazijnId, naam, MagazijnResponseOverflow(foutMessage), MagazijnFault.OVERFLOW)
                     } else {
                         MagazijnResult.Success(magazijnId, naam, response.berichten)
                     }
                 }
                 .onFailure(Exception::class.java).recoverWithItem { error ->
-                    logMagazijnFault(error, magazijnId, naam, classifyMagazijnFault(error))
-                    MagazijnResult.Failure(magazijnId, naam, error)
+                    val fault = classifyMagazijnFault(error)
+
+                    logMagazijnFault(error, magazijnId, naam, fault)
+                    MagazijnResult.Failure(magazijnId, naam, error, fault)
                 }
 
             val resultStream = resultUni.toMulti().map { result ->
@@ -331,8 +355,7 @@ class BerichtensessiecacheService(
                     }
                     is MagazijnResult.Failure -> {
                         mislukt.incrementAndGet()
-                        val fault = classifyMagazijnFault(result.error)
-                        val foutmelding = when (fault) {
+                        val foutmelding = when (result.fault) {
                             MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
                             MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
                             MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
@@ -345,7 +368,7 @@ class BerichtensessiecacheService(
                             event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
                             magazijnId = magazijnId,
                             naam = naam,
-                            status = if (fault == MagazijnFault.TIMEOUT) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
+                            status = if (result.fault == MagazijnFault.TIMEOUT) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
                             foutmelding = foutmelding,
                         )
                     }
@@ -468,13 +491,27 @@ class BerichtensessiecacheService(
         }
     }
 
-    /** Cause-chain check: Mutiny's blocking-await wrapt failures; directe `instanceof` matched dan niet. */
-    private fun Throwable.hasCauseOf(cls: Class<*>): Boolean =
-        generateSequence(this as Throwable?) { it.cause }.any { cls.isInstance(it) }
+    /**
+     * Cause-chain check: Mutiny's blocking-await wrapt failures; directe `instanceof`
+     * matched dan niet. IdentityHashMap-seen-set voorkomt oneindige loop bij circular
+     * cause (zeldzaam maar mogelijk via proxy-exceptions of test-mocks).
+     */
+    private fun Throwable.hasCauseOf(cls: Class<*>): Boolean {
+        val seen = java.util.IdentityHashMap<Throwable, Unit>()
+        var cur: Throwable? = this
 
-    private enum class LockAcquireError { JSON_SERIALIZATION, TIMEOUT, IO_FAULT, UNEXPECTED }
+        while (cur != null && seen.put(cur, Unit) == null) {
+            if (cls.isInstance(cur)) return true
+            cur = cur.cause
+        }
+
+        return false
+    }
+
+    private enum class LockAcquireError { JSON_SERIALIZATION, TIMEOUT, IO_FAULT, INTERRUPTED, UNEXPECTED }
 
     private fun classifyLockAcquireError(ex: Throwable): LockAcquireError = when {
+        ex.hasCauseOf(InterruptedException::class.java) -> LockAcquireError.INTERRUPTED
         ex.hasCauseOf(JsonProcessingException::class.java) -> LockAcquireError.JSON_SERIALIZATION
         ex is io.smallrye.mutiny.TimeoutException ||
             ex is java.util.concurrent.TimeoutException ||
@@ -484,25 +521,31 @@ class BerichtensessiecacheService(
         else -> LockAcquireError.UNEXPECTED
     }
 
-    private enum class MagazijnFault { TIMEOUT, MALFORMED, OVERFLOW, HTTP_5XX, HTTP_4XX, NETWORK, INTERNAL_BUG }
+    // Internal voor directe unit-test van de classificatie-tabel (zie service-test).
+    internal fun classifyMagazijnFault(error: Throwable): MagazijnFault {
+        // Cause-walking voor diep-geneste Mutiny-wraps (CompletionException → ... → JPE),
+        // consistent met classifyLockAcquireError. Volgorde: meest-specifiek eerst.
+        val webEx = error as? WebApplicationException
+            ?: generateSequence<Throwable>(error) { it.cause }.firstOrNull { it is WebApplicationException } as? WebApplicationException
 
-    private fun classifyMagazijnFault(error: Throwable): MagazijnFault = when {
-        error is TimeoutException -> MagazijnFault.TIMEOUT
-        error is MagazijnResponseOverflow -> MagazijnFault.OVERFLOW
-        error is JsonProcessingException ||
-            (error is ProcessingException && error.cause is JsonProcessingException) -> MagazijnFault.MALFORMED
-        error is ConnectException -> MagazijnFault.NETWORK
-        error is ProcessingException -> MagazijnFault.NETWORK
-        error is WebApplicationException -> {
-            val status = error.response?.status ?: 0
-            when {
-                status in 500..599 -> MagazijnFault.HTTP_5XX
-                status >= 400 -> MagazijnFault.HTTP_4XX
-                // WAE zonder status = raw WAE("oeps") zonder Response → eigen-bug.
-                else -> MagazijnFault.INTERNAL_BUG
+        return when {
+            error.hasCauseOf(MagazijnResponseOverflow::class.java) -> MagazijnFault.OVERFLOW
+            error.hasCauseOf(TimeoutException::class.java) -> MagazijnFault.TIMEOUT
+            error.hasCauseOf(JsonProcessingException::class.java) -> MagazijnFault.MALFORMED
+            error.hasCauseOf(ConnectException::class.java) -> MagazijnFault.NETWORK
+            webEx != null -> {
+                val status = webEx.response?.status ?: 0
+
+                when {
+                    status in 500..599 -> MagazijnFault.HTTP_5XX
+                    status >= 400 -> MagazijnFault.HTTP_4XX
+                    // WAE zonder status = raw WAE("oeps") zonder Response → eigen-bug.
+                    else -> MagazijnFault.INTERNAL_BUG
+                }
             }
+            error.hasCauseOf(ProcessingException::class.java) -> MagazijnFault.NETWORK
+            else -> MagazijnFault.INTERNAL_BUG
         }
-        else -> MagazijnFault.INTERNAL_BUG
     }
 
     /** Log-level differentieert eigen-bug (errorf) van transient upstream (warnf) voor alert-routing. */
@@ -512,8 +555,11 @@ class BerichtensessiecacheService(
                 log.warnf(error, "Magazijn %s (%s) timeout", magazijnId, naam)
             MagazijnFault.MALFORMED ->
                 log.errorf(error, "Magazijn %s (%s) leverde onleesbare JSON-respons (schema-drift?)", magazijnId, naam)
-            // Al gelogd op het map-pad waar overflow gedetecteerd werd.
-            MagazijnFault.OVERFLOW -> Unit
+            // Map-pad logt overflow zelf met counts; defensieve debugf vangt overflows
+            // die via een andere route hier komen (toekomstige refactor) zodat ze niet
+            // ongelogd blijven.
+            MagazijnFault.OVERFLOW ->
+                log.debugf("Magazijn %s (%s) overflow geclassificeerd via onFailure (verwacht alleen via map-pad)", magazijnId, naam)
             MagazijnFault.HTTP_5XX ->
                 log.warnf(error, "Magazijn %s (%s) 5xx", magazijnId, naam)
             MagazijnFault.HTTP_4XX ->
