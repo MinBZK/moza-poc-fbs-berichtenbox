@@ -32,12 +32,8 @@ class BerichtensessiecacheService(
     private val innerTimeoutSeconds: Long,
     @param:ConfigProperty(name = "profiel.resolver.outer-await-seconds", defaultValue = "25")
     private val outerAwaitSeconds: Long,
-    // Availability-cap per magazijn-response: voorkomt dat een rogue/buggy magazijn
-    // de heap volpompt. Default 200 = ~2 ordes boven realistisch werkpunt (CLAUDE.md:
-    // "paar berichten, paar KB elk"), genoeg marge voor bulk-historical scenarios
-    // zonder dat de cap dead-weight wordt. Werkt als belt-and-suspenders naast
-    // `quarkus.http.limits.max-body-size` (byte-niveau). Override via property bij
-    // gemeten productie-bulk; niet stilzwijgend verhogen zonder load-evidence.
+    // Heap-bescherming tegen rogue magazijn. Belt-and-suspenders naast
+    // `quarkus.http.limits.max-body-size`. Niet stilzwijgend verhogen zonder load-evidence.
     @param:ConfigProperty(name = "berichtensessiecache.max-berichten-per-magazijn", defaultValue = "200")
     private val maxBerichtenPerMagazijn: Int,
 ) {
@@ -125,16 +121,14 @@ class BerichtensessiecacheService(
             berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
                 .await().atMost(Duration.ofSeconds(5))
         } catch (ex: Exception) {
-            // Cause-walking ipv directe instanceof: Mutiny's `await().atMost()` wrapt
-            // upstream-failures in CompletionException-achtige containers, dus een directe
-            // catch op JsonProcessingException matched in productie nooit. We klimmen de
-            // cause-chain in om de echte fout-categorie te bepalen.
+            // Cause-walking: Mutiny's blocking-await wrapt upstream-failures, dus directe
+            // instanceof matched de echte fout niet.
             val errorId = UUID.randomUUID()
             val classification = classifyLockAcquireError(ex)
 
             when (classification) {
                 LockAcquireError.JSON_SERIALIZATION -> {
-                    log.errorf(ex, "(errorId=%s) Lock-acquire mislukt door JSON-serialisatie-fout voor key=%s (eigen-code-bug, geen Redis-issue)", errorId, cacheKey)
+                    log.errorf(ex, "(errorId=%s) Lock-acquire JSON-serialisatie-fout voor key=%s", errorId, cacheKey)
                     cleanupLockMetFoutStatus(cacheKey, "json-serialisatie-fout bij lock-acquire", errorId)
                     throw WebApplicationException("Interne fout bij serialisatie status", 500)
                 }
@@ -149,7 +143,7 @@ class BerichtensessiecacheService(
                     throw WebApplicationException("Cache niet bereikbaar bij ophaalstart", 503)
                 }
                 LockAcquireError.UNEXPECTED -> {
-                    log.errorf(ex, "(errorId=%s) Lock-acquire onverwachte fout voor key=%s (cause=%s) — eigen-code-bug?", errorId, cacheKey, ex.javaClass.simpleName)
+                    log.errorf(ex, "(errorId=%s) Lock-acquire onverwachte fout voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
                     cleanupLockMetFoutStatus(cacheKey, "lock-acquire onverwacht: ${ex.javaClass.simpleName}", errorId)
                     throw WebApplicationException("Interne fout bij ophaalstart", 500)
                 }
@@ -169,17 +163,12 @@ class BerichtensessiecacheService(
             // de juiste foutclassificatie (timeout vs onbereikbaar).
             resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(outerAwaitSeconds))
         } catch (ex: ProfielServiceFoutException) {
-            // Geef ex.errorId mee zodat de cleanup-log dezelfde id draagt als de
-            // mapper-respons (Problem.instance = urn:uuid:<errorId>); support kan
-            // dan vanuit een client-side 503 alle service-side regels vinden.
+            // ex.errorId doorgeven zodat cleanup-log dezelfde id draagt als mapper-respons.
             cleanupLockMetFoutStatus(cacheKey, "profiel-service-fout: ${ex.categorie.name}", ex.errorId)
             throw ex
         } catch (ex: Exception) {
-            // Cause-walking voor InterruptedException + TimeoutException: Mutiny's
-            // `await().atMost()` gooit InterruptedException niet direct maar wrapt 'm
-            // in een RuntimeException; een directe catch op InterruptedException werkt
-            // dus niet. Cause-walking + `Thread.interrupted()`-check vangt beide
-            // routes (direct én gewrapt) en herstelt de interrupt-flag.
+            // Cause-walking: Mutiny wrapt InterruptedException/TimeoutException, dus direct
+            // instanceof matched niet.
             val wasInterrupted = Thread.interrupted() || ex.hasCauseOf(InterruptedException::class.java)
             val isOuterTimeout = ex is io.smallrye.mutiny.TimeoutException ||
                 ex is java.util.concurrent.TimeoutException ||
@@ -188,20 +177,16 @@ class BerichtensessiecacheService(
 
             when {
                 wasInterrupted -> {
-                    // Herstel interrupt-flag zodat bovenliggende thread-pool cancellation
-                    // ziet (graceful pod-shutdown). 503 (transient) i.p.v. 500 — shutdown
-                    // is geen eigen-bug.
+                    // Interrupt-flag herstellen voor graceful pod-shutdown; 503 (transient).
                     Thread.currentThread().interrupt()
                     val errorId = UUID.randomUUID()
 
-                    log.warnf(ex, "(errorId=%s) Resolver-await onderbroken (pod-shutdown of test-cancel) voor key=%s", errorId, cacheKey)
+                    log.warnf(ex, "(errorId=%s) Resolver-await onderbroken voor key=%s", errorId, cacheKey)
                     cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId)
                     throw WebApplicationException("Service shutdown tijdens ophalen", 503)
                 }
                 isOuterTimeout -> {
-                    // Bouw eerst de exception (genereert errorId) zodat we 'm aan zowel de
-                    // root-cause-log als de cleanup-log kunnen meegeven; mapper hergebruikt
-                    // dezelfde id voor Problem.instance.
+                    // Bouw exception eerst zodat errorId via log + cleanup + mapper consistent is.
                     val foutException = ProfielServiceFoutException.resolverMislukt(ex)
 
                     log.errorf(ex, "Resolver await overschreed outer-budget (%ds) (errorId=%s) voor key=%s", outerAwaitSeconds, foutException.errorId, cacheKey)
@@ -209,9 +194,7 @@ class BerichtensessiecacheService(
                     throw foutException
                 }
                 else -> {
-                    // Eigen-code-bug of pipeline-fout: 500 (geen Retry-After) zodat client
-                    // niet retry'd op niet-transient fout en ops niet een Profiel-storing
-                    // gaat zoeken die er niet is.
+                    // Eigen-code-bug: 500 (geen Retry-After) zodat client niet retry'd.
                     val errorId = UUID.randomUUID()
 
                     log.errorf(ex, "(errorId=%s) Onverwachte fout in resolver-await voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
@@ -244,11 +227,8 @@ class BerichtensessiecacheService(
         // blijft via GET-endpoints.
         if (clients.isEmpty()) {
             try {
-                // Parallel via Uni.combine().all(): beide writes hebben verschillende keys
-                // en geen ordering-afhankelijkheid. Per-Uni .onFailure().invoke geeft nog
-                // steeds aparte log-context bij failure (welke van de twee mislukte) zonder
-                // de extra RTT die sequentieel .chain kost — dit pad is het meest voorkomende
-                // request-pattern voor nieuwe gebruikers zonder opt-ins.
+                // Parallel: spaart 1 RTT op hot-path (nieuwe gebruikers zonder opt-ins).
+                // Per-Uni .onFailure houdt log-context welke faalde.
                 Uni.combine().all()
                     .unis(
                         berichtenCache.store(cacheKey, emptyList())
@@ -287,12 +267,8 @@ class BerichtensessiecacheService(
         val geslaagd = AtomicInteger(0)
         val mislukt = AtomicInteger(0)
 
-        // updateAggregationStatus(BEZIG, totaalMagazijnen) overschrijft alleen de statusKey
-        // (de lockKey blijft staan in het happy path → concurrent ophalen krijgt 409 tot deze
-        // sessie GEREED/FOUT schrijft, wat de lock semantisch vrijgeeft via storeAggregationStatus).
-        // Bij Redis-fout op deze update gaat cleanupLockMetFoutStatus de lock alsnog vrijgeven
-        // door FOUT te schrijven (storeAggregationStatus doet intern del(lockKey)); faalt die
-        // cleanup ook, dan leunt de vrijgave op de Redis-TTL (60s) — `[ALERT cache_doublefail]`-pad.
+        // Happy: alleen statusKey overschrijven; lockKey blijft tot GEREED/FOUT-schrijfactie.
+        // Fout: cleanupLockMetFoutStatus schrijft FOUT (geeft lock vrij via interne del).
         try {
             berichtenCache.updateAggregationStatus(
                 cacheKey,
@@ -323,12 +299,9 @@ class BerichtensessiecacheService(
                 .ifNoItem().after(Duration.ofSeconds(10)).fail()
                 .map<MagazijnResult> { response ->
                     if (response.berichten.size > maxBerichtenPerMagazijn) {
-                        // ErrorF-log met counts zodat ops vanuit Loki/CloudWatch direct kan
-                        // correleren naar het magazijn dat de cap raakte (rogue / contract-bug).
-                        // Zonder dit log zou alleen het SSE-event-foutmelding ops bereiken — niet
-                        // alert-baar via log-routing.
+                        // ErrorF nodig voor Loki-alert-routing; SSE-event alleen gaat niet naar logs.
                         log.errorf(
-                            "Magazijn %s (%s) overschreed berichten-cap: %d > %d (rogue magazijn of contract-bug — response gediskwalificeerd)",
+                            "Magazijn %s (%s) overschreed berichten-cap: %d > %d",
                             magazijnId, naam, response.berichten.size, maxBerichtenPerMagazijn,
                         )
                         val foutMessage = "Magazijn leverde meer berichten dan toegestaan (${response.berichten.size} > $maxBerichtenPerMagazijn)"
@@ -358,24 +331,15 @@ class BerichtensessiecacheService(
                     }
                     is MagazijnResult.Failure -> {
                         mislukt.incrementAndGet()
-                        // Eén classificatie-keten (`classifyMagazijnFault`) ipv duplicate
-                        // instanceof-cascades voor log én foutmelding. Nieuwe error-categorie
-                        // toevoegen = één plek aanpassen (het MagazijnFault-enum + de when's).
                         val fault = classifyMagazijnFault(result.error)
                         val foutmelding = when (fault) {
                             MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
                             MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
                             MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
                             MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
-                            // 4xx = onze aanvraag wordt geweigerd (auth, contract, ontbrekend record).
-                            // Aparte foutmelding zodat eindgebruiker dit niet als transient netwerkfout
-                            // verwart en operations weet dat dit een configuratie-/integratiefout is.
                             MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
-                            // Interne-bug-paden: GENERIEKE eindgebruiker-tekst (geen "interne fout"-
-                            // signaal dat fuzzers/recon kan helpen). Technisch onderscheid blijft
-                            // alleen in de applicatielog. BIO 14.1.3 compliant.
-                            MagazijnFault.INTERNAL_BUG -> "Magazijn kon niet geraadpleegd worden"
-                            MagazijnFault.NETWORK -> "Magazijn kon niet geraadpleegd worden"
+                            // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
+                            MagazijnFault.INTERNAL_BUG, MagazijnFault.NETWORK -> "Magazijn kon niet geraadpleegd worden"
                         }
                         MagazijnEvent(
                             event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
@@ -469,23 +433,12 @@ class BerichtensessiecacheService(
     }
 
     /**
-     * Best-effort: zet FOUT-status om de lock vrij te geven na een niet-herstelbare fout.
-     * `storeAggregationStatus` doet intern `del(lockKey)`, dus deze ene call ruimt zowel
-     * status als lock op. Timeout op 5s zodat een hangende Redis de thread niet eeuwig
-     * blokkeert; falen wordt geslikt (ook al blijft de lock dan tot Redis-TTL hangen,
-     * dat is acceptabel — beter dan een tweede exception over de eerste heen).
+     * Best-effort lock-release na fout: schrijft FOUT-status; `storeAggregationStatus`
+     * doet intern `del(lockKey)`. Cleanup-failure geslikt — lock leunt dan op TTL.
      *
-     * @param oorzaak korte oorzaak-omschrijving voor de log; zichtbaar zowel bij geslaagde
-     *   cleanup (warn met context welke ophaal-fout de lock vrijgaf) als bij cleanup-fail.
-     */
-    /**
-     * @param errorId optionele correlatie-id. Wanneer de caller een [ProfielServiceFoutException]
-     *   afhandelt geeft hij `ex.errorId` mee zodat support een client-side
-     *   `urn:uuid:<errorId>` (uit `Problem.instance`) direct kan correleren naar deze
-     *   cleanup-logregel én naar de root-cause-logregel hieronder. Voor non-Profiel
-     *   foutpaden (Redis-blip, onverwachte Exception) genereert de helper zelf een
-     *   nieuwe id zodat ook die fouten een correlatie-anker krijgen in `[ALERT
-     *   cache_doublefail]`-routing.
+     * @param errorId caller geeft `ex.errorId` mee (Profiel-pad) zodat de cleanup-log
+     *   dezelfde id draagt als `Problem.instance` voor cross-correlatie; non-Profiel
+     *   paden krijgen een verse id zodat `[ALERT cache_doublefail]`-pad een anker heeft.
      */
     private fun cleanupLockMetFoutStatus(
         cacheKey: String,
@@ -515,11 +468,7 @@ class BerichtensessiecacheService(
         }
     }
 
-    /**
-     * Loopt de cause-chain af en checkt of een gegeven exception-type ergens voorkomt.
-     * Nodig omdat Mutiny's blocking-await failures wrapt — een directe `instanceof`-check
-     * matched de onderliggende cause niet.
-     */
+    /** Cause-chain check: Mutiny's blocking-await wrapt failures; directe `instanceof` matched dan niet. */
     private fun Throwable.hasCauseOf(cls: Class<*>): Boolean =
         generateSequence(this as Throwable?) { it.cause }.any { cls.isInstance(it) }
 
@@ -549,27 +498,22 @@ class BerichtensessiecacheService(
             when {
                 status in 500..599 -> MagazijnFault.HTTP_5XX
                 status >= 400 -> MagazijnFault.HTTP_4XX
-                // WAE zonder bruikbare status = eigen-code-bug (client gooit raw
-                // WAE("oeps") zonder Response).
+                // WAE zonder status = raw WAE("oeps") zonder Response → eigen-bug.
                 else -> MagazijnFault.INTERNAL_BUG
             }
         }
-        // Onverwachte Exception (NPE/IllegalState/ClassCast uit gegenereerde client of mapping).
         else -> MagazijnFault.INTERNAL_BUG
     }
 
+    /** Log-level differentieert eigen-bug (errorf) van transient upstream (warnf) voor alert-routing. */
     private fun logMagazijnFault(error: Throwable, magazijnId: String, naam: String?, fault: MagazijnFault) {
-        // Aparte logf-paden zodat ops in Loki/CloudWatch op log-niveau (errorf vs warnf)
-        // kan filteren wat een eigen-code-bug is (errorf) versus transient upstream (warnf).
         when (fault) {
             MagazijnFault.TIMEOUT ->
                 log.warnf(error, "Magazijn %s (%s) timeout", magazijnId, naam)
             MagazijnFault.MALFORMED ->
-                // ErrorF: deterministisch contract-issue, niet transient — moet zichtbaar in alerts.
                 log.errorf(error, "Magazijn %s (%s) leverde onleesbare JSON-respons (schema-drift?)", magazijnId, naam)
-            MagazijnFault.OVERFLOW ->
-                // Al gelogd op het map-pad waar de overflow gedetecteerd werd; geen dubbele log.
-                Unit
+            // Al gelogd op het map-pad waar overflow gedetecteerd werd.
+            MagazijnFault.OVERFLOW -> Unit
             MagazijnFault.HTTP_5XX ->
                 log.warnf(error, "Magazijn %s (%s) 5xx", magazijnId, naam)
             MagazijnFault.HTTP_4XX ->
@@ -577,9 +521,7 @@ class BerichtensessiecacheService(
             MagazijnFault.NETWORK ->
                 log.warnf(error, "Magazijn %s (%s) niet bereikbaar (network/processing)", magazijnId, naam)
             MagazijnFault.INTERNAL_BUG ->
-                // ErrorF + generieke eindgebruiker-foutmelding: ops onderscheid eigen-bug vs upstream;
-                // attacker krijgt geen recon-signal door de generieke foutmelding (zie classifier-mapping).
-                log.errorf(error, "Onverwachte fout bij magazijn %s (%s) — interne bug? (cause=%s)", magazijnId, naam, error.javaClass.simpleName)
+                log.errorf(error, "Onverwachte fout bij magazijn %s (%s) (cause=%s)", magazijnId, naam, error.javaClass.simpleName)
         }
     }
 }

@@ -180,10 +180,7 @@ class RedisBerichtenCache(
                         .onFailure().call { _ ->
                             redis.key().del(lockKey)
                                 .onFailure().invoke { delErr ->
-                                    // FATAL + ALERT-marker consistent met cleanupLockMetFoutStatus
-                                    // in service-laag: setex én rollback-DEL allebei fail = lock
-                                    // hangt tot Redis-TTL. Loki/CloudWatch alert-routing pikt het
-                                    // [ALERT cache_doublefail]-prefix op.
+                                    // ALERT-marker consistent met service-cleanup voor uniforme alert-routing.
                                     log.fatalf(delErr, "[ALERT cache_doublefail] Lock-rollback na statusKey-fout faalde voor key=%s; lock leunt op TTL", key)
                                 }
                                 .onFailure().recoverWithNull()
@@ -403,10 +400,8 @@ class RedisBerichtenCache(
     }
 
     private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht {
-        // Wrap zowel parse-fouten ALS ontbrekende velden in CacheCorruptedException zodat
-        // zoek-/filter-pad een corrupte cache-entry of index-drift (na schema-wijziging)
-        // niet als generieke "RediSearch query mislukt" rapporteert — caller heeft een
-        // dedicated diagnose-pad voor CacheCorruptedException. Consistent met hashToBericht.
+        // Wrap parse-fouten én ontbrekende velden in CacheCorruptedException; consistent
+        // met hashToBericht zodat zoek-/filter-pad corruptie niet als "RediSearch-fout" misduidt.
         fun requiredProp(name: String): String = (doc.property(name)?.asString())
             ?: throw CacheCorruptedException.veldOntbreekt(name)
 

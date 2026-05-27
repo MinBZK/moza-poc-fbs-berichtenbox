@@ -111,9 +111,7 @@ class ProfielMagazijnResolver(
         // OIN-waarde tot prefix om geen volledige identificator in logs te zetten.
         // Reverse-index lookup via clientFactory.magazijnenVoorAfzender: O(1) per OIN i.p.v.
         // O(N×M) scan over alle magazijn-afzender-paren.
-        // toList() i.p.v. raw Sequence: we hebben .size en .isNotEmpty() nodig voor
-        // de drift-escalatie hieronder, en we lopen 'm sowieso één keer door — geen
-        // streaming-voordeel te halen.
+        // toList(): drift-escalatie hieronder heeft .size + .isNotEmpty() nodig.
         val oinStrings = ProfielVoorkeuren.optedInAfzenderOinStrings(partij).toList()
 
         val result = buildSet {
@@ -136,15 +134,11 @@ class ProfielMagazijnResolver(
                 val matched = clientFactory.magazijnenVoorAfzender(oin)
 
                 if (matched.isEmpty()) {
-                    // Drift-detectie: Profiel kent een OIN die bij geen geconfigureerd
-                    // magazijn hoort. Productie-aanleiding is config-mismatch (nieuwe
-                    // afzender bij Profiel geactiveerd vóór magazijn-config gedeployd).
-                    // OIN gemaskeerd tot 4-prefix (volledige identificator hoort niet in
-                    // logs ook al is OIN publiek).
+                    // Config-drift: Profiel kent een OIN die niet in magazijn-config staat.
                     val masked = oinString.take(4) + "***"
 
                     log.warnf(
-                        "Profiel-service noemt afzender-OIN '%s' die bij geen geconfigureerd magazijn hoort — config-drift (nieuwe afzender niet in magazijn-config?)",
+                        "Profiel-service noemt afzender-OIN '%s' die bij geen geconfigureerd magazijn hoort — config-drift?",
                         masked,
                     )
 
@@ -155,14 +149,11 @@ class ProfielMagazijnResolver(
             }
         }
 
-        // 100%-drift escalatie: ontvanger heeft wél opt-ins maar geen enkele OIN
-        // matched de magazijn-config. Aggregate errorf naast de per-OIN warns zodat
-        // log-aggregator (Loki/CloudWatch) hier een alert op kan routen — anders
-        // ziet ops alleen losse warns en blijft een complete config-mismatch (waardoor
-        // ontvanger 60s stil "0 berichten" gecached krijgt) ongezien.
+        // 100%-drift: alle opt-in OIN's onbekend → aggregate errorf voor alert-routing
+        // (anders ziet ops alleen losse warns en blijft empty-cache van 60s ongezien).
         if (oinStrings.isNotEmpty() && result.isEmpty()) {
             log.errorf(
-                "Config-drift: alle %d opted-in afzender-OIN(s) onbekend bij magazijn-config — ontvanger ziet leeg resultaat zonder duidelijke fout (cache wordt 60s gevuld met empty)",
+                "Config-drift: alle %d opted-in afzender-OIN(s) onbekend bij magazijn-config — cache wordt 60s leeg",
                 oinStrings.size,
             )
         }
