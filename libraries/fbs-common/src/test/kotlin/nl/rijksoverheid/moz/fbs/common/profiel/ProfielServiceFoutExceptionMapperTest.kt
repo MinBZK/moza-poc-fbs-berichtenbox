@@ -82,11 +82,7 @@ class ProfielServiceFoutExceptionMapperTest {
 
     @Test
     fun `Problem-instance hergebruikt errorId uit de exception (geen nieuwe generatie)`() {
-        // Regressie-vangnet: mapper MOET exception.errorId gebruiken zodat de service-
-        // laag (cleanup-paden, root-cause-log) dezelfde id kan loggen die de client in
-        // urn:uuid:<errorId> ziet. Een refactor die hier randomUUID() terugzet zou de
-        // cross-log-correlatie stilzwijgend breken — support-debug-loop wordt dan
-        // weer dependent op timestamp-fuzzing en cacheKey-zoeken.
+        // Mapper-randomUUID() zou cross-log-correlatie service ↔ client breken.
         val exception = ProfielServiceFoutException.timeout()
         val response = mapper.toResponse(exception)
         val problem = response.entity as Problem

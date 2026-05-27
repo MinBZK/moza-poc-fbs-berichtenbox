@@ -205,9 +205,7 @@ class BerichtenOphalenResourceTest {
 
     @Test
     fun `GET ophalen met BSN-pattern violation (niet-cijfer) levert 400 vóór fromHeader-parsing`() {
-        // @Pattern op de header moet de request afkappen vóór fromHeader/elfproef.
-        // Zonder Pattern-vangnet zou de attacker-controlled prefix naar DomainValidationException
-        // doorgaan en kunnen lekken in Problem.detail.
+        // @Pattern moet vóór fromHeader/elfproef afkappen; voorkomt attacker-prefix-lek in Problem.detail.
         given()
             .header("X-Ontvanger", "BSN:abc12345")
             .`when`().get("/api/v1/berichten/_ophalen")
@@ -248,8 +246,7 @@ class BerichtenOphalenResourceTest {
 
     @Test
     fun `GET ophalen met lowercase prefix (bsn) levert 400`() {
-        // IdentificatienummerType.valueOf is hoofdletter-gevoelig. Lowercase prefix moet
-        // door Pattern of fromHeader geweigerd worden, niet als valide doorgaan.
+        // IdentificatienummerType.valueOf is hoofdletter-gevoelig; lowercase mag niet bypassen.
         given()
             .header("X-Ontvanger", "bsn:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")

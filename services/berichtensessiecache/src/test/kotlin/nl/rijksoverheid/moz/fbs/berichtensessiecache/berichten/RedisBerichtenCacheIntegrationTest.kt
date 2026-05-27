@@ -404,22 +404,15 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `getPage met corrupte JSON-entry gooit JsonProcessingException (geen Redis-onbereikbaar-misdiagnose)`() {
-        // Regressie-vangnet: corrupte cache-entry (handmatig non-JSON gepushed) MOET
-        // als JsonProcessingException propageren naar caller — niet als generieke
-        // "Redis-getPage-mislukt"-fout wegfilteren via het catch-all-onFailure-pad. De
-        // resource-laag (BerichtensessiecacheResource) heeft een dedicated 500-pad voor
-        // JsonProcessingException; zonder rethrow zou een schema-drift als "Redis down"
-        // gerapporteerd worden en zou ops Redis-health gaan checken voor een serialisatie-issue.
+        // JPE moet propageren (resource heeft dedicated 500-pad) — niet wegfilteren als
+        // "Redis-mislukt" via catch-all (=verkeerde diagnose).
         val key = cacheKey()
         val listKey = "$key:list"
 
-        // Push een niet-deserialiseerbare string in de LIST. EXISTS LLEN > 0 → getPage
-        // probeert te parsen → JsonProcessingException.
         redis.list(String::class.java).rpush(listKey, "{niet-geldig-json-payload}")
             .await().indefinitely()
 
-        // Mutiny's blocking await() wrapt sync-throws in CompletionException —
-        // assertThrows<Throwable> + cause-chain-walk om de root-cause-class te checken.
+        // Mutiny wrapt sync-throws in CompletionException → cause-chain-walk.
         val ex = assertThrows<Throwable> {
             berichtenCache.getPage(key, 0, 20, null, null).await().indefinitely()
         }

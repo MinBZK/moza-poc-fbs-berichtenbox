@@ -133,10 +133,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `resolver levert onbekende magazijn-ID werpt IllegalArgumentException en zet FOUT-status`() {
-        // Drift-detector-invariant: resolver leverde IDs die de factory niet kent.
-        // ophalenBerichten MOET hard falen i.p.v. stil leeg-degraderen (anders blijft
-        // een config-drift tussen resolver en factory ongezien). Cleanup vóór throw
-        // zodat de lock niet tot TTL hangt.
+        // Hard falen ipv stil leeg-degraderen; cleanup vóór throw voorkomt lock-TTL-hang.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("ghost-magazijn"))
         every { clientFactory.getAllClients() } returns emptyMap()
@@ -157,9 +154,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `onverwachte RuntimeException uit resolver levert 500 (niet 503) en zet FOUT-status`() {
-        // Eigen-code-bug of contract-issue uit het resolver-pad: client moet 500 krijgen
-        // (geen Retry-After) zodat retry niet de bug verlengt, en ops weet dat dit géén
-        // transient upstream-storing is. 503 zou misleiden ("Profiel-service onbereikbaar").
+        // Eigen-bug → 500 (geen Retry-After); 503 zou client onnodig laten retryen.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns
             Uni.createFrom().failure(IllegalStateException("interne bug"))
@@ -180,9 +175,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `valideerTimeouts werpt IllegalArgumentException als outer gelijk is aan inner`() {
-        // Outer MOET strikt groter zijn dan inner zodat de inner-timeout altijd eerst aanslaat.
-        // Bij outer == inner wint een race tussen de twee timeouts; de fout-classificatie
-        // (timeout vs onbereikbaar) wordt niet-deterministisch. Fail-fast in startup.
+        // Outer == inner = race → niet-deterministische fout-classificatie. Fail-fast in startup.
         val mis = BerichtensessiecacheService(
             berichtenCache, clientFactory, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 2L,
@@ -210,9 +203,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `outer-await-timeout op resolver wrapt naar resolverMislukt en zet FOUT-status`() {
-        // Resolver komt niet binnen outer-budget terug. Mutiny inner-timeout heeft NIET
-        // aangeslagen (resource-hang vóór subscription, bv. worker-pool verzadigd).
-        // Outer-await werpt j.u.c.TimeoutException → ProfielServiceFoutException.resolverMislukt.
+        // Resource-hang vóór subscription: outer-await werpt → resolverMislukt.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns
             Uni.createFrom().emitter<Set<String>> { /* never emit */ }
@@ -238,9 +229,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `cleanup-fail tijdens Profiel-fout laat oorspronkelijke ProfielServiceFoutException winnen`() {
-        // Lock-cleanup faalt zelf (Redis ook deels down). Caller MOET de oorspronkelijke
-        // exception (ProfielServiceFoutException) krijgen — niet de cleanup-exception —
-        // anders krijgt de client een verkeerd 500 i.p.v. correcte 503.
+        // Cleanup-fail mag oorspronkelijke ProfielServiceFoutException niet overschrijven (zou 500 → 503-misclassificatie geven).
         val origineel = ProfielServiceFoutException.upstreamError(503)
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
@@ -257,9 +246,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `lege resolver-set met store-failure levert 500 en zet FOUT-status`() {
-        // Profiel-call slaagde (resolver kwam terug met emptySet), maar cache-write voor
-        // de lege resultaten faalt. 500 (cache-fout), niet 503 ("Profiel onbereikbaar"
-        // zou misleiden — de Profiel-call IS gelukt).
+        // Profiel-call gelukt; cache-write faalde → 500 (cache-fout), niet 503 (zou misleiden).
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
         every { clientFactory.getAllClients() } returns emptyMap()
@@ -282,10 +269,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `lock-acquire-fout (Redis I-O onbereikbaar) levert 503 en doet best-effort cleanup`() {
-        // Regressie-vangnet: bij Redis-IO-fout op trySetAggregationStatus.await() (echte
-        // connection-loss) kan een partial lock-set zijn. Best-effort cleanup + 503 voor
-        // de client. Cause-walking in `classifyLockAcquireError` detecteert IOException
-        // in de cause-chain ook als Mutiny 'm in een RuntimeException heeft gewrapt.
+        // Cause-walking detecteert IOException ook als Mutiny 'm wrapt.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns
             Uni.createFrom().failure(java.io.IOException("Redis connection lost"))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -305,10 +289,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `lock-acquire-fout (onverwachte RuntimeException, geen IO of timeout) levert 500`() {
-        // Spiegelt de classify-keuze: een raw RuntimeException zonder IOException-cause
-        // (bv. NPE uit de gegenereerde cache-binding) is een eigen-code-bug → 500, geen
-        // 503. Client retry'd niet op een niet-transient fout; ops zoekt niet naar Redis-
-        // storing die er niet is.
+        // Eigen-code-bug → 500, geen 503: client retry'd niet op niet-transient fout.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns
             Uni.createFrom().failure(NullPointerException("interne bug"))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -328,9 +309,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `lock-acquire JSON-serialisatie-fout (cause-gewrapt) levert 500 niet 503`() {
-        // Mutiny's await wrapt JsonProcessingException in een runtime-container; directe
-        // catch-on-class werkt niet. Cause-walking moet het pad alsnog naar 500 routeren
-        // (eigen-code-bug, geen Redis-issue).
+        // Cause-walking moet JPE-cause door Mutiny-wrap heen alsnog naar 500 routeren.
         val jpe = com.fasterxml.jackson.core.JsonParseException(null, "Onleesbare status")
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns
             Uni.createFrom().failure(RuntimeException("wrapper", jpe))
@@ -345,9 +324,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `magazijn JsonProcessingException levert schema-drift foutmelding in MagazijnEvent`() {
-        // H2: schema-drift / contract-mismatch op magazijn-respons MOET zichtbaar zijn
-        // als "schema-drift, contact beheerder" — niet als generieke "kon niet geraadpleegd
-        // worden" (= eigen-bug zichtbaar laten, niet maskeren als netwerk-fout).
+        // Schema-drift moet eigen-foutmelding krijgen, niet als generieke netwerkfout maskeren.
         val client = mockk<MagazijnClient>()
         val parseFout = JsonParseException(null, "Unexpected token at position 42")
 
@@ -409,9 +386,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `updateAggregationStatus(BEZIG, totaalMagazijnen) fail levert 503 en FOUT-cleanup`() {
-        // Regressie-vangnet: lock-acquire én resolver gelukt, maar de tweede status-
-        // schrijfactie (totaalMagazijnen invullen) faalt. Caller MOET 503 zien én de
-        // lock moet via cleanupLockMetFoutStatus naar FOUT — anders blijft 60s lock-hangen.
+        // Tweede status-write na geslaagde lock; cleanup moet lock vrijgeven, anders 60s hang.
         val client = mockk<MagazijnClient>(relaxed = true)
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
@@ -437,10 +412,8 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `cache double-fail (store + status fail) produceert OPHALEN_FOUT event`() {
-        // Regressie-vangnet: zowel store(berichten) als storeAggregationStatus(FOUT)
-        // falen. Pipeline MOET een OPHALEN_FOUT-event emitten (niet hangen, niet 500-throwen
-        // naar SSE-stream); de FATAL+ALERT-log wordt door log-aggregator opgepikt. Lock
-        // blijft tot Redis-TTL hangen — geaccepteerd, beter dan oneindig vasthouden.
+        // Pipeline moet event emitten (niet hangen, niet 500-throwen naar SSE).
+        // Lock leunt dan op Redis-TTL — geaccepteerd, beter dan oneindig vasthouden.
         val client = mockk<MagazijnClient>()
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
@@ -465,9 +438,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `magazijn-response boven size-cap wordt geweigerd met overflow-foutmelding`() {
-        // Regressie-vangnet: availability-cap blokkeert rogue-magazijn met te grote
-        // payload. Service met maxBerichtenPerMagazijn=2 — magazijn levert 3 berichten →
-        // MagazijnEvent moet status FOUT + overflow-foutmelding hebben.
+        // cap=2, magazijn levert 3 → FOUT + overflow-foutmelding.
         val serviceMetLageCap = BerichtensessiecacheService(
             berichtenCache, clientFactory, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
@@ -503,11 +474,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `raw RuntimeException uit MagazijnClient levert generieke foutmelding (geen recon-leak)`() {
-        // Regressie-vangnet: een NPE/IllegalState uit de gegenereerde client wordt door
-        // de classifier als INTERNAL_BUG geclassificeerd → eindgebruiker ziet de generieke
-        // "kon niet geraadpleegd worden"-tekst, NIET een "interne fout"-marker die aan
-        // een attacker zou laten zien dat een specifiek inputcombo een eigen-code-bug
-        // triggert (BIO 14.1.3). Het technisch onderscheid blijft alleen in de applicatielog.
+        // BIO 14.1.3: generiek bericht aan eindgebruiker; bug-vs-upstream alleen in log.
         val client = mockk<MagazijnClient>()
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
@@ -530,9 +497,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `boundary - response exact op max-berichten-cap is succesvol (cap is strikt groter dan)`() {
-        // Regressie-vangnet voor off-by-one: cap-check gebruikt `>` (strikt), niet `>=`.
-        // Een refactor naar `>=` zou legitieme responses van precies de cap-grootte
-        // onterecht als overflow classificeren. Test pinned de boundary-semantiek.
+        // Pinned off-by-one: cap-check is `>` (strikt), niet `>=`.
         val serviceMetLageCap = BerichtensessiecacheService(
             berichtenCache, clientFactory, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,

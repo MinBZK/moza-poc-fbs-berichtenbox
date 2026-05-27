@@ -264,8 +264,7 @@ class IdentificatienummerTest {
 
     @Test
     fun `fromHeader zonder colon werpt DomainValidationException`() {
-        // Regressie-vangnet: bij ontbrekende ':' moet de helper een gestructureerde
-        // domeinfout gooien (niet IndexOutOfBounds of generieke IllegalArgument).
+        // Pinned: gestructureerde domeinfout (niet IOOBE of generieke IllegalArgument).
         val ex = assertThrows(DomainValidationException::class.java) {
             Identificatienummer.fromHeader("999993653")
         }
@@ -282,8 +281,7 @@ class IdentificatienummerTest {
 
     @Test
     fun `fromHeader met lowercase prefix werpt DomainValidationException`() {
-        // IdentificatienummerType.valueOf is hoofdletter-gevoelig — lowercase mag niet
-        // stilzwijgend slagen (anders bypassen attackers de canonical-form-invariant).
+        // Lowercase mag canonical-form-invariant niet bypassen.
         assertThrows(DomainValidationException::class.java) {
             Identificatienummer.fromHeader("bsn:999993653")
         }
@@ -298,8 +296,7 @@ class IdentificatienummerTest {
 
     @Test
     fun `fromHeader met BSN-waarde die niet aan elfproef voldoet werpt DomainValidationException`() {
-        // Type-prefix is geldig, waarde-validatie (elfproef) faalt — moet doorrijden
-        // naar dezelfde foutklasse zodat caller één catch-pad heeft.
+        // Elfproef-fail door naar zelfde foutklasse → caller heeft één catch-pad.
         assertThrows(DomainValidationException::class.java) {
             Identificatienummer.fromHeader("BSN:999993654")
         }
@@ -307,8 +304,7 @@ class IdentificatienummerTest {
 
     @Test
     fun `fromHeader doet geen impliciete trim (whitespace = clientfout)`() {
-        // Productie-comment in Identificatienummer expliciet: "Geen impliciete trim".
-        // Pinned-test: spaties in waarde-deel laten de elfproef falen i.p.v. stil te normaliseren.
+        // Pinned: spaties = clientfout, niet stilzwijgend normaliseren.
         assertThrows(DomainValidationException::class.java) {
             Identificatienummer.fromHeader("BSN: 999993653")
         }

@@ -95,12 +95,7 @@ class ProfielServiceRetryWireMockTest {
 
     @Test
     fun `malformed JSON wordt niet geretryd (abortOn JsonProcessingException)`() {
-        // Regressie-vangnet: een 200-OK met niet-valide JSON-body produceert
-        // ProcessingException met JsonProcessingException-cause. Het @Retry-contract
-        // declareert abortOn=[JsonProcessingException::class] — retry zou hetzelfde
-        // contract-defect herhalen (deterministisch, geen netwerk-fluctuatie) en de
-        // upstream verspilt drie keer dezelfde parse. Zonder count-assert kan een
-        // weghalen van abortOn een retry-storm op contract-drift veroorzaken.
+        // Parse-fout is deterministisch; retry = upstream verspillen + retry-storm-risico.
         wireMock.stubFor(
             get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
                 .willReturn(

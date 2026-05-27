@@ -142,9 +142,7 @@ class BerichtenOphalenResolverE2ETest {
             .extract().body().asString()
 
         assertTrue(response.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed in: $response")
-        // B11: strikt — geen enkele Profiel-call (welke type/waarde dan ook). Eerdere
-        // verify op exacte URL zou een refactor die de OIN-shortcut weghaalt nog door
-        // laten als de aanroep naar /BSN/... of /KVK/... gaat. Pad-match dekt alle varianten.
+        // Strikt geen Profiel-call op welk pad dan ook (exacte URL-match zou OIN-shortcut-removal missen).
         profielWireMock.verify(0, getRequestedFor(urlPathMatching("/api/profielservice/.*")))
     }
 
