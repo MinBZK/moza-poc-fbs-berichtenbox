@@ -325,4 +325,29 @@ class RedisBerichtenCacheIntegrationTest {
             assertNotNull(bericht, "Bericht-hash is vroegtijdig verlopen op iteratie $it")
         }
     }
+
+    @Test
+    fun `init is idempotent — herhaalde aanroep dropt bestaande index niet`() {
+        // Simuleert rolling-restart-scenario: meerdere pods delen één Redis. Een tweede
+        // pod-start (= tweede init-aanroep) mag de index NIET droppen, anders verliezen
+        // andere replicas tijdelijk hun search-resultaten.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        // Verifieer dat berichten vóór de tweede init vindbaar zijn via search.
+        val voorTweedeInit = berichtenCache.search(ontvanger, "belastingaangifte", 0, 20, null)
+            .await().indefinitely()
+        assertTrue(voorTweedeInit.berichten.isNotEmpty(), "Setup-precondities: bericht moet vindbaar zijn")
+
+        // Tweede init() = pod-restart-simulatie. Mag geen drop doen.
+        (berichtenCache as RedisBerichtenCache).init()
+
+        // Berichten MOETEN nog steeds vindbaar zijn — als de index gedropt zou zijn,
+        // levert search() 0 resultaten op (bestaande hashes zijn niet meer geïndexeerd
+        // tot de eerstvolgende store()).
+        val naTweedeInit = berichtenCache.search(ontvanger, "belastingaangifte", 0, 20, null)
+            .await().indefinitely()
+        assertTrue(naTweedeInit.berichten.isNotEmpty(), "Search moet werken na tweede init — index mag niet gedropt zijn")
+        assertEquals(voorTweedeInit.berichten.size, naTweedeInit.berichten.size)
+    }
 }

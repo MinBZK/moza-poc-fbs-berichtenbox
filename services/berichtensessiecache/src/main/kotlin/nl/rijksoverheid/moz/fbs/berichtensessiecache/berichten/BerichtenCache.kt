@@ -54,6 +54,14 @@ class RedisBerichtenCache(
 
     @PostConstruct
     fun init() {
+        // Idempotente bootstrap: pods van een rolling-restart delen één Redis-cluster.
+        // Als een eerdere pod de index al heeft aangemaakt, NIET droppen — dat zou queries
+        // van andere replicas tijdelijk laten falen ("Unknown index name") en hun bestaande
+        // berichthashes uit de search-index halen tot de eerstvolgende store(). Schema-
+        // wijzigingen zijn zeldzaam en worden handmatig uitgevoerd via de operations-
+        // handleiding `docs/operations/redisearch-schema-bump.md` (FT.DROPINDEX +
+        // FT.CREATE in een geplande maintenance-window).
+        //
         // Presence-check via FT._LIST i.p.v. drop-en-catch op message-match. Vermijdt
         // fragility bij Redis-versie-bump (foutmelding-tekst is geen API-contract).
         val bestaandeIndexen = try {
@@ -66,18 +74,12 @@ class RedisBerichtenCache(
         }
 
         if (BerichtenCache.SEARCH_INDEX in bestaandeIndexen) {
-            try {
-                redis.search().ftDropIndex(BerichtenCache.SEARCH_INDEX)
-                    .await().atMost(Duration.ofSeconds(5))
-                log.debugf("Bestaande RediSearch index '%s' verwijderd", BerichtenCache.SEARCH_INDEX)
-            } catch (e: Exception) {
-                throw IllegalStateException(
-                    "Kan RediSearch index '${BerichtenCache.SEARCH_INDEX}' niet verwijderen",
-                    e,
-                )
-            }
-        } else {
-            log.debugf("Geen bestaande RediSearch index '%s' om te verwijderen", BerichtenCache.SEARCH_INDEX)
+            log.infof(
+                "RediSearch index '%s' bestaat al — laat ongemoeid (idempotente bootstrap). " +
+                    "Schema-wijzigingen vereisen handmatige operations-procedure.",
+                BerichtenCache.SEARCH_INDEX,
+            )
+            return
         }
 
         try {
