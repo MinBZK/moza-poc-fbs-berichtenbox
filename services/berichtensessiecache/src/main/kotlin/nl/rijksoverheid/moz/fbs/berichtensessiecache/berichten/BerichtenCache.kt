@@ -274,7 +274,9 @@ class RedisBerichtenCache(
                 }
             }
             .call { result -> renewReadTtl(cacheKey, result?.berichten) }
-            .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt voor afzender=%s", afzender) }
+            // afzender is user-input zonder spec-pattern in alle gevallen (zie OpenAPI);
+            // .length voorkomt log-injectie via CRLF in een rogue query-param.
+            .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt (key=%s, afzender.length=%d)", cacheKey, afzender.length) }
     }
 
     override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {

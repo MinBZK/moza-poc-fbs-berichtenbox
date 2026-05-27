@@ -267,6 +267,10 @@ class BerichtensessiecacheServiceTest {
         org.junit.jupiter.api.Assertions.assertDoesNotThrow {
             UUID.fromString(events[0].referentie!!)
         }
+        assertTrue(
+            events[0].foutmelding!!.contains("(ref: ${events[0].referentie})"),
+            "Foutmelding moet (ref: <UUID>)-suffix dragen (N2-convention); was: ${events[0].foutmelding}",
+        )
         verify {
             berichtenCache.storeAggregationStatus(
                 cacheKey,
@@ -441,7 +445,19 @@ class BerichtensessiecacheServiceTest {
         val fouten = events.filter { it.event == EventType.OPHALEN_FOUT }
 
         assertEquals(1, fouten.size, "Verwacht 1 OPHALEN_FOUT-event in: $events")
-        assertEquals("Interne fout bij opslaan van resultaten", fouten[0].foutmelding)
+        assertNotNull(fouten[0].referentie, "OPHALEN_FOUT moet referentie dragen voor support-correlatie")
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow {
+            UUID.fromString(fouten[0].referentie!!)
+        }
+        // (ref: ...)-suffix in foutmelding + matching referentie-veld: N2-convention.
+        assertTrue(
+            fouten[0].foutmelding!!.startsWith("Interne fout bij opslaan van resultaten"),
+            "Foutmelding moet generieke prefix dragen; was: ${fouten[0].foutmelding}",
+        )
+        assertTrue(
+            fouten[0].foutmelding!!.contains("(ref: ${fouten[0].referentie})"),
+            "Foutmelding moet (ref: <UUID>)-suffix dragen; was: ${fouten[0].foutmelding}",
+        )
     }
 
     @Test

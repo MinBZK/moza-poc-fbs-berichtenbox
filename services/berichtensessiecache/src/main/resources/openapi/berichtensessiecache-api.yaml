@@ -73,9 +73,12 @@ paths:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
           in: query
-          description: Filter op afzender (OIN)
+          description: Filter op afzender (OIN, 20 cijfers)
           schema:
             type: string
+            pattern: '^[0-9]{20}$'
+            minLength: 20
+            maxLength: 20
       responses:
         '200':
           description: Lijst van berichten
@@ -205,9 +208,12 @@ paths:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
           in: query
-          description: Filter op afzender (OIN)
+          description: Filter op afzender (OIN, 20 cijfers)
           schema:
             type: string
+            pattern: '^[0-9]{20}$'
+            minLength: 20
+            maxLength: 20
       responses:
         '200':
           description: Zoekresultaten

@@ -79,7 +79,10 @@ class BerichtensessiecacheService(
     }
 
     fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?): Uni<BerichtenPage> {
-        log.debugf("Zoeken berichten via RediSearch: q=%s, page=%d, pageSize=%d", q, page, pageSize)
+        // q is user-input zonder CRLF-filter op spec-niveau; loggen van q.length voorkomt
+        // log-injectie via newline-payloads. Voor diepere debug staat de query elders in
+        // RediSearch-server-log.
+        log.debugf("Zoeken berichten via RediSearch: q.length=%d, page=%d, pageSize=%d", q.length, page, pageSize)
 
         return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
     }
@@ -267,18 +270,20 @@ class BerichtensessiecacheService(
                     .await().atMost(Duration.ofSeconds(5))
             } catch (ex: Exception) {
                 val errorId = UUID.randomUUID()
+                val ref = errorId.toString()
 
                 log.errorf(ex, "(errorId=%s) Store-fout bij lege magazijn-set voor key=%s", errorId, cacheKey)
                 cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set", errorId)
                 // SSE-stream is al actief op dit punt; OPHALEN_FOUT-event geeft de client
-                // dezelfde UX als het aggregatie-faalpad (regel ~448) i.p.v. een mid-stream
-                // HTTP-500. referentie verbindt event naar cleanup-log.
+                // dezelfde UX als het aggregatie-faalpad i.p.v. een mid-stream HTTP-500.
+                // (ref: ...)-suffix in tekst + referentie-veld: riem-en-bretels (N2-convention)
+                // voor UIs die het gestructureerde veld nog niet renderen.
                 return Multi.createFrom().item(
                     MagazijnEvent(
                         event = EventType.OPHALEN_FOUT,
                         totaalMagazijnen = 0,
-                        foutmelding = "Interne fout bij opslaan resultaten",
-                        referentie = errorId.toString(),
+                        foutmelding = "Interne fout bij opslaan resultaten (ref: $ref)",
+                        referentie = ref,
                     ),
                 )
             }
@@ -429,6 +434,7 @@ class BerichtensessiecacheService(
                 }
                 .onFailure(Exception::class.java).recoverWithUni { error ->
                     val errorId = UUID.randomUUID()
+                    val ref = errorId.toString()
 
                     // Eerste fout = store(berichten) of storeAggregationStatus(GEREED) faalde;
                     // cacheKey + counters + errorId in log zodat ops kan correleren naar
@@ -456,14 +462,16 @@ class BerichtensessiecacheService(
                             )
                         }
                         .onFailure().recoverWithNull()
+                        // (ref: ...)-suffix in foutmelding + referentie-veld: N2-convention
+                        // voor UIs zonder gestructureerd referentie-rendering.
                         .replaceWith(
                             MagazijnEvent(
                                 event = EventType.OPHALEN_FOUT,
                                 geslaagd = geslaagd.get(),
                                 mislukt = mislukt.get(),
                                 totaalMagazijnen = clients.size,
-                                foutmelding = "Interne fout bij opslaan van resultaten",
-                                referentie = errorId.toString(),
+                                foutmelding = "Interne fout bij opslaan van resultaten (ref: $ref)",
+                                referentie = ref,
                             )
                         )
                 }

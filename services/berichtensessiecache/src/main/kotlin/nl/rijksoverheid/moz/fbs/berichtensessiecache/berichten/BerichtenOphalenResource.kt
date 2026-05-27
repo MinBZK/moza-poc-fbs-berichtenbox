@@ -84,12 +84,14 @@ class BerichtenOphalenResource(
                     // Async-aggregatie-fouten ná SSE-stream-open hebben geen JAX-RS-mapper-
                     // pad meer (response-headers zijn al verzonden); zonder log hier verdwijnt
                     // de fout uit server-side observability. ontvanger.type i.p.v. waarde
-                    // (BSN/RSIN PII; type-context volstaat voor incident-triage).
+                    // (BSN/RSIN PII; type-context volstaat voor incident-triage). Géén
+                    // stacktrace meelgeven: cause-chain van lagere clients kan upstream-URL
+                    // met BSN bevatten (precedent: ProfielServiceFoutExceptionMapper).
                     logboekContext.status = StatusCode.ERROR
                     log.errorf(
-                        error,
-                        "SSE-stream gefaald na open (ontvanger.type=%s, cause=%s)",
+                        "SSE-stream gefaald na open (ontvanger.type=%s, cause=%s, msg-class=%s)",
                         ontvangerId.type,
+                        error.cause?.javaClass?.simpleName ?: "geen",
                         error.javaClass.simpleName,
                     )
                     if (!emitter.isCancelled) emitter.fail(error)
