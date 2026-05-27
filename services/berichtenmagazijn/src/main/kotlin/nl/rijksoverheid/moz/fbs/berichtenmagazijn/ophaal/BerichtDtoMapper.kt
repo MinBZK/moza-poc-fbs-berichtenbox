@@ -8,6 +8,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageLinks
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageMetadata
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.PaginationLinks
@@ -63,12 +64,20 @@ internal object BerichtDtoMapper {
             afzender = bericht.afzender.waarde
             ontvanger = toIdentificatienummerDto(bericht.ontvanger)
             onderwerp = bericht.onderwerp
+            inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
             aantalBijlagen = bericht.bijlagen.size
+            bijlagen = bericht.bijlagen.map { toBijlageSamenvattingDto(it) }
             status = bericht.status?.let { toStatusDto(it) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = selfHrefVoorBericht(bericht.berichtId, baseUri) }
             }
+        }
+
+    private fun toBijlageSamenvattingDto(meta: DomainBijlageMetadata): BijlageSamenvatting =
+        BijlageSamenvatting().apply {
+            bijlageId = meta.bijlageId
+            naam = meta.naam
         }
 
     private fun toBijlageMetadataDto(

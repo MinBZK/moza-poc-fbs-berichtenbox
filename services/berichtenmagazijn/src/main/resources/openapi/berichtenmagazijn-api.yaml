@@ -510,6 +510,22 @@ components:
         _links:
           $ref: '#/components/schemas/BijlageLinks'
 
+    BijlageSamenvatting:
+      type: object
+      description: |
+        Lichte vorm van bijlage-metadata voor lijst-responses: alleen
+        identifier en naam. Bytes en mimeType blijven beschikbaar via
+        `GET /berichten/{berichtId}/bijlagen/{bijlageId}`.
+      required: [bijlageId, naam]
+      properties:
+        bijlageId:
+          type: string
+          format: uuid
+        naam:
+          type: string
+          minLength: 1
+          maxLength: 255
+
     BerichtStatusInfo:
       type: object
       description: |
@@ -558,13 +574,13 @@ components:
     BerichtSamenvatting:
       type: object
       description: |
-        Lichtgewicht representatie van een bericht voor lijstweergaves. Bevat
-        header-data en `aantalBijlagen`; de volledige `inhoud` en bijlagen-metadata
-        komen pas via `GET /berichten/{berichtId}` beschikbaar. Hergebruik van
-        `Bericht` voor de lijst zou met `inhoud` tot 1 MiB en `pageSize` tot 100
-        responses van ~100 MiB veroorzaken — onwenselijk voor zowel bandbreedte
-        als data-minimalisatie.
-      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, aantalBijlagen, _links]
+        Lichte representatie van een bericht voor lijstweergaves: bevat de
+        `inhoud` en bijlage-identifiers (`bijlagen[]` met `bijlageId` + `naam`),
+        zodat consumers (zoals de sessiecache) hun cache na één lijst-call
+        kunnen vullen zonder vervolg-detail-call per bericht. Bijlage-bytes
+        worden separaat opgehaald via
+        `GET /berichten/{berichtId}/bijlagen/{bijlageId}`.
+      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, aantalBijlagen, bijlagen, _links]
       properties:
         berichtId:
           type: string
@@ -576,6 +592,9 @@ components:
           $ref: '#/components/schemas/Identificatienummer'
         onderwerp:
           type: string
+        inhoud:
+          type: string
+          description: Tekstuele inhoud van het bericht
         tijdstipOntvangst:
           type: string
           format: date-time
@@ -583,6 +602,15 @@ components:
           type: integer
           minimum: 0
           description: Aantal bijlagen bij het bericht. Vraag de details op via de detail-endpoint.
+        bijlagen:
+          type: array
+          minItems: 0
+          description: |
+            Lichte bijlage-metadata (identifier + naam) zodat consumers de
+            cache kunnen vullen zonder vervolg-call. Bijlage-bytes en
+            `mimeType` worden separaat opgehaald.
+          items:
+            $ref: '#/components/schemas/BijlageSamenvatting'
         status:
           $ref: '#/components/schemas/BerichtStatusInfo'
         _links:
