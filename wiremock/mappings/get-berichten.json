@@ -93,8 +93,11 @@
           "_links": { "self": { "href": "/api/v1/berichten/e5f6a7b8-c9d0-1234-efab-345678901234" } }
         }
       ],
+      "page": 0,
+      "pageSize": 20,
       "totalElements": 5,
-      "totalPages": 1
+      "totalPages": 1,
+      "_links": { "self": { "href": "/api/v1/berichten?page=0&pageSize=20" } }
     }
   }
 }

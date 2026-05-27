@@ -47,7 +47,12 @@
           "status": { "gelezen": false, "gewijzigdOp": "2026-03-07T13:20:01Z" },
           "_links": { "self": { "href": "/api/v1/berichten/22222222-aaaa-bbbb-cccc-222222222222" } }
         }
-      ]
+      ],
+      "page": 0,
+      "pageSize": 20,
+      "totalElements": 2,
+      "totalPages": 1,
+      "_links": { "self": { "href": "/api/v1/berichten?page=0&pageSize=20" } }
     }
   }
 }
