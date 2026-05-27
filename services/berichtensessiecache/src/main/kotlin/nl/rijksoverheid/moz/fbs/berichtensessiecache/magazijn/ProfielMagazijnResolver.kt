@@ -12,6 +12,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielVoorkeuren
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.jboss.logging.Logger
 import java.time.Duration
@@ -94,7 +95,8 @@ class ProfielMagazijnResolver(
     }
 
     private fun bepaalMagazijnen(partij: PartijResponse): Set<String> {
-        // Single-pass walk: bouwt direct de magazijn-set zonder tussenliggende List-allocaties.
+        // Voorkeuren-filtering + scope-walk via gedeelde ProfielVoorkeuren-helper
+        // (één bron van waarheid met BerichtValidatieService in berichtenmagazijn).
         // Defensief: ongeldige upstream-OINs worden stil overgeslagen zodat een upstream-
         // typefout niet de héle resolver laat falen. Wel warn-loggen (niet error: upstream-
         // fout, niet onze fout) zodat structurele drift zichtbaar wordt; maskeer de
@@ -102,32 +104,23 @@ class ProfielMagazijnResolver(
         // Reverse-index lookup via clientFactory.magazijnenVoorAfzender: O(1) per OIN i.p.v.
         // O(N×M) scan over alle magazijn-afzender-paren.
         return buildSet {
-            partij.voorkeuren.forEach { voorkeur ->
-                if (voorkeur.voorkeurType != VOORKEUR_ONTVANG_BERICHTEN) return@forEach
-                if (voorkeur.waarde?.lowercase() !in INGESCHAKELDE_WAARDEN) return@forEach
+            ProfielVoorkeuren.optedInAfzenderOinStrings(partij).forEach { oinString ->
+                val oin = try {
+                    Oin(oinString)
+                } catch (ex: IllegalArgumentException) {
+                    // Specifiek IllegalArgumentException — validatiefout uit Oin-constructor.
+                    // Brede runCatching zou Error-types (LinkageError, OOM) inslikken.
+                    val masked = oinString.take(4) + "***"
 
-                voorkeur.scopes.forEach { scope ->
-                    val partijId = scope.partij ?: return@forEach
-
-                    if (partijId.identificatieType != "OIN") return@forEach
-
-                    val oin = try {
-                        Oin(partijId.identificatieNummer)
-                    } catch (ex: IllegalArgumentException) {
-                        // Specifiek IllegalArgumentException — validatiefout uit Oin-constructor.
-                        // Brede runCatching zou Error-types (LinkageError, OOM) inslikken.
-                        val masked = partijId.identificatieNummer.take(4) + "***"
-
-                        log.warnf(
-                            "Profiel-service leverde ongeldige OIN '%s' (cause=%s); overslaan",
-                            masked,
-                            ex.javaClass.simpleName,
-                        )
-                        return@forEach
-                    }
-
-                    addAll(clientFactory.magazijnenVoorAfzender(oin))
+                    log.warnf(
+                        "Profiel-service leverde ongeldige OIN '%s' (cause=%s); overslaan",
+                        masked,
+                        ex.javaClass.simpleName,
+                    )
+                    return@forEach
                 }
+
+                addAll(clientFactory.magazijnenVoorAfzender(oin))
             }
         }
     }
@@ -146,14 +139,6 @@ class ProfielMagazijnResolver(
     }
 
     companion object {
-        private const val VOORKEUR_ONTVANG_BERICHTEN = "OntvangViaBerichtenbox"
-
-        // Profiel-service ondersteunt zowel boolean-strings ("true"/"false") als
-        // Nederlandstalige waarden ("ja"/"nee") per legacy upstream-contract; beide
-        // worden case-insensitive vergeleken (waarde.lowercase). Uitbreiding hier =
-        // contract-wijziging, niet een config-knop — Profiel-team bevestigt eerst.
-        private val INGESCHAKELDE_WAARDEN = setOf("true", "ja")
-
         /**
          * Inner-timeout-budget op de Mutiny-pipeline. Berekening:
          *   3 pogingen × read-timeout 5s + 2 × retry-delay 200ms ≈ 15.4s.

@@ -6,9 +6,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielVoorkeuren
 import nl.rijksoverheid.moz.fbs.common.profiel.ToestemmingGeweigerdException
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.jboss.logging.Logger
@@ -79,7 +78,7 @@ class BerichtValidatieService(
             throw ToestemmingGeweigerdException.geenProfiel()
         }
 
-        if (!isAbonneeOp(partij, bericht.afzender)) {
+        if (!ProfielVoorkeuren.isOptedInVoorAfzender(partij, bericht.afzender)) {
             // afzender-OIN in de log (geen PII van burger; organisatie-identificatie) zodat
             // ops kan diagnosticeren welke combinatie geweigerd werd. Body lekt afzender niet —
             // de factory hardcodeert de message.
@@ -91,33 +90,7 @@ class BerichtValidatieService(
         }
     }
 
-    /**
-     * True als de partij een `OntvangViaBerichtenbox`-voorkeur heeft met
-     * `waarde` in ['true', 'ja'] (case-insensitive) én een scope waarvan de
-     * partij een OIN-identificatie heeft die gelijk is aan de afzender.
-     *
-     * Dienst-id binnen de scope negeren we voor nu — alle diensten van de
-     * afzender vallen onder dezelfde toestemming voor deze PoC.
-     */
-    private fun isAbonneeOp(partij: PartijResponse, afzender: Oin): Boolean =
-        partij.voorkeuren.any { voorkeur ->
-            voorkeur.voorkeurType == VOORKEUR_ONTVANG_BERICHTEN &&
-                voorkeur.waarde?.lowercase() in INGESCHAKELDE_WAARDEN &&
-                voorkeur.scopes.any { scope ->
-                    val partijInScope = scope.partij
-                    partijInScope != null &&
-                        partijInScope.identificatieType == "OIN" &&
-                        partijInScope.identificatieNummer == afzender.waarde
-                }
-        }
-
     companion object {
         private const val PDF_MIME_TYPE = "application/pdf"
-        private const val VOORKEUR_ONTVANG_BERICHTEN = "OntvangViaBerichtenbox"
-
-        // Profiel-service modelleert booleane voorkeuren als string. We accepteren
-        // beide Nederlandstalige en Engelstalige opt-in-waarden; alles anders
-        // (null, "false", "nee", lege string) telt als opt-out.
-        private val INGESCHAKELDE_WAARDEN = setOf("true", "ja")
     }
 }
