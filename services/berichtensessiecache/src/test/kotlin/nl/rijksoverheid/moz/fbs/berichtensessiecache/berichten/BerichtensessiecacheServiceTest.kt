@@ -23,7 +23,15 @@ class BerichtensessiecacheServiceTest {
     private val berichtenCache = mockk<BerichtenCache>()
     private val clientFactory = mockk<MagazijnClientFactory>()
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
-    private val service = BerichtensessiecacheService(berichtenCache, clientFactory, resolver)
+    // Korte timeouts in unit-tests: outer (3s) > inner (2s) zodat de cross-check
+    // groen blijft maar tests niet wachten op het volledige prod-budget.
+    private val service = BerichtensessiecacheService(
+        berichtenCache,
+        clientFactory,
+        resolver,
+        innerTimeoutSeconds = 2L,
+        outerAwaitSeconds = 3L,
+    ).also { it.valideerTimeouts() }
 
     private val ontvanger = Bsn("999993653")
     private val cacheKey = BerichtenCache.cacheKey(ontvanger)

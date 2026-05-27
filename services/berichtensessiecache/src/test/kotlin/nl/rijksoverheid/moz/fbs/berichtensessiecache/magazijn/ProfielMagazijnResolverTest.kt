@@ -47,7 +47,9 @@ class ProfielMagazijnResolverTest {
         override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
     }.also { it.init() }
 
-    private val resolver = ProfielMagazijnResolver(profielClient, factory)
+    // Korte inner-timeout (2s) in unit-tests: prod-defaults zou tests vertragen
+    // bij hangende mocks; bestaande `await().atMost(Duration.ofSeconds(2))` matcht.
+    private val resolver = ProfielMagazijnResolver(profielClient, factory, innerTimeoutSeconds = 2L)
 
     private fun instance(url: String, afzender: String): MagazijnenConfig.MagazijnInstance =
         object : MagazijnenConfig.MagazijnInstance {
@@ -322,7 +324,7 @@ class ProfielMagazijnResolverTest {
             override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
         }.also { it.init() }
 
-        val overlapResolver = ProfielMagazijnResolver(profielClient, overlapFactory)
+        val overlapResolver = ProfielMagazijnResolver(profielClient, overlapFactory, innerTimeoutSeconds = 2L)
 
         every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
             voorkeuren = listOf(

@@ -13,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielVoorkeuren
+import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.jboss.logging.Logger
 import java.time.Duration
@@ -21,6 +22,8 @@ import java.time.Duration
 class ProfielMagazijnResolver(
     @RestClient private val profielClient: ProfielServiceClient,
     private val clientFactory: MagazijnClientFactory,
+    @param:ConfigProperty(name = "profiel.resolver.inner-timeout-seconds", defaultValue = "18")
+    private val innerTimeoutSeconds: Long,
 ) : MagazijnResolver {
 
     private val log = Logger.getLogger(ProfielMagazijnResolver::class.java)
@@ -33,10 +36,13 @@ class ProfielMagazijnResolver(
 
         val profielType = naarProfielType(ontvanger.type)
 
-        // Zie INNER_TIMEOUT_SECONDS — budget = retry-budget van de REST-client + marge.
+        // Inner-timeout budget = retry-budget van de REST-client + marge. Configureerbaar
+        // via `profiel.resolver.inner-timeout-seconds`. Outer-await in
+        // BerichtensessiecacheService MOET groter zijn (startup-validatie); anders verliest
+        // de caller de juiste foutclassificatie (timeout vs onbereikbaar).
         return Uni.createFrom().item { profielClient.getPartij(profielType, ontvanger.waarde) }
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-            .ifNoItem().after(Duration.ofSeconds(INNER_TIMEOUT_SECONDS)).fail()
+            .ifNoItem().after(Duration.ofSeconds(innerTimeoutSeconds)).fail()
             .map { partij -> bepaalMagazijnen(partij) }
             .onFailure(io.smallrye.mutiny.TimeoutException::class.java).recoverWithUni { error ->
                 Uni.createFrom().failure(ProfielServiceFoutException.timeout(error))
@@ -138,22 +144,4 @@ class ProfielMagazijnResolver(
         IdentificatienummerType.OIN -> error("OIN-ontvanger moet vóór Profiel-call afgevangen worden")
     }
 
-    companion object {
-        /**
-         * Inner-timeout-budget op de Mutiny-pipeline. Berekening:
-         *   3 pogingen × read-timeout 5s + 2 × retry-delay 200ms ≈ 15.4s.
-         * Op 15s zou de Mutiny-timeout vóór de laatste retry kunnen afslaan;
-         * op 18s heeft elke retry zijn beurt en blijft er nog ~2s marge onder de
-         * outer-await ([OUTER_AWAIT_SECONDS]).
-         */
-        const val INNER_TIMEOUT_SECONDS: Long = 18
-
-        /**
-         * Outer-await-budget in BerichtensessiecacheService boven [INNER_TIMEOUT_SECONDS]:
-         * 18s + 7s = 25s. Marge moet groot genoeg zijn dat de inner-timeout altijd eerst
-         * aanslaat — anders verliest de caller de juiste foutclassificatie (timeout vs
-         * onbereikbaar).
-         */
-        const val OUTER_AWAIT_SECONDS: Long = 25
-    }
 }

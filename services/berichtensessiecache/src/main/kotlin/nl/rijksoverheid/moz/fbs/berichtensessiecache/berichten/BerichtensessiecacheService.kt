@@ -4,15 +4,16 @@ import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.TimeoutException
 import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.infrastructure.Infrastructure
+import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.ProfielMagazijnResolver
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
+import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.net.ConnectException
 import java.time.Duration
@@ -25,8 +26,30 @@ class BerichtensessiecacheService(
     private val berichtenCache: BerichtenCache,
     private val clientFactory: MagazijnClientFactory,
     private val resolver: MagazijnResolver,
+    @param:ConfigProperty(name = "profiel.resolver.inner-timeout-seconds", defaultValue = "18")
+    private val innerTimeoutSeconds: Long,
+    @param:ConfigProperty(name = "profiel.resolver.outer-await-seconds", defaultValue = "25")
+    private val outerAwaitSeconds: Long,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
+
+    @PostConstruct
+    fun valideerTimeouts() {
+        // Outer-budget MOET groter zijn dan inner zodat de inner-timeout altijd eerst
+        // aanslaat. Anders verliest de caller de juiste foutclassificatie: een outer
+        // j.u.c.TimeoutException wordt nu door het [ProfielServiceFoutException.resolverMislukt]
+        // pad geclassificeerd als "resolver hangt", niet als "Profiel-service traag".
+        require(outerAwaitSeconds > innerTimeoutSeconds) {
+            "profiel.resolver.outer-await-seconds ($outerAwaitSeconds) moet groter zijn dan " +
+                "profiel.resolver.inner-timeout-seconds ($innerTimeoutSeconds)"
+        }
+
+        log.infof(
+            "Profiel-resolver timeouts: inner=%ds outer=%ds",
+            innerTimeoutSeconds,
+            outerAwaitSeconds,
+        )
+    }
 
     fun getBerichten(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?): Uni<BerichtenPage> {
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d", page, pageSize)
@@ -96,15 +119,15 @@ class BerichtensessiecacheService(
         }
 
         val resolvedIds = try {
-            // Outer-budget = ProfielMagazijnResolver.INNER_TIMEOUT_SECONDS + marge,
+            // Outer-budget = inner-timeout + marge (cross-validatie in valideerTimeouts),
             // zodat de outer nooit aanslaat vóór de inner — anders verliest de caller
             // de juiste foutclassificatie (timeout vs onbereikbaar).
-            resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(ProfielMagazijnResolver.OUTER_AWAIT_SECONDS))
+            resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(outerAwaitSeconds))
         } catch (ex: java.util.concurrent.TimeoutException) {
-            // Outer-budget overschreden: resolver kwam binnen ~25s niet terug terwijl
-            // de inner ~18s zou moeten respecteren. Wijst op een resource-hang, geen
-            // upstream-issue — log apart zodat ops dit niet als gewone Profiel-storing leest.
-            log.errorf(ex, "Resolver await overschreed outer-budget (%ds) voor key=%s", ProfielMagazijnResolver.OUTER_AWAIT_SECONDS, cacheKey)
+            // Outer-budget overschreden: resolver kwam niet terug binnen het marge-budget
+            // terwijl de inner-timeout zou moeten respecteren. Wijst op een resource-hang,
+            // geen upstream-issue — log apart zodat ops dit niet als gewone Profiel-storing leest.
+            log.errorf(ex, "Resolver await overschreed outer-budget (%ds) voor key=%s", outerAwaitSeconds, cacheKey)
             cleanupLockMetFoutStatus(cacheKey, "resolver outer-await timeout")
             throw ProfielServiceFoutException.resolverMislukt(ex)
         } catch (ex: ProfielServiceFoutException) {
