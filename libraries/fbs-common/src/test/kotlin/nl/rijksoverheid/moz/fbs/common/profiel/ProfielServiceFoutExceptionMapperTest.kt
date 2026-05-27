@@ -91,6 +91,19 @@ class ProfielServiceFoutExceptionMapperTest {
     }
 
     @Test
+    fun `configDrift-factory garandeert geen cause (PII-invariant - upstream-URL met BSN mag niet lekken via stacktrace)`() {
+        // KDoc op configDrift() expliciteert deze invariant; test pint hem vast zodat
+        // een refactor die cause toevoegt direct stuk gaat. Defense-in-depth voor de
+        // mapper-tak die anders alsnog log.errorf(exception, ...) zou kunnen krijgen.
+        val exception = ProfielServiceFoutException.configDrift()
+
+        org.junit.jupiter.api.Assertions.assertNull(
+            exception.cause,
+            "configDrift() mag geen cause hebben — anders kan upstream-URL met BSN/RSIN in pad via stacktrace lekken",
+        )
+    }
+
+    @Test
     fun `CONFIG_DRIFT levert 500 met configuratie-problem-type en geen Retry-After`() {
         // Config-drift is geen Profiel-storing; retry over 30s lost niets op. Mapper
         // moet eigen problem-type + 500 geven zodat client niet onnodig retry'd.

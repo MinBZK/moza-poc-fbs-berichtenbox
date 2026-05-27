@@ -644,11 +644,16 @@ class BerichtensessiecacheServiceTest {
             events[0].foutmelding!!.contains("configuratie"),
             "Foutmelding moet config-mismatch noemen: ${events[0].foutmelding}",
         )
-        // referentie-veld voor support-correlatie moet geldige UUID-string zijn.
+        // referentie-veld voor support-correlatie moet geldige UUID-string zijn,
+        // én moet als substring in foutmelding voorkomen (riem-en-bretels invariant).
         assertNotNull(events[0].referentie)
         org.junit.jupiter.api.Assertions.assertDoesNotThrow {
             UUID.fromString(events[0].referentie!!)
         }
+        assertTrue(
+            events[0].foutmelding!!.contains(events[0].referentie!!),
+            "foutmelding moet referentie-veld als substring bevatten (anders format-drift)",
+        )
         verify {
             berichtenCache.storeAggregationStatus(
                 cacheKey,
@@ -659,14 +664,15 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `classifyMagazijnFault termineert op steeds-nieuwe-wrapper cause-getter (depth-cap)`() {
-        // IdentityHashMap helpt niet als elke cause-call een nieuw object retourneert
-        // (pathologisch geval). MAX_CAUSE_DEPTH=32 moet de loop alsnog afkappen.
-        val pathological = object : Throwable("growing") {
-            override val cause: Throwable get() = Throwable("nieuwe-wrap-elke-call")
+        // IdentityHashMap helpt niet als elke cause-call een NIEUW object van dezelfde
+        // overridden-cause-subklasse retourneert. Pathologische chain groeit anders
+        // onbegrensd; depth-cap moet afkappen.
+        class GrowingThrowable : Throwable("growing") {
+            override val cause: Throwable get() = GrowingThrowable()
         }
 
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
-            service.classifyMagazijnFault(pathological)
+            service.classifyMagazijnFault(GrowingThrowable())
         }
     }
 

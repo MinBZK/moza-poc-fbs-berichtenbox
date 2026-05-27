@@ -177,29 +177,30 @@ class BerichtensessiecacheService(
             // OPHALEN_FOUT i.p.v. 503 zodat client weet "geen ophaling mogelijk", niet
             // "Profiel offline, retry over 30s". Cache wordt NIET overschreven met empty.
             if (ex.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
-                // Riem-en-bretels: gestructureerd `referentie`-veld (machine-leesbaar) +
-                // ref-suffix in foutmelding (toont in UIs die nog geen referentie-veld
-                // renderen). Beide dragen dezelfde ex.errorId voor support-correlatie.
+                // Riem-en-bretels: gestructureerd `referentie`-veld + suffix in tekst.
+                // Single source `ref` voorkomt format-drift tussen beide velden.
+                val ref = ex.errorId.toString()
+
                 return Multi.createFrom().item(
                     MagazijnEvent(
                         event = EventType.OPHALEN_FOUT,
                         totaalMagazijnen = 0,
-                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: ${ex.errorId})",
-                        referentie = ex.errorId.toString(),
+                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: $ref)",
+                        referentie = ref,
                     ),
                 )
             }
             throw ex
         } catch (ex: Exception) {
-            // Cause-walking: Mutiny wrapt InterruptedException/TimeoutException; direct
-            // instanceof matched niet. isInterrupted (non-destructive) — Thread.interrupted()
-            // zou de flag wissen ook in niet-interrupt-branches.
+            // Cause-walking via causeChain() (eenmaal materialiseren) — Mutiny wrapt
+            // InterruptedException/TimeoutException, directe instanceof matched niet.
+            // isInterrupted (non-destructive) — Thread.interrupted() zou de flag wissen
+            // ook in niet-interrupt-branches.
+            val chain = ex.causeChain()
             val wasInterrupted = Thread.currentThread().isInterrupted ||
-                ex.hasCauseOf(InterruptedException::class.java)
-            val isOuterTimeout = ex is io.smallrye.mutiny.TimeoutException ||
-                ex is java.util.concurrent.TimeoutException ||
-                ex.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
-                ex.hasCauseOf(java.util.concurrent.TimeoutException::class.java)
+                chain.hasCauseOf(InterruptedException::class.java)
+            val isOuterTimeout = chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
+                chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java)
 
             when {
                 wasInterrupted -> {
@@ -496,38 +497,39 @@ class BerichtensessiecacheService(
     }
 
     /**
-     * Cause-chain walker met cycle-protection (IdentityHashMap) + depth-cap.
-     * Eén bron-van-waarheid; depth-cap dekt pathologische `cause`-getters die
-     * per call een nieuw wrapper teruggeven (IdentityHashMap zou anders groeien).
+     * Materialiseert de cause-chain éénmaal als list (cycle-safe via IdentityHashMap,
+     * depth-cap als defense-in-depth tegen pathologische `cause`-getters). Callers
+     * (classifyMagazijnFault/classifyLockAcquireError) doen meerdere instanceof-checks
+     * tegen dit resultaat i.p.v. meerdere walks → één warnf max bij depth-cap.
      */
-    private fun Throwable.findCauseOfClass(cls: Class<*>): Throwable? {
+    private fun Throwable.causeChain(): List<Throwable> {
+        val result = ArrayList<Throwable>(4)
         val seen = java.util.IdentityHashMap<Throwable, Unit>()
         var cur: Throwable? = this
-        var depth = 0
 
         while (cur != null && seen.put(cur, Unit) == null) {
-            if (cls.isInstance(cur)) return cur
-            if (++depth >= MAX_CAUSE_DEPTH) {
-                // Depth-cap onthult zoekverlies — anders mis-classificatie als INTERNAL_BUG
-                // zonder spoor (errorf-tak wekt on-call voor transient fault).
+            result.add(cur)
+            if (result.size >= MAX_CAUSE_DEPTH) {
                 log.warnf(
-                    "Cause-chain depth-cap (%d) bereikt voor zoek-cls=%s in root=%s — classificatie kan onnauwkeurig zijn",
-                    MAX_CAUSE_DEPTH, cls.simpleName, this::class.java.simpleName,
+                    "Cause-chain depth-cap (%d) bereikt in root=%s — classificatie kan onnauwkeurig zijn",
+                    MAX_CAUSE_DEPTH, this::class.java.simpleName,
                 )
-                return null
+                break
             }
             cur = cur.cause
         }
 
-        return null
+        return result
     }
+
+    private fun List<Throwable>.findCauseOfClass(cls: Class<*>): Throwable? = firstOrNull { cls.isInstance(it) }
 
     // Cast safe: findCauseOfClass filtert op cls.isInstance dus result is gegarandeerd T?.
     @Suppress("UNCHECKED_CAST")
-    private inline fun <reified T : Throwable> Throwable.findCauseOf(): T? =
+    private inline fun <reified T : Throwable> List<Throwable>.findCauseOf(): T? =
         findCauseOfClass(T::class.java) as T?
 
-    private fun Throwable.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
+    private fun List<Throwable>.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
 
     private companion object {
         private const val MAX_CAUSE_DEPTH = 32
@@ -535,28 +537,31 @@ class BerichtensessiecacheService(
 
     private enum class LockAcquireError { JSON_SERIALIZATION, TIMEOUT, IO_FAULT, INTERRUPTED, UNEXPECTED }
 
-    private fun classifyLockAcquireError(ex: Throwable): LockAcquireError = when {
-        ex.hasCauseOf(InterruptedException::class.java) -> LockAcquireError.INTERRUPTED
-        ex.hasCauseOf(JsonProcessingException::class.java) -> LockAcquireError.JSON_SERIALIZATION
-        ex is io.smallrye.mutiny.TimeoutException ||
-            ex is java.util.concurrent.TimeoutException ||
-            ex.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
-            ex.hasCauseOf(java.util.concurrent.TimeoutException::class.java) -> LockAcquireError.TIMEOUT
-        ex.hasCauseOf(java.io.IOException::class.java) -> LockAcquireError.IO_FAULT
-        else -> LockAcquireError.UNEXPECTED
+    private fun classifyLockAcquireError(ex: Throwable): LockAcquireError {
+        val chain = ex.causeChain()
+
+        return when {
+            chain.hasCauseOf(InterruptedException::class.java) -> LockAcquireError.INTERRUPTED
+            chain.hasCauseOf(JsonProcessingException::class.java) -> LockAcquireError.JSON_SERIALIZATION
+            chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
+                chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java) -> LockAcquireError.TIMEOUT
+            chain.hasCauseOf(java.io.IOException::class.java) -> LockAcquireError.IO_FAULT
+            else -> LockAcquireError.UNEXPECTED
+        }
     }
 
     // Internal voor directe unit-test van de classificatie-tabel (zie service-test).
     internal fun classifyMagazijnFault(error: Throwable): MagazijnFault {
-        // Cause-walking voor diep-geneste Mutiny-wraps (CompletionException → ... → JPE),
-        // consistent met classifyLockAcquireError. Volgorde: meest-specifiek eerst.
-        val webEx = error.findCauseOf<WebApplicationException>()
+        // Cause-walking eenmalig via causeChain(); meerdere instanceof-checks tegen
+        // dezelfde list — voorkomt log-storm van depth-cap warnf bij elke check.
+        val chain = error.causeChain()
+        val webEx = chain.findCauseOf<WebApplicationException>()
 
         return when {
-            error.hasCauseOf(MagazijnResponseOverflow::class.java) -> MagazijnFault.OVERFLOW
-            error.hasCauseOf(TimeoutException::class.java) -> MagazijnFault.TIMEOUT
-            error.hasCauseOf(JsonProcessingException::class.java) -> MagazijnFault.MALFORMED
-            error.hasCauseOf(ConnectException::class.java) -> MagazijnFault.NETWORK
+            chain.hasCauseOf(MagazijnResponseOverflow::class.java) -> MagazijnFault.OVERFLOW
+            chain.hasCauseOf(TimeoutException::class.java) -> MagazijnFault.TIMEOUT
+            chain.hasCauseOf(JsonProcessingException::class.java) -> MagazijnFault.MALFORMED
+            chain.hasCauseOf(ConnectException::class.java) -> MagazijnFault.NETWORK
             webEx != null -> {
                 val status = webEx.response?.status ?: 0
 
@@ -567,7 +572,7 @@ class BerichtensessiecacheService(
                     else -> MagazijnFault.INTERNAL_BUG
                 }
             }
-            error.hasCauseOf(ProcessingException::class.java) -> MagazijnFault.NETWORK
+            chain.hasCauseOf(ProcessingException::class.java) -> MagazijnFault.NETWORK
             else -> MagazijnFault.INTERNAL_BUG
         }
     }
