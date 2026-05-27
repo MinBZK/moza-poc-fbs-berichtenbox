@@ -20,14 +20,22 @@ import java.util.UUID
  * "Cache-faal" = transport-storing (timeout, connect-fout, 5xx upstream). 4xx
  * van de cache duidt op een contract-bug en wordt onveranderd doorgegeven; de
  * cache-state hoeft dan niet ge-invalideerd te worden.
+ *
+ * Multi-magazijn routering: we doen vóór elke write eerst een sessiecache-
+ * lookup om het bron-`magazijnId` te bepalen (de cache is bron-van-waarheid
+ * voor herkomst — een client-gegeven id zou een vector zijn om te schrijven
+ * in een magazijn dat dit bericht niet bezit). Cache-miss → 404 propageert
+ * naar de client; die hoort het bericht eerst opnieuw op te halen (de
+ * sliding TTL van 60s dekt typische interactieve flows ruimschoots).
  */
 @ApplicationScoped
 class BerichtBeheerService(
     @RestClient private val sessiecache: SessiecacheClient,
-    @RestClient private val magazijn: MagazijnClient,
+    private val magazijnRouter: MagazijnRouter,
 ) {
 
     fun patch(xOntvanger: String, berichtId: UUID, patch: BerichtPatch): Bericht {
+        val magazijn = resolveMagazijn(xOntvanger, berichtId)
         magazijn.patchBericht(xOntvanger, berichtId, UitvraagDtoMapper.toMagazijnPatch(patch))
 
         try {
@@ -46,6 +54,7 @@ class BerichtBeheerService(
     }
 
     fun verwijder(xOntvanger: String, berichtId: UUID) {
+        val magazijn = resolveMagazijn(xOntvanger, berichtId)
         magazijn.verwijderBericht(xOntvanger, berichtId)
 
         try {
@@ -61,6 +70,12 @@ class BerichtBeheerService(
             compensatieInvalidate(xOntvanger, berichtId)
             throw badGateway()
         }
+    }
+
+    private fun resolveMagazijn(xOntvanger: String, berichtId: UUID): MagazijnClient {
+        val bericht = sessiecache.bericht(xOntvanger, berichtId)
+
+        return magazijnRouter.forMagazijn(bericht.magazijnId)
     }
 
     private fun isCacheTransportFout(e: WebApplicationException): Boolean {

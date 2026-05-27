@@ -21,12 +21,24 @@ class BerichtBeheerServiceTest {
 
     private val sessiecache: SessiecacheClient = mockk(relaxed = true)
     private val magazijn: MagazijnClient = mockk(relaxed = true)
-    private val service = BerichtBeheerService(sessiecache, magazijn)
+    private val router: MagazijnRouter = mockk {
+        every { forMagazijn(any()) } returns magazijn
+    }
+    private val service = BerichtBeheerService(sessiecache, router)
 
     private val id: UUID = UUID.randomUUID()
     private val ontvanger = "BSN:123456782"
     private val patch = BerichtPatch().apply { status = BerichtStatus.GELEZEN }
-    private val updated = Bericht().apply { berichtId = id }
+    private val updated = Bericht().apply {
+        berichtId = id
+        magazijnId = "default"
+    }
+
+    init {
+        // Default-stub: lookup levert een bericht met `magazijnId=default`; tests
+        // die een ander pad nodig hebben (cache-miss → 404) overrulen deze.
+        every { sessiecache.bericht(any(), id) } returns updated
+    }
 
     @Test
     fun `patch happy-path magazijn-eerst dan cache geeft bericht uit cache`() {
@@ -176,5 +188,44 @@ class BerichtBeheerServiceTest {
             service.verwijder(ontvanger, id)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
+    }
+
+    @Test
+    fun `patch met cache-miss op lookup propageert 404 zonder magazijn-call`() {
+        // Sliding-TTL kan tussen UI-flow en write expireren; client moet eerst
+        // re-fetchen (en daarbij weer de routerings-info naar de cache schrijven).
+        every { sessiecache.bericht(any(), id) } throws NotFoundException("cache-miss")
+
+        assertThrows(NotFoundException::class.java) {
+            service.patch(ontvanger, id, patch)
+        }
+        verify(exactly = 0) { magazijn.patchBericht(any(), any(), any()) }
+    }
+
+    @Test
+    fun `verwijder met cache-miss op lookup propageert 404 zonder magazijn-call`() {
+        every { sessiecache.bericht(any(), id) } throws NotFoundException("cache-miss")
+
+        assertThrows(NotFoundException::class.java) {
+            service.verwijder(ontvanger, id)
+        }
+        verify(exactly = 0) { magazijn.verwijderBericht(any(), any()) }
+    }
+
+    @Test
+    fun `patch routeert via magazijnId uit cache, niet via client-input`() {
+        // Defense-in-depth: ook al zou ergens later een client-meegegeven id
+        // door de validatie heen sluipen, de routering pakt uitsluitend de
+        // waarde uit de cache.
+        every { sessiecache.bericht(any(), id) } returns Bericht().apply {
+            berichtId = id
+            magazijnId = "magazijn-X"
+        }
+        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { sessiecache.patchBericht(any(), any(), any()) } returns updated
+
+        service.patch(ontvanger, id, patch)
+
+        verify { router.forMagazijn("magazijn-X") }
     }
 }

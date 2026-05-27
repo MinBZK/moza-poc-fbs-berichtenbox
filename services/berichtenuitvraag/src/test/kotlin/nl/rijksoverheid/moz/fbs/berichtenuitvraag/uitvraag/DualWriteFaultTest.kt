@@ -3,9 +3,11 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.deleteRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.delete as wmDelete
+import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.patchRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
+import com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching
 import com.github.tomakehurst.wiremock.http.Fault
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -22,6 +24,19 @@ class DualWriteFaultTest {
     fun resetStubs() {
         WireMockBackendsResource.sessiecache?.resetAll()
         WireMockBackendsResource.magazijn?.resetAll()
+        // Default-lookup voor multi-magazijn routering: BerichtBeheerService doet
+        // vóór elke patch/verwijder een sessiecache.bericht() om de magazijnId te
+        // bepalen. Wildcard-stub levert "magazijnId=default" voor elk bericht;
+        // tests die de cache-miss-tak willen raken kunnen dit overschrijven.
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathMatching("/api/v1/berichten/[0-9a-fA-F-]{36}"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichtId":"00000000-0000-0000-0000-000000000000","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""),
+                ),
+        )
     }
 
     // ───── PATCH ─────

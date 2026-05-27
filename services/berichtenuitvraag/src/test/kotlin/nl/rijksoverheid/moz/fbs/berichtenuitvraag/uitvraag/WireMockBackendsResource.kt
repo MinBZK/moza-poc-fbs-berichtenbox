@@ -9,10 +9,9 @@ import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
  * client-config-keys naar hun URLs. De servers zijn statisch beschikbaar
  * voor tests die per-test stubs willen toevoegen of verifiëren.
  *
- * De `magazijn`-server wordt zowel als `magazijnen.urls.default` (voor
- * routering via [MagazijnRouter]) als als statische `MagazijnClient`-URL
- * (voor [BerichtBeheerService]) geconfigureerd — zo bedienen beide paden
- * dezelfde mock in de huidige tests.
+ * De `magazijn`-server wordt via `magazijnen.urls.default` aangewezen; alle
+ * uitvraag-paden (bijlage-download, patch, verwijder) routeren via
+ * [MagazijnRouter] naar deze mock.
  */
 class WireMockBackendsResource : QuarkusTestResourceLifecycleManager {
 
@@ -31,7 +30,6 @@ class WireMockBackendsResource : QuarkusTestResourceLifecycleManager {
 
         return mapOf(
             "quarkus.rest-client.\"nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.SessiecacheClient\".url" to s.baseUrl(),
-            "quarkus.rest-client.\"nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MagazijnClient\".url" to m.baseUrl(),
             "quarkus.rest-client.sessiecache-sse.url" to s.baseUrl(),
             "magazijnen.urls.default" to m.baseUrl(),
         )

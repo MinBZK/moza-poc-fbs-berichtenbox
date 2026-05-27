@@ -9,12 +9,14 @@ import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
-import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 import java.util.UUID
 
 /**
- * REST-client naar het Berichtenmagazijn. URL via
- * `quarkus.rest-client."…MagazijnClient".url` in application.properties.
+ * REST-client naar een Berichtenmagazijn. Instances worden niet statisch
+ * geïnjecteerd — [MagazijnRouter] bouwt ze op runtime per `magazijnId` via
+ * `RestClientBuilder`. Daarom géén `@RegisterRestClient`: de URL hoort niet
+ * via `quarkus.rest-client.*.url`-config te komen maar via de
+ * `magazijnen.urls.<id>`-map.
  *
  * TODO(#11): vervangen door FSC outway zodra FSC-integratie er is.
  *
@@ -23,7 +25,6 @@ import java.util.UUID
  * Content-Type per bijlage en wij overrulen ons eigen response-header via
  * BijlageContentTypeFilter (Task 8).
  */
-@RegisterRestClient
 @Path("/api/v1/berichten")
 interface MagazijnClient {
     /**

@@ -44,6 +44,21 @@ class OpenApiContractTest {
     fun resetStubs() {
         WireMockBackendsResource.sessiecache?.resetAll()
         WireMockBackendsResource.magazijn?.resetAll()
+        // Default-lookup voor multi-magazijn routering (BerichtBeheerService +
+        // BerichtOphaalService.haalBijlage doen vóór elke write/download een
+        // sessiecache.bericht()-lookup). Wildcard met lage prio; tests met een
+        // expliciete `urlPathEqualTo`-stub voor een specifieke berichtId
+        // overschrijven dit gedrag automatisch.
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            com.github.tomakehurst.wiremock.client.WireMock.get(
+                com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching("/api/v1/berichten/[0-9a-fA-F-]{36}"),
+            ).willReturn(
+                aResponse()
+                    .withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"berichtId":"00000000-0000-0000-0000-000000000000","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"default"}"""),
+            ),
+        )
     }
 
     @Test
