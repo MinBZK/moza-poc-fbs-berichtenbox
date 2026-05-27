@@ -42,7 +42,7 @@ class BerichtBeheerServiceTest {
 
     @Test
     fun `patch happy-path magazijn-eerst dan cache geeft bericht uit cache`() {
-        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } returns updated
 
         val result = service.patch(ontvanger, id, patch)
@@ -66,7 +66,7 @@ class BerichtBeheerServiceTest {
 
     @Test
     fun `patch cache-faal triggert invalidate en gooit 502`() {
-        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } throws InternalServerErrorException("cache-down")
         every { sessiecache.verwijderBericht(any(), any()) } returns Unit
 
@@ -79,7 +79,7 @@ class BerichtBeheerServiceTest {
 
     @Test
     fun `patch cache-faal en invalidate-faal gooit nog steeds 502`() {
-        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } throws InternalServerErrorException("cache-down")
         every { sessiecache.verwijderBericht(any(), any()) } throws InternalServerErrorException("ook-down")
 
@@ -127,7 +127,7 @@ class BerichtBeheerServiceTest {
 
     @Test
     fun `patch cache-4xx propageert onveranderd zonder compensatie`() {
-        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } throws NotFoundException("cache-mist-bericht")
 
         // 4xx betekent contract-bug (bericht niet in cache), geen transport-fout.
@@ -141,7 +141,7 @@ class BerichtBeheerServiceTest {
 
     @Test
     fun `patch cache-transport-fout (timeout) gooit 502 met compensatie`() {
-        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } throws ProcessingException("connect timeout")
         every { sessiecache.verwijderBericht(any(), any()) } returns Unit
 
@@ -221,7 +221,7 @@ class BerichtBeheerServiceTest {
             berichtId = id
             magazijnId = "magazijn-X"
         }
-        every { magazijn.patchBericht(any(), any(), any()) } returns updated
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } returns updated
 
         service.patch(ontvanger, id, patch)

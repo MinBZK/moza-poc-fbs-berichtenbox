@@ -8,7 +8,6 @@ import jakarta.ws.rs.PATCH
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.core.Response
-import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import java.util.UUID
 
 /**
@@ -24,6 +23,14 @@ import java.util.UUID
  * `Content-Type` als de bytes kunnen lezen — magazijn levert dynamic
  * Content-Type per bijlage en wij overrulen ons eigen response-header via
  * BijlageContentTypeFilter (Task 8).
+ *
+ * `patchBericht` retourneert `Unit`: de magazijn-spec geeft een
+ * `Bericht`-DTO terug waarvan het `status`-veld een gestructureerd object
+ * (`BerichtStatusInfo`) is, terwijl uitvraag's `Bericht.status` een enum-
+ * string is — Jackson kan dit niet deserialiseren. We hebben de body
+ * sowieso niet nodig (de definitieve response naar de client komt uit
+ * de sessiecache), dus laten we hem niet lezen. Status-mismatch (4xx/5xx)
+ * komt nog steeds als `WebApplicationException` door de default mapper.
  */
 @Path("/api/v1/berichten")
 interface MagazijnClient {
@@ -38,7 +45,7 @@ interface MagazijnClient {
         @HeaderParam("X-Ontvanger") xOntvanger: String,
         @PathParam("berichtId") berichtId: UUID,
         patch: UitvraagDtoMapper.MagazijnPatch,
-    ): Bericht
+    )
 
     @DELETE
     @Path("/{berichtId}")
