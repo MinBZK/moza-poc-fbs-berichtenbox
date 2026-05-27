@@ -5,6 +5,7 @@ import io.mockk.mockk
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
 import jakarta.ws.rs.ProcessingException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
@@ -84,17 +85,33 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
         shouldFail: () -> Boolean,
         shouldTimeout: () -> Boolean,
     ): MagazijnClient = mockk<MagazijnClient>().also { client ->
+        val magazijnBerichten = berichten.map { it.toMagazijnBericht() }
+
         every { client.getBerichten(any(), any()) } answers {
             if (shouldTimeout()) Thread.sleep(15_000)
             if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
-            MagazijnBerichtenResponse(berichten = berichten)
+            MagazijnBerichtenResponse(berichten = magazijnBerichten)
         }
+
         every { client.getBerichtById(any()) } answers {
             if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
             val berichtId = firstArg<String>()
-            berichten.find { it.berichtId.toString() == berichtId }
+            magazijnBerichten.find { it.berichtId.toString() == berichtId }
         }
     }
+
+    // Test-fixtures zijn cache-`Bericht` (plain string ontvanger) zodat assertions over de
+    // cache-inhoud direct werken. Magazijn-client levert echter MagazijnBericht (object-vorm
+    // ontvanger), dus we wrappen de waarde hier in een neutrale BSN-Identificatienummer —
+    // de service vlakt het type weer weg via `MagazijnBericht.toBericht`.
+    private fun Bericht.toMagazijnBericht(): MagazijnBericht = MagazijnBericht(
+        berichtId = berichtId,
+        afzender = afzender,
+        ontvanger = MagazijnBericht.Identificatienummer(type = "BSN", waarde = ontvanger),
+        onderwerp = onderwerp,
+        publicatietijdstip = publicatietijdstip,
+        aantalBijlagen = aantalBijlagen,
+    )
 }
 
 private class MockMagazijnenConfig : MagazijnenConfig {

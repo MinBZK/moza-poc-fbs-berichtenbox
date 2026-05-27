@@ -11,7 +11,7 @@
     "jsonBody": {
       "berichtId": "11111111-aaaa-bbbb-cccc-111111111111",
       "afzender": "00000005555555550000",
-      "ontvanger": "{{request.headers.X-Ontvanger}}",
+      "ontvanger": { "type": "BSN", "waarde": "999993653" },
       "onderwerp": "Vergunning omgevingswet",
       "publicatietijdstip": "2026-03-10T10:00:00Z",
       "magazijnId": "magazijn-b",

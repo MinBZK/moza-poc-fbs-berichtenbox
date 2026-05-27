@@ -98,7 +98,8 @@ class BerichtensessiecacheService(
                 .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
                 .ifNoItem().after(Duration.ofSeconds(10)).fail()
                 .map<MagazijnResult> { response ->
-                    MagazijnResult.Success(magazijnId, naam, response.berichten)
+                    val berichten = response.berichten.map { it.toBericht(magazijnId) }
+                    MagazijnResult.Success(magazijnId, naam, berichten)
                 }
                 .onFailure(Exception::class.java).recoverWithItem { error ->
                     when (error) {
