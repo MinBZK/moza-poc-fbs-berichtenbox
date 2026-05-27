@@ -7,6 +7,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.RSI
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -190,5 +191,72 @@ class IdentificatienummerTest {
         val header = origineel.toCanonicalString()
         val geparsed = Identificatienummer.fromHeader(header)
         assertEquals(origineel, geparsed)
+    }
+
+    // --- toString (hash-suffix voor BSN/RSIN, volledig voor KVK/OIN) -----------
+
+    @Test
+    fun `Bsn toString geeft hash-suffix en lekt geen cijfers van de waarde`() {
+        // Defense-in-depth: een toekomstige `log.warnf("Voor %s", bsn)` mag NOOIT
+        // het BSN lekken. SHA-256 4-hex-suffix: one-way, niet herleidbaar.
+        val bsn = Bsn("999993653")
+        val rendered = bsn.toString()
+
+        // Format: BSN:#<4-hex-chars>
+        assertTrue(rendered.matches(Regex("^BSN:#[0-9a-f]{4}$")), "Onverwacht format: $rendered")
+        // Geen enkel cijfer van de oorspronkelijke waarde mag in de output verschijnen
+        // als reeks van >= 3 chars (4-hex kan toevallig cijfers bevatten, maar nooit de
+        // volledige BSN-reeks). Streng: check op de volledige waarde + sub-reeksen.
+        assertTrue("999993653" !in rendered, "Volledige BSN-waarde mag niet in toString voorkomen")
+        assertTrue("99999" !in rendered, "Substring van BSN mag niet in toString voorkomen")
+    }
+
+    @Test
+    fun `Bsn toString is deterministisch (zelfde waarde geeft zelfde hash)`() {
+        // Borgt log-correlatie: twee separate Bsn-instances met dezelfde waarde
+        // moeten dezelfde rendering geven zodat ops via grep events kan koppelen.
+        val a = Bsn("999993653").toString()
+        val b = Bsn("999993653").toString()
+        assertEquals(a, b)
+    }
+
+    @Test
+    fun `Bsn toString geeft verschillende hash voor verschillende waardes`() {
+        // Verschillende BSNs MOETEN verschillende suffixes geven om correlatie zinvol
+        // te maken. Met 16-bit hash zal er ~1 op 65536 collision zijn — voor 2 hand-
+        // gekozen elfproef-geldige BSNs is dat in praktijk geen probleem.
+        val a = Bsn("999993653").toString()
+        val b = Bsn("111222333").toString()
+        assertNotEquals(a, b)
+    }
+
+    @Test
+    fun `Rsin toString geeft hash-suffix`() {
+        // Conservatief gemaskeerd: éénmanszaak-RSIN is herleidbaar tot BSN-houder.
+        val rsin = Rsin("111222333")
+        val rendered = rsin.toString()
+
+        assertTrue(rendered.matches(Regex("^RSIN:#[0-9a-f]{4}$")), "Onverwacht format: $rendered")
+        assertTrue("111222333" !in rendered, "Volledige RSIN-waarde mag niet in toString voorkomen")
+    }
+
+    @Test
+    fun `Kvk toString toont de volledige waarde (publiek opvraagbaar)`() {
+        assertEquals("KVK:12345678", Kvk("12345678").toString())
+    }
+
+    @Test
+    fun `Oin toString toont de volledige waarde (publieke organisatie-identificator)`() {
+        assertEquals("OIN:00000001003214345000", Oin("00000001003214345000").toString())
+    }
+
+    @Test
+    fun `String-interpolatie met BSN gebruikt hash-suffix toString`() {
+        // Borgt het defense-in-depth: regressie-test als iemand de override per
+        // ongeluk verwijdert. Kotlin string-templates roepen `.toString()` aan.
+        val bsn = Bsn("999993653")
+        val gelogd = "ontvanger=$bsn"
+        assertTrue(gelogd.matches(Regex("^ontvanger=BSN:#[0-9a-f]{4}$")), "Onverwacht: $gelogd")
+        assertTrue("999993653" !in gelogd)
     }
 }

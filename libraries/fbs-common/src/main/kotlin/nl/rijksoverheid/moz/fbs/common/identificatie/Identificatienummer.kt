@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.common.identificatie
 
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.exception.requireValid
+import java.security.MessageDigest
 
 /**
  * Polymorfe identificatie van een natuurlijk persoon of organisatie in FBS.
@@ -21,6 +22,10 @@ sealed interface Identificatienummer {
      * door `X-Ontvanger`-header wordt verwacht. Gebruikt door call-sites die een
      * unieke string-key nodig hebben (cache-keys, log-correlatie) zonder de
      * type/waarde-onderscheid te verliezen.
+     *
+     * **Niet voor logs of foutboodschappen.** Voor BSN/RSIN geldt geen
+     * PII-vriendelijke variant — gebruik `.toString()` (gemaskeerd) of expliciet
+     * `.type` als type-context al volstaat.
      */
     fun toCanonicalString(): String = "${type.name}:$waarde"
 
@@ -68,6 +73,9 @@ enum class IdentificatienummerType { BSN, RSIN, KVK, OIN }
  * Organisatie-identificatienummer van Logius (20 cijfers, **geen elfproef** — de
  * OIN-spec eist enkel 20-cijferig numeriek). Expliciet vermeld zodat een refactor niet
  * "alsnog" een elfproef-check toevoegt.
+ *
+ * `toString` toont de volledige waarde: OIN is een publieke organisatie-identificator,
+ * geen PII. Voor BSN/RSIN geldt het omgekeerde — daar maskeert `toString` (zie CLAUDE.md).
  */
 @JvmInline
 value class Oin(override val waarde: String) : Identificatienummer {
@@ -78,12 +86,19 @@ value class Oin(override val waarde: String) : Identificatienummer {
 
     override val type: IdentificatienummerType get() = IdentificatienummerType.OIN
 
+    override fun toString(): String = "OIN:$waarde"
+
     companion object {
         private val PATTERN = Regex("^[0-9]{20}$")
     }
 }
 
-/** KvK-nummer (8 cijfers). */
+/**
+ * KvK-nummer (8 cijfers).
+ *
+ * `toString` toont de volledige waarde: KvK-nummers zijn publiek opvraagbaar bij de
+ * Kamer van Koophandel, geen PII.
+ */
 @JvmInline
 value class Kvk(override val waarde: String) : Identificatienummer {
     init {
@@ -93,12 +108,25 @@ value class Kvk(override val waarde: String) : Identificatienummer {
 
     override val type: IdentificatienummerType get() = IdentificatienummerType.KVK
 
+    override fun toString(): String = "KVK:$waarde"
+
     companion object {
         private val PATTERN = Regex("^[0-9]{8}$")
     }
 }
 
-/** Burgerservicenummer (9 cijfers, gevalideerd met elfproef). */
+/**
+ * Burgerservicenummer (9 cijfers, gevalideerd met elfproef).
+ *
+ * `toString` toont een **SHA-256 hash-suffix** in plaats van de waarde: BSN is PII
+ * (CLAUDE.md "BSN nooit in applicatie-logs"). Default Kotlin value-class-toString
+ * zou `"Bsn(waarde=...)"` printen — een impliciete `"$bsn"`-template zou stilzwijgend
+ * de volledige BSN lekken. Het hash-suffix-format `BSN:#a3f2` biedt log-correlatie
+ * (zelfde BSN → zelfde hash) zonder dat de waarde herleidbaar is.
+ *
+ * Voor LDV (TLS-vereist, BIO 13.2.1) en cache-keys gebruik `.waarde` resp.
+ * `.toCanonicalString()` expliciet.
+ */
 @JvmInline
 value class Bsn(override val waarde: String) : Identificatienummer {
     init {
@@ -109,12 +137,21 @@ value class Bsn(override val waarde: String) : Identificatienummer {
 
     override val type: IdentificatienummerType get() = IdentificatienummerType.BSN
 
+    override fun toString(): String = "BSN:#${hashSuffix(waarde)}"
+
     companion object {
         private val PATTERN = Regex("^[0-9]{9}$")
     }
 }
 
-/** Rechtspersonen en Samenwerkingsverbanden Informatie Nummer (9 cijfers, elfproef). */
+/**
+ * Rechtspersonen en Samenwerkingsverbanden Informatie Nummer (9 cijfers, elfproef).
+ *
+ * `toString` toont een SHA-256 hash-suffix (`RSIN:#a3f2`) conform [Bsn]: RSIN
+ * identificeert kleine rechtspersonen en éénmanszaken; laatste categorie is
+ * herleidbaar tot een natuurlijke persoon (vaak gelijk aan BSN van de eigenaar).
+ * Gebruik `.waarde` expliciet wanneer de volledige identificator nodig is.
+ */
 @JvmInline
 value class Rsin(override val waarde: String) : Identificatienummer {
     init {
@@ -125,9 +162,23 @@ value class Rsin(override val waarde: String) : Identificatienummer {
 
     override val type: IdentificatienummerType get() = IdentificatienummerType.RSIN
 
+    override fun toString(): String = "RSIN:#${hashSuffix(waarde)}"
+
     companion object {
         private val PATTERN = Regex("^[0-9]{9}$")
     }
+}
+
+/**
+ * SHA-256 over [waarde], hex-encoded, eerste 4 chars (16-bit prefix → 65536 buckets).
+ * One-way: niet herleidbaar tot de oorspronkelijke waarde. Bucket-grootte is voldoende
+ * voor log-correlatie binnen één sessie/incident; voor cross-sessie-correlatie bij
+ * grote BSN-populaties zal er ~1 op 65536 collision optreden — acceptabel voor
+ * troubleshooting, niet als unieke identificator (gebruik daarvoor `.waarde`).
+ */
+private fun hashSuffix(waarde: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(waarde.toByteArray(Charsets.UTF_8))
+    return digest.take(2).joinToString("") { "%02x".format(it) }
 }
 
 // Standaard elfproef voor BSN en RSIN: posities 1-8 met gewichten 9..2,
