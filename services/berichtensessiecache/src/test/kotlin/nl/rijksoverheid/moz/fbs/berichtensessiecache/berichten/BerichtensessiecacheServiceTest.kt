@@ -625,11 +625,11 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `CONFIG_DRIFT exception uit resolver emit OPHALEN_FOUT-event ipv 503`() {
+    fun `CONFIG_DRIFT exception uit resolver emit OPHALEN_FOUT-event ipv 503 en geeft lock vrij`() {
         // Resolver gooit configDrift wanneer alle opt-in OINs onbekend zijn. Service
         // mag NIET 503 throwen (Profiel werkt prima); moet zichtbaar OPHALEN_FOUT-
-        // event emitten zodat client geen "retry over 30s" probeert maar weet dat
-        // configuratie-actie nodig is.
+        // event emitten + lock vrijgeven via storeAggregationStatus(FOUT), anders
+        // blijft een volgende request 60s vastlopen op de lock.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns
             Uni.createFrom().failure(ProfielServiceFoutException.configDrift())
@@ -644,6 +644,36 @@ class BerichtensessiecacheServiceTest {
             events[0].foutmelding!!.contains("configuratie"),
             "Foutmelding moet config-mismatch noemen: ${events[0].foutmelding}",
         )
+        verify {
+            berichtenCache.storeAggregationStatus(
+                cacheKey,
+                match { it.status == OphalenStatus.FOUT },
+            )
+        }
+    }
+
+    @Test
+    fun `classifyMagazijnFault termineert binnen 1s op circular cause-chain`() {
+        // hasCauseOf en findCauseOf moeten via IdentityHashMap een cycle detecteren
+        // (e1.initCause(e2); e2.initCause(e1)). Zonder seen-set zou de cause-walk
+        // oneindig loopen → worker-thread vast → SSE hangt. assertTimeoutPreemptively
+        // killt de test bij regressie i.p.v. de hele suite te laten hangen.
+        val e1 = RuntimeException("first")
+        val e2 = RuntimeException("second")
+        e1.initCause(e2)
+        // initCause weigert self-cycle direct; bouwen via reflectie zou nog kunnen,
+        // maar mutual cycle is voldoende voor regressie-vangnet.
+        val fakeCircular = object : Throwable("circular") {
+            override val cause: Throwable get() = this
+        }
+
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
+            service.classifyMagazijnFault(fakeCircular)
+        }
+        // Ook met mutual cycle moet classifier termineren.
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(1)) {
+            service.classifyMagazijnFault(e1)
+        }
     }
 
     private fun testBericht() = Bericht(

@@ -177,11 +177,13 @@ class BerichtensessiecacheService(
             // OPHALEN_FOUT i.p.v. 503 zodat client weet "geen ophaling mogelijk", niet
             // "Profiel offline, retry over 30s". Cache wordt NIET overschreven met empty.
             if (ex.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
+                // errorId in foutmelding zodat support de cleanup-log + resolver-log kan
+                // correleren (cleanupLockMetFoutStatus gebruikt dezelfde ex.errorId).
                 return Multi.createFrom().item(
                     MagazijnEvent(
                         event = EventType.OPHALEN_FOUT,
                         totaalMagazijnen = 0,
-                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder",
+                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: ${ex.errorId})",
                     ),
                 )
             }
@@ -492,10 +494,24 @@ class BerichtensessiecacheService(
     }
 
     /**
-     * Cause-chain check: Mutiny's blocking-await wrapt failures; directe `instanceof`
-     * matched dan niet. IdentityHashMap-seen-set voorkomt oneindige loop bij circular
-     * cause (zeldzaam maar mogelijk via proxy-exceptions of test-mocks).
+     * Cause-chain walker met cycle-protection (IdentityHashMap). Mutiny wrapt failures,
+     * dus directe `instanceof` matched de echte cause niet; circular causes komen
+     * zeldzaam voor via proxy-exceptions of test-mocks. Geeft de eerste match terug
+     * of `null`.
      */
+    private inline fun <reified T : Throwable> Throwable.findCauseOf(): T? {
+        val seen = java.util.IdentityHashMap<Throwable, Unit>()
+        var cur: Throwable? = this
+
+        while (cur != null && seen.put(cur, Unit) == null) {
+            if (cur is T) return cur
+            cur = cur.cause
+        }
+
+        return null
+    }
+
+    /** Convenience: of de cause-chain een [cls]-instance bevat. Gebruikt [findCauseOf] onder. */
     private fun Throwable.hasCauseOf(cls: Class<*>): Boolean {
         val seen = java.util.IdentityHashMap<Throwable, Unit>()
         var cur: Throwable? = this
@@ -525,8 +541,7 @@ class BerichtensessiecacheService(
     internal fun classifyMagazijnFault(error: Throwable): MagazijnFault {
         // Cause-walking voor diep-geneste Mutiny-wraps (CompletionException → ... → JPE),
         // consistent met classifyLockAcquireError. Volgorde: meest-specifiek eerst.
-        val webEx = error as? WebApplicationException
-            ?: generateSequence<Throwable>(error) { it.cause }.firstOrNull { it is WebApplicationException } as? WebApplicationException
+        val webEx = error.findCauseOf<WebApplicationException>()
 
         return when {
             error.hasCauseOf(MagazijnResponseOverflow::class.java) -> MagazijnFault.OVERFLOW
@@ -555,11 +570,11 @@ class BerichtensessiecacheService(
                 log.warnf(error, "Magazijn %s (%s) timeout", magazijnId, naam)
             MagazijnFault.MALFORMED ->
                 log.errorf(error, "Magazijn %s (%s) leverde onleesbare JSON-respons (schema-drift?)", magazijnId, naam)
-            // Map-pad logt overflow zelf met counts; defensieve debugf vangt overflows
-            // die via een andere route hier komen (toekomstige refactor) zodat ze niet
-            // ongelogd blijven.
+            // Map-pad logt overflow zelf met counts; warnf hier vangt overflows die
+            // onverwacht via dit pad komen (toekomstige refactor) — warn ipv debug
+            // omdat prod-INFO-niveau anders silent zou maken.
             MagazijnFault.OVERFLOW ->
-                log.debugf("Magazijn %s (%s) overflow geclassificeerd via onFailure (verwacht alleen via map-pad)", magazijnId, naam)
+                log.warnf(error, "Magazijn %s (%s) overflow via onFailure-pad — onverwacht, map-pad zou moeten loggen", magazijnId, naam)
             MagazijnFault.HTTP_5XX ->
                 log.warnf(error, "Magazijn %s (%s) 5xx", magazijnId, naam)
             MagazijnFault.HTTP_4XX ->

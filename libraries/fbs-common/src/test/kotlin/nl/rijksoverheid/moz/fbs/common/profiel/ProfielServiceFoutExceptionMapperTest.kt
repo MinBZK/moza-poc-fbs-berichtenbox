@@ -89,4 +89,23 @@ class ProfielServiceFoutExceptionMapperTest {
 
         assertEquals(URI.create("urn:uuid:${exception.errorId}"), problem.instance)
     }
+
+    @Test
+    fun `CONFIG_DRIFT levert 500 met configuratie-problem-type en geen Retry-After`() {
+        // Config-drift is geen Profiel-storing; retry over 30s lost niets op. Mapper
+        // moet eigen problem-type + 500 geven zodat client niet onnodig retry'd.
+        val response = mapper.toResponse(ProfielServiceFoutException.configDrift())
+        val problem = response.entity as Problem
+
+        assertEquals(500, response.status)
+        assertEquals(URI.create("https://moza.nl/problems/configuratie-mismatch"), problem.type)
+        org.junit.jupiter.api.Assertions.assertNull(
+            response.getHeaderString("Retry-After"),
+            "CONFIG_DRIFT mag geen Retry-After hebben (retry helpt niet)",
+        )
+        assertTrue(
+            problem.detail!!.contains("Retry heeft geen effect"),
+            "Detail moet retry-zinloosheid noemen: ${problem.detail}",
+        )
+    }
 }

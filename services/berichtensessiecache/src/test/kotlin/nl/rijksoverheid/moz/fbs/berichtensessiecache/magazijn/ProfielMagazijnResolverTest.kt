@@ -366,4 +366,47 @@ class ProfielMagazijnResolverTest {
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         assertEquals(setOf("magazijn-a"), result)
     }
+
+    @Test
+    fun `alle opt-in OINs ongeldig formaat gooit CONFIG_DRIFT (upstream-data-issue pad)`() {
+        // Tellers-pad: ongeldig=N, driftSkips=0 → exception én log-tekst "Upstream-
+        // data-issue" (niet "Config-drift"). Onderscheid is alleen in log; productie
+        // moet wel CONFIG_DRIFT-categorie gooien zodat caller eenduidig kan handelen.
+        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+            voorkeuren = listOf(
+                VoorkeurResponse(
+                    voorkeurType = "OntvangViaBerichtenbox", waarde = "true",
+                    scopes = listOf(
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "BAD-1")),
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "BAD-2")),
+                    ),
+                ),
+            ),
+        )
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+        assertEquals(ProfielServiceFoutException.Categorie.CONFIG_DRIFT, ex.categorie)
+    }
+
+    @Test
+    fun `mixed pad (ongeldig + driftSkip + 0 valid) gooit CONFIG_DRIFT`() {
+        // Combinatie van beide skip-redenen → totaal>0, result.isEmpty() → exception.
+        // Triggert eerste tak (driftSkips>0) met ongeldig-counter in log-format.
+        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+            voorkeuren = listOf(
+                VoorkeurResponse(
+                    voorkeurType = "OntvangViaBerichtenbox", waarde = "true",
+                    scopes = listOf(
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "BAD-FORMAT")),
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "99999999999999999999")),
+                    ),
+                ),
+            ),
+        )
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+        assertEquals(ProfielServiceFoutException.Categorie.CONFIG_DRIFT, ex.categorie)
+    }
 }
