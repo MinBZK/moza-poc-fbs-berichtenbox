@@ -275,12 +275,15 @@ components:
 
     BerichtSamenvatting:
       type: object
-      required: [berichtId, onderwerp, tijdstipOntvangst, aantalBijlagen]
+      required: [berichtId, onderwerp, publicatietijdstip, aantalBijlagen]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
         afzender: { type: string }
-        tijdstipOntvangst: { type: string, format: date-time }
+        publicatietijdstip:
+          type: string
+          format: date-time
+          description: Effectieve publicatie-tijd, overgenomen uit het magazijn
         aantalBijlagen: { type: integer, minimum: 0 }
         map: { type: string }
         status: { $ref: '#/components/schemas/BerichtStatus' }
@@ -288,13 +291,16 @@ components:
 
     Bericht:
       type: object
-      required: [berichtId, onderwerp, tijdstipOntvangst]
+      required: [berichtId, onderwerp, publicatietijdstip]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
         afzender: { type: string }
         inhoud: { type: string }
-        tijdstipOntvangst: { type: string, format: date-time }
+        publicatietijdstip:
+          type: string
+          format: date-time
+          description: Effectieve publicatie-tijd, overgenomen uit het magazijn
         map: { type: string }
         status: { $ref: '#/components/schemas/BerichtStatus' }
         bijlagen:
