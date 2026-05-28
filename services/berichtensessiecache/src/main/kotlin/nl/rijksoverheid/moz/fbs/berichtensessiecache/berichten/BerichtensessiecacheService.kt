@@ -43,11 +43,15 @@ class BerichtensessiecacheService(
     // dwingt die invariant bij startup af.
     @param:ConfigProperty(name = "berichtensessiecache.magazijn-query-timeout-seconds", defaultValue = "10")
     private val magazijnQueryTimeoutSeconds: Long,
-    // Read-timeout van de magazijn-client; MagazijnClientFactory leest dezelfde property voor
-    // de daadwerkelijke socket-timeout. Hier enkel geïnjecteerd om de invariant
-    // read-timeout > query-timeout bij startup te kruisvalideren — de twee waarden leven in
-    // verschillende beans en niets dwong ze eerder op elkaar af.
-    @param:ConfigProperty(name = "magazijn-client.read-timeout-ms", defaultValue = "12000")
+    // Read-timeout van de magazijn-client; MagazijnClientFactory past dezelfde property toe als
+    // socket-timeout. Hier enkel geïnjecteerd om de invariant read-timeout > query-timeout bij
+    // startup te kruisvalideren. Sleutel + default komen uit één gedeelde constante
+    // (MagazijnClientFactory.READ_TIMEOUT_MS_*) zodat de gevalideerde waarde niet kan afwijken
+    // van de toegepaste.
+    @param:ConfigProperty(
+        name = MagazijnClientFactory.READ_TIMEOUT_MS_PROPERTY,
+        defaultValue = MagazijnClientFactory.READ_TIMEOUT_MS_DEFAULT,
+    )
     private val magazijnReadTimeoutMs: Long,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)

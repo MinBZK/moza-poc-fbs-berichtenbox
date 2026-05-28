@@ -22,7 +22,7 @@ class MagazijnClientFactory(
     // @ConfigMapping-prefix (SRCFG00050).
     @param:ConfigProperty(name = "magazijn-client.connect-timeout-ms", defaultValue = "2000")
     private val connectTimeoutMs: Long,
-    @param:ConfigProperty(name = "magazijn-client.read-timeout-ms", defaultValue = "12000")
+    @param:ConfigProperty(name = READ_TIMEOUT_MS_PROPERTY, defaultValue = READ_TIMEOUT_MS_DEFAULT)
     private val readTimeoutMs: Long,
 ) {
     private val log = Logger.getLogger(MagazijnClientFactory::class.java)
@@ -120,5 +120,13 @@ class MagazijnClientFactory(
             .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
             .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
             .build(MagazijnClient::class.java)
+    }
+
+    companion object {
+        // Gedeeld met BerichtensessiecacheService.valideerTimeouts(), dat read > query
+        // kruisvalideert. Eén bron voor sleutel + default zodat de gevalideerde waarde niet
+        // kan afwijken van de waarde die deze factory daadwerkelijk op de socket toepast.
+        const val READ_TIMEOUT_MS_PROPERTY = "magazijn-client.read-timeout-ms"
+        const val READ_TIMEOUT_MS_DEFAULT = "12000"
     }
 }

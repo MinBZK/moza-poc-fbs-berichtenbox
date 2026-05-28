@@ -138,9 +138,8 @@ class MagazijnClientWireMockTest {
     fun `read-timeout op de REST-client kapt een hangende magazijn-call af (socket-vangnet)`() {
         // Backstop-pad: de read-timeout (4000ms in profile) moet de socket vrijgeven als een
         // magazijn-call langer hangt dan de timeout, óók buiten de Mutiny ifNoItem om. We roepen
-        // de client daarom DIRECT aan (geen query-timeout in dit pad) tegen een delay (6s) die de
-        // read-timeout overschrijdt: zonder read-timeout zou de call pas na 6s slagen, mét
-        // read-timeout faalt hij ervóór. Bewijst dat MagazijnClientFactory de timeout aandraait.
+        // de client daarom DIRECT aan (geen query-timeout in dit pad) tegen een 6s-delay die de
+        // read-timeout overschrijdt. Bewijst dat MagazijnClientFactory de timeout aandraait.
         WireMockMagazijnResource.serverA!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten"))
                 .willReturn(aResponse().withFixedDelay(6_000).withStatus(200).withBody("""{"berichten":[]}"""))
@@ -152,15 +151,19 @@ class MagazijnClientWireMockTest {
 
         val startNanos = System.nanoTime()
 
-        assertThrows(Exception::class.java) {
+        val fout = assertThrows(Exception::class.java) {
             client!!.getBerichten(ontvanger, null)
         }
 
         val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
 
+        // Tijdvenster i.p.v. exception-type-match (het concrete type verschilt per client-stack):
+        // de ~4s read-timeout valt binnen [3000, 5500]. Een instant connect-fout (<100ms) of een
+        // geslaagde call op de 6s-delay valt erbuiten, zodat de test alleen groen wordt als juist
+        // de read-timeout vuurde — niet bij een willekeurige andere fout.
         assertTrue(
-            elapsedMs < 5_500,
-            "Read-timeout moet de call vóór de WireMock-delay (6s) afkappen; duurde ${elapsedMs}ms",
+            elapsedMs in 3_000..5_500,
+            "Read-timeout (4s) moet de call afkappen vóór de 6s-delay; duurde ${elapsedMs}ms, fout=${fout.javaClass.simpleName}",
         )
     }
 
@@ -197,12 +200,15 @@ class MagazijnClientWireMockTest {
         // 200 met data of tot een ruime deadline verstrijkt.
         val deadline = System.currentTimeMillis() + 6_000
         var totaal = 0
+        var zagOphalenBezig = false
 
         while (System.currentTimeMillis() < deadline) {
             val resultaat = given()
                 .header("X-Ontvanger", ontvanger)
                 .`when`().get("/api/v1/berichten")
                 .then().extract()
+
+            if (resultaat.statusCode() == 409) zagOphalenBezig = true
 
             if (resultaat.statusCode() == 200) {
                 totaal = resultaat.path<Int>("totalElements") ?: 0
@@ -213,6 +219,13 @@ class MagazijnClientWireMockTest {
             Thread.sleep(150)
         }
 
+        // 409 ná de disconnect bewijst dat de aggregatie nog liep (de disconnect is dus
+        // load-bearing, niet een race ná completion); totalElements>=1 bewijst dat ze alsnog
+        // afrondde en de cache vulde. Beide samen pinnen "disconnect stopt de cache-vulling niet".
+        assertTrue(
+            zagOphalenBezig,
+            "Verwacht minstens één 409 (ophalen-bezig) ná de disconnect — anders liep de aggregatie niet door",
+        )
         assertTrue(
             totaal >= 1,
             "Cache moet alsnog gevuld raken nadat de client mid-aggregatie disconnect; totalElements=$totaal",
