@@ -16,7 +16,12 @@ import java.util.UUID
 
 @Alternative
 @ApplicationScoped
-class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig(), profile = "test") {
+class MockMagazijnClientFactory : MagazijnClientFactory(
+    MockMagazijnenConfig(),
+    profile = "test",
+    connectTimeoutMs = 2000L,
+    readTimeoutMs = 12000L,
+) {
 
     companion object {
         val testBerichtenA = listOf(

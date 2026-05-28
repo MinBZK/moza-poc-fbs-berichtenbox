@@ -18,6 +18,7 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.RestStreamElementType
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Aparte JAX-RS resource voor het SSE ophaal-endpoint.
@@ -68,6 +69,10 @@ class BerichtenOphalenResource(
         // SSE-stream is een observer: stuurt events door zolang de client verbonden is.
         // Client disconnect stopt alleen de emitter, de aggregatie loopt onafhankelijk door.
         return Multi.createFrom().emitter { emitter ->
+            // Markeert of de stream normaal eindigde (completion of fout). Blijft false bij
+            // client-disconnect vóór het finale event, zodat onTermination dat kan loggen.
+            val streamAfgerond = AtomicBoolean(false)
+
             aggregation.subscribe().with(
                 { event ->
                     // Zet logboek status op basis van het finale event
@@ -87,6 +92,7 @@ class BerichtenOphalenResource(
                     // (BSN/RSIN PII; type-context volstaat voor incident-triage). Géén
                     // stacktrace meelgeven: cause-chain van lagere clients kan upstream-URL
                     // met BSN bevatten (precedent: ProfielServiceFoutExceptionMapper).
+                    streamAfgerond.set(true)
                     logboekContext.status = StatusCode.ERROR
                     log.errorf(
                         "SSE-stream gefaald na open (ontvanger.type=%s, cause=%s, msg-class=%s)",
@@ -96,8 +102,25 @@ class BerichtenOphalenResource(
                     )
                     if (!emitter.isCancelled) emitter.fail(error)
                 },
-                { if (!emitter.isCancelled) emitter.complete() },
+                {
+                    streamAfgerond.set(true)
+                    if (!emitter.isCancelled) emitter.complete()
+                },
             )
+
+            emitter.onTermination {
+                // De aggregatie (magazijn-calls + cache-writes) loopt bewust door na een
+                // client-disconnect zodat de cache alsnog gevuld raakt; we cancelen de
+                // subscription dus NIET. Wel loggen we een vroegtijdige terminatie (client
+                // weg vóór het finale event) zodat afgebroken ophaalsessies zichtbaar zijn
+                // in observability i.p.v. stil te verdwijnen. ontvanger.type, geen waarde (PII).
+                if (!streamAfgerond.get()) {
+                    log.infof(
+                        "SSE-client verbroken vóór completion (ontvanger.type=%s); aggregatie loopt door om cache te vullen",
+                        ontvangerId.type,
+                    )
+                }
+            }
         }
     }
 }

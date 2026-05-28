@@ -48,6 +48,8 @@ class ProfielMagazijnResolverTest {
             )
         },
         profile = "test",
+        connectTimeoutMs = 2000L,
+        readTimeoutMs = 12000L,
     ) {
         override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
     }.also { it.init() }
@@ -331,6 +333,8 @@ class ProfielMagazijnResolverTest {
                 )
             },
             profile = "test",
+            connectTimeoutMs = 2000L,
+            readTimeoutMs = 12000L,
         ) {
             override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
         }.also { it.init() }

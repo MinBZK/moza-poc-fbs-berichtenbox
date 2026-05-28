@@ -31,6 +31,8 @@ class ClassifyMagazijnFaultTest {
         innerTimeoutSeconds = 2L,
         outerAwaitSeconds = 3L,
         maxBerichtenPerMagazijn = 1000,
+        magazijnQueryTimeoutSeconds = 10L,
+        magazijnReadTimeoutMs = 12000L,
     ).also { it.valideerTimeouts() }
 
     @Test
@@ -70,6 +72,14 @@ class ClassifyMagazijnFaultTest {
     @Test
     fun `ProcessingException zonder cause = NETWORK`() {
         assertEquals(MagazijnFault.NETWORK, service.classifyMagazijnFault(ProcessingException("net")))
+    }
+
+    @Test
+    fun `CancellationException = NETWORK (annulering is geen INTERNAL_BUG)`() {
+        assertEquals(
+            MagazijnFault.NETWORK,
+            service.classifyMagazijnFault(java.util.concurrent.CancellationException("cancelled")),
+        )
     }
 
     @Test

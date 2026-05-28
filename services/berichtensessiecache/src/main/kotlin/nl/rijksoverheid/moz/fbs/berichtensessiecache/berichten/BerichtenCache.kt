@@ -202,7 +202,9 @@ class RedisBerichtenCache(
 
     override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?): Uni<BerichtenPage?> {
         if (afzender != null && ontvanger != null) {
-            return getPageFiltered(page, pageSize, ontvanger, afzender)
+            // `key` is al de cacheKey (caller berekende de SHA-256); doorgeven vermijdt een
+            // tweede hash-pass in getPageFiltered op het hot path.
+            return getPageFiltered(key, page, pageSize, ontvanger, afzender)
         }
 
         val listKey = listKey(key)
@@ -251,8 +253,7 @@ class RedisBerichtenCache(
                 .invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
-    private fun getPageFiltered(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String): Uni<BerichtenPage?> {
-        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+    private fun getPageFiltered(cacheKey: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String): Uni<BerichtenPage?> {
         val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger.waarde)}}"
         val afzenderFilter = "@afzender:{${escapeTag(afzender)}}"
         val query = "$ontvangerFilter $afzenderFilter"

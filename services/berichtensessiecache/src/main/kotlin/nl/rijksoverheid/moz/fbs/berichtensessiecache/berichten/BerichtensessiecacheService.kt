@@ -37,6 +37,18 @@ class BerichtensessiecacheService(
     // `quarkus.http.limits.max-body-size`. Niet stilzwijgend verhogen zonder load-evidence.
     @param:ConfigProperty(name = "berichtensessiecache.max-berichten-per-magazijn", defaultValue = "200")
     private val maxBerichtenPerMagazijn: Int,
+    // Per-magazijn query-timeout (Mutiny `ifNoItem`): primaire TIMEOUT-signaalbron richting
+    // de client. MOET kleiner zijn dan magazijn-client.read-timeout-ms zodat dit als eerste
+    // aanslaat en een TIMEOUT-event oplevert i.p.v. een ruwe client-fout. valideerTimeouts()
+    // dwingt die invariant bij startup af.
+    @param:ConfigProperty(name = "berichtensessiecache.magazijn-query-timeout-seconds", defaultValue = "10")
+    private val magazijnQueryTimeoutSeconds: Long,
+    // Read-timeout van de magazijn-client; MagazijnClientFactory leest dezelfde property voor
+    // de daadwerkelijke socket-timeout. Hier enkel geïnjecteerd om de invariant
+    // read-timeout > query-timeout bij startup te kruisvalideren — de twee waarden leven in
+    // verschillende beans en niets dwong ze eerder op elkaar af.
+    @param:ConfigProperty(name = "magazijn-client.read-timeout-ms", defaultValue = "12000")
+    private val magazijnReadTimeoutMs: Long,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
@@ -51,10 +63,20 @@ class BerichtensessiecacheService(
                 "profiel.resolver.inner-timeout-seconds ($innerTimeoutSeconds)"
         }
 
+        // De per-magazijn query-timeout (ifNoItem) MOET vóór de socket-read-timeout aanslaan,
+        // anders krijgt de client een ruwe client-fout i.p.v. een net TIMEOUT-event; de
+        // read-timeout blijft het vangnet als de query-timeout om welke reden dan ook niet vuurt.
+        require(magazijnReadTimeoutMs > magazijnQueryTimeoutSeconds * 1000) {
+            "magazijn-client.read-timeout-ms ($magazijnReadTimeoutMs) moet groter zijn dan " +
+                "berichtensessiecache.magazijn-query-timeout-seconds × 1000 (${magazijnQueryTimeoutSeconds * 1000})"
+        }
+
         log.infof(
-            "Profiel-resolver timeouts: inner=%ds outer=%ds",
+            "Timeouts: profiel inner=%ds outer=%ds; magazijn query-timeout=%ds read-timeout=%dms",
             innerTimeoutSeconds,
             outerAwaitSeconds,
+            magazijnQueryTimeoutSeconds,
+            magazijnReadTimeoutMs,
         )
     }
 
@@ -276,8 +298,8 @@ class BerichtensessiecacheService(
                 cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set", errorId)
                 // SSE-stream is al actief op dit punt; OPHALEN_FOUT-event geeft de client
                 // dezelfde UX als het aggregatie-faalpad i.p.v. een mid-stream HTTP-500.
-                // (ref: ...)-suffix in tekst + referentie-veld: riem-en-bretels (N2-convention)
-                // voor UIs die het gestructureerde veld nog niet renderen.
+                // Referentie zowel in foutmelding-tekst ("(ref: ...)") als in het
+                // gestructureerde `referentie`-veld, voor UIs die het veld nog niet renderen.
                 return Multi.createFrom().item(
                     MagazijnEvent(
                         event = EventType.OPHALEN_FOUT,
@@ -335,7 +357,7 @@ class BerichtensessiecacheService(
             val resultUni = Uni.createFrom().item { client }
                 .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
                 .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-                .ifNoItem().after(Duration.ofSeconds(10)).fail()
+                .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
                 .map<MagazijnResult> { response ->
                     if (response.berichten.size > maxBerichtenPerMagazijn) {
                         // ErrorF nodig voor Loki-alert-routing; SSE-event alleen gaat niet naar logs.
@@ -462,15 +484,19 @@ class BerichtensessiecacheService(
                             )
                         }
                         .onFailure().recoverWithNull()
-                        // (ref: ...)-suffix in foutmelding + referentie-veld: N2-convention
-                        // voor UIs zonder gestructureerd referentie-rendering.
+                        // Referentie zowel in foutmelding-tekst ("(ref: ...)") als in het
+                        // gestructureerde `referentie`-veld, voor UIs zonder veld-rendering.
+                        // Meld expliciet dat de eerder per-magazijn getoonde resultaten niet
+                        // bewaard zijn: de VOLTOOID-events zijn al geëmit, maar de cache-write
+                        // faalde, dus de client moet opnieuw ophalen i.p.v. te denken dat de
+                        // resultaten beschikbaar zijn via GET /berichten.
                         .replaceWith(
                             MagazijnEvent(
                                 event = EventType.OPHALEN_FOUT,
                                 geslaagd = geslaagd.get(),
                                 mislukt = mislukt.get(),
                                 totaalMagazijnen = clients.size,
-                                foutmelding = "Interne fout bij opslaan van resultaten (ref: $ref)",
+                                foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
                                 referentie = ref,
                             )
                         )
@@ -490,7 +516,7 @@ class BerichtensessiecacheService(
     private fun cleanupLockMetFoutStatus(
         cacheKey: String,
         oorzaak: String,
-        errorId: java.util.UUID = java.util.UUID.randomUUID(),
+        errorId: UUID = UUID.randomUUID(),
     ) {
         try {
             berichtenCache.storeAggregationStatus(
@@ -597,6 +623,10 @@ class BerichtensessiecacheService(
                 }
             }
             chain.hasCauseOf(ProcessingException::class.java) -> MagazijnFault.NETWORK
+            // Annulering (bv. bij pod-shutdown of upstream-cancel) is geen magazijn-bug.
+            // Zonder deze tak valt het in `else -> INTERNAL_BUG` en logt het errorf, wat
+            // vals-positieve alert-ruis geeft. NETWORK logt warnf met een neutrale melding.
+            chain.hasCauseOf(java.util.concurrent.CancellationException::class.java) -> MagazijnFault.NETWORK
             else -> MagazijnFault.INTERNAL_BUG
         }
     }

@@ -45,6 +45,8 @@ class BerichtensessiecacheServiceTest {
         innerTimeoutSeconds = 2L,
         outerAwaitSeconds = 3L,
         maxBerichtenPerMagazijn = 1000,
+        magazijnQueryTimeoutSeconds = 10L,
+        magazijnReadTimeoutMs = 12000L,
     ).also { it.valideerTimeouts() }
 
     private val ontvanger = Bsn("999993653")
@@ -182,6 +184,8 @@ class BerichtensessiecacheServiceTest {
             berichtenCache, clientFactory, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 2L,
             maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -196,11 +200,33 @@ class BerichtensessiecacheServiceTest {
             berichtenCache, clientFactory, resolver,
             innerTimeoutSeconds = 5L, outerAwaitSeconds = 2L,
             maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
 
         assertTrue(ex.message!!.contains("outer-await-seconds"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `valideerTimeouts werpt IllegalArgumentException als read-timeout niet strikt groter is dan query-timeout`() {
+        // De socket-read-timeout MOET het query-timeout-budget overschrijden, anders kapt de
+        // socket een nog-lopende magazijn-call af vóór de Mutiny ifNoItem en krijgt de client
+        // een ruwe client-fout i.p.v. een TIMEOUT-event. read=10000ms == query=10s×1000 is niet
+        // strikt groter en moet de boot laten falen (pin op de `>`-grens, geen `>=`).
+        val mis = BerichtensessiecacheService(
+            berichtenCache, clientFactory, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 10_000L,
+        )
+
+        val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
+
+        assertTrue(ex.message!!.contains("read-timeout-ms"), "Was: ${ex.message}")
+        assertTrue(ex.message!!.contains("magazijn-query-timeout-seconds"), "Was: ${ex.message}")
     }
 
     @Test
@@ -269,7 +295,7 @@ class BerichtensessiecacheServiceTest {
         }
         assertTrue(
             events[0].foutmelding!!.contains("(ref: ${events[0].referentie})"),
-            "Foutmelding moet (ref: <UUID>)-suffix dragen (N2-convention); was: ${events[0].foutmelding}",
+            "Foutmelding moet de (ref: <UUID>)-suffix dragen die het referentie-veld spiegelt; was: ${events[0].foutmelding}",
         )
         verify {
             berichtenCache.storeAggregationStatus(
@@ -449,10 +475,12 @@ class BerichtensessiecacheServiceTest {
         org.junit.jupiter.api.Assertions.assertDoesNotThrow {
             UUID.fromString(fouten[0].referentie!!)
         }
-        // (ref: ...)-suffix in foutmelding + matching referentie-veld: N2-convention.
+        // De referentie staat zowel in de foutmelding-tekst ("(ref: ...)") als in het
+        // gestructureerde referentie-veld; de tekst meldt expliciet dat eerder getoonde
+        // per-magazijn-resultaten niet bewaard zijn.
         assertTrue(
-            fouten[0].foutmelding!!.startsWith("Interne fout bij opslaan van resultaten"),
-            "Foutmelding moet generieke prefix dragen; was: ${fouten[0].foutmelding}",
+            fouten[0].foutmelding!!.startsWith("Resultaten konden niet worden opgeslagen"),
+            "Foutmelding moet melden dat resultaten niet bewaard zijn; was: ${fouten[0].foutmelding}",
         )
         assertTrue(
             fouten[0].foutmelding!!.contains("(ref: ${fouten[0].referentie})"),
@@ -467,6 +495,8 @@ class BerichtensessiecacheServiceTest {
             berichtenCache, clientFactory, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
             maxBerichtenPerMagazijn = 2,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()
@@ -526,6 +556,8 @@ class BerichtensessiecacheServiceTest {
             berichtenCache, clientFactory, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
             maxBerichtenPerMagazijn = 2,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()

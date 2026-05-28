@@ -222,6 +222,80 @@ class BerichtenOphalenResolverE2ETest {
         magazijnB.verify(0, getRequestedFor(urlPathMatching("/.*")))
     }
 
+    // ── P: Partial failure — 1 magazijn OK, 1 magazijn FOUT ───────────────
+
+    @Test
+    fun `magazijn-a OK en magazijn-b 500 levert OPHALEN_GEREED met 1 geslaagd 1 mislukt en cachet alleen het overlevende magazijn`() {
+        // BSN opted-in voor beide magazijnen (beide afzender-OINs in scope) zodat de
+        // resolver magazijn-a én magazijn-b bevraagt.
+        profielWireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody(
+                        """
+                        {
+                          "voorkeuren": [
+                            { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true",
+                              "scopes": [
+                                { "partij": { "identificatieType": "OIN", "identificatieNummer": "00000001003214345000" } },
+                                { "partij": { "identificatieType": "OIN", "identificatieNummer": "00000001823288444000" } }
+                              ] }
+                          ]
+                        }
+                        """.trimIndent(),
+                    ),
+            ),
+        )
+
+        // magazijn-a levert 1 bericht; magazijn-b faalt met HTTP 500.
+        magazijnA.stubFor(
+            get(urlPathMatching("/.*")).willReturn(
+                aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
+                    """
+                    {
+                      "berichten": [
+                        {
+                          "berichtId": "11111111-1111-1111-1111-111111111111",
+                          "afzender": "00000001003214345000",
+                          "ontvanger": "999993653",
+                          "onderwerp": "Bericht van magazijn-a",
+                          "tijdstip": "2026-03-10T10:00:00Z",
+                          "magazijnId": "magazijn-a"
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+            ),
+        )
+        magazijnB.stubFor(
+            get(urlPathMatching("/.*")).willReturn(aResponse().withStatus(500)),
+        )
+
+        val response = given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        // Degradatie i.p.v. totale fout: één magazijn faalt, het andere slaagt.
+        assertTrue(response.contains("\"event\":\"ophalen-gereed\""), "Verwacht ophalen-gereed in: $response")
+        assertTrue(response.contains("\"geslaagd\":1"), "Verwacht geslaagd:1 in: $response")
+        assertTrue(response.contains("\"mislukt\":1"), "Verwacht mislukt:1 in: $response")
+        assertTrue(response.contains("\"totaalMagazijnen\":2"), "Verwacht totaalMagazijnen:2 in: $response")
+        assertTrue(response.contains("\"totaalBerichten\":1"), "Verwacht totaalBerichten:1 in: $response")
+
+        // Het overlevende magazijn-a-bericht is gecached ondanks de magazijn-b-fout.
+        given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", `is`(1))
+    }
+
     // ── E8: OpenAPI contract — 503-response matcht Problem-schema ─────────
 
     @Test

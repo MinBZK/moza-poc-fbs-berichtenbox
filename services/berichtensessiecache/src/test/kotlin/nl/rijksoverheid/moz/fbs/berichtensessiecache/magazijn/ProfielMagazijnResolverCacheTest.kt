@@ -18,14 +18,14 @@ import org.junit.jupiter.api.Test
 import java.time.Duration
 
 /**
- * Pin @CacheResult-gedrag op ProfielMagazijnResolver.resolve: tweede call binnen
- * TTL-window levert cache-hit op (0 extra Profiel-calls). Voorkomt regressie waar
- * iemand de annotatie verwijdert of cache-config losraakt van de bean.
+ * Pint het cache-gedrag van de hand-rolled Caffeine-cache in [ProfielMagazijnResolver]:
+ * een tweede call binnen het TTL-window levert een cache-hit op (0 extra Profiel-calls).
+ * Voorkomt regressie waar iemand de cache-laag verwijdert of de TTL losraakt van de bean.
  *
- * Cache-gedrag is in main-test-profile bewust uitgeschakeld
- * (`%test.quarkus.cache.enabled=false`); deze testklasse herhaalt de override
- * met `cache.enabled=true` + zeer korte TTL (200ms) zodat zowel cache-hit als
- * TTL-expiry binnen één test-run reproduceerbaar zijn.
+ * In het main-test-profile is de cache bewust effectief uit (`%test.profiel.resolver.cache
+ * .ttl-seconds=0` — Caffeine `expireAfterWrite(0)` levert nooit een hit). Deze testklasse
+ * overschrijft dat met een korte TTL (1s) zodat zowel cache-hit als TTL-expiry binnen één
+ * test-run reproduceerbaar zijn.
  */
 @QuarkusTest
 @TestProfile(CacheEnabledTestProfile::class)

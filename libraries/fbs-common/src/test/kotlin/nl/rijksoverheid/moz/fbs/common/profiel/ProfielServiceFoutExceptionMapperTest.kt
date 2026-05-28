@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.net.URI
+import java.util.UUID
 
 class ProfielServiceFoutExceptionMapperTest {
 
@@ -92,10 +93,11 @@ class ProfielServiceFoutExceptionMapperTest {
 
     @Test
     fun `CONFIG_DRIFT log heeft geen thrown - stacktrace blijft uit log voor PII-defense`() {
-        // KDoc-invariant op factory + require() in mapper pinnen "geen cause" vast;
-        // dit test pint vast dat het log-record GEEN thrown heeft — anders zou een
-        // toekomstige refactor `log.errorf(exception, ...)` kunnen herinvoeren zonder
-        // dat een test stuk gaat.
+        // De KDoc-invariant op de factory borgt "geen cause"; deze test pint vast dat het
+        // log-record GEEN thrown heeft — anders zou een toekomstige refactor
+        // `log.errorf(exception, ...)` kunnen herinvoeren zonder dat een test stuk gaat.
+        // De mapper gooit bewust niet bij een onverwachte cause (een throw in een
+        // ExceptionMapper valt terug op het default-500-pad mét stacktrace).
         val targetLogger = java.util.logging.Logger.getLogger(ProfielServiceFoutExceptionMapper::class.java.name)
         val captured = mutableListOf<java.util.logging.LogRecord>()
         val handler = object : java.util.logging.Handler() {
@@ -138,6 +140,66 @@ class ProfielServiceFoutExceptionMapperTest {
             exception.cause,
             "configDrift() mag geen cause hebben — anders kan upstream-URL met BSN/RSIN in pad via stacktrace lekken",
         )
+    }
+
+    @Test
+    fun `CONFIG_DRIFT met onverwachte cause logt alert-marker zonder thrown of PII en levert toch veilige 500`() {
+        // De cause==null-invariant op configDrift() maakt deze tak onbereikbaar via de public
+        // factory; daarom construeren we hier bewust een CONFIG_DRIFT mét cause via de private
+        // constructor om de defense-in-depth-tak te pinnen. Zou een toekomstige refactor
+        // `log.errorf(exception, ...)` herinvoeren, dan rendert de stacktrace de cause-message —
+        // die hier de upstream-URL met BSN simuleert — en breekt deze test.
+        val ctor = ProfielServiceFoutException::class.java.getDeclaredConstructor(
+            ProfielServiceFoutException.Categorie::class.java,
+            Int::class.javaObjectType,
+            UUID::class.java,
+            String::class.java,
+            Throwable::class.java,
+        )
+
+        ctor.isAccessible = true
+
+        val piiInCause = "http://profiel-service/api/v1/partij/BSN/999993653"
+        val exceptionMetCause = ctor.newInstance(
+            ProfielServiceFoutException.Categorie.CONFIG_DRIFT,
+            null,
+            UUID.randomUUID(),
+            "Configuratie-mismatch",
+            IllegalStateException(piiInCause),
+        ) as ProfielServiceFoutException
+
+        val targetLogger = java.util.logging.Logger.getLogger(ProfielServiceFoutExceptionMapper::class.java.name)
+        val captured = mutableListOf<java.util.logging.LogRecord>()
+        val handler = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) { captured.add(record) }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        val previousLevel = targetLogger.level
+
+        targetLogger.addHandler(handler)
+        targetLogger.level = java.util.logging.Level.ALL
+
+        try {
+            val response = mapper.toResponse(exceptionMetCause)
+
+            assertEquals(500, response.status)
+
+            val invariantLog = captured.firstOrNull { it.message?.contains("config_drift_invariant") == true }
+
+            assertNotNull(invariantLog, "Cause-tak moet een alert-gemarkeerde log-regel produceren")
+            org.junit.jupiter.api.Assertions.assertNull(
+                invariantLog!!.thrown,
+                "Log-record mag GEEN thrown bevatten — anders lekt de cause-stacktrace de upstream-URL met BSN",
+            )
+            assertTrue(
+                !invariantLog.message!!.contains("999993653") && !invariantLog.message!!.contains("profiel-service/api"),
+                "Log mag de cause-message (upstream-URL met BSN) niet renderen: ${invariantLog.message}",
+            )
+        } finally {
+            targetLogger.removeHandler(handler)
+            targetLogger.level = previousLevel
+        }
     }
 
     @Test

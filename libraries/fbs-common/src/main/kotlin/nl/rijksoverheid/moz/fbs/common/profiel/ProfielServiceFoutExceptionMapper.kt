@@ -36,19 +36,30 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
         // af in een SSE-OPHALEN_FOUT-pad; deze mapper-tak is defense-in-depth voor
         // paden waar het exception buiten de service-catch doorlekt.
         if (exception.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
-            // Fail-fast als toekomstige tweede factory cause introduceert; categorie-check
-            // alleen dekt CONFIG_DRIFT als geheel, niet enkel configDrift()-factory.
-            // Stacktrace via cause zou upstream-URL (BSN/RSIN/KVK in pad) lekken naar log.
-            require(exception.cause == null) {
-                "CONFIG_DRIFT mag geen cause hebben — PII-leak risico via stacktrace (errorId=$errorId)"
+            // CONFIG_DRIFT hoort geen cause te dragen: een stacktrace via de cause zou de
+            // upstream-URL (BSN/RSIN/KVK in het pad) naar de log lekken. We gooien hier
+            // bewust GEEN exception: een throw binnen een ExceptionMapper valt terug op het
+            // JAX-RS-default-500-pad dat juist wél een stacktrace kan renderen — precies het
+            // PII-lek dat we willen voorkomen. Bij een toekomstige factory die toch een cause
+            // meegeeft loggen we de invariant-schending (zónder de cause te renderen) en
+            // bouwen we alsnog een veilige 500.
+            if (exception.cause != null) {
+                // Alert-marker zodat log-aggregatie deze invariant-schending (echte config-/
+                // code-bug) apart routeert i.p.v. in generieke ERROR-ruis te verdwijnen —
+                // consistent met de [ALERT ...]-markers in de cache-double-fail-paden.
+                log.errorf(
+                    "[ALERT config_drift_invariant] CONFIG_DRIFT met onverwachte cause (errorId=%s, cause=%s) — invariant geschonden; cause NIET gerenderd (PII-risico)",
+                    errorId,
+                    exception.cause?.javaClass?.simpleName,
+                )
+            } else {
+                // GEEN exception-arg: anders zou de zelf-gegooide ProfielServiceFoutException
+                // alsnog een stacktrace renderen die in toekomst PII zou kunnen lekken.
+                log.errorf(
+                    "Config-drift naar mapper-pad doorgelekt (errorId=%s) — service-catch zou dit normaal opvangen",
+                    errorId,
+                )
             }
-
-            // GEEN exception-arg: anders zou de zelf-gegooide ProfielServiceFoutException
-            // alsnog een stacktrace renderen die in toekomst PII zou kunnen lekken.
-            log.errorf(
-                "Config-drift naar mapper-pad doorgelekt (errorId=%s) — service-catch zou dit normaal opvangen",
-                errorId,
-            )
 
             val problem = Problem(
                 type = URI.create("https://moza.nl/problems/configuratie-mismatch"),
