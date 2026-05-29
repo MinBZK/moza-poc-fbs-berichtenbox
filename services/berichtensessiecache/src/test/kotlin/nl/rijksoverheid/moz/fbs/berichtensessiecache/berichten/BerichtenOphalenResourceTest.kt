@@ -4,6 +4,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.CoreMatchers.containsString
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -23,7 +24,15 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = false
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
+        MockMagazijnClientFactory.shouldHttpFailA = null
+        MockMagazijnClientFactory.shouldHttpFailB = null
         (berichtenCache as MockBerichtenCache).clear()
+    }
+
+    // Genereer een unieke geldige OIN per test (20 cijfers, niet geheel nullen).
+    private fun uniqueOin(): String {
+        val nanos = System.nanoTime().toString().takeLast(19).padStart(19, '0')
+        return "OIN:0$nanos"
     }
 
     @Test
@@ -52,7 +61,7 @@ class BerichtenOphalenResourceTest {
     @Test
     fun `GET ophalen retourneert SSE-stream met magazijn events`() {
         val response = given()
-            .header("X-Ontvanger", "999993653")
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -70,7 +79,7 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = true
 
         val response = given()
-            .header("X-Ontvanger", "999993653")
+            .header("X-Ontvanger", "BSN:999993653")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -84,16 +93,16 @@ class BerichtenOphalenResourceTest {
     fun `GET berichten na mislukt ophalen retourneert 200 met GEREED status en lege lijst`() {
         MockMagazijnClientFactory.shouldFailA = true
         MockMagazijnClientFactory.shouldFailB = true
-        val ontvanger = "fout-test-${System.nanoTime()}"
+        val ontvangerHeader = uniqueOin()
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -105,8 +114,10 @@ class BerichtenOphalenResourceTest {
 
     @Test
     fun `berichten in cache na ophalen`() {
+        val ontvangerHeader = "BSN:999991401"
+
         val sseResponse = given()
-            .header("X-Ontvanger", "cache-test")
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -118,7 +129,7 @@ class BerichtenOphalenResourceTest {
         )
 
         val berichtenResponse = given()
-            .header("X-Ontvanger", "cache-test")
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -133,7 +144,7 @@ class BerichtenOphalenResourceTest {
     @Test
     fun `GET ophalen multi-magazijn aggregatie beide OK`() {
         val response = given()
-            .header("X-Ontvanger", "multi-ok-${System.nanoTime()}")
+            .header("X-Ontvanger", uniqueOin())
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -145,12 +156,12 @@ class BerichtenOphalenResourceTest {
 
     @Test
     fun `GET ophalen terwijl aggregatie al bezig is retourneert 409`() {
-        val ontvanger = "conflict-test-${System.nanoTime()}"
-        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+        val ontvangerHeader = uniqueOin()
+        val cacheKey = BerichtenCache.cacheKey(Identificatienummer.fromHeader(ontvangerHeader))
         (berichtenCache as MockBerichtenCache).simuleerBezig(cacheKey)
 
         given()
-            .header("X-Ontvanger", ontvanger)
+            .header("X-Ontvanger", ontvangerHeader)
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(409)
@@ -163,7 +174,7 @@ class BerichtenOphalenResourceTest {
         MockMagazijnClientFactory.shouldFailB = true
 
         val response = given()
-            .header("X-Ontvanger", "partial-fail-${System.nanoTime()}")
+            .header("X-Ontvanger", uniqueOin())
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -172,5 +183,96 @@ class BerichtenOphalenResourceTest {
         assertTrue(response.contains("\"totaalMagazijnen\":2"), "Verwacht totaalMagazijnen=2 in: $response")
         assertTrue(response.contains("\"geslaagd\":1"), "Verwacht geslaagd=1 in: $response")
         assertTrue(response.contains("\"mislukt\":1"), "Verwacht mislukt=1 in: $response")
+    }
+
+    @Test
+    fun `GET ophalen met magazijn 5xx toont FOUT met tijdelijk-bericht`() {
+        MockMagazijnClientFactory.shouldHttpFailA = 503
+        MockMagazijnClientFactory.shouldHttpFailB = 503
+
+        val response = given()
+            .header("X-Ontvanger", uniqueOin())
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(response.contains("\"status\":\"FOUT\""), "Verwacht FOUT status in: $response")
+        assertTrue(response.contains("tijdelijk niet bereikbaar"), "Verwacht 5xx-bericht in: $response")
+    }
+
+    // ── B3: Bean-Validation @Pattern + @Size aan de rand ──────────────────
+
+    @Test
+    fun `GET ophalen met BSN-pattern violation (niet-cijfer) levert 400 vóór fromHeader-parsing`() {
+        // @Pattern moet vóór fromHeader/elfproef afkappen; voorkomt attacker-prefix-lek in Problem.detail.
+        given()
+            .header("X-Ontvanger", "BSN:abc12345")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met OIN-pattern violation (te kort) levert 400 vóór fromHeader-parsing`() {
+        given()
+            .header("X-Ontvanger", "OIN:123")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met KVK-pattern violation (9 cijfers ipv 8) levert 400`() {
+        given()
+            .header("X-Ontvanger", "KVK:123456789")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met onbekend type-prefix (FOO) levert 400`() {
+        given()
+            .header("X-Ontvanger", "FOO:123456789")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met lowercase prefix (bsn) levert 400`() {
+        // IdentificatienummerType.valueOf is hoofdletter-gevoelig; lowercase mag niet bypassen.
+        given()
+            .header("X-Ontvanger", "bsn:999993653")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET ophalen met magazijn 4xx toont FOUT met configuratiefout-bericht`() {
+        MockMagazijnClientFactory.shouldHttpFailA = 403
+        MockMagazijnClientFactory.shouldHttpFailB = 403
+
+        val response = given()
+            .header("X-Ontvanger", uniqueOin())
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(response.contains("\"status\":\"FOUT\""), "Verwacht FOUT status in: $response")
+        // 4xx krijgt aparte foutmelding (configuratie/auth) zodat operator dit niet als
+        // transient verwart. Generieke "kon niet geraadpleegd worden" is voor onbekende fouten.
+        assertTrue(
+            response.contains("aanvraag geweigerd") && response.contains("configuratiefout"),
+            "Verwacht 4xx-configuratiefout-bericht in: $response",
+        )
     }
 }

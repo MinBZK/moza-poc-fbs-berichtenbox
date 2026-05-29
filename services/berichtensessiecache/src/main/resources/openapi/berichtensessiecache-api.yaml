@@ -14,8 +14,18 @@ info:
     url: https://eupl.eu/1.2/nl/
 
 servers:
+  - url: https://berichtensessiecache.moza.example.nl/api/v1
+    description: Productie (placeholder — overschrijven per omgeving)
+  - url: http://localhost:8080/api/v1
+    description: Lokale dev-mode (quarkus:dev)
   - url: /api/v1
-    description: API v1
+    description: Relatieve fallback (reverse-proxy/ingress)
+
+tags:
+  - name: berichten
+    description: Beheren en opvragen van berichtrecords in de sessiecache.
+  - name: ophalen
+    description: Aggregatie-ophaalproces uit de aangesloten magazijnen (SSE-stream).
 
 paths:
   /berichten:
@@ -73,9 +83,12 @@ paths:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
           in: query
-          description: Filter op afzender (OIN)
+          description: Filter op afzender (OIN, 20 cijfers)
           schema:
             type: string
+            pattern: '^[0-9]{20}$'
+            minLength: 20
+            maxLength: 20
       responses:
         '200':
           description: Lijst van berichten
@@ -205,9 +218,12 @@ paths:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
           in: query
-          description: Filter op afzender (OIN)
+          description: Filter op afzender (OIN, 20 cijfers)
           schema:
             type: string
+            pattern: '^[0-9]{20}$'
+            minLength: 20
+            maxLength: 20
       responses:
         '200':
           description: Zoekresultaten
@@ -275,12 +291,31 @@ paths:
           description: |
             Berichten worden momenteel al opgehaald voor deze ontvanger.
             Wacht tot het ophalen is afgerond.
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          description: |
+            De Profiel Service is tijdelijk niet bereikbaar. De toestemmingscontrole
+            kon niet uitgevoerd worden; client kan over 30 seconden opnieuw proberen.
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            Retry-After:
+              description: Aantal seconden waarna client opnieuw mag proberen.
+              schema:
+                type: integer
+                example: 30
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 
 components:
   parameters:
@@ -305,10 +340,19 @@ components:
       name: X-Ontvanger
       in: header
       required: true
-      description: Ontvanger (BSN of KVK-nummer). Wordt doorgegeven als header om te voorkomen dat persoonsgegevens in URL/logs terechtkomen.
+      description: |
+        Ontvanger van het bericht in formaat `<TYPE>:<WAARDE>`, bijvoorbeeld
+        `BSN:123456782`, `KVK:12345678`, `RSIN:002564440` of `OIN:00000001003214345000`.
+        Wordt als header doorgegeven om persoonsgegevens uit URL en toegangslogs te houden.
+
+        De regex koppelt de lengte aan het type: BSN/RSIN = 9 cijfers (elfproef),
+        KVK = 8 cijfers, OIN = 20 cijfers. Verdere domein-invarianten (elfproef voor
+        BSN/RSIN, niet-geheel-nullen) worden in de service-laag afgedwongen.
       schema:
         type: string
-        minLength: 1
+        pattern: '^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$'
+        minLength: 12
+        maxLength: 24
 
   headers:
     API-Version:
@@ -460,6 +504,10 @@ components:
           type: integer
         totaalMagazijnen:
           type: integer
+        referentie:
+          type: string
+          format: uuid
+          description: Correlatie-id richting support-log (alleen bij `ophalen-fout`).
 
     PaginationLinks:
       type: object
@@ -545,7 +593,21 @@ components:
 
     Problem:
       type: object
-      description: Problem Details (RFC 9457)
+      description: |
+        Problem Details voor REST APIs (RFC 9457). `type` identificeert het soort
+        fout en is stabiel per fout-categorie; clients mogen op deze waarde
+        schakelen voor afwijkende UX-gedrag (bv. retry-strategie of melding).
+        Bekende `type`-waarden uitgegeven door deze API:
+
+        | type                                                            | status | semantiek                                                                 |
+        |-----------------------------------------------------------------|--------|---------------------------------------------------------------------------|
+        | `about:blank`                                                   | 4xx/5xx | Generiek; titel en detail beschrijven het probleem                       |
+        | `https://moza.nl/problems/profiel-service-onbereikbaar`         | 503    | Profiel-service tijdelijk niet bereikbaar; `Retry-After` aanwezig         |
+        | `https://moza.nl/problems/configuratie-mismatch`                | 500    | Eigen-configuratie-fout; client retry heeft geen effect (contact beheerder) |
+
+        `instance` is consistent gevuld met `urn:uuid:<errorId>` — dezelfde id
+        is terugvindbaar in de server-side log-regels rondom de fout (zowel
+        het foutpad als eventuele cleanup-acties).
       properties:
         type:
           type: string

@@ -1,14 +1,18 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 import java.util.UUID
 
@@ -19,7 +23,12 @@ class RedisBerichtenCacheIntegrationTest {
     @Inject
     lateinit var berichtenCache: BerichtenCache
 
-    private val ontvanger = "integration-test-${System.nanoTime()}"
+    @Inject
+    lateinit var redis: ReactiveRedisDataSource
+
+    // OIN gebruikt als test-ontvanger: geen elfproef-vereiste, 20-cijferig uniek per test-run.
+    private val ontvangerWaarde = System.nanoTime().toString().padStart(20, '0').takeLast(20)
+    private val ontvanger = Oin(ontvangerWaarde)
 
     private fun cacheKey() = BerichtenCache.cacheKey(ontvanger)
 
@@ -27,7 +36,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
-            ontvanger = ontvanger,
+            ontvanger = ontvanger.waarde,
             onderwerp = "Eerste bericht over belastingaangifte",
             tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
@@ -35,7 +44,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000009876543210000",
-            ontvanger = ontvanger,
+            ontvanger = ontvanger.waarde,
             onderwerp = "Tweede bericht over subsidie",
             tijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
@@ -43,7 +52,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
-            ontvanger = ontvanger,
+            ontvanger = ontvanger.waarde,
             onderwerp = "Derde bericht over vergunning",
             tijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
@@ -121,7 +130,9 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
-        val result = berichtenCache.getById(berichten[0].berichtId, "andere-ontvanger")
+        // OIN met andere waarde: 20 cijfers, niet geheel nullen
+        val andereOntvanger = Oin("00000001003214345000")
+        val result = berichtenCache.getById(berichten[0].berichtId, andereOntvanger)
             .await().indefinitely()
 
         assertNull(result)
@@ -154,12 +165,12 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuwBericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000005555555550000",
-            ontvanger = ontvanger,
+            ontvanger = ontvanger.waarde,
             onderwerp = "Nieuw bericht",
             tijdstip = Instant.parse("2026-03-10T14:00:00Z"),
             magazijnId = "magazijn-c",
         )
-        berichtenCache.addBericht(nieuwBericht).await().indefinitely()
+        berichtenCache.addBericht(nieuwBericht, ontvanger).await().indefinitely()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
         assertNotNull(page)
@@ -247,6 +258,67 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `updateAggregationStatus laat lock-key intact`() {
+        val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
+
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+
+        assertTrue(lockVerkregen, "Eerste trySet moet slagen")
+
+        // updateAggregationStatus werkt de waarde bij maar houdt de lock (key) intact.
+        berichtenCache.updateAggregationStatus(
+            cacheKey(),
+            bezigStatus.copy(totaalMagazijnen = 3),
+        ).await().indefinitely()
+
+        val lockNogAanwezig = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+
+        assertFalse(lockNogAanwezig, "Lock moet nog aanwezig zijn na updateAggregationStatus")
+    }
+
+    @Test
+    fun `trySetAggregationStatus - lock heeft TTL en verdwijnt automatisch`() {
+        // Bewijst dat SET NX EX atomair werkt: na verlopen TTL is de lock vrij
+        // zodat een nieuwe aanroep kan slagen (geen eeuwig-lock na EXPIRE-failure).
+        val status = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1)
+
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertTrue(lockVerkregen, "Eerste trySet moet slagen")
+
+        // Tweede aanroep faalt meteen: lock bestaat nog.
+        val dubbel = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertFalse(dubbel, "Lock moet geblokkeerd zijn terwijl hij actief is")
+
+        // TTL is 2s in RealRedisTestProfile; na 3s is de lock automatisch verdwenen.
+        Thread.sleep(3_000)
+
+        val naVerloop = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertTrue(naVerloop, "Lock moet na TTL-verloop opnieuw verkregen kunnen worden")
+    }
+
+    @Test
+    fun `storeAggregationStatus geeft lock vrij`() {
+        val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
+
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+
+        assertTrue(lockVerkregen, "Eerste trySet moet slagen")
+
+        // storeAggregationStatus schrijft eindstatus en verwijdert de lock-key.
+        berichtenCache.storeAggregationStatus(
+            cacheKey(),
+            AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0),
+        ).await().indefinitely()
+
+        val lockVrij = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+
+        assertTrue(lockVrij, "Lock moet vrij zijn na storeAggregationStatus")
+    }
+
+    @Test
     fun `sliding TTL - getById verlengt TTL van berichthash`() {
         val berichten = testBerichten().take(1)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
@@ -257,5 +329,123 @@ class RedisBerichtenCacheIntegrationTest {
             val bericht = berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
             assertNotNull(bericht, "Bericht-hash is vroegtijdig verlopen op iteratie $it")
         }
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij ontbrekend verplicht veld`() {
+        // Schema-drift / corruptie: hash bestaat maar mist een verplicht veld.
+        // hashToBericht MOET CacheCorruptedException werpen (niet RuntimeException of upcast),
+        // anders wordt het pad in BerichtensessiecacheResource verkeerd geclassificeerd (503 i.p.v. 500).
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val partialHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "onderwerp" to "test",
+            "tijdstip" to "2026-03-10T10:00:00Z",
+            // `magazijnId` ontbreekt opzettelijk
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, partialHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("magazijnId"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij onleesbare UUID-waarde`() {
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corruptHash = mapOf(
+            "berichtId" to "geen-uuid-meer",
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "onderwerp" to "test",
+            "tijdstip" to "2026-03-10T10:00:00Z",
+            "magazijnId" to "magazijn-a",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("berichtId"), "Was: ${ex.message}")
+        assertTrue(ex.cause is IllegalArgumentException, "Cause moet UUID-parse-fout zijn: ${ex.cause}")
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij onleesbare tijdstip-waarde`() {
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corruptHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "onderwerp" to "test",
+            "tijdstip" to "niet-een-iso-instant",
+            "magazijnId" to "magazijn-a",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("tijdstip"), "Was: ${ex.message}")
+        assertTrue(ex.cause is java.time.format.DateTimeParseException, "Cause moet Instant-parse-fout zijn: ${ex.cause}")
+    }
+
+    @Test
+    fun `getPage met corrupte JSON-entry gooit JsonProcessingException (geen Redis-onbereikbaar-misdiagnose)`() {
+        // JPE moet propageren (resource heeft dedicated 500-pad) — niet wegfilteren als
+        // "Redis-mislukt" via catch-all (=verkeerde diagnose).
+        val key = cacheKey()
+        val listKey = "$key:list"
+
+        redis.list(String::class.java).rpush(listKey, "{niet-geldig-json-payload}")
+            .await().indefinitely()
+
+        // Mutiny wrapt sync-throws in CompletionException → cause-chain-walk.
+        val ex = assertThrows<Throwable> {
+            berichtenCache.getPage(key, 0, 20, null, null).await().indefinitely()
+        }
+        val rootCause = generateSequence(ex as Throwable?) { it.cause }.last()
+
+        assertTrue(
+            rootCause is com.fasterxml.jackson.core.JsonProcessingException,
+            "Verwachtte JsonProcessingException als root-cause; was: ${rootCause.javaClass.name} (${rootCause.message})",
+        )
+    }
+
+    @Test
+    fun `init is idempotent — herhaalde aanroep dropt bestaande index niet`() {
+        // Simuleert rolling-restart-scenario: meerdere pods delen één Redis. Een tweede
+        // pod-start (= tweede init-aanroep) mag de index NIET droppen, anders verliezen
+        // andere replicas tijdelijk hun search-resultaten.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        // Verifieer dat berichten vóór de tweede init vindbaar zijn via search.
+        val voorTweedeInit = berichtenCache.search(ontvanger, "belastingaangifte", 0, 20, null)
+            .await().indefinitely()
+        assertTrue(voorTweedeInit.berichten.isNotEmpty(), "Setup-precondities: bericht moet vindbaar zijn")
+
+        // Tweede init() = pod-restart-simulatie. Mag geen drop doen.
+        (berichtenCache as RedisBerichtenCache).init()
+
+        // Berichten MOETEN nog steeds vindbaar zijn — als de index gedropt zou zijn,
+        // levert search() 0 resultaten op (bestaande hashes zijn niet meer geïndexeerd
+        // tot de eerstvolgende store()).
+        val naTweedeInit = berichtenCache.search(ontvanger, "belastingaangifte", 0, 20, null)
+            .await().indefinitely()
+        assertTrue(naTweedeInit.berichten.isNotEmpty(), "Search moet werken na tweede init — index mag niet gedropt zijn")
+        assertEquals(voorTweedeInit.berichten.size, naTweedeInit.berichten.size)
     }
 }

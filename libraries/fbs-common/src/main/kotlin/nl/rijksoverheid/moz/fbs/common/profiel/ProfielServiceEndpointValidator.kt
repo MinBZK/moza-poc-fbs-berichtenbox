@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
+package nl.rijksoverheid.moz.fbs.common.profiel
 
 import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped

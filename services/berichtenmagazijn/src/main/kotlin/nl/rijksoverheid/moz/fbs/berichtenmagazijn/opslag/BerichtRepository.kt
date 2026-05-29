@@ -5,6 +5,7 @@ import io.quarkus.panache.common.Page
 import io.quarkus.panache.common.Sort
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention.HardDeleteCandidaat
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.time.Instant
 import java.util.UUID
 

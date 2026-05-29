@@ -8,6 +8,7 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.AggregationStatus as ApiAggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtInput
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BerichtLinks
@@ -49,17 +50,15 @@ class BerichtensessiecacheResource(
         pageSize: Int?,
         afzender: String?,
     ): BerichtensessiecacheResponse {
-        xOntvanger?.let {
-            logboekContext.dataSubjectId = it
-            logboekContext.dataSubjectType = "ontvanger"
-        }
+        val (ontvangerId, aggregation) = requireGereedStatus(xOntvanger)
 
-        val (ontvanger, aggregation) = requireGereedStatus(xOntvanger)
+        logboekContext.dataSubjectId = ontvangerId.waarde
+        logboekContext.dataSubjectType = "ontvanger"
 
         val p = page ?: 0
         val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichten(p, ps, ontvanger, afzender)
+            berichtensessiecacheService.getBerichten(p, ps, ontvangerId, afzender)
         }
         logboekContext.status = StatusCode.OK
         return result.toResponse(aggregation, afzender)
@@ -74,10 +73,10 @@ class BerichtensessiecacheResource(
         logboekContext.dataSubjectId = berichtId.toString()
         logboekContext.dataSubjectType = "berichtId"
 
-        val (ontvanger, _) = requireGereedStatus(xOntvanger)
+        val (ontvangerId, _) = requireGereedStatus(xOntvanger)
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichtById(berichtId, ontvanger)
+            berichtensessiecacheService.getBerichtById(berichtId, ontvangerId)
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )
@@ -97,17 +96,15 @@ class BerichtensessiecacheResource(
         pageSize: Int?,
         afzender: String?,
     ): BerichtensessiecacheResponse {
-        xOntvanger?.let {
-            logboekContext.dataSubjectId = it
-            logboekContext.dataSubjectType = "ontvanger"
-        }
+        val (ontvangerId, aggregation) = requireGereedStatus(xOntvanger)
 
-        val (ontvanger, aggregation) = requireGereedStatus(xOntvanger)
+        logboekContext.dataSubjectId = ontvangerId.waarde
+        logboekContext.dataSubjectType = "ontvanger"
 
         val p = page ?: 0
         val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvanger, afzender)
+            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvangerId, afzender)
         }
         logboekContext.status = StatusCode.OK
         return result.toResponse(aggregation, afzender)
@@ -125,10 +122,10 @@ class BerichtensessiecacheResource(
         logboekContext.dataSubjectId = berichtId.toString()
         logboekContext.dataSubjectType = "berichtId"
 
-        val ontvanger = requireOntvanger(xOntvanger)
+        val ontvangerId = requireOntvanger(xOntvanger)
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvanger, berichtStatusUpdate.status.toString())
+            berichtensessiecacheService.updateBerichtStatus(berichtId, ontvangerId, berichtStatusUpdate.status.toString())
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )
@@ -145,12 +142,14 @@ class BerichtensessiecacheResource(
         xOntvanger: String?,
         berichtInput: BerichtInput,
     ): BerichtResponse {
-        val ontvanger = requireOntvanger(xOntvanger)
+        val ontvangerId = requireOntvanger(xOntvanger)
 
-        logboekContext.dataSubjectId = ontvanger
+        logboekContext.dataSubjectId = ontvangerId.waarde
         logboekContext.dataSubjectType = "ontvanger"
 
-        if (berichtInput.ontvanger != ontvanger) {
+        // Vergelijk op .waarde: Bericht.ontvanger slaat de raw identificatiewaarde op (geen type-prefix),
+        // zodat JSON-serialisatie en upstream-contracten ongewijzigd blijven.
+        if (berichtInput.ontvanger != ontvangerId.waarde) {
             throw WebApplicationException(
                 "Ontvanger in body komt niet overeen met X-Ontvanger header.",
                 Response.Status.BAD_REQUEST,
@@ -160,7 +159,7 @@ class BerichtensessiecacheResource(
         // Aanmeld Service mag alleen bestaande, actieve sessies bijwerken: als er geen
         // aggregatie heeft plaatsgevonden voor deze ontvanger, hoort er ook geen cache te zijn.
         val aggregation = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getAggregationStatus(ontvanger)
+            berichtensessiecacheService.getAggregationStatus(ontvangerId)
         }
         if (aggregation == null) {
             throw WebApplicationException(
@@ -179,27 +178,29 @@ class BerichtensessiecacheResource(
         )
 
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.addBericht(bericht)
+            berichtensessiecacheService.addBericht(bericht, ontvangerId)
         }
 
         logboekContext.status = StatusCode.OK
         return result.toResponse()
     }
 
-    private fun requireOntvanger(ontvanger: String?): String {
+    private fun requireOntvanger(ontvanger: String?): Identificatienummer {
         if (ontvanger.isNullOrBlank()) {
             throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
         }
-        return ontvanger
+        return Identificatienummer.fromHeader(ontvanger)
     }
 
-    private fun requireGereedStatus(ontvanger: String?): Pair<String, AggregationStatus> {
+    private fun requireGereedStatus(ontvanger: String?): Pair<Identificatienummer, AggregationStatus> {
         if (ontvanger.isNullOrBlank()) {
             throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
         }
 
+        val ontvangerId = Identificatienummer.fromHeader(ontvanger)
+
         val aggregation = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getAggregationStatus(ontvanger)
+            berichtensessiecacheService.getAggregationStatus(ontvangerId)
         }
 
         if (aggregation == null) {
@@ -208,8 +209,9 @@ class BerichtensessiecacheResource(
                 Response.Status.CONFLICT,
             )
         }
+
         when (aggregation.status) {
-            OphalenStatus.GEREED -> return ontvanger to aggregation
+            OphalenStatus.GEREED -> return ontvangerId to aggregation
             OphalenStatus.BEZIG -> throw WebApplicationException(
                 "Berichten worden momenteel opgehaald. Wacht tot het ophalen is afgerond.",
                 Response.Status.CONFLICT,
@@ -224,10 +226,24 @@ class BerichtensessiecacheResource(
     private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {
         try {
             return block().await().atMost(TIMEOUT)
-        } catch (_: java.util.concurrent.TimeoutException) {
+        } catch (timeoutEx: java.util.concurrent.TimeoutException) {
+            // Cache-operatie hing langer dan TIMEOUT — log warn met cause zodat operations
+            // niet alleen het 503-pad ziet maar ook welke await het was. Silent discard
+            // verbergt prestatie-regressies in Redis.
+            log.warnf(timeoutEx, "Cache-operatie overschreed timeout van %s", TIMEOUT)
             throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
         } catch (e: WebApplicationException) {
             throw e
+        } catch (e: com.fasterxml.jackson.core.JsonProcessingException) {
+            // Cache-deserialisatie-fout = data-integriteit-issue (verkeerde versie, corrupte hash),
+            // niet "Redis onbereikbaar". 500 routeert via ProblemExceptionMapper zonder
+            // de verkeerde infrastructuur-diagnose te suggereren.
+            log.errorf(e, "Cache-data niet deserialiseerbaar (corruptie of schema-drift)")
+            throw WebApplicationException("Cache-data niet leesbaar.", 500)
+        } catch (e: CacheCorruptedException) {
+            // Hash-velden ontbreken of onleesbaar → eigen data-issue, niet bereikbaarheids-issue.
+            log.errorf(e, "Cache-hash corrupt")
+            throw WebApplicationException("Cache-data niet leesbaar.", 500)
         } catch (e: Exception) {
             log.errorf(e, "Cache-operatie mislukt")
             throw WebApplicationException("Cache niet bereikbaar.", 503)
