@@ -397,51 +397,95 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis addBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }
 
+    // Plan dat de read-fase (onder WATCH) doorgeeft aan de write-fase van de transactie.
+    private data class DeletePlan(val uitvoeren: Boolean, val gefilterdeLijst: List<String>)
+
     override fun delete(berichtId: UUID, ontvanger: String): Uni<Void> {
         // Idempotent cache-invalidate: ontbrekende of niet-bijbehorende entries leveren geen fout op.
         // De sessie-`list` bevat JSON-blobs (gevuld via `addBericht.rpush`) die `getPage` direct
         // deserialiseert — dus na DEL op de hash blijft het bericht zonder list-prune zichtbaar
-        // in `GET /berichten`. We lezen de list, filteren de matchende `berichtId`-entries eruit
-        // en schrijven de gefilterde list terug binnen één transactie. Robuust onder eventuele
-        // update-staat-mismatches: we filteren op `berichtId` uit de geparseerde JSON, niet op
-        // exacte stringequality.
+        // in `GET /berichten`. We filteren de matchende `berichtId`-entries uit de list (op
+        // `berichtId` uit de geparseerde JSON, niet op exacte stringequality) en schrijven de
+        // gefilterde list terug.
+        //
+        // Read en rewrite draaien onder optimistic locking (WATCH op list- en bericht-key): een
+        // concurrent `addBericht` die tussen de read en EXEC een entry toevoegt, breekt de
+        // transactie af zodat we zijn nieuwe entry niet overschrijven. Bij afbreken herhalen we
+        // tot MAX_DELETE_POGINGEN; daarna laten we de cache met rust (zelf-helend via TTL) i.p.v.
+        // een lost-update te riskeren.
+        return deletePoging(berichtId, ontvanger, 1)
+    }
+
+    private fun deletePoging(berichtId: UUID, ontvanger: String, poging: Int): Uni<Void> {
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
-        return redis.hash(String::class.java).hgetall(berichtKey)
-            .chain { fields ->
-                if (fields.isEmpty() || fields["ontvanger"] != ontvanger) {
+
+        return redis.withTransaction<DeletePlan>(
+            { reads ->
+                reads.hash(String::class.java).hgetall(berichtKey)
+                    .chain { fields ->
+                        if (fields.isEmpty() || fields["ontvanger"] != ontvanger) {
+                            Uni.createFrom().item(DeletePlan(uitvoeren = false, gefilterdeLijst = emptyList()))
+                        } else {
+                            reads.list(String::class.java).lrange(listKey, 0, -1)
+                                .map { entries ->
+                                    val gefilterd = entries.filterNot { json ->
+                                        runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
+                                            .getOrNull() == berichtId.toString()
+                                    }
+
+                                    DeletePlan(uitvoeren = true, gefilterdeLijst = gefilterd)
+                                }
+                        }
+                    }
+            },
+            { plan, tx ->
+                if (!plan.uitvoeren) {
                     Uni.createFrom().voidItem()
                 } else {
-                    redis.list(String::class.java).lrange(listKey, 0, -1)
-                        .chain { entries ->
-                            val gefilterd = entries.filterNot { json ->
-                                runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
-                                    .getOrNull() == berichtId.toString()
-                            }
-                            redis.withTransaction { tx ->
-                                val txKey = tx.key()
-                                val txList = tx.list(String::class.java)
-                                val rebuildList = if (gefilterd.isNotEmpty()) {
-                                    txKey.del(listKey)
-                                        .chain { _ -> txList.rpush(listKey, *gefilterd.toTypedArray()) }
-                                        .chain { _ -> txKey.expire(listKey, ttl) }
-                                        .replaceWithVoid()
-                                } else {
-                                    txKey.del(listKey).replaceWithVoid()
-                                }
+                    val txKey = tx.key()
+                    val txList = tx.list(String::class.java)
+                    val rebuildList = if (plan.gefilterdeLijst.isNotEmpty()) {
+                        txKey.del(listKey)
+                            .chain { _ -> txList.rpush(listKey, *plan.gefilterdeLijst.toTypedArray()) }
+                            .chain { _ -> txKey.expire(listKey, ttl) }
+                            .replaceWithVoid()
+                    } else {
+                        txKey.del(listKey).replaceWithVoid()
+                    }
 
-                                txKey.del(berichtKey)
-                                    .chain { _ -> rebuildList }
-                                    .replaceWithVoid()
-                            }.replaceWithVoid()
-                        }
+                    txKey.del(berichtKey)
+                        .chain { _ -> rebuildList }
+                        .replaceWithVoid()
                 }
+            },
+            listKey,
+            berichtKey,
+        ).chain { result ->
+            if (result.discarded() && poging < MAX_DELETE_POGINGEN) {
+                deletePoging(berichtId, ontvanger, poging + 1)
+            } else {
+                if (result.discarded()) {
+                    log.warnf(
+                        "Redis delete na %d pogingen afgebroken door concurrente wijziging; cache zelf-helend via TTL. berichtId=%s",
+                        poging,
+                        berichtId,
+                    )
+                }
+
+                Uni.createFrom().voidItem()
             }
+        }
             .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor berichtId=%s", berichtId) }
     }
 
     companion object {
+        // Aantal optimistic-lock-pogingen voor `delete` voordat de invalidate wordt
+        // opgegeven; concurrente wijziging op één sessie-list is zeldzaam, dus een klein
+        // plafond volstaat en voorkomt ongebonden retry onder pathologische contentie.
+        private const val MAX_DELETE_POGINGEN = 5
+
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"
         private fun lockKey(key: String) = "$key:lock"

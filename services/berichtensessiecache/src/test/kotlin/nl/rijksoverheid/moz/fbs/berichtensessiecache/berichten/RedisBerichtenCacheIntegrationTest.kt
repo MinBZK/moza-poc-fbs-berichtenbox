@@ -285,8 +285,15 @@ class RedisBerichtenCacheIntegrationTest {
         val target = berichten[0]
         berichtenCache.delete(target.berichtId, "andere-ontvanger").await().indefinitely()
 
+        // Guard moet vóór elke mutatie short-circuiten: zowel de hash (getById) als
+        // de list (getPage) van de échte ontvanger blijven volledig intact.
         val result = berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()
         assertNotNull(result)
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
+        assertNotNull(page)
+        assertEquals(berichten.size, page!!.berichten.size)
+        assertTrue(page.berichten.any { it.berichtId == target.berichtId })
     }
 
     @Test
