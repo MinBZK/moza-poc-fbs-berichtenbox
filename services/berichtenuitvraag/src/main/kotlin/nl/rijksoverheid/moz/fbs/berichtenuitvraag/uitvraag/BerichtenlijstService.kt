@@ -36,8 +36,11 @@ class BerichtenlijstService(
         return lijst
     }
 
+    // Anker op de query-param-grens (`?`/`&`) zodat alleen een echte parameternaam
+    // wordt herschreven en niet een toevallige substring (bv. een `homepage=`-waarde).
     private fun vertaalParams(href: String?): String? =
-        href?.replace("pageSize=", "paginaGrootte=")?.replace("page=", "pagina=")
+        href?.replace(Regex("([?&])pageSize="), "$1paginaGrootte=")
+            ?.replace(Regex("([?&])page="), "$1pagina=")
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtenlijstService::class.java)

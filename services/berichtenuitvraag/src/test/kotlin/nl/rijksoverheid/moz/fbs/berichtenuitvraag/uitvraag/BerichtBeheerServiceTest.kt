@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
+import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.InternalServerErrorException
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
@@ -236,6 +237,34 @@ class BerichtBeheerServiceTest {
 
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify(exactly = 0) { magazijn.verwijderBericht(any(), any()) }
+    }
+
+    @Test
+    fun `patch magazijn-403 propageert 1-op-1 zonder 502 en zonder cache-call`() {
+        // Autorisatie afgewezen door het magazijn (4xx) is geen transport-storing:
+        // de status moet 1-op-1 naar de client, niet hergetypeerd naar 502, en de
+        // cache mag niet aangeraakt worden (magazijn-write is niet doorgegaan).
+        every { magazijn.patchBericht(any(), any(), any()) } throws ForbiddenException("magazijn-403")
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.patch(ontvanger, id, patch)
+        }
+
+        assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
+        verify(exactly = 0) { sessiecache.patchBericht(any(), any(), any()) }
+    }
+
+    @Test
+    fun `verwijder magazijn-401 propageert 1-op-1 zonder 502 en zonder cache-call`() {
+        every { magazijn.verwijderBericht(any(), any()) } throws
+            WebApplicationException("magazijn-401", Response.Status.UNAUTHORIZED)
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.verwijder(ontvanger, id)
+        }
+
+        assertEquals(Response.Status.UNAUTHORIZED.statusCode, ex.response.status)
+        verify(exactly = 0) { sessiecache.verwijderBericht(any(), any()) }
     }
 
     @Test

@@ -269,7 +269,9 @@ class BerichtensessiecacheResource(
     private fun <T> awaitOrServiceUnavailable(block: () -> io.smallrye.mutiny.Uni<T>): T {
         try {
             return block().await().atMost(TIMEOUT)
-        } catch (_: java.util.concurrent.TimeoutException) {
+        } catch (e: java.util.concurrent.TimeoutException) {
+            log.warnf(e, "Cache-timeout na %s; 503 naar client", TIMEOUT)
+
             throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
         } catch (e: WebApplicationException) {
             throw e

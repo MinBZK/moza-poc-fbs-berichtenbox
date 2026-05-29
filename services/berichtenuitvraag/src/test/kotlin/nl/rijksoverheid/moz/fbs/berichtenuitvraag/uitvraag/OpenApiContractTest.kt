@@ -217,4 +217,96 @@ class OpenApiContractTest {
             .header("Content-Type", "application/pdf")
             .header("Content-Disposition", "attachment")
     }
+
+    // --- Foutresponses tegen het Problem-schema (RFC 9457), via de validator ---
+
+    @Test
+    fun `GET bericht by id - cache-404 levert valide Problem-404`() {
+        val id = UUID.randomUUID()
+        // Specifieke stub overschrijft de wildcard-200 uit resetStubs().
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(404)),
+        )
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET bijlage - magazijn-5xx levert valide Problem-502`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        // Cache-lookup OK (wildcard-200 uit resetStubs levert magazijnId=magazijn-a);
+        // magazijn-bijlage faalt met 5xx → service mapt naar 502.
+        WireMockBackendsResource.magazijn!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
+                .willReturn(aResponse().withStatus(500)),
+        )
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(502)
+            .contentType("application/problem+json")
+    }
+
+    // --- Input-validatie (400): X-Ontvanger en zoek-parameter `q` ---
+    // Geen validator-filter: de triggerende request is bewust spec-ongeldig
+    // (ontbrekende/kromme header, ontbrekende verplichte param). We borgen hier
+    // dat de afwijzing 400 + application/problem+json is — de PII-invariant dat
+    // een ongevalideerde X-Ontvanger nooit de LDV-audittrail of een magazijn raakt.
+
+    @Test
+    fun `GET berichten zonder X-Ontvanger levert 400 problem+json`() {
+        given()
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET berichten met malformed X-Ontvanger levert 400 problem+json`() {
+        given()
+            .header("X-Ontvanger", "GEENGELDIGTYPE:123")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET berichten-zoeken zonder verplichte q levert 400 problem+json`() {
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/_zoeken")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET berichten-zoeken met te lange q levert 400 problem+json`() {
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("q", "x".repeat(201))
+            .`when`()
+            .get("/api/v1/berichten/_zoeken")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
 }

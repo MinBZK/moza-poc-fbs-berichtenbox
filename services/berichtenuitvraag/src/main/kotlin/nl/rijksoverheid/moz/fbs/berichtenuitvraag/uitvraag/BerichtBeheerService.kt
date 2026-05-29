@@ -47,7 +47,14 @@ class BerichtBeheerService(
         try {
             return sessiecache.patchBericht(xOntvanger, berichtId, patch)
         } catch (e: WebApplicationException) {
-            if (!isUpstreamTransportFout(e)) throw e
+            if (!isUpstreamTransportFout(e)) {
+                // 4xx propageert 1-op-1, maar de magazijn-write is al geslaagd: magazijn en
+                // cache kunnen tot de TTL inconsistent zijn. Niet compenseren (4xx = contract-
+                // bug, geen transport-storing), wél loggen zodat de inconsistentie traceerbaar is.
+                log.warnf(e, "cache-PATCH 4xx ná geslaagde magazijn-PATCH; magazijn↔cache mogelijk stale tot TTL. berichtId=%s", berichtId)
+
+                throw e
+            }
 
             log.errorf(e, "cache-PATCH 5xx na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
             compensatieInvalidate(xOntvanger, berichtId)
@@ -69,7 +76,14 @@ class BerichtBeheerService(
         try {
             sessiecache.verwijderBericht(xOntvanger, berichtId)
         } catch (e: WebApplicationException) {
-            if (!isUpstreamTransportFout(e)) throw e
+            if (!isUpstreamTransportFout(e)) {
+                // 4xx propageert 1-op-1, maar de magazijn-DELETE is al geslaagd: magazijn en
+                // cache kunnen tot de TTL inconsistent zijn. Niet compenseren (4xx = contract-
+                // bug, geen transport-storing), wél loggen zodat de inconsistentie traceerbaar is.
+                log.warnf(e, "cache-DELETE 4xx ná geslaagde magazijn-DELETE; magazijn↔cache mogelijk stale tot TTL. berichtId=%s", berichtId)
+
+                throw e
+            }
 
             log.errorf(e, "cache-DELETE 5xx na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
             compensatieInvalidate(xOntvanger, berichtId)

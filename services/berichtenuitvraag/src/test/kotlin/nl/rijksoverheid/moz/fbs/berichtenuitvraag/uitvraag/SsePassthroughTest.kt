@@ -52,6 +52,40 @@ class SsePassthroughTest {
     }
 
     @Test
+    fun `_ophalen pijpt partial-failure (1 magazijn OK, 1 FOUT) 1-op-1 door`() {
+        // Degradatiegedrag (CLAUDE.md testlaag 4): de sessiecache levert per
+        // magazijn een statusevent; één OK, één FOUT. De passthrough mag de
+        // degradatie niet maskeren of hertypen — beide events moeten ongewijzigd
+        // bij de client aankomen, inclusief het OPHALEN_GEREED-eindevent met de
+        // mislukt-telling.
+        val sseBody = buildString {
+            append("data: {\"event\":\"MAGAZIJN_BEVRAGING_VOLTOOID\",\"magazijnId\":\"magazijn-a\",\"status\":\"OK\"}\n\n")
+            append("data: {\"event\":\"MAGAZIJN_BEVRAGING_VOLTOOID\",\"magazijnId\":\"magazijn-b\",\"status\":\"FOUT\"}\n\n")
+            append("data: {\"event\":\"OPHALEN_GEREED\",\"geslaagd\":1,\"mislukt\":1}\n\n")
+        }
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/_ophalen"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "text/event-stream")
+                        .withBody(sseBody),
+                ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .header("Accept", "text/event-stream")
+            .`when`()
+            .get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .body(containsString("\"status\":\"OK\""))
+            .body(containsString("\"status\":\"FOUT\""))
+            .body(containsString("\"mislukt\":1"))
+    }
+
+    @Test
     fun `_ophalen propageert sessiecache-fout met error-status`() {
         WireMockBackendsResource.sessiecache!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/_ophalen"))
