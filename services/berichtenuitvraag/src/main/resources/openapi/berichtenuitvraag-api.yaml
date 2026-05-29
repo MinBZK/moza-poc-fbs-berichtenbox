@@ -316,6 +316,11 @@ components:
 
     BijlageMetadata:
       type: object
+      description: |
+        Bijlage-metadata. `mimeType` en `grootteInBytes` zijn optioneel en
+        ontbreken wanneer het bericht uit de sessiecache komt (die bewaart per
+        bijlage alleen `bijlageId` en `naam`); het werkelijke MIME-type wordt
+        meegegeven bij het downloaden van de bijlage zelf.
       required: [bijlageId, naam]
       properties:
         bijlageId: { type: string, format: uuid }

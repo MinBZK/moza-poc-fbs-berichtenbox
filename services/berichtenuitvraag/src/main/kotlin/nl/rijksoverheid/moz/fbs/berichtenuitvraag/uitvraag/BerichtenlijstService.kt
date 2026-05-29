@@ -6,7 +6,7 @@ import org.eclipse.microprofile.rest.client.inject.RestClient
 
 /**
  * Thin pass-through naar de sessiecache voor lijst- en zoekoperaties. SSE-
- * passthrough (`_ophalen`) wordt in [SsePassthroughResource] geregeld (Task 9)
+ * passthrough (`_ophalen`) wordt in [SsePassthroughResource] geregeld
  * omdat de Quarkus REST-client voor SSE een `Multi<T>`-signatuur nodig heeft
  * die niet in deze synchrone client past.
  */
@@ -15,8 +15,26 @@ class BerichtenlijstService(
     @RestClient private val sessiecache: SessiecacheClient,
 ) {
     fun lijst(xOntvanger: String, map: String?, pagina: Int?, paginaGrootte: Int?): BerichtenLijst =
-        sessiecache.lijst(xOntvanger, map, pagina, paginaGrootte)
+        vertaalPaginatieLinks(sessiecache.lijst(xOntvanger, map, pagina, paginaGrootte))
 
     fun zoek(xOntvanger: String, q: String, map: String?): BerichtenLijst =
-        sessiecache.zoek(xOntvanger, q, map)
+        vertaalPaginatieLinks(sessiecache.zoek(xOntvanger, q, map))
+
+    // De sessiecache levert HAL-paginatie-links met haar eigen query-parameters
+    // (`page`/`pageSize`); dit endpoint adverteert `pagina`/`paginaGrootte`. Zonder
+    // vertaling komt een client die `_links.next` volgt op de verkeerde parameter-
+    // namen uit en krijgt hij altijd pagina 0 terug. Paden zijn al gelijk
+    // (`/api/v1/berichten`), dus alleen de parameternamen worden herschreven.
+    private fun vertaalPaginatieLinks(lijst: BerichtenLijst): BerichtenLijst {
+        lijst.links?.let { links ->
+            links.self?.let { it.href = vertaalParams(it.href) }
+            links.next?.let { it.href = vertaalParams(it.href) }
+            links.prev?.let { it.href = vertaalParams(it.href) }
+        }
+
+        return lijst
+    }
+
+    private fun vertaalParams(href: String?): String? =
+        href?.replace("pageSize=", "paginaGrootte=")?.replace("page=", "pagina=")
 }

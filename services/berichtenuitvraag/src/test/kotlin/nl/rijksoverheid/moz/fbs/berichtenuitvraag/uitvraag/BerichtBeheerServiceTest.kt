@@ -213,6 +213,30 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
+    fun `patch met cache-transportfout op lookup gooit 502 zonder magazijn-call`() {
+        every { sessiecache.bericht(any(), id) } throws ProcessingException("connect timeout")
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.patch(ontvanger, id, patch)
+        }
+
+        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
+        verify(exactly = 0) { magazijn.patchBericht(any(), any(), any()) }
+    }
+
+    @Test
+    fun `verwijder met cache-5xx op lookup gooit 502 zonder magazijn-call`() {
+        every { sessiecache.bericht(any(), id) } throws InternalServerErrorException("cache-down")
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.verwijder(ontvanger, id)
+        }
+
+        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
+        verify(exactly = 0) { magazijn.verwijderBericht(any(), any()) }
+    }
+
+    @Test
     fun `patch routeert via magazijnId uit cache, niet via client-input`() {
         // Defense-in-depth: ook al zou ergens later een client-meegegeven id
         // door de validatie heen sluipen, de routering pakt uitsluitend de

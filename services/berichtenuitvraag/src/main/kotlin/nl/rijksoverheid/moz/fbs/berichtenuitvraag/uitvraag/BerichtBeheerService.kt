@@ -26,7 +26,10 @@ import java.util.UUID
  * voor herkomst — een client-gegeven id zou een vector zijn om te schrijven
  * in een magazijn dat dit bericht niet bezit). Cache-miss → 404 propageert
  * naar de client; die hoort het bericht eerst opnieuw op te halen (de
- * sliding TTL van 60s dekt typische interactieve flows ruimschoots).
+ * sliding TTL van 60s dekt typische interactieve flows ruimschoots). Een
+ * transport-fout op die lookup (timeout, connect-fout, 5xx) → 502: er is dan
+ * nog niets naar het magazijn geschreven, dus dezelfde 502-semantiek als bij
+ * een cache-faal ná de write.
  */
 @ApplicationScoped
 class BerichtBeheerService(
@@ -73,12 +76,24 @@ class BerichtBeheerService(
     }
 
     private fun resolveMagazijn(xOntvanger: String, berichtId: UUID): MagazijnClient {
-        val bericht = sessiecache.bericht(xOntvanger, berichtId)
+        val bericht = try {
+            sessiecache.bericht(xOntvanger, berichtId)
+        } catch (e: WebApplicationException) {
+            if (!isCacheTransportFout(e)) throw e
+
+            log.errorf(e, "cache-lookup 5xx vóór magazijn-write; magazijn niet bepaalbaar. berichtId=%s", berichtId)
+            throw lookupBadGateway()
+        } catch (e: ProcessingException) {
+            log.errorf(e, "cache-lookup transport-fout vóór magazijn-write; magazijn niet bepaalbaar. berichtId=%s", berichtId)
+            throw lookupBadGateway()
+        }
 
         return magazijnRouter.forMagazijn(bericht.magazijnId)
     }
 
     private fun isCacheTransportFout(e: WebApplicationException): Boolean {
+        // Geen response = er is geen HTTP-status van de cache teruggekomen (de
+        // call brak af vóór een antwoord). Dat behandelen we als transport-fout.
         val status = e.response?.status ?: return true
 
         return status >= 500
@@ -98,6 +113,9 @@ class BerichtBeheerService(
     // met expliciete 502-status geeft dezelfde semantiek voor downstream client.
     private fun badGateway(): WebApplicationException =
         WebApplicationException("cache-update faalde; magazijn bijgewerkt", Response.Status.BAD_GATEWAY)
+
+    private fun lookupBadGateway(): WebApplicationException =
+        WebApplicationException("cache niet bereikbaar; magazijn-write niet uitgevoerd", Response.Status.BAD_GATEWAY)
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtBeheerService::class.java)

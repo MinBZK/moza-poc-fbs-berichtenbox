@@ -276,6 +276,139 @@ class DualWriteFaultTest {
         WireMockBackendsResource.sessiecache!!.verify(2, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
 
+    // ───── lookup-fault vóór write ─────
+
+    @Test
+    fun `PATCH cache-lookup 5xx vóór write geeft 502 en raakt magazijn niet aan`() {
+        // resolveMagazijn doet eerst een sessiecache.bericht()-lookup. Een 5xx
+        // daarop is een transport-fout: er is nog niets naar het magazijn
+        // geschreven, dus 502 en de magazijn-PATCH mag niet plaatsvinden.
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(500)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        WireMockBackendsResource.magazijn!!.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
+    @Test
+    fun `DELETE cache-lookup transport-fout vóór write geeft 502 en raakt magazijn niet aan`() {
+        // Connection-reset op de lookup = ProcessingException → 502, vóór de write.
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .delete("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        WireMockBackendsResource.magazijn!!.verify(0, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
+    @Test
+    fun `PATCH cache-lookup 404 vóór write propageert 404 (cache-miss)`() {
+        // Cache-miss is geen transport-fout: de 404 propageert 1-op-1 zodat de
+        // client het bericht eerst opnieuw ophaalt. Geen magazijn-write.
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(404)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(404)
+
+        WireMockBackendsResource.magazijn!!.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
+    // ───── compensatie-invalidate faalt ─────
+
+    @Test
+    fun `PATCH compensatie-invalidate 5xx blijft 502 (cache stale tot TTL)`() {
+        // Cache-PATCH faalt (5xx) én de compensatie-DELETE faalt ook (5xx). De
+        // operatie blijft 502; de cache mag stale blijven tot de TTL verloopt.
+        val id = UUID.randomUUID()
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""
+
+        WireMockBackendsResource.magazijn!!.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(body)),
+        )
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(500)),
+        )
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            wmDelete(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(500)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        WireMockBackendsResource.sessiecache!!.verify(deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
+    @Test
+    fun `DELETE compensatie-invalidate transport-fout blijft 502 (cache stale tot TTL)`() {
+        // Cache-DELETE faalt (5xx) en de compensatie-DELETE breekt af met een
+        // connection-reset (ProcessingException). Nog steeds 502; warn, geen throw.
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.magazijn!!.stubFor(
+            wmDelete(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(204)),
+        )
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            wmDelete(urlPathEqualTo("/api/v1/berichten/$id"))
+                .inScenario("compensatie-reset")
+                .whenScenarioStateIs("Started")
+                .willReturn(aResponse().withStatus(500))
+                .willSetStateTo("compensatie"),
+        )
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            wmDelete(urlPathEqualTo("/api/v1/berichten/$id"))
+                .inScenario("compensatie-reset")
+                .whenScenarioStateIs("compensatie")
+                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .delete("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        WireMockBackendsResource.sessiecache!!.verify(2, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
     @Test
     fun `DELETE cache-faal na magazijn-OK geeft 502 met compensatie-DELETE`() {
         val id = UUID.randomUUID()

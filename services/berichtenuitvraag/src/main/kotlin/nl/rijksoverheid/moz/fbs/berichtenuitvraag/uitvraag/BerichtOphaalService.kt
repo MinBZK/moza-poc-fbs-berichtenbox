@@ -2,8 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ForbiddenException
-import jakarta.ws.rs.NotAuthorizedException
 import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
@@ -12,12 +12,12 @@ import java.util.UUID
 
 /**
  * Bericht-detail uit de sessiecache; bijlagen rechtstreeks uit het magazijn
- * (passthrough). `haalBijlage` levert `(mimeType, bytes)`: de resource (Task 9)
- * legt het mimeType op een request-property zodat [BijlageContentTypeFilter]
- * de response-`Content-Type` kan overrulen.
+ * (passthrough). `haalBijlage` levert `(mimeType, bytes)`: de resource legt het
+ * mimeType op een request-property zodat [BijlageContentTypeFilter] de
+ * response-`Content-Type` kan overrulen.
  *
- * Bytes worden in een ByteArray geladen — bij PoC-MAX 1 MiB is dat acceptabel.
- * Bij grotere bijlagen later: InputStream-streaming.
+ * Bytes worden volledig in een ByteArray geladen; bij de maximale bijlagegrootte
+ * van 1 MiB blijft het geheugengebruik per request begrensd.
  *
  * Magazijn-fouten worden status-behoudend doorgegeven: 404/401/403 mappen 1-op-1
  * (zodat de OpenAPI-belofte van 404 en de LDV-audittrail klopt), 5xx mapt naar
@@ -49,11 +49,16 @@ class BerichtOphaalService(
         // De Quarkus REST-client gooit zelf al een WAE bij upstream >=400 (ook
         // wanneer de signature `Response` retourneert via de default exception-
         // mapper). Vang dat hier en hermap zodat 401/403/404 1-op-1 propageren
-        // en 5xx als 502 voor de client zichtbaar wordt.
+        // en 5xx als 502 voor de client zichtbaar wordt. Een transport-storing
+        // (connect/read-timeout) is een ProcessingException — die mapt naar 502,
+        // net als in [BerichtBeheerService], zodat een magazijn-storing niet als
+        // 500 (onze fout) maar als 502 (upstream-fout) zichtbaar wordt.
         val response = try {
             magazijn.bijlage(xOntvanger, berichtId, bijlageId)
         } catch (e: WebApplicationException) {
             throw magazijnFout(e.response?.status ?: 502)
+        } catch (e: ProcessingException) {
+            throw magazijnFout(502)
         }
 
         try {
@@ -74,8 +79,11 @@ class BerichtOphaalService(
         }
     }
 
+    // 401 niet via NotAuthorizedException: diens enige String-constructor vult een
+    // WWW-Authenticate-challenge i.p.v. een message. Een expliciete WAE(401) geeft
+    // de juiste status zonder een nepwaarde in de challenge-header.
     private fun magazijnFout(status: Int): WebApplicationException = when (status) {
-        401 -> NotAuthorizedException("magazijn-bijlage 401")
+        401 -> WebApplicationException("magazijn-bijlage 401", Response.Status.UNAUTHORIZED)
         403 -> ForbiddenException("magazijn-bijlage 403")
         404 -> NotFoundException("magazijn-bijlage 404")
         in 400..499 -> WebApplicationException("magazijn-bijlage 4xx ($status)", status)

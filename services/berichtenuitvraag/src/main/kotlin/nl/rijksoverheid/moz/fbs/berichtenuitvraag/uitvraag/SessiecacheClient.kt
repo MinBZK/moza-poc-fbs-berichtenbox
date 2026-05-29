@@ -19,7 +19,7 @@ import java.util.UUID
  * `quarkus.rest-client."…SessiecacheClient".url` in application.properties.
  *
  * SSE-endpoint `/berichten/_ophalen` zit niet hier — dat gaat via een aparte
- * streaming-client met `Multi<String>` (zie Task 9).
+ * streaming-client met `Multi<String>` (zie [SessiecacheSseClient]).
  */
 @RegisterRestClient
 @Path("/api/v1/berichten")

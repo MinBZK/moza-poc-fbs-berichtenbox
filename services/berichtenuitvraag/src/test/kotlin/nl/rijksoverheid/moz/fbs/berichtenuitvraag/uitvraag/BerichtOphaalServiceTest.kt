@@ -3,8 +3,8 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import io.mockk.every
 import io.mockk.mockk
 import jakarta.ws.rs.ForbiddenException
-import jakarta.ws.rs.NotAuthorizedException
 import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
@@ -134,7 +134,7 @@ class BerichtOphaalServiceTest {
     }
 
     @Test
-    fun `haalBijlage propageert magazijn-401 als NotAuthorized`() {
+    fun `haalBijlage propageert magazijn-401 met status 401`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         val mockResp = mockk<Response> {
@@ -144,9 +144,43 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
 
-        assertThrows(NotAuthorizedException::class.java) {
+        val ex = assertThrows(WebApplicationException::class.java) {
             service.haalBijlage("BSN:1", berichtId, bijlageId)
         }
+
+        assertEquals(401, ex.response.status)
+    }
+
+    @Test
+    fun `haalBijlage behoudt magazijn-4xx-status die geen 401-403-404 is`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val mockResp = mockk<Response> {
+            every { status } returns 422
+            every { close() } returns Unit
+        }
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+
+        assertEquals(422, ex.response.status)
+    }
+
+    @Test
+    fun `haalBijlage mapt magazijn-transportfout naar 502`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } throws ProcessingException("connect timeout")
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+
+        assertEquals(502, ex.response.status)
     }
 
     @Test

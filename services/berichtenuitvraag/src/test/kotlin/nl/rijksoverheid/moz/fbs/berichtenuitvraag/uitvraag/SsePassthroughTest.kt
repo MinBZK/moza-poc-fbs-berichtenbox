@@ -7,6 +7,7 @@ import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import org.hamcrest.Matchers.containsString
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -61,10 +62,9 @@ class SsePassthroughTest {
         // WebApplicationException; de `onFailure`-callback in
         // SsePassthroughResource logt dat op `error`. RestAssured kan de
         // afgekapte stream niet altijd parsen, dus we vallen terug op een rauwe
-        // HttpURLConnection en verifiëren dat:
-        //   1) het endpoint bereikbaar was (responseCode>0)
-        //   2) de status géén 200 OK is — een succesvolle stream zou hier een
-        //      contract-violation zijn want upstream was 503.
+        // HttpURLConnection. Afhankelijk van of de SSE-headers al geflusht waren,
+        // is de status 200 (lege/afgekapte stream) of 5xx — maar in geen geval mag
+        // er een `data:`-event doorlekken, want upstream leverde niets.
         val url = java.net.URI("http://localhost:${io.restassured.RestAssured.port}/api/v1/berichten/_ophalen").toURL()
         val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
             requestMethod = "GET"
@@ -76,7 +76,12 @@ class SsePassthroughTest {
 
         try {
             val status = conn.responseCode
+            val body = runCatching {
+                (if (status >= 400) conn.errorStream else conn.inputStream)?.bufferedReader()?.readText()
+            }.getOrNull().orEmpty()
+
             assertTrue(status >= 500 || status == 200, "verwacht 5xx of voor-fout-streaming-200, kreeg $status")
+            assertFalse(body.contains("data:"), "upstream-503 mag geen SSE-data doorlaten, kreeg body: $body")
         } finally {
             conn.disconnect()
         }

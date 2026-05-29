@@ -4,6 +4,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtenLijst
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.PaginaLinks
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 
@@ -51,5 +54,23 @@ class BerichtenlijstServiceTest {
         val actual = service.zoek("BSN:1", "rente", "archief")
 
         assertSame(expected, actual)
+    }
+
+    @Test
+    fun `lijst herschrijft sessiecache-paginatieparameters naar uitvraag-namen`() {
+        val response = BerichtenLijst().apply {
+            links = PaginaLinks().apply {
+                self = Link().apply { href = "/api/v1/berichten?page=1&pageSize=20" }
+                next = Link().apply { href = "/api/v1/berichten?page=2&pageSize=20" }
+                prev = Link().apply { href = "/api/v1/berichten?page=0&pageSize=20" }
+            }
+        }
+        every { sessiecache.lijst("BSN:1", null, 1, 20) } returns response
+
+        val actual = service.lijst("BSN:1", null, 1, 20)
+
+        assertEquals("/api/v1/berichten?pagina=1&paginaGrootte=20", actual.links.self.href)
+        assertEquals("/api/v1/berichten?pagina=2&paginaGrootte=20", actual.links.next.href)
+        assertEquals("/api/v1/berichten?pagina=0&paginaGrootte=20", actual.links.prev.href)
     }
 }

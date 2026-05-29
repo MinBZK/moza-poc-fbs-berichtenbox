@@ -22,7 +22,7 @@ import java.util.UUID
  * `bijlage` retourneert `Response` zodat we zowel het werkelijke
  * `Content-Type` als de bytes kunnen lezen — magazijn levert dynamic
  * Content-Type per bijlage en wij overrulen ons eigen response-header via
- * BijlageContentTypeFilter (Task 8).
+ * [BijlageContentTypeFilter].
  *
  * `patchBericht` retourneert `Unit`: de magazijn-spec geeft een
  * `Bericht`-DTO terug waarvan het `status`-veld een gestructureerd object

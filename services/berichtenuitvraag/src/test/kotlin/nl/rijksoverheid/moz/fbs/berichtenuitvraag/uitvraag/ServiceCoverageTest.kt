@@ -2,10 +2,13 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
+import com.github.tomakehurst.wiremock.http.Fault
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
+import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -128,6 +131,123 @@ class ServiceCoverageTest {
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
             .statusCode(404)
+    }
+
+    @Test
+    fun `bijlage-transport-fout vanuit magazijn mapt naar 502 BadGateway`() {
+        // Connection-reset op de magazijn-bijlage-call = ProcessingException →
+        // 502 (upstream-fout), niet 500 (onze fout).
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
+        WireMockBackendsResource.magazijn!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
+                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `bijlage 2xx zonder Content-Type mapt naar 502 BadGateway`() {
+        // Een 2xx zonder Content-Type-header is een echte upstream-bug: zonder
+        // mimeType kan de response-Content-Type niet bepaald worden → 502.
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
+        WireMockBackendsResource.magazijn!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
+                .willReturn(aResponse().withStatus(200).withBody("pdf-bytes")),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `PATCH status ongelezen mapt naar magazijn-patch gelezen=false`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id)
+        stubDualWritePatchOk(id)
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"ongelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `PATCH zonder status mapt naar magazijn-patch gelezen=null`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id)
+        stubDualWritePatchOk(id)
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"map":"archief"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `lijst met HAL-links herschrijft page-parameters naar pagina-parameters`() {
+        // De sessiecache levert `_links` met haar eigen `page`/`pageSize`-namen;
+        // dit endpoint adverteert `pagina`/`paginaGrootte`. De links moeten worden
+        // herschreven zodat een client die `_links.next` volgt op de juiste
+        // parameter-namen uitkomt.
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(
+                            """{"berichten":[],"_links":{""" +
+                                """"self":{"href":"/api/v1/berichten?page=1&pageSize=50"},""" +
+                                """"next":{"href":"/api/v1/berichten?page=2&pageSize=50"},""" +
+                                """"prev":{"href":"/api/v1/berichten?page=0&pageSize=50"}}}""",
+                        ),
+                ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("_links.next.href", containsString("pagina=2"))
+            .body("_links.next.href", containsString("paginaGrootte=50"))
+            .body("_links.self.href", containsString("pagina=1"))
+            .body("_links.prev.href", containsString("pagina=0"))
+    }
+
+    private fun stubDualWritePatchOk(id: UUID, magazijnId: String = "magazijn-a") {
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"$magazijnId"}"""
+        WireMockBackendsResource.magazijn!!.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(body)),
+        )
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(body)),
+        )
     }
 
     private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "magazijn-a") {
