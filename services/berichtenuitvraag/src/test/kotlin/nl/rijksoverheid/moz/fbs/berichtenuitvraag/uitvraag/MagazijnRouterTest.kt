@@ -1,7 +1,9 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
+import io.quarkus.runtime.StartupEvent
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.ws.rs.WebApplicationException
+import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -46,5 +48,32 @@ class MagazijnRouterTest {
         }
 
         assertEquals(502, ex.response.status)
+    }
+
+    @Test
+    fun `valideerConfigBijOpstart faalt bij lege magazijn-config`() {
+        val router = routerMet(emptyMap())
+
+        assertThrows(IllegalArgumentException::class.java) {
+            router.valideerConfigBijOpstart(StartupEvent())
+        }
+    }
+
+    @Test
+    fun `valideerConfigBijOpstart faalt bij een niet-http(s) URL`() {
+        val router = routerMet(mapOf("magazijn-a" to "ftp://host/path"))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            router.valideerConfigBijOpstart(StartupEvent())
+        }
+    }
+
+    @Test
+    fun `valideerConfigBijOpstart slaagt bij geldige http(s)-URLs`() {
+        val router = routerMet(mapOf("magazijn-a" to "http://localhost:8081", "magazijn-b" to "https://magazijn.example"))
+
+        assertDoesNotThrow {
+            router.valideerConfigBijOpstart(StartupEvent())
+        }
     }
 }

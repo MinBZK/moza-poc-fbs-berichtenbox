@@ -19,8 +19,8 @@ import org.jboss.logging.Logger
 /**
  * SSE-passthrough voor `GET /berichten/_ophalen`. De jaxrs-spec generator
  * ondersteunt geen `Multi<>` return-types; daarom is dit endpoint expliciet
- * hier gedefinieerd. Triggert in de sessiecache het ophalen van alle mappen
- * en pijpt elk event 1-op-1 door naar de client.
+ * hier gedefinieerd. Triggert in de sessiecache het ophalen uit alle aangesloten
+ * magazijnen en pijpt elk SSE-event 1-op-1 door naar de client.
  *
  * `X-Ontvanger` wordt lokaal gevalideerd (zelfde pattern als de gegenereerde
  * UitvraagApi): het endpoint zet de waarde in `logboekContext.dataSubjectId`

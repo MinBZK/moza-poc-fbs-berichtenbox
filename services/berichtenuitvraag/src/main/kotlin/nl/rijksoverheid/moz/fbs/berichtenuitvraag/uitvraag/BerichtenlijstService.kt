@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtenLijst
 import org.eclipse.microprofile.rest.client.inject.RestClient
+import org.jboss.logging.Logger
 
 /**
  * Thin pass-through naar de sessiecache voor lijst- en zoekoperaties. SSE-
@@ -15,10 +16,10 @@ class BerichtenlijstService(
     @RestClient private val sessiecache: SessiecacheClient,
 ) {
     fun lijst(xOntvanger: String, map: String?, pagina: Int?, paginaGrootte: Int?): BerichtenLijst =
-        vertaalPaginatieLinks(sessiecache.lijst(xOntvanger, map, pagina, paginaGrootte))
+        vertaalPaginatieLinks(mapUpstreamFout(log, "cache-lijst") { sessiecache.lijst(xOntvanger, map, pagina, paginaGrootte) })
 
     fun zoek(xOntvanger: String, q: String, map: String?): BerichtenLijst =
-        vertaalPaginatieLinks(sessiecache.zoek(xOntvanger, q, map))
+        vertaalPaginatieLinks(mapUpstreamFout(log, "cache-zoek") { sessiecache.zoek(xOntvanger, q, map) })
 
     // De sessiecache levert HAL-paginatie-links met haar eigen query-parameters
     // (`page`/`pageSize`); dit endpoint adverteert `pagina`/`paginaGrootte`. Zonder
@@ -37,4 +38,8 @@ class BerichtenlijstService(
 
     private fun vertaalParams(href: String?): String? =
         href?.replace("pageSize=", "paginaGrootte=")?.replace("page=", "pagina=")
+
+    private companion object {
+        private val log: Logger = Logger.getLogger(BerichtenlijstService::class.java)
+    }
 }

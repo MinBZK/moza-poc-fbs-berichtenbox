@@ -39,12 +39,15 @@ class BerichtBeheerService(
 
     fun patch(xOntvanger: String, berichtId: UUID, patch: BerichtPatch): Bericht {
         val magazijn = resolveMagazijn(xOntvanger, berichtId)
-        magazijn.patchBericht(xOntvanger, berichtId, UitvraagDtoMapper.toMagazijnPatch(patch))
+
+        mapUpstreamFout(log, "magazijn-PATCH") {
+            magazijn.patchBericht(xOntvanger, berichtId, UitvraagDtoMapper.toMagazijnPatch(patch))
+        }
 
         try {
             return sessiecache.patchBericht(xOntvanger, berichtId, patch)
         } catch (e: WebApplicationException) {
-            if (!isCacheTransportFout(e)) throw e
+            if (!isUpstreamTransportFout(e)) throw e
 
             log.errorf(e, "cache-PATCH 5xx na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
             compensatieInvalidate(xOntvanger, berichtId)
@@ -58,12 +61,15 @@ class BerichtBeheerService(
 
     fun verwijder(xOntvanger: String, berichtId: UUID) {
         val magazijn = resolveMagazijn(xOntvanger, berichtId)
-        magazijn.verwijderBericht(xOntvanger, berichtId)
+
+        mapUpstreamFout(log, "magazijn-DELETE") {
+            magazijn.verwijderBericht(xOntvanger, berichtId)
+        }
 
         try {
             sessiecache.verwijderBericht(xOntvanger, berichtId)
         } catch (e: WebApplicationException) {
-            if (!isCacheTransportFout(e)) throw e
+            if (!isUpstreamTransportFout(e)) throw e
 
             log.errorf(e, "cache-DELETE 5xx na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
             compensatieInvalidate(xOntvanger, berichtId)
@@ -76,27 +82,13 @@ class BerichtBeheerService(
     }
 
     private fun resolveMagazijn(xOntvanger: String, berichtId: UUID): MagazijnClient {
-        val bericht = try {
+        // Cache-lookup vóór de write bepaalt het bron-magazijn. Transport-fout/5xx
+        // → 502 (er is nog niets geschreven); 4xx (incl. 404 cache-miss) propageert.
+        val bericht = mapUpstreamFout(log, "cache-lookup vóór magazijn-write (berichtId=$berichtId)") {
             sessiecache.bericht(xOntvanger, berichtId)
-        } catch (e: WebApplicationException) {
-            if (!isCacheTransportFout(e)) throw e
-
-            log.errorf(e, "cache-lookup 5xx vóór magazijn-write; magazijn niet bepaalbaar. berichtId=%s", berichtId)
-            throw lookupBadGateway()
-        } catch (e: ProcessingException) {
-            log.errorf(e, "cache-lookup transport-fout vóór magazijn-write; magazijn niet bepaalbaar. berichtId=%s", berichtId)
-            throw lookupBadGateway()
         }
 
         return magazijnRouter.forMagazijn(bericht.magazijnId)
-    }
-
-    private fun isCacheTransportFout(e: WebApplicationException): Boolean {
-        // Geen response = er is geen HTTP-status van de cache teruggekomen (de
-        // call brak af vóór een antwoord). Dat behandelen we als transport-fout.
-        val status = e.response?.status ?: return true
-
-        return status >= 500
     }
 
     private fun compensatieInvalidate(xOntvanger: String, berichtId: UUID) {
@@ -113,9 +105,6 @@ class BerichtBeheerService(
     // met expliciete 502-status geeft dezelfde semantiek voor downstream client.
     private fun badGateway(): WebApplicationException =
         WebApplicationException("cache-update faalde; magazijn bijgewerkt", Response.Status.BAD_GATEWAY)
-
-    private fun lookupBadGateway(): WebApplicationException =
-        WebApplicationException("cache niet bereikbaar; magazijn-write niet uitgevoerd", Response.Status.BAD_GATEWAY)
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtBeheerService::class.java)

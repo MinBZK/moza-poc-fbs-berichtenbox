@@ -8,6 +8,7 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import org.eclipse.microprofile.rest.client.inject.RestClient
+import org.jboss.logging.Logger
 import java.util.UUID
 
 /**
@@ -20,9 +21,9 @@ import java.util.UUID
  * van 1 MiB blijft het geheugengebruik per request begrensd.
  *
  * Magazijn-fouten worden status-behoudend doorgegeven: 404/401/403 mappen 1-op-1
- * (zodat de OpenAPI-belofte van 404 en de LDV-audittrail klopt), 5xx mapt naar
- * 502 (downstream-faal). De catch-all `InternalServerErrorException` blijft
- * gereserveerd voor échte malformed responses (geen Content-Type bij 2xx).
+ * (zodat de OpenAPI-belofte van 404 en de LDV-audittrail klopt), 5xx en transport-
+ * fouten mappen naar 502 (downstream-faal). Een 2xx-respons zónder Content-Type-
+ * header is eveneens een echte upstream-bug en mapt naar 502.
  *
  * Multi-magazijn routering (bijlage-download): de sessiecache levert per bericht
  * het bron-`magazijnId`. We halen eerst het bericht-detail op (we vertrouwen de
@@ -36,14 +37,18 @@ class BerichtOphaalService(
     private val magazijnRouter: MagazijnRouter,
 ) {
     fun haalBericht(xOntvanger: String, berichtId: UUID): Bericht =
-        sessiecache.bericht(xOntvanger, berichtId)
+        mapUpstreamFout(log, "cache-bericht-lookup (berichtId=$berichtId)") {
+            sessiecache.bericht(xOntvanger, berichtId)
+        }
 
     fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): Pair<String, ByteArray> {
         // Lookup-then-route: cache is authoritative voor welke magazijn de
         // bron is. De extra round-trip is acceptabel: Redis-cache is snel en
         // het bericht-detail is hoe dan ook nodig om de bijlage-toegang te
         // autoriseren (404 op cache → 404 op uitvraag i.p.v. lekken via 502).
-        val bericht = sessiecache.bericht(xOntvanger, berichtId)
+        val bericht = mapUpstreamFout(log, "cache-bericht-lookup vóór bijlage (berichtId=$berichtId)") {
+            sessiecache.bericht(xOntvanger, berichtId)
+        }
         val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
 
         // De Quarkus REST-client gooit zelf al een WAE bij upstream >=400 (ook
@@ -88,5 +93,9 @@ class BerichtOphaalService(
         404 -> NotFoundException("magazijn-bijlage 404")
         in 400..499 -> WebApplicationException("magazijn-bijlage 4xx ($status)", status)
         else -> WebApplicationException("magazijn-bijlage 5xx ($status)", Response.Status.BAD_GATEWAY)
+    }
+
+    private companion object {
+        private val log: Logger = Logger.getLogger(BerichtOphaalService::class.java)
     }
 }

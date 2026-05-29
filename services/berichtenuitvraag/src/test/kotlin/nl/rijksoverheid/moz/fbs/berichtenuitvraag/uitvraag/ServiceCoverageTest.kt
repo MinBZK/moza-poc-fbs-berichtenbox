@@ -250,6 +250,139 @@ class ServiceCoverageTest {
         )
     }
 
+    // ───── lees-paden: upstream cache-fout → 502 (niet gemaskeerd 500) ─────
+
+    @Test
+    fun `bericht-detail bij cache-5xx mapt naar 502`() {
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(500)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `bericht-detail bij cache-transport-fout mapt naar 502`() {
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `bericht-detail bij cache-4xx propageert 4xx (geen 502)`() {
+        // 4xx (incl. 404 cache-miss) is geen upstream-storing en propageert 1-op-1.
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(404)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(404)
+    }
+
+    @Test
+    fun `lijst bij cache-5xx mapt naar 502`() {
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten"))
+                .willReturn(aResponse().withStatus(503)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `zoek bij cache-transport-fout mapt naar 502`() {
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/_zoeken"))
+                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .queryParam("q", "rente")
+            .`when`()
+            .get("/api/v1/berichten/_zoeken")
+            .then()
+            .statusCode(502)
+    }
+
+    // ───── multi-magazijn routing-mismatch end-to-end → 502 ─────
+
+    @Test
+    fun `bijlage met onbekend magazijnId uit cache geeft 502 zonder magazijn-call`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId, magazijnId = "magazijn-onbekend")
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(502)
+
+        WireMockBackendsResource.magazijn!!.verify(
+            0,
+            com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor(
+                urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"),
+            ),
+        )
+    }
+
+    @Test
+    fun `PATCH met onbekend magazijnId uit cache geeft 502`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id, magazijnId = "magazijn-onbekend")
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `DELETE met onbekend magazijnId uit cache geeft 502`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id, magazijnId = "magazijn-onbekend")
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .delete("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+    }
+
     private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "magazijn-a") {
         WireMockBackendsResource.sessiecache!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId"))

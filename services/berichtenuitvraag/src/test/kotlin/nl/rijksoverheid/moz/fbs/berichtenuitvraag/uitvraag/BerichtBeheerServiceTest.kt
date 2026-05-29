@@ -55,12 +55,13 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
-    fun `patch faalt op magazijn propageert en raakt cache niet aan`() {
+    fun `patch magazijn-5xx normaliseert naar 502 en raakt cache niet aan`() {
         every { magazijn.patchBericht(any(), any(), any()) } throws InternalServerErrorException("magazijn-down")
 
-        assertThrows(InternalServerErrorException::class.java) {
+        val ex = assertThrows(WebApplicationException::class.java) {
             service.patch(ontvanger, id, patch)
         }
+        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify(exactly = 0) { sessiecache.patchBericht(any(), any(), any()) }
     }
 
@@ -103,12 +104,13 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
-    fun `verwijder magazijn-faal raakt cache niet aan`() {
+    fun `verwijder magazijn-5xx normaliseert naar 502 en raakt cache niet aan`() {
         every { magazijn.verwijderBericht(any(), any()) } throws InternalServerErrorException("magazijn-down")
 
-        assertThrows(InternalServerErrorException::class.java) {
+        val ex = assertThrows(WebApplicationException::class.java) {
             service.verwijder(ontvanger, id)
         }
+        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify(exactly = 0) { sessiecache.verwijderBericht(any(), any()) }
     }
 

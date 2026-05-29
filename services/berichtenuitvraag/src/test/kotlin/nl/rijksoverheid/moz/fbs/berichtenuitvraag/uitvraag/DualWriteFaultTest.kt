@@ -69,7 +69,9 @@ class DualWriteFaultTest {
     }
 
     @Test
-    fun `PATCH magazijn-faal geeft 5xx en raakt sessiecache niet aan`() {
+    fun `PATCH magazijn-5xx normaliseert naar 502 en raakt sessiecache niet aan`() {
+        // Magazijn-write-5xx wordt genormaliseerd naar 502 ('502 = upstream-fout'),
+        // consistent met het bijlage-pad; de cache wordt niet aangeraakt.
         val id = UUID.randomUUID()
         WireMockBackendsResource.magazijn!!.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
@@ -83,7 +85,7 @@ class DualWriteFaultTest {
             .`when`()
             .patch("/api/v1/berichten/$id")
             .then()
-            .statusCode(503)
+            .statusCode(502)
 
         WireMockBackendsResource.sessiecache!!.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
@@ -144,7 +146,7 @@ class DualWriteFaultTest {
     }
 
     @Test
-    fun `DELETE magazijn-faal geeft 5xx en raakt cache niet aan`() {
+    fun `DELETE magazijn-5xx normaliseert naar 502 en raakt cache niet aan`() {
         val id = UUID.randomUUID()
         WireMockBackendsResource.magazijn!!.stubFor(
             wmDelete(urlPathEqualTo("/api/v1/berichten/$id"))
@@ -156,7 +158,7 @@ class DualWriteFaultTest {
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()
-            .statusCode(503)
+            .statusCode(502)
 
         WireMockBackendsResource.sessiecache!!.verify(0, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
