@@ -16,9 +16,10 @@ import java.util.UUID
  *
  * Bestaat naast cache-[Bericht] zodat Jackson-deserialisatie matcht met de
  * magazijn-spec zonder dat het cache-domein de getypeerde vorm hoeft te
- * dragen. `inhoud`, `bijlagen` en `status.map` worden uit de magazijn-respons
- * overgenomen; `tijdstipOntvangst`, `gewijzigdOp` en bijlage-`mimeType`/`_links`
- * blijven bewust buiten de cache (alleen-magazijn-gegevens).
+ * dragen. `inhoud`, `bijlagen`, `status.map` en de leesstatus (`status.gelezen`
+ * → enum-string) worden uit de magazijn-respons overgenomen; `tijdstipOntvangst`,
+ * `gewijzigdOp` en bijlage-`mimeType`/`_links` blijven bewust buiten de cache
+ * (alleen-magazijn-gegevens).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class MagazijnBericht(
@@ -48,6 +49,10 @@ data class MagazijnBericht(
         aantalBijlagen = if (aantalBijlagen > 0 || bijlagen.isEmpty()) aantalBijlagen else bijlagen.size,
         bijlagen = bijlagen.map { BijlageSamenvatting(it.bijlageId, it.naam) },
         map = status?.map,
+        // Magazijn modelleert leesstatus als boolean `gelezen`; de cache als enum-string.
+        // Ontbreekt het status-object, dan levert het magazijn geen status → null
+        // (cache-`Bericht.status` blijft dan onbepaald i.p.v. onterecht "ongelezen").
+        status = status?.gelezen?.let { if (it) "gelezen" else "ongelezen" },
     )
 
     data class Identificatienummer(

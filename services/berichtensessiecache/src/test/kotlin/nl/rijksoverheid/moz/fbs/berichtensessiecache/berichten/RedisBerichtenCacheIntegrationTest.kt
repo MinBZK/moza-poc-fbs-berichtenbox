@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 @QuarkusTest
 @TestProfile(RealRedisTestProfile::class)
@@ -18,6 +20,11 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Inject
     lateinit var berichtenCache: BerichtenCache
+
+    @Inject
+    lateinit var redis: ReactiveRedisDataSource
+
+    private fun listKey() = "${cacheKey()}:list"
 
     private val ontvanger = "integration-test-${System.nanoTime()}"
 
@@ -248,6 +255,55 @@ class RedisBerichtenCacheIntegrationTest {
     fun `delete onbestaand bericht is no-op`() {
         // Geen exceptie en geen kerneffect — er is simpelweg niets om te verwijderen.
         berichtenCache.delete(UUID.randomUUID(), ontvanger).await().indefinitely()
+    }
+
+    @Test
+    fun `delete behoudt een concurrent toegevoegd bericht (geen lost-update)`() {
+        // Kernbelofte van het optimistic-locking-delete: een addBericht dat gelijktijdig
+        // met de delete-rewrite plaatsvindt mag niet door de rewrite worden overschreven.
+        // addBericht doet een ongewatchte MULTI/EXEC (altijd toegepast); delete WATCHt de
+        // list-key en retryt bij conflict. Het concurrent toegevoegde bericht hoort dus
+        // hoe dan ook te overleven, en het doelbericht hoort verwijderd te zijn.
+        val berichten = testBerichten().take(2)
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val teVerwijderen = berichten[0]
+        val nieuw = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = "00000005555555550000",
+            ontvanger = ontvanger,
+            onderwerp = "Concurrent toegevoegd",
+            inhoud = "Tijdens delete",
+            publicatietijdstip = Instant.parse("2026-03-10T15:00:00Z"),
+            magazijnId = "magazijn-a",
+            aantalBijlagen = 0,
+        )
+
+        // Gelijktijdig afvuren zonder onderlinge ordening.
+        val deleteStage = berichtenCache.delete(teVerwijderen.berichtId, ontvanger).subscribeAsCompletionStage()
+        val addStage = berichtenCache.addBericht(nieuw).subscribeAsCompletionStage()
+        CompletableFuture.allOf(deleteStage.toCompletableFuture(), addStage.toCompletableFuture()).join()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
+        assertNotNull(page)
+        assertTrue(page!!.berichten.any { it.berichtId == nieuw.berichtId }, "concurrent toegevoegd bericht ging verloren")
+        assertTrue(page.berichten.none { it.berichtId == teVerwijderen.berichtId }, "doelbericht niet verwijderd")
+    }
+
+    @Test
+    fun `delete-prune behoudt een onparsebare list-entry en verwijdert het doelbericht`() {
+        // Een corrupte/legacy list-entry (geen geldige JSON) mag de delete-prune niet laten
+        // crashen; conservatief behouden (kan per definitie niet het doelbericht zijn).
+        val bericht = testBerichten().take(1)
+        berichtenCache.store(cacheKey(), bericht).await().indefinitely()
+
+        redis.list(String::class.java).rpush(listKey(), "{geen-geldige-json").await().indefinitely()
+
+        berichtenCache.delete(bericht[0].berichtId, ontvanger).await().indefinitely()
+
+        val entries = redis.list(String::class.java).lrange(listKey(), 0, -1).await().indefinitely()
+        assertEquals(listOf("{geen-geldige-json"), entries, "onparsebare entry moet behouden blijven, doelbericht verwijderd")
+        assertNull(berichtenCache.getById(bericht[0].berichtId, ontvanger).await().indefinitely())
     }
 
     @Test

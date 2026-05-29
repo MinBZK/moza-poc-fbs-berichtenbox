@@ -398,7 +398,13 @@ class RedisBerichtenCache(
     }
 
     // Plan dat de read-fase (onder WATCH) doorgeeft aan de write-fase van de transactie.
-    private data class DeletePlan(val uitvoeren: Boolean, val gefilterdeLijst: List<String>)
+    // Sealed zodat de "niets te doen"-tak geen betekenisloze lege lijst hoeft te dragen
+    // en de write-fase exhaustief op de twee toestanden matcht.
+    private sealed interface DeletePlan {
+        data object NietsTeDoen : DeletePlan
+
+        data class Verwijder(val gefilterdeLijst: List<String>) : DeletePlan
+    }
 
     override fun delete(berichtId: UUID, ontvanger: String): Uni<Void> {
         // Idempotent cache-invalidate: ontbrekende of niet-bijbehorende entries leveren geen fout op.
@@ -426,38 +432,46 @@ class RedisBerichtenCache(
                 reads.hash(String::class.java).hgetall(berichtKey)
                     .chain { fields ->
                         if (fields.isEmpty() || fields["ontvanger"] != ontvanger) {
-                            Uni.createFrom().item(DeletePlan(uitvoeren = false, gefilterdeLijst = emptyList()))
+                            Uni.createFrom().item(DeletePlan.NietsTeDoen)
                         } else {
                             reads.list(String::class.java).lrange(listKey, 0, -1)
                                 .map { entries ->
                                     val gefilterd = entries.filterNot { json ->
                                         runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
+                                            .onFailure { e ->
+                                                // Corrupte/legacy list-entry: conservatief behouden (kan
+                                                // per definitie niet het te verwijderen bericht zijn), maar
+                                                // wel loggen — een onparsebare blob duidt op cache-corruptie.
+                                                log.warnf(e, "Onparsebare list-entry bij delete-prune; entry behouden. berichtId=%s", berichtId)
+                                            }
                                             .getOrNull() == berichtId.toString()
                                     }
 
-                                    DeletePlan(uitvoeren = true, gefilterdeLijst = gefilterd)
+                                    DeletePlan.Verwijder(gefilterd)
                                 }
                         }
                     }
             },
             { plan, tx ->
-                if (!plan.uitvoeren) {
-                    Uni.createFrom().voidItem()
-                } else {
-                    val txKey = tx.key()
-                    val txList = tx.list(String::class.java)
-                    val rebuildList = if (plan.gefilterdeLijst.isNotEmpty()) {
-                        txKey.del(listKey)
-                            .chain { _ -> txList.rpush(listKey, *plan.gefilterdeLijst.toTypedArray()) }
-                            .chain { _ -> txKey.expire(listKey, ttl) }
-                            .replaceWithVoid()
-                    } else {
-                        txKey.del(listKey).replaceWithVoid()
-                    }
+                when (plan) {
+                    DeletePlan.NietsTeDoen -> Uni.createFrom().voidItem()
 
-                    txKey.del(berichtKey)
-                        .chain { _ -> rebuildList }
-                        .replaceWithVoid()
+                    is DeletePlan.Verwijder -> {
+                        val txKey = tx.key()
+                        val txList = tx.list(String::class.java)
+                        val rebuildList = if (plan.gefilterdeLijst.isNotEmpty()) {
+                            txKey.del(listKey)
+                                .chain { _ -> txList.rpush(listKey, *plan.gefilterdeLijst.toTypedArray()) }
+                                .chain { _ -> txKey.expire(listKey, ttl) }
+                                .replaceWithVoid()
+                        } else {
+                            txKey.del(listKey).replaceWithVoid()
+                        }
+
+                        txKey.del(berichtKey)
+                            .chain { _ -> rebuildList }
+                            .replaceWithVoid()
+                    }
                 }
             },
             listKey,
