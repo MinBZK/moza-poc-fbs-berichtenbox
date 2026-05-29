@@ -227,19 +227,42 @@ class ProfielMagazijnResolverTest {
     }
 
     @Test
-    fun `500 van Profiel werpt ProfielServiceFoutException`() {
+    fun `500 van Profiel werpt UPSTREAM_ERROR met httpStatus`() {
         every { profielClient.getPartij("BSN", "999993653") } throws WebApplicationException(Response.status(500).build())
-        assertThrows(ProfielServiceFoutException::class.java) {
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(500, ex.httpStatus)
     }
 
     @Test
-    fun `403 van Profiel werpt ProfielServiceFoutException (niet-404 = infra-fout)`() {
+    fun `403 van Profiel werpt UPSTREAM_ERROR met httpStatus (niet-404 = infra-fout, niet lege set)`() {
+        // Regressie-guard: 401/403/405 mogen NOOIT in het 404-emptySet-pad vallen (silent
+        // failure: auth-fout zou dan "geen voorkeuren" worden). Assert dus expliciet de
+        // categorie + httpStatus, niet alleen het exception-type.
         every { profielClient.getPartij("BSN", "999993653") } throws WebApplicationException(Response.status(403).build())
-        assertThrows(ProfielServiceFoutException::class.java) {
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(403, ex.httpStatus)
+    }
+
+    @Test
+    fun `401 van Profiel werpt UPSTREAM_ERROR met httpStatus (auth-misser)`() {
+        every { profielClient.getPartij("BSN", "999993653") } throws WebApplicationException(Response.status(401).build())
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(401, ex.httpStatus)
     }
 
     @Test
@@ -364,6 +387,28 @@ class ProfielMagazijnResolverTest {
                     waarde = "true",
                     scopes = listOf(
                         ScopeResponse(partij = IdentificatieResponse("OIN", "NOT-AN-OIN")),
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "00000001003214345000")),
+                    ),
+                ),
+            ),
+        )
+        val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        assertEquals(setOf("magazijn-a"), result)
+    }
+
+    @Test
+    fun `geldige onbekende OIN naast geldige match levert alleen het bekende magazijn (drift-skip zonder exception)`() {
+        // Eén opt-in OIN is geldig van formaat maar onbekend bij magazijn-config (driftSkip),
+        // de andere matcht magazijn-a. result is niet leeg → géén CONFIG_DRIFT-exception;
+        // alleen het bekende magazijn wordt geleverd. Pint de partiële-skip-tak vast — die
+        // verschilt van zowel 100%-drift (alles onbekend → exception) als van het ongeldig-
+        // formaat-pad (`NOT-AN-OIN`, andere teller).
+        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+            voorkeuren = listOf(
+                VoorkeurResponse(
+                    voorkeurType = "OntvangViaBerichtenbox", waarde = "true",
+                    scopes = listOf(
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "99999999999999999999")),
                         ScopeResponse(partij = IdentificatieResponse("OIN", "00000001003214345000")),
                     ),
                 ),

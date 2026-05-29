@@ -10,7 +10,11 @@ sealed class MagazijnResult {
         override val magazijnId: String,
         override val naam: String?,
         val berichten: List<Bericht>,
-    ) : MagazijnResult()
+    ) : MagazijnResult() {
+        init {
+            require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
+        }
+    }
 
     data class Failure(
         override val magazijnId: String,
@@ -19,7 +23,11 @@ sealed class MagazijnResult {
         // Classificatie eenmaal bepaald in service-laag en hier vastgezet zodat
         // downstream-mapping niet opnieuw classificeert (voorkomt drift).
         val fault: MagazijnFault,
-    ) : MagazijnResult()
+    ) : MagazijnResult() {
+        init {
+            require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
+        }
+    }
 }
 
 /**

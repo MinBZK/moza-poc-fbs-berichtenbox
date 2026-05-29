@@ -92,7 +92,7 @@ class MagazijnClientFactory(
             cachedAfzenders.forEach { (id, oins) ->
                 oins.forEach { oin -> getOrPut(oin) { mutableSetOf() }.add(id) }
             }
-        }
+        }.mapValues { (_, magazijnen) -> magazijnen.toSet() }
 
         log.infof("Geconfigureerde magazijnen: %s", cachedClients.keys)
     }

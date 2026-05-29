@@ -58,6 +58,7 @@ sealed interface Identificatienummer {
             requireValid(parts.size == 2) {
                 "X-Ontvanger header moet in formaat <TYPE>:<WAARDE> zijn"
             }
+
             val type = try {
                 IdentificatienummerType.valueOf(parts[0])
             } catch (ex: IllegalArgumentException) {

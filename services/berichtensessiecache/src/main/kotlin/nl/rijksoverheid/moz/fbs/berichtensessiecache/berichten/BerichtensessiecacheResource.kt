@@ -209,6 +209,7 @@ class BerichtensessiecacheResource(
                 Response.Status.CONFLICT,
             )
         }
+
         when (aggregation.status) {
             OphalenStatus.GEREED -> return ontvangerId to aggregation
             OphalenStatus.BEZIG -> throw WebApplicationException(

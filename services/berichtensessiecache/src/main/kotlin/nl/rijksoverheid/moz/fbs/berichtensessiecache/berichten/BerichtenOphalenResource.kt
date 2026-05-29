@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.opentelemetry.api.trace.StatusCode
 import io.smallrye.common.annotation.Blocking
 import io.smallrye.mutiny.Multi
-import jakarta.inject.Inject
 import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.Size
 import jakarta.ws.rs.GET
@@ -30,11 +29,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Path("/api/v1/berichten/_ophalen")
 class BerichtenOphalenResource(
     private val service: BerichtensessiecacheService,
+    private val logboekContext: LogboekContext,
 ) {
     private val log = Logger.getLogger(BerichtenOphalenResource::class.java)
-
-    @Inject
-    lateinit var logboekContext: LogboekContext
 
     @GET
     @Blocking

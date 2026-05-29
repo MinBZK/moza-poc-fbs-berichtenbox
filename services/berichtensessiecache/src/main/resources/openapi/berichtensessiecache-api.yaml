@@ -21,6 +21,12 @@ servers:
   - url: /api/v1
     description: Relatieve fallback (reverse-proxy/ingress)
 
+tags:
+  - name: berichten
+    description: Beheren en opvragen van berichtrecords in de sessiecache.
+  - name: ophalen
+    description: Aggregatie-ophaalproces uit de aangesloten magazijnen (SSE-stream).
+
 paths:
   /berichten:
     post:

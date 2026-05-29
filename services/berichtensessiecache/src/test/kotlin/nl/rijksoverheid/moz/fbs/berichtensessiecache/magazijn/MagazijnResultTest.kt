@@ -7,6 +7,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockedDependencie
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
@@ -62,6 +63,26 @@ class MagazijnResultTest {
         val failure: MagazijnResult = MagazijnResult.Failure("id", "n", RuntimeException(), MagazijnFault.INTERNAL_BUG)
 
         assertNotEquals(success, failure)
+    }
+
+    @Test
+    fun `Success met lege magazijn-id gooit IllegalArgumentException`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            MagazijnResult.Success("", "Magazijn", listOf(bericht))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MagazijnResult.Success("   ", "Magazijn", listOf(bericht))
+        }
+    }
+
+    @Test
+    fun `Failure met lege magazijn-id gooit IllegalArgumentException`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            MagazijnResult.Failure("", "Magazijn", RuntimeException(), MagazijnFault.INTERNAL_BUG)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MagazijnResult.Failure("   ", "Magazijn", RuntimeException(), MagazijnFault.INTERNAL_BUG)
+        }
     }
 
     @Test

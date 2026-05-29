@@ -52,6 +52,12 @@ class ProfielMagazijnResolver(
      * BSN/RSIN-waarde leeft daarmee voor de TTL-duur in JVM-heap; consistent met
      * de bestaande 60s sessiecache-window. Geen Redis: privacy-vlak blijft per-pod.
      * `maximumSize` capt heap-gebruik bij hoge unieke-ontvanger-rate.
+     *
+     * `getIfPresent`+`put` is bewust niet-atomair (geen single-flight): concurrent
+     * `resolve()` voor dezelfde ontvanger wordt al gegate door de SET-NX-lock in
+     * `BerichtensessiecacheService.ophalenBerichten` (tweede ophaalpoging krijgt 409).
+     * De cache absorbeert dus sequentiële her-triggers binnen het TTL-window, geen
+     * parallelle storm — een cache-stampede kan in dit flow niet optreden.
      */
     private val magazijnSetCache: Cache<Identificatienummer, Set<String>> by lazy {
         Caffeine.newBuilder()
@@ -112,9 +118,15 @@ class ProfielMagazijnResolver(
                         log.errorf(error, "Profiel-service 4xx %d voor type=%s — eigen contract-/auth-fout", status, profielType)
                         Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(status, error))
                     }
-                    else ->
-                        // 5xx of ontbrekende statuscode: gewone upstream-fout-doorgifte.
+                    else -> {
+                        // 5xx of ontbrekende statuscode: gewone upstream-fout-doorgifte. Warn-log
+                        // vóór de wrap zodat een ontbrekende statuscode (status==null — Response
+                        // onverwacht weg, mogelijk eigen bug) in incidenten te onderscheiden is van
+                        // een echte upstream-5xx; de mapper logt later alleen op categorie-niveau.
+                        log.warnf(error, "Profiel-service 5xx/geen-status (status=%s) voor type=%s", status, profielType)
+
                         Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(status, error))
+                    }
                 }
             }
             .onFailure(ProcessingException::class.java).recoverWithUni { error ->
@@ -149,8 +161,11 @@ class ProfielMagazijnResolver(
         // (één bron van waarheid met BerichtValidatieService in berichtenmagazijn).
         // Defensief: ongeldige upstream-OINs worden stil overgeslagen zodat een upstream-
         // typefout niet de héle resolver laat falen. Wel warn-loggen (niet error: upstream-
-        // fout, niet onze fout) zodat structurele drift zichtbaar wordt; maskeer de
-        // OIN-waarde tot prefix om geen volledige identificator in logs te zetten.
+        // fout, niet onze fout) zodat structurele drift zichtbaar wordt. OIN is publiek
+        // (geen PII) — een gevalideerde drift-OIN wordt vól gelogd zodat ops de mismatch
+        // direct kan fixen. Alleen een ongeldige, ongevalideerde upstream-string wordt
+        // afgekapt + ontdaan van control-chars (een buggy upstream kan daar onverwachte
+        // inhoud of een CRLF-log-injectie in zetten — dat is geen geldige OIN meer).
         // Reverse-index lookup via clientFactory.magazijnenVoorAfzender: O(1) per OIN i.p.v.
         // O(N×M) scan over alle magazijn-afzender-paren.
         var totaal = 0
@@ -165,12 +180,15 @@ class ProfielMagazijnResolver(
                 } catch (ex: IllegalArgumentException) {
                     // Specifiek IllegalArgumentException — validatiefout uit Oin-constructor.
                     // Brede runCatching zou Error-types (LinkageError, OOM) inslikken.
+                    // Geen OIN-PII-maskering (OIN is publiek), maar dit is een ongevalideerde
+                    // upstream-string: afkappen + control-chars neutraliseren tegen
+                    // CRLF-log-injectie en onverwachte inhoud van een buggy upstream.
                     ongeldig++
-                    val masked = oinString.take(4) + "***"
+                    val veiligeWaarde = oinString.take(24).replace(CONTROL_CHARS, "?")
 
                     log.warnf(
-                        "Profiel-service leverde ongeldige OIN '%s' (cause=%s); overslaan",
-                        masked,
+                        "Profiel-service leverde ongeldige OIN-waarde '%s' (cause=%s); overslaan",
+                        veiligeWaarde,
                         ex.javaClass.simpleName,
                     )
                     return@forEach
@@ -179,13 +197,14 @@ class ProfielMagazijnResolver(
                 val matched = clientFactory.magazijnenVoorAfzender(oin)
 
                 if (matched.isEmpty()) {
-                    // Config-drift: Profiel kent een OIN die niet in magazijn-config staat.
+                    // Config-drift: Profiel kent een geldige OIN die niet in magazijn-config
+                    // staat. Volledige (publieke) OIN in de log zodat ops de config-mismatch
+                    // direct kan herleiden.
                     driftSkips++
-                    val masked = oinString.take(4) + "***"
 
                     log.warnf(
                         "Profiel-service noemt afzender-OIN '%s' die bij geen geconfigureerd magazijn hoort — config-drift?",
-                        masked,
+                        oin.waarde,
                     )
 
                     return@forEach
@@ -193,6 +212,16 @@ class ProfielMagazijnResolver(
 
                 addAll(matched)
             }
+        }
+
+        // Geen enkele opt-in-voorkeur in de respons. Normaal voor opt-out/nieuwe
+        // ontvangers, maar een structurele schema-drift (hernoemde voorkeurType of
+        // verplaatste scope-OIN) zou dit pad voor iederéén raken. debugf geeft het
+        // signaal on-demand zonder INFO-ruis op de hot-path; structurele drift-detectie
+        // in productie hangt aan de Profiel-404-rate-alert (zie docs/operations).
+        // Geen PII: enkel het feit, geen ontvanger-waarde.
+        if (totaal == 0) {
+            log.debugf("Profiel-respons zonder opt-in-voorkeuren (0 afzender-OINs)")
         }
 
         // 100%-effective-empty → gestructureerde fout (geen silent GEREED).
@@ -229,6 +258,13 @@ class ProfielMagazijnResolver(
         IdentificatienummerType.RSIN -> "RSIN"
         IdentificatienummerType.KVK -> "KVK"
         IdentificatienummerType.OIN -> error("OIN-ontvanger moet vóór Profiel-call afgevangen worden")
+    }
+
+    private companion object {
+        // C0-control-chars + DEL → '?'. Neutraliseert CRLF-log-injectie bij het loggen van
+        // ongevalideerde upstream-strings. Precompiled: het ongeldig-OIN-pad is zeldzaam maar
+        // mag bij een upstream-storm geen Regex per regel compileren.
+        private val CONTROL_CHARS = Regex("[\\u0000-\\u001f\\u007f]")
     }
 
 }
