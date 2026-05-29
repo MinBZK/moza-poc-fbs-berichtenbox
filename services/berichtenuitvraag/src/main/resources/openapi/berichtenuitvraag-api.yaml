@@ -128,8 +128,11 @@ paths:
       summary: Bericht-status bijwerken / verplaatsen
       description: |
         JSON Merge Patch op `status` en/of `map`. Dual-write: eerst magazijn
-        (persistent), dan sessiecache. Operatie is idempotent — client mag
-        veilig retryen.
+        (persistent), dan sessiecache. De operatie is op het magazijn idempotent,
+        dus een retry is veilig. Let op: het juiste magazijn wordt bepaald via de
+        bron-`magazijnId` uit de sessiecache; is die routerings-info verlopen of
+        geïnvalideerd, dan geeft een herhaalde call 404 (haal het bericht dan
+        eerst opnieuw op om de cache te vullen).
       operationId: updateBericht
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -157,7 +160,11 @@ paths:
       summary: Bericht verwijderen
       description: |
         Soft-delete via het magazijn; daarna cache-invalidate in de sessiecache.
-        Idempotent — tweede call door dezelfde ontvanger geeft 204.
+        De delete is op het magazijn idempotent. Let op: routering naar het juiste
+        magazijn gebeurt via de bron-`magazijnId` uit de sessiecache. Na de eerste
+        geslaagde delete is die cache-entry geïnvalideerd (en verloopt ook via TTL),
+        dus een herhaalde call door dezelfde ontvanger levert 404 i.p.v. 204 — er is
+        dan geen veilige route meer naar het magazijn.
       operationId: verwijderBericht
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
