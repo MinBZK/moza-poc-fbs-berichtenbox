@@ -107,6 +107,16 @@ class ProfielMagazijnResolver(
                         // configuratiefout (base-path drift) en moet zichtbaar zijn in
                         // standaard log-niveau, niet alleen onder DEBUG. Geen ontvanger-
                         // waarde in de log (PII).
+                        //
+                        // LET OP: de Profiel-service gebruikt 404 óók voor de normale
+                        // "burger zonder profiel"-situatie (partij-record bestaat pas na een
+                        // eerste voorkeur). Daarom mappen we 404 naar emptySet() (succes-pad);
+                        // dit resultaat wordt door resolve() gecacht (cacheTtlSeconds) en kan
+                        // in de service een bestaande cache met een lege lijst overschrijven.
+                        // Een transient/infra-404 of base-path-drift is daardoor niet te
+                        // onderscheiden van een echte opt-out. De structurele oplossing is een
+                        // upstream contract-wijziging (200 + lege voorkeuren voor "geen profiel",
+                        // 404 alleen bij echte fout) — afgestemd met het Profiel-team.
                         log.warnf("Profiel-service 404 voor type=%s; geen voorkeuren bekend (mogelijk config-misser)", profielType)
                         Uni.createFrom().item(emptySet<String>())
                     }
@@ -184,7 +194,7 @@ class ProfielMagazijnResolver(
                     // upstream-string: afkappen + control-chars neutraliseren tegen
                     // CRLF-log-injectie en onverwachte inhoud van een buggy upstream.
                     ongeldig++
-                    val veiligeWaarde = oinString.take(24).replace(CONTROL_CHARS, "?")
+                    val veiligeWaarde = veiligLogFragment(oinString)
 
                     log.warnf(
                         "Profiel-service leverde ongeldige OIN-waarde '%s' (cause=%s); overslaan",
@@ -260,11 +270,22 @@ class ProfielMagazijnResolver(
         IdentificatienummerType.OIN -> error("OIN-ontvanger moet vóór Profiel-call afgevangen worden")
     }
 
-    private companion object {
-        // C0-control-chars + DEL → '?'. Neutraliseert CRLF-log-injectie bij het loggen van
+    internal companion object {
+        // C0-control-chars + DEL + Unicode line/paragraph separators (U+2028/U+2029) → '?'.
+        // Neutraliseert CRLF-log-injectie (CR/LF zitten in 0x00-0x1f) én de Unicode-separators
+        // die sommige log-pipelines óók als regeleinde interpreteren, bij het loggen van
         // ongevalideerde upstream-strings. Precompiled: het ongeldig-OIN-pad is zeldzaam maar
         // mag bij een upstream-storm geen Regex per regel compileren.
-        private val CONTROL_CHARS = Regex("[\\u0000-\\u001f\\u007f]")
+        private val CONTROL_CHARS = Regex("[\\u0000-\\u001f\\u007f\\u2028\\u2029]")
+
+        /**
+         * Maakt een ongevalideerde upstream-string veilig om te loggen: kap af op 24 tekens en
+         * vervang control-/line-separator-chars door '?'. Voorkomt CRLF-log-injectie en
+         * onbegrensde log-regels uit een buggy of vijandige upstream. Apart testbaar zodat de
+         * sanitisatie-invariant gepind blijft los van het log-pad.
+         */
+        internal fun veiligLogFragment(ruweUpstreamWaarde: String): String =
+            ruweUpstreamWaarde.take(24).replace(CONTROL_CHARS, "?")
     }
 
 }

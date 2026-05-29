@@ -33,8 +33,15 @@ class BerichtensessiecacheService(
     private val innerTimeoutSeconds: Long,
     @param:ConfigProperty(name = "profiel.resolver.outer-await-seconds", defaultValue = "25")
     private val outerAwaitSeconds: Long,
-    // Heap-bescherming tegen rogue magazijn. Belt-and-suspenders naast
-    // `quarkus.http.limits.max-body-size`. Niet stilzwijgend verhogen zonder load-evidence.
+    // Heap-bescherming tegen een rogue/defect magazijn: cap op het AANTAL berichten, toegepast
+    // ná deserialisatie (begrenst de cache-groei + verdere verwerking). LET OP: dit is GEEN
+    // byte-cap vóór deserialisatie — `quarkus.http.limits.max-body-size` geldt enkel voor
+    // INKOMENDE requests naar deze service, niet voor deze outbound magazijn-respons. De
+    // grootte van de inkomende magazijn-respons wordt alleen begrensd door de read-timeout
+    // (leesduur, niet bytes). Een harde outbound byte-cap is bewust niet toegevoegd: magazijn-
+    // URLs komen uit eigen, TLS-bewaakte config (geen attacker-endpoints) en realistische
+    // responses zijn enkele KB — conform CLAUDE.md geen speculatieve payload-cap zonder
+    // concrete productieaanleiding. Niet stilzwijgend verhogen zonder load-evidence.
     @param:ConfigProperty(name = "berichtensessiecache.max-berichten-per-magazijn", defaultValue = "200")
     private val maxBerichtenPerMagazijn: Int,
     // Per-magazijn query-timeout (Mutiny `ifNoItem`): primaire TIMEOUT-signaalbron richting
@@ -88,6 +95,10 @@ class BerichtensessiecacheService(
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d", page, pageSize)
         val key = BerichtenCache.cacheKey(ontvanger)
 
+        // Cache-miss (null: nog nooit opgehaald óf TTL verlopen) en "opgehaald, 0 berichten"
+        // collapsen bewust naar dezelfde lege pagina. Het onderscheid loopt via een aparte
+        // bron: de caller raadpleegt getAggregationStatus om "nog ophalen / niets in cache"
+        // te onderscheiden van een afgeronde lege ophaling.
         return berichtenCache.getPage(key, page, pageSize, afzender, ontvanger)
             .map { it ?: BerichtenPage(emptyList(), page, pageSize, 0L, 0) }
     }
@@ -281,6 +292,13 @@ class BerichtensessiecacheService(
         // Geen magazijnen → lege resultaten + GEREED-status. Cache overschrijven met
         // lege lijst zodat eventuele stale data uit eerdere sessies niet zichtbaar
         // blijft via GET-endpoints.
+        //
+        // LET OP (bekende beperking): een lege resolver-set kan ook ontstaan uit een
+        // transient Profiel-404 of base-path-drift (zie ProfielMagazijnResolver 404-tak).
+        // In dat geval overschrijft dit pad geldige eerder-gecachte berichten met een lege
+        // lijst. Dit is niet te onderscheiden van een echte opt-out tot de upstream
+        // 404-semantiek is aangescherpt (200 + lege voorkeuren); detectie loopt tot dan via
+        // de Profiel-404-rate-alert (docs/operations/profiel-404-alert.md).
         if (clients.isEmpty()) {
             try {
                 // Parallel: spaart 1 RTT op hot-path (nieuwe gebruikers zonder opt-ins).

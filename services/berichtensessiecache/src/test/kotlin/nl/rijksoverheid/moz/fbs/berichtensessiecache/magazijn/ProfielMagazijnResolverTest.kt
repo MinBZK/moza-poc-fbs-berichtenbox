@@ -19,6 +19,7 @@ import nl.rijksoverheid.moz.fbs.common.profiel.ScopeResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.VoorkeurResponse
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -459,5 +460,60 @@ class ProfielMagazijnResolverTest {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         }
         assertEquals(ProfielServiceFoutException.Categorie.CONFIG_DRIFT, ex.categorie)
+    }
+
+    @Test
+    fun `WebApplicationException zonder Response (status null) werpt UPSTREAM_ERROR met httpStatus null`() {
+        // Null-status sub-pad van de WAE-tak: een WAE waarvan getResponse() null is mag NIET in
+        // de 404-emptySet-tak of de 4xx-tak vallen (die laatste zou een NPE op `status in 400..499`
+        // riskeren), maar in de else-tak → upstreamError(null). Pint "geen status = mogelijke
+        // eigen bug, niet stil leeg" vast.
+        val waeZonderResponse = object : WebApplicationException("geen response") {
+            override fun getResponse(): Response? = null
+        }
+        every { profielClient.getPartij("BSN", "999993653") } throws waeZonderResponse
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertNull(ex.httpStatus)
+    }
+
+    @Test
+    fun `CRLF in ongeldige upstream-OIN wordt defensief overgeslagen en levert de geldige match`() {
+        // Exerceert het sanitisatiepad end-to-end: de CRLF-bevattende OIN is ongeldig van formaat
+        // en wordt overgeslagen (gesanitiseerd gelogd), de geldige OIN bepaalt het resultaat.
+        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+            voorkeuren = listOf(
+                VoorkeurResponse(
+                    voorkeurType = "OntvangViaBerichtenbox", waarde = "true",
+                    scopes = listOf(
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "12345\r\nINJECTED-LOGLINE")),
+                        ScopeResponse(partij = IdentificatieResponse("OIN", "00000001003214345000")),
+                    ),
+                ),
+            ),
+        )
+        val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        assertEquals(setOf("magazijn-a"), result)
+    }
+
+    @Test
+    fun `veiligLogFragment neutraliseert control- en line-separator-chars en kapt af op 24 tekens`() {
+        // Directe guard op de log-sanitisatie-invariant, los van het log-pad: CR/LF/NUL én de
+        // Unicode line/paragraph separators (U+2028/U+2029) → '?', en max 24 tekens zodat een
+        // buggy of vijandige upstream geen log-injectie of onbegrensde regel kan plaatsen.
+        val ruw = "ab\r\ncd\u0000ef\u2028gh\u2029ij" + "X".repeat(40)
+
+        val veilig = ProfielMagazijnResolver.veiligLogFragment(ruw)
+
+        assertEquals(24, veilig.length)
+        assertTrue(
+            veilig.none { it == '\r' || it == '\n' || it == '\u0000' || it == '\u2028' || it == '\u2029' },
+            "Geen rauwe control-/separator-chars in: '$veilig'",
+        )
+        assertTrue(veilig.startsWith("ab??cd?ef?gh?ij"), "Was: '$veilig'")
     }
 }

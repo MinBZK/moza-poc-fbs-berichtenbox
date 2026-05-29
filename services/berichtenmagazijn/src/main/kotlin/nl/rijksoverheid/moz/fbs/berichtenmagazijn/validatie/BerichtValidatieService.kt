@@ -65,6 +65,10 @@ class BerichtValidatieService(
             // op invalide path, 401/403 op auth-misser) propageren wél zodat het
             // circuit breaker ze meetelt. 5xx en netwerk-fouten zijn geen
             // `WebApplicationException` en passeren deze catch sowieso.
+            //
+            // PII-veilig: de doorgegooide WAE belandt bij ProblemExceptionMapper, die de
+            // 4xx-detail saneert — de upstream-URL (met BSN/RSIN/KVK in het pad) komt niet in
+            // Problem.detail terecht. De Quarkus-client-message zelf bevat geen URL.
             if (ex.response?.status != 404) throw ex
             // Onbekende ontvanger → fail-closed: behandel als geen toestemming.
             // Log op WARN zodat een configuratiefout (verkeerd base-path → 404 op
