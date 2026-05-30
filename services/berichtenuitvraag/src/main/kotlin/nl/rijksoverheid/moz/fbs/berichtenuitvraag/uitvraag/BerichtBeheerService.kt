@@ -17,7 +17,10 @@ import java.util.UUID
  * Magazijn-faal → fout naar client, cache niet aangeraakt. Magazijn-OK +
  * cache-faal → best-effort cache-invalidate (vervangt 'stale' door 'leeg'),
  * daarna 502 zodat de client weet dat de operatie niet volledig consistent
- * doorgevoerd is. Alle operaties zijn idempotent — client mag retryen.
+ * doorgevoerd is. De magazijn-operaties zijn op het magazijn zélf idempotent;
+ * een herhaalde uitvraag-call kan echter 404 geven, omdat de bron-`magazijnId`
+ * na de eerste write uit de sessiecache verdwijnt en `resolveMagazijn` dan geen
+ * route meer vindt (zie de spec-correctie in commit b34f9fe).
  *
  * "Cache-faal" = transport-storing (timeout, connect-fout, 5xx upstream). 4xx
  * van de cache duidt op een contract-bug en wordt onveranderd doorgegeven; de
@@ -50,10 +53,9 @@ class BerichtBeheerService(
             return sessiecache.patchBericht(xOntvanger, berichtId, patch)
         } catch (e: WebApplicationException) {
             if (!isUpstreamTransportFout(e)) {
-                // 4xx ná geslaagde magazijn-write: magazijn↔cache kunnen tot de TTL
-                // inconsistent zijn. Niet compenseren (4xx = contract-bug, geen transport-
-                // storing), wél loggen. Status propageert, maar de sessiecache-response-body
-                // niet: uitvraag is de facade en mag geen cache-interne details/PII lekken.
+                // 4xx = contract-bug, geen transport-storing: niet compenseren (zie
+                // herverpakCache4xx), wél loggen. Status propageert; body niet (facade
+                // lekt geen cache-internals/PII). Cache kan tot de TTL stale blijven.
                 log.warnf(e, "cache-PATCH 4xx ná geslaagde magazijn-PATCH; magazijn↔cache mogelijk stale tot TTL. berichtId=%s", berichtId)
 
                 throw herverpakCache4xx(e)
@@ -80,10 +82,9 @@ class BerichtBeheerService(
             sessiecache.verwijderBericht(xOntvanger, berichtId)
         } catch (e: WebApplicationException) {
             if (!isUpstreamTransportFout(e)) {
-                // 4xx ná geslaagde magazijn-DELETE: magazijn↔cache kunnen tot de TTL
-                // inconsistent zijn. Niet compenseren (4xx = contract-bug, geen transport-
-                // storing), wél loggen. Status propageert, maar de sessiecache-response-body
-                // niet: uitvraag is de facade en mag geen cache-interne details/PII lekken.
+                // 4xx = contract-bug, geen transport-storing: niet compenseren (zie
+                // herverpakCache4xx), wél loggen. Status propageert; body niet (facade
+                // lekt geen cache-internals/PII). Cache kan tot de TTL stale blijven.
                 log.warnf(e, "cache-DELETE 4xx ná geslaagde magazijn-DELETE; magazijn↔cache mogelijk stale tot TTL. berichtId=%s", berichtId)
 
                 throw herverpakCache4xx(e)

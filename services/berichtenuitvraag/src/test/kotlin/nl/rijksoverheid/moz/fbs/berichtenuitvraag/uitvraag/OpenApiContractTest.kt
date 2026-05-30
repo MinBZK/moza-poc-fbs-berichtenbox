@@ -309,4 +309,60 @@ class OpenApiContractTest {
             .statusCode(400)
             .contentType("application/problem+json")
     }
+
+    // Borgt dat de generator de spec-grenzen op de query-parameters daadwerkelijk als
+    // Bean Validation afdwingt: een out-of-range pagina/paginaGrootte of een lege/te-lange
+    // map mag niet stilletjes naar de sessiecache doorlekken maar hoort 400 te geven.
+
+    @Test
+    fun `GET berichten met paginaGrootte boven maximum levert 400 problem+json`() {
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("paginaGrootte", 201)
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET berichten met paginaGrootte onder minimum levert 400 problem+json`() {
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("paginaGrootte", 0)
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET berichten met negatieve pagina levert 400 problem+json`() {
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("pagina", -1)
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    // NB: een lege `map=` wordt door RESTEasy Reactive als afwezige parameter behandeld
+    // (niet als ""), dus `@Size(min=1)` triggert daar niet — geen 400-case. De max-grens
+    // hieronder bewijst wél dat de generator de @Size-constraint daadwerkelijk toepast.
+
+    @Test
+    fun `GET berichten met te lange map levert 400 problem+json`() {
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("map", "x".repeat(65))
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
 }

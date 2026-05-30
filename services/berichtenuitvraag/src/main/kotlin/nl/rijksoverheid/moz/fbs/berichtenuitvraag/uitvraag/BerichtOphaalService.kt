@@ -17,9 +17,9 @@ import java.util.UUID
  * mimeType op een request-property zodat [BijlageContentTypeFilter] de
  * response-`Content-Type` kan overrulen.
  *
- * Bytes worden volledig in een ByteArray geladen; de maximale bijlagegrootte
- * (`Bijlage.MAX_CONTENT_BYTES` = 25 MiB in het magazijn) begrenst het
- * geheugengebruik per request.
+ * Bytes worden volledig in een ByteArray geladen; het geheugengebruik per request
+ * is begrensd door de bijlage-limiet die het magazijn afdwingt
+ * (`Bijlage.MAX_CONTENT_BYTES`) — geen waarde hier dupliceren, die leeft in het magazijn.
  *
  * Magazijn-fouten worden status-behoudend doorgegeven: 404/401/403 mappen 1-op-1
  * (zodat de OpenAPI-belofte van 404 en de LDV-audittrail klopt), 5xx en transport-
@@ -52,13 +52,11 @@ class BerichtOphaalService(
         }
         val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
 
-        // De Quarkus REST-client gooit zelf al een WAE bij upstream >=400 (ook
-        // wanneer de signature `Response` retourneert via de default exception-
-        // mapper). Vang dat hier en hermap zodat 401/403/404 1-op-1 propageren
-        // en 5xx als 502 voor de client zichtbaar wordt. Een transport-storing
-        // (connect/read-timeout) is een ProcessingException — die mapt naar 502,
-        // net als in [BerichtBeheerService], zodat een magazijn-storing niet als
-        // 500 (onze fout) maar als 502 (upstream-fout) zichtbaar wordt.
+        // De Quarkus REST-client gooit zélf al een WAE bij upstream >=400 (ook met
+        // `Response`-signature, via de default mapper); een transport-storing is een
+        // ProcessingException. Beide hier vangen i.p.v. door te laten naar de generieke
+        // mapper, want we moeten de upstream-response sluiten (connectie-lek). Mapping
+        // is de standaard 4xx-propageert / geen-response+5xx → 502 (zie klasse-KDoc).
         val response = try {
             magazijn.bijlage(xOntvanger, berichtId, bijlageId)
         } catch (e: WebApplicationException) {
@@ -66,8 +64,11 @@ class BerichtOphaalService(
 
             // Sluit de upstream-response: een WAE van de REST-client kan een open
             // verbinding/stream vasthouden; niet sluiten lekt connecties uit de pool
-            // bij fout-traffic.
+            // bij fout-traffic. Een falende close mag de re-throw van de echte fout niet
+            // overschaduwen — vandaar runCatching — maar wordt op debug gelogd zodat een
+            // pool-lek bij diagnose (dev/test, of prod met verhoogd logniveau) zichtbaar is.
             runCatching { e.response?.close() }
+                .onFailure { log.debugf(it, "kon upstream-response niet sluiten na magazijn-bijlage-WAE") }
 
             // Geen response = transport-fout (call brak af vóór HTTP-antwoord) → 502,
             // net als 5xx; 4xx propageert status-behoudend. Consistent met

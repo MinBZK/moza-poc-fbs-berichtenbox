@@ -73,4 +73,52 @@ class BerichtenlijstServiceTest {
         assertEquals("/api/v1/berichten?pagina=2&paginaGrootte=20", actual.links.next.href)
         assertEquals("/api/v1/berichten?pagina=0&paginaGrootte=20", actual.links.prev.href)
     }
+
+    @Test
+    fun `zoek herschrijft paginatieparameters in HAL-links net als lijst`() {
+        val response = BerichtenLijst().apply {
+            links = PaginaLinks().apply {
+                self = Link().apply { href = "/api/v1/berichten/_zoeken?q=rente&page=1&pageSize=20" }
+                next = Link().apply { href = "/api/v1/berichten/_zoeken?q=rente&page=2&pageSize=20" }
+            }
+        }
+        every { sessiecache.zoek("BSN:1", "rente", null) } returns response
+
+        val actual = service.zoek("BSN:1", "rente", null)
+
+        assertEquals("/api/v1/berichten/_zoeken?q=rente&pagina=1&paginaGrootte=20", actual.links.self.href)
+        assertEquals("/api/v1/berichten/_zoeken?q=rente&pagina=2&paginaGrootte=20", actual.links.next.href)
+    }
+
+    @Test
+    fun `vertaling raakt alleen echte query-parameters, niet een toevallige substring`() {
+        // De KDoc belooft dat het anker (`?`/`&`) voorkomt dat een waarde die `page`/
+        // `pageSize` als substring bevat (bv. `homepage`) wordt herschreven.
+        val response = BerichtenLijst().apply {
+            links = PaginaLinks().apply {
+                self = Link().apply { href = "/api/v1/berichten?filter=homepage&page=1" }
+            }
+        }
+        every { sessiecache.lijst("BSN:1", null, 1, 20) } returns response
+
+        val actual = service.lijst("BSN:1", null, 1, 20)
+
+        assertEquals("/api/v1/berichten?filter=homepage&pagina=1", actual.links.self.href)
+    }
+
+    @Test
+    fun `vertaling verdraagt een Link met null href`() {
+        val response = BerichtenLijst().apply {
+            links = PaginaLinks().apply {
+                self = Link().apply { href = null }
+                next = Link().apply { href = "/api/v1/berichten?page=2&pageSize=20" }
+            }
+        }
+        every { sessiecache.lijst("BSN:1", null, 2, 20) } returns response
+
+        val actual = service.lijst("BSN:1", null, 2, 20)
+
+        assertEquals(null, actual.links.self.href)
+        assertEquals("/api/v1/berichten?pagina=2&paginaGrootte=20", actual.links.next.href)
+    }
 }

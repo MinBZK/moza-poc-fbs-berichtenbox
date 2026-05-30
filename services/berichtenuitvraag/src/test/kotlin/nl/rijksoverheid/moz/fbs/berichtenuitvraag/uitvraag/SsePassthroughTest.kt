@@ -7,6 +7,7 @@ import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import org.hamcrest.Matchers.containsString
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -49,6 +50,38 @@ class SsePassthroughTest {
             .statusCode(200)
             .body(containsString("BEZIG"))
             .body(containsString("GEREED"))
+    }
+
+    @Test
+    fun `_ophalen behoudt SSE-frame-grenzen zonder dubbel-framing of samenvoegen`() {
+        // De kernfunctie is 1-op-1 doorpijpen op event-niveau: de Quarkus REST-client
+        // str'ipt de inkomende `data:`-prefix en de server herframe't elk event éénmaal.
+        // Een `containsString`-assertie alleen zou groen blijven bij dubbel-framing
+        // (`data: data:`) of samengevoegde events; dit borgt het aantal frames + grenzen.
+        val sseBody = "data: {\"event\":\"A\"}\n\ndata: {\"event\":\"B\"}\n\n"
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/_ophalen"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "text/event-stream")
+                        .withBody(sseBody),
+                ),
+        )
+
+        val body = given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .header("Accept", "text/event-stream")
+            .`when`()
+            .get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .extract().body().asString()
+
+        assertFalse(body.contains("data: data:") || body.contains("data:data:"), "dubbel-geframed: $body")
+        assertTrue(body.contains("{\"event\":\"A\"}"), "frame A ontbreekt: $body")
+        assertTrue(body.contains("{\"event\":\"B\"}"), "frame B ontbreekt: $body")
+        assertEquals(2, Regex("(?m)^data:").findAll(body).count(), "verwacht exact 2 SSE-data-frames, body: $body")
     }
 
     @Test

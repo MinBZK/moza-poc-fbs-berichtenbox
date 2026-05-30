@@ -46,13 +46,10 @@ class SsePassthroughResource(
         registreerLdvSubject(xOntvanger)
 
         return streamingClient.ophalen(xOntvanger).onFailure().invoke { e ->
-            // Upstream-fouten (WAE/ProcessingException) zijn echte sessiecache-faal → error.
-            // De rest kan een verwachte client-disconnect zijn óf een bug in de stream-
-            // pijplijn (serialisatie, NPE, …); die twee zijn hier nog niet op type te
-            // onderscheiden. We loggen daarom op warn i.p.v. debug, zodat een echte bug
-            // niet stil verdwijnt. Het concrete client-abort-type is in deze Vert.x/
-            // Mutiny-stack (nog) niet te onderscheiden van een pijplijn-bug, dus blijft
-            // warn de veilige ondergrens.
+            // Upstream-fout (WAE/ProcessingException) = echte sessiecache-faal → error.
+            // De rest is óf een client-disconnect óf een pijplijn-bug (serialisatie, NPE);
+            // die zijn in deze Vert.x/Mutiny-stack niet op type te scheiden, dus warn als
+            // veilige ondergrens — niet debug, anders verdwijnt een echte bug stil.
             if (e is jakarta.ws.rs.WebApplicationException || e is jakarta.ws.rs.ProcessingException) {
                 log.errorf(e, "SSE-passthrough: upstream sessiecache-fout")
             } else {

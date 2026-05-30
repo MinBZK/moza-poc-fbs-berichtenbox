@@ -22,7 +22,15 @@ internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () 
     } catch (e: WebApplicationException) {
         if (!isUpstreamTransportFout(e)) throw e
 
-        log.errorf(e, "%s: upstream 5xx → 502", context)
+        // isUpstreamTransportFout liet door: óf geen response (transport-fout vóór
+        // HTTP-antwoord) óf een echte 5xx. Log eerlijk welke van de twee, anders zet
+        // "upstream 5xx → 502" een debugger op het verkeerde been bij een timeout.
+        if (e.response == null) {
+            log.errorf(e, "%s: upstream zonder response (transport-fout) → 502", context)
+        } else {
+            log.errorf(e, "%s: upstream 5xx → 502", context)
+        }
+
         throw upstreamBadGateway(context)
     } catch (e: ProcessingException) {
         log.errorf(e, "%s: upstream transport-fout → 502", context)

@@ -22,11 +22,10 @@ import java.util.concurrent.TimeUnit
  * naar buiten geen 500 verdient (we kennen het probleem, maar de upstream-
  * topologie klopt niet).
  *
- * De `magazijnId`-waarden moeten exact overeenkomen met de magazijn-instances
- * in de sessiecache-config; mismatch → 502. De config wordt bij opstart
- * gevalideerd ([valideerConfigBijOpstart]) zodat een lege of kromme
- * `magazijnen.urls` de service laat falen bij boot i.p.v. bij het eerste
- * verkeer.
+ * De `magazijnId`-waarden moeten exact overeenkomen met de magazijn-instances in
+ * de sessiecache-config. De config wordt bij opstart gevalideerd
+ * ([valideerConfigBijOpstart]) zodat een lege of kromme `magazijnen.urls` de
+ * service laat falen bij boot i.p.v. bij het eerste verkeer.
  */
 @ApplicationScoped
 class MagazijnRouter(private val config: MagazijnenConfig) {

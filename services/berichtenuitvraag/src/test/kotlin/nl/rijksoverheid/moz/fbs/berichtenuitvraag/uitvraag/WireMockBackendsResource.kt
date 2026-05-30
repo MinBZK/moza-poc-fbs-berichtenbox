@@ -9,9 +9,9 @@ import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
  * client-config-keys naar hun URLs. De servers zijn statisch beschikbaar
  * voor tests die per-test stubs willen toevoegen of verifiëren.
  *
- * De `magazijn`-server wordt via `magazijnen.urls.default` aangewezen; alle
- * uitvraag-paden (bijlage-download, patch, verwijder) routeren via
- * [MagazijnRouter] naar deze mock.
+ * De `magazijn`-server wordt via `magazijnen.urls.magazijn-a` én `-b` aangewezen
+ * (beide naar dezelfde mock); alle uitvraag-paden (bijlage-download, patch,
+ * verwijder) routeren via [MagazijnRouter] naar deze mock.
  */
 class WireMockBackendsResource : QuarkusTestResourceLifecycleManager {
 

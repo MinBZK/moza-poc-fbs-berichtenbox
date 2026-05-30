@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
@@ -198,6 +199,45 @@ class BerichtOphaalServiceTest {
         val ex = assertThrows(WebApplicationException::class.java) {
             service.haalBijlage("BSN:1", berichtId, bijlageId)
         }
+        assertEquals(502, ex.response.status)
+    }
+
+    // De Quarkus REST-client kan bij een upstream-fout zélf een WebApplicationException
+    // gooien i.p.v. een Response met fout-status terug te geven. Die catch-tak (incl. het
+    // sluiten van de upstream-response tegen connectie-lek) wordt door bovenstaande
+    // Response-gebaseerde tests niet geraakt; de twee tests hieronder dekken hem expliciet.
+    @Test
+    fun `haalBijlage mapt door REST-client geworpen WAE (5xx) naar 502 en sluit de upstream-response`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val upstreamResp = mockk<Response>(relaxed = true) {
+            every { status } returns 503
+        }
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } throws WebApplicationException("upstream kapot", upstreamResp)
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+
+        assertEquals(502, ex.response.status)
+        verify { upstreamResp.close() }
+    }
+
+    @Test
+    fun `haalBijlage mapt door REST-client geworpen WAE zonder response (transport-fout) naar 502`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val waeZonderResponse = mockk<WebApplicationException>(relaxed = true) {
+            every { response } returns null
+        }
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } throws waeZonderResponse
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+
         assertEquals(502, ex.response.status)
     }
 }
