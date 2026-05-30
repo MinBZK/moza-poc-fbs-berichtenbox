@@ -50,8 +50,9 @@ class SsePassthroughResource(
             // De rest kan een verwachte client-disconnect zijn óf een bug in de stream-
             // pijplijn (serialisatie, NPE, …); die twee zijn hier nog niet op type te
             // onderscheiden. We loggen daarom op warn i.p.v. debug, zodat een echte bug
-            // niet stil verdwijnt. Verfijn naar het concrete client-abort-type zodra dat
-            // in deze Vert.x/Mutiny-stack is vastgesteld, en zet abort dan terug op debug.
+            // niet stil verdwijnt. Het concrete client-abort-type is in deze Vert.x/
+            // Mutiny-stack (nog) niet te onderscheiden van een pijplijn-bug, dus blijft
+            // warn de veilige ondergrens.
             if (e is jakarta.ws.rs.WebApplicationException || e is jakarta.ws.rs.ProcessingException) {
                 log.errorf(e, "SSE-passthrough: upstream sessiecache-fout")
             } else {

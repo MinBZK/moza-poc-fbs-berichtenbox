@@ -17,8 +17,9 @@ import java.util.UUID
  * mimeType op een request-property zodat [BijlageContentTypeFilter] de
  * response-`Content-Type` kan overrulen.
  *
- * Bytes worden volledig in een ByteArray geladen; bij de maximale bijlagegrootte
- * van 1 MiB blijft het geheugengebruik per request begrensd.
+ * Bytes worden volledig in een ByteArray geladen; de maximale bijlagegrootte
+ * (`Bijlage.MAX_CONTENT_BYTES` = 25 MiB in het magazijn) begrenst het
+ * geheugengebruik per request.
  *
  * Magazijn-fouten worden status-behoudend doorgegeven: 404/401/403 mappen 1-op-1
  * (zodat de OpenAPI-belofte van 404 en de LDV-audittrail klopt), 5xx en transport-
@@ -61,8 +62,26 @@ class BerichtOphaalService(
         val response = try {
             magazijn.bijlage(xOntvanger, berichtId, bijlageId)
         } catch (e: WebApplicationException) {
-            throw magazijnFout(e.response?.status ?: 502)
+            val status = e.response?.status
+
+            // Sluit de upstream-response: een WAE van de REST-client kan een open
+            // verbinding/stream vasthouden; niet sluiten lekt connecties uit de pool
+            // bij fout-traffic.
+            runCatching { e.response?.close() }
+
+            // Geen response = transport-fout (call brak af vóór HTTP-antwoord) → 502,
+            // net als 5xx; 4xx propageert status-behoudend. Consistent met
+            // isUpstreamTransportFout in [UpstreamFault]; altijd loggen vóór re-throw.
+            if (status == null || status >= 500) {
+                log.errorf(e, "magazijn-bijlage upstream-fout (status=%s) → 502", status?.toString() ?: "geen response")
+
+                throw magazijnFout(502)
+            }
+
+            throw magazijnFout(status)
         } catch (e: ProcessingException) {
+            log.errorf(e, "magazijn-bijlage transport-fout → 502")
+
             throw magazijnFout(502)
         }
 

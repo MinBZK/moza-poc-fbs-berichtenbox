@@ -22,8 +22,11 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.uitvraag.bijlage.mimeType"
  * Defense-in-depth: parse het MIME-type opnieuw zodat een toekomstige caller
  * zonder pre-validatie geen header-splitting kan introduceren.
  *
- * Identiek patroon aan `…fbs.berichtenmagazijn.ophaal.BijlageContentTypeFilter` —
- * pas bij een derde gebruiker verplaatsen naar fbs-common.
+ * Zelfde concept als `…fbs.berichtenmagazijn.ophaal.BijlageContentTypeFilter`,
+ * maar bewust strenger: die variant is fail-open (ongeldig MIME → Content-Type
+ * ongewijzigd), deze is fail-closed (→ octet-stream + attachment). Bij een
+ * eventuele consolidatie naar fbs-common moet de fail-closed-variant leidend
+ * blijven; verzwak dit gedrag niet naar fail-open.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {

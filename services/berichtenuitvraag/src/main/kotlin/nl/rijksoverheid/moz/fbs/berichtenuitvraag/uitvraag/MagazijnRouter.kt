@@ -57,10 +57,11 @@ class MagazijnRouter(private val config: MagazijnenConfig) {
 
     fun forMagazijn(magazijnId: String): MagazijnClient =
         clients.computeIfAbsent(magazijnId) { id ->
-            val url = config.urls()[id]
+            val urls = config.urls()
+            val url = urls[id]
 
             if (url == null) {
-                log.errorf("Magazijn-routering: onbekend magazijnId=%s, bekende ids=%s", id, config.urls().keys)
+                log.errorf("Magazijn-routering: onbekend magazijnId=%s, bekende ids=%s", id, urls.keys)
 
                 throw WebApplicationException(
                     "onbekende magazijnId '$id'; controleer magazijnen.urls in uitvraag-config",

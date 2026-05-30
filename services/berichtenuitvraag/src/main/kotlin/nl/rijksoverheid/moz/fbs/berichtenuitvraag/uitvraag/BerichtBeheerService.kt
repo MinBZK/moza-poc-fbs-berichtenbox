@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.ws.rs.ForbiddenException
+import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
@@ -48,12 +50,13 @@ class BerichtBeheerService(
             return sessiecache.patchBericht(xOntvanger, berichtId, patch)
         } catch (e: WebApplicationException) {
             if (!isUpstreamTransportFout(e)) {
-                // 4xx propageert 1-op-1, maar de magazijn-write is al geslaagd: magazijn en
-                // cache kunnen tot de TTL inconsistent zijn. Niet compenseren (4xx = contract-
-                // bug, geen transport-storing), wél loggen zodat de inconsistentie traceerbaar is.
+                // 4xx ná geslaagde magazijn-write: magazijn↔cache kunnen tot de TTL
+                // inconsistent zijn. Niet compenseren (4xx = contract-bug, geen transport-
+                // storing), wél loggen. Status propageert, maar de sessiecache-response-body
+                // niet: uitvraag is de facade en mag geen cache-interne details/PII lekken.
                 log.warnf(e, "cache-PATCH 4xx ná geslaagde magazijn-PATCH; magazijn↔cache mogelijk stale tot TTL. berichtId=%s", berichtId)
 
-                throw e
+                throw herverpakCache4xx(e)
             }
 
             log.errorf(e, "cache-PATCH 5xx na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
@@ -77,12 +80,13 @@ class BerichtBeheerService(
             sessiecache.verwijderBericht(xOntvanger, berichtId)
         } catch (e: WebApplicationException) {
             if (!isUpstreamTransportFout(e)) {
-                // 4xx propageert 1-op-1, maar de magazijn-DELETE is al geslaagd: magazijn en
-                // cache kunnen tot de TTL inconsistent zijn. Niet compenseren (4xx = contract-
-                // bug, geen transport-storing), wél loggen zodat de inconsistentie traceerbaar is.
+                // 4xx ná geslaagde magazijn-DELETE: magazijn↔cache kunnen tot de TTL
+                // inconsistent zijn. Niet compenseren (4xx = contract-bug, geen transport-
+                // storing), wél loggen. Status propageert, maar de sessiecache-response-body
+                // niet: uitvraag is de facade en mag geen cache-interne details/PII lekken.
                 log.warnf(e, "cache-DELETE 4xx ná geslaagde magazijn-DELETE; magazijn↔cache mogelijk stale tot TTL. berichtId=%s", berichtId)
 
-                throw e
+                throw herverpakCache4xx(e)
             }
 
             log.errorf(e, "cache-DELETE 5xx na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
@@ -109,9 +113,28 @@ class BerichtBeheerService(
         try {
             sessiecache.verwijderBericht(xOntvanger, berichtId)
         } catch (e: WebApplicationException) {
-            log.warnf(e, "compensatie-invalidate faalde; cache mogelijk stale tot TTL. berichtId=%s", berichtId)
+            logCompensatieFout(e, berichtId)
         } catch (e: ProcessingException) {
-            log.warnf(e, "compensatie-invalidate faalde; cache mogelijk stale tot TTL. berichtId=%s", berichtId)
+            logCompensatieFout(e, berichtId)
+        }
+    }
+
+    // Dubbele cache-faal: de write naar de cache faalde én de compenserende invalidate
+    // faalde. De cache blijft stale tot de TTL zonder self-heal — errorf (niet warnf)
+    // zodat een aanhoudende cache-outage alertbaar is i.p.v. te verdrinken in warnings.
+    private fun logCompensatieFout(e: Exception, berichtId: UUID) =
+        log.errorf(e, "compensatie-invalidate faalde ná cache-write-faal; cache stale tot TTL. berichtId=%s", berichtId)
+
+    // Herverpak een cache-4xx tot een status- en type-behoudende exception zonder de
+    // upstream-response-body, zodat de client de juiste semantiek (404/403/…) krijgt
+    // maar sessiecache-internals niet via de facade lekken.
+    private fun herverpakCache4xx(e: WebApplicationException): WebApplicationException {
+        val status = e.response?.status ?: Response.Status.BAD_GATEWAY.statusCode
+
+        return when (status) {
+            404 -> NotFoundException("cache-operatie geweigerd (404)")
+            403 -> ForbiddenException("cache-operatie geweigerd (403)")
+            else -> WebApplicationException("cache-operatie geweigerd ($status)", status)
         }
     }
 
