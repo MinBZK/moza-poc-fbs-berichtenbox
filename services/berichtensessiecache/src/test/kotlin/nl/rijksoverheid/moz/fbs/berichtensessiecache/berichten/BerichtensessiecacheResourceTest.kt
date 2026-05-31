@@ -27,6 +27,7 @@ class BerichtensessiecacheResourceTest {
         MockMagazijnClientFactory.shouldFailB = false
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
+        MockBerichtenCache.faalUpdateMetContentie = false
     }
 
     @Test
@@ -456,6 +457,56 @@ class BerichtensessiecacheResourceTest {
     }
 
     // --- PATCH /berichten/{berichtId} ---
+
+    @Test
+    fun `PATCH retourneert 503 (niet 404) bij aanhoudende cache-schrijfcontentie`() {
+        // Optimistic-lock-exhaustie in de cache mag GEEN 404 worden — dat zou de client
+        // na een geslaagde magazijn-write laten denken dat het bericht weg is. De resource
+        // vertaalt CacheContentieException naar een retriable 503. Borgt tegen het terugdraaien
+        // van `failure(CacheContentieException)` naar het oude `nullItem()` (→ 404).
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        MockBerichtenCache.faalUpdateMetContentie = true
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(503)
+            .contentType("application/problem+json")
+            .body("status", `is`(503))
+    }
+
+    @Test
+    fun `DELETE blijft 204 (idempotent, geen 503) onder dezelfde contentie-conditie`() {
+        // Asymmetrie-contract: waar PATCH een contentie-exhaustie als 503 oppervlakt,
+        // houdt DELETE de idempotente 204 aan (de bron logt errorf en laat de cache
+        // zelf-helen via TTL). `faalUpdateMetContentie` raakt alleen `update`; `delete`
+        // blijft 204 — vangt een refactor die de twee paden ten onrechte uniformeert.
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        MockBerichtenCache.faalUpdateMetContentie = true
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(204)
+    }
 
     @ParameterizedTest(name = "PATCH status={0} → {1}")
     @CsvSource(

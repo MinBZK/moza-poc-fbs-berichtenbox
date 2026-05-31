@@ -38,7 +38,7 @@ class OpenApiContractTest {
             .build(),
     )
 
-    private val ontvanger = "BSN:123456782"
+    private val ontvanger = "BSN:999990019"
 
     @BeforeEach
     fun resetStubs() {

@@ -273,6 +273,10 @@ class BerichtensessiecacheResource(
             log.warnf(e, "Cache-timeout na %s; 503 naar client", TIMEOUT)
 
             throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
+        } catch (e: CacheContentieException) {
+            // Transiente schrijf-contentie: bron logt al op warn. Retriable 503
+            // i.p.v. de misleidende 404 die een null-resultaat zou opleveren.
+            throw WebApplicationException("Cache tijdelijk niet bij te werken. Probeer het later opnieuw", 503)
         } catch (e: WebApplicationException) {
             throw e
         } catch (e: Exception) {

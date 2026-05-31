@@ -28,7 +28,7 @@ class BerichtBeheerServiceTest {
     private val service = BerichtBeheerService(sessiecache, router)
 
     private val id: UUID = UUID.randomUUID()
-    private val ontvanger = "BSN:123456782"
+    private val ontvanger = "BSN:999990019"
     private val patch = BerichtPatch().apply { status = BerichtStatus.GELEZEN }
     private val updated = Bericht().apply {
         berichtId = id
@@ -50,9 +50,22 @@ class BerichtBeheerServiceTest {
 
         assertEquals(id, result.berichtId)
         verifyOrder {
-            magazijn.patchBericht(ontvanger, id, any())
+            // Assert de gemapte patch (niet `any()`): borgt dat GELEZEN → gelezen=true
+            // wordt vertaald; een geïnverteerde of weggevallen mapping faalt hier.
+            magazijn.patchBericht(ontvanger, id, UitvraagDtoMapper.MagazijnPatch(gelezen = true, map = null))
             sessiecache.patchBericht(ontvanger, id, patch)
         }
+    }
+
+    @Test
+    fun `patch ONGELEZEN mapt naar gelezen-false richting magazijn`() {
+        val ongelezenPatch = BerichtPatch().apply { status = BerichtStatus.ONGELEZEN }
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
+        every { sessiecache.patchBericht(any(), any(), any()) } returns updated
+
+        service.patch(ontvanger, id, ongelezenPatch)
+
+        verify { magazijn.patchBericht(ontvanger, id, UitvraagDtoMapper.MagazijnPatch(gelezen = false, map = null)) }
     }
 
     @Test

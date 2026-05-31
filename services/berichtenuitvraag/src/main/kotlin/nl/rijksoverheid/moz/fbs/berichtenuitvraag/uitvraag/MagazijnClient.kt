@@ -17,7 +17,8 @@ import java.util.UUID
  * via `quarkus.rest-client.*.url`-config te komen maar via de
  * `magazijnen.urls.<id>`-map.
  *
- * TODO(#11): vervangen door FSC outway zodra FSC-integratie er is.
+ * TODO(#552): vervangen door FSC outway zodra de federatieve connectiviteit
+ * op MOZ-niveau is vastgesteld.
  *
  * `bijlage` retourneert `Response` zodat we zowel het werkelijke
  * `Content-Type` als de bytes kunnen lezen — magazijn levert dynamic

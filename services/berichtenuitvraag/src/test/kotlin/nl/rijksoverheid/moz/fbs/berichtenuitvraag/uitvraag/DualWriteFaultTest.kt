@@ -56,7 +56,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -79,7 +79,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -112,7 +112,42 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        WireMockBackendsResource.sessiecache!!.verify(deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
+    @Test
+    fun `PATCH cache-503 (retriable contentie) na magazijn-OK wordt 502 met invalidate-DELETE`() {
+        // Sinds CacheContentieException geeft de sessiecache een retriable 503 bij
+        // schrijf-contentie. De uitvraag behandelt elke cache-5xx als upstream-storing:
+        // 502 naar de client + compensatie-DELETE — identiek aan het 500-pad. Legt vast
+        // dat het retriable 503-signaal hier bewust tot een niet-onderscheiden 502 wordt
+        // genormaliseerd (gedragskeuze: zie review M1).
+        val id = UUID.randomUUID()
+        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""
+
+        WireMockBackendsResource.magazijn!!.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(body)),
+        )
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(503)),
+        )
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            wmDelete(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(204)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -138,7 +173,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()
@@ -154,7 +189,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()
@@ -181,7 +216,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -206,7 +241,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()
@@ -236,7 +271,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -269,7 +304,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()
@@ -292,7 +327,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -313,7 +348,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()
@@ -333,7 +368,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -367,7 +402,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -402,7 +437,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()
@@ -434,7 +469,7 @@ class DualWriteFaultTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()

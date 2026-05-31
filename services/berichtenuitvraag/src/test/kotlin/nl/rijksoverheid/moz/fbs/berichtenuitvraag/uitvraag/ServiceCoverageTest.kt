@@ -2,8 +2,11 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
+import com.github.tomakehurst.wiremock.client.WireMock.patchRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo as wmEqualTo
 import com.github.tomakehurst.wiremock.http.Fault
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -44,7 +47,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .queryParam("map", "archief")
             .queryParam("pagina", "1")
             .queryParam("paginaGrootte", "50")
@@ -67,7 +70,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .queryParam("q", "rente")
             .queryParam("map", "archief")
             .`when`()
@@ -90,7 +93,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$id")
             .then()
@@ -109,7 +112,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
@@ -127,7 +130,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
@@ -147,7 +150,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
@@ -167,7 +170,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
@@ -197,7 +200,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
@@ -225,7 +228,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
@@ -252,19 +255,48 @@ class ServiceCoverageTest {
     // transport meten, niet de fail-closed-logica.
 
     @Test
+    fun `PATCH status gelezen mapt naar magazijn-patch gelezen=true`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id)
+        stubDualWritePatchOk(id)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(200)
+
+        // Assert de body op de wire: `status:gelezen` → `{"gelezen":true}` richting
+        // magazijn. Zonder deze check zou een veld-rename of geïnverteerde mapping
+        // door alle tests glippen (status 200 zegt niets over de payload).
+        WireMockBackendsResource.magazijn!!.verify(
+            patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id"))
+                .withRequestBody(matchingJsonPath("$.gelezen", wmEqualTo("true"))),
+        )
+    }
+
+    @Test
     fun `PATCH status ongelezen mapt naar magazijn-patch gelezen=false`() {
         val id = UUID.randomUUID()
         stubBerichtLookup(id)
         stubDualWritePatchOk(id)
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"ongelezen"}""")
             .`when`()
             .patch("/api/v1/berichten/$id")
             .then()
             .statusCode(200)
+
+        WireMockBackendsResource.magazijn!!.verify(
+            patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id"))
+                .withRequestBody(matchingJsonPath("$.gelezen", wmEqualTo("false"))),
+        )
     }
 
     @Test
@@ -274,13 +306,21 @@ class ServiceCoverageTest {
         stubDualWritePatchOk(id)
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"map":"archief"}""")
             .`when`()
             .patch("/api/v1/berichten/$id")
             .then()
             .statusCode(200)
+
+        // `gelezen` afwezig (Jackson non_null), alleen `map` doorgegeven: bevestigt
+        // dat een afwezige status géén `gelezen=false` naar het magazijn stuurt.
+        WireMockBackendsResource.magazijn!!.verify(
+            patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id"))
+                .withRequestBody(matchingJsonPath("$.map", wmEqualTo("archief")))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.notMatching(".*gelezen.*")),
+        )
     }
 
     @Test
@@ -305,7 +345,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten")
             .then()
@@ -339,7 +379,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$id")
             .then()
@@ -355,7 +395,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$id")
             .then()
@@ -372,7 +412,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$id")
             .then()
@@ -387,7 +427,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten")
             .then()
@@ -402,7 +442,7 @@ class ServiceCoverageTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .queryParam("q", "rente")
             .`when`()
             .get("/api/v1/berichten/_zoeken")
@@ -419,7 +459,7 @@ class ServiceCoverageTest {
         stubBerichtLookup(berichtId, magazijnId = "magazijn-onbekend")
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
@@ -439,7 +479,7 @@ class ServiceCoverageTest {
         stubBerichtLookup(id, magazijnId = "magazijn-onbekend")
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -454,7 +494,7 @@ class ServiceCoverageTest {
         stubBerichtLookup(id, magazijnId = "magazijn-onbekend")
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id")
             .then()

@@ -16,6 +16,16 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
+/**
+ * Transiente schrijf-contentie: een optimistic-lock-update is na alle pogingen
+ * afgebroken door gelijktijdige wijzigingen. Het bericht bestáát — alleen de
+ * cache-write lukte niet. Onderscheidt zich expliciet van "niet gevonden" zodat
+ * de resource een retriable 503 geeft i.p.v. een misleidende 404 (na een
+ * geslaagde magazijn-write zou een 404 de client laten denken dat het bericht weg is).
+ */
+class CacheContentieException(berichtId: UUID) :
+    RuntimeException("Cache-update afgebroken door gelijktijdige wijziging voor berichtId=$berichtId")
+
 interface BerichtenCache {
     fun store(key: String, berichten: List<Bericht>): Uni<Void>
     fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
@@ -487,13 +497,17 @@ class RedisBerichtenCache(
             if (result.discarded() && poging < MAX_UPDATE_POGINGEN) {
                 updatePoging(berichtId, ontvanger, status, map, poging + 1)
             } else if (result.discarded()) {
+                // Contentie is géén not-found: een null zou de resource laten 404'en
+                // terwijl het bericht bestaat (en de magazijn-write al geslaagd kan
+                // zijn). Signaleer een retriable fout → 503 zodat de client opnieuw
+                // kan proberen. Op warn: verwacht onder hoge gelijktijdigheid, geen crash.
                 log.warnf(
-                    "Redis update na %d pogingen afgebroken door concurrente wijziging; cache zelf-helend via TTL. berichtId=%s",
+                    "Redis update na %d pogingen afgebroken door concurrente wijziging; retriable 503. berichtId=%s",
                     poging,
                     berichtId,
                 )
 
-                Uni.createFrom().nullItem()
+                Uni.createFrom().failure(CacheContentieException(berichtId))
             } else {
                 when (plan) {
                     UpdatePlan.Geen -> Uni.createFrom().nullItem<Bericht>()
@@ -502,7 +516,11 @@ class RedisBerichtenCache(
                 }
             }
         }
-            .onFailure().invoke { e -> log.errorf(e, "Redis update mislukt voor berichtId=%s", berichtId) }
+            .onFailure().invoke { e ->
+                // Contentie is al op warn gelogd en is geen echte storing; alleen
+                // overige fouten als error loggen.
+                if (e !is CacheContentieException) log.errorf(e, "Redis update mislukt voor berichtId=%s", berichtId)
+            }
     }
 
     override fun addBericht(bericht: Bericht): Uni<Void> {
@@ -611,8 +629,14 @@ class RedisBerichtenCache(
                 deletePoging(berichtId, ontvanger, poging + 1)
             } else {
                 if (result.discarded()) {
-                    log.warnf(
-                        "Redis delete na %d pogingen afgebroken door concurrente wijziging; cache zelf-helend via TTL. berichtId=%s",
+                    // errorf (niet warnf): de invalidate is niet toegepast, dus de
+                    // stale entry overleeft tot TTL (≤60s). Self-healing, maar onder
+                    // de uitvraag dual-write-compensatie betekent dit een tijdelijk
+                    // stale cache ná een geslaagde magazijn-mutatie — die call krijgt
+                    // hier een 2xx (idempotente delete), dus dit log is het enige
+                    // alertbare signaal van de mislukte invalidate.
+                    log.errorf(
+                        "Redis delete na %d pogingen afgebroken door concurrente wijziging; cache stale tot TTL. berichtId=%s",
                         poging,
                         berichtId,
                     )

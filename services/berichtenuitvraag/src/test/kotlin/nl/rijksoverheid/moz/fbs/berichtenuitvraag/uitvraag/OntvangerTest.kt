@@ -15,21 +15,21 @@ class OntvangerTest {
 
     @Test
     fun `geldige X-Ontvanger splitst in type en waarde`() {
-        val parsed = splitOntvanger("BSN:123456782")
+        val parsed = splitOntvanger("BSN:999990019")
 
-        assertEquals("BSN" to "123456782", parsed)
+        assertEquals("BSN" to "999990019", parsed)
     }
 
     @Test
     fun `RSIN-OIN-KVK worden ook geaccepteerd`() {
-        assertEquals("RSIN" to "123456782", splitOntvanger("RSIN:123456782"))
+        assertEquals("RSIN" to "999990019", splitOntvanger("RSIN:999990019"))
         assertEquals("OIN" to "00000001234567890000", splitOntvanger("OIN:00000001234567890000"))
         assertEquals("KVK" to "12345678", splitOntvanger("KVK:12345678"))
     }
 
     @Test
     fun `onbekend type levert null`() {
-        assertNull(splitOntvanger("FOO:123456782"))
+        assertNull(splitOntvanger("FOO:999990019"))
     }
 
     @Test

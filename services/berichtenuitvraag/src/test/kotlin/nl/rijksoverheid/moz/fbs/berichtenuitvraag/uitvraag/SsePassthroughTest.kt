@@ -45,7 +45,7 @@ class SsePassthroughTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -73,7 +73,7 @@ class SsePassthroughTest {
         )
 
         val body = given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -110,7 +110,7 @@ class SsePassthroughTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -137,7 +137,7 @@ class SsePassthroughTest {
         val url = java.net.URI("http://localhost:${io.restassured.RestAssured.port}/api/v1/berichten/_ophalen").toURL()
         val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
             requestMethod = "GET"
-            setRequestProperty("X-Ontvanger", "BSN:123456782")
+            setRequestProperty("X-Ontvanger", "BSN:999990019")
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
             readTimeout = 2000
@@ -172,7 +172,7 @@ class SsePassthroughTest {
         val url = java.net.URI("http://localhost:${io.restassured.RestAssured.port}/api/v1/berichten/_ophalen").toURL()
         val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
             requestMethod = "GET"
-            setRequestProperty("X-Ontvanger", "BSN:123456782")
+            setRequestProperty("X-Ontvanger", "BSN:999990019")
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
             readTimeout = 2000
@@ -212,7 +212,7 @@ class SsePassthroughTest {
         val url = java.net.URI("http://localhost:${io.restassured.RestAssured.port}/api/v1/berichten/_ophalen").toURL()
         val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
             requestMethod = "GET"
-            setRequestProperty("X-Ontvanger", "BSN:123456782")
+            setRequestProperty("X-Ontvanger", "BSN:999990019")
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
             readTimeout = 2000

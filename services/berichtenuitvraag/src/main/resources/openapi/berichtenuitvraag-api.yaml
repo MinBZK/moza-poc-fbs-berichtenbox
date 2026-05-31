@@ -52,6 +52,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
@@ -111,6 +112,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
@@ -136,6 +138,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
     patch:
@@ -235,6 +238,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
@@ -245,7 +249,7 @@ components:
       in: header
       required: true
       schema: { type: string, pattern: '^(BSN|RSIN|KVK|OIN):[0-9]+$' }
-      description: 'Type:waarde, bijv. `BSN:123456782`'
+      description: 'Type:waarde, bijv. `BSN:999990019`'
     BerichtIdPath:
       name: berichtId
       in: path
@@ -294,8 +298,10 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
       description: |
-        Upstream-conflict, doorgegeven vanuit de sessiecache (bv. een
-        gelijktijdige wijziging op hetzelfde bericht).
+        Upstream-conflict, doorgegeven vanuit de sessiecache. Op leespaden: de
+        cache is nog niet gevuld (`_ophalen` nog niet voltooid of nog bezig) —
+        roep eerst `GET /berichten/_ophalen` aan en probeer daarna opnieuw. Op
+        schrijfpaden: een gelijktijdige wijziging op hetzelfde bericht.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

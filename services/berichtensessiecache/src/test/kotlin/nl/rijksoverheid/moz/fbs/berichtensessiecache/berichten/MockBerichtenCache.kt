@@ -28,6 +28,16 @@ class MockBerichtenCache : BerichtenCache {
     private val locks = ConcurrentHashMap.newKeySet<String>()
     private val byId = ConcurrentHashMap<UUID, Bericht>()
 
+    companion object {
+        // Modelleert de optimistic-lock-exhaustie van RedisBerichtenCache: bij `true`
+        // faalt `update` met CacheContentieException (zoals de echte cache na
+        // MAX_UPDATE_POGINGEN), terwijl `delete` idempotent blijft. Zo is de
+        // resource-vertaling — contentie → 503 op PATCH vs. 204 op DELETE —
+        // deterministisch testbaar zonder de timing-gevoelige Redis-retry na te bootsen.
+        @Volatile
+        var faalUpdateMetContentie: Boolean = false
+    }
+
     fun clear() {
         lists.clear()
         statuses.clear()
@@ -83,6 +93,8 @@ class MockBerichtenCache : BerichtenCache {
     }
 
     override fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+        if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(berichtId))
+
         val bericht = byId[berichtId]
         if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
         val updated = bericht.copy(

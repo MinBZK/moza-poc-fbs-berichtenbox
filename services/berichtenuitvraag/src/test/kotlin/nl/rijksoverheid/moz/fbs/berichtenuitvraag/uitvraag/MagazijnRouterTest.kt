@@ -50,6 +50,12 @@ class MagazijnRouterTest {
         assertEquals(502, ex.response.status)
     }
 
+    // NB: de `getOrElse`-tak in forMagazijn (RestClientBuilder.build() faalt → 502) is
+    // defense-in-depth en bewust niet los getest: `build()` is lui en gooit niet op een
+    // syntactisch geldige-maar-kromme URL. Zo'n URL surfacet pas bij de echte HTTP-call als
+    // ProcessingException → 502 via mapUpstreamFout (gedekt in de service-faulttests). De
+    // tak vangt enkel een RestClientDefinitionException die een config-URL niet kan uitlokken.
+
     @Test
     fun `valideerConfigBijOpstart faalt bij lege magazijn-config`() {
         val router = routerMet(emptyMap())

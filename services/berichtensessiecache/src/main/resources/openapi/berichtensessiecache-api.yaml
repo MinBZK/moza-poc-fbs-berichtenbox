@@ -17,6 +17,12 @@ servers:
   - url: /api/v1
     description: API v1
 
+tags:
+  - name: berichten
+    description: Geaggregeerde berichtrecords in de sessiecache (lees + schrijf-mutaties).
+  - name: ophalen
+    description: Cache-warming via Server-Sent Events; vult de cache uit de aangesloten magazijnen.
+
 paths:
   /berichten:
     post:

@@ -54,14 +54,14 @@ class LdvSubjectRegistrationTest {
         )
 
         given()
-            .header("X-Ontvanger", "BSN:123456782")
+            .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .get("/api/v1/berichten/$id")
             .then()
             .statusCode(200)
 
         assertEquals("BSN", CaptureFilter.dataSubjectType)
-        assertEquals("123456782", CaptureFilter.dataSubjectId)
+        assertEquals("999990019", CaptureFilter.dataSubjectId)
     }
 
     /**

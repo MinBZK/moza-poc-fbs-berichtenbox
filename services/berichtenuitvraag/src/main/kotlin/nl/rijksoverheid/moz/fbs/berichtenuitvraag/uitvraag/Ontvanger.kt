@@ -14,7 +14,8 @@ internal const val ONTVANGER_PATTERN = "^(BSN|RSIN|KVK|OIN):[0-9]+\$"
 // Eén bron van waarheid: dezelfde regex die de Bean Validation op de endpoints
 // (`@Pattern`) afdwingt, gecompileerd voor [splitOntvanger]. Zo kunnen parser en
 // validator niet divergeren — een waarde die de validator afkeurt levert hier
-// ook géén dataSubject. Een getypeerde Ontvanger met BSN-elfproef volgt in #66.
+// ook géén dataSubject. Een getypeerde Ontvanger met BSN-elfproef volgt met de
+// tokenvalidatie van #414 (de ontvanger komt dan uit het gevalideerde token).
 private val ONTVANGER_REGEX = Regex(ONTVANGER_PATTERN)
 
 private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.Ontvanger")
