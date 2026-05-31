@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -22,14 +23,14 @@ class MagazijnBerichtTest {
     fun `gelezen=true mapt naar status gelezen`() {
         val bericht = magazijnBericht(MagazijnBericht.MagazijnBerichtStatus(gelezen = true)).toBericht("magazijn-a")
 
-        assertEquals("gelezen", bericht.status)
+        assertEquals(Leesstatus.GELEZEN, bericht.status)
     }
 
     @Test
     fun `gelezen=false mapt naar status ongelezen`() {
         val bericht = magazijnBericht(MagazijnBericht.MagazijnBerichtStatus(gelezen = false)).toBericht("magazijn-a")
 
-        assertEquals("ongelezen", bericht.status)
+        assertEquals(Leesstatus.ONGELEZEN, bericht.status)
     }
 
     @Test

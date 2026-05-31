@@ -143,6 +143,66 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
+    fun `patch cache-403 herverpakt naar ForbiddenException zonder compensatie`() {
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
+        every { sessiecache.patchBericht(any(), any(), any()) } throws ForbiddenException("cache-weigert")
+
+        // 403 = contract-bug (geen transport-storing): status-behoudend herverpakt
+        // (herverpakCache4xx) zonder de cache-internals/PII-body te lekken, en zónder
+        // compensatie-invalidate.
+        val ex = assertThrows(ForbiddenException::class.java) {
+            service.patch(ontvanger, id, patch)
+        }
+
+        assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
+        verify(exactly = 0) { sessiecache.verwijderBericht(any(), any()) }
+    }
+
+    @Test
+    fun `patch cache-generiek-4xx herverpakt status-behoudend zonder compensatie`() {
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
+        every { sessiecache.patchBericht(any(), any(), any()) } throws
+            WebApplicationException("cache-conflict", Response.Status.CONFLICT)
+
+        // Een 4xx die geen 404/403 is (hier 409) valt op de else-tak van
+        // herverpakCache4xx: een generieke WebApplicationException met dezelfde status.
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.patch(ontvanger, id, patch)
+        }
+
+        assertEquals(Response.Status.CONFLICT.statusCode, ex.response.status)
+        verify(exactly = 0) { sessiecache.verwijderBericht(any(), any()) }
+    }
+
+    @Test
+    fun `verwijder cache-403 herverpakt naar ForbiddenException zonder compensatie`() {
+        every { magazijn.verwijderBericht(any(), any()) } returns Unit
+        every { sessiecache.verwijderBericht(any(), any()) } throws ForbiddenException("cache-weigert")
+
+        val ex = assertThrows(ForbiddenException::class.java) {
+            service.verwijder(ontvanger, id)
+        }
+
+        assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
+        // Eén call (de write die 403 gaf); geen tweede compensatie-call.
+        verify(exactly = 1) { sessiecache.verwijderBericht(ontvanger, id) }
+    }
+
+    @Test
+    fun `verwijder cache-generiek-4xx herverpakt status-behoudend zonder compensatie`() {
+        every { magazijn.verwijderBericht(any(), any()) } returns Unit
+        every { sessiecache.verwijderBericht(any(), any()) } throws
+            WebApplicationException("cache-conflict", Response.Status.CONFLICT)
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.verwijder(ontvanger, id)
+        }
+
+        assertEquals(Response.Status.CONFLICT.statusCode, ex.response.status)
+        verify(exactly = 1) { sessiecache.verwijderBericht(ontvanger, id) }
+    }
+
+    @Test
     fun `patch cache-transport-fout (timeout) gooit 502 met compensatie`() {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } throws ProcessingException("connect timeout")

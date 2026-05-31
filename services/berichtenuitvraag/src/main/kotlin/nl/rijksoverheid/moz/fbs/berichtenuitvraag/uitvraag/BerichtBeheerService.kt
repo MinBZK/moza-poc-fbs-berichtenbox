@@ -18,9 +18,11 @@ import java.util.UUID
  * cache-faal → best-effort cache-invalidate (vervangt 'stale' door 'leeg'),
  * daarna 502 zodat de client weet dat de operatie niet volledig consistent
  * doorgevoerd is. De magazijn-operaties zijn op het magazijn zélf idempotent;
- * een herhaalde uitvraag-call kan echter 404 geven, omdat de bron-`magazijnId`
- * na de eerste write uit de sessiecache verdwijnt en `resolveMagazijn` dan geen
- * route meer vindt (zie de spec-correctie in commit b34f9fe).
+ * specifiek na een geslaagde DELETE kan een herhaalde uitvraag-call echter 404
+ * geven, omdat de cache-entry dán geïnvalideerd is en `resolveMagazijn` het
+ * bron-`magazijnId` niet meer vindt. De PATCH-happy-path heeft dit niet: die
+ * werkt de cache-entry bij (verwijdert hem niet), dus de lookup blijft slagen
+ * (zie de spec-correctie in commit b34f9fe).
  *
  * "Cache-faal" = transport-storing (timeout, connect-fout, 5xx upstream). 4xx
  * van de cache duidt op een contract-bug en wordt onveranderd doorgegeven; de

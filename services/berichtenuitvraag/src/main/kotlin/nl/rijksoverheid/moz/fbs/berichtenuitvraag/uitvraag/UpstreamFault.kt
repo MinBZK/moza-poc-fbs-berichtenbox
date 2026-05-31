@@ -8,12 +8,17 @@ import org.jboss.logging.Logger
 /**
  * Uniforme upstream-fout-mapping voor calls naar sessiecache én magazijn.
  *
- * 4xx propageert 1-op-1 (cliënt-/contract-fout, bv. 404 cache-miss); een
- * transport-storing of een 5xx (upstream down/kapot) wordt 502 Bad Gateway.
- * Zo geldt overal in de uitvraag-service "502 = upstream-fout, niet onze fout",
- * en wordt on-call niet de uitvraag-service in gestuurd bij een storing die in
- * de sessiecache of het magazijn zit. Toegepast op alle lees- én schrijf-paden
- * zodat de classificatie consistent is (zie [BerichtOphaalService],
+ * Allowlist-classificatie: alleen een echte client-/contract-`4xx` (400..499)
+ * propageert 1-op-1 (bv. 404 cache-miss). Een transport-storing (geen response)
+ * én elke andere upstream-status — 3xx, 1xx, 5xx, alles buiten 400..499 — wordt
+ * 502 Bad Gateway. "502 = niet onze fout; alleen echte client/contract-4xx
+ * propageren we 1-op-1." Voor een server-naar-server REST-client is een naar de
+ * client lekkende 3xx (of 1xx/onverwachte status) verkeerd: zulke statussen zijn
+ * geen contract dat onze client kan begrijpen, dus behandelen we ze als een
+ * upstream-storing. Zo geldt overal in de uitvraag-service "502 = upstream-fout,
+ * niet onze fout", en wordt on-call niet de uitvraag-service in gestuurd bij een
+ * storing die in de sessiecache of het magazijn zit. Toegepast op alle lees- én
+ * schrijf-paden zodat de classificatie consistent is (zie [BerichtOphaalService],
  * [BerichtenlijstService], [BerichtBeheerService]).
  */
 internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () -> T): T =
@@ -23,12 +28,13 @@ internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () 
         if (!isUpstreamTransportFout(e)) throw e
 
         // isUpstreamTransportFout liet door: óf geen response (transport-fout vóór
-        // HTTP-antwoord) óf een echte 5xx. Log eerlijk welke van de twee, anders zet
-        // "upstream 5xx → 502" een debugger op het verkeerde been bij een timeout.
+        // HTTP-antwoord) óf een non-4xx-status (3xx/5xx/onverwacht). Log eerlijk welke
+        // van de twee mét de status, anders zet "upstream → 502" een debugger op het
+        // verkeerde been bij een timeout vs. een onverwachte 3xx.
         if (e.response == null) {
             log.errorf(e, "%s: upstream zonder response (transport-fout) → 502", context)
         } else {
-            log.errorf(e, "%s: upstream 5xx → 502", context)
+            log.errorf(e, "%s: upstream non-4xx (status=%s) → 502", context, e.response?.status?.toString() ?: "?")
         }
 
         throw upstreamBadGateway(context)
@@ -38,13 +44,16 @@ internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () 
     }
 
 /**
- * Geen response = de call brak af vóór een HTTP-antwoord van de upstream → we
- * behandelen dat als transport-fout. Anders: alleen 5xx telt als transport/down.
+ * Allowlist: alleen een echte client-/contract-`4xx` mag 1-op-1 propageren; al
+ * het andere telt als upstream-storing → 502. Geen response = de call brak af
+ * vóór een HTTP-antwoord (transport-fout). Een aanwezige non-4xx-status (3xx,
+ * 1xx, 5xx, onverwacht) is voor onze server-naar-server-client geen begrijpelijk
+ * contract en wordt daarom óók als upstream-storing behandeld.
  */
 internal fun isUpstreamTransportFout(e: WebApplicationException): Boolean {
     val status = e.response?.status ?: return true
 
-    return status >= 500
+    return status !in 400..499
 }
 
 // Jakarta REST 3.1 kent geen BadGatewayException; een expliciete WAE met

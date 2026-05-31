@@ -86,7 +86,7 @@ class MockBerichtenCache : BerichtenCache {
         val bericht = byId[berichtId]
         if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
         val updated = bericht.copy(
-            status = status ?: bericht.status,
+            status = status?.let { Leesstatus.fromWire(it) } ?: bericht.status,
             map = map ?: bericht.map,
         )
         byId[berichtId] = updated

@@ -151,7 +151,7 @@ class RedisBerichtenCacheIntegrationTest {
             .await().indefinitely()
 
         assertNotNull(updated)
-        assertEquals("GELEZEN", updated!!.status)
+        assertEquals(Leesstatus.GELEZEN, updated!!.status)
         assertNull(updated.map)
         assertEquals(original.berichtId, updated.berichtId)
         assertEquals(original.afzender, updated.afzender)
@@ -174,7 +174,7 @@ class RedisBerichtenCacheIntegrationTest {
             .await().indefinitely()
 
         assertNotNull(updated)
-        assertEquals("gelezen", updated!!.status)
+        assertEquals(Leesstatus.GELEZEN, updated!!.status)
         assertEquals("archief", updated.map)
     }
 
@@ -188,8 +188,29 @@ class RedisBerichtenCacheIntegrationTest {
             .await().indefinitely()
 
         assertNotNull(updated)
-        assertEquals("gelezen", updated!!.status)
+        assertEquals(Leesstatus.GELEZEN, updated!!.status)
         assertEquals("archief", updated.map)
+    }
+
+    @Test
+    fun `update herschrijft de ongefilterde list-entry zodat GET berichten niet stale is`() {
+        // Regressie (H1): de sessie-`list` bevat volledige JSON-blobs die het ongefilterde
+        // `getPage` direct deserialiseert. Een HSET-alleen update liet die list stale —
+        // oude status/map bleef zichtbaar in `GET /berichten` tot TTL. De update moet de
+        // matchende list-entry herschrijven.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        berichtenCache.update(target.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
+
+        // Ongefilterde, list-backed pad (afzender == null → LRANGE, niet RediSearch).
+        val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
+        assertNotNull(page)
+
+        val uitLijst = page!!.berichten.single { it.berichtId == target.berichtId }
+        assertEquals(Leesstatus.GELEZEN, uitLijst.status, "list-entry toont stale status")
+        assertEquals("archief", uitLijst.map, "list-entry toont stale map")
     }
 
     @Test
@@ -320,7 +341,7 @@ class RedisBerichtenCacheIntegrationTest {
             aantalBijlagen = 1,
             bijlagen = listOf(BijlageSamenvatting(bijlageId, "factuur.pdf")),
             map = "inkomend",
-            status = "ongelezen",
+            status = Leesstatus.ONGELEZEN,
         )
         berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
 
@@ -330,7 +351,7 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(bijlageId, retrieved.bijlagen[0].bijlageId)
         assertEquals("factuur.pdf", retrieved.bijlagen[0].naam)
         assertEquals("inkomend", retrieved.map)
-        assertEquals("ongelezen", retrieved.status)
+        assertEquals(Leesstatus.ONGELEZEN, retrieved.status)
     }
 
     @Test
@@ -418,6 +439,52 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertNotNull(page)
         assertTrue(page!!.berichten.all { it.afzender == "00000001234567890000" })
+    }
+
+    @Test
+    fun `RediSearch lijst-pad levert samenvatting zonder de zware inhoud-projectie`() {
+        // M4: FT.SEARCH op het filter-pad gebruikt een RETURN-lijst beperkt tot de
+        // samenvatting-velden. `inhoud` (en `bijlagen`) worden dus niet over de wire
+        // opgehaald; de mapper valt veilig terug op de defaults ("" / lege lijst).
+        // De samenvatting-velden moeten wél kloppen.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, "00000009876543210000", ontvanger)
+            .await().indefinitely()
+
+        assertNotNull(page)
+        val bericht = page!!.berichten.single()
+        assertEquals("Tweede bericht over subsidie", bericht.onderwerp)
+        assertEquals("00000009876543210000", bericht.afzender)
+        assertEquals("magazijn-a", bericht.magazijnId)
+        assertEquals(2, bericht.aantalBijlagen)
+        // inhoud is bewust NIET geprojecteerd → leeg-string default, geen full payload.
+        assertEquals("", bericht.inhoud)
+    }
+
+    @Test
+    fun `RediSearch zoek-pad levert samenvatting zonder de zware inhoud-projectie`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val result = berichtenCache.search(ontvanger, "subsidie", 0, 20, null)
+            .await().indefinitely()
+
+        val bericht = result.berichten.single()
+        assertEquals("Tweede bericht over subsidie", bericht.onderwerp)
+        assertEquals("", bericht.inhoud)
+    }
+
+    @Test
+    fun `samenvatting-velden bevatten precies de mapper-velden zonder inhoud of bijlagen`() {
+        // Bewaakt dat de RETURN-projectie niet stilletjes `inhoud`/`bijlagen` opneemt
+        // (de twee velden die de samenvatting-mapper weggooit).
+        assertFalse(RedisBerichtenCache.SAMENVATTING_VELDEN.contains("inhoud"))
+        assertFalse(RedisBerichtenCache.SAMENVATTING_VELDEN.contains("bijlagen"))
+        assertTrue(RedisBerichtenCache.SAMENVATTING_VELDEN.containsAll(
+            listOf("berichtId", "afzender", "ontvanger", "onderwerp", "publicatietijdstip", "magazijnId", "aantalBijlagen", "map", "status"),
+        ))
     }
 
     @Test

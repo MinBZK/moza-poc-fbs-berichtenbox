@@ -12,8 +12,13 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
  * magazijn-spec `BerichtenLijst` óók `page`, `pageSize`, `totalElements`,
  * `totalPages` en `_links` als required schrijft; zonder deze annotatie
  * crasht Jackson op de eerste vreemde top-level property.
+ *
+ * `berichten` heeft bewust géén default: een respons zonder dit veld (ontbrekend
+ * of hernoemd) moet hard falen i.p.v. stil als "0 berichten, magazijn OK" door te
+ * gaan — dat zou een contractbreuk maskeren. Een expliciete lege array
+ * (`"berichten": []`) deserialiseert wél gewoon.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class MagazijnBerichtenResponse(
-    val berichten: List<MagazijnBericht> = emptyList(),
+    val berichten: List<MagazijnBericht>,
 )

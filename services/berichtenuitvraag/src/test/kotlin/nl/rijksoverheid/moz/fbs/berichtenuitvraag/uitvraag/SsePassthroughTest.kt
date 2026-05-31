@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
+import com.github.tomakehurst.wiremock.http.Fault
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
@@ -16,8 +17,10 @@ import org.junit.jupiter.api.Test
 /**
  * Coverage voor [SsePassthroughResource]: het endpoint is jaxrs-spec-extern
  * en wordt alleen via @QuarkusTest geraakt (unit-tests vallen buiten quarkus-
- * jacoco). Verifieert de happy-path-streaming en het falen-pad (error-callback
- * op de Multi).
+ * jacoco). Verifieert de happy-path-streaming, het pre-stream-falen-pad
+ * (upstream-fout → 502, geen rauwe out-of-contract-status) en het mid-stream-
+ * abort-pad (verbinding breekt ná de headers — stream stopt zonder corrupte/
+ * lekkende `data:`-frames).
  */
 @QuarkusTest
 @QuarkusTestResource(WireMockBackendsResource::class)
@@ -126,12 +129,14 @@ class SsePassthroughTest {
         )
 
         // Bij een upstream-fout op een SSE-call gooit de Quarkus REST-client een
-        // WebApplicationException; de `onFailure`-callback in
-        // SsePassthroughResource logt dat op `error`. RestAssured kan de
-        // afgekapte stream niet altijd parsen, dus we vallen terug op een rauwe
-        // HttpURLConnection. Afhankelijk van of de SSE-headers al geflusht waren,
-        // is de status 200 (lege/afgekapte stream) of 5xx — maar in geen geval mag
-        // er een `data:`-event doorlekken, want upstream leverde niets.
+        // WebApplicationException; de `onFailure`-keten in SsePassthroughResource
+        // logt op `error` én normaliseert de pre-stream-fout naar het contract
+        // (transport/non-4xx → 502, zie M1). RestAssured kan de afgekapte stream
+        // niet altijd parsen, dus we vallen terug op een rauwe HttpURLConnection.
+        // Afhankelijk van of de SSE-headers al geflusht waren is de status 200
+        // (lege/afgekapte stream) of — bij een pre-stream-fout — exact 502 (níét de
+        // rauwe upstream-503). In geen geval mag er een `data:`-event doorlekken,
+        // want upstream leverde niets.
         val url = java.net.URI("http://localhost:${io.restassured.RestAssured.port}/api/v1/berichten/_ophalen").toURL()
         val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
             requestMethod = "GET"
@@ -147,8 +152,55 @@ class SsePassthroughTest {
                 (if (status >= 400) conn.errorStream else conn.inputStream)?.bufferedReader()?.readText()
             }.getOrNull().orEmpty()
 
-            assertTrue(status >= 500 || status == 200, "verwacht 5xx of voor-fout-streaming-200, kreeg $status")
+            // Pre-stream-normalisatie (M1): een echte foutstatus moet 502 zijn (de
+            // rauwe upstream-503 mag niet 1-op-1 lekken). 200 blijft toegestaan voor
+            // het geval de SSE-headers al geflusht waren vóór de upstream-fout.
+            assertTrue(status == 502 || status == 200, "verwacht 502 (genormaliseerd) of voor-fout-streaming-200, kreeg $status")
             assertFalse(body.contains("data:"), "upstream-503 mag geen SSE-data doorlaten, kreeg body: $body")
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    @Test
+    fun `_ophalen breekt veilig af bij mid-stream upstream-abort zonder corrupte data-frames`() {
+        // Mid-stream abort (CLAUDE.md testlaag 4, degradatiegedrag): de upstream
+        // flusht eerst geldige 200-headers en breekt dán de body af (verbinding
+        // reset / malformed chunk). De status ligt op dat moment al vast (kan geen
+        // 502 meer worden); de eis is dat de stream gewoon termineert zónder dat er
+        // een afgekapt/corrupt `data:`-frame naar de client lekt. We gebruiken een
+        // rauwe HttpURLConnection omdat RestAssured de afgebroken stream niet parse't.
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/_ophalen"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "text/event-stream")
+                        .withFault(Fault.MALFORMED_RESPONSE_CHUNK),
+                ),
+        )
+
+        val url = java.net.URI("http://localhost:${io.restassured.RestAssured.port}/api/v1/berichten/_ophalen").toURL()
+        val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+            requestMethod = "GET"
+            setRequestProperty("X-Ontvanger", "BSN:123456782")
+            setRequestProperty("Accept", "text/event-stream")
+            connectTimeout = 2000
+            readTimeout = 2000
+        }
+
+        try {
+            // De read kan zelf falen (IOException) doordat de verbinding mid-stream
+            // breekt — dat is exact het afbreek-gedrag dat we willen: geen vastloper,
+            // geen hangende stream. Wat we lezen voordat het breekt, mag geen geldig
+            // doorgepijpt SSE-data-frame bevatten (upstream leverde alleen garbage).
+            val body = runCatching {
+                val status = conn.responseCode
+
+                (if (status >= 400) conn.errorStream else conn.inputStream)?.bufferedReader()?.readText()
+            }.getOrNull().orEmpty()
+
+            assertFalse(body.contains("data:"), "mid-stream-abort mag geen (corrupt) SSE-data-frame doorlaten, kreeg body: $body")
         } finally {
             conn.disconnect()
         }

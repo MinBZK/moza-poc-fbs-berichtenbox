@@ -333,7 +333,7 @@ class BerichtensessiecacheResource(
             magazijnId = this@toSamenvatting.magazijnId
             aantalBijlagen = this@toSamenvatting.aantalBijlagen
             map = this@toSamenvatting.map
-            status = this@toSamenvatting.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
+            status = this@toSamenvatting.status?.let { ApiBerichtStatus.fromValue(it.wire) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toSamenvatting.berichtId}") }
             }
@@ -353,7 +353,7 @@ class BerichtensessiecacheResource(
             aantalBijlagen = this@toResponse.aantalBijlagen
             bijlagen = this@toResponse.bijlagen.map { it.toApiModel() }
             map = this@toResponse.map
-            status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
+            status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.wire) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toResponse.berichtId}") }
             }

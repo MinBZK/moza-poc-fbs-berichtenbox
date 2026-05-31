@@ -15,6 +15,7 @@ info:
     url: https://eupl.eu/1.2/nl/
 servers:
   - url: /api/v1
+    description: Versioned API base path (relatief; TLS termineert op de gateway).
 
 tags:
   - name: Uitvraag
@@ -136,6 +137,9 @@ paths:
         bron-`magazijnId` uit de sessiecache; is die routerings-info verlopen of
         geïnvalideerd, dan geeft een herhaalde call 404 (haal het bericht dan
         eerst opnieuw op om de cache te vullen).
+
+        Idempotentie wordt geleverd door de onderliggende magazijn-operatie; een
+        `Idempotency-Key`-header (DON-leidraad) is daarom bewust weggelaten.
       operationId: updateBericht
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -233,8 +237,10 @@ components:
 
   headers:
     API-Version:
-      schema: { type: string }
-      description: API-majorversie, bv. `v1`
+      description: Volledige API-versie (semver, major.minor.patch); komt overeen met `info.version`.
+      schema:
+        type: string
+        example: "0.1.0"
 
   responses:
     BadRequest:
@@ -379,9 +385,10 @@ components:
 
     Problem:
       type: object
+      description: Problem Details (RFC 9457)
       properties:
-        type: { type: string }
+        type: { type: string, format: uri }
         title: { type: string }
         status: { type: integer }
         detail: { type: string }
-        instance: { type: string }
+        instance: { type: string, format: uri }

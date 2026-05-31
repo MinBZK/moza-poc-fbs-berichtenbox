@@ -137,6 +137,74 @@ class MagazijnContractIntegrationTest {
     }
 
     @Test
+    fun `respons zonder berichten-veld faalt deserialisatie`() {
+        // Een respons waarin `berichten` ontbreekt (of hernoemd is) mag NIET stil als
+        // "0 berichten, magazijn OK" deserialiseren — dat zou een contractbreuk maskeren.
+        // Zonder default op `berichten` faalt Jackson hard op de ontbrekende key.
+        val json = """
+            {
+                "page": 0,
+                "pageSize": 20,
+                "totalElements": 0,
+                "totalPages": 0,
+                "_links": { "self": { "href": "/api/v1/berichten?page=0&pageSize=20" } }
+            }
+        """.trimIndent()
+
+        org.junit.jupiter.api.assertThrows<Exception> {
+            objectMapper.readValue(json, MagazijnBerichtenResponse::class.java)
+        }
+    }
+
+    @Test
+    fun `expliciete lege berichten-array deserialiseert wel`() {
+        // Regressie-guard: alleen een ONTBREKEND veld faalt; een expliciete lege array
+        // (legitiem leeg magazijn) blijft gewoon deserialiseren.
+        val response = objectMapper.readValue("""{"berichten":[]}""", MagazijnBerichtenResponse::class.java)
+
+        assertTrue(response.berichten.isEmpty())
+    }
+
+    @Test
+    fun `magazijn-respons zonder berichten-veld wordt geteld als mislukt`() {
+        // End-to-end: serverA levert een respons zonder `berichten` (deserialisatie-fout);
+        // serverB is spec-conform. De keten moet serverA als mislukt (FOUT) tellen i.p.v.
+        // het stil te laten doorrollen als succesvol-met-0-berichten.
+        WireMockMagazijnResource.serverA!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(
+                            """
+                            {
+                                "page": 0,
+                                "pageSize": 20,
+                                "totalElements": 0,
+                                "totalPages": 0,
+                                "_links": { "self": { "href": "/api/v1/berichten?page=0&pageSize=20" } }
+                            }
+                            """.trimIndent()
+                        )
+                )
+        )
+        stubMinimaal(WireMockMagazijnResource.serverB!!, "b2c3d4e5-f6a7-8901-bcde-f12345678901")
+
+        val response = given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(
+            response.contains("FOUT"),
+            "Verwacht een FOUT-event voor het magazijn zonder berichten-veld, maar kreeg: $response",
+        )
+        assertTrue(response.contains("ophalen-gereed"))
+    }
+
+    @Test
     fun `keten met minimale spec-conforme magazijn-bodies levert geen FOUT op`() {
         // Echte end-to-end aanroep over WireMock met dezelfde minimale body.
         // Dit zou bij een DTO/spec-mismatch een FOUT-event in de SSE-stream

@@ -93,13 +93,13 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `updateBericht delegeert status-update naar cache`() {
         val bericht = testBericht()
-        val updated = bericht.copy(status = "GELEZEN")
+        val updated = bericht.copy(status = Leesstatus.GELEZEN)
         every { berichtenCache.update(bericht.berichtId, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
 
         val result = service.updateBericht(bericht.berichtId, ontvanger, "GELEZEN", null).await().indefinitely()
 
         assertNotNull(result)
-        assertEquals("GELEZEN", result!!.status)
+        assertEquals(Leesstatus.GELEZEN, result!!.status)
     }
 
     @Test
@@ -117,13 +117,13 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `updateBericht delegeert gecombineerde update naar cache`() {
         val bericht = testBericht()
-        val updated = bericht.copy(status = "gelezen", map = "archief")
+        val updated = bericht.copy(status = Leesstatus.GELEZEN, map = "archief")
         every { berichtenCache.update(bericht.berichtId, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
 
         val result = service.updateBericht(bericht.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
 
         assertNotNull(result)
-        assertEquals("gelezen", result!!.status)
+        assertEquals(Leesstatus.GELEZEN, result!!.status)
         assertEquals("archief", result.map)
     }
 

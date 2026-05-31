@@ -174,6 +174,44 @@ class ServiceCoverageTest {
     }
 
     @Test
+    fun `bijlage met gevaarlijk text-html Content-Type wordt geforceerd tot attachment-download`() {
+        // End-to-end-bewijs van de stored-XSS-bescherming via de echte HTTP-stack:
+        // resource zet BIJLAGE_MIME_TYPE_PROPERTY → BijlageContentTypeFilter forceert
+        // Content-Disposition: attachment. Een magazijn dat `text/html` (renderbaar
+        // in de browser) levert, mag NOOIT inline gerenderd worden; de attachment-
+        // header dwingt af dat de browser dít als download behandelt i.p.v. uit te
+        // voeren. text/html is een parsebaar MIME-type, dus de Content-Type passeert
+        // hier 1-op-1 — de attachment-forcering is in dit geval de XSS-mitigatie.
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
+        WireMockBackendsResource.magazijn!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "text/html")
+                        .withBody("<script>alert(1)</script>"),
+                ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+            .header("Content-Disposition", "attachment")
+    }
+
+    // Noot: de fail-closed afhandeling van een ONparsebaar MIME-type (-> application/
+    // octet-stream) wordt op unit-niveau getest in BijlageContentTypeFilterTest, waar de
+    // property rechtstreeks gezet wordt. Een end-to-end variant met een onparsebare
+    // upstream-Content-Type is bewust weggelaten: zo'n header breekt de REST-client al bij
+    // het parsen van de upstream-response (voor onze filter draait), dus die test zou het
+    // transport meten, niet de fail-closed-logica.
+
+    @Test
     fun `PATCH status ongelezen mapt naar magazijn-patch gelezen=false`() {
         val id = UUID.randomUUID()
         stubBerichtLookup(id)

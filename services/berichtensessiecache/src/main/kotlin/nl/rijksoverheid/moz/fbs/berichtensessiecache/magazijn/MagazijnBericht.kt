@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import java.time.Instant
 import java.util.UUID
 
@@ -17,7 +18,7 @@ import java.util.UUID
  * Bestaat naast cache-[Bericht] zodat Jackson-deserialisatie matcht met de
  * magazijn-spec zonder dat het cache-domein de getypeerde vorm hoeft te
  * dragen. `inhoud`, `bijlagen`, `status.map` en de leesstatus (`status.gelezen`
- * → enum-string) worden uit de magazijn-respons overgenomen; `tijdstipOntvangst`,
+ * → [Leesstatus]) worden uit de magazijn-respons overgenomen; `tijdstipOntvangst`,
  * `gewijzigdOp` en bijlage-`mimeType`/`_links` blijven bewust buiten de cache
  * (alleen-magazijn-gegevens).
  */
@@ -49,10 +50,10 @@ data class MagazijnBericht(
         aantalBijlagen = if (aantalBijlagen > 0 || bijlagen.isEmpty()) aantalBijlagen else bijlagen.size,
         bijlagen = bijlagen.map { BijlageSamenvatting(it.bijlageId, it.naam) },
         map = status?.map,
-        // Magazijn modelleert leesstatus als boolean `gelezen`; de cache als enum-string.
+        // Magazijn modelleert leesstatus als boolean `gelezen`; de cache als enum.
         // Ontbreekt het status-object, dan levert het magazijn geen status → null
         // (cache-`Bericht.status` blijft dan onbepaald i.p.v. onterecht "ongelezen").
-        status = status?.gelezen?.let { if (it) "gelezen" else "ongelezen" },
+        status = status?.gelezen?.let { if (it) Leesstatus.GELEZEN else Leesstatus.ONGELEZEN },
     )
 
     data class Identificatienummer(

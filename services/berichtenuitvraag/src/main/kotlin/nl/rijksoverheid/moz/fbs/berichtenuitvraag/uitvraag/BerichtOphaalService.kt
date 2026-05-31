@@ -70,10 +70,11 @@ class BerichtOphaalService(
             runCatching { e.response?.close() }
                 .onFailure { log.debugf(it, "kon upstream-response niet sluiten na magazijn-bijlage-WAE") }
 
-            // Geen response = transport-fout (call brak af vóór HTTP-antwoord) → 502,
-            // net als 5xx; 4xx propageert status-behoudend. Consistent met
-            // isUpstreamTransportFout in [UpstreamFault]; altijd loggen vóór re-throw.
-            if (status == null || status >= 500) {
+            // Allowlist (consistent met isUpstreamTransportFout in [UpstreamFault]):
+            // alleen een echte 4xx propageert status-behoudend; geen response
+            // (transport-fout) én elke non-4xx-status (3xx/5xx/onverwacht) → 502.
+            // Altijd loggen vóór re-throw.
+            if (status == null || status !in 400..499) {
                 log.errorf(e, "magazijn-bijlage upstream-fout (status=%s) → 502", status?.toString() ?: "geen response")
 
                 throw magazijnFout(502)
@@ -87,6 +88,10 @@ class BerichtOphaalService(
         }
 
         try {
+            // Vangnet voor een toekomstige niet-gooiende client-signature: de huidige
+            // REST-client gooit al een WAE bij >=400 (hierboven afgehandeld), dus deze
+            // tak is met de huidige client onbereikbaar — laten staan zodat de mapping
+            // klopt zodra de client een rauwe Response zónder auto-throw teruggeeft.
             if (response.status >= 400) throw magazijnFout(response.status)
 
             // Pak de raw Content-Type-header (niet `response.mediaType`, die
@@ -96,11 +101,24 @@ class BerichtOphaalService(
             // een echte upstream-bug → 502.
             val mimeType = response.getHeaderString("Content-Type")
                 ?: throw WebApplicationException("magazijn-bijlage zonder Content-Type", Response.Status.BAD_GATEWAY)
-            val bytes = response.readEntity(ByteArray::class.java)
+
+            // De body-read kan zelf falen (bv. ProcessingException op een afgekapte/
+            // corrupte stream). Dat is een upstream-storing, niet onze fout → 502;
+            // zonder deze wrap zou het als 500 naar de UncaughtExceptionMapper lekken.
+            val bytes = try {
+                response.readEntity(ByteArray::class.java)
+            } catch (e: ProcessingException) {
+                log.errorf(e, "magazijn-bijlage body-read mislukt (afgekapte/corrupte stream) → 502")
+
+                throw magazijnFout(502)
+            }
 
             return mimeType to bytes
         } finally {
-            response.close()
+            // Een falende close mag de echte fout niet maskeren; op debug zodat een
+            // pool-lek bij diagnose zichtbaar blijft.
+            runCatching { response.close() }
+                .onFailure { log.debugf(it, "kon upstream-response niet sluiten na magazijn-bijlage-read") }
         }
     }
 
