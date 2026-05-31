@@ -65,10 +65,11 @@ paths:
         doorgegeven aan de client. Geen query-parameters: alle mappen worden
         opgehaald.
 
-        Foutafhandeling geldt alleen vóór de eerste byte: een upstream-storing
-        (transport-fout of niet-doorgeefbare status) wordt dan genormaliseerd
-        naar `502`. Zodra de stream loopt ligt de HTTP-status vast; een mid-stream-
-        fout breekt de stream af zonder statuswijziging.
+        Foutsemantiek: header-validatie faalt vóór de stream (`400`). Zodra de
+        SSE-stream is opgezet staat de HTTP-status op `200` vast; een upstream-
+        storing daarna uit zich niet in een afwijkende status maar in het
+        uitblijven van het afsluitende `OPHALEN_GEREED`-event (en de per-magazijn
+        FOUT-events) — de client detecteert de storing dus op stream-niveau.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
       responses:
@@ -82,7 +83,6 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
-        '502': { $ref: '#/components/responses/BadGateway' }
 
   /berichten/_zoeken:
     get:

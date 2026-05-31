@@ -122,21 +122,18 @@ class SsePassthroughTest {
     }
 
     @Test
-    fun `_ophalen propageert sessiecache-fout met error-status`() {
+    fun `_ophalen lekt geen data-frame bij een upstream-5xx en termineert veilig`() {
         WireMockBackendsResource.sessiecache!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/_ophalen"))
                 .willReturn(aResponse().withStatus(503)),
         )
 
-        // Bij een upstream-fout op een SSE-call gooit de Quarkus REST-client een
-        // WebApplicationException; de `onFailure`-keten in SsePassthroughResource
-        // logt op `error` én normaliseert de pre-stream-fout naar het contract
-        // (transport/non-4xx → 502, zie M1). RestAssured kan de afgekapte stream
-        // niet altijd parsen, dus we vallen terug op een rauwe HttpURLConnection.
-        // Afhankelijk van of de SSE-headers al geflusht waren is de status 200
-        // (lege/afgekapte stream) of — bij een pre-stream-fout — exact 502 (níét de
-        // rauwe upstream-503). In geen geval mag er een `data:`-event doorlekken,
-        // want upstream leverde niets.
+        // Bij een upstream-fout faalt de Multi; de `onFailure`-keten logt op `error`
+        // en classificeert via ssePreStreamFout (transport/non-4xx → 502, unit-getest).
+        // Die status bereikt de client echter niet: RESTEasy commit de 200-SSE-headers
+        // al bij subscriptie. De verifieerbare e2e-garantie is dus: status 200 en geen
+        // doorgelekt `data:`-frame (upstream leverde niets). RestAssured parse't de
+        // afgekapte stream niet betrouwbaar, vandaar een rauwe HttpURLConnection.
         val url = java.net.URI("http://localhost:${io.restassured.RestAssured.port}/api/v1/berichten/_ophalen").toURL()
         val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
             requestMethod = "GET"
@@ -152,10 +149,7 @@ class SsePassthroughTest {
                 (if (status >= 400) conn.errorStream else conn.inputStream)?.bufferedReader()?.readText()
             }.getOrNull().orEmpty()
 
-            // Pre-stream-normalisatie (M1): een echte foutstatus moet 502 zijn (de
-            // rauwe upstream-503 mag niet 1-op-1 lekken). 200 blijft toegestaan voor
-            // het geval de SSE-headers al geflusht waren vóór de upstream-fout.
-            assertTrue(status == 502 || status == 200, "verwacht 502 (genormaliseerd) of voor-fout-streaming-200, kreeg $status")
+            assertEquals(200, status, "SSE-headers worden bij subscriptie gecommit; verwacht 200, kreeg $status")
             assertFalse(body.contains("data:"), "upstream-503 mag geen SSE-data doorlaten, kreeg body: $body")
         } finally {
             conn.disconnect()
@@ -163,13 +157,13 @@ class SsePassthroughTest {
     }
 
     @Test
-    fun `_ophalen behoudt een upstream-4xx-status (geen 502-hertyping)`() {
-        // Tegenhanger van de 503→502-normalisatie: een échte upstream-4xx is een
-        // client-/contract-fout en moet status-behoudend doorgegeven worden (de
-        // status-preserving tak van de onFailure-transform), niet naar 502 hertyped.
-        // We gebruiken 409 (bv. "ophalen al bezig"). Zelfde flush-caveat als de 503-
-        // test: vóór de eerste byte is de status onderhandelbaar (409), ná een flush
-        // ligt 200 vast — in geen geval mag 502 of een rauw `data:`-frame verschijnen.
+    fun `_ophalen lekt geen data-frame bij een upstream-4xx en termineert veilig`() {
+        // De status-classificatie (4xx behoudt status, rest → 502) is unit-getest op
+        // ssePreStreamFout; die status bereikt op de SSE-stream de client NIET, want
+        // RESTEasy commit de 200-headers al bij subscriptie (zie SsePassthroughResource).
+        // De end-to-end-garantie die hier wél verifieerbaar is: een pre-stream upstream-
+        // fout (hier 409) mag geen enkel `data:`-frame doorlaten en moet de stream netjes
+        // termineren onder de reeds verzonden 200.
         WireMockBackendsResource.sessiecache!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/_ophalen"))
                 .willReturn(aResponse().withStatus(409)),
@@ -190,7 +184,7 @@ class SsePassthroughTest {
                 (if (status >= 400) conn.errorStream else conn.inputStream)?.bufferedReader()?.readText()
             }.getOrNull().orEmpty()
 
-            assertTrue(status == 409 || status == 200, "verwacht 409 (status-behoudend) of voor-fout-streaming-200, kreeg $status")
+            assertEquals(200, status, "SSE-headers worden bij subscriptie gecommit; verwacht 200, kreeg $status")
             assertFalse(body.contains("data:"), "upstream-409 mag geen SSE-data doorlaten, kreeg body: $body")
         } finally {
             conn.disconnect()

@@ -60,20 +60,16 @@ class SsePassthroughResource(
                 }
             }
             .onFailure().transform { e ->
-                // Normaliseer een PRE-STREAM upstream-fout naar het contract (spec
-                // belooft alleen 401/500-equivalenten + 502 voor upstream-storing):
-                // dezelfde allowlist als [mapUpstreamFout] — transport/non-4xx → 502,
-                // echte 4xx behoudt zijn status. Zonder deze transform lekt een rauwe
-                // upstream-503 of cache-404 buiten-contract naar de client.
+                // Zet de upstream-fout om naar een getypeerde terminal-fout (allowlist:
+                // echte 4xx behoudt status, transport/non-4xx → 502). Zie [ssePreStreamFout].
                 //
-                // Beperking: zodra de eerste SSE-bytes geflusht zijn ligt de HTTP-status
-                // vast; een mid-stream-fout kan die niet meer wijzigen (de stream breekt
-                // dan af en wordt door de invoke-tak hierboven gelogd). Deze transform
-                // raakt daarom alleen de pre-first-emission-fout — exact het geval waar
-                // de status nog onderhandelbaar is. Mutiny maakt de twee hier niet op
-                // type onderscheidbaar, maar dat is acceptabel: na flush negeert de
-                // container een nieuwe status, dus de transform is dan een no-op-her-wrap.
-                if (e is WebApplicationException && !isUpstreamTransportFout(e)) e else upstreamBadGateway("SSE-passthrough upstream-fout")
+                // Belangrijk: RESTEasy commit de 200-SSE-headers al bij subscriptie, dus
+                // deze status bereikt de client niet meer — de stream termineert onder de
+                // reeds verzonden 200 en de client ziet de storing via het uitblijven van
+                // het OPHALEN_GEREED-event (en de per-magazijn FOUT-events). De transform
+                // dient hier dus voor nette, getypeerde Mutiny-afhandeling + logging, niet
+                // om de wire-status te zetten. De `_ophalen`-spec belooft daarom géén 502.
+                ssePreStreamFout(e)
             }
     }
 

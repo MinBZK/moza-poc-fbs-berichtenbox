@@ -44,7 +44,7 @@ internal fun registreerLdvSubject(logboekContext: LogboekContext, xOntvanger: St
     val parsed = splitOntvanger(xOntvanger)
 
     if (parsed == null) {
-        log.warnf("X-Ontvanger zonder ':' bij LDV-registratie; dataSubject niet gezet")
+        log.warnf("X-Ontvanger voldoet niet aan het verwachte formaat (Type:waarde) bij LDV-registratie; dataSubject niet gezet")
 
         return
     }

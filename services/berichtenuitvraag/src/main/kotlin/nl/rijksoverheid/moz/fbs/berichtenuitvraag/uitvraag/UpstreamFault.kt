@@ -60,3 +60,18 @@ internal fun isUpstreamTransportFout(e: WebApplicationException): Boolean {
 // 502-status geeft downstream dezelfde semantiek.
 internal fun upstreamBadGateway(detail: String): WebApplicationException =
     WebApplicationException(detail, Response.Status.BAD_GATEWAY)
+
+/**
+ * Classificeert een upstream-fout op de SSE-passthrough volgens dezelfde allowlist
+ * als [mapUpstreamFout]: een echte 4xx behoudt zijn status, transport-fouten en
+ * non-4xx worden 502.
+ *
+ * Let op: op de SSE-stream commit RESTEasy de 200-headers al bij subscriptie, vóór
+ * een upstream-fout via Mutiny binnenkomt — de hier teruggegeven status bereikt de
+ * client dus niet meer (de stream termineert onder de reeds verzonden 200). De
+ * functie bepaalt daarmee de getypeerde terminal-fout (logging + nette Mutiny-
+ * afhandeling), niet de wire-status. Los gehouden zodat de classificatie-invariant
+ * unit-testbaar is zonder de niet-onderhandelbare SSE-status.
+ */
+internal fun ssePreStreamFout(e: Throwable): Throwable =
+    if (e is WebApplicationException && !isUpstreamTransportFout(e)) e else upstreamBadGateway("SSE-passthrough upstream-fout")
