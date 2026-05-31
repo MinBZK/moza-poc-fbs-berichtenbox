@@ -34,7 +34,7 @@ internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () 
         if (e.response == null) {
             log.errorf(e, "%s: upstream zonder response (transport-fout) → 502", context)
         } else {
-            log.errorf(e, "%s: upstream non-4xx (status=%s) → 502", context, e.response?.status?.toString() ?: "?")
+            log.errorf(e, "%s: upstream non-4xx (status=%d) → 502", context, e.response.status)
         }
 
         throw upstreamBadGateway(context)

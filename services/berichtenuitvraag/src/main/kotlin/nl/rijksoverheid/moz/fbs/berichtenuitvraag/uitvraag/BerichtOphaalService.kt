@@ -21,10 +21,11 @@ import java.util.UUID
  * is begrensd door de bijlage-limiet die het magazijn afdwingt
  * (`Bijlage.MAX_CONTENT_BYTES`) — geen waarde hier dupliceren, die leeft in het magazijn.
  *
- * Magazijn-fouten worden status-behoudend doorgegeven: 404/401/403 mappen 1-op-1
- * (zodat de OpenAPI-belofte van 404 en de LDV-audittrail klopt), 5xx en transport-
- * fouten mappen naar 502 (downstream-faal). Een 2xx-respons zónder Content-Type-
- * header is eveneens een echte upstream-bug en mapt naar 502.
+ * Magazijn-fouten worden status-behoudend doorgegeven: elke echte 4xx propageert
+ * status-behoudend (401/403/404 expliciet, overige 4xx generiek) zodat de OpenAPI-
+ * belofte van 404 en de LDV-audittrail kloppen; 5xx en transport-fouten mappen naar
+ * 502 (downstream-faal). Een 2xx-respons zónder Content-Type-header is eveneens een
+ * echte upstream-bug en mapt naar 502.
  *
  * Multi-magazijn routering (bijlage-download): de sessiecache levert per bericht
  * het bron-`magazijnId`. We halen eerst het bericht-detail op (we vertrouwen de
@@ -52,11 +53,14 @@ class BerichtOphaalService(
         }
         val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
 
-        // De Quarkus REST-client gooit zélf al een WAE bij upstream >=400 (ook met
-        // `Response`-signature, via de default mapper); een transport-storing is een
-        // ProcessingException. Beide hier vangen i.p.v. door te laten naar de generieke
-        // mapper, want we moeten de upstream-response sluiten (connectie-lek). Mapping
-        // is de standaard 4xx-propageert / geen-response+5xx → 502 (zie klasse-KDoc).
+        // `bijlage` heeft een `Response`-returntype: dán past de Quarkus REST-client
+        // géén default exception-mapper toe en geeft elke upstream-status (ook >=400)
+        // rauw terug. De statusgebaseerde mapping gebeurt daarom hieronder op
+        // `response.status` (de `>= 400`-tak), níet hier. Dit try/catch dekt alleen de
+        // randgevallen waarin de client tóch gooit: een transport-storing vóór het
+        // HTTP-antwoord komt als ProcessingException, en een proxy-/client-laag kan een
+        // WebApplicationException gooien. In beide gevallen sluiten we de eventuele
+        // upstream-response (connectie-lek) en mappen 4xx status-behoudend / rest → 502.
         val response = try {
             magazijn.bijlage(xOntvanger, berichtId, bijlageId)
         } catch (e: WebApplicationException) {
@@ -88,10 +92,9 @@ class BerichtOphaalService(
         }
 
         try {
-            // Vangnet voor een toekomstige niet-gooiende client-signature: de huidige
-            // REST-client gooit al een WAE bij >=400 (hierboven afgehandeld), dus deze
-            // tak is met de huidige client onbereikbaar — laten staan zodat de mapping
-            // klopt zodra de client een rauwe Response zónder auto-throw teruggeeft.
+            // Primair mappingpad: bij een `Response`-returntype geeft de REST-client de
+            // upstream-status rauw terug (gooit niet), dus elke 4xx/5xx komt hier langs.
+            // magazijnFout propageert 4xx status-behoudend en mapt 5xx/onverwacht → 502.
             if (response.status >= 400) throw magazijnFout(response.status)
 
             // Pak de raw Content-Type-header (niet `response.mediaType`, die
@@ -115,10 +118,11 @@ class BerichtOphaalService(
 
             return mimeType to bytes
         } finally {
-            // Een falende close mag de echte fout niet maskeren; op debug zodat een
-            // pool-lek bij diagnose zichtbaar blijft.
+            // Een falende close mag de echte fout niet maskeren (vandaar runCatching),
+            // maar op warn: een aanhoudend faaltje hier betekent een lekkende connectie-
+            // pool en moet in prod zichtbaar zijn, niet onder debug verdwijnen.
             runCatching { response.close() }
-                .onFailure { log.debugf(it, "kon upstream-response niet sluiten na magazijn-bijlage-read") }
+                .onFailure { log.warnf(it, "kon upstream-response niet sluiten na magazijn-bijlage-read (mogelijk connectie-pool-lek)") }
         }
     }
 

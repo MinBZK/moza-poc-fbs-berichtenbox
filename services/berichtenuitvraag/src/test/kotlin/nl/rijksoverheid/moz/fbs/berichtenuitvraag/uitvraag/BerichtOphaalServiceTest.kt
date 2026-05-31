@@ -202,6 +202,29 @@ class BerichtOphaalServiceTest {
         assertEquals(502, ex.response.status)
     }
 
+    @Test
+    fun `haalBijlage mapt body-read-fout (afgekapte stream) naar 502`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val mockResp = mockk<Response> {
+            every { status } returns 200
+            every { getHeaderString("Content-Type") } returns "application/pdf"
+            every { readEntity(ByteArray::class.java) } throws ProcessingException("stream afgekapt")
+            every { close() } returns Unit
+        }
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+
+        // Een fout tijdens het lezen van de body ná een geldige 200 is een upstream-
+        // storing → 502, niet een 500 via de UncaughtExceptionMapper.
+        assertEquals(502, ex.response.status)
+        verify { mockResp.close() }
+    }
+
     // De Quarkus REST-client kan bij een upstream-fout zélf een WebApplicationException
     // gooien i.p.v. een Response met fout-status terug te geven. Die catch-tak (incl. het
     // sluiten van de upstream-response tegen connectie-lek) wordt door bovenstaande

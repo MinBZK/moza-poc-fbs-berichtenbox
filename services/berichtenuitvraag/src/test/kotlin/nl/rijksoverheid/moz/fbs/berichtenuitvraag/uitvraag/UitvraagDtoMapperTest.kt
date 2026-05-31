@@ -38,6 +38,19 @@ class UitvraagDtoMapperTest {
     }
 
     @Test
+    fun `status en map samen mappen allebei door`() {
+        val patch = BerichtPatch().apply {
+            status = BerichtStatus.GELEZEN
+            map = "archief"
+        }
+
+        val magazijnPatch = UitvraagDtoMapper.toMagazijnPatch(patch)
+
+        assertEquals(true, magazijnPatch.gelezen)
+        assertEquals("archief", magazijnPatch.map)
+    }
+
+    @Test
     fun `lege patch geeft lege magazijn-patch`() {
         val patch = BerichtPatch()
 

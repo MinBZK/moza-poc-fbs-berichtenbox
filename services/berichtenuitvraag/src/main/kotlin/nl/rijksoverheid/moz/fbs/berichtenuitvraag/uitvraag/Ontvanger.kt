@@ -11,17 +11,25 @@ import org.jboss.logging.Logger
  */
 internal const val ONTVANGER_PATTERN = "^(BSN|RSIN|KVK|OIN):[0-9]+\$"
 
+// Eén bron van waarheid: dezelfde regex die de Bean Validation op de endpoints
+// (`@Pattern`) afdwingt, gecompileerd voor [splitOntvanger]. Zo kunnen parser en
+// validator niet divergeren — een waarde die de validator afkeurt levert hier
+// ook géén dataSubject. Een getypeerde Ontvanger met BSN-elfproef volgt in #66.
+private val ONTVANGER_REGEX = Regex(ONTVANGER_PATTERN)
+
 private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.Ontvanger")
 
 /**
- * Splitst `X-Ontvanger` naar `(type, waarde)`, of `null` als het format niet
- * `Type:waarde` is. Pure functie zonder LDV-zijeffect zodat de format-invariant
- * — die de AVG art. 30-audittrail voedt — los testbaar is.
+ * Splitst `X-Ontvanger` naar `(type, waarde)`, of `null` als de waarde niet aan
+ * [ONTVANGER_PATTERN] voldoet. Pure functie zonder LDV-zijeffect zodat de format-
+ * invariant — die de AVG art. 30-audittrail voedt — los testbaar is.
  */
 internal fun splitOntvanger(xOntvanger: String): Pair<String, String>? {
+    if (!ONTVANGER_REGEX.matches(xOntvanger)) return null
+
     val delen = xOntvanger.split(':', limit = 2)
 
-    return if (delen.size == 2) delen[0] to delen[1] else null
+    return delen[0] to delen[1]
 }
 
 /**

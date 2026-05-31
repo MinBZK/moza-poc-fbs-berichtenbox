@@ -69,6 +69,17 @@ class MagazijnRouterTest {
     }
 
     @Test
+    fun `valideerConfigBijOpstart faalt bij een onparseerbare URI`() {
+        // Een spatie is een illegaal URI-teken → URI.create gooit; de check moet dat
+        // omzetten naar een boot-blokkerende fout i.p.v. het door te laten naar runtime.
+        val router = routerMet(mapOf("magazijn-a" to "ht tp://host"))
+
+        assertThrows(IllegalStateException::class.java) {
+            router.valideerConfigBijOpstart(StartupEvent())
+        }
+    }
+
+    @Test
     fun `valideerConfigBijOpstart slaagt bij geldige http(s)-URLs`() {
         val router = routerMet(mapOf("magazijn-a" to "http://localhost:8081", "magazijn-b" to "https://magazijn.example"))
 

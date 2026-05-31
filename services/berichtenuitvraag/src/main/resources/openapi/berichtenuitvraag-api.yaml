@@ -64,6 +64,11 @@ paths:
         magazijnen. Antwoordt met Server-Sent Events; events worden 1-op-1
         doorgegeven aan de client. Geen query-parameters: alle mappen worden
         opgehaald.
+
+        Foutafhandeling geldt alleen vóór de eerste byte: een upstream-storing
+        (transport-fout of niet-doorgeefbare status) wordt dan genormaliseerd
+        naar `502`. Zodra de stream loopt ligt de HTTP-status vast; een mid-stream-
+        fout breekt de stream af zonder statuswijziging.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
       responses:
@@ -74,8 +79,10 @@ paths:
           content:
             text/event-stream:
               schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
 
   /berichten/_zoeken:
     get:
@@ -159,6 +166,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
@@ -183,6 +191,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
@@ -268,8 +277,18 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: |
+        Upstream-conflict, doorgegeven vanuit de sessiecache (bv. een
+        gelijktijdige wijziging op hetzelfde bericht).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
     BadGateway:
-      description: Magazijn-write geslaagd maar cache-update faalde
+      description: |
+        Een upstream (sessiecache of magazijn) was onbereikbaar of leverde een
+        onbruikbare respons. Dekt zowel een transport-/5xx-storing bij het lezen
+        als het geval waarin de magazijn-write slaagde maar de cache-update faalde.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

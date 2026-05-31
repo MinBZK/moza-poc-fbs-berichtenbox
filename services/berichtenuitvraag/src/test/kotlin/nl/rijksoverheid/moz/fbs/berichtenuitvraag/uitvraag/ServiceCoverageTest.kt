@@ -28,6 +28,7 @@ class ServiceCoverageTest {
     fun reset() {
         WireMockBackendsResource.sessiecache?.resetAll()
         WireMockBackendsResource.magazijn?.resetAll()
+        WireMockBackendsResource.magazijn2?.resetAll()
     }
 
     @Test
@@ -202,6 +203,45 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
             .header("Content-Disposition", "attachment")
+    }
+
+    @Test
+    fun `bijlage van een magazijn-b-bericht routeert naar de magazijn-b-mock, niet naar magazijn-a`() {
+        // Routerings-bewijs (security-grens): de sessiecache levert het bron-magazijnId;
+        // MagazijnRouter moet daarop naar de júiste base-URL routeren. magazijn-a en
+        // magazijn-b draaien op verschillende poorten, dus een verkeerde route landt op
+        // de andere mock. We stuben de bijlage ALLEEN op magazijn-b.
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId, magazijnId = "magazijn-b")
+        WireMockBackendsResource.magazijn2!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/pdf")
+                        .withBody("pdf-bytes"),
+                ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:123456782")
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+
+        WireMockBackendsResource.magazijn2!!.verify(
+            com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor(
+                urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"),
+            ),
+        )
+        WireMockBackendsResource.magazijn!!.verify(
+            0,
+            com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor(
+                urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"),
+            ),
+        )
     }
 
     // Noot: de fail-closed afhandeling van een ONparsebaar MIME-type (-> application/

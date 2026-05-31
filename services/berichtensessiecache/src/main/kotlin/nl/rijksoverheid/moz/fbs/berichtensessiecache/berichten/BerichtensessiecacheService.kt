@@ -162,6 +162,14 @@ class BerichtensessiecacheService(
                     val berichten = alleBerichten.toList()
                     berichtenCache.store(cacheKey, berichten)
                         .chain { _ ->
+                            // GEREED = "aggregatie voltooid", NIET "alle magazijnen geslaagd".
+                            // Ook bij mislukt>0 cachen we de wél-opgehaalde berichten en zetten
+                            // GEREED; FOUT zou de geslaagde berichten verbergen. Het partial-
+                            // failure-signaal reist mee via de SSE-events (per-magazijn FOUT/
+                            // TIMEOUT + het OPHALEN_GEREED-event met geslaagd/mislukt), die de
+                            // client tijdens `_ophalen` observeert. De latere GET /berichten is
+                            // daarmee best-effort: status FOUT is voorbehouden aan een totale
+                            // mislukking (zie OphalenStatus.FOUT in requireGereedStatus).
                             val status = AggregationStatus(
                                 status = OphalenStatus.GEREED,
                                 totaalMagazijnen = clients.size,

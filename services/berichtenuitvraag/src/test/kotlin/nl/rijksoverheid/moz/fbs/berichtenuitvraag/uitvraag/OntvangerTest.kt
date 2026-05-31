@@ -20,10 +20,23 @@ class OntvangerTest {
     }
 
     @Test
-    fun `X-Ontvanger met meerdere dubbele punten splitst op de eerste`() {
-        val parsed = splitOntvanger("BSN:123:456")
+    fun `RSIN-OIN-KVK worden ook geaccepteerd`() {
+        assertEquals("RSIN" to "123456782", splitOntvanger("RSIN:123456782"))
+        assertEquals("OIN" to "00000001234567890000", splitOntvanger("OIN:00000001234567890000"))
+        assertEquals("KVK" to "12345678", splitOntvanger("KVK:12345678"))
+    }
 
-        assertEquals("BSN" to "123:456", parsed)
+    @Test
+    fun `onbekend type levert null`() {
+        assertNull(splitOntvanger("FOO:123456782"))
+    }
+
+    @Test
+    fun `waarde met niet-cijfers levert null`() {
+        // Parser en validator delen dezelfde regex: een extra dubbele punt of letters
+        // in de waarde matcht ONTVANGER_PATTERN niet en levert dus géén dataSubject.
+        assertNull(splitOntvanger("BSN:123:456"))
+        assertNull(splitOntvanger("BSN:12ab34"))
     }
 
     @Test

@@ -29,8 +29,8 @@ data class MagazijnBericht(
     @param:JsonProperty("ontvanger") val ontvanger: Identificatienummer,
     @param:JsonProperty("onderwerp") val onderwerp: String,
     // `inhoud` ontbreekt op de magazijn-lijst-respons (alleen op detail). Default
-    // "" zodat de lijst-deserialisatie niet crasht; de cache vult later via een
-    // detail-call wanneer uitvraag een detail-GET doet.
+    // "" zodat de lijst-deserialisatie niet crasht; bij een lijst-aggregatie blijft
+    // `inhoud` dan leeg in de cache (er is geen detail-backfill).
     @param:JsonProperty("inhoud") val inhoud: String = "",
     @param:JsonProperty("publicatietijdstip") val publicatietijdstip: Instant,
     @param:JsonProperty("aantalBijlagen") val aantalBijlagen: Int = 0,

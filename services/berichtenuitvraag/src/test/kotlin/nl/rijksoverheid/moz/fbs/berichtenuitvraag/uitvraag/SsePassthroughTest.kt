@@ -163,6 +163,41 @@ class SsePassthroughTest {
     }
 
     @Test
+    fun `_ophalen behoudt een upstream-4xx-status (geen 502-hertyping)`() {
+        // Tegenhanger van de 503→502-normalisatie: een échte upstream-4xx is een
+        // client-/contract-fout en moet status-behoudend doorgegeven worden (de
+        // status-preserving tak van de onFailure-transform), niet naar 502 hertyped.
+        // We gebruiken 409 (bv. "ophalen al bezig"). Zelfde flush-caveat als de 503-
+        // test: vóór de eerste byte is de status onderhandelbaar (409), ná een flush
+        // ligt 200 vast — in geen geval mag 502 of een rauw `data:`-frame verschijnen.
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/_ophalen"))
+                .willReturn(aResponse().withStatus(409)),
+        )
+
+        val url = java.net.URI("http://localhost:${io.restassured.RestAssured.port}/api/v1/berichten/_ophalen").toURL()
+        val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+            requestMethod = "GET"
+            setRequestProperty("X-Ontvanger", "BSN:123456782")
+            setRequestProperty("Accept", "text/event-stream")
+            connectTimeout = 2000
+            readTimeout = 2000
+        }
+
+        try {
+            val status = conn.responseCode
+            val body = runCatching {
+                (if (status >= 400) conn.errorStream else conn.inputStream)?.bufferedReader()?.readText()
+            }.getOrNull().orEmpty()
+
+            assertTrue(status == 409 || status == 200, "verwacht 409 (status-behoudend) of voor-fout-streaming-200, kreeg $status")
+            assertFalse(body.contains("data:"), "upstream-409 mag geen SSE-data doorlaten, kreeg body: $body")
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    @Test
     fun `_ophalen breekt veilig af bij mid-stream upstream-abort zonder corrupte data-frames`() {
         // Mid-stream abort (CLAUDE.md testlaag 4, degradatiegedrag): de upstream
         // flusht eerst geldige 200-headers en breekt dán de body af (verbinding
