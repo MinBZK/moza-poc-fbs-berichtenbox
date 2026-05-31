@@ -19,8 +19,9 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.uitvraag.bijlage.mimeType"
  * expliciet een MIME-type op de request-context heeft gezet via
  * [BIJLAGE_MIME_TYPE_PROPERTY], en forceert `Content-Disposition: attachment`
  * om inline-rendering door de browser uit te sluiten (stored-XSS-bescherming).
- * Defense-in-depth: parse het MIME-type opnieuw zodat een toekomstige caller
- * zonder pre-validatie geen header-splitting kan introduceren.
+ * Defense-in-depth: het MIME-type wordt fail-closed gevalideerd/genormaliseerd
+ * via `MediaType.valueOf`, zodat een onparsebare of door een toekomstige caller
+ * ongevalideerde waarde nooit als Content-Type naar de browser passeert.
  *
  * Zelfde concept als `…fbs.berichtenmagazijn.ophaal.BijlageContentTypeFilter`,
  * maar bewust strenger: die variant is fail-open (ongeldig MIME → Content-Type

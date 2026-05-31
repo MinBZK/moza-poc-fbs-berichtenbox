@@ -260,6 +260,52 @@ class OpenApiContractTest {
             .contentType("application/problem+json")
     }
 
+    @Test
+    fun `GET bericht by id - cache-403 levert valide Problem-403`() {
+        val id = UUID.randomUUID()
+        // Upstream dwingt de ontvanger-match af; een 403 propageert status-behoudend
+        // (4xx-allowlist) en moet als gedeclareerde Problem-403 valideren tegen de spec.
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(403)),
+        )
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(403)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET bijlage - bericht zonder magazijnId levert valide Problem-502`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        // Cache levert een bericht zónder magazijnId (upstream-contractbreuk): de
+        // service kan niet routeren en mapt naar 502 i.p.v. een misleidende 500.
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichtId":"$berichtId","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
+                ),
+        )
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(502)
+            .contentType("application/problem+json")
+    }
+
     // --- Input-validatie (400): X-Ontvanger en zoek-parameter `q` ---
     // Geen validator-filter: de triggerende request is bewust spec-ongeldig
     // (ontbrekende/kromme header, ontbrekende verplichte param). We borgen hier

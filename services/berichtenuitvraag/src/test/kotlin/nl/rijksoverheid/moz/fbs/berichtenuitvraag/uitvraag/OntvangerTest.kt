@@ -5,10 +5,11 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 /**
- * Vergrendelt de PII-invariant achter [registreerLdvSubject]: alleen een geldig
- * `Type:waarde`-format levert een dataSubject voor de LDV-audittrail (AVG art.
- * 30). De resource-paden raken deze logica altijd ná Bean Validation, dus de
- * malformed-tak komt daar nooit aan bod — deze pure unit-test dekt die guard.
+ * Test de pure parser [splitOntvanger], de basis onder de PII-invariant: alleen
+ * een geldig `Type:waarde`-format levert een non-null paar, en daarmee pas een
+ * dataSubject in de LDV-audittrail (AVG art. 30). Een ongeldige waarde → `null` →
+ * [registreerLdvSubject] schrijft géén subject. De end-to-end-registratie zelf
+ * staat in [LdvSubjectRegistrationTest]; de fuzz-invariant in OntvangerFuzzer.
  */
 class OntvangerTest {
 

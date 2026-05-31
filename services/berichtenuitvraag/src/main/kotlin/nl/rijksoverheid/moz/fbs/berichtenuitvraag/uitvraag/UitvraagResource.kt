@@ -59,6 +59,7 @@ class UitvraagResource(
     @Logboek(name = "uitvraag-bijlage", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
     override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
         registreerLdvSubject(xOntvanger)
+
         val (mimeType, bytes) = ophaalService.haalBijlage(xOntvanger, berichtId, bijlageId)
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mimeType)
 
@@ -75,6 +76,7 @@ class UitvraagResource(
     @Logboek(name = "uitvraag-verwijder", processingActivityId = ProcessingActivities.UITVRAAG_BEHEER)
     override fun verwijderBericht(berichtId: UUID, xOntvanger: String) {
         registreerLdvSubject(xOntvanger)
+
         beheerService.verwijder(xOntvanger, berichtId)
     }
 

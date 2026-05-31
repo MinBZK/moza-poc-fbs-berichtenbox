@@ -21,8 +21,7 @@ import java.util.UUID
  * specifiek na een geslaagde DELETE kan een herhaalde uitvraag-call echter 404
  * geven, omdat de cache-entry dán geïnvalideerd is en `resolveMagazijn` het
  * bron-`magazijnId` niet meer vindt. De PATCH-happy-path heeft dit niet: die
- * werkt de cache-entry bij (verwijdert hem niet), dus de lookup blijft slagen
- * (zie de spec-correctie in commit b34f9fe).
+ * werkt de cache-entry bij (verwijdert hem niet), dus de lookup blijft slagen.
  *
  * "Cache-faal" = transport-storing (timeout, connect-fout, 5xx upstream). 4xx
  * van de cache duidt op een contract-bug en wordt onveranderd doorgegeven; de
@@ -54,7 +53,7 @@ class BerichtBeheerService(
         try {
             return sessiecache.patchBericht(xOntvanger, berichtId, patch)
         } catch (e: WebApplicationException) {
-            if (!isUpstreamTransportFout(e)) {
+            if (!isUpstreamStoring(e)) {
                 // 4xx = contract-bug, geen transport-storing: niet compenseren (zie
                 // herverpakCache4xx), wél loggen. Status propageert; body niet (facade
                 // lekt geen cache-internals/PII). Cache kan tot de TTL stale blijven.
@@ -83,7 +82,7 @@ class BerichtBeheerService(
         try {
             sessiecache.verwijderBericht(xOntvanger, berichtId)
         } catch (e: WebApplicationException) {
-            if (!isUpstreamTransportFout(e)) {
+            if (!isUpstreamStoring(e)) {
                 // 4xx = contract-bug, geen transport-storing: niet compenseren (zie
                 // herverpakCache4xx), wél loggen. Status propageert; body niet (facade
                 // lekt geen cache-internals/PII). Cache kan tot de TTL stale blijven.
@@ -109,7 +108,7 @@ class BerichtBeheerService(
             sessiecache.bericht(xOntvanger, berichtId)
         }
 
-        return magazijnRouter.forMagazijn(bericht.magazijnId)
+        return magazijnRouter.forMagazijn(vereisMagazijnId(bericht, berichtId, log))
     }
 
     private fun compensatieInvalidate(xOntvanger: String, berichtId: UUID) {
@@ -141,10 +140,9 @@ class BerichtBeheerService(
         }
     }
 
-    // Jakarta REST 3.1 levert geen BadGatewayException; WebApplicationException
-    // met expliciete 502-status geeft dezelfde semantiek voor downstream client.
+    // 502: magazijn-write slaagde, maar de cache-update faalde (zie [upstreamBadGateway]).
     private fun badGateway(): WebApplicationException =
-        WebApplicationException("cache-update faalde; magazijn bijgewerkt", Response.Status.BAD_GATEWAY)
+        upstreamBadGateway("cache-update faalde; magazijn bijgewerkt")
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtBeheerService::class.java)

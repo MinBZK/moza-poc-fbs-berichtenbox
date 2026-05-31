@@ -10,6 +10,14 @@ import org.jboss.logging.Logger
  * passthrough (`_ophalen`) wordt in [SsePassthroughResource] geregeld
  * omdat de Quarkus REST-client voor SSE een `Multi<T>`-signatuur nodig heeft
  * die niet in deze synchrone client past.
+ *
+ * Bewuste trade-off: de lees-paden deserialiseren de sessiecache-JSON naar de
+ * gegenereerde DTO's en serialiseren die vrijwel ongewijzigd opnieuw (idem in
+ * [BerichtOphaalService.haalBericht]). Dat kost een extra Jackson-round-trip per
+ * read, maar levert contract-validatie tegen de spec én de HAL-link-vertaling
+ * ([vertaalPaginatieLinks]) "gratis". Berichten zijn enkele KB's (zie CLAUDE.md),
+ * dus de winst van rauwe byte-passthrough weegt niet op tegen het verlies van die
+ * twee garanties; herzie pas bij een meetbare load-aanleiding.
  */
 @ApplicationScoped
 class BerichtenlijstService(

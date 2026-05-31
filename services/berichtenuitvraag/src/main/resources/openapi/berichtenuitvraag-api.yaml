@@ -51,6 +51,7 @@ paths:
               schema: { $ref: '#/components/schemas/BerichtenLijst' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
@@ -109,6 +110,7 @@ paths:
               schema: { $ref: '#/components/schemas/BerichtenLijst' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
@@ -130,7 +132,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Bericht' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
@@ -165,6 +169,7 @@ paths:
               schema: { $ref: '#/components/schemas/Bericht' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
@@ -190,6 +195,7 @@ paths:
             API-Version: { $ref: '#/components/headers/API-Version' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -225,7 +231,9 @@ paths:
           content:
             '*/*':
               schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
@@ -259,6 +267,13 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Unauthorized:
       description: Niet geauthenticeerd
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: |
+        Geauthenticeerd, maar niet geautoriseerd voor deze ontvanger of bron.
+        Doorgegeven vanuit de sessiecache/magazijn die de ontvanger-match afdwingt.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -410,4 +425,4 @@ components:
         title: { type: string }
         status: { type: integer }
         detail: { type: string }
-        instance: { type: string, format: uri }
+        instance: { type: string, format: uri-reference }

@@ -51,7 +51,7 @@ class BerichtOphaalService(
         val bericht = mapUpstreamFout(log, "cache-bericht-lookup vóór bijlage (berichtId=$berichtId)") {
             sessiecache.bericht(xOntvanger, berichtId)
         }
-        val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
+        val magazijn = magazijnRouter.forMagazijn(vereisMagazijnId(bericht, berichtId, log))
 
         // `bijlage` heeft een `Response`-returntype: dán past de Quarkus REST-client
         // géén default exception-mapper toe en geeft elke upstream-status (ook >=400)
@@ -74,7 +74,7 @@ class BerichtOphaalService(
             runCatching { e.response?.close() }
                 .onFailure { log.debugf(it, "kon upstream-response niet sluiten na magazijn-bijlage-WAE") }
 
-            // Allowlist (consistent met isUpstreamTransportFout in [UpstreamFault]):
+            // Allowlist (consistent met isUpstreamStoring in [UpstreamFault]):
             // alleen een echte 4xx propageert status-behoudend; geen response
             // (transport-fout) én elke non-4xx-status (3xx/5xx/onverwacht) → 502.
             // Altijd loggen vóór re-throw.

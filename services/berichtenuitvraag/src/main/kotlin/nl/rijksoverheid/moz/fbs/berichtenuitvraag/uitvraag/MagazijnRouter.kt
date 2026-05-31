@@ -68,11 +68,21 @@ class MagazijnRouter(private val config: MagazijnenConfig) {
                 )
             }
 
-            RestClientBuilder.newBuilder()
-                .baseUri(URI.create(url))
-                .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .build(MagazijnClient::class.java)
+            // Builder-fouten (kromme URI, RestClientDefinitionException) zijn een
+            // config-/topologie-probleem, geen bug in deze service. Zonder deze wrap
+            // ontsnapt de raw exception langs mapUpstreamFout naar een 500 die on-call
+            // ten onrechte de uitvraag-service in stuurt; map daarom expliciet → 502.
+            runCatching {
+                RestClientBuilder.newBuilder()
+                    .baseUri(URI.create(url))
+                    .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .build(MagazijnClient::class.java)
+            }.getOrElse { e ->
+                log.errorf(e, "Magazijn-routering: kon REST-client niet bouwen voor magazijnId=%s url=%s", id, url)
+
+                throw upstreamBadGateway("magazijn-client-configuratie ongeldig voor '$id'")
+            }
         }
 
     private companion object {

@@ -18,9 +18,8 @@ import java.util.UUID
  * Bestaat naast cache-[Bericht] zodat Jackson-deserialisatie matcht met de
  * magazijn-spec zonder dat het cache-domein de getypeerde vorm hoeft te
  * dragen. `inhoud`, `bijlagen`, `status.map` en de leesstatus (`status.gelezen`
- * → [Leesstatus]) worden uit de magazijn-respons overgenomen; `tijdstipOntvangst`,
- * `gewijzigdOp` en bijlage-`mimeType`/`_links` blijven bewust buiten de cache
- * (alleen-magazijn-gegevens).
+ * → [Leesstatus]) worden uit de magazijn-respons overgenomen; `gewijzigdOp` en
+ * bijlage-`mimeType`/`_links` blijven bewust buiten de cache (alleen-magazijn-gegevens).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class MagazijnBericht(

@@ -3,31 +3,29 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import org.jboss.logging.Logger
+import java.util.UUID
 
 /**
  * Uniforme upstream-fout-mapping voor calls naar sessiecache én magazijn.
  *
- * Allowlist-classificatie: alleen een echte client-/contract-`4xx` (400..499)
- * propageert 1-op-1 (bv. 404 cache-miss). Een transport-storing (geen response)
- * én elke andere upstream-status — 3xx, 1xx, 5xx, alles buiten 400..499 — wordt
- * 502 Bad Gateway. "502 = niet onze fout; alleen echte client/contract-4xx
- * propageren we 1-op-1." Voor een server-naar-server REST-client is een naar de
- * client lekkende 3xx (of 1xx/onverwachte status) verkeerd: zulke statussen zijn
- * geen contract dat onze client kan begrijpen, dus behandelen we ze als een
- * upstream-storing. Zo geldt overal in de uitvraag-service "502 = upstream-fout,
- * niet onze fout", en wordt on-call niet de uitvraag-service in gestuurd bij een
- * storing die in de sessiecache of het magazijn zit. Toegepast op alle lees- én
- * schrijf-paden zodat de classificatie consistent is (zie [BerichtOphaalService],
+ * Allowlist: alleen een echte client-/contract-`4xx` (400..499) propageert 1-op-1
+ * (bv. 404 cache-miss); al het andere — geen response (transport-storing) en elke
+ * non-4xx-status (1xx/3xx/5xx) — wordt 502. Rationale: voor een server-naar-server
+ * client is een lekkende non-4xx geen begrijpelijk contract, dus telt als upstream-
+ * storing. Zo blijft "502 = upstream-fout, niet onze fout" overal gelden en wordt
+ * on-call bij een sessiecache-/magazijn-storing niet de uitvraag-service in gestuurd.
+ * Toegepast op alle lees- én schrijf-paden (zie [BerichtOphaalService],
  * [BerichtenlijstService], [BerichtBeheerService]).
  */
 internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () -> T): T =
     try {
         block()
     } catch (e: WebApplicationException) {
-        if (!isUpstreamTransportFout(e)) throw e
+        if (!isUpstreamStoring(e)) throw e
 
-        // isUpstreamTransportFout liet door: óf geen response (transport-fout vóór
+        // isUpstreamStoring liet door: óf geen response (transport-fout vóór
         // HTTP-antwoord) óf een non-4xx-status (3xx/5xx/onverwacht). Log eerlijk welke
         // van de twee mét de status, anders zet "upstream → 502" een debugger op het
         // verkeerde been bij een timeout vs. een onverwachte 3xx.
@@ -44,22 +42,37 @@ internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () 
     }
 
 /**
- * Allowlist: alleen een echte client-/contract-`4xx` mag 1-op-1 propageren; al
- * het andere telt als upstream-storing → 502. Geen response = de call brak af
- * vóór een HTTP-antwoord (transport-fout). Een aanwezige non-4xx-status (3xx,
- * 1xx, 5xx, onverwacht) is voor onze server-naar-server-client geen begrijpelijk
- * contract en wordt daarom óók als upstream-storing behandeld.
+ * Allowlist-predicaat: `true` = upstream-storing (→ 502), `false` = propageerbare
+ * client-/contract-`4xx`. Geen response = transport-fout (call brak af vóór een
+ * HTTP-antwoord). Een aanwezige non-4xx-status (1xx/3xx/5xx/onverwacht) telt óók
+ * als storing — voor een server-naar-server-client is dat geen begrijpelijk
+ * contract. Naam dekt bewust méér dan transport-fouten; zie de allowlist hierboven.
  */
-internal fun isUpstreamTransportFout(e: WebApplicationException): Boolean {
+internal fun isUpstreamStoring(e: WebApplicationException): Boolean {
     val status = e.response?.status ?: return true
 
     return status !in 400..499
 }
 
 // Jakarta REST 3.1 kent geen BadGatewayException; een expliciete WAE met
-// 502-status geeft downstream dezelfde semantiek.
+// 502-status geeft downstream dezelfde semantiek. Canonieke 502-helper voor de
+// hele uitvraag-service.
 internal fun upstreamBadGateway(detail: String): WebApplicationException =
     WebApplicationException(detail, Response.Status.BAD_GATEWAY)
+
+/**
+ * Haalt het bron-`magazijnId` uit een upstream-bericht voor routering. De spec
+ * markeert het veld `required`, maar Bean Validation draait niet op response-
+ * bodies van de REST-client: een upstream die het veld weglaat deserialiseert
+ * naar `null`. Dat is een upstream-contractbreuk, geen onze fout → 502 met een
+ * expliciete diagnose i.p.v. een verderop misleidende "onbekende magazijnId 'null'".
+ */
+internal fun vereisMagazijnId(bericht: Bericht, berichtId: UUID, log: Logger): String =
+    bericht.magazijnId ?: run {
+        log.errorf("upstream leverde bericht zonder magazijnId; kan niet routeren. berichtId=%s", berichtId)
+
+        throw upstreamBadGateway("sessiecache-bericht zonder magazijnId")
+    }
 
 /**
  * Classificeert een upstream-fout op de SSE-passthrough volgens dezelfde allowlist
@@ -74,4 +87,4 @@ internal fun upstreamBadGateway(detail: String): WebApplicationException =
  * unit-testbaar is zonder de niet-onderhandelbare SSE-status.
  */
 internal fun ssePreStreamFout(e: Throwable): Throwable =
-    if (e is WebApplicationException && !isUpstreamTransportFout(e)) e else upstreamBadGateway("SSE-passthrough upstream-fout")
+    if (e is WebApplicationException && !isUpstreamStoring(e)) e else upstreamBadGateway("SSE-passthrough upstream-fout")
