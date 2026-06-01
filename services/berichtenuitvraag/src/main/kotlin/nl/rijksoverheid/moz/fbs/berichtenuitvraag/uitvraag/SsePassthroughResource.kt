@@ -56,7 +56,11 @@ class SsePassthroughResource(
                 if (e is WebApplicationException || e is ProcessingException) {
                     log.errorf(e, "SSE-passthrough: upstream sessiecache-fout")
                 } else {
-                    log.warnf(e, "SSE-passthrough afgebroken (client-disconnect of onverwachte fout)")
+                    // Disconnect en echte pijplijn-bug (serialisatie/NPE) zijn in deze
+                    // Vert.x/Mutiny-stack niet op type te scheiden → warn als ondergrens.
+                    // Log wél de exception-class expliciet zodat een dashboard de benigne
+                    // client-disconnects kan wegfilteren en een echte bug grepbaar blijft.
+                    log.warnf(e, "SSE-passthrough afgebroken (client-disconnect of onverwachte fout); type=%s", e::class.java.name)
                 }
             }
             .onFailure().transform { e ->

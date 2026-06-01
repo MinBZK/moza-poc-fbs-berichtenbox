@@ -24,12 +24,18 @@ import java.util.UUID
 @RegisterRestClient
 @Path("/api/v1/berichten")
 interface SessiecacheClient {
+    /**
+     * Paginatie-queryparams heten upstream `page`/`pageSize` (niet de uitvraag-
+     * spec-namen `pagina`/`paginaGrootte`). JAX-RS dropt niet-gebonden params
+     * stil, dus een verkeerde naam zou de sessiecache altijd op default-pagina 0
+     * laten vallen. Response-`_links` worden in [BerichtenlijstService] terug-
+     * vertaald naar de uitvraag-namen.
+     */
     @GET
     fun lijst(
         @HeaderParam("X-Ontvanger") xOntvanger: String,
-        @QueryParam("map") map: String?,
-        @QueryParam("pagina") pagina: Int?,
-        @QueryParam("paginaGrootte") paginaGrootte: Int?,
+        @QueryParam("page") pagina: Int?,
+        @QueryParam("pageSize") paginaGrootte: Int?,
     ): BerichtenLijst
 
     @GET
@@ -37,7 +43,6 @@ interface SessiecacheClient {
     fun zoek(
         @HeaderParam("X-Ontvanger") xOntvanger: String,
         @QueryParam("q") q: String,
-        @QueryParam("map") map: String?,
     ): BerichtenLijst
 
     @GET

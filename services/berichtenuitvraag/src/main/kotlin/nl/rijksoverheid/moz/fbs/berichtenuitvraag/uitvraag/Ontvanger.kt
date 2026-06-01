@@ -45,7 +45,12 @@ internal fun registreerLdvSubject(logboekContext: LogboekContext, xOntvanger: St
     val parsed = splitOntvanger(xOntvanger)
 
     if (parsed == null) {
-        log.warnf("X-Ontvanger voldoet niet aan het verwachte formaat (Type:waarde) bij LDV-registratie; dataSubject niet gezet")
+        // De waarde is op dit punt al door dezelfde regex (@Pattern op het endpoint)
+        // gevalideerd; een null betekent dus regex-divergentie of een validator-bypass —
+        // een invariant-breuk, geen normale gebruikersfout. errorf (niet warnf) zodat het
+        // AVG art. 30-audittrail-gat (request gaat zónder dataSubject de LDV-laag in)
+        // alertbaar is i.p.v. tussen warnings te verdwijnen. Waarde niet loggen (PII).
+        log.errorf("X-Ontvanger voldoet niet aan het verwachte formaat (Type:waarde) bij LDV-registratie ná validatie; dataSubject niet gezet (invariant-breuk)")
 
         return
     }

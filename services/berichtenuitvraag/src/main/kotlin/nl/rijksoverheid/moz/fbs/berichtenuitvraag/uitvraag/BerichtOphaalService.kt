@@ -20,6 +20,9 @@ import java.util.UUID
  * Bytes worden volledig in een ByteArray geladen; het geheugengebruik per request
  * is begrensd door de bijlage-limiet die het magazijn afdwingt
  * (`Bijlage.MAX_CONTENT_BYTES`) — geen waarde hier dupliceren, die leeft in het magazijn.
+ * TODO(#572): bij gelijktijdige grote-bijlage-downloads dubbel-buffert dit (client-read
+ * + JAX-RS-serialize). Vervang door een StreamingOutput-passthrough zodra de werkelijke
+ * grootteverdeling dat rechtvaardigt.
  *
  * Magazijn-fouten worden status-behoudend doorgegeven: elke echte 4xx propageert
  * status-behoudend (401/403/404 expliciet, overige 4xx generiek) zodat de OpenAPI-

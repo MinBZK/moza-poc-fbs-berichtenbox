@@ -18,42 +18,33 @@ class BerichtenlijstServiceTest {
     @Test
     fun `lijst delegeert met juiste headers en query`() {
         val expected = BerichtenLijst()
-        every { sessiecache.lijst("BSN:1", "archief", 0, 20) } returns expected
+        every { sessiecache.lijst("BSN:1", 0, 20) } returns expected
 
-        val actual = service.lijst("BSN:1", "archief", 0, 20)
+        val actual = service.lijst("BSN:1", 0, 20)
 
         assertSame(expected, actual)
-        verify(exactly = 1) { sessiecache.lijst("BSN:1", "archief", 0, 20) }
+        verify(exactly = 1) { sessiecache.lijst("BSN:1", 0, 20) }
     }
 
     @Test
     fun `lijst geeft null-parameters door zonder default-invulling`() {
         val expected = BerichtenLijst()
-        every { sessiecache.lijst("BSN:1", null, null, null) } returns expected
+        every { sessiecache.lijst("BSN:1", null, null) } returns expected
 
-        val actual = service.lijst("BSN:1", null, null, null)
-
-        assertSame(expected, actual)
-    }
-
-    @Test
-    fun `zoek delegeert q en optionele map`() {
-        val expected = BerichtenLijst()
-        every { sessiecache.zoek("BSN:1", "rente", null) } returns expected
-
-        val actual = service.zoek("BSN:1", "rente", null)
+        val actual = service.lijst("BSN:1", null, null)
 
         assertSame(expected, actual)
     }
 
     @Test
-    fun `zoek geeft map door als die meegegeven is`() {
+    fun `zoek delegeert q`() {
         val expected = BerichtenLijst()
-        every { sessiecache.zoek("BSN:1", "rente", "archief") } returns expected
+        every { sessiecache.zoek("BSN:1", "rente") } returns expected
 
-        val actual = service.zoek("BSN:1", "rente", "archief")
+        val actual = service.zoek("BSN:1", "rente")
 
         assertSame(expected, actual)
+        verify(exactly = 1) { sessiecache.zoek("BSN:1", "rente") }
     }
 
     @Test
@@ -65,9 +56,9 @@ class BerichtenlijstServiceTest {
                 prev = Link().apply { href = "/api/v1/berichten?page=0&pageSize=20" }
             }
         }
-        every { sessiecache.lijst("BSN:1", null, 1, 20) } returns response
+        every { sessiecache.lijst("BSN:1", 1, 20) } returns response
 
-        val actual = service.lijst("BSN:1", null, 1, 20)
+        val actual = service.lijst("BSN:1", 1, 20)
 
         assertEquals("/api/v1/berichten?pagina=1&paginaGrootte=20", actual.links.self.href)
         assertEquals("/api/v1/berichten?pagina=2&paginaGrootte=20", actual.links.next.href)
@@ -82,9 +73,9 @@ class BerichtenlijstServiceTest {
                 next = Link().apply { href = "/api/v1/berichten/_zoeken?q=rente&page=2&pageSize=20" }
             }
         }
-        every { sessiecache.zoek("BSN:1", "rente", null) } returns response
+        every { sessiecache.zoek("BSN:1", "rente") } returns response
 
-        val actual = service.zoek("BSN:1", "rente", null)
+        val actual = service.zoek("BSN:1", "rente")
 
         assertEquals("/api/v1/berichten/_zoeken?q=rente&pagina=1&paginaGrootte=20", actual.links.self.href)
         assertEquals("/api/v1/berichten/_zoeken?q=rente&pagina=2&paginaGrootte=20", actual.links.next.href)
@@ -99,9 +90,9 @@ class BerichtenlijstServiceTest {
                 self = Link().apply { href = "/api/v1/berichten?filter=homepage&page=1" }
             }
         }
-        every { sessiecache.lijst("BSN:1", null, 1, 20) } returns response
+        every { sessiecache.lijst("BSN:1", 1, 20) } returns response
 
-        val actual = service.lijst("BSN:1", null, 1, 20)
+        val actual = service.lijst("BSN:1", 1, 20)
 
         assertEquals("/api/v1/berichten?filter=homepage&pagina=1", actual.links.self.href)
     }
@@ -114,9 +105,9 @@ class BerichtenlijstServiceTest {
                 next = Link().apply { href = "/api/v1/berichten?page=2&pageSize=20" }
             }
         }
-        every { sessiecache.lijst("BSN:1", null, 2, 20) } returns response
+        every { sessiecache.lijst("BSN:1", 2, 20) } returns response
 
-        val actual = service.lijst("BSN:1", null, 2, 20)
+        val actual = service.lijst("BSN:1", 2, 20)
 
         assertEquals(null, actual.links.self.href)
         assertEquals("/api/v1/berichten?pagina=2&paginaGrootte=20", actual.links.next.href)

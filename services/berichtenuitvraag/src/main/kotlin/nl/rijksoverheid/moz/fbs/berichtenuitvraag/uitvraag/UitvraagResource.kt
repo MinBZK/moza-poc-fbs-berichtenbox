@@ -33,20 +33,19 @@ class UitvraagResource(
     @Logboek(name = "uitvraag-lijst", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
     override fun getBerichten(
         xOntvanger: String,
-        map: String?,
         pagina: Int?,
         paginaGrootte: Int?,
     ): BerichtenLijst {
         registreerLdvSubject(xOntvanger)
 
-        return lijstService.lijst(xOntvanger, map, pagina, paginaGrootte)
+        return lijstService.lijst(xOntvanger, pagina, paginaGrootte)
     }
 
     @Logboek(name = "uitvraag-zoeken", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
-    override fun zoekenBerichten(xOntvanger: String, q: String, map: String?): BerichtenLijst {
+    override fun zoekenBerichten(xOntvanger: String, q: String): BerichtenLijst {
         registreerLdvSubject(xOntvanger)
 
-        return lijstService.zoek(xOntvanger, q, map)
+        return lijstService.zoek(xOntvanger, q)
     }
 
     @Logboek(name = "uitvraag-bericht", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)

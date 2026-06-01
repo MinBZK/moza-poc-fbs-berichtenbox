@@ -396,17 +396,16 @@ class OpenApiContractTest {
             .contentType("application/problem+json")
     }
 
-    // NB: een lege `map=` wordt door RESTEasy Reactive als afwezige parameter behandeld
-    // (niet als ""), dus `@Size(min=1)` triggert daar niet — geen 400-case. De max-grens
-    // hieronder bewijst wél dat de generator de @Size-constraint daadwerkelijk toepast.
-
+    // CR-M1: uitvraag harmoniseert `q` minLength met de sessiecache (2), zodat een
+    // 1-teken-zoekopdracht hier al op 400 strandt i.p.v. verwarrend door te lekken naar
+    // een upstream-400. Bewijst tevens dat de generator de @Size(min=2)-constraint toepast.
     @Test
-    fun `GET berichten met te lange map levert 400 problem+json`() {
+    fun `GET berichten-zoeken met te korte q levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", ontvanger)
-            .queryParam("map", "x".repeat(65))
+            .queryParam("q", "x")
             .`when`()
-            .get("/api/v1/berichten")
+            .get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")

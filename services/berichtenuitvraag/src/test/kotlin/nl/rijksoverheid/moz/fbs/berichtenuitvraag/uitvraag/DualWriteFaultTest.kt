@@ -477,4 +477,57 @@ class DualWriteFaultTest {
 
         WireMockBackendsResource.sessiecache!!.verify(2, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
+
+    // ───── routering-lookup zonder magazijnId (review T-H1) ─────
+
+    @Test
+    fun `PATCH met cache-bericht zonder magazijnId geeft 502 en raakt magazijn niet aan`() {
+        // vereisMagazijnId-tak: de sessiecache-lookup vóór de write levert een bericht
+        // zónder magazijnId (upstream-contractbreuk). resolveMagazijn kan dan niet routeren
+        // → 502, en er mag niets naar het magazijn geschreven worden.
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
+                ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        WireMockBackendsResource.magazijn!!.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
+    @Test
+    fun `DELETE met cache-bericht zonder magazijnId geeft 502 en raakt magazijn niet aan`() {
+        val id = UUID.randomUUID()
+        WireMockBackendsResource.sessiecache!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
+                ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .delete("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        WireMockBackendsResource.magazijn!!.verify(0, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
 }

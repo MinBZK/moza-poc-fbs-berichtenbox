@@ -27,14 +27,15 @@ paths:
   /berichten:
     get:
       tags: [Uitvraag]
-      summary: Berichtenlijst per map
-      description: Berichtenlijst per map; bron is de sessiecache.
+      summary: Berichtenlijst
+      description: |
+        Volledige berichtenlijst voor de ontvanger; bron is de sessiecache.
+        Filteren per map is (nog) niet beschikbaar: de sessiecache indexeert
+        `map` niet (zie issue #571). Het `map`-veld wordt wél per bericht
+        teruggegeven.
       operationId: getBerichten
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
-        - name: map
-          in: query
-          schema: { type: string, minLength: 1, maxLength: 64 }
         - name: pagina
           in: query
           schema: { type: integer, minimum: 0, default: 0 }
@@ -97,10 +98,7 @@ paths:
         - name: q
           in: query
           required: true
-          schema: { type: string, minLength: 1, maxLength: 200 }
-        - name: map
-          in: query
-          schema: { type: string, minLength: 1, maxLength: 64 }
+          schema: { type: string, minLength: 2, maxLength: 200 }
       responses:
         '200':
           description: Zoekresultaten

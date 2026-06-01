@@ -124,14 +124,22 @@ class BerichtBeheerService(
     // Dubbele cache-faal: de write naar de cache faalde én de compenserende invalidate
     // faalde. De cache blijft stale tot de TTL zonder self-heal — errorf (niet warnf)
     // zodat een aanhoudende cache-outage alertbaar is i.p.v. te verdrinken in warnings.
+    // Vooraan een stabiele marker zodat de Loki-alert-rule daarop ankert i.p.v. op de
+    // (vertaalbare) proza: een rephrase van de zin mag de alert niet stil slopen. Pak
+    // bij de volgende project-brede metric-toevoeging (review M17) een echte counter op.
     private fun logCompensatieFout(e: Exception, berichtId: UUID) =
-        log.errorf(e, "compensatie-invalidate faalde ná cache-write-faal; cache stale tot TTL. berichtId=%s", berichtId)
+        log.errorf(e, "%s compensatie-invalidate faalde ná cache-write-faal; cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
     // Herverpak een cache-4xx tot een status- en type-behoudende exception zonder de
     // upstream-response-body, zodat de client de juiste semantiek (404/403/…) krijgt
     // maar sessiecache-internals niet via de facade lekken.
     private fun herverpakCache4xx(e: WebApplicationException): WebApplicationException {
-        val status = e.response?.status ?: Response.Status.BAD_GATEWAY.statusCode
+        // Invariant: alleen aangeroepen in de !isUpstreamStoring-tak, en isUpstreamStoring
+        // geeft true (→ andere tak) zodra response == null. Een null hier is dus geen
+        // verwachte 4xx maar een geschonden interne aanname → luidruchtig falen (500 via
+        // UncaughtExceptionMapper) i.p.v. een 4xx-bedoelde fout stil als 502 herverpakken.
+        val status = e.response?.status
+            ?: error("herverpakCache4xx zonder response; isUpstreamStoring had dit als 502 moeten afvangen")
 
         return when (status) {
             404 -> NotFoundException("cache-operatie geweigerd (404)")
@@ -146,5 +154,10 @@ class BerichtBeheerService(
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtBeheerService::class.java)
+
+        // Stabiel alert-anker (los van vertaalbare proza) voor de Loki-rule die op
+        // blijvende magazijn↔cache-desync zonder self-heal moet alarmeren. Wijzig de
+        // waarde niet zonder de bijbehorende alert-rule mee te verhuizen.
+        private const val ALERT_CACHE_DESYNC = "FBS_ALERT[cache_desync_no_selfheal]"
     }
 }

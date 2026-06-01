@@ -23,11 +23,11 @@ import org.jboss.logging.Logger
 class BerichtenlijstService(
     @RestClient private val sessiecache: SessiecacheClient,
 ) {
-    fun lijst(xOntvanger: String, map: String?, pagina: Int?, paginaGrootte: Int?): BerichtenLijst =
-        vertaalPaginatieLinks(mapUpstreamFout(log, "cache-lijst") { sessiecache.lijst(xOntvanger, map, pagina, paginaGrootte) })
+    fun lijst(xOntvanger: String, pagina: Int?, paginaGrootte: Int?): BerichtenLijst =
+        vertaalPaginatieLinks(mapUpstreamFout(log, "cache-lijst") { sessiecache.lijst(xOntvanger, pagina, paginaGrootte) })
 
-    fun zoek(xOntvanger: String, q: String, map: String?): BerichtenLijst =
-        vertaalPaginatieLinks(mapUpstreamFout(log, "cache-zoek") { sessiecache.zoek(xOntvanger, q, map) })
+    fun zoek(xOntvanger: String, q: String): BerichtenLijst =
+        vertaalPaginatieLinks(mapUpstreamFout(log, "cache-zoek") { sessiecache.zoek(xOntvanger, q) })
 
     // De sessiecache levert HAL-paginatie-links met haar eigen query-parameters
     // (`page`/`pageSize`); dit endpoint adverteert `pagina`/`paginaGrootte`. Zonder

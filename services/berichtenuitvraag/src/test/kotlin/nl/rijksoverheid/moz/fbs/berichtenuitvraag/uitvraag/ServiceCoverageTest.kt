@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.patchRequestedFor
@@ -35,7 +36,11 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `lijst met query-parameters bereikt BerichtenlijstService_lijst`() {
+    fun `lijst vertaalt pagina-queryparams naar sessiecache page-pageSize`() {
+        // Regressie-guard (review H1): de uitvraag-API adverteert `pagina`/`paginaGrootte`,
+        // maar de sessiecache bindt `page`/`pageSize`. Verifieer dat de outbound call de
+        // upstream-namen gebruikt — JAX-RS dropt een verkeerde naam stil, waardoor de
+        // sessiecache altijd op default-pagina 0 zou vallen.
         WireMockBackendsResource.sessiecache!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten"))
                 .willReturn(
@@ -48,17 +53,22 @@ class ServiceCoverageTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
-            .queryParam("map", "archief")
             .queryParam("pagina", "1")
             .queryParam("paginaGrootte", "50")
             .`when`()
             .get("/api/v1/berichten")
             .then()
             .statusCode(200)
+
+        WireMockBackendsResource.sessiecache!!.verify(
+            getRequestedFor(urlPathEqualTo("/api/v1/berichten"))
+                .withQueryParam("page", wmEqualTo("1"))
+                .withQueryParam("pageSize", wmEqualTo("50")),
+        )
     }
 
     @Test
-    fun `zoek met map-parameter bereikt BerichtenlijstService_zoek`() {
+    fun `zoek bereikt BerichtenlijstService_zoek met q`() {
         WireMockBackendsResource.sessiecache!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/_zoeken"))
                 .willReturn(
@@ -72,11 +82,15 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .queryParam("q", "rente")
-            .queryParam("map", "archief")
             .`when`()
             .get("/api/v1/berichten/_zoeken")
             .then()
             .statusCode(200)
+
+        WireMockBackendsResource.sessiecache!!.verify(
+            getRequestedFor(urlPathEqualTo("/api/v1/berichten/_zoeken"))
+                .withQueryParam("q", wmEqualTo("rente")),
+        )
     }
 
     @Test
