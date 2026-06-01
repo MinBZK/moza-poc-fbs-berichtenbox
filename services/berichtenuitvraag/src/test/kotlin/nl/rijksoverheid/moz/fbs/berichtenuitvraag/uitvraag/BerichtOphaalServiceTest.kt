@@ -263,4 +263,50 @@ class BerichtOphaalServiceTest {
 
         assertEquals(502, ex.response.status)
     }
+
+    // De twee close()-failure-takken zijn pure defensieve logging (connectie-pool-lek-
+    // diagnose): een falende close mag de echte response/fout niet maskeren. Ze hebben
+    // geen invloed op status of body, maar onderstaande tests pinnen dat gedrag zodat een
+    // toekomstige refactor de runCatching-guard niet stilletjes weghaalt.
+    @Test
+    fun `haalBijlage retourneert normaal ook als response-close faalt (finally-tak)`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val bytes = byteArrayOf(9, 8, 7)
+        val mockResp = mockk<Response> {
+            every { status } returns 200
+            every { readEntity(ByteArray::class.java) } returns bytes
+            every { getHeaderString("Content-Type") } returns "application/pdf"
+            every { close() } throws RuntimeException("pool-close kapot")
+        }
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } returns mockResp
+
+        val (mimeType, content) = service.haalBijlage("BSN:1", berichtId, bijlageId)
+
+        // Falende close mag de geslaagde read niet kapotmaken: bytes komen normaal terug.
+        assertEquals("application/pdf", mimeType)
+        assertArrayEquals(bytes, content)
+        verify { mockResp.close() }
+    }
+
+    @Test
+    fun `haalBijlage mapt WAE (5xx) naar 502 ook als het sluiten van de upstream-response faalt`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val upstreamResp = mockk<Response>(relaxed = true) {
+            every { status } returns 503
+            every { close() } throws RuntimeException("close kapot")
+        }
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:1", berichtId, bijlageId) } throws WebApplicationException("upstream kapot", upstreamResp)
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:1", berichtId, bijlageId)
+        }
+
+        // Een falende close mag de echte 502-mapping niet overschaduwen.
+        assertEquals(502, ex.response.status)
+        verify { upstreamResp.close() }
+    }
 }

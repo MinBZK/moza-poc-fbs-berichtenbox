@@ -54,10 +54,14 @@ class BerichtBeheerService(
             return sessiecache.patchBericht(xOntvanger, berichtId, patch)
         } catch (e: WebApplicationException) {
             if (!isUpstreamStoring(e)) {
-                // 4xx = contract-bug, geen transport-storing: niet compenseren (zie
-                // herverpakCache4xx), wél loggen. Status propageert; body niet (facade
-                // lekt geen cache-internals/PII). Cache kan tot de TTL stale blijven.
-                log.warnf(e, "cache-PATCH 4xx ná geslaagde magazijn-PATCH; magazijn↔cache mogelijk stale tot TTL. berichtId=%s", berichtId)
+                // 4xx ná een geslaagde magazijn-write is een contract-bug, geen transport-
+                // storing: de client-request passeerde immers al de magazijn-validatie, dus
+                // hoort de cache hier geen 4xx te geven. Niet compenseren (zie herverpakCache4xx),
+                // maar wél met hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
+                // desyncen zonder self-heal tot de TTL — dezelfde operationele impact als een 5xx-
+                // desync, dus géén stille warnf maar een alertbare errorf. Status propageert; body
+                // niet (facade lekt geen cache-internals/PII).
+                log.errorf(e, "%s cache-PATCH 4xx ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
                 throw herverpakCache4xx(e)
             }
@@ -83,10 +87,14 @@ class BerichtBeheerService(
             sessiecache.verwijderBericht(xOntvanger, berichtId)
         } catch (e: WebApplicationException) {
             if (!isUpstreamStoring(e)) {
-                // 4xx = contract-bug, geen transport-storing: niet compenseren (zie
-                // herverpakCache4xx), wél loggen. Status propageert; body niet (facade
-                // lekt geen cache-internals/PII). Cache kan tot de TTL stale blijven.
-                log.warnf(e, "cache-DELETE 4xx ná geslaagde magazijn-DELETE; magazijn↔cache mogelijk stale tot TTL. berichtId=%s", berichtId)
+                // 4xx ná een geslaagde magazijn-write is een contract-bug, geen transport-
+                // storing: de client-request passeerde immers al de magazijn-validatie, dus
+                // hoort de cache hier geen 4xx te geven. Niet compenseren (zie herverpakCache4xx),
+                // maar wél met hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
+                // desyncen zonder self-heal tot de TTL — dezelfde operationele impact als een 5xx-
+                // desync, dus géén stille warnf maar een alertbare errorf. Status propageert; body
+                // niet (facade lekt geen cache-internals/PII).
+                log.errorf(e, "%s cache-DELETE 4xx ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
                 throw herverpakCache4xx(e)
             }
