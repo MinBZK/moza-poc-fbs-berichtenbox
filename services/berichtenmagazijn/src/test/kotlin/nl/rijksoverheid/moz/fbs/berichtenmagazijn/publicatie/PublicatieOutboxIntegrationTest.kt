@@ -50,11 +50,11 @@ class PublicatieOutboxIntegrationTest {
             onderwerp = "Test outbox",
             inhoud = "Inhoud",
             tijdstipOntvangst = tijdstip,
-            publicatiedatum = tijdstip,
+            publicatietijdstip = tijdstip,
         )
         berichten.save(bericht)
 
-        outbox.planDeliveries(bericht.berichtId, bericht.publicatiedatum)
+        outbox.planDeliveries(bericht.berichtId, bericht.publicatietijdstip)
 
         val rijen = deliveries.findByBerichtId(bericht.berichtId)
         // Filter de globale `default`-downstream uit `src/test/resources/application.properties`
@@ -70,7 +70,7 @@ class PublicatieOutboxIntegrationTest {
 
     @Test
     @Transactional
-    fun `planDeliveries met uitgestelde publicatiedatum zet volgendePoging op die datum`() {
+    fun `planDeliveries met uitgestelde publicatietijdstip zet volgendePoging op die datum`() {
         val tijdstip = Instant.parse("2026-05-12T10:00:00Z")
         val toekomst = Instant.parse("2026-12-31T08:00:00Z")
         val bericht = Bericht(
@@ -80,7 +80,7 @@ class PublicatieOutboxIntegrationTest {
             onderwerp = "Uitgesteld",
             inhoud = "Inhoud",
             tijdstipOntvangst = tijdstip,
-            publicatiedatum = toekomst,
+            publicatietijdstip = toekomst,
         )
         berichten.save(bericht)
 
@@ -105,7 +105,7 @@ class PublicatieOutboxIntegrationTest {
             onderwerp = "Cascade",
             inhoud = "Inhoud",
             tijdstipOntvangst = tijdstip,
-            publicatiedatum = tijdstip,
+            publicatietijdstip = tijdstip,
         )
         berichten.save(bericht)
         outbox.planDeliveries(bericht.berichtId, tijdstip)

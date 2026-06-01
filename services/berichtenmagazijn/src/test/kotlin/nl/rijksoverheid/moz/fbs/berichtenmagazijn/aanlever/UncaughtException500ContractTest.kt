@@ -49,7 +49,7 @@ class UncaughtException500ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                publicatiedatum: Instant?,
+                publicatietijdstip: Instant?,
                 bijlagen: List<BijlageInvoer>,
             ): Nothing = throw IOException("ClickHouse onbereikbaar: connection refused at /1.2.3.4:8123 stacktrace at nl.example.Foo.bar(Foo.kt:42)")
         }

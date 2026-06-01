@@ -359,14 +359,15 @@ components:
             characters; bij multibyte-tekens (bv. emoji's, 4 bytes elk) past dus minder
             tekst dan `maxLength` doet vermoeden. `maxLength` is in JSON-Schema in
             characters gedefinieerd en dient hier als grove bovengrens.
-        publicatiedatum:
+        publicatietijdstip:
           type: string
           format: date-time
           description: |
             Tijdstip vanaf wanneer het magazijn dit bericht mag publiceren naar
             downstreams (Aanmeld Service, Notificatie Service). Optioneel; bij
             ontbreken publiceert het magazijn direct na opslag.
-            ISO 8601, voorbeeld `2026-05-13T08:00:00Z`. Mag in de toekomst liggen.
+            ISO 8601 date-time, voorbeeld `2026-05-13T08:00:00Z`. Mag in de
+            toekomst liggen.
           example: "2026-05-13T08:00:00Z"
         bijlagen:
           type: array
@@ -421,7 +422,7 @@ components:
     BerichtResponse:
       type: object
       description: Response op `POST /berichten` (Aanlever).
-      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, publicatiedatum, _links]
+      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, publicatietijdstip, _links]
       properties:
         berichtId:
           type: string
@@ -439,12 +440,13 @@ components:
           type: string
           format: date-time
           description: Tijdstip waarop het magazijn het bericht heeft ontvangen (server-side gezet, ISO 8601)
-        publicatiedatum:
+        publicatietijdstip:
           type: string
           format: date-time
           description: |
-            Effectieve publicatiedatum: de waarde uit de request, of `tijdstipOntvangst`
-            als de aanleveraar geen `publicatiedatum` meestuurde. ISO 8601.
+            Effectieve publicatie-tijd: de waarde uit de request, of
+            `tijdstipOntvangst` als de aanleveraar geen `publicatietijdstip`
+            meestuurde. ISO 8601 date-time.
         _links:
           $ref: '#/components/schemas/BerichtLinks'
 
@@ -456,7 +458,7 @@ components:
         `GET /berichten/{berichtId}/bijlagen/{bijlageId}`. Dit schema wordt gebruikt
         door `GET /berichten` (lijst), `GET /berichten/{berichtId}` en
         `PATCH /berichten/{berichtId}` zodat consumers één representatie kennen.
-      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, bijlagen, _links]
+      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, publicatietijdstip, bijlagen, _links]
       properties:
         berichtId:
           type: string
@@ -473,6 +475,11 @@ components:
         tijdstipOntvangst:
           type: string
           format: date-time
+          description: Audit-tijd waarop het magazijn het bericht ontving (server-side gezet).
+        publicatietijdstip:
+          type: string
+          format: date-time
+          description: "Effectieve publicatie-tijd: aanleveraar-input of fallback tijdstipOntvangst"
         bijlagen:
           type: array
           items:
@@ -502,6 +509,22 @@ components:
           example: "application/pdf"
         _links:
           $ref: '#/components/schemas/BijlageLinks'
+
+    BijlageSamenvatting:
+      type: object
+      description: |
+        Lichte vorm van bijlage-metadata voor lijst-responses: alleen
+        identifier en naam. Bytes en mimeType blijven beschikbaar via
+        `GET /berichten/{berichtId}/bijlagen/{bijlageId}`.
+      required: [bijlageId, naam]
+      properties:
+        bijlageId:
+          type: string
+          format: uuid
+        naam:
+          type: string
+          minLength: 1
+          maxLength: 255
 
     BerichtStatusInfo:
       type: object
@@ -551,13 +574,13 @@ components:
     BerichtSamenvatting:
       type: object
       description: |
-        Lichtgewicht representatie van een bericht voor lijstweergaves. Bevat
-        header-data en `aantalBijlagen`; de volledige `inhoud` en bijlagen-metadata
-        komen pas via `GET /berichten/{berichtId}` beschikbaar. Hergebruik van
-        `Bericht` voor de lijst zou met `inhoud` tot 1 MiB en `pageSize` tot 100
-        responses van ~100 MiB veroorzaken — onwenselijk voor zowel bandbreedte
-        als data-minimalisatie.
-      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, aantalBijlagen, _links]
+        Lichte representatie van een bericht voor lijstweergaves: bevat de
+        `inhoud` en bijlage-identifiers (`bijlagen[]` met `bijlageId` + `naam`),
+        zodat consumers (zoals de sessiecache) hun cache na één lijst-call
+        kunnen vullen zonder vervolg-detail-call per bericht. Bijlage-bytes
+        worden separaat opgehaald via
+        `GET /berichten/{berichtId}/bijlagen/{bijlageId}`.
+      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, publicatietijdstip, aantalBijlagen, bijlagen, _links]
       properties:
         berichtId:
           type: string
@@ -569,13 +592,33 @@ components:
           $ref: '#/components/schemas/Identificatienummer'
         onderwerp:
           type: string
+        inhoud:
+          type: string
+          description: Tekstuele inhoud van het bericht
         tijdstipOntvangst:
           type: string
           format: date-time
+          description: Audit-tijd waarop het magazijn het bericht ontving (server-side gezet).
+        publicatietijdstip:
+          type: string
+          format: date-time
+          description: |
+            Effectieve publicatie-tijd: aanleveraar-input of fallback `tijdstipOntvangst`.
+            Vereist op samenvatting zodat consumers (sessiecache) berichten kunnen sorteren
+            of filteren op publicatiemoment zonder vervolg-detail-call.
         aantalBijlagen:
           type: integer
           minimum: 0
           description: Aantal bijlagen bij het bericht. Vraag de details op via de detail-endpoint.
+        bijlagen:
+          type: array
+          minItems: 0
+          description: |
+            Lichte bijlage-metadata (identifier + naam) zodat consumers de
+            cache kunnen vullen zonder vervolg-call. Bijlage-bytes en
+            `mimeType` worden separaat opgehaald.
+          items:
+            $ref: '#/components/schemas/BijlageSamenvatting'
         status:
           $ref: '#/components/schemas/BerichtStatusInfo'
         _links:

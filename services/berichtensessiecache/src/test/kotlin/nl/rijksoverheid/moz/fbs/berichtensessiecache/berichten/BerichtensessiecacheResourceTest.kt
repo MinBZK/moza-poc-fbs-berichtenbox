@@ -8,6 +8,7 @@ import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.not
 import org.hamcrest.CoreMatchers.notNullValue
+import org.hamcrest.CoreMatchers.nullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -26,6 +27,7 @@ class BerichtensessiecacheResourceTest {
         MockMagazijnClientFactory.shouldFailB = false
         MockMagazijnClientFactory.shouldTimeoutA = false
         MockMagazijnClientFactory.shouldTimeoutB = false
+        MockBerichtenCache.faalUpdateMetContentie = false
     }
 
     @Test
@@ -264,7 +266,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `GET bericht by id retourneert bericht uit cache met correcte velden`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         // Eerst ophalen zodat berichten in cache komen
         given()
@@ -273,6 +275,8 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
 
+        // Detail-respons bevat WEL inhoud (en bijlagen-veld als array — leeg bij aantalBijlagen=0).
+        // Anders dan de lijst-respons; die splitsing is de invariant die we hier vastleggen.
         given()
             .header("X-Ontvanger", ontvanger)
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
@@ -280,9 +284,39 @@ class BerichtensessiecacheResourceTest {
             .statusCode(200)
             .body("berichtId", `is`("11111111-1111-1111-1111-111111111111"))
             .body("afzender", `is`("00000001234567890000"))
-            .body("ontvanger", `is`("999993653"))
+            .body("ontvanger", `is`("BSN:999993653"))
             .body("onderwerp", `is`("Test bericht 1"))
             .body("magazijnId", `is`("magazijn-a"))
+            .body("aantalBijlagen", `is`(0))
+            .body("inhoud", `is`("Inhoud van test bericht 1"))
+            .body("bijlagen", notNullValue())
+    }
+
+    @Test
+    fun `GET berichten lijst-respons bevat geen inhoud of bijlagen op samenvatting`() {
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Lichte BerichtSamenvatting: cache heeft inhoud + bijlagen-IDs, maar de
+        // publieke lijst-vorm exposeert ze niet — daarvoor is GET /berichten/{id}.
+        // `quarkus.jackson.serialization-inclusion=non_null` zorgt dat afwezige
+        // velden ook echt afwezig zijn in JSON (geen `null`).
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].berichtId", notNullValue())
+            .body("berichten[0].onderwerp", notNullValue())
+            .body("berichten[0].inhoud", nullValue())
+            .body("berichten[0].bijlagen", nullValue())
+            .body("berichten.find { it.aantalBijlagen > 0 }.inhoud", nullValue())
+            .body("berichten.find { it.aantalBijlagen > 0 }.bijlagen", nullValue())
     }
 
     @Test
@@ -296,7 +330,7 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
 
-        // Bericht bestaat in cache maar hoort bij ontvanger "999993653", niet bij eigenOntvanger
+        // Bericht bestaat in cache maar hoort bij ontvanger "BSN:999993653", niet bij eigenOntvanger
         given()
             .header("X-Ontvanger", eigenOntvanger)
             .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
@@ -424,6 +458,56 @@ class BerichtensessiecacheResourceTest {
 
     // --- PATCH /berichten/{berichtId} ---
 
+    @Test
+    fun `PATCH retourneert 503 (niet 404) bij aanhoudende cache-schrijfcontentie`() {
+        // Optimistic-lock-exhaustie in de cache mag GEEN 404 worden — dat zou de client
+        // na een geslaagde magazijn-write laten denken dat het bericht weg is. De resource
+        // vertaalt CacheContentieException naar een retriable 503. Borgt tegen het terugdraaien
+        // van `failure(CacheContentieException)` naar het oude `nullItem()` (→ 404).
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        MockBerichtenCache.faalUpdateMetContentie = true
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(503)
+            .contentType("application/problem+json")
+            .body("status", `is`(503))
+    }
+
+    @Test
+    fun `DELETE blijft 204 (idempotent, geen 503) onder dezelfde contentie-conditie`() {
+        // Asymmetrie-contract: waar PATCH een contentie-exhaustie als 503 oppervlakt,
+        // houdt DELETE de idempotente 204 aan (de bron logt errorf en laat de cache
+        // zelf-helen via TTL). `faalUpdateMetContentie` raakt alleen `update`; `delete`
+        // blijft 204 — vangt een refactor die de twee paden ten onrechte uniformeert.
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        MockBerichtenCache.faalUpdateMetContentie = true
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(204)
+    }
+
     @ParameterizedTest(name = "PATCH status={0} → {1}")
     @CsvSource(
         "gelezen,   200",
@@ -431,7 +515,7 @@ class BerichtensessiecacheResourceTest {
         "bekeken,   400",
     )
     fun `PATCH bericht status validatie`(status: String, expectedHttpStatus: Int) {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -461,10 +545,10 @@ class BerichtensessiecacheResourceTest {
                 .body("status", `is`(status))
         } else {
             // Ongeldige enum-waarde komt door Jackson's `BerichtStatus.fromValue(...)`
-            // niet door als typed enum, maar als `null`. Bean Validation `@NotNull` op
-            // `BerichtStatusUpdate.status` triggert dan een 400 Problem+JSON via de
-            // ConstraintViolationExceptionMapper. Voor pure malformed JSON zie de
-            // aparte test "PATCH malformed JSON-body".
+            // niet door als typed enum, maar als `null`. Sinds Batch A is `status` optioneel
+            // in de spec (i.v.m. map-PATCH); de resource vangt de "geen geldige status én
+            // geen map"-combinatie expliciet af als 400 Problem+JSON. Voor pure malformed
+            // JSON zie de aparte test "PATCH malformed JSON-body".
             patchSpec
                 .contentType("application/problem+json")
                 .body("status", `is`(400))
@@ -473,7 +557,7 @@ class BerichtensessiecacheResourceTest {
 
     @Test
     fun `PATCH malformed JSON-body retourneert 400 problem+json`() {
-        val ontvanger = "999993653"
+        val ontvanger = "BSN:999993653"
 
         given()
             .header("X-Ontvanger", ontvanger)
@@ -523,7 +607,7 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(200)
 
-        // Bericht hoort bij "999993653", niet bij eigenOntvanger
+        // Bericht hoort bij "BSN:999993653", niet bij eigenOntvanger
         given()
             .header("X-Ontvanger", eigenOntvanger)
             .contentType("application/merge-patch+json")
@@ -543,6 +627,244 @@ class BerichtensessiecacheResourceTest {
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `PATCH alleen status update wijzigt status laat map ongemoeid`() {
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        // Zet eerst een map zodat we kunnen verifiëren dat een alleen-status-PATCH die niet wist
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "werk"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(200)
+            .body("map", `is`("werk"))
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("status", `is`("gelezen"))
+            .body("map", `is`("werk"))
+    }
+
+    @Test
+    fun `PATCH alleen map update wijzigt map laat status ongemoeid`() {
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        // Zet eerst een status zodat we kunnen verifiëren dat een alleen-map-PATCH die niet wist
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(200)
+            .body("status", `is`("gelezen"))
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "archief"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("map", `is`("archief"))
+            .body("status", `is`("gelezen"))
+    }
+
+    @Test
+    fun `PATCH status en map gecombineerd wijzigt beide velden`() {
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"status": "gelezen", "map": "archief"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(200)
+            .body("status", `is`("gelezen"))
+            .body("map", `is`("archief"))
+    }
+
+    @Test
+    fun `PATCH met lege body retourneert 400`() {
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    @Test
+    fun `PATCH met te lange map retourneert 400`() {
+        // Bean Validation (@Size(max=64) op de DTO-getter, geactiveerd via @Valid in de
+        // gegenereerde JAX-RS interface) vangt dit af vóór de resource-body draait.
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        val teLang = "x".repeat(65)
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "$teLang"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    @Test
+    fun `PATCH met lege map retourneert 400`() {
+        // Bean Validation (@Size(min=1) op de DTO-getter) vangt dit af; zie ook
+        // `PATCH met te lange map retourneert 400`.
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": ""}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("status", `is`(400))
+    }
+
+    // --- DELETE /berichten/{berichtId} ---
+
+    @Test
+    fun `DELETE bestaand bericht retourneert 204 en daarna GET retourneert 404`() {
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(204)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(404)
+    }
+
+    @Test
+    fun `DELETE niet-bestaand bericht retourneert 204 idempotent`() {
+        val ontvanger = "delete-onbekend-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().delete("/api/v1/berichten/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+            .then().statusCode(204)
+    }
+
+    @Test
+    fun `DELETE met andere ontvanger retourneert 204 en lekt niet`() {
+        // Bericht 11111111 hoort bij ontvanger "BSN:999993653". Een DELETE met een andere
+        // ontvanger moet idempotent 204 retourneren (geen 404 — anders zou een aanvaller
+        // berichten-bestaan kunnen probe-en), én het bericht moet bewaard blijven.
+        val anderOntvanger = "delete-mismatch-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", anderOntvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        given()
+            .header("X-Ontvanger", anderOntvanger)
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(204)
+
+        // Bericht moet nog steeds te benaderen zijn voor de échte ontvanger
+        given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(200)
+    }
+
+    @Test
+    fun `DELETE zonder ontvanger retourneert 400`() {
+        given()
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `DELETE herhaald op zelfde bericht retourneert 204 idempotent`() {
+        val ontvanger = "delete-herhaald-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+
+        val berichtId = "aaaaaaaa-1111-2222-3333-444444444444"
+
+        // Twee opeenvolgende DELETE's: tweede is geen 404 maar 204 (idempotent)
+        repeat(2) {
+            given()
+                .header("X-Ontvanger", ontvanger)
+                .`when`().delete("/api/v1/berichten/$berichtId")
+                .then().statusCode(204)
+        }
     }
 
     // --- POST /berichten ---
@@ -567,8 +889,10 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "inhoud": "Inhoud nieuw bericht",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")
@@ -576,6 +900,7 @@ class BerichtensessiecacheResourceTest {
             .statusCode(201)
             .body("berichtId", `is`("55555555-5555-5555-5555-555555555555"))
             .body("onderwerp", `is`("Nieuw bericht"))
+            .body("aantalBijlagen", `is`(0))
     }
 
     @Test
@@ -591,8 +916,10 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Nieuw bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "inhoud": "Inhoud zonder sessie",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")
@@ -613,8 +940,10 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "999993653",
                     "onderwerp": "Nieuw bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "inhoud": "Inhoud",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")
@@ -634,8 +963,10 @@ class BerichtensessiecacheResourceTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "999993653",
                     "onderwerp": "Nieuw bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "inhoud": "Inhoud",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")

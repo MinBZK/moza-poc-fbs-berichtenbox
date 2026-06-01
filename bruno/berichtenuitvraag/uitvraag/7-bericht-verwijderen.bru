@@ -1,0 +1,15 @@
+meta {
+  name: 7. Bericht verwijderen
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}

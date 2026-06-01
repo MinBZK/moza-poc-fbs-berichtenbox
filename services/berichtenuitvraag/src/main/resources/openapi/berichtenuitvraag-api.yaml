@@ -1,0 +1,432 @@
+openapi: 3.0.3
+info:
+  title: Berichten Uitvraag API
+  version: 0.1.0
+  description: |
+    Frontend-API voor het MijnOverheid-Zakelijk portaal. Aggregeert berichten
+    uit de berichtensessiecache (lees) en het berichtenmagazijn (bijlagen,
+    persistente status-mutaties).
+  contact:
+    name: MOZA Team
+    email: moza@minbzk.nl
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+  license:
+    name: EUPL-1.2
+    url: https://eupl.eu/1.2/nl/
+servers:
+  - url: /api/v1
+    description: Versioned API base path (relatief; TLS termineert op de gateway).
+
+tags:
+  - name: Uitvraag
+    description: Berichten-uitvraag voor het portaal
+  - name: Ophalen
+    description: SSE-passthrough voor cache-warming; wordt buiten codegen afgehandeld
+
+paths:
+  /berichten:
+    get:
+      tags: [Uitvraag]
+      summary: Berichtenlijst
+      description: |
+        Volledige berichtenlijst voor de ontvanger; bron is de sessiecache.
+        Filteren per map is (nog) niet beschikbaar: de sessiecache indexeert
+        `map` niet (zie issue #571). Het `map`-veld wordt wél per bericht
+        teruggegeven.
+      operationId: getBerichten
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+        - name: pagina
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: paginaGrootte
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+      responses:
+        '200':
+          description: Berichtenlijst
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BerichtenLijst' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /berichten/_ophalen:
+    get:
+      tags: [Ophalen]
+      summary: Vul cache voor alle mappen (Server-Sent Events)
+      operationId: ophalenBerichten
+      description: |
+        Triggert de sessiecache om alle mappen op te halen uit de aangesloten
+        magazijnen. Antwoordt met Server-Sent Events; events worden 1-op-1
+        doorgegeven aan de client. Geen query-parameters: alle mappen worden
+        opgehaald.
+
+        Foutsemantiek: header-validatie faalt vóór de stream (`400`). Zodra de
+        SSE-stream is opgezet staat de HTTP-status op `200` vast; een upstream-
+        storing daarna uit zich niet in een afwijkende status maar in het
+        uitblijven van het afsluitende `OPHALEN_GEREED`-event (en de per-magazijn
+        FOUT-events) — de client detecteert de storing dus op stream-niveau.
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '200':
+          description: SSE-stream
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /berichten/_zoeken:
+    get:
+      tags: [Uitvraag]
+      summary: Zoeken in berichten
+      description: Volledig-tekst zoeken in berichten via de sessiecache.
+      operationId: zoekenBerichten
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 200 }
+      responses:
+        '200':
+          description: Zoekresultaten
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BerichtenLijst' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /berichten/{berichtId}:
+    parameters:
+      - $ref: '#/components/parameters/BerichtIdPath'
+    get:
+      tags: [Uitvraag]
+      summary: Bericht ophalen
+      description: Volledig bericht inclusief inhoud en bijlage-metadata, via de sessiecache.
+      operationId: getBerichtById
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '200':
+          description: Bericht
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bericht' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+    patch:
+      tags: [Uitvraag]
+      summary: Bericht-status bijwerken / verplaatsen
+      description: |
+        JSON Merge Patch op `status` en/of `map`. Dual-write: eerst magazijn
+        (persistent), dan sessiecache. De operatie is op het magazijn idempotent,
+        dus een retry is veilig. Let op: het juiste magazijn wordt bepaald via de
+        bron-`magazijnId` uit de sessiecache; is die routerings-info verlopen of
+        geïnvalideerd, dan geeft een herhaalde call 404 (haal het bericht dan
+        eerst opnieuw op om de cache te vullen).
+
+        Idempotentie wordt geleverd door de onderliggende magazijn-operatie; een
+        `Idempotency-Key`-header (DON-leidraad) is daarom bewust weggelaten.
+      operationId: updateBericht
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/BerichtPatch' }
+      responses:
+        '200':
+          description: Bijgewerkt bericht
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bericht' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+    delete:
+      tags: [Uitvraag]
+      summary: Bericht verwijderen
+      description: |
+        Soft-delete via het magazijn; daarna cache-invalidate in de sessiecache.
+        De delete is op het magazijn idempotent. Let op: routering naar het juiste
+        magazijn gebeurt via de bron-`magazijnId` uit de sessiecache. Na de eerste
+        geslaagde delete is die cache-entry geïnvalideerd (en verloopt ook via TTL),
+        dus een herhaalde call door dezelfde ontvanger levert 404 i.p.v. 204 — er is
+        dan geen veilige route meer naar het magazijn.
+      operationId: verwijderBericht
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '204':
+          description: Verwijderd
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /berichten/{berichtId}/bijlagen/{bijlageId}:
+    parameters:
+      - $ref: '#/components/parameters/BerichtIdPath'
+      - name: bijlageId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+        description: Uniek ID van de bijlage binnen het bericht
+    get:
+      tags: [Uitvraag]
+      summary: Bijlage ophalen (octet-stream, dynamic Content-Type)
+      description: Streamt bijlage-bytes rechtstreeks uit het magazijn met Content-Type uit de metadata; Content-Disposition altijd `attachment` (stored-XSS-bescherming).
+      operationId: getBijlage
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '200':
+          description: Bijlage-bytes
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+            Content-Type:
+              schema: { type: string }
+              description: Werkelijk MIME-type van de bijlage
+            Content-Disposition:
+              schema: { type: string }
+              description: Altijd `attachment` om browser-inline-rendering uit te sluiten.
+              example: attachment
+          content:
+            '*/*':
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+components:
+  parameters:
+    OntvangerHeader:
+      name: X-Ontvanger
+      in: header
+      required: true
+      schema: { type: string, pattern: '^(BSN|RSIN|KVK|OIN):[0-9]+$' }
+      description: 'Type:waarde, bijv. `BSN:999990019`'
+    BerichtIdPath:
+      name: berichtId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  headers:
+    API-Version:
+      description: Volledige API-versie (semver, major.minor.patch); komt overeen met `info.version`.
+      schema:
+        type: string
+        example: "0.1.0"
+
+  responses:
+    BadRequest:
+      description: Ongeldige aanvraag
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Niet geauthenticeerd
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: |
+        Geauthenticeerd, maar niet geautoriseerd voor deze ontvanger of bron.
+        Doorgegeven vanuit de sessiecache/magazijn die de ontvanger-match afdwingt.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Bericht niet gevonden
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnsupportedMediaType:
+      description: Onverwacht request-content-type (bv. PATCH zonder `application/merge-patch+json`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InternalServerError:
+      description: Serverfout
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: |
+        Upstream-conflict, doorgegeven vanuit de sessiecache. Op leespaden: de
+        cache is nog niet gevuld (`_ophalen` nog niet voltooid of nog bezig) —
+        roep eerst `GET /berichten/_ophalen` aan en probeer daarna opnieuw. Op
+        schrijfpaden: een gelijktijdige wijziging op hetzelfde bericht.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    BadGateway:
+      description: |
+        Een upstream (sessiecache of magazijn) was onbereikbaar of leverde een
+        onbruikbare respons. Dekt zowel een transport-/5xx-storing bij het lezen
+        als het geval waarin de magazijn-write slaagde maar de cache-update faalde.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    BerichtenLijst:
+      type: object
+      description: |
+        Paginatie via HAL `_links.next`/`prev`. Aantallen (totalElements,
+        totalPages) bewust niet opgenomen — frontend navigeert via links zonder
+        absolute paginavoortgang.
+      required: [berichten]
+      properties:
+        berichten:
+          type: array
+          items: { $ref: '#/components/schemas/BerichtSamenvatting' }
+        _links:
+          $ref: '#/components/schemas/PaginaLinks'
+
+    BerichtSamenvatting:
+      type: object
+      required: [berichtId, onderwerp, publicatietijdstip, aantalBijlagen, magazijnId]
+      properties:
+        berichtId: { type: string, format: uuid }
+        onderwerp: { type: string }
+        afzender: { type: string }
+        publicatietijdstip:
+          type: string
+          format: date-time
+          description: Effectieve publicatie-tijd, overgenomen uit het magazijn
+        aantalBijlagen: { type: integer, minimum: 0 }
+        map: { type: string }
+        status: { $ref: '#/components/schemas/BerichtStatus' }
+        magazijnId:
+          type: string
+          description: Identifier van het decentrale magazijn waar dit bericht is opgeslagen; nodig voor bijlage-routering.
+        _links: { $ref: '#/components/schemas/BerichtLinks' }
+
+    Bericht:
+      type: object
+      required: [berichtId, onderwerp, publicatietijdstip, magazijnId]
+      properties:
+        berichtId: { type: string, format: uuid }
+        onderwerp: { type: string }
+        afzender: { type: string }
+        inhoud: { type: string }
+        publicatietijdstip:
+          type: string
+          format: date-time
+          description: Effectieve publicatie-tijd, overgenomen uit het magazijn
+        map: { type: string }
+        status: { $ref: '#/components/schemas/BerichtStatus' }
+        magazijnId:
+          type: string
+          description: Identifier van het decentrale magazijn waar dit bericht is opgeslagen; nodig voor bijlage-routering.
+        bijlagen:
+          type: array
+          items: { $ref: '#/components/schemas/BijlageMetadata' }
+        _links: { $ref: '#/components/schemas/BerichtLinks' }
+
+    BijlageMetadata:
+      type: object
+      description: |
+        Bijlage-metadata. `mimeType` en `grootteInBytes` zijn optioneel en
+        ontbreken wanneer het bericht uit de sessiecache komt (die bewaart per
+        bijlage alleen `bijlageId` en `naam`); het werkelijke MIME-type wordt
+        meegegeven bij het downloaden van de bijlage zelf.
+      required: [bijlageId, naam]
+      properties:
+        bijlageId: { type: string, format: uuid }
+        naam: { type: string }
+        mimeType: { type: string }
+        grootteInBytes: { type: integer, format: int64 }
+        _links: { $ref: '#/components/schemas/BijlageLinks' }
+
+    BerichtPatch:
+      type: object
+      description: |
+        JSON Merge Patch (RFC 7396). Beide velden optioneel; minimaal één veld
+        vereist. `status` wijzigt leesstatus; `map` verplaatst het bericht.
+        Ontbrekend veld én `null` worden beide behandeld als "niet wijzigen".
+      properties:
+        status: { $ref: '#/components/schemas/BerichtStatus' }
+        map: { type: string, minLength: 1, maxLength: 64 }
+      minProperties: 1
+
+    BerichtStatus:
+      type: string
+      enum: [gelezen, ongelezen]
+      nullable: true
+
+    Link:
+      type: object
+      properties:
+        href: { type: string, format: uri-reference }
+
+    BerichtLinks:
+      type: object
+      properties:
+        self: { $ref: '#/components/schemas/Link' }
+
+    BijlageLinks:
+      type: object
+      properties:
+        self: { $ref: '#/components/schemas/Link' }
+
+    PaginaLinks:
+      type: object
+      properties:
+        self: { $ref: '#/components/schemas/Link' }
+        next: { $ref: '#/components/schemas/Link' }
+        prev: { $ref: '#/components/schemas/Link' }
+
+    Problem:
+      type: object
+      description: Problem Details (RFC 9457)
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string, format: uri-reference }

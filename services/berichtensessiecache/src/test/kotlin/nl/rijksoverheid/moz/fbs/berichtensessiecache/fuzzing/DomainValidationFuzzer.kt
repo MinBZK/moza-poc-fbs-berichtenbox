@@ -32,8 +32,11 @@ object DomainValidationFuzzer {
                 afzender = data.consumeString(200),
                 ontvanger = data.consumeString(200),
                 onderwerp = data.consumeString(200),
-                tijdstip = Instant.now(),
+                inhoud = data.consumeString(500),
+                publicatietijdstip = Instant.now(),
                 magazijnId = data.consumeString(200),
+                aantalBijlagen = data.consumeInt(),
+                map = if (data.consumeBoolean()) data.consumeString(100) else null,
             )
         } catch (_: IllegalArgumentException) {
             return
@@ -42,6 +45,9 @@ object DomainValidationFuzzer {
         check(bericht.ontvanger.isNotBlank()) { "ontvanger moet niet-blank zijn na constructie" }
         check(bericht.onderwerp.isNotBlank()) { "onderwerp moet niet-blank zijn na constructie" }
         check(bericht.magazijnId.isNotBlank()) { "magazijnId moet niet-blank zijn na constructie" }
+        check(bericht.aantalBijlagen >= 0) { "aantalBijlagen moet niet-negatief zijn na constructie" }
+        check(bericht.bijlagen.size <= Bericht.MAX_BIJLAGEN) { "bijlagen-cap geschonden na constructie" }
+        bericht.map?.let { check(it.length in 1..Bericht.MAP_MAX_LENGTE) { "map-lengte ongeldig na constructie" } }
     }
 
     private fun fuzzAggregationStatus(data: FuzzedDataProvider) {

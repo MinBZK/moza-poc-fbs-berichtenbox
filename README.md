@@ -18,6 +18,7 @@ De Berichtenbox bestaat uit de volgende onderdelen:
 
 - **Berichtensessiecache** - Ophalen en weergeven van berichten
 - **Berichtenmagazijn** - Opslaan van berichten
+- **Berichten Uitvraag Service** - Frontend-API voor het portaal (aggregeert sessiecache + magazijn)
 - **Berichtnotificatieprofiel** - Beheer van notificatievoorkeuren
 
 ## Vereisten
@@ -42,6 +43,9 @@ zodat beide live-reload en de devconsole blijven werken:
 
 # Terminal 2 — berichtenmagazijn (poort 8090)
 ./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am
+
+# Terminal 3 — berichtenuitvraag (poort 8086)
+./mvnw compile quarkus:dev -pl services/berichtenuitvraag -am
 ```
 
 De `compile`-fase vóór `quarkus:dev` zorgt dat de gedeelde module `libraries/fbs-common`
@@ -53,12 +57,14 @@ Maven-repository staat.
 |----------------------|--------------------------------------------------|-----------------------------------------|
 | berichtensessiecache | `http://localhost:8080/api/v1/berichten`         | `http://localhost:8080/openapi.json`    |
 | berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
+| berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/openapi.json`    |
 
 ### Tests draaien
 
 ```bash
 ./mvnw test -pl services/berichtensessiecache -am
 ./mvnw test -pl services/berichtenmagazijn -am
+./mvnw test -pl services/berichtenuitvraag -am
 ```
 
 ### Configuratie

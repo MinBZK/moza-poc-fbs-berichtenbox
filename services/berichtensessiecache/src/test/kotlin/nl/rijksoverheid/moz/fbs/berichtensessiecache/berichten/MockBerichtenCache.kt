@@ -28,6 +28,16 @@ class MockBerichtenCache : BerichtenCache {
     private val locks = ConcurrentHashMap.newKeySet<String>()
     private val byId = ConcurrentHashMap<UUID, Bericht>()
 
+    companion object {
+        // Modelleert de optimistic-lock-exhaustie van RedisBerichtenCache: bij `true`
+        // faalt `update` met CacheContentieException (zoals de echte cache na
+        // MAX_UPDATE_POGINGEN), terwijl `delete` idempotent blijft. Zo is de
+        // resource-vertaling — contentie → 503 op PATCH vs. 204 op DELETE —
+        // deterministisch testbaar zonder de timing-gevoelige Redis-retry na te bootsen.
+        @Volatile
+        var faalUpdateMetContentie: Boolean = false
+    }
+
     fun clear() {
         lists.clear()
         statuses.clear()
@@ -41,7 +51,7 @@ class MockBerichtenCache : BerichtenCache {
     }
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
-        val sorted = berichten.sortedByDescending { it.tijdstip }
+        val sorted = berichten.sortedByDescending { it.publicatietijdstip }
         lists["$key:list"] = sorted
         berichten.forEach { byId[it.berichtId] = it }
         return Uni.createFrom().voidItem()
@@ -82,10 +92,15 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
     }
 
-    override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+    override fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+        if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(berichtId))
+
         val bericht = byId[berichtId]
         if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
-        val updated = bericht.copy(status = status)
+        val updated = bericht.copy(
+            status = status?.let { Leesstatus.fromWire(it) } ?: bericht.status,
+            map = map ?: bericht.map,
+        )
         byId[berichtId] = updated
         return Uni.createFrom().item(updated)
     }
@@ -94,8 +109,19 @@ class MockBerichtenCache : BerichtenCache {
         val key = BerichtenCache.cacheKey(bericht.ontvanger)
         val listKey = "$key:list"
         val existing = lists[listKey] ?: emptyList()
-        lists[listKey] = (existing + bericht).sortedByDescending { it.tijdstip }
+        lists[listKey] = (existing + bericht).sortedByDescending { it.publicatietijdstip }
         byId[bericht.berichtId] = bericht
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun delete(berichtId: UUID, ontvanger: String): Uni<Void> {
+        val existing = byId[berichtId]
+        if (existing != null && existing.ontvanger == ontvanger) {
+            byId.remove(berichtId)
+            val key = BerichtenCache.cacheKey(ontvanger)
+            val listKey = "$key:list"
+            lists[listKey]?.let { lists[listKey] = it.filter { b -> b.berichtId != berichtId } }
+        }
         return Uni.createFrom().voidItem()
     }
 

@@ -49,7 +49,7 @@ class OpenApiContractTest {
             .build()
     )
 
-    private val ontvanger = "999993653"
+    private val ontvanger = "BSN:999993653"
 
     @BeforeEach
     fun setUp() {
@@ -131,8 +131,10 @@ class OpenApiContractTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Contract test bericht",
-                    "tijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "inhoud": "Inhoud contract test",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")
@@ -150,6 +152,30 @@ class OpenApiContractTest {
             .body("""{"status": "gelezen"}""")
             .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
             .then().statusCode(200)
+    }
+
+    @Test
+    fun `PATCH bericht map conform BerichtResponse schema`() {
+        ophalenBerichten()
+
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "archief"}""")
+            .`when`().patch("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(200)
+    }
+
+    @Test
+    fun `DELETE bericht conform spec retourneert 204`() {
+        ophalenBerichten()
+
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", ontvanger)
+            .`when`().delete("/api/v1/berichten/11111111-1111-1111-1111-111111111111")
+            .then().statusCode(204)
     }
 
     @Test
@@ -230,8 +256,10 @@ class OpenApiContractTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": "$ontvanger",
                     "onderwerp": "Test",
-                    "tijdstip": "2026-03-10T14:00:00Z",
-                    "magazijnId": "magazijn-a"
+                    "inhoud": "Inhoud test",
+                    "publicatietijdstip": "2026-03-10T14:00:00Z",
+                    "magazijnId": "magazijn-a",
+                    "aantalBijlagen": 0
                 }
             """.trimIndent())
             .`when`().post("/api/v1/berichten")

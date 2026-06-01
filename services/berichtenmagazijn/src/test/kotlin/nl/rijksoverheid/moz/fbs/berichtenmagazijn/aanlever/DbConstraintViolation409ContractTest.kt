@@ -44,7 +44,7 @@ class DbConstraintViolation409ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                publicatiedatum: Instant?,
+                publicatietijdstip: Instant?,
                 bijlagen: List<BijlageInvoer>,
             ): Nothing = throw HibernateConstraintViolationException(
                 "unique violation",
