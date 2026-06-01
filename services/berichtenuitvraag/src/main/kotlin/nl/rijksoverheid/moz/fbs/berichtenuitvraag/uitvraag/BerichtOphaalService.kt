@@ -12,29 +12,22 @@ import org.jboss.logging.Logger
 import java.util.UUID
 
 /**
- * Bericht-detail uit de sessiecache; bijlagen rechtstreeks uit het magazijn
- * (passthrough). `haalBijlage` levert `(mimeType, bytes)`: de resource legt het
- * mimeType op een request-property zodat [BijlageContentTypeFilter] de
- * response-`Content-Type` kan overrulen.
+ * Bericht-detail uit de sessiecache; bijlagen als passthrough uit het magazijn.
+ * `haalBijlage` levert `(mimeType, bytes)`: de resource zet het mimeType op een
+ * request-property zodat [BijlageContentTypeFilter] de response-`Content-Type` overrult.
  *
- * Bytes worden volledig in een ByteArray geladen; het geheugengebruik per request
- * is begrensd door de bijlage-limiet die het magazijn afdwingt
- * (`Bijlage.MAX_CONTENT_BYTES`) — geen waarde hier dupliceren, die leeft in het magazijn.
- * TODO(#572): bij gelijktijdige grote-bijlage-downloads dubbel-buffert dit (client-read
- * + JAX-RS-serialize). Vervang door een StreamingOutput-passthrough zodra de werkelijke
- * grootteverdeling dat rechtvaardigt.
+ * Bijlage-bytes worden volledig in een ByteArray geladen; de magazijn-limiet
+ * (`Bijlage.MAX_CONTENT_BYTES`) begrenst het geheugen per request.
+ * TODO(#572): vervang door StreamingOutput-passthrough zodra de werkelijke grootte-
+ * verdeling het dubbel-bufferen (client-read + JAX-RS-serialize) rechtvaardigt.
  *
- * Magazijn-fouten worden status-behoudend doorgegeven: elke echte 4xx propageert
- * status-behoudend (401/403/404 expliciet, overige 4xx generiek) zodat de OpenAPI-
- * belofte van 404 en de LDV-audittrail kloppen; 5xx en transport-fouten mappen naar
- * 502 (downstream-faal). Een 2xx-respons zónder Content-Type-header is eveneens een
- * echte upstream-bug en mapt naar 502.
+ * Magazijn-fouten zijn status-behoudend: echte 4xx propageert (401/403/404 expliciet,
+ * overige generiek) zodat OpenAPI-404 en LDV-audittrail kloppen; 5xx, transport-fouten
+ * en een 2xx zónder Content-Type → 502 (downstream-faal).
  *
- * Multi-magazijn routering (bijlage-download): de sessiecache levert per bericht
- * het bron-`magazijnId`. We halen eerst het bericht-detail op (we vertrouwen de
- * cache, niet een client-meegegeven id — anders zou een aanvaller bijlages uit
- * een ander magazijn kunnen opvragen). Daarna routeert [MagazijnRouter] naar de
- * juiste magazijn-URL voor het downloaden van de bytes.
+ * Routering: het bericht-detail (uit de cache, niet een client-id — anders kon een
+ * aanvaller bijlages uit een vreemd magazijn opvragen) levert het bron-`magazijnId`
+ * waarmee [MagazijnRouter] de juiste magazijn-URL voor de bytes kiest.
  */
 @ApplicationScoped
 class BerichtOphaalService(

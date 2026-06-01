@@ -14,28 +14,18 @@ import java.util.UUID
 
 /**
  * Schrijft naar magazijn (bron van waarheid) en sessiecache (afgeleide cache).
- * Magazijn-faal → fout naar client, cache niet aangeraakt. Magazijn-OK +
- * cache-faal → best-effort cache-invalidate (vervangt 'stale' door 'leeg'),
- * daarna 502 zodat de client weet dat de operatie niet volledig consistent
- * doorgevoerd is. De magazijn-operaties zijn op het magazijn zélf idempotent;
- * specifiek na een geslaagde DELETE kan een herhaalde uitvraag-call echter 404
- * geven, omdat de cache-entry dán geïnvalideerd is en `resolveMagazijn` het
- * bron-`magazijnId` niet meer vindt. De PATCH-happy-path heeft dit niet: die
- * werkt de cache-entry bij (verwijdert hem niet), dus de lookup blijft slagen.
+ * Magazijn-faal → fout naar client, cache niet aangeraakt. Magazijn-OK + cache-faal
+ * → best-effort invalidate ('stale' wordt 'leeg'), dan 502 om de inconsistentie te
+ * signaleren. "Cache-faal" = transport-storing (timeout, connect-fout, 5xx); een 4xx
+ * duidt op een contract-bug en gaat onveranderd door zonder invalidatie.
  *
- * "Cache-faal" = transport-storing (timeout, connect-fout, 5xx upstream). 4xx
- * van de cache duidt op een contract-bug en wordt onveranderd doorgegeven; de
- * cache-state hoeft dan niet ge-invalideerd te worden.
- *
- * Multi-magazijn routering: we doen vóór elke write eerst een sessiecache-
- * lookup om het bron-`magazijnId` te bepalen (de cache is bron-van-waarheid
- * voor herkomst — een client-gegeven id zou een vector zijn om te schrijven
- * in een magazijn dat dit bericht niet bezit). Cache-miss → 404 propageert
- * naar de client; die hoort het bericht eerst opnieuw op te halen (de
- * sliding TTL van 60s dekt typische interactieve flows ruimschoots). Een
- * transport-fout op die lookup (timeout, connect-fout, 5xx) → 502: er is dan
- * nog niets naar het magazijn geschreven, dus dezelfde 502-semantiek als bij
- * een cache-faal ná de write.
+ * Elke write doet eerst een sessiecache-lookup voor het bron-`magazijnId`: de cache
+ * is bron-van-waarheid voor herkomst, want een client-gegeven id zou een schrijf-vector
+ * naar een vreemd magazijn zijn. Cache-miss → 404 (client haalt eerst opnieuw op; de
+ * 60s sliding TTL dekt interactieve flows). Transport-fout op de lookup → 502 (nog niets
+ * geschreven). Idempotent op het magazijn, behalve: na een geslaagde DELETE geeft een
+ * herhaalde call 404 omdat de lookup het magazijnId niet meer vindt; PATCH heeft dit
+ * niet, want die werkt de cache-entry bij i.p.v. te verwijderen.
  */
 @ApplicationScoped
 class BerichtBeheerService(
