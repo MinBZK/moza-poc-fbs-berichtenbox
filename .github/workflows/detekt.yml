@@ -1,0 +1,48 @@
+name: detekt
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: detekt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detekt:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # detekt analyseert bronnen (geen compile/tests nodig); de complexity-gate
+      # (detekt.yml maxIssues) laat de stap falen bij nieuwe complexiteit boven budget.
+      - name: Run detekt
+        run: ./mvnw -B detekt:check
+      # SARIF ook uploaden als detekt faalt, zodat bevindingen zichtbaar blijven in het
+      # code-scanning-dashboard.
+      - name: Bundel SARIF-rapporten
+        if: always()
+        run: |
+          mkdir -p sarif
+          for m in libraries/fbs-common services/berichtensessiecache services/berichtenmagazijn; do
+            f="$m/target/detekt.sarif"
+            if [ -f "$f" ]; then cp "$f" "sarif/${m//\//-}.sarif"; fi
+          done
+      - name: Upload SARIF naar code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          sarif_file: sarif
+          category: detekt

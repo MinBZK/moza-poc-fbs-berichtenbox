@@ -1,0 +1,51 @@
+# detekt-configuratie voor moza-poc-fbs-berichtenbox.
+#
+# Bewust gefocust op de `complexity`-ruleset: dat is het gat dat CodeQL (security/
+# dataflow) en JaCoCo (coverage) niet dekken. We bouwen NIET voort op de
+# default-config (`buildUponDefaultConfig=false` in de POM), zodat alleen de hier
+# geactiveerde regels draaien en de build niet overspoeld wordt door stijl-regels
+# die buiten scope vallen.
+#
+# `maxIssues` is een issue-budget per module-run (detekt draait per Maven-module).
+# Huidige stand (alleen main-sources, tests uitgesloten): fbs-common 0, sessiecache 4,
+# berichtenmagazijn 5 complexity-bevindingen — alle in bestaande orkestratie-methodes
+# (ophalenBerichten, verwerkClaim, leverBerichtAan, HardDeleteService.run). Budget op 5
+# zodat de bestaande debt in kaart staat én NIEUWE complexiteit de build laat falen;
+# stapsgewijs verlagen naar 0 naarmate de methodes worden opgesplitst.
+build:
+  maxIssues: 5
+  excludeCorrectable: false
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+complexity:
+  active: true
+  CognitiveComplexMethod:
+    active: true
+    threshold: 15
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 15
+    ignoreSingleWhenExpression: true
+  LongMethod:
+    active: true
+    threshold: 60
+  LongParameterList:
+    active: true
+    functionThreshold: 8
+    constructorThreshold: 8
+    ignoreDefaultParameters: true
+  NestedBlockDepth:
+    active: true
+    threshold: 4
+  TooManyFunctions:
+    active: true
+    thresholdInFiles: 20
+    thresholdInClasses: 20
+    thresholdInInterfaces: 20
+    thresholdInObjects: 20
+    thresholdInEnums: 20
+    ignoreDeprecated: true
+    ignorePrivate: true

@@ -219,4 +219,5 @@ Bij code reviews classificeren we bevindingen op ernst (Hoog/Medium/Laag) met ee
 ## Tooling
 
 - **ADR-spec-linting:** `npx @stoplight/spectral-cli lint <spec.yaml> --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml` valideert tegen Forum-Standaardisatie API Design Rules.
+- **detekt (Kotlin static analysis):** `detekt-maven-plugin` aan `verify` gebonden; alleen de `complexity`-ruleset (zie `detekt.yml`) — het gat dat CodeQL (security) en JaCoCo (coverage) niet dekken. Lokaal draaien: `./mvnw detekt:check`. `build.maxIssues` is een issue-budget per module (huidige debt staat erin; stapsgewijs naar 0). SARIF gaat in CI (`.github/workflows/detekt.yml`) naar het code-scanning-dashboard. Test-sources zijn uitgesloten (TooManyFunctions op testklassen is geen productie-signaal).
 - **CI-status volgen:** `gh pr checks <PR#>` en `gh run watch <run-id> --exit-status`. Bij falen: `gh run view <id> --log-failed`.
