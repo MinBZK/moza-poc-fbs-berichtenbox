@@ -55,7 +55,7 @@ class ProfielMagazijnResolver(
      *
      * `getIfPresent`+`put` is bewust niet-atomair (geen single-flight): concurrent
      * `resolve()` voor dezelfde ontvanger wordt al gegate door de SET-NX-lock in
-     * `BerichtensessiecacheService.ophalenBerichten` (tweede ophaalpoging krijgt 409).
+     * `BerichtensessiecacheService.haalBerichtenOp` (tweede ophaalpoging krijgt 409).
      * De cache absorbeert dus sequentiële her-triggers binnen het TTL-window, geen
      * parallelle storm — een cache-stampede kan in dit flow niet optreden.
      */

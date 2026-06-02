@@ -77,7 +77,8 @@ enum class IdentificatienummerType { BSN, RSIN, KVK, OIN }
  * "alsnog" een elfproef-check toevoegt.
  *
  * `toString` toont de volledige waarde: OIN is een publieke organisatie-identificator,
- * geen PII. Voor BSN/RSIN geldt het omgekeerde — daar maskeert `toString` (zie CLAUDE.md).
+ * geen PII. Voor BSN/RSIN geldt het omgekeerde — die zijn PII en mogen nooit in
+ * applicatie-logs verschijnen, dus daar maskeert `toString`.
  */
 @JvmInline
 value class Oin(override val waarde: String) : Identificatienummer {
@@ -121,7 +122,7 @@ value class Kvk(override val waarde: String) : Identificatienummer {
  * Burgerservicenummer (9 cijfers, gevalideerd met elfproef).
  *
  * `toString` toont een **SHA-256 hash-suffix** in plaats van de waarde: BSN is PII
- * (CLAUDE.md "BSN nooit in applicatie-logs"). Default Kotlin value-class-toString
+ * en mag nooit in applicatie-logs verschijnen. Default Kotlin value-class-toString
  * zou `"Bsn(waarde=...)"` printen — een impliciete `"$bsn"`-template zou stilzwijgend
  * de volledige BSN lekken. Het hash-suffix-format `BSN:#a3f2` biedt log-correlatie
  * (zelfde BSN → zelfde hash) zonder dat de waarde herleidbaar is.

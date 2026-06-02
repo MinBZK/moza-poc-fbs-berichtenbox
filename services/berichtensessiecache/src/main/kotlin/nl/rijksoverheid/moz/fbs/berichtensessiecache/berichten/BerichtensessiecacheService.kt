@@ -142,7 +142,7 @@ class BerichtensessiecacheService(
      * OIN-B2B), slaat ze op in de cache, en retourneert een SSE-compatible Multi met
      * statusevents per magazijn.
      */
-    fun ophalenBerichten(ontvanger: Identificatienummer): Multi<MagazijnEvent> {
+    fun haalBerichtenOp(ontvanger: Identificatienummer): Multi<MagazijnEvent> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
         val bezigStatus = AggregationStatus(

@@ -42,7 +42,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
 - **Bruno-collectie:** per service met een OpenAPI-spec hoort een Bruno-collectie onder `bruno/<service-naam>/` (met `bruno.json`, `environments/lokaal.bru` en requests per functioneel pad). Nieuwe endpoints in de OpenAPI-spec krijgen direct een bijbehorende `.bru`-request; zo blijft de collectie een levend exempel van de spec.
 - **Tests:** Mock externe clients via `@Mock @ApplicationScoped` CDI beans in test-package
-- **Commentaar:** leg het *waarom* vast (niet-evidente beslissing, security-/contract-invariant), niet het *wat* dat de code al toont. Herhaal aan een call-site niet wat de KDoc van de aangeroepen functie/veld al beschrijft. Houd het kort: condenseer rationale tot enkele regels; laat opsommingen/voorbeelden weg die niets verduidelijken. Ga uit van werken-naar-productie — geen "PoC"/"voorlopig"/productie-twijfel in comments; verwijs naar toekomstig werk alleen via `TODO(#ticket)`. Geen verwijzingen naar review-iteratie-bevindingen (`K1`, `B7`, `W3`, etc.) in comments of test-namen — die labels zijn buiten de oorspronkelijke review-sessie niet terug te vinden en rotten. Beschrijf het probleem zelf, niet hoe het ontdekt werd.
+- **Commentaar:** leg het *waarom* vast (niet-evidente beslissing, security-/contract-invariant), niet het *wat* dat de code al toont. Herhaal aan een call-site niet wat de KDoc van de aangeroepen functie/veld al beschrijft. Houd het kort: condenseer rationale tot enkele regels; laat opsommingen/voorbeelden weg die niets verduidelijken. Ga uit van werken-naar-productie — geen "PoC"/"voorlopig"/productie-twijfel in comments; verwijs naar toekomstig werk alleen via `TODO(#ticket)`. Geen verwijzingen naar review-iteratie-bevindingen (`K1`, `B7`, `W3`, etc.) in comments of test-namen — die labels zijn buiten de oorspronkelijke review-sessie niet terug te vinden en rotten. Beschrijf het probleem zelf, niet hoe het ontdekt werd. Verwijs evenmin naar CLAUDE.md-regels of -secties (`zie CLAUDE.md ...`) in comments — beschrijf de regel/het waarom zelf, zodat een comment zonder CLAUDE.md leesbaar blijft.
 
 ## Code-stijl Kotlin
 
@@ -182,7 +182,7 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 - **Titel en inleiding zijn functioneel en niet-technisch.** De Product Owner leest mee en moet aanleiding, effect voor gebruikers, wenselijk gedrag en acceptatiecriteria kunnen volgen zonder Kotlin/Quarkus/Redis-kennis. Geen klasse-namen, file:line-verwijzingen, framework-jargon in het bovenste deel van het issue.
 - **Technische details horen in een aparte sectie verderop** (bv. "Technische context", "Oplossingsrichtingen"). Daar mogen wel code-locaties, klasse-namen, libraries en concrete refactor-opties.
 - **Acceptatiecriteria functioneel formuleren** in termen van gedrag voor de gebruiker of het systeem (latency-grenzen, foutgedrag, beschikbaarheid), niet in termen van implementatie ("gebruik X-pattern").
-- Verwijs altijd naar de parent-issue (`> Onderdeel van #N.`) zodat de PO de context-keten kan volgen.
+- Koppel een issue aan zijn parent via de GitHub-issue-relatie (onderlinge link), niet via een `> Onderdeel van #N.`-regel in de tekst.
 
 ## Teststrategie
 

@@ -309,4 +309,50 @@ class IdentificatienummerTest {
             Identificatienummer.fromHeader("BSN: 999993653")
         }
     }
+
+    // --- Newline-anker: trailing/CRLF/embedded newline wordt geweigerd --------
+    // De per-type-patterns ankeren met `^...$`. In java.util.regex matcht `$` (zonder
+    // MULTILINE) óók vlak vóór een afsluitende newline. De validatie draait echter via
+    // Regex.matches() (en de gegenereerde Bean-Validation @Pattern, ook matches()), die
+    // de VOLLEDIGE string moet consumeren; de zero-width `$` laat de `\n` onverbruikt,
+    // dus matches() weigert hem. Deze tests pinnen dat gedrag: een toekomstige refactor
+    // naar find()-semantiek (partial match) zou een waarde mét newline doorlaten en
+    // daarmee een log-/header-injectie-vector openen (newline in LDV dataSubjectId of in
+    // de doorgestuurde X-Ontvanger-header naar downstream).
+
+    @Test
+    fun `Bsn met trailing newline wordt geweigerd`() {
+        assertThrows(DomainValidationException::class.java) { Bsn("999993653\n") }
+    }
+
+    @Test
+    fun `Bsn met trailing CRLF wordt geweigerd`() {
+        assertThrows(DomainValidationException::class.java) { Bsn("999993653\r\n") }
+    }
+
+    @Test
+    fun `Oin met trailing newline wordt geweigerd`() {
+        assertThrows(DomainValidationException::class.java) { Oin("00000001003214345000\n") }
+    }
+
+    @Test
+    fun `Kvk met trailing newline wordt geweigerd`() {
+        assertThrows(DomainValidationException::class.java) { Kvk("12345678\n") }
+    }
+
+    @Test
+    fun `fromHeader met trailing newline in waarde wordt geweigerd (geen log-injectie)`() {
+        // Borgt dat een newline-payload niet via fromHeader in het domein-model — en
+        // daarmee in logboekContext.dataSubjectId of de doorgestuurde header — belandt.
+        assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("BSN:999993653\n")
+        }
+    }
+
+    @Test
+    fun `fromHeader met embedded newline in waarde wordt geweigerd`() {
+        assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("BSN:99999\n653")
+        }
+    }
 }

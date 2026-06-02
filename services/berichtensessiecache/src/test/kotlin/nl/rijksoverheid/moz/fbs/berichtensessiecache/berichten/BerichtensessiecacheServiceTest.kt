@@ -88,11 +88,11 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `ophalenBerichten gooit 409 als lock niet verkregen`() {
+    fun `haalBerichtenOp gooit 409 als lock niet verkregen`() {
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(false)
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(409, ex.response.status)
@@ -106,7 +106,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.store(cacheKey, emptyList()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = service.ophalenBerichten(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(5))
+        val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(5))
 
         assertEquals(1, events.size)
         assertEquals(EventType.OPHALEN_GEREED, events[0].event)
@@ -122,9 +122,9 @@ class BerichtensessiecacheServiceTest {
             Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(500))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        // ophalenBerichten gooit de fout synchroon omdat resolver.resolve().await() blokkeert.
+        // haalBerichtenOp gooit de fout synchroon omdat resolver.resolve().await() blokkeert.
         assertThrows<ProfielServiceFoutException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         verify {
@@ -144,7 +144,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<IllegalArgumentException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertTrue(ex.message!!.contains("ghost-magazijn"), "Was: ${ex.message}")
@@ -165,7 +165,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(500, ex.response.status)
@@ -238,7 +238,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<ProfielServiceFoutException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(ProfielServiceFoutException.Categorie.RESOLVER_MISLUKT, ex.categorie)
@@ -266,7 +266,7 @@ class BerichtensessiecacheServiceTest {
             Uni.createFrom().failure(RuntimeException("Redis ook down"))
 
         val ex = assertThrows<ProfielServiceFoutException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertSame(origineel, ex, "Oorspronkelijke exception moet winnen, niet cleanup-fout")
@@ -283,7 +283,7 @@ class BerichtensessiecacheServiceTest {
             Uni.createFrom().failure(RuntimeException("Redis store down"))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = service.ophalenBerichten(ontvanger).collect().asList()
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(5))
 
         assertEquals(1, events.size)
@@ -313,7 +313,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(503, ex.response.status)
@@ -333,7 +333,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(500, ex.response.status)
@@ -354,7 +354,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(500, ex.response.status)
@@ -375,7 +375,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = service.ophalenBerichten(ontvanger).collect().asList()
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
         val voltooidEvent = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
@@ -436,7 +436,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(503, ex.response.status)
@@ -465,7 +465,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns
             Uni.createFrom().failure(RuntimeException("Redis status ook down"))
 
-        val events = service.ophalenBerichten(ontvanger).collect().asList()
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
         val fouten = events.filter { it.event == EventType.OPHALEN_FOUT }
@@ -513,7 +513,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = serviceMetLageCap.ophalenBerichten(ontvanger).collect().asList()
+        val events = serviceMetLageCap.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
         val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
@@ -540,7 +540,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = service.ophalenBerichten(ontvanger).collect().asList()
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
         val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
@@ -574,7 +574,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = serviceMetLageCap.ophalenBerichten(ontvanger).collect().asList()
+        val events = serviceMetLageCap.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
         val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
@@ -595,7 +595,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(500, ex.response.status)
@@ -611,7 +611,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(503, ex.response.status)
@@ -626,7 +626,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
 
         assertEquals(503, ex.response.status)
@@ -649,7 +649,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = service.ophalenBerichten(ontvanger).collect().asList()
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
         val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
@@ -671,7 +671,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = service.ophalenBerichten(ontvanger).collect().asList()
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
         val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
@@ -691,7 +691,7 @@ class BerichtensessiecacheServiceTest {
             Uni.createFrom().failure(ProfielServiceFoutException.configDrift())
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
-        val events = service.ophalenBerichten(ontvanger).collect().asList()
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(5))
 
         assertEquals(1, events.size)

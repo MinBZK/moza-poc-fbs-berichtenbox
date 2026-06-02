@@ -41,7 +41,7 @@ class BerichtenOphalenResource(
     )
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @RestStreamElementType(MediaType.APPLICATION_JSON)
-    fun ophalenBerichten(
+    fun haalBerichtenOp(
         // Hand-rolled SSE-endpoint krijgt geen Bean-Validation via de gegenereerde JAX-RS
         // interface; @Pattern + @Size hier spiegelen de OntvangerHeader-parameter uit de
         // OpenAPI-spec zodat input-validatie aan de rand consistent is met de gegenereerde
@@ -61,7 +61,7 @@ class BerichtenOphalenResource(
         logboekContext.dataSubjectId = ontvangerId.waarde
         logboekContext.dataSubjectType = "ontvanger"
 
-        val aggregation = service.ophalenBerichten(ontvangerId)
+        val aggregation = service.haalBerichtenOp(ontvangerId)
 
         // SSE-stream is een observer: stuurt events door zolang de client verbonden is.
         // Client disconnect stopt alleen de emitter, de aggregatie loopt onafhankelijk door.
