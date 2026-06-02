@@ -71,7 +71,7 @@ class BerichtValidatieService(
             log.warnf(
                 "Profiel-service 404 voor ontvangerType=%s afzender=%s — fail-closed (geen toestemming)",
                 ontvangerType,
-                maskeerOin(bericht.afzender.waarde),
+                bericht.afzender.gemaskeerd(),
             )
             throw ToestemmingGeweigerdException.geenProfiel(bericht.afzender)
         }

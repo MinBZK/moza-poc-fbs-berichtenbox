@@ -27,7 +27,7 @@ class ToestemmingGeweigerdExceptionMapper : ExceptionMapper<ToestemmingGeweigerd
         log.infof(
             "Toestemming geweigerd (reden=%s, afzender=%s)",
             exception.reden,
-            maskeerOin(exception.afzender.waarde),
+            exception.afzender.gemaskeerd(),
         )
 
         val problem = Problem(
@@ -42,11 +42,4 @@ class ToestemmingGeweigerdExceptionMapper : ExceptionMapper<ToestemmingGeweigerd
             .build()
     }
 }
-
-/**
- * Maskeert een OIN tot de eerste vier cijfers gevolgd door `***` (bv. `0000***`),
- * zodat een logregel genoeg houvast geeft voor ops-aggregatie zonder de volledige
- * 20-cijferige organisatie-identificatie bloot te geven.
- */
-internal fun maskeerOin(oin: String): String = oin.take(4) + "***"
 
