@@ -70,14 +70,6 @@ value class Oin(override val waarde: String) : Identificatienummer {
 
     override val type: IdentificatienummerType get() = IdentificatienummerType.OIN
 
-    /**
-     * Eerste vier cijfers gevolgd door `***` (bv. `0000***`), voor logregels die
-     * genoeg houvast moeten geven voor ops-aggregatie zonder de volledige
-     * 20-cijferige organisatie-identificatie bloot te geven. Staat naast de
-     * 20-cijfer-invariant zodat maskering en validatie één geheel vormen.
-     */
-    fun gemaskeerd(): String = waarde.take(4) + "***"
-
     companion object {
         private val PATTERN = Regex("^[0-9]{20}$")
     }

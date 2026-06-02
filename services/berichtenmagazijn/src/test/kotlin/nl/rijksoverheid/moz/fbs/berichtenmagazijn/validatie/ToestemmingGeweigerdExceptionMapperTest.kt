@@ -4,7 +4,6 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -17,8 +16,6 @@ class ToestemmingGeweigerdExceptionMapperTest {
 
     private val mapper = ToestemmingGeweigerdExceptionMapper()
 
-    // OIN met leidende nullen zodat het gemaskeerde prefix `0000***` is en we hard
-    // kunnen aantonen dat de volledige 20-cijferige waarde niet in de log belandt.
     private val afzender = Oin("00001234567890123456")
 
     private val julLogger: Logger = Logger.getLogger(ToestemmingGeweigerdExceptionMapper::class.java.name)
@@ -75,22 +72,11 @@ class ToestemmingGeweigerdExceptionMapperTest {
     }
 
     @Test
-    fun `logt reden en gemaskeerd afzender-prefix`() {
+    fun `logt reden en volledige afzender-OIN`() {
         mapper.toResponse(ToestemmingGeweigerdException.geenActieveVoorkeur(afzender))
 
         val output = loggedOutput()
         assertTrue(output.contains("reden=geen actieve berichtenbox-voorkeur"), "reden ontbreekt: $output")
-        assertTrue(output.contains("afzender=0000***"), "gemaskeerd afzender-prefix ontbreekt: $output")
-    }
-
-    @Test
-    fun `logt NOOIT de volledige afzender-OIN (AVG)`() {
-        mapper.toResponse(ToestemmingGeweigerdException.geenProfiel(afzender))
-
-        val output = loggedOutput()
-        assertFalse(
-            output.contains(afzender.waarde),
-            "volledige afzender-OIN mag niet in de log staan — gevonden: $output",
-        )
+        assertTrue(output.contains("afzender=${afzender.waarde}"), "volledige afzender-OIN ontbreekt: $output")
     }
 }

@@ -19,15 +19,13 @@ class ToestemmingGeweigerdExceptionMapper : ExceptionMapper<ToestemmingGeweigerd
     private val log = Logger.getLogger(ToestemmingGeweigerdExceptionMapper::class.java)
 
     override fun toResponse(exception: ToestemmingGeweigerdException): Response {
-        // info-niveau: dit is geen serverfout maar een normaal policy-besluit.
-        // Reden + gemaskeerd afzender-prefix (eerste 4 cijfers) zodat operations kan
-        // aggregeren wélke afzender vaak geweigerd wordt; de volledige OIN (en zeker
-        // de ontvanger) blijft uit de log. De OIN-dragende `exception.message` wordt
-        // bewust níet gelogd.
+        // info-niveau: geen serverfout maar een normaal policy-besluit. Afzender-OIN
+        // is een publiek organisatienummer (geen persoonsgegeven) en mag voluit in de
+        // log; de ontvanger (mogelijk BSN) blijft eruit.
         log.infof(
             "Toestemming geweigerd (reden=%s, afzender=%s)",
             exception.reden,
-            exception.afzender.gemaskeerd(),
+            exception.afzender.waarde,
         )
 
         val problem = Problem(

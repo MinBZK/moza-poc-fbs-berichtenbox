@@ -66,12 +66,12 @@ class BerichtValidatieService(
             if (ex.response?.status != 404) throw ex
             // Onbekende ontvanger → fail-closed: behandel als geen toestemming.
             // Log op WARN zodat een configuratiefout (verkeerd base-path → 404 op
-            // élke ontvanger) zichtbaar wordt; de ontvanger-waarde blijft uit de
-            // log om geen BSN/RSIN te lekken.
+            // élke ontvanger) zichtbaar wordt. Afzender-OIN mag voluit (publiek
+            // organisatienummer); de ontvanger-waarde blijft eruit (mogelijk BSN/RSIN).
             log.warnf(
                 "Profiel-service 404 voor ontvangerType=%s afzender=%s — fail-closed (geen toestemming)",
                 ontvangerType,
-                bericht.afzender.gemaskeerd(),
+                bericht.afzender.waarde,
             )
             throw ToestemmingGeweigerdException.geenProfiel(bericht.afzender)
         }

@@ -12,11 +12,9 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
  * waarbij 403 — niet 400 — de juiste status is.
  *
  * Draagt naast de client-boodschap een korte [reden] zonder identificatienummer en
- * de betrokken [afzender]. Daarmee logt de mapper een gemaskeerd afzender-prefix,
- * zodat operations kan aggregeren wélke afzender vaak geweigerd wordt zonder dat de
- * volledige OIN per logregel zichtbaar is. De afzender is de aanleverende organisatie
- * zelf en mag in de response-`detail` staan; de ontvanger (mogelijk een BSN) blijft
- * bewust buiten zowel boodschap als log.
+ * de [afzender] (eigen OIN van de aanleveraar). De afzender-OIN is een publiek
+ * organisatienummer en mag voluit in zowel de response-`detail` als de log; de
+ * ontvanger (mogelijk een BSN) blijft bewust buiten beide.
  */
 class ToestemmingGeweigerdException private constructor(
     message: String,
