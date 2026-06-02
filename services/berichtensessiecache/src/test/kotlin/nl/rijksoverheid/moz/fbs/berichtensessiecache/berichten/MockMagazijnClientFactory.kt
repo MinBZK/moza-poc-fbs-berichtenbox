@@ -26,6 +26,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 onderwerp = "Test bericht 1",
                 tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
                 magazijnId = "magazijn-a",
+                map = "werk",
             ),
             Bericht(
                 berichtId = UUID.fromString("22222222-2222-2222-2222-222222222222"),
@@ -34,6 +35,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 onderwerp = "Test bericht 2",
                 tijdstip = Instant.parse("2026-03-10T11:00:00Z"),
                 magazijnId = "magazijn-a",
+                map = "werk",
             ),
             Bericht(
                 berichtId = UUID.fromString("33333333-3333-3333-3333-333333333333"),
@@ -42,6 +44,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 onderwerp = "Test bericht 3",
                 tijdstip = Instant.parse("2026-03-10T12:00:00Z"),
                 magazijnId = "magazijn-a",
+                map = "prive",
             ),
         )
 
@@ -53,6 +56,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 onderwerp = "Test bericht 4",
                 tijdstip = Instant.parse("2026-03-10T13:00:00Z"),
                 magazijnId = "magazijn-b",
+                map = "werk",
             ),
         )
 

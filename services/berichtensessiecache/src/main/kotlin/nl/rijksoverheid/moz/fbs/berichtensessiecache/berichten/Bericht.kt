@@ -11,6 +11,7 @@ data class Bericht(
     val tijdstip: Instant,
     val magazijnId: String,
     val status: String? = null,
+    val map: String? = null,
 ) {
     init {
         require(afzender.isNotBlank()) { "afzender mag niet leeg zijn" }

@@ -31,6 +31,7 @@ class RedisBerichtenCacheIntegrationTest {
             onderwerp = "Eerste bericht over belastingaangifte",
             tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
+            map = "werk",
         ),
         Bericht(
             berichtId = UUID.randomUUID(),
@@ -39,6 +40,7 @@ class RedisBerichtenCacheIntegrationTest {
             onderwerp = "Tweede bericht over subsidie",
             tijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
+            map = "prive",
         ),
         Bericht(
             berichtId = UUID.randomUUID(),
@@ -47,6 +49,7 @@ class RedisBerichtenCacheIntegrationTest {
             onderwerp = "Derde bericht over vergunning",
             tijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
+            map = "werk",
         ),
     )
 
@@ -86,6 +89,19 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertTrue(result.berichten.isNotEmpty())
         assertTrue(result.berichten.all { it.afzender == "00000009876543210000" })
+    }
+
+    @Test
+    fun `search filtert op map TAG`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val result = berichtenCache.search(ontvanger, "bericht", 0, 20, null, "prive")
+            .await().indefinitely()
+
+        assertTrue(result.berichten.isNotEmpty())
+        assertTrue(result.berichten.all { it.map == "prive" })
+        assertTrue(result.berichten.none { it.map == "werk" })
     }
 
     @Test
@@ -210,6 +226,31 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertNotNull(page)
         assertTrue(page!!.berichten.all { it.afzender == "00000001234567890000" })
+    }
+
+    @Test
+    fun `getPage filtert op map TAG via RediSearch`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, null, ontvanger, "werk")
+            .await().indefinitely()
+
+        assertNotNull(page)
+        assertEquals(2, page!!.berichten.size)
+        assertTrue(page.berichten.all { it.map == "werk" })
+    }
+
+    @Test
+    fun `getPage combineert afzender en map TAG-filters`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, "00000001234567890000", ontvanger, "werk")
+            .await().indefinitely()
+
+        assertNotNull(page)
+        assertTrue(page!!.berichten.all { it.afzender == "00000001234567890000" && it.map == "werk" })
     }
 
     @Test

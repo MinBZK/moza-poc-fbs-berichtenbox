@@ -48,6 +48,7 @@ class BerichtensessiecacheResource(
         page: Int?,
         pageSize: Int?,
         afzender: String?,
+        map: String?,
     ): BerichtensessiecacheResponse {
         xOntvanger?.let {
             logboekContext.dataSubjectId = it
@@ -59,10 +60,10 @@ class BerichtensessiecacheResource(
         val p = page ?: 0
         val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichten(p, ps, ontvanger, afzender)
+            berichtensessiecacheService.getBerichten(p, ps, ontvanger, afzender, map)
         }
         logboekContext.status = StatusCode.OK
-        return result.toResponse(aggregation, afzender)
+        return result.toResponse(aggregation, afzender, map)
     }
 
     @Logboek(
@@ -96,6 +97,7 @@ class BerichtensessiecacheResource(
         page: Int?,
         pageSize: Int?,
         afzender: String?,
+        map: String?,
     ): BerichtensessiecacheResponse {
         xOntvanger?.let {
             logboekContext.dataSubjectId = it
@@ -107,10 +109,10 @@ class BerichtensessiecacheResource(
         val p = page ?: 0
         val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvanger, afzender)
+            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvanger, afzender, map)
         }
         logboekContext.status = StatusCode.OK
-        return result.toResponse(aggregation, afzender)
+        return result.toResponse(aggregation, afzender, map)
     }
 
     @Logboek(
@@ -237,12 +239,15 @@ class BerichtensessiecacheResource(
     private fun BerichtenPage.toResponse(
         aggregation: AggregationStatus?,
         afzender: String? = null,
+        map: String? = null,
     ): BerichtensessiecacheResponse {
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        val filterParams = if (afzender != null) {
-            "&afzender=" + URLEncoder.encode(afzender, StandardCharsets.UTF_8)
-        } else {
-            ""
+        // Actieve filters worden teruggegeven in de HAL-paginatielinks zodat next/prev de
+        // filtering behouden.
+        val filterParams = buildString {
+            if (afzender != null) append("&afzender=").append(URLEncoder.encode(afzender, StandardCharsets.UTF_8))
+
+            if (map != null) append("&map=").append(URLEncoder.encode(map, StandardCharsets.UTF_8))
         }
 
         return BerichtensessiecacheResponse().apply {
@@ -285,6 +290,7 @@ class BerichtensessiecacheResource(
             tijdstip = this@toApiModel.tijdstip
             magazijnId = this@toApiModel.magazijnId
             status = this@toApiModel.status?.let { ApiBerichtStatus.fromValue(it.lowercase()) }
+            map = this@toApiModel.map
             links = BerichtLinks().apply {
                 self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiModel.berichtId}") }
             }

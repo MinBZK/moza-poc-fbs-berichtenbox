@@ -39,3 +39,4 @@ node_modules/
 
 # Coredumps (root only — ignoreert geen toekomstige core/ source-map)
 /core
+.claude/worktrees/

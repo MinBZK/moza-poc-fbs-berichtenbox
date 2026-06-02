@@ -20,10 +20,10 @@ class BerichtensessiecacheService(
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
-    fun getBerichten(page: Int, pageSize: Int, ontvanger: String, afzender: String?): Uni<BerichtenPage> {
+    fun getBerichten(page: Int, pageSize: Int, ontvanger: String, afzender: String?, map: String?): Uni<BerichtenPage> {
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d", page, pageSize)
         val key = BerichtenCache.cacheKey(ontvanger)
-        return berichtenCache.getPage(key, page, pageSize, afzender, ontvanger)
+        return berichtenCache.getPage(key, page, pageSize, afzender, ontvanger, map)
             .map { it ?: BerichtenPage(emptyList(), page, pageSize, 0L, 0) }
     }
 
@@ -37,9 +37,9 @@ class BerichtensessiecacheService(
         return berichtenCache.getById(berichtId, ontvanger)
     }
 
-    fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: String, afzender: String?): Uni<BerichtenPage> {
+    fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: String, afzender: String?, map: String?): Uni<BerichtenPage> {
         log.debugf("Zoeken berichten via RediSearch: q=%s, page=%d, pageSize=%d", q, page, pageSize)
-        return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
+        return berichtenCache.search(ontvanger, q, page, pageSize, afzender, map)
     }
 
     fun updateBerichtStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {

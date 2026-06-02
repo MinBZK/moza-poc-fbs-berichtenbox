@@ -107,6 +107,18 @@ class OpenApiContractTest {
     }
 
     @Test
+    fun `GET berichten met map filter conform schema`() {
+        ophalenBerichten()
+
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("map", "werk")
+            .`when`().get("/api/v1/berichten")
+            .then().statusCode(200)
+    }
+
+    @Test
     fun `GET bericht bij ID conform BerichtResponse schema`() {
         ophalenBerichten()
 

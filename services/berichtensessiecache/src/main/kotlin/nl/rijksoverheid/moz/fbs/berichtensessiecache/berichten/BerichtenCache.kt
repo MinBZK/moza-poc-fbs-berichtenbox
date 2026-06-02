@@ -20,8 +20,8 @@ interface BerichtenCache {
     fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
     fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean>
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
-    fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: String? = null): Uni<BerichtenPage?>
-    fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
+    fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: String? = null, map: String? = null): Uni<BerichtenPage?>
+    fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String? = null, map: String? = null): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
     fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?>
     fun addBericht(bericht: Bericht): Uni<Void>
@@ -76,6 +76,7 @@ class RedisBerichtenCache(
                 .indexedField("afzender", FieldType.TAG)
                 .indexedField("ontvanger", FieldType.TAG)
                 .indexedField("tijdstip", FieldType.TAG)
+                .indexedField("map", FieldType.TAG)
             redis.search().ftCreate(BerichtenCache.SEARCH_INDEX, args)
                 .await().atMost(Duration.ofSeconds(5))
             log.infof("RediSearch index '%s' aangemaakt", BerichtenCache.SEARCH_INDEX)
@@ -161,9 +162,9 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis getAggregationStatus mislukt voor key=%s", key) }
     }
 
-    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: String?): Uni<BerichtenPage?> {
-        if (afzender != null && ontvanger != null) {
-            return getPageFiltered(page, pageSize, ontvanger, afzender)
+    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: String?, map: String?): Uni<BerichtenPage?> {
+        if ((afzender != null || map != null) && ontvanger != null) {
+            return getPageFiltered(page, pageSize, ontvanger, afzender, map)
         }
 
         val listKey = listKey(key)
@@ -200,10 +201,16 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
-    private fun getPageFiltered(page: Int, pageSize: Int, ontvanger: String, afzender: String): Uni<BerichtenPage?> {
-        val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger)}}"
-        val afzenderFilter = "@afzender:{${escapeTag(afzender)}}"
-        val query = "$ontvangerFilter $afzenderFilter"
+    private fun getPageFiltered(page: Int, pageSize: Int, ontvanger: String, afzender: String?, map: String?): Uni<BerichtenPage?> {
+        // Ontvanger is altijd een TAG-filter; afzender en map zijn optioneel en worden met
+        // spaties (AND) gecombineerd in de RediSearch-query.
+        val query = buildList {
+            add("@ontvanger:{${escapeTag(ontvanger)}}")
+
+            if (afzender != null) add("@afzender:{${escapeTag(afzender)}}")
+
+            if (map != null) add("@map:{${escapeTag(map)}}")
+        }.joinToString(" ")
 
         val offset = page * pageSize
         val queryArgs = QueryArgs()
@@ -222,14 +229,15 @@ class RedisBerichtenCache(
                 }
             }
             .call { result -> renewReadTtl(ontvanger, result?.berichten) }
-            .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt voor afzender=%s", afzender) }
+            .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt voor afzender=%s map=%s", afzender, map) }
     }
 
-    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
+    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String?, map: String?): Uni<BerichtenPage> {
         val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger)}}"
         val escapedQ = escapeRedisSearch(q)
         val afzenderFilter = if (afzender != null) " @afzender:{${escapeTag(afzender)}}" else ""
-        val query = "$ontvangerFilter (@onderwerp:$escapedQ)$afzenderFilter".trim()
+        val mapFilter = if (map != null) " @map:{${escapeTag(map)}}" else ""
+        val query = "$ontvangerFilter (@onderwerp:$escapedQ)$afzenderFilter$mapFilter".trim()
 
         val offset = page * pageSize
         val queryArgs = QueryArgs()
@@ -304,6 +312,7 @@ class RedisBerichtenCache(
         put("tijdstip", bericht.tijdstip.toString())
         put("magazijnId", bericht.magazijnId)
         bericht.status?.let { put("status", it) }
+        bericht.map?.let { put("map", it) }
     }
 
     private fun hashToBericht(fields: Map<String, String>): Bericht = Bericht(
@@ -314,6 +323,7 @@ class RedisBerichtenCache(
         tijdstip = Instant.parse(fields["tijdstip"]!!),
         magazijnId = fields["magazijnId"]!!,
         status = fields["status"],
+        map = fields["map"],
     )
 
     private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht = Bericht(
@@ -324,6 +334,7 @@ class RedisBerichtenCache(
         tijdstip = Instant.parse(doc.property("tijdstip").asString()),
         magazijnId = doc.property("magazijnId").asString(),
         status = doc.property("status")?.asString(),
+        map = doc.property("map")?.asString(),
     )
 
     override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {

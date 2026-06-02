@@ -26,7 +26,7 @@ class BerichtensessiecacheServiceTest {
     fun `getBerichten retourneert lege pagina bij null cache-result`() {
         every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger) } returns Uni.createFrom().nullItem()
 
-        val result = service.getBerichten(0, 20, ontvanger, null).await().indefinitely()
+        val result = service.getBerichten(0, 20, ontvanger, null, null).await().indefinitely()
 
         assertEquals(0, result.berichten.size)
         assertEquals(0, result.page)
@@ -39,7 +39,7 @@ class BerichtensessiecacheServiceTest {
         val expectedPage = BerichtenPage(emptyList(), 0, 20, 0L, 0)
         every { berichtenCache.getPage(cacheKey, 0, 20, "afzender-123", ontvanger) } returns Uni.createFrom().item(expectedPage)
 
-        val result = service.getBerichten(0, 20, ontvanger, "afzender-123").await().indefinitely()
+        val result = service.getBerichten(0, 20, ontvanger, "afzender-123", null).await().indefinitely()
 
         assertEquals(expectedPage, result)
         verify { berichtenCache.getPage(cacheKey, 0, 20, "afzender-123", ontvanger) }
@@ -51,7 +51,7 @@ class BerichtensessiecacheServiceTest {
         val expectedPage = BerichtenPage(listOf(bericht), 0, 20, 1L, 1)
         every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger) } returns Uni.createFrom().item(expectedPage)
 
-        val result = service.getBerichten(0, 20, ontvanger, null).await().indefinitely()
+        val result = service.getBerichten(0, 20, ontvanger, null, null).await().indefinitely()
 
         assertEquals(1, result.berichten.size)
         assertEquals(bericht.berichtId, result.berichten[0].berichtId)

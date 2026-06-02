@@ -383,6 +383,48 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
+    fun `GET berichten met map filter retourneert alleen berichten in die map`() {
+        val ontvanger = "map-filter-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Slechts één testbericht zit in map 'prive'; de overige in 'werk'.
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("map", "prive")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(1))
+            .body("berichten[0].map", `is`("prive"))
+    }
+
+    @Test
+    fun `GET zoeken met map filter retourneert alleen berichten in die map`() {
+        val ontvanger = "zoek-map-filter-${System.nanoTime()}"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .queryParam("q", "Test")
+            .queryParam("map", "prive")
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_zoeken")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(1))
+            .body("berichten[0].map", `is`("prive"))
+    }
+
+    @Test
     fun `GET berichten zonder afzender filter retourneert alle berichten`() {
         val ontvanger = "geen-afzender-filter-${System.nanoTime()}"
 
