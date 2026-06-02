@@ -20,7 +20,15 @@ class ToestemmingGeweigerdExceptionMapper : ExceptionMapper<ToestemmingGeweigerd
 
     override fun toResponse(exception: ToestemmingGeweigerdException): Response {
         // info-niveau: dit is geen serverfout maar een normaal policy-besluit.
-        log.infof("Toestemming geweigerd: %s", exception.message)
+        // Reden + gemaskeerd afzender-prefix (eerste 4 cijfers) zodat operations kan
+        // aggregeren wélke afzender vaak geweigerd wordt; de volledige OIN (en zeker
+        // de ontvanger) blijft uit de log. De OIN-dragende `exception.message` wordt
+        // bewust níet gelogd.
+        log.infof(
+            "Toestemming geweigerd (reden=%s, afzender=%s)",
+            exception.reden,
+            maskeerOin(exception.afzender.waarde),
+        )
 
         val problem = Problem(
             title = "Forbidden",
@@ -34,3 +42,11 @@ class ToestemmingGeweigerdExceptionMapper : ExceptionMapper<ToestemmingGeweigerd
             .build()
     }
 }
+
+/**
+ * Maskeert een OIN tot de eerste vier cijfers gevolgd door `***` (bv. `0000***`),
+ * zodat een logregel genoeg houvast geeft voor ops-aggregatie zonder de volledige
+ * 20-cijferige organisatie-identificatie bloot te geven.
+ */
+internal fun maskeerOin(oin: String): String = oin.take(4) + "***"
+

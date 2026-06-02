@@ -71,18 +71,15 @@ class BerichtValidatieService(
             log.warnf(
                 "Profiel-service 404 voor ontvangerType=%s afzender=%s — fail-closed (geen toestemming)",
                 ontvangerType,
-                bericht.afzender.waarde,
+                maskeerOin(bericht.afzender.waarde),
             )
-            throw ToestemmingGeweigerdException(
-                "Ontvanger heeft geen profiel bij MOZA voor afzender ${bericht.afzender.waarde}",
-            )
+            throw ToestemmingGeweigerdException.geenProfiel(bericht.afzender)
         }
 
         if (!isAbonneeOp(partij, bericht.afzender)) {
-            // Bewust geen ontvanger-waarde in de boodschap: kan PII zijn (BSN).
-            throw ToestemmingGeweigerdException(
-                "Ontvanger heeft geen actieve berichtenbox-voorkeur voor afzender ${bericht.afzender.waarde}",
-            )
+            // De afzender (eigen OIN van de aanleveraar) mag in de client-`detail`; de
+            // ontvanger blijft eruit omdat dat een BSN kan zijn.
+            throw ToestemmingGeweigerdException.geenActieveVoorkeur(bericht.afzender)
         }
     }
 
