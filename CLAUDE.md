@@ -140,6 +140,24 @@ docker compose up -d                                       # Start Redis, WireMo
 ./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode
 ```
 
+### Build- en test-warnings nalopen
+
+Bij elke wijziging de build-/test-output op waarschuwingen controleren en per stuk
+oplossen of bewust accepteren-met-reden. "Build groen" is alleen een betrouwbaar
+kwaliteitssignaal als er geen onverklaarde nieuwe waarschuwingen bij komen. Nieuwe,
+onverklaarde waarschuwingen blokkeren een PR tot ze getrieerd zijn.
+
+Bewust geaccepteerde waarschuwingen (buiten eigen beheer — uit de Maven-wrapper en
+transitieve libraries, niet uit onze code of config):
+
+- `java.lang.System::load has been called ... (restricted method)` — jansi, via de
+  Maven-wrapper-CLI. Niet beïnvloedbaar zonder de wrapper te patchen.
+- `sun.misc.Unsafe::objectFieldOffset is deprecated` — guava, transitief via de
+  Maven-wrapper. Verdwijnt zodra de upstream-libs migreren.
+- `LogManager accessed before the "java.util.logging.manager" system property was set`
+  — initialisatie-volgorde van de JBoss LogManager in de test-bootstrap; cosmetisch,
+  geen effect op test- of runtime-gedrag.
+
 ## Belangrijke bestanden
 
 | Pad                                    | Beschrijving                                                    |
