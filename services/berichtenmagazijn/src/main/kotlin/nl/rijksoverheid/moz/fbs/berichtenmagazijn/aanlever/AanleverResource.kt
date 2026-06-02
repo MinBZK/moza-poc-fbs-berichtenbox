@@ -83,7 +83,7 @@ class AanleverResource(
                     .path(ApiInfo.BASE_PATH)
                     .path("berichten")
                     .path(bericht.berichtId.toString())
-                    .build()
+                    .build().toString()
 
                 BerichtResponse().apply {
                     berichtId = bericht.berichtId
