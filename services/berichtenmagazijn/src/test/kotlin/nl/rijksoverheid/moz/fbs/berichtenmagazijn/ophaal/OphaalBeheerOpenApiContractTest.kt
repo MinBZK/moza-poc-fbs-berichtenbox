@@ -35,6 +35,7 @@ class OphaalBeheerOpenApiContractTest {
     // De HAL `_links.*.href` zijn bewust relatieve URI-references; networknt 2.x (via
     // openapi-request-validator) dwingt `format: uri` sinds deze versie strikt als absolute
     // RFC 3986 URI af, dus die assertie op WARN zodat de contractcheck het vorige gedrag behoudt.
+    // TODO(#76): spec aanlijnen op `uri-reference` en deze downgrade verwijderen.
     private val validationFilter = OpenApiValidationFilter(
         OpenApiInteractionValidator
             .createForSpecificationUrl("openapi/berichtenmagazijn-api.yaml")

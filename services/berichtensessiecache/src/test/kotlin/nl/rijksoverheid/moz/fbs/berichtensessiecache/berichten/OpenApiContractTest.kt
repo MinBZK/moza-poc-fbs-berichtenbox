@@ -24,7 +24,8 @@ class OpenApiContractTest {
     // worden getolereerd via WARN-level. De HAL `_links.*.href` zijn bewust relatieve
     // URI-references (`/api/v1/...`); networknt 2.x (via openapi-request-validator) dwingt
     // `format: uri` sinds deze versie strikt als absolute RFC 3986 URI af, dus ook die
-    // assertie op WARN zodat de contractcheck het vorige gedrag behoudt.
+    // assertie op WARN zodat de contractcheck het vorige gedrag behoudt. TODO(#76): spec
+    // aanlijnen op `uri-reference` en deze downgrade verwijderen.
     private val validationFilter = OpenApiValidationFilter(
         OpenApiInteractionValidator
             .createForSpecificationUrl("openapi/berichtensessiecache-api.yaml")
