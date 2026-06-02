@@ -6,6 +6,7 @@ import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
@@ -157,21 +158,9 @@ class BerichtensessiecacheService(
 
         val clients = allClients.filterKeys { it in resolvedIds }
 
-        // Geen magazijnen → lege resultaten + GEREED. Cache overschrijven met lege lijst
-        // zodat stale data uit eerdere sessies niet zichtbaar blijft via GET-endpoints.
+        // Geen magazijnen → lege resultaten + GEREED.
         if (clients.isEmpty()) {
-            return berichtenCache.store(cacheKey, emptyList())
-                .chain { _ -> berichtenCache.storeAggregationStatus(cacheKey, AggregationStatus(status = OphalenStatus.GEREED)) }
-                .map<MagazijnEvent> { _ ->
-                    MagazijnEvent(
-                        event = EventType.OPHALEN_GEREED,
-                        totaalBerichten = 0,
-                        geslaagd = 0,
-                        mislukt = 0,
-                        totaalMagazijnen = 0,
-                    )
-                }
-                .toMulti()
+            return legeResultaten(cacheKey)
         }
 
         val ontvangerString = ontvanger.toCanonicalString()
@@ -180,122 +169,168 @@ class BerichtensessiecacheService(
         val mislukt = AtomicInteger(0)
 
         val magazijnStreams = clients.map { (magazijnId, client) ->
-            val naam = clientFactory.getNaam(magazijnId)
-
-            val gestartEvent = MagazijnEvent(
-                event = EventType.MAGAZIJN_BEVRAGING_GESTART,
-                magazijnId = magazijnId,
-                naam = naam,
-            )
-
-            val resultUni = Uni.createFrom().item { client }
-                .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
-                .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-                .ifNoItem().after(Duration.ofSeconds(10)).fail()
-                .map<MagazijnResult> { response ->
-                    MagazijnResult.Success(magazijnId, naam, response.berichten)
-                }
-                .onFailure(Exception::class.java).recoverWithItem { error ->
-                    when (error) {
-                        is jakarta.ws.rs.ProcessingException,
-                        is WebApplicationException,
-                        is io.smallrye.mutiny.TimeoutException,
-                        is java.net.ConnectException ->
-                            log.warnf(error, "Magazijn %s (%s) niet bereikbaar", magazijnId, naam)
-                        else ->
-                            log.errorf(error, "Onverwachte fout bij magazijn %s (%s)", magazijnId, naam)
-                    }
-
-                    MagazijnResult.Failure(magazijnId, naam, error)
-                }
-
-            val resultStream = resultUni.toMulti().map { result ->
-                when (result) {
-                    is MagazijnResult.Success -> {
-                        alleBerichten.addAll(result.berichten)
-                        geslaagd.incrementAndGet()
-                        MagazijnEvent(
-                            event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
-                            magazijnId = magazijnId,
-                            naam = naam,
-                            status = MagazijnStatus.OK,
-                            aantalBerichten = result.berichten.size,
-                        )
-                    }
-                    is MagazijnResult.Failure -> {
-                        mislukt.incrementAndGet()
-                        val isTimeout = result.error is io.smallrye.mutiny.TimeoutException
-                        MagazijnEvent(
-                            event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
-                            magazijnId = magazijnId,
-                            naam = naam,
-                            status = if (isTimeout) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
-                            foutmelding = if (isTimeout) "Magazijn reageerde niet binnen de timeout" else "Magazijn tijdelijk niet bereikbaar",
-                        )
-                    }
-                }
-            }
-
-            Multi.createBy().concatenating().streams(
-                Multi.createFrom().item(gestartEvent),
-                resultStream,
-            )
+            bouwMagazijnStream(magazijnId, client, ontvangerString, alleBerichten, geslaagd, mislukt)
         }
 
-        val allMagazijnEvents = Multi.createBy().merging().streams(magazijnStreams)
-
-        // Aggregatie-pipeline: draait onafhankelijk van de SSE-client door tot voltooiing.
+        // Aggregatie-pipeline draait onafhankelijk van de SSE-client door tot voltooiing.
         return Multi.createBy().concatenating().streams(
-            allMagazijnEvents,
-            Uni.createFrom().voidItem()
-                .chain { _ ->
-                    val berichten = alleBerichten.toList()
-                    berichtenCache.store(cacheKey, berichten)
-                        .chain { _ ->
-                            val status = AggregationStatus(
-                                status = OphalenStatus.GEREED,
-                                totaalMagazijnen = clients.size,
-                                geslaagd = geslaagd.get(),
-                                mislukt = mislukt.get(),
-                            )
-
-                            berichtenCache.storeAggregationStatus(cacheKey, status)
-                        }
-                        .map { _ ->
-                            MagazijnEvent(
-                                event = EventType.OPHALEN_GEREED,
-                                totaalBerichten = alleBerichten.size,
-                                geslaagd = geslaagd.get(),
-                                mislukt = mislukt.get(),
-                                totaalMagazijnen = clients.size,
-                            )
-                        }
-                }
-                .onFailure(Exception::class.java).recoverWithUni { error ->
-                    log.errorf(error, "Fout bij opslaan in cache na aggregatie (key=%s)", cacheKey)
-                    val foutStatus = AggregationStatus(
-                        status = OphalenStatus.FOUT,
-                        totaalMagazijnen = clients.size,
-                        geslaagd = geslaagd.get(),
-                        mislukt = mislukt.get(),
-                    )
-
-                    berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
-                        .onFailure().invoke { e -> log.errorf(e, "Best-effort FOUT-status opslaan ook mislukt") }
-                        .onFailure().recoverWithNull()
-                        .replaceWith(
-                            MagazijnEvent(
-                                event = EventType.OPHALEN_FOUT,
-                                geslaagd = geslaagd.get(),
-                                mislukt = mislukt.get(),
-                                totaalMagazijnen = clients.size,
-                                foutmelding = "Interne fout bij opslaan van resultaten",
-                            )
-                        )
-                }
-                .toMulti()
+            Multi.createBy().merging().streams(magazijnStreams),
+            aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, geslaagd, mislukt),
         )
     }
+
+    /**
+     * Lege-magazijn-pad: cache overschrijven met lege lijst zodat stale data uit eerdere
+     * sessies niet zichtbaar blijft via GET-endpoints, gevolgd door één OPHALEN_GEREED-event.
+     */
+    private fun legeResultaten(cacheKey: String): Multi<MagazijnEvent> =
+        berichtenCache.store(cacheKey, emptyList())
+            .chain { _ -> berichtenCache.storeAggregationStatus(cacheKey, AggregationStatus(status = OphalenStatus.GEREED)) }
+            .map<MagazijnEvent> { _ ->
+                MagazijnEvent(
+                    event = EventType.OPHALEN_GEREED,
+                    totaalBerichten = 0,
+                    geslaagd = 0,
+                    mislukt = 0,
+                    totaalMagazijnen = 0,
+                )
+            }
+            .toMulti()
+
+    /**
+     * Bouwt de event-stream voor één magazijn: een GESTART-event gevolgd door het
+     * VOLTOOID-event (OK/TIMEOUT/FOUT). Geslaagde berichten worden in [alleBerichten]
+     * verzameld; [geslaagd]/[mislukt] tellen de uitkomst voor de eind-aggregatie.
+     */
+    private fun bouwMagazijnStream(
+        magazijnId: String,
+        client: MagazijnClient,
+        ontvangerString: String,
+        alleBerichten: ConcurrentLinkedQueue<Bericht>,
+        geslaagd: AtomicInteger,
+        mislukt: AtomicInteger,
+    ): Multi<MagazijnEvent> {
+        val naam = clientFactory.getNaam(magazijnId)
+
+        val gestartEvent = MagazijnEvent(
+            event = EventType.MAGAZIJN_BEVRAGING_GESTART,
+            magazijnId = magazijnId,
+            naam = naam,
+        )
+
+        val resultUni = Uni.createFrom().item { client }
+            .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
+            .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
+            .ifNoItem().after(Duration.ofSeconds(10)).fail()
+            .map<MagazijnResult> { response ->
+                MagazijnResult.Success(magazijnId, naam, response.berichten)
+            }
+            .onFailure(Exception::class.java).recoverWithItem { error ->
+                when (error) {
+                    is jakarta.ws.rs.ProcessingException,
+                    is WebApplicationException,
+                    is io.smallrye.mutiny.TimeoutException,
+                    is java.net.ConnectException ->
+                        log.warnf(error, "Magazijn %s (%s) niet bereikbaar", magazijnId, naam)
+                    else ->
+                        log.errorf(error, "Onverwachte fout bij magazijn %s (%s)", magazijnId, naam)
+                }
+
+                MagazijnResult.Failure(magazijnId, naam, error)
+            }
+
+        val resultStream = resultUni.toMulti().map { result ->
+            when (result) {
+                is MagazijnResult.Success -> {
+                    alleBerichten.addAll(result.berichten)
+                    geslaagd.incrementAndGet()
+                    MagazijnEvent(
+                        event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
+                        magazijnId = magazijnId,
+                        naam = naam,
+                        status = MagazijnStatus.OK,
+                        aantalBerichten = result.berichten.size,
+                    )
+                }
+                is MagazijnResult.Failure -> {
+                    mislukt.incrementAndGet()
+                    val isTimeout = result.error is io.smallrye.mutiny.TimeoutException
+                    MagazijnEvent(
+                        event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
+                        magazijnId = magazijnId,
+                        naam = naam,
+                        status = if (isTimeout) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
+                        foutmelding = if (isTimeout) "Magazijn reageerde niet binnen de timeout" else "Magazijn tijdelijk niet bereikbaar",
+                    )
+                }
+            }
+        }
+
+        return Multi.createBy().concatenating().streams(
+            Multi.createFrom().item(gestartEvent),
+            resultStream,
+        )
+    }
+
+    /**
+     * Slaat de verzamelde berichten + GEREED-status op en emit het afsluitende
+     * OPHALEN_GEREED-event. Bij een cache-fout een OPHALEN_FOUT-event i.p.v. een
+     * mid-stream HTTP-500 (de SSE-stream loopt dan al).
+     */
+    private fun aggregeerEnSlaOp(
+        cacheKey: String,
+        totaalMagazijnen: Int,
+        alleBerichten: ConcurrentLinkedQueue<Bericht>,
+        geslaagd: AtomicInteger,
+        mislukt: AtomicInteger,
+    ): Multi<MagazijnEvent> =
+        Uni.createFrom().voidItem()
+            .chain { _ ->
+                val berichten = alleBerichten.toList()
+                berichtenCache.store(cacheKey, berichten)
+                    .chain { _ ->
+                        val status = AggregationStatus(
+                            status = OphalenStatus.GEREED,
+                            totaalMagazijnen = totaalMagazijnen,
+                            geslaagd = geslaagd.get(),
+                            mislukt = mislukt.get(),
+                        )
+
+                        berichtenCache.storeAggregationStatus(cacheKey, status)
+                    }
+                    .map { _ ->
+                        MagazijnEvent(
+                            event = EventType.OPHALEN_GEREED,
+                            totaalBerichten = alleBerichten.size,
+                            geslaagd = geslaagd.get(),
+                            mislukt = mislukt.get(),
+                            totaalMagazijnen = totaalMagazijnen,
+                        )
+                    }
+            }
+            .onFailure(Exception::class.java).recoverWithUni { error ->
+                log.errorf(error, "Fout bij opslaan in cache na aggregatie (key=%s)", cacheKey)
+                val foutStatus = AggregationStatus(
+                    status = OphalenStatus.FOUT,
+                    totaalMagazijnen = totaalMagazijnen,
+                    geslaagd = geslaagd.get(),
+                    mislukt = mislukt.get(),
+                )
+
+                berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
+                    .onFailure().invoke { e -> log.errorf(e, "Best-effort FOUT-status opslaan ook mislukt") }
+                    .onFailure().recoverWithNull()
+                    .replaceWith(
+                        MagazijnEvent(
+                            event = EventType.OPHALEN_FOUT,
+                            geslaagd = geslaagd.get(),
+                            mislukt = mislukt.get(),
+                            totaalMagazijnen = totaalMagazijnen,
+                            foutmelding = "Interne fout bij opslaan van resultaten",
+                        )
+                    )
+            }
+            .toMulti()
 
     /**
      * Best-effort lock-release na een fout vóór de SSE-stream start: schrijft FOUT-status
