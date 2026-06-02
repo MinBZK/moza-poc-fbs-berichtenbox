@@ -11,6 +11,8 @@ import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockBerichtenCache
 import org.hamcrest.CoreMatchers.`is`
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -36,6 +38,11 @@ class MagazijnClientWireMockTest {
     // zodat GET /berichten-asserts niet op state van een vorige test leunen.
     @Inject
     lateinit var cache: MockBerichtenCache
+
+    // Echte factory (geen mock onder dit profiel): levert de REST-clients die met de
+    // geconfigureerde read-timeout naar de WireMock-magazijns wijzen.
+    @Inject
+    lateinit var clientFactory: MagazijnClientFactory
 
     @BeforeEach
     fun setUp() {
@@ -103,10 +110,68 @@ class MagazijnClientWireMockTest {
     }
 
     @Test
+    fun `query-timeout op de geconfigureerde grens levert TIMEOUT (niet de prod-default)`() {
+        // De delay (3s) ligt boven de in WireMockTestProfile geconfigureerde query-timeout (2s)
+        // maar onder de prod-default (10s). Zou de service de property negeren en de default
+        // gebruiken, dan zou magazijn-a binnen 3s succesvol antwoorden en GEEN TIMEOUT geven.
+        // Het verschijnen van TIMEOUT bewijst dus dat de geconfigureerde waarde gehonoreerd
+        // wordt. TIMEOUT i.p.v. FOUT: FOUT is voorbehouden aan HTTP-errors / malformed responses.
+        WireMockMagazijnResource.serverA!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten"))
+                .willReturn(aResponse().withFixedDelay(3_000).withStatus(200).withBody("""{"berichten":[]}"""))
+        )
+        stubMagazijnSuccess(WireMockMagazijnResource.serverB!!, "magazijn-b")
+
+        val response = given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200)
+            .extract().body().asString()
+
+        assertTrue(
+            response.contains("TIMEOUT"),
+            "Verwacht TIMEOUT-event op de geconfigureerde 2s-grens maar stream bevatte: $response",
+        )
+    }
+
+    @Test
+    fun `read-timeout op de REST-client kapt een hangende magazijn-call af (socket-vangnet)`() {
+        // Backstop-pad: de read-timeout (4000ms in profile) moet de socket vrijgeven als een
+        // magazijn-call langer hangt dan de timeout, óók buiten de Mutiny ifNoItem om. We roepen
+        // de client daarom DIRECT aan (geen query-timeout in dit pad) tegen een 6s-delay die de
+        // read-timeout overschrijdt. Bewijst dat MagazijnClientFactory de timeout aandraait.
+        WireMockMagazijnResource.serverA!!.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten"))
+                .willReturn(aResponse().withFixedDelay(6_000).withStatus(200).withBody("""{"berichten":[]}"""))
+        )
+
+        val client = clientFactory.getAllClients()["magazijn-a"]
+
+        assertNotNull(client, "magazijn-a client moet geconfigureerd zijn")
+
+        val startNanos = System.nanoTime()
+
+        val fout = assertThrows(Exception::class.java) {
+            client!!.getBerichten(ontvanger, null)
+        }
+
+        val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
+
+        // Tijdvenster i.p.v. exception-type-match (het concrete type verschilt per client-stack):
+        // de ~4s read-timeout valt binnen [3000, 5500]. Een instant connect-fout (<100ms) of een
+        // geslaagde call op de 6s-delay valt erbuiten, zodat de test alleen groen wordt als juist
+        // de read-timeout vuurde — niet bij een willekeurige andere fout.
+        assertTrue(
+            elapsedMs in 3_000..5_500,
+            "Read-timeout (4s) moet de call afkappen vóór de 6s-delay; duurde ${elapsedMs}ms, fout=${fout.javaClass.simpleName}",
+        )
+    }
+
+    @Test
     fun `client-disconnect tijdens aggregatie stopt de cache-vulling niet`() {
         // De aggregatie loopt bewust door na een client-disconnect zodat de cache alsnog gevuld
         // raakt (een retry wordt dan een cache-hit). Magazijns antwoorden vertraagd (800ms, ruim
-        // onder de per-magazijn-timeout) zodat er een venster is om te disconnecten vóór completion;
+        // onder de 2s query-timeout) zodat er een venster is om te disconnecten vóór completion;
         // daarna pollen we GET /berichten tot de cache gevuld is.
         stubMagazijnSuccessDelayed(WireMockMagazijnResource.serverA!!, "magazijn-a", 800)
         stubMagazijnSuccessDelayed(WireMockMagazijnResource.serverB!!, "magazijn-b", 800)
