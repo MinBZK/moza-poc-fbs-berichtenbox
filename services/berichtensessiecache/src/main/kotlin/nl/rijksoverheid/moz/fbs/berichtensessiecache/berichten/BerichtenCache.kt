@@ -24,7 +24,7 @@ interface BerichtenCache {
     fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
     fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?>
-    fun addBericht(bericht: Bericht): Uni<Void>
+    fun createBericht(bericht: Bericht): Uni<Void>
 
     companion object {
         fun cacheKey(ontvanger: String): String {
@@ -340,7 +340,7 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis updateStatus mislukt voor berichtId=%s", berichtId) }
     }
 
-    override fun addBericht(bericht: Bericht): Uni<Void> {
+    override fun createBericht(bericht: Bericht): Uni<Void> {
         val cacheKey = BerichtenCache.cacheKey(bericht.ontvanger)
         val listKey = listKey(cacheKey)
         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
@@ -359,7 +359,7 @@ class RedisBerichtenCache(
                 .replaceWithVoid()
         }.replaceWithVoid()
             .invoke { _ -> log.debugf("Bericht %s toegevoegd aan cache", bericht.berichtId) }
-            .onFailure().invoke { e -> log.errorf(e, "Redis addBericht mislukt voor berichtId=%s", bericht.berichtId) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis createBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }
 
     companion object {

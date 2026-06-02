@@ -90,7 +90,7 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(updated)
     }
 
-    override fun addBericht(bericht: Bericht): Uni<Void> {
+    override fun createBericht(bericht: Bericht): Uni<Void> {
         val key = BerichtenCache.cacheKey(bericht.ontvanger)
         val listKey = "$key:list"
         val existing = lists[listKey] ?: emptyList()

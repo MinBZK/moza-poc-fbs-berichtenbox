@@ -47,9 +47,9 @@ class BerichtensessiecacheService(
         return berichtenCache.updateStatus(berichtId, ontvanger, status)
     }
 
-    fun addBericht(bericht: Bericht): Uni<Bericht> {
+    fun createBericht(bericht: Bericht): Uni<Bericht> {
         log.debugf("Toevoegen bericht aan cache: berichtId=%s", bericht.berichtId)
-        return berichtenCache.addBericht(bericht).replaceWith(bericht)
+        return berichtenCache.createBericht(bericht).replaceWith(bericht)
     }
 
     /**

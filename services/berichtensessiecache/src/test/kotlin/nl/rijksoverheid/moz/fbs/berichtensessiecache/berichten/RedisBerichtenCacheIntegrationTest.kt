@@ -147,7 +147,7 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `addBericht voegt toe aan bestaande lijst`() {
+    fun `createBericht voegt toe aan bestaande lijst`() {
         val berichten = testBerichten().take(2)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
@@ -159,12 +159,12 @@ class RedisBerichtenCacheIntegrationTest {
             tijdstip = Instant.parse("2026-03-10T14:00:00Z"),
             magazijnId = "magazijn-c",
         )
-        berichtenCache.addBericht(nieuwBericht).await().indefinitely()
+        berichtenCache.createBericht(nieuwBericht).await().indefinitely()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
         assertNotNull(page)
         assertEquals(3, page!!.totalElements)
-        // `addBericht` doet RPUSH (append) — de LRANGE-volgorde geeft nieuwkomers achteraan.
+        // `createBericht` doet RPUSH (append) — de LRANGE-volgorde geeft nieuwkomers achteraan.
         // Positie-check: nieuwBericht zit op index 2 (na de 2 eerder gestoorde berichten).
         val indices = page.berichten.mapIndexed { i, b -> b.berichtId to i }.toMap()
         assertTrue(indices.containsKey(nieuwBericht.berichtId), "nieuwBericht niet in pagina: ${page.berichten.map { it.berichtId }}")

@@ -141,7 +141,7 @@ class BerichtensessiecacheResource(
         name = "toevoegen-bericht",
         processingActivityId = "https://register.example.com/verwerkingen/bericht-toevoegen",
     )
-    override fun addBericht(
+    override fun createBericht(
         xOntvanger: String?,
         berichtInput: BerichtInput,
     ): BerichtResponse {
@@ -179,7 +179,7 @@ class BerichtensessiecacheResource(
         )
 
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.addBericht(bericht)
+            berichtensessiecacheService.createBericht(bericht)
         }
 
         logboekContext.status = StatusCode.OK

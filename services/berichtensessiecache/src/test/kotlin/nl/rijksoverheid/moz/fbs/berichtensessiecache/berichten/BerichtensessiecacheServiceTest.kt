@@ -69,11 +69,11 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `addBericht retourneert het bericht zelf`() {
+    fun `createBericht retourneert het bericht zelf`() {
         val bericht = testBericht()
-        every { berichtenCache.addBericht(bericht) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.createBericht(bericht) } returns Uni.createFrom().voidItem()
 
-        val result = service.addBericht(bericht).await().indefinitely()
+        val result = service.createBericht(bericht).await().indefinitely()
 
         assertNotNull(result)
         assertEquals(bericht.berichtId, result.berichtId)
