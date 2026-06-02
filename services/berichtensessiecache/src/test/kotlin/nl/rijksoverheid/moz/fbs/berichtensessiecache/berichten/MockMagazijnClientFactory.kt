@@ -19,8 +19,6 @@ import java.util.UUID
 class MockMagazijnClientFactory : MagazijnClientFactory(
     MockMagazijnenConfig(),
     profile = "test",
-    connectTimeoutMs = 2000L,
-    readTimeoutMs = 12000L,
 ) {
 
     companion object {

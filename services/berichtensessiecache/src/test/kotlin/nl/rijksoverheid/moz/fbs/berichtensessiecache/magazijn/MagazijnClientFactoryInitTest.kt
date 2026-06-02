@@ -32,7 +32,7 @@ class MagazijnClientFactoryInitTest {
 
     @Test
     fun `init met lege instances faalt met 'Geen magazijnen geconfigureerd'`() {
-        val factory = MagazijnClientFactory(makeConfig(emptyMap()), profile = "test", connectTimeoutMs = 2000L, readTimeoutMs = 12000L)
+        val factory = MagazijnClientFactory(makeConfig(emptyMap()), profile = "test")
 
         val ex = assertThrows<IllegalArgumentException> { factory.init() }
 
@@ -47,8 +47,6 @@ class MagazijnClientFactoryInitTest {
                 mapOf("mag-a" to makeInstance(url = "http://host met spaties/pad", afzenders = listOf("00000001003214345000"))),
             ),
             profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
         )
 
         val ex = assertThrows<IllegalStateException> { factory.init() }
@@ -63,8 +61,6 @@ class MagazijnClientFactoryInitTest {
                 mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = emptyList())),
             ),
             profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
         )
 
         val ex = assertThrows<IllegalArgumentException> { factory.init() }
@@ -79,8 +75,6 @@ class MagazijnClientFactoryInitTest {
                 mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf("12345"))),
             ),
             profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
         )
 
         val ex = assertThrows<IllegalStateException> { factory.init() }
@@ -95,8 +89,6 @@ class MagazijnClientFactoryInitTest {
                 mapOf("mag-a" to makeInstance(url = "http://magazijn-a.prod.local", afzenders = listOf("00000001003214345000"))),
             ),
             profile = "prod",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
         )
 
         val ex = assertThrows<IllegalArgumentException> { factory.init() }
@@ -115,8 +107,6 @@ class MagazijnClientFactoryInitTest {
                 mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf(oinA, oinB))),
             ),
             profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
         )
 
         factory.init()
@@ -138,8 +128,6 @@ class MagazijnClientFactoryInitTest {
                 ),
             ),
             profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
         )
 
         factory.init()
@@ -154,8 +142,6 @@ class MagazijnClientFactoryInitTest {
                 mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf("00000000000000000000"))),
             ),
             profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
         )
 
         val ex = assertThrows<IllegalStateException> { factory.init() }
