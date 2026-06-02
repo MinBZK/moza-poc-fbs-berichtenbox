@@ -24,6 +24,11 @@ info:
   x-api-id: nl.rijksoverheid.moz.fbs.berichtenmagazijn-aanlever
   x-summary: Aanlever-API voor het decentrale FBS berichtenmagazijn
 
+# ADR nlgov:servers-use-https — bewust afgeweken (pas-toe-of-leg-uit): de API wordt
+# achter een TLS-terminerende gateway geserveerd, waardoor de externe https-host per
+# omgeving verschilt. Een absolute `https://host` hier hardcoden zou per omgeving fout
+# zijn; de relatieve base-path is omgeving-onafhankelijk. Een absolute https-server kan
+# bij publicatie per omgeving geïnjecteerd worden.
 servers:
   - url: /api/v1
     description: Versioned API base path
