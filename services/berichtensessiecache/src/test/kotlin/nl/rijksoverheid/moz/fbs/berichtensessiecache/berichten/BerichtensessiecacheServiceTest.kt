@@ -24,7 +24,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `getBerichten retourneert lege pagina bij null cache-result`() {
-        every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger) } returns Uni.createFrom().nullItem()
+        every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger, null) } returns Uni.createFrom().nullItem()
 
         val result = service.getBerichten(0, 20, ontvanger, null, null).await().indefinitely()
 
@@ -37,19 +37,30 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `getBerichten delegeert correct naar cache met afzender`() {
         val expectedPage = BerichtenPage(emptyList(), 0, 20, 0L, 0)
-        every { berichtenCache.getPage(cacheKey, 0, 20, "afzender-123", ontvanger) } returns Uni.createFrom().item(expectedPage)
+        every { berichtenCache.getPage(cacheKey, 0, 20, "afzender-123", ontvanger, null) } returns Uni.createFrom().item(expectedPage)
 
         val result = service.getBerichten(0, 20, ontvanger, "afzender-123", null).await().indefinitely()
 
         assertEquals(expectedPage, result)
-        verify { berichtenCache.getPage(cacheKey, 0, 20, "afzender-123", ontvanger) }
+        verify { berichtenCache.getPage(cacheKey, 0, 20, "afzender-123", ontvanger, null) }
+    }
+
+    @Test
+    fun `getBerichten delegeert map-filter door naar cache`() {
+        val expectedPage = BerichtenPage(emptyList(), 0, 20, 0L, 0)
+        every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger, "werk") } returns Uni.createFrom().item(expectedPage)
+
+        val result = service.getBerichten(0, 20, ontvanger, null, "werk").await().indefinitely()
+
+        assertEquals(expectedPage, result)
+        verify { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger, "werk") }
     }
 
     @Test
     fun `getBerichten retourneert cache-resultaat wanneer aanwezig`() {
         val bericht = testBericht()
         val expectedPage = BerichtenPage(listOf(bericht), 0, 20, 1L, 1)
-        every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger) } returns Uni.createFrom().item(expectedPage)
+        every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger, null) } returns Uni.createFrom().item(expectedPage)
 
         val result = service.getBerichten(0, 20, ontvanger, null, null).await().indefinitely()
 

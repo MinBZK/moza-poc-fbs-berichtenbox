@@ -163,7 +163,7 @@ class RedisBerichtenCache(
     }
 
     override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: String?, map: String?): Uni<BerichtenPage?> {
-        if ((afzender != null || map != null) && ontvanger != null) {
+        if ((!afzender.isNullOrBlank() || !map.isNullOrBlank()) && ontvanger != null) {
             return getPageFiltered(page, pageSize, ontvanger, afzender, map)
         }
 
@@ -207,9 +207,9 @@ class RedisBerichtenCache(
         val query = buildList {
             add("@ontvanger:{${escapeTag(ontvanger)}}")
 
-            if (afzender != null) add("@afzender:{${escapeTag(afzender)}}")
+            if (!afzender.isNullOrBlank()) add("@afzender:{${escapeTag(afzender)}}")
 
-            if (map != null) add("@map:{${escapeTag(map)}}")
+            if (!map.isNullOrBlank()) add("@map:{${escapeTag(map)}}")
         }.joinToString(" ")
 
         val offset = page * pageSize
@@ -235,8 +235,8 @@ class RedisBerichtenCache(
     override fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String?, map: String?): Uni<BerichtenPage> {
         val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger)}}"
         val escapedQ = escapeRedisSearch(q)
-        val afzenderFilter = if (afzender != null) " @afzender:{${escapeTag(afzender)}}" else ""
-        val mapFilter = if (map != null) " @map:{${escapeTag(map)}}" else ""
+        val afzenderFilter = if (!afzender.isNullOrBlank()) " @afzender:{${escapeTag(afzender)}}" else ""
+        val mapFilter = if (!map.isNullOrBlank()) " @map:{${escapeTag(map)}}" else ""
         val query = "$ontvangerFilter (@onderwerp:$escapedQ)$afzenderFilter$mapFilter".trim()
 
         val offset = page * pageSize
