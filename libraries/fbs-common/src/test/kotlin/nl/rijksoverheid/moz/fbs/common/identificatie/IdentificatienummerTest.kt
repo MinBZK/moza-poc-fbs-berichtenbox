@@ -318,7 +318,9 @@ class IdentificatienummerTest {
     // dus matches() weigert hem. Deze tests pinnen dat gedrag: een toekomstige refactor
     // naar find()-semantiek (partial match) zou een waarde mét newline doorlaten en
     // daarmee een log-/header-injectie-vector openen (newline in LDV dataSubjectId of in
-    // de doorgestuurde X-Ontvanger-header naar downstream).
+    // de doorgestuurde X-Ontvanger-header naar downstream). Embedded newlines vallen niet
+    // op het anker maar al op de `[0-9]`-cijferklasse (een `\n` middenin is geen cijfer);
+    // beide rejectie-paden zijn hier afgedekt. CR-only is dezelfde injectieklasse als LF.
 
     @Test
     fun `Bsn met trailing newline wordt geweigerd`() {
@@ -328,6 +330,16 @@ class IdentificatienummerTest {
     @Test
     fun `Bsn met trailing CRLF wordt geweigerd`() {
         assertThrows(DomainValidationException::class.java) { Bsn("999993653\r\n") }
+    }
+
+    @Test
+    fun `Bsn met trailing CR-only wordt geweigerd`() {
+        assertThrows(DomainValidationException::class.java) { Bsn("999993653\r") }
+    }
+
+    @Test
+    fun `Rsin met trailing newline wordt geweigerd`() {
+        assertThrows(DomainValidationException::class.java) { Rsin("111222333\n") }
     }
 
     @Test
@@ -346,6 +358,15 @@ class IdentificatienummerTest {
         // daarmee in logboekContext.dataSubjectId of de doorgestuurde header — belandt.
         assertThrows(DomainValidationException::class.java) {
             Identificatienummer.fromHeader("BSN:999993653\n")
+        }
+    }
+
+    @Test
+    fun `fromHeader met trailing newline in OIN-waarde wordt geweigerd`() {
+        // Pint het type-pad voor OIN apart: split-en-of() routeert per prefix, dus een
+        // toekomstige per-type-branch in fromHeader mag geen enkel type-pad laten lekken.
+        assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("OIN:00000001003214345000\n")
         }
     }
 
