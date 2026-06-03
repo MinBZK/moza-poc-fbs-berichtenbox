@@ -3,7 +3,8 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.opentelemetry.api.trace.StatusCode
 import io.smallrye.common.annotation.Blocking
 import io.smallrye.mutiny.Multi
-import jakarta.inject.Inject
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Size
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.HeaderParam
 import jakarta.ws.rs.Path
@@ -13,7 +14,10 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.RestStreamElementType
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Aparte JAX-RS resource voor het SSE ophaal-endpoint.
@@ -25,9 +29,9 @@ import org.jboss.resteasy.reactive.RestStreamElementType
 @Path("/api/v1/berichten/_ophalen")
 class BerichtenOphalenResource(
     private val service: BerichtensessiecacheService,
+    private val logboekContext: LogboekContext,
 ) {
-    @Inject
-    lateinit var logboekContext: LogboekContext
+    private val log = Logger.getLogger(BerichtenOphalenResource::class.java)
 
     @GET
     @Blocking
@@ -37,21 +41,35 @@ class BerichtenOphalenResource(
     )
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @RestStreamElementType(MediaType.APPLICATION_JSON)
-    fun ophalenBerichten(
-        @HeaderParam("X-Ontvanger") ontvanger: String?,
+    fun haalBerichtenOp(
+        // Hand-rolled SSE-endpoint krijgt geen Bean-Validation via de gegenereerde JAX-RS
+        // interface; @Pattern + @Size hier spiegelen de OntvangerHeader-parameter uit de
+        // OpenAPI-spec zodat input-validatie aan de rand consistent is met de gegenereerde
+        // endpoints. Voorkomt dat attacker-controlled prefix doorlekt naar Problem.detail
+        // via DomainValidationException.
+        @HeaderParam("X-Ontvanger")
+        @Pattern(regexp = "^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$")
+        @Size(min = 12, max = 24)
+        ontvanger: String?,
     ): Multi<MagazijnEvent> {
         if (ontvanger.isNullOrBlank()) {
             throw WebApplicationException("Header 'X-Ontvanger' is verplicht.", Response.Status.BAD_REQUEST)
         }
 
-        logboekContext.dataSubjectId = ontvanger
+        val ontvangerId = Identificatienummer.fromHeader(ontvanger)
+
+        logboekContext.dataSubjectId = ontvangerId.waarde
         logboekContext.dataSubjectType = "ontvanger"
 
-        val aggregation = service.ophalenBerichten(ontvanger)
+        val aggregation = service.haalBerichtenOp(ontvangerId)
 
         // SSE-stream is een observer: stuurt events door zolang de client verbonden is.
         // Client disconnect stopt alleen de emitter, de aggregatie loopt onafhankelijk door.
         return Multi.createFrom().emitter { emitter ->
+            // Markeert of de stream normaal eindigde (completion of fout). Blijft false bij
+            // client-disconnect vóór het finale event, zodat onTermination dat kan loggen.
+            val streamAfgerond = AtomicBoolean(false)
+
             aggregation.subscribe().with(
                 { event ->
                     // Zet logboek status op basis van het finale event
@@ -65,11 +83,41 @@ class BerichtenOphalenResource(
                     if (!emitter.isCancelled) emitter.emit(event)
                 },
                 { error ->
+                    // Async-aggregatie-fouten ná SSE-stream-open hebben geen JAX-RS-mapper-
+                    // pad meer (response-headers zijn al verzonden); zonder log hier verdwijnt
+                    // de fout uit server-side observability. ontvanger.type i.p.v. waarde
+                    // (BSN/RSIN PII; type-context volstaat voor incident-triage). Géén
+                    // stacktrace meelgeven: cause-chain van lagere clients kan upstream-URL
+                    // met BSN bevatten (precedent: ProfielServiceFoutExceptionMapper).
+                    streamAfgerond.set(true)
                     logboekContext.status = StatusCode.ERROR
+                    log.errorf(
+                        "SSE-stream gefaald na open (ontvanger.type=%s, cause=%s, msg-class=%s)",
+                        ontvangerId.type,
+                        error.cause?.javaClass?.simpleName ?: "geen",
+                        error.javaClass.simpleName,
+                    )
                     if (!emitter.isCancelled) emitter.fail(error)
                 },
-                { if (!emitter.isCancelled) emitter.complete() },
+                {
+                    streamAfgerond.set(true)
+                    if (!emitter.isCancelled) emitter.complete()
+                },
             )
+
+            emitter.onTermination {
+                // De aggregatie (magazijn-calls + cache-writes) loopt bewust door na een
+                // client-disconnect zodat de cache alsnog gevuld raakt; we cancelen de
+                // subscription dus NIET. Wel loggen we een vroegtijdige terminatie (client
+                // weg vóór het finale event) zodat afgebroken ophaalsessies zichtbaar zijn
+                // in observability i.p.v. stil te verdwijnen. ontvanger.type, geen waarde (PII).
+                if (!streamAfgerond.get()) {
+                    log.infof(
+                        "SSE-client verbroken vóór completion (ontvanger.type=%s); aggregatie loopt door om cache te vullen",
+                        ontvangerId.type,
+                    )
+                }
+            }
         }
     }
 }

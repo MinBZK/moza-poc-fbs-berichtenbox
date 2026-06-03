@@ -1,6 +1,7 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
+package nl.rijksoverheid.moz.fbs.common.profiel
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.core.JsonProcessingException
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
@@ -9,15 +10,16 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.MediaType
 import org.eclipse.microprofile.faulttolerance.Retry
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
+import java.net.UnknownHostException
 
 /**
  * REST-client naar de MOZA Profiel Service (zie github.com/MinBZK/moza-profiel-service).
- * We halen het volledige profiel van de ontvanger op en bepalen client-side of er een
- * voorkeur "OntvangViaBerichtenbox" bestaat met een scope die naar de afzender wijst.
+ * Gedeelde dependency voor berichtenmagazijn (validatie-flow) en berichtensessiecache
+ * (MagazijnResolver-flow); één Profiel-upstream betekent één client-definitie.
  *
  * De profiel-service zet identificatie in pad-parameters — afwijkend van onze interne
  * PII-richtlijn ("BSN nooit in URL"). We zijn hier gebonden aan het externe contract;
- * binnen de berichtenmagazijn-service zelf gaat BSN niet in URL.
+ * binnen onze services zelf gaat BSN niet in URL.
  *
  * DTO's zijn een minimale subset van de upstream-schema's; `@JsonIgnoreProperties`
  * negeert velden die we niet gebruiken (createdAt, lastUpdated, contactgegevens, etc.)
@@ -36,11 +38,27 @@ interface ProfielServiceClient {
      * elke onbekende ontvanger 3x worden opgevraagd (retry-storm) en zou een
      * 401/403 (auth-misser) onnodig pogingen veroorzaken op een upstream die
      * een rate-limit of token-lock kan triggeren.
+     *
+     * `abortOn`: deterministische fouten waar retry geen waarde toevoegt en alleen
+     * upstream-druk genereert:
+     * - `JsonProcessingException` — parse-fout = contract-drift, herhaal levert
+     *   dezelfde fout en verspilt resources.
+     * - `UnknownHostException` — DNS-miss = config-fout (verkeerde hostname of
+     *   ontbrekende DNS-record); retry herhaalt dezelfde DNS-lookup en vertraagt
+     *   de 503-response zonder zinvolle herstel-kans.
      */
     @GET
     @Path("/api/profielservice/v1/{identificatieType}/{identificatieNummer}")
     @Produces(MediaType.APPLICATION_JSON)
-    @Retry(maxRetries = 2, delay = 200, retryOn = [ProcessingException::class])
+    // TODO(test): regressie-test voor UnknownHostException-abort vereist DNS-niveau
+    // mock (WireMock kan UHE niet gooien — WireMock zelf IS bereikbaar). Mogelijk via
+    // %test-profile override naar `.invalid`-TLD + count-assert op effective-1-call.
+    @Retry(
+        maxRetries = 2,
+        delay = 200,
+        retryOn = [ProcessingException::class],
+        abortOn = [JsonProcessingException::class, UnknownHostException::class],
+    )
     fun getPartij(
         @PathParam("identificatieType") identificatieType: String,
         @PathParam("identificatieNummer") identificatieNummer: String,
@@ -49,7 +67,6 @@ interface ProfielServiceClient {
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class PartijResponse(
-    val partijId: Long? = null,
     val voorkeuren: List<VoorkeurResponse> = emptyList(),
 )
 

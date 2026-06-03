@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -53,6 +54,11 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().voidItem()
     }
 
+    override fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
+        statuses["$key:status"] = status
+        return Uni.createFrom().voidItem()
+    }
+
     override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {
         val lockAcquired = locks.add("$key:lock")
         if (lockAcquired) {
@@ -65,7 +71,7 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(statuses["$key:status"])
     }
 
-    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
+    override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
         val key = BerichtenCache.cacheKey(ontvanger)
         val berichten = lists["$key:list"] ?: emptyList()
         val gefilterd = berichten.filter {
@@ -77,21 +83,21 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(BerichtenPage(slice, page, pageSize, gefilterd.size.toLong(), totalPages))
     }
 
-    override fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?> {
+    override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
         val bericht = byId[berichtId]
-        return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
+        return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger.waarde) bericht else null)
     }
 
-    override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+    override fun updateStatus(berichtId: UUID, ontvanger: Identificatienummer, status: String): Uni<Bericht?> {
         val bericht = byId[berichtId]
-        if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
+        if (bericht == null || bericht.ontvanger != ontvanger.waarde) return Uni.createFrom().nullItem()
         val updated = bericht.copy(status = status)
         byId[berichtId] = updated
         return Uni.createFrom().item(updated)
     }
 
-    override fun addBericht(bericht: Bericht): Uni<Void> {
-        val key = BerichtenCache.cacheKey(bericht.ontvanger)
+    override fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
+        val key = BerichtenCache.cacheKey(ontvanger)
         val listKey = "$key:list"
         val existing = lists[listKey] ?: emptyList()
         lists[listKey] = (existing + bericht).sortedByDescending { it.tijdstip }
@@ -99,7 +105,7 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().voidItem()
     }
 
-    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: String?): Uni<BerichtenPage?> {
+    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?): Uni<BerichtenPage?> {
         val allBerichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()
         val berichten = if (afzender != null) allBerichten.filter { it.afzender == afzender } else allBerichten
         if (afzender != null && berichten.isEmpty()) {
