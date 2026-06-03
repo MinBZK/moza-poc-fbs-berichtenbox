@@ -30,19 +30,26 @@ jobs:
       # (detekt.yml maxIssues) laat de stap falen bij nieuwe complexiteit boven budget.
       - name: Run detekt
         run: ./mvnw -B detekt:check
-      # SARIF ook uploaden als detekt faalt, zodat bevindingen zichtbaar blijven in het
-      # code-scanning-dashboard.
-      - name: Bundel SARIF-rapporten
-        if: always()
-        run: |
-          mkdir -p sarif
-          for m in libraries/fbs-common services/berichtensessiecache services/berichtenmagazijn; do
-            f="$m/target/detekt.sarif"
-            if [ -f "$f" ]; then cp "$f" "sarif/${m//\//-}.sarif"; fi
-          done
-      - name: Upload SARIF naar code scanning
-        if: always()
+      # SARIF ook uploaden als detekt faalt (bv. budget-overschrijding), zodat bevindingen
+      # zichtbaar blijven in het code-scanning-dashboard. Per module een aparte upload met
+      # eigen `category`: code scanning weigert sinds 2025 meerdere SARIF-runs onder dezelfde
+      # category. De hashFiles-guard slaat upload over als een module geen rapport opleverde
+      # (bv. wanneer detekt al op dependency-resolutie faalt).
+      - name: Upload SARIF — fbs-common
+        if: ${{ always() && hashFiles('libraries/fbs-common/target/detekt.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
-          sarif_file: sarif
-          category: detekt
+          sarif_file: libraries/fbs-common/target/detekt.sarif
+          category: detekt-fbs-common
+      - name: Upload SARIF — berichtensessiecache
+        if: ${{ always() && hashFiles('services/berichtensessiecache/target/detekt.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          sarif_file: services/berichtensessiecache/target/detekt.sarif
+          category: detekt-berichtensessiecache
+      - name: Upload SARIF — berichtenmagazijn
+        if: ${{ always() && hashFiles('services/berichtenmagazijn/target/detekt.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          sarif_file: services/berichtenmagazijn/target/detekt.sarif
+          category: detekt-berichtenmagazijn
