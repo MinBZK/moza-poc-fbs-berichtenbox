@@ -75,13 +75,19 @@ class BerichtTest {
     }
 
     @Test
-    fun `lege mapnaam wordt geweigerd door data class`() {
-        // Lege mapnaam is een universele invariant en blijft in Bericht.init. Max-lengte
-        // is configureerbaar en wordt door BerichtValidator afgedwongen (zie BerichtValidatorTest).
+    fun `lege mapnaam wordt geweigerd`() {
         val ex = assertThrows<IllegalArgumentException> {
             geldigBericht.copy(map = "")
         }
         assertEquals("mapnaam mag niet leeg zijn als hij gezet is", ex.message)
+    }
+
+    @Test
+    fun `te lange mapnaam wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            geldigBericht.copy(map = "x".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
+        }
+        assertEquals("mapnaam mag max ${Bericht.MAX_MAPNAAM_LENGTE} tekens zijn", ex.message)
     }
 
     @Test

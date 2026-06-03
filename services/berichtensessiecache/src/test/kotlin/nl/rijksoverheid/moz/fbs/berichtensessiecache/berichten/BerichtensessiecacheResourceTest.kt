@@ -728,9 +728,9 @@ class BerichtensessiecacheResourceTest {
     }
 
     @Test
-    fun `PATCH met te lange map retourneert 400`() {
-        // Bean Validation (@Size(max=64) op de DTO-getter, geactiveerd via @Valid in de
-        // gegenereerde JAX-RS interface) vangt dit af vóór de resource-body draait.
+    fun `PATCH met te lange mapnaam retourneert 400`() {
+        // Bean Validation (@Size(max=…) op de DTO-getter uit de spec, geactiveerd via @Valid
+        // in de gegenereerde JAX-RS interface) vangt dit af vóór de resource-body draait.
         val ontvanger = "BSN:999993653"
 
         given()
@@ -738,7 +738,7 @@ class BerichtensessiecacheResourceTest {
             .`when`().get("/api/v1/berichten/_ophalen")
             .then().statusCode(200)
 
-        val teLang = "x".repeat(65)
+        val teLang = "x".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1)
         given()
             .header("X-Ontvanger", ontvanger)
             .contentType("application/merge-patch+json")

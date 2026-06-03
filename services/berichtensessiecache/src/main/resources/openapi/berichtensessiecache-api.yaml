@@ -506,7 +506,7 @@ components:
         map:
           type: string
           minLength: 1
-          maxLength: 64
+          maxLength: 128
         magazijnId:
           type: string
         aantalBijlagen:
@@ -558,7 +558,7 @@ components:
         map:
           type: string
           minLength: 1
-          maxLength: 64
+          maxLength: 128
           description: Map waarin het bericht is geplaatst door de ontvanger.
         status:
           $ref: '#/components/schemas/BerichtStatus'
@@ -579,7 +579,7 @@ components:
         map:
           type: string
           minLength: 1
-          maxLength: 64
+          maxLength: 128
           description: Nieuwe map waarin het bericht geplaatst moet worden.
 
     BijlageSamenvatting:
@@ -650,7 +650,7 @@ components:
         map:
           type: string
           minLength: 1
-          maxLength: 64
+          maxLength: 128
           description: Map waarin het bericht is geplaatst door de ontvanger.
 
     Problem:

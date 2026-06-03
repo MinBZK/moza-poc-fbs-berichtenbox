@@ -43,7 +43,7 @@ internal class BerichtStatusEntity {
     @Column(nullable = false)
     var gelezen: Boolean = false
 
-    @Column(length = BerichtStatus.MAX_MAP_LENGTE)
+    @Column(length = BerichtStatus.MAX_MAPNAAM_LENGTE)
     var map: String? = null
 
     @Column(name = "gewijzigd_op", nullable = false)

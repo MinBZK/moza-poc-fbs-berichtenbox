@@ -378,7 +378,7 @@ components:
         Ontbrekend veld én `null` worden beide behandeld als "niet wijzigen".
       properties:
         status: { $ref: '#/components/schemas/BerichtStatus' }
-        map: { type: string, minLength: 1, maxLength: 64 }
+        map: { type: string, minLength: 1, maxLength: 128 }
       minProperties: 1
 
     BerichtStatus:

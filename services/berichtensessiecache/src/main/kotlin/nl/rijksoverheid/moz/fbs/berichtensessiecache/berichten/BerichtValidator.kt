@@ -32,12 +32,6 @@ class BerichtValidator(
             }
         }
 
-        bericht.map?.let { mapnaam ->
-            require(mapnaam.length <= limieten.maxMapnaamLengte()) {
-                "mapnaam mag maximaal ${limieten.maxMapnaamLengte()} tekens zijn"
-            }
-        }
-
         return bericht
     }
 

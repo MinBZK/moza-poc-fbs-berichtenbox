@@ -539,7 +539,7 @@ components:
         map:
           type: string
           minLength: 1
-          maxLength: 64
+          maxLength: 128
           description: Optioneel map-label gekozen door de ontvanger
           example: archief
         gewijzigdOp:
@@ -567,7 +567,7 @@ components:
         map:
           type: string
           minLength: 1
-          maxLength: 64
+          maxLength: 128
           description: Verplaats naar deze map
           example: archief
 

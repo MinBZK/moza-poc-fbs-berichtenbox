@@ -47,10 +47,17 @@ data class Bericht(
         // veld-aanwezigheid stabiel is — alleen de waarde kan leeg-string zijn.
         require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
         require(aantalBijlagen >= 0) { "aantalBijlagen mag niet negatief zijn" }
-        // Mapnaam mag niet leeg zijn als hij gezet is; max-lengte is configureerbaar en staat in
-        // BerichtLimieten (gevalideerd door BerichtValidator). Splitsing: leegcheck is een
-        // universele invariant, max-lengte is een omgevings-afhankelijke defensieve grens.
-        map?.let { require(it.isNotBlank()) { "mapnaam mag niet leeg zijn als hij gezet is" } }
+        map?.let {
+            require(it.isNotBlank()) { "mapnaam mag niet leeg zijn als hij gezet is" }
+            require(it.length <= MAX_MAPNAAM_LENGTE) { "mapnaam mag max $MAX_MAPNAAM_LENGTE tekens zijn" }
+        }
+    }
+
+    companion object {
+        // Gespiegeld op de magazijn-DB-kolom `bericht_status.map VARCHAR(128)` — een sessiecache-
+        // entry met langere mapnaam zou de magazijn-write later sowieso laten falen. Constant
+        // (niet configureerbaar) omdat de DB-grens hier bron van waarheid is.
+        const val MAX_MAPNAAM_LENGTE = 128
     }
 }
 

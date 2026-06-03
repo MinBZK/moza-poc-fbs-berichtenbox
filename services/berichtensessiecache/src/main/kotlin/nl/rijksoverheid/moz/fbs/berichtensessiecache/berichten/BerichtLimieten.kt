@@ -13,5 +13,4 @@ import io.smallrye.config.ConfigMapping
 interface BerichtLimieten {
     fun maxBijlagen(): Int
     fun maxBijlageNaamLengte(): Int
-    fun maxMapnaamLengte(): Int
 }
