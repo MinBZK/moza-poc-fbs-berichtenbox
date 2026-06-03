@@ -279,7 +279,7 @@ class ServiceCoverageTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(200)
 
@@ -303,7 +303,7 @@ class ServiceCoverageTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"ongelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(200)
 
@@ -324,7 +324,7 @@ class ServiceCoverageTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"map":"archief"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(200)
 
@@ -488,29 +488,29 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `PATCH met onbekend magazijnId uit cache geeft 502`() {
+    fun `PATCH met onbekende magazijnId-query geeft 502 zonder magazijn-call`() {
+        // MagazijnRouter.forMagazijn gooit 502 als de id niet in `magazijnen.urls`
+        // staat — infrastructuur-mismatch, geen client-fout (4xx).
         val id = UUID.randomUUID()
-        stubBerichtLookup(id, magazijnId = "magazijn-onbekend")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-onbekend")
             .then()
             .statusCode(502)
     }
 
     @Test
-    fun `DELETE met onbekend magazijnId uit cache geeft 502`() {
+    fun `DELETE met onbekende magazijnId-query geeft 502 zonder magazijn-call`() {
         val id = UUID.randomUUID()
-        stubBerichtLookup(id, magazijnId = "magazijn-onbekend")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id")
+            .delete("/api/v1/berichten/$id?magazijnId=magazijn-onbekend")
             .then()
             .statusCode(502)
     }

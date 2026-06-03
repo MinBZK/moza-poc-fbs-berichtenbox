@@ -18,13 +18,12 @@ import java.util.UUID
  * signaleren. "Cache-faal" = transport-storing (timeout, connect-fout, 5xx); een 4xx
  * duidt op een contract-bug en gaat onveranderd door zonder invalidatie.
  *
- * Elke write doet eerst een sessiecache-lookup voor het bron-`magazijnId`: de cache
- * is bron-van-waarheid voor herkomst, want een client-gegeven id zou een schrijf-vector
- * naar een vreemd magazijn zijn. Cache-miss → 404 (client haalt eerst opnieuw op; de
- * 60s sliding TTL dekt interactieve flows). Transport-fout op de lookup → 502 (nog niets
- * geschreven). Idempotent op het magazijn, behalve: na een geslaagde DELETE geeft een
- * herhaalde call 404 omdat de lookup het magazijnId niet meer vindt; PATCH heeft dit
- * niet, want die werkt de cache-entry bij i.p.v. te verwijderen.
+ * De client geeft de `magazijnId` mee (uit de GET-response, `Bericht.magazijnId` of
+ * `BerichtSamenvatting.magazijnId`). Daarmee hoeven we het bron-magazijn niet meer
+ * uit de cache te halen vóór de write, en is de write-flow onafhankelijk van de
+ * cache-state — een verlopen cache leidt niet langer tot een 404 op PATCH/DELETE.
+ * Een onbekende of foute `magazijnId` wordt door het magazijn afgehandeld (404/403);
+ * een `magazijnId` die niet in de config staat geeft 502 via [MagazijnRouter].
  */
 @ApplicationScoped
 class BerichtBeheerService(
@@ -32,8 +31,8 @@ class BerichtBeheerService(
     private val magazijnRouter: MagazijnRouter,
 ) {
 
-    fun patch(ontvanger: String, berichtId: UUID, patch: BerichtPatch): Bericht {
-        val magazijn = resolveMagazijn(ontvanger, berichtId)
+    fun patch(ontvanger: String, berichtId: UUID, magazijnId: String, patch: BerichtPatch): Bericht {
+        val magazijn = magazijnRouter.forMagazijn(magazijnId)
 
         mapUpstreamFout(log, "magazijn-PATCH") {
             magazijn.patchBericht(ontvanger, berichtId, UitvraagDtoMapper.toMagazijnPatch(patch))
@@ -65,8 +64,8 @@ class BerichtBeheerService(
         }
     }
 
-    fun verwijder(ontvanger: String, berichtId: UUID) {
-        val magazijn = resolveMagazijn(ontvanger, berichtId)
+    fun verwijder(ontvanger: String, berichtId: UUID, magazijnId: String) {
+        val magazijn = magazijnRouter.forMagazijn(magazijnId)
 
         mapUpstreamFout(log, "magazijn-DELETE") {
             magazijn.verwijderBericht(ontvanger, berichtId)
@@ -96,16 +95,6 @@ class BerichtBeheerService(
             invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
             throw badGateway()
         }
-    }
-
-    private fun resolveMagazijn(ontvanger: String, berichtId: UUID): MagazijnClient {
-        // Cache-lookup vóór de write bepaalt het bron-magazijn. Transport-fout/5xx
-        // → 502 (er is nog niets geschreven); 4xx (incl. 404 cache-miss) propageert.
-        val bericht = mapUpstreamFout(log, "cache-lookup vóór magazijn-write (berichtId=$berichtId)") {
-            sessiecache.bericht(ontvanger, berichtId)
-        }
-
-        return magazijnRouter.forMagazijn(vereisMagazijnId(bericht, berichtId, log))
     }
 
     private fun invalideerCacheNaMagazijnWrite(ontvanger: String, berichtId: UUID) {

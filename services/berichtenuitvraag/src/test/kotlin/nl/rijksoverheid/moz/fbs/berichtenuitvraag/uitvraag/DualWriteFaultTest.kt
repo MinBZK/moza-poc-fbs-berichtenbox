@@ -24,19 +24,8 @@ class DualWriteFaultTest {
     fun resetStubs() {
         WireMockBackendsResource.sessiecache?.resetAll()
         WireMockBackendsResource.magazijn?.resetAll()
-        // Default-lookup voor multi-magazijn routering: BerichtBeheerService doet
-        // vóór elke patch/verwijder een sessiecache.bericht() om de magazijnId te
-        // bepalen. Wildcard-stub levert `magazijnId="magazijn-a"` voor elk bericht;
-        // tests die de cache-miss-tak willen raken kunnen dit overschrijven.
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathMatching("/api/v1/berichten/[0-9a-fA-F-]{36}"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"00000000-0000-0000-0000-000000000000","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""),
-                ),
-        )
+        // Geen default-lookup-stub meer: BerichtBeheerService raadpleegt de sessiecache
+        // niet vóór de write (de client geeft `magazijnId` mee als query-parameter).
     }
 
     // ───── PATCH ─────
@@ -60,7 +49,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(200)
 
@@ -83,7 +72,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
@@ -116,7 +105,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
@@ -151,7 +140,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
@@ -175,7 +164,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id")
+            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(204)
     }
@@ -191,7 +180,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id")
+            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
@@ -220,7 +209,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(404)
 
@@ -243,7 +232,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id")
+            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(404)
 
@@ -275,7 +264,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
@@ -306,77 +295,11 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id")
+            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
         WireMockBackendsResource.sessiecache!!.verify(2, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
-    }
-
-    // ───── lookup-fault vóór write ─────
-
-    @Test
-    fun `PATCH cache-lookup 5xx vóór write geeft 502 en raakt magazijn niet aan`() {
-        // resolveMagazijn doet eerst een sessiecache.bericht()-lookup. Een 5xx
-        // daarop is een transport-fout: er is nog niets naar het magazijn
-        // geschreven, dus 502 en de magazijn-PATCH mag niet plaatsvinden.
-        val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(500)),
-        )
-
-        given()
-            .header("X-Ontvanger", "BSN:999990019")
-            .header("Content-Type", "application/merge-patch+json")
-            .body("""{"status":"gelezen"}""")
-            .`when`()
-            .patch("/api/v1/berichten/$id")
-            .then()
-            .statusCode(502)
-
-        WireMockBackendsResource.magazijn!!.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
-    }
-
-    @Test
-    fun `DELETE cache-lookup transport-fout vóór write geeft 502 en raakt magazijn niet aan`() {
-        // Connection-reset op de lookup = ProcessingException → 502, vóór de write.
-        val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
-        )
-
-        given()
-            .header("X-Ontvanger", "BSN:999990019")
-            .`when`()
-            .delete("/api/v1/berichten/$id")
-            .then()
-            .statusCode(502)
-
-        WireMockBackendsResource.magazijn!!.verify(0, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
-    }
-
-    @Test
-    fun `PATCH cache-lookup 404 vóór write propageert 404 (cache-miss)`() {
-        // Cache-miss is geen transport-fout: de 404 propageert 1-op-1 zodat de
-        // client het bericht eerst opnieuw ophaalt. Geen magazijn-write.
-        val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(404)),
-        )
-
-        given()
-            .header("X-Ontvanger", "BSN:999990019")
-            .header("Content-Type", "application/merge-patch+json")
-            .body("""{"status":"gelezen"}""")
-            .`when`()
-            .patch("/api/v1/berichten/$id")
-            .then()
-            .statusCode(404)
-
-        WireMockBackendsResource.magazijn!!.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
 
     // ───── compensatie-invalidate faalt ─────
@@ -406,7 +329,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
@@ -439,7 +362,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id")
+            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
@@ -471,63 +394,11 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id")
+            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(502)
 
         WireMockBackendsResource.sessiecache!!.verify(2, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
 
-    // ───── routering-lookup zonder magazijnId (review T-H1) ─────
-
-    @Test
-    fun `PATCH met cache-bericht zonder magazijnId geeft 502 en raakt magazijn niet aan`() {
-        // vereisMagazijnId-tak: de sessiecache-lookup vóór de write levert een bericht
-        // zónder magazijnId (upstream-contractbreuk). resolveMagazijn kan dan niet routeren
-        // → 502, en er mag niets naar het magazijn geschreven worden.
-        val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
-                ),
-        )
-
-        given()
-            .header("X-Ontvanger", "BSN:999990019")
-            .header("Content-Type", "application/merge-patch+json")
-            .body("""{"status":"gelezen"}""")
-            .`when`()
-            .patch("/api/v1/berichten/$id")
-            .then()
-            .statusCode(502)
-
-        WireMockBackendsResource.magazijn!!.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
-    }
-
-    @Test
-    fun `DELETE met cache-bericht zonder magazijnId geeft 502 en raakt magazijn niet aan`() {
-        val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
-                ),
-        )
-
-        given()
-            .header("X-Ontvanger", "BSN:999990019")
-            .`when`()
-            .delete("/api/v1/berichten/$id")
-            .then()
-            .statusCode(502)
-
-        WireMockBackendsResource.magazijn!!.verify(0, deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
-    }
 }

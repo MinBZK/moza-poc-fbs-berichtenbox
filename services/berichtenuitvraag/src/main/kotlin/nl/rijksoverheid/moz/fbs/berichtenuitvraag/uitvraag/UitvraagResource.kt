@@ -66,17 +66,17 @@ class UitvraagResource(
     }
 
     @Logboek(name = "uitvraag-patch", processingActivityId = ProcessingActivities.UITVRAAG_BEHEER)
-    override fun updateBerichtMetadata(berichtId: UUID, xOntvanger: String, berichtPatch: BerichtPatch): Bericht {
+    override fun updateBerichtMetadata(berichtId: UUID, xOntvanger: String, magazijnId: String, berichtPatch: BerichtPatch): Bericht {
         registreerLdvSubject(xOntvanger)
 
-        return beheerService.patch(xOntvanger, berichtId, berichtPatch)
+        return beheerService.patch(xOntvanger, berichtId, magazijnId, berichtPatch)
     }
 
     @Logboek(name = "uitvraag-verwijder", processingActivityId = ProcessingActivities.UITVRAAG_BEHEER)
-    override fun verwijderBericht(berichtId: UUID, xOntvanger: String) {
+    override fun verwijderBericht(berichtId: UUID, xOntvanger: String, magazijnId: String) {
         registreerLdvSubject(xOntvanger)
 
-        beheerService.verwijder(xOntvanger, berichtId)
+        beheerService.verwijder(xOntvanger, berichtId, magazijnId)
     }
 
     private fun registreerLdvSubject(xOntvanger: String) =

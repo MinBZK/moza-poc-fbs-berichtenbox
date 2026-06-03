@@ -147,6 +147,7 @@ paths:
       operationId: updateBerichtMetadata
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/MagazijnIdQuery'
       requestBody:
         required: true
         content:
@@ -176,6 +177,7 @@ paths:
       operationId: verwijderBericht
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/MagazijnIdQuery'
       responses:
         '204':
           description: Verwijderd
@@ -240,6 +242,17 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    MagazijnIdQuery:
+      name: magazijnId
+      in: query
+      required: true
+      schema: { type: string, minLength: 1 }
+      description: |
+        Identifier van het magazijn waarin het bericht is opgeslagen. Te halen
+        uit het `magazijnId`-veld van de GET-response (lijst of detail). De
+        client geeft het mee zodat de uitvraag-service geen sessiecache-lookup
+        nodig heeft om het bron-magazijn te bepalen; een onbekende of foute
+        waarde wordt door het magazijn afgehandeld (404/403).
 
   headers:
     API-Version:

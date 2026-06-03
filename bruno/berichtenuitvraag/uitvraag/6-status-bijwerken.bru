@@ -5,9 +5,13 @@ meta {
 }
 
 patch {
-  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}
+  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}?magazijnId={{magazijnId}}
   body: json
   auth: none
+}
+
+params:query {
+  magazijnId: {{magazijnId}}
 }
 
 headers {

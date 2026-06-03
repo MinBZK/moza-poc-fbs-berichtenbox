@@ -5,8 +5,12 @@ meta {
 }
 
 delete {
-  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}
+  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}?magazijnId={{magazijnId}}
   auth: none
+}
+
+params:query {
+  magazijnId: {{magazijnId}}
 }
 
 headers {

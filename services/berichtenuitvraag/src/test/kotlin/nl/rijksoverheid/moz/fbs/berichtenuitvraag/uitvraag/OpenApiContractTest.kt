@@ -157,7 +157,7 @@ class OpenApiContractTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id")
+            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(200)
     }
@@ -178,7 +178,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .delete("/api/v1/berichten/$id")
+            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
             .then()
             .statusCode(204)
     }

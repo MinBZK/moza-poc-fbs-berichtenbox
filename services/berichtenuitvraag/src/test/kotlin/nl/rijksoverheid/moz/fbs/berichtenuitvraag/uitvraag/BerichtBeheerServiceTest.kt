@@ -29,16 +29,11 @@ class BerichtBeheerServiceTest {
 
     private val id: UUID = UUID.randomUUID()
     private val ontvanger = "BSN:999990019"
+    private val magazijnId = "magazijn-a"
     private val patch = BerichtPatch().apply { status = BerichtStatus.GELEZEN }
     private val updated = Bericht().apply {
         berichtId = id
-        magazijnId = "magazijn-a"
-    }
-
-    init {
-        // Default-stub: lookup levert een bericht met `magazijnId=magazijn-a`;
-        // tests die een ander pad nodig hebben (cache-miss → 404) overrulen deze.
-        every { sessiecache.bericht(any(), id) } returns updated
+        this.magazijnId = "magazijn-a"
     }
 
     @Test
@@ -46,7 +41,7 @@ class BerichtBeheerServiceTest {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } returns updated
 
-        val result = service.patch(ontvanger, id, patch)
+        val result = service.patch(ontvanger, id, magazijnId, patch)
 
         assertEquals(id, result.berichtId)
         verifyOrder {
@@ -63,7 +58,7 @@ class BerichtBeheerServiceTest {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } returns updated
 
-        service.patch(ontvanger, id, ongelezenPatch)
+        service.patch(ontvanger, id, magazijnId, ongelezenPatch)
 
         verify { magazijn.patchBericht(ontvanger, id, UitvraagDtoMapper.MagazijnPatch(gelezen = false, map = null)) }
     }
@@ -73,7 +68,7 @@ class BerichtBeheerServiceTest {
         every { magazijn.patchBericht(any(), any(), any()) } throws InternalServerErrorException("magazijn-down")
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.patch(ontvanger, id, patch)
+            service.patch(ontvanger, id, magazijnId, patch)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify(exactly = 0) { sessiecache.patchBericht(any(), any(), any()) }
@@ -86,7 +81,7 @@ class BerichtBeheerServiceTest {
         every { sessiecache.verwijderBericht(any(), any()) } returns Unit
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.patch(ontvanger, id, patch)
+            service.patch(ontvanger, id, magazijnId, patch)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify { sessiecache.verwijderBericht(ontvanger, id) }
@@ -99,7 +94,7 @@ class BerichtBeheerServiceTest {
         every { sessiecache.verwijderBericht(any(), any()) } throws InternalServerErrorException("ook-down")
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.patch(ontvanger, id, patch)
+            service.patch(ontvanger, id, magazijnId, patch)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
     }
@@ -109,7 +104,7 @@ class BerichtBeheerServiceTest {
         every { magazijn.verwijderBericht(any(), any()) } returns Unit
         every { sessiecache.verwijderBericht(any(), any()) } returns Unit
 
-        service.verwijder(ontvanger, id)
+        service.verwijder(ontvanger, id, magazijnId)
 
         verifyOrder {
             magazijn.verwijderBericht(ontvanger, id)
@@ -122,7 +117,7 @@ class BerichtBeheerServiceTest {
         every { magazijn.verwijderBericht(any(), any()) } throws InternalServerErrorException("magazijn-down")
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.verwijder(ontvanger, id)
+            service.verwijder(ontvanger, id, magazijnId)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify(exactly = 0) { sessiecache.verwijderBericht(any(), any()) }
@@ -135,7 +130,7 @@ class BerichtBeheerServiceTest {
         every { sessiecache.verwijderBericht(any(), any()) } throws InternalServerErrorException("cache-down") andThen Unit
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.verwijder(ontvanger, id)
+            service.verwijder(ontvanger, id, magazijnId)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify(exactly = 2) { sessiecache.verwijderBericht(ontvanger, id) }
@@ -150,7 +145,7 @@ class BerichtBeheerServiceTest {
         // De fout moet 1-op-1 propageren; we triggeren GEEN invalidate (cache is
         // al niet de bron van waarheid en kan stale state houden tot TTL).
         assertThrows(NotFoundException::class.java) {
-            service.patch(ontvanger, id, patch)
+            service.patch(ontvanger, id, magazijnId, patch)
         }
         verify(exactly = 0) { sessiecache.verwijderBericht(any(), any()) }
     }
@@ -164,7 +159,7 @@ class BerichtBeheerServiceTest {
         // (herverpakCache4xx) zonder de cache-internals/PII-body te lekken, en zónder
         // compensatie-invalidate.
         val ex = assertThrows(ForbiddenException::class.java) {
-            service.patch(ontvanger, id, patch)
+            service.patch(ontvanger, id, magazijnId, patch)
         }
 
         assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
@@ -180,7 +175,7 @@ class BerichtBeheerServiceTest {
         // Een 4xx die geen 404/403 is (hier 409) valt op de else-tak van
         // herverpakCache4xx: een generieke WebApplicationException met dezelfde status.
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.patch(ontvanger, id, patch)
+            service.patch(ontvanger, id, magazijnId, patch)
         }
 
         assertEquals(Response.Status.CONFLICT.statusCode, ex.response.status)
@@ -193,7 +188,7 @@ class BerichtBeheerServiceTest {
         every { sessiecache.verwijderBericht(any(), any()) } throws ForbiddenException("cache-weigert")
 
         val ex = assertThrows(ForbiddenException::class.java) {
-            service.verwijder(ontvanger, id)
+            service.verwijder(ontvanger, id, magazijnId)
         }
 
         assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
@@ -208,7 +203,7 @@ class BerichtBeheerServiceTest {
             WebApplicationException("cache-conflict", Response.Status.CONFLICT)
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.verwijder(ontvanger, id)
+            service.verwijder(ontvanger, id, magazijnId)
         }
 
         assertEquals(Response.Status.CONFLICT.statusCode, ex.response.status)
@@ -222,7 +217,7 @@ class BerichtBeheerServiceTest {
         every { sessiecache.verwijderBericht(any(), any()) } returns Unit
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.patch(ontvanger, id, patch)
+            service.patch(ontvanger, id, magazijnId, patch)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify { sessiecache.verwijderBericht(ontvanger, id) }
@@ -234,7 +229,7 @@ class BerichtBeheerServiceTest {
         every { sessiecache.verwijderBericht(any(), any()) } throws NotFoundException("cache-mist-bericht")
 
         assertThrows(NotFoundException::class.java) {
-            service.verwijder(ontvanger, id)
+            service.verwijder(ontvanger, id, magazijnId)
         }
         verify(exactly = 1) { sessiecache.verwijderBericht(ontvanger, id) }
     }
@@ -246,7 +241,7 @@ class BerichtBeheerServiceTest {
         every { sessiecache.verwijderBericht(any(), any()) } throws ProcessingException("connect timeout") andThen Unit
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.verwijder(ontvanger, id)
+            service.verwijder(ontvanger, id, magazijnId)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
         verify(exactly = 2) { sessiecache.verwijderBericht(ontvanger, id) }
@@ -261,55 +256,32 @@ class BerichtBeheerServiceTest {
         )
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.verwijder(ontvanger, id)
+            service.verwijder(ontvanger, id, magazijnId)
         }
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
     }
 
     @Test
-    fun `patch met cache-miss op lookup propageert 404 zonder magazijn-call`() {
-        // Sliding-TTL kan tussen UI-flow en write expireren; client moet eerst
-        // re-fetchen (en daarbij weer de routerings-info naar de cache schrijven).
-        every { sessiecache.bericht(any(), id) } throws NotFoundException("cache-miss")
+    fun `patch doet geen sessiecache-lookup vóór de magazijn-write`() {
+        // De client geeft de magazijnId mee (uit een eerdere GET); de service hoeft de
+        // cache niet meer te raadplegen om het bron-magazijn te bepalen. Dat betekent
+        // ook dat een verlopen/lege cache geen 404 of 502 meer op PATCH veroorzaakt.
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
+        every { sessiecache.patchBericht(any(), any(), any()) } returns updated
 
-        assertThrows(NotFoundException::class.java) {
-            service.patch(ontvanger, id, patch)
-        }
-        verify(exactly = 0) { magazijn.patchBericht(any(), any(), any()) }
+        service.patch(ontvanger, id, magazijnId, patch)
+
+        verify(exactly = 0) { sessiecache.bericht(any(), any()) }
     }
 
     @Test
-    fun `verwijder met cache-miss op lookup propageert 404 zonder magazijn-call`() {
-        every { sessiecache.bericht(any(), id) } throws NotFoundException("cache-miss")
+    fun `verwijder doet geen sessiecache-lookup vóór de magazijn-write`() {
+        every { magazijn.verwijderBericht(any(), any()) } returns Unit
+        every { sessiecache.verwijderBericht(any(), any()) } returns Unit
 
-        assertThrows(NotFoundException::class.java) {
-            service.verwijder(ontvanger, id)
-        }
-        verify(exactly = 0) { magazijn.verwijderBericht(any(), any()) }
-    }
+        service.verwijder(ontvanger, id, magazijnId)
 
-    @Test
-    fun `patch met cache-transportfout op lookup gooit 502 zonder magazijn-call`() {
-        every { sessiecache.bericht(any(), id) } throws ProcessingException("connect timeout")
-
-        val ex = assertThrows(WebApplicationException::class.java) {
-            service.patch(ontvanger, id, patch)
-        }
-
-        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify(exactly = 0) { magazijn.patchBericht(any(), any(), any()) }
-    }
-
-    @Test
-    fun `verwijder met cache-5xx op lookup gooit 502 zonder magazijn-call`() {
-        every { sessiecache.bericht(any(), id) } throws InternalServerErrorException("cache-down")
-
-        val ex = assertThrows(WebApplicationException::class.java) {
-            service.verwijder(ontvanger, id)
-        }
-
-        assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify(exactly = 0) { magazijn.verwijderBericht(any(), any()) }
+        verify(exactly = 0) { sessiecache.bericht(any(), any()) }
     }
 
     @Test
@@ -320,7 +292,7 @@ class BerichtBeheerServiceTest {
         every { magazijn.patchBericht(any(), any(), any()) } throws ForbiddenException("magazijn-403")
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.patch(ontvanger, id, patch)
+            service.patch(ontvanger, id, magazijnId, patch)
         }
 
         assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
@@ -333,7 +305,7 @@ class BerichtBeheerServiceTest {
             WebApplicationException("magazijn-401", Response.Status.UNAUTHORIZED)
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.verwijder(ontvanger, id)
+            service.verwijder(ontvanger, id, magazijnId)
         }
 
         assertEquals(Response.Status.UNAUTHORIZED.statusCode, ex.response.status)
@@ -341,18 +313,22 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
-    fun `patch routeert via magazijnId uit cache, niet via client-input`() {
-        // Defense-in-depth: ook al zou ergens later een client-meegegeven id
-        // door de validatie heen sluipen, de routering pakt uitsluitend de
-        // waarde uit de cache.
-        every { sessiecache.bericht(any(), id) } returns Bericht().apply {
-            berichtId = id
-            magazijnId = "magazijn-X"
-        }
+    fun `patch routeert via meegegeven magazijnId`() {
+        // De router krijgt exact de magazijnId-parameter; geen cache-lookup tussendoor.
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.patchBericht(any(), any(), any()) } returns updated
 
-        service.patch(ontvanger, id, patch)
+        service.patch(ontvanger, id, "magazijn-X", patch)
+
+        verify { router.forMagazijn("magazijn-X") }
+    }
+
+    @Test
+    fun `verwijder routeert via meegegeven magazijnId`() {
+        every { magazijn.verwijderBericht(any(), any()) } returns Unit
+        every { sessiecache.verwijderBericht(any(), any()) } returns Unit
+
+        service.verwijder(ontvanger, id, "magazijn-X")
 
         verify { router.forMagazijn("magazijn-X") }
     }
