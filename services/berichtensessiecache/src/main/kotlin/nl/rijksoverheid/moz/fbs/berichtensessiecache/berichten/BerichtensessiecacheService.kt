@@ -126,7 +126,11 @@ class BerichtensessiecacheService(
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
             .ifNoItem().after(Duration.ofSeconds(10)).fail()
             .map<MagazijnResult> { response ->
-                val berichten = response.berichten.map { it.toBericht(magazijnId) }
+                // Filter defensieve grenzen (BerichtLimieten) op binnenkomende magazijn-data.
+                // Eén invalid bericht mag de batch niet killen — drop het stuk en log warn.
+                val berichten = response.berichten
+                    .map { it.toBericht(magazijnId) }
+                    .mapNotNull { berichtValidator.valideerOrLogAndDrop(it) }
                 MagazijnResult.Success(magazijnId, naam, berichten)
             }
             .onFailure(Exception::class.java).recoverWithItem { error ->

@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.Instant
@@ -55,5 +57,31 @@ class BerichtValidatorTest {
 
         val ex = assertThrows<IllegalArgumentException> { validator.valideer(bericht) }
         assertEquals("bijlage-naam mag maximaal 10 tekens zijn", ex.message)
+    }
+
+    @Test
+    fun `valideerOrLogAndDrop retourneert bericht binnen limieten`() {
+        val bericht = basisBericht.copy(
+            bijlagen = listOf(BijlageSamenvatting(UUID.randomUUID(), "kort.pdf")),
+        )
+
+        assertNotNull(validator.valideerOrLogAndDrop(bericht))
+    }
+
+    @Test
+    fun `valideerOrLogAndDrop retourneert null bij te veel bijlagen`() {
+        val teVeel = (1..3).map { BijlageSamenvatting(UUID.randomUUID(), "b$it.pdf") }
+        val bericht = basisBericht.copy(bijlagen = teVeel)
+
+        assertNull(validator.valideerOrLogAndDrop(bericht))
+    }
+
+    @Test
+    fun `valideerOrLogAndDrop retourneert null bij te lange bijlage-naam`() {
+        val bericht = basisBericht.copy(
+            bijlagen = listOf(BijlageSamenvatting(UUID.randomUUID(), "x".repeat(11))),
+        )
+
+        assertNull(validator.valideerOrLogAndDrop(bericht))
     }
 }
