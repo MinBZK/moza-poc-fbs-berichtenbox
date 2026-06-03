@@ -570,115 +570,67 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis addBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }
 
-    // Plan dat de read-fase (onder WATCH) doorgeeft aan de write-fase van de transactie.
-    // Sealed zodat de "niets te doen"-tak geen lege lijst meeneemt en de write-fase op alle
-    // toestanden moet matchen.
-    private sealed interface DeletePlan {
-        data object NietsTeDoen : DeletePlan
-
-        data class Verwijder(val gefilterdeLijst: List<String>) : DeletePlan
-    }
-
     override fun delete(berichtId: UUID, ontvanger: String): Uni<Void> {
-        // Idempotent cache-invalidate: ontbrekende of niet-bijbehorende entries leveren geen fout op.
-        // De sessie-`list` bevat JSON-blobs (gevuld via `addBericht.rpush`) die `getPage` direct
-        // deserialiseert — dus na DEL op de hash blijft het bericht zonder list-prune zichtbaar
-        // in `GET /berichten`. We filteren de matchende `berichtId`-entries uit de list (op
-        // `berichtId` uit de geparseerde JSON, niet op exacte stringequality) en schrijven de
-        // gefilterde list terug.
+        // Idempotent cache-invalidate. De sessie-`list` bevat JSON-blobs (gevuld via
+        // `addBericht.rpush`) die `getPage` direct deserialiseert — dus na DEL op de hash
+        // blijft het bericht zonder list-prune zichtbaar in `GET /berichten`.
         //
-        // Read en rewrite draaien onder optimistic locking (WATCH op list- en bericht-key): een
-        // concurrent `addBericht` die tussen de read en EXEC een entry toevoegt, breekt de
-        // transactie af zodat we zijn nieuwe entry niet overschrijven. Bij afbreken herhalen we
-        // tot MAX_DELETE_POGINGEN; daarna laten we de cache met rust en logt deze service een
-        // alertbare desync-melding ([ALERT_CACHE_DESYNC] in BerichtBeheerService).
-        return probeerVerwijderen(berichtId, ontvanger, 1)
-    }
-
-    private fun probeerVerwijderen(berichtId: UUID, ontvanger: String, poging: Int): Uni<Void> {
+        // Aanpak: HGETALL (eigenaar-check) → LRANGE + parse om de matchende blob(s) op
+        // `berichtId` te vinden → LREM met die exact-value(s) → DEL hash. LREM is per-call
+        // Redis-atomair en raakt alleen exact-matchende entries: een concurrent `addBericht`
+        // tussen onze LRANGE en LREM voegt een blob met andere inhoud toe (andere berichtId
+        // ⇒ andere JSON) en blijft dus behouden zonder WATCH/retry-loop. Bij eerdere TTL
+        // van 60s was een WATCH+retry-aanpak met "self-healing via TTL" als noodverbetering
+        // verdedigbaar; bij de huidige TTL (uren) is dat niet meer acceptabel — LREM
+        // elimineert de race volledig in plaats van hem af te wachten.
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
 
-        return redis.withTransaction<DeletePlan>(
-            { reads ->
-                reads.hash(String::class.java).hgetall(berichtKey)
-                    .chain { fields ->
-                        if (fields.isEmpty() || fields["ontvanger"] != ontvanger) {
-                            Uni.createFrom().item(DeletePlan.NietsTeDoen)
-                        } else {
-                            reads.list(String::class.java).lrange(listKey, 0, -1)
-                                .map { entries ->
-                                    val gefilterd = entries.filterNot { json ->
-                                        runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
-                                            .onFailure { e ->
-                                                // Corrupte/legacy list-entry: conservatief behouden (kan
-                                                // per definitie niet het te verwijderen bericht zijn), maar
-                                                // wel loggen — een onparsebare blob duidt op cache-corruptie.
-                                                log.warnf(e, "Onparsebare list-entry bij delete-prune; entry behouden. berichtId=%s", berichtId)
-                                            }
-                                            .getOrNull() == berichtId.toString()
-                                    }
-
-                                    DeletePlan.Verwijder(gefilterd)
-                                }
-                        }
-                    }
-            },
-            { plan, tx ->
-                when (plan) {
-                    DeletePlan.NietsTeDoen -> Uni.createFrom().voidItem()
-
-                    is DeletePlan.Verwijder -> {
-                        val txKey = tx.key()
-                        val txList = tx.list(String::class.java)
-                        val rebuildList = if (plan.gefilterdeLijst.isNotEmpty()) {
-                            txKey.del(listKey)
-                                .chain { _ -> txList.rpush(listKey, *plan.gefilterdeLijst.toTypedArray()) }
-                                .chain { _ -> txKey.expire(listKey, ttl) }
-                                .replaceWithVoid()
-                        } else {
-                            txKey.del(listKey).replaceWithVoid()
-                        }
-
-                        txKey.del(berichtKey)
-                            .chain { _ -> rebuildList }
-                            .replaceWithVoid()
-                    }
+        return redis.hash(String::class.java).hgetall(berichtKey)
+            .chain { fields ->
+                if (fields.isEmpty() || fields["ontvanger"] != ontvanger) {
+                    Uni.createFrom().voidItem()
+                } else {
+                    pruneListEnDelHash(listKey, berichtKey, berichtId)
                 }
-            },
-            listKey,
-            berichtKey,
-        ).chain { result ->
-            if (result.discarded() && poging < MAX_DELETE_POGINGEN) {
-                probeerVerwijderen(berichtId, ontvanger, poging + 1)
-            } else {
-                if (result.discarded()) {
-                    // errorf (niet warnf): de invalidate is niet toegepast en de stale entry blijft tot
-                    // de geconfigureerde TTL. Onder de uitvraag dual-write-compensatie betekent dit een
-                    // tijdelijk stale cache ná een geslaagde magazijn-mutatie — die call krijgt hier een
-                    // 2xx (idempotente delete), dus dit log is het enige alertbare signaal van de
-                    // mislukte invalidate.
-                    log.errorf(
-                        "Redis delete na %d pogingen afgebroken door concurrente wijziging; cache stale tot TTL. berichtId=%s",
-                        poging,
-                        berichtId,
-                    )
-                }
-
-                Uni.createFrom().voidItem()
             }
-        }
             .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor berichtId=%s", berichtId) }
     }
 
-    companion object {
-        // Aantal optimistic-lock-pogingen voor `delete` voordat de invalidate wordt
-        // opgegeven; concurrente wijziging op één sessie-list is zeldzaam, dus een klein
-        // plafond volstaat en voorkomt ongebonden retry onder pathologische contentie.
-        private const val MAX_DELETE_POGINGEN = 5
+    private fun pruneListEnDelHash(listKey: String, berichtKey: String, berichtId: UUID): Uni<Void> =
+        redis.list(String::class.java).lrange(listKey, 0, -1)
+            .chain { entries ->
+                val matching = entries.filter { json -> blobMatchtBerichtId(json, berichtId) }
+                val lremAll = if (matching.isEmpty()) {
+                    Uni.createFrom().voidItem()
+                } else {
+                    // Eén LREM per match (in praktijk 0 of 1, want berichtId is uniek).
+                    // count=0: verwijder alle exact-matchende voorkomens.
+                    val lremUnis = matching.map { blob ->
+                        redis.list(String::class.java).lrem(listKey, 0, blob)
+                    }
+                    Uni.join().all(lremUnis).andFailFast().replaceWithVoid()
+                }
 
-        // Idem voor `update`: zelfde optimistic-lock-retry-plafond als delete.
+                lremAll.chain { _ -> redis.key().del(berichtKey).replaceWithVoid() }
+            }
+
+    private fun blobMatchtBerichtId(json: String, berichtId: UUID): Boolean =
+        runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
+            .onFailure { e ->
+                // Corrupte/legacy list-entry: conservatief behouden (kan per definitie niet
+                // het te verwijderen bericht zijn), maar wel loggen — een onparsebare blob
+                // duidt op cache-corruptie.
+                log.warnf(e, "Onparsebare list-entry bij delete-prune; entry overgeslagen. berichtId=%s", berichtId)
+            }
+            .getOrNull() == berichtId.toString()
+
+    companion object {
+        // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de invalidate
+        // wordt opgegeven; concurrente wijziging op één sessie-list is zeldzaam, dus een klein
+        // plafond volstaat en voorkomt ongebonden retry onder pathologische contentie. (Delete
+        // gebruikt LREM en heeft geen retry-loop nodig.)
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
         private fun listKey(key: String) = "$key:list"
