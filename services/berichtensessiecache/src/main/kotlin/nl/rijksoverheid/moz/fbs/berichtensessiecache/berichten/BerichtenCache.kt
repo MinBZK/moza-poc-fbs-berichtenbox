@@ -34,7 +34,7 @@ interface BerichtenCache {
     fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: String? = null): Uni<BerichtenPage?>
     fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
-    fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?>
+    fun werkBerichtBij(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?>
     fun addBericht(bericht: Bericht): Uni<Void>
     fun delete(berichtId: UUID, ontvanger: String): Uni<Void>
 
@@ -58,7 +58,7 @@ interface BerichtenCache {
 class RedisBerichtenCache(
     private val redis: ReactiveRedisDataSource,
     private val objectMapper: ObjectMapper,
-    @param:ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT60S")
+    @param:ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT24H")
     private val ttl: Duration,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
@@ -195,7 +195,13 @@ class RedisBerichtenCache(
                 if (total == 0L && jsonList.isEmpty()) {
                     null
                 } else {
-                    val berichten = jsonList.map { objectMapper.readValue(it, Bericht::class.java) }
+                    // De ongefilterde list-cache bewaart de volledige `Bericht`-JSON-blob (incl. inhoud
+                    // en bijlagen), zodat ook `update` deze in-place kan herschrijven. Voor de
+                    // publieke lijst-respons projecteren we naar samenvatting; zo behoudt de
+                    // BerichtenPage één uniform element-type met het RediSearch-pad.
+                    val berichten = jsonList
+                        .map { objectMapper.readValue(it, Bericht::class.java) }
+                        .map { it.toSamenvatting() }
                     val totalPages = ((total + pageSize - 1) / pageSize).toInt()
                     BerichtenPage(
                         berichten = berichten,
@@ -224,7 +230,7 @@ class RedisBerichtenCache(
 
         return redis.search().ftSearch(BerichtenCache.SEARCH_INDEX, query, queryArgs)
             .map { response ->
-                val berichten = response.documents().map { doc -> documentToBericht(doc) }
+                val berichten = response.documents().map { doc -> documentToSamenvatting(doc) }
                 val total = response.count().toLong()
                 if (total == 0L && berichten.isEmpty()) {
                     null
@@ -233,7 +239,7 @@ class RedisBerichtenCache(
                     BerichtenPage(berichten, page, pageSize, total, totalPages)
                 }
             }
-            .call { result -> renewReadTtl(ontvanger, result?.berichten) }
+            .call { result -> renewReadTtlSamenvatting(ontvanger, result?.berichten) }
             .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt voor afzender=%s", afzender) }
     }
 
@@ -250,20 +256,19 @@ class RedisBerichtenCache(
 
         return redis.search().ftSearch(BerichtenCache.SEARCH_INDEX, query, queryArgs)
             .map { response ->
-                val berichten = response.documents().map { doc -> documentToBericht(doc) }
+                val berichten = response.documents().map { doc -> documentToSamenvatting(doc) }
                 val total = response.count().toLong()
                 val totalPages = if (total == 0L) 0 else ((total + pageSize - 1) / pageSize).toInt()
                 BerichtenPage(berichten, page, pageSize, total, totalPages)
             }
-            .call { result -> renewReadTtl(ontvanger, result.berichten) }
+            .call { result -> renewReadTtlSamenvatting(ontvanger, result.berichten) }
             .onFailure().invoke { e -> log.errorf(e, "RediSearch query mislukt voor q=%s", q) }
     }
 
     // Beperk de FT.SEARCH-projectie tot de samenvatting-velden: de lijst-/zoek-respons heeft
-    // `inhoud`/`bijlagen` niet nodig (die worden door de samenvatting-mapper weggegooid), dus
-    // het is verspilling om die — potentieel grote — velden over de wire op te halen.
-    // `documentToBericht` vult de afwezige velden veilig met de backwards-compat-defaults
-    // ("" / lege lijst). De detail-lookup (`getById`) gebruikt de hash en blijft volledig.
+    // `inhoud`/`bijlagen` niet nodig, dus het is verspilling om die — potentieel grote —
+    // velden over de wire op te halen. `documentToSamenvatting` mapt naar het lichte
+    // [BerichtSamenvatting]-type. De detail-lookup (`getById`) gebruikt de hash en blijft volledig.
     private fun samenvattingQueryArgs(): QueryArgs {
         val args = QueryArgs()
         SAMENVATTING_VELDEN.forEach { args.returnAttribute(it) }
@@ -310,9 +315,21 @@ class RedisBerichtenCache(
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val sessionRenew = renewSessionTtl(cacheKey)
         if (berichten.isNullOrEmpty()) return sessionRenew
-        val hashRenews = berichten.map { bericht ->
-            redis.key().expire(BerichtenCache.berichtKey(bericht.berichtId), ttl)
-        }
+        val ids = berichten.map { it.berichtId }
+        return renewBerichtTtls(cacheKey, ids, sessionRenew)
+    }
+
+    /** Variant van [renewReadTtl] voor samenvatting-paden (FT.SEARCH-projecties). */
+    private fun renewReadTtlSamenvatting(ontvanger: String, berichten: List<BerichtSamenvatting>?): Uni<Void> {
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+        val sessionRenew = renewSessionTtl(cacheKey)
+        if (berichten.isNullOrEmpty()) return sessionRenew
+        val ids = berichten.map { it.berichtId }
+        return renewBerichtTtls(cacheKey, ids, sessionRenew)
+    }
+
+    private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>, sessionRenew: Uni<Void>): Uni<Void> {
+        val hashRenews = ids.map { id -> redis.key().expire(BerichtenCache.berichtKey(id), ttl) }
         return Uni.combine().all()
             .unis(sessionRenew, Uni.join().all(hashRenews).andFailFast())
             .discardItems()
@@ -341,41 +358,48 @@ class RedisBerichtenCache(
 
     private fun hashToBericht(fields: Map<String, String>): Bericht {
         val berichtId = fields["berichtId"]
+        // Alle velden hieronder worden onvoorwaardelijk geschreven door `berichtToHash`.
+        // Ontbreken duidt op een corrupte/partiële hash-entry; fail-loud met een veld-specifieke
+        // melding i.p.v. een kale NPE, die als misleidende "Cache niet bereikbaar" 503 zou opduiken.
+        // `bijlagen` en `map` zijn écht optioneel: lege lijst en null betekenen "geen" — niet "corrupt".
         return Bericht(
-            // Kernvelden zijn altijd geschreven door `berichtToHash`; ontbreken duidt op een
-            // corrupte/partiële hash-entry. Faal met een veld-specifieke melding i.p.v. een
-            // kale NPE, die als misleidende "Cache niet bereikbaar" 503 zou opduiken.
             berichtId = UUID.fromString(berichtId),
             afzender = fields["afzender"] ?: error("cache-hash mist 'afzender' (corrupt/partial entry) berichtId=$berichtId"),
             ontvanger = fields["ontvanger"] ?: error("cache-hash mist 'ontvanger' (corrupt/partial entry) berichtId=$berichtId"),
             onderwerp = fields["onderwerp"] ?: error("cache-hash mist 'onderwerp' (corrupt/partial entry) berichtId=$berichtId"),
-            // Backwards-compat: oude hash-entries hebben nog geen `inhoud`/`bijlagen`/`map`.
-            // Default leeg/null zodat een upgrade tijdens een lopende sessie niet faalt.
-            inhoud = fields["inhoud"] ?: "",
+            inhoud = fields["inhoud"] ?: error("cache-hash mist 'inhoud' (corrupt/partial entry) berichtId=$berichtId"),
             publicatietijdstip = Instant.parse(
                 fields["publicatietijdstip"] ?: error("cache-hash mist 'publicatietijdstip' (corrupt/partial entry) berichtId=$berichtId"),
             ),
             magazijnId = fields["magazijnId"] ?: error("cache-hash mist 'magazijnId' (corrupt/partial entry) berichtId=$berichtId"),
-            aantalBijlagen = fields["aantalBijlagen"]?.toInt() ?: 0,
+            aantalBijlagen = fields["aantalBijlagen"]?.toInt()
+                ?: error("cache-hash mist 'aantalBijlagen' (corrupt/partial entry) berichtId=$berichtId"),
             bijlagen = fields["bijlagen"]?.let { objectMapper.readValue(it, BIJLAGE_LIST_TYPE) } ?: emptyList(),
             map = fields["map"],
             status = fields["status"]?.let { Leesstatus.fromWire(it) },
         )
     }
 
-    private fun documentToBericht(doc: io.quarkus.redis.datasource.search.Document): Bericht = Bericht(
-        berichtId = UUID.fromString(doc.property("berichtId").asString()),
-        afzender = doc.property("afzender").asString(),
-        ontvanger = doc.property("ontvanger").asString(),
-        onderwerp = doc.property("onderwerp").asString(),
-        inhoud = doc.property("inhoud")?.asString() ?: "",
-        publicatietijdstip = Instant.parse(doc.property("publicatietijdstip").asString()),
-        magazijnId = doc.property("magazijnId").asString(),
-        aantalBijlagen = doc.property("aantalBijlagen")?.asString()?.toInt() ?: 0,
-        bijlagen = doc.property("bijlagen")?.asString()?.let { objectMapper.readValue(it, BIJLAGE_LIST_TYPE) } ?: emptyList(),
-        map = doc.property("map")?.asString(),
-        status = doc.property("status")?.asString()?.let { Leesstatus.fromWire(it) },
-    )
+    /**
+     * Maakt een [BerichtSamenvatting] uit een FT.SEARCH-document. Bevat alleen de samenvatting-
+     * velden uit [SAMENVATTING_VELDEN]; `inhoud` en `bijlagen` worden bewust niet geprojecteerd.
+     * Geen backwards-compat defaults: ontbrekende samenvatting-kernvelden duiden op corruptie.
+     */
+    private fun documentToSamenvatting(doc: io.quarkus.redis.datasource.search.Document): BerichtSamenvatting {
+        val berichtId = doc.property("berichtId").asString()
+        return BerichtSamenvatting(
+            berichtId = UUID.fromString(berichtId),
+            afzender = doc.property("afzender").asString(),
+            ontvanger = doc.property("ontvanger").asString(),
+            onderwerp = doc.property("onderwerp").asString(),
+            publicatietijdstip = Instant.parse(doc.property("publicatietijdstip").asString()),
+            magazijnId = doc.property("magazijnId").asString(),
+            aantalBijlagen = doc.property("aantalBijlagen")?.asString()?.toInt()
+                ?: error("samenvatting-document mist 'aantalBijlagen' (corrupt entry) berichtId=$berichtId"),
+            map = doc.property("map")?.asString(),
+            status = doc.property("status")?.asString()?.let { Leesstatus.fromWire(it) },
+        )
+    }
 
     // Plan dat de read-fase (onder WATCH) doorgeeft aan de write-fase van de update-transactie.
     private sealed interface UpdatePlan {
@@ -394,7 +418,7 @@ class RedisBerichtenCache(
         ) : UpdatePlan
     }
 
-    override fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+    override fun werkBerichtBij(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
         // Merge-PATCH: alleen de meegegeven velden worden bijgewerkt; ontbrekende velden blijven
         // onveranderd. De sessie-`list` bevat volledige JSON-blobs die het ongefilterde `getPage`
         // direct deserialiseert — een HSET-alleen update laat die list stale (oude status/map
@@ -402,12 +426,13 @@ class RedisBerichtenCache(
         // terug, onder hetzelfde optimistic locking als `delete` (WATCH op list- en bericht-key):
         // een concurrente `addBericht`/`delete` tussen read en EXEC breekt de transactie af zodat
         // we geen lost-update veroorzaken. Bij afbreken herhalen we tot een klein plafond; daarna
-        // laten we de cache met rust (zelf-helend via TTL).
+        // laten we de cache met rust en levert de operatie een retriable 503 op zodat de client
+        // opnieuw kan proberen.
         val leesstatus = status?.let { Leesstatus.fromWire(it) }
-        return updatePoging(berichtId, ontvanger, leesstatus, map, 1)
+        return probeerUpdate(berichtId, ontvanger, leesstatus, map, 1)
     }
 
-    private fun updatePoging(
+    private fun probeerUpdate(
         berichtId: UUID,
         ontvanger: String,
         status: Leesstatus?,
@@ -495,7 +520,7 @@ class RedisBerichtenCache(
             val plan = result.preTransactionResult
 
             if (result.discarded() && poging < MAX_UPDATE_POGINGEN) {
-                updatePoging(berichtId, ontvanger, status, map, poging + 1)
+                probeerUpdate(berichtId, ontvanger, status, map, poging + 1)
             } else if (result.discarded()) {
                 // Contentie is géén not-found: een null zou de resource laten 404'en
                 // terwijl het bericht bestaat (en de magazijn-write al geslaagd kan
@@ -546,8 +571,8 @@ class RedisBerichtenCache(
     }
 
     // Plan dat de read-fase (onder WATCH) doorgeeft aan de write-fase van de transactie.
-    // Sealed zodat de "niets te doen"-tak geen betekenisloze lege lijst hoeft te dragen
-    // en de write-fase exhaustief op de twee toestanden matcht.
+    // Sealed zodat de "niets te doen"-tak geen lege lijst meeneemt en de write-fase op alle
+    // toestanden moet matchen.
     private sealed interface DeletePlan {
         data object NietsTeDoen : DeletePlan
 
@@ -565,12 +590,12 @@ class RedisBerichtenCache(
         // Read en rewrite draaien onder optimistic locking (WATCH op list- en bericht-key): een
         // concurrent `addBericht` die tussen de read en EXEC een entry toevoegt, breekt de
         // transactie af zodat we zijn nieuwe entry niet overschrijven. Bij afbreken herhalen we
-        // tot MAX_DELETE_POGINGEN; daarna laten we de cache met rust (zelf-helend via TTL) i.p.v.
-        // een lost-update te riskeren.
-        return deletePoging(berichtId, ontvanger, 1)
+        // tot MAX_DELETE_POGINGEN; daarna laten we de cache met rust en logt deze service een
+        // alertbare desync-melding ([ALERT_CACHE_DESYNC] in BerichtBeheerService).
+        return probeerVerwijderen(berichtId, ontvanger, 1)
     }
 
-    private fun deletePoging(berichtId: UUID, ontvanger: String, poging: Int): Uni<Void> {
+    private fun probeerVerwijderen(berichtId: UUID, ontvanger: String, poging: Int): Uni<Void> {
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
@@ -626,15 +651,14 @@ class RedisBerichtenCache(
             berichtKey,
         ).chain { result ->
             if (result.discarded() && poging < MAX_DELETE_POGINGEN) {
-                deletePoging(berichtId, ontvanger, poging + 1)
+                probeerVerwijderen(berichtId, ontvanger, poging + 1)
             } else {
                 if (result.discarded()) {
-                    // errorf (niet warnf): de invalidate is niet toegepast, dus de
-                    // stale entry overleeft tot TTL (≤60s). Self-healing, maar onder
-                    // de uitvraag dual-write-compensatie betekent dit een tijdelijk
-                    // stale cache ná een geslaagde magazijn-mutatie — die call krijgt
-                    // hier een 2xx (idempotente delete), dus dit log is het enige
-                    // alertbare signaal van de mislukte invalidate.
+                    // errorf (niet warnf): de invalidate is niet toegepast en de stale entry blijft tot
+                    // de geconfigureerde TTL. Onder de uitvraag dual-write-compensatie betekent dit een
+                    // tijdelijk stale cache ná een geslaagde magazijn-mutatie — die call krijgt hier een
+                    // 2xx (idempotente delete), dus dit log is het enige alertbare signaal van de
+                    // mislukte invalidate.
                     log.errorf(
                         "Redis delete na %d pogingen afgebroken door concurrente wijziging; cache stale tot TTL. berichtId=%s",
                         poging,
@@ -664,7 +688,7 @@ class RedisBerichtenCache(
         // TypeReference voor Jackson-deserialisatie van de `bijlagen`-hash-field (JSON-array).
         private val BIJLAGE_LIST_TYPE = object : TypeReference<List<BijlageSamenvatting>>() {}
 
-        // Hash-velden die de samenvatting-mapper nodig heeft; gebruikt als FT.SEARCH RETURN-lijst
+        // Hash-velden die [BerichtSamenvatting] nodig heeft; gebruikt als FT.SEARCH RETURN-lijst
         // zodat list/zoek de zware `inhoud`/`bijlagen`-velden niet ophaalt.
         internal val SAMENVATTING_VELDEN = listOf(
             "berichtId",

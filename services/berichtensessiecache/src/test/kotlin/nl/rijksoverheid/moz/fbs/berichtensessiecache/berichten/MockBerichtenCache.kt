@@ -82,7 +82,7 @@ class MockBerichtenCache : BerichtenCache {
             it.onderwerp.contains(q, ignoreCase = true)
         }.filter { afzender == null || it.afzender == afzender }
         val start = page * pageSize
-        val slice = gefilterd.drop(start).take(pageSize)
+        val slice = gefilterd.drop(start).take(pageSize).map { it.toSamenvatting() }
         val totalPages = if (gefilterd.isEmpty()) 0 else (gefilterd.size + pageSize - 1) / pageSize
         return Uni.createFrom().item(BerichtenPage(slice, page, pageSize, gefilterd.size.toLong(), totalPages))
     }
@@ -92,7 +92,7 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
     }
 
-    override fun update(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+    override fun werkBerichtBij(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
         if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(berichtId))
 
         val bericht = byId[berichtId]
@@ -133,7 +133,7 @@ class MockBerichtenCache : BerichtenCache {
         }
         val start = page * pageSize
         val end = minOf(start + pageSize, berichten.size)
-        val slice = if (start < berichten.size) berichten.subList(start, end) else emptyList()
+        val slice = if (start < berichten.size) berichten.subList(start, end).map { it.toSamenvatting() } else emptyList()
         val totalPages = if (berichten.isEmpty()) 0 else (berichten.size + pageSize - 1) / pageSize
         return Uni.createFrom().item(
             BerichtenPage(

@@ -5,7 +5,6 @@ import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
-import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
 import org.eclipse.microprofile.rest.client.inject.RestClient
@@ -33,15 +32,15 @@ class BerichtBeheerService(
     private val magazijnRouter: MagazijnRouter,
 ) {
 
-    fun patch(xOntvanger: String, berichtId: UUID, patch: BerichtPatch): Bericht {
-        val magazijn = resolveMagazijn(xOntvanger, berichtId)
+    fun patch(ontvanger: String, berichtId: UUID, patch: BerichtPatch): Bericht {
+        val magazijn = resolveMagazijn(ontvanger, berichtId)
 
         mapUpstreamFout(log, "magazijn-PATCH") {
-            magazijn.patchBericht(xOntvanger, berichtId, UitvraagDtoMapper.toMagazijnPatch(patch))
+            magazijn.patchBericht(ontvanger, berichtId, UitvraagDtoMapper.toMagazijnPatch(patch))
         }
 
         try {
-            return sessiecache.patchBericht(xOntvanger, berichtId, patch)
+            return sessiecache.patchBericht(ontvanger, berichtId, patch)
         } catch (e: WebApplicationException) {
             if (!isUpstreamStoring(e)) {
                 // 4xx ná een geslaagde magazijn-write is een contract-bug, geen transport-
@@ -57,24 +56,24 @@ class BerichtBeheerService(
             }
 
             log.errorf(e, "cache-PATCH 5xx na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
-            compensatieInvalidate(xOntvanger, berichtId)
+            invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
             throw badGateway()
         } catch (e: ProcessingException) {
             log.errorf(e, "cache-PATCH transport-fout na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
-            compensatieInvalidate(xOntvanger, berichtId)
+            invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
             throw badGateway()
         }
     }
 
-    fun verwijder(xOntvanger: String, berichtId: UUID) {
-        val magazijn = resolveMagazijn(xOntvanger, berichtId)
+    fun verwijder(ontvanger: String, berichtId: UUID) {
+        val magazijn = resolveMagazijn(ontvanger, berichtId)
 
         mapUpstreamFout(log, "magazijn-DELETE") {
-            magazijn.verwijderBericht(xOntvanger, berichtId)
+            magazijn.verwijderBericht(ontvanger, berichtId)
         }
 
         try {
-            sessiecache.verwijderBericht(xOntvanger, berichtId)
+            sessiecache.verwijderBericht(ontvanger, berichtId)
         } catch (e: WebApplicationException) {
             if (!isUpstreamStoring(e)) {
                 // 4xx ná een geslaagde magazijn-write is een contract-bug, geen transport-
@@ -90,28 +89,28 @@ class BerichtBeheerService(
             }
 
             log.errorf(e, "cache-DELETE 5xx na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
-            compensatieInvalidate(xOntvanger, berichtId)
+            invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
             throw badGateway()
         } catch (e: ProcessingException) {
             log.errorf(e, "cache-DELETE transport-fout na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
-            compensatieInvalidate(xOntvanger, berichtId)
+            invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
             throw badGateway()
         }
     }
 
-    private fun resolveMagazijn(xOntvanger: String, berichtId: UUID): MagazijnClient {
+    private fun resolveMagazijn(ontvanger: String, berichtId: UUID): MagazijnClient {
         // Cache-lookup vóór de write bepaalt het bron-magazijn. Transport-fout/5xx
         // → 502 (er is nog niets geschreven); 4xx (incl. 404 cache-miss) propageert.
         val bericht = mapUpstreamFout(log, "cache-lookup vóór magazijn-write (berichtId=$berichtId)") {
-            sessiecache.bericht(xOntvanger, berichtId)
+            sessiecache.bericht(ontvanger, berichtId)
         }
 
         return magazijnRouter.forMagazijn(vereisMagazijnId(bericht, berichtId, log))
     }
 
-    private fun compensatieInvalidate(xOntvanger: String, berichtId: UUID) {
+    private fun invalideerCacheNaMagazijnWrite(ontvanger: String, berichtId: UUID) {
         try {
-            sessiecache.verwijderBericht(xOntvanger, berichtId)
+            sessiecache.verwijderBericht(ontvanger, berichtId)
         } catch (e: WebApplicationException) {
             logCompensatieFout(e, berichtId)
         } catch (e: ProcessingException) {

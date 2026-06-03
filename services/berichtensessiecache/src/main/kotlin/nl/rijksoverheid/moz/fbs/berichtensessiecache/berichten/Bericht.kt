@@ -42,23 +42,53 @@ data class Bericht(
         require(afzender.isNotBlank()) { "afzender mag niet leeg zijn" }
         require(ontvanger.isNotBlank()) { "ontvanger mag niet leeg zijn" }
         require(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }
-        // `inhoud` mag wel leeg-string zijn (bewuste keuze: backwards-compat met oude
-        // cache-entries en met magazijnen die nog geen inhoud meeleveren). De OpenAPI-spec
-        // markeert het wél als required zodat nieuwe consumers altijd een waarde meekrijgen.
+        // `inhoud` mag leeg zijn: niet elk magazijn levert een inhoudssamenvatting op de lijst-respons
+        // (zie MagazijnBericht). Voor consumers blijft `inhoud` in de OpenAPI-spec required zodat de
+        // veld-aanwezigheid stabiel is — alleen de waarde kan leeg-string zijn.
         require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
         require(aantalBijlagen >= 0) { "aantalBijlagen mag niet negatief zijn" }
-        require(bijlagen.size <= MAX_BIJLAGEN) { "Maximaal $MAX_BIJLAGEN bijlagen per bericht" }
         map?.let { require(it.length in 1..MAP_MAX_LENGTE) { "map-naam moet 1..$MAP_MAX_LENGTE tekens zijn" } }
     }
 
     companion object {
-        // MAX_BIJLAGEN is een zelfstandige defensieve grens tegen pathologische/kwaadaardige
-        // input — de magazijn-spec legt géén maxItems op `bijlagen` op. Alleen MAP_MAX_LENGTE
-        // (1..64) spiegelt de magazijn-spec (`map` maxLength 64).
-        const val MAX_BIJLAGEN = 100
+        // MAP_MAX_LENGTE (1..64) spiegelt de magazijn-spec (`map` maxLength 64).
+        // Defensieve grenzen op `bijlagen` en bijlage-naam-lengte staan in BerichtLimieten
+        // (ConfigMapping) en worden gevalideerd door BerichtValidator buiten dit data class.
         const val MAP_MAX_LENGTE = 64
     }
 }
+
+fun Bericht.toSamenvatting(): BerichtSamenvatting = BerichtSamenvatting(
+    berichtId = berichtId,
+    afzender = afzender,
+    ontvanger = ontvanger,
+    onderwerp = onderwerp,
+    publicatietijdstip = publicatietijdstip,
+    magazijnId = magazijnId,
+    aantalBijlagen = aantalBijlagen,
+    map = map,
+    status = status,
+)
+
+/**
+ * Lichtgewicht cache-domeintype voor lijst- en zoek-projecties uit RediSearch.
+ *
+ * `inhoud` en `bijlagen` ontbreken bewust: de samenvatting wordt geprojecteerd uit een
+ * subset van hash-velden (zie [BerichtenCache.SAMENVATTING_VELDEN]) zodat lijst-respons
+ * de — potentieel grote — `inhoud`/`bijlagen` niet over de wire haalt. De volledige
+ * representatie ([Bericht]) blijft beschikbaar via `getById` (HGETALL op de hash).
+ */
+data class BerichtSamenvatting(
+    val berichtId: UUID,
+    val afzender: String,
+    val ontvanger: String,
+    val onderwerp: String,
+    val publicatietijdstip: Instant,
+    val magazijnId: String,
+    val aantalBijlagen: Int,
+    val map: String? = null,
+    val status: Leesstatus? = null,
+)
 
 data class BijlageSamenvatting(
     val bijlageId: UUID,
@@ -66,10 +96,6 @@ data class BijlageSamenvatting(
 ) {
     init {
         require(naam.isNotBlank()) { "bijlage-naam mag niet leeg zijn" }
-        require(naam.length <= NAAM_MAX_LENGTE) { "bijlage-naam mag maximaal $NAAM_MAX_LENGTE tekens zijn" }
-    }
-
-    companion object {
-        const val NAAM_MAX_LENGTE = 255
+        // Naam-lengte-cap staat in BerichtLimieten en wordt gevalideerd door BerichtValidator.
     }
 }

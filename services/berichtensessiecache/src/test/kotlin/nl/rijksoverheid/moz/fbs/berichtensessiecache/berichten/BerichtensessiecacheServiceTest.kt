@@ -17,7 +17,12 @@ class BerichtensessiecacheServiceTest {
 
     private val berichtenCache = mockk<BerichtenCache>()
     private val clientFactory = mockk<MagazijnClientFactory>()
-    private val service = BerichtensessiecacheService(berichtenCache, clientFactory)
+    private val limieten = object : BerichtLimieten {
+        override fun maxBijlagen() = 100
+        override fun bijlageNaamMaxLengte() = 255
+    }
+    private val validator = BerichtValidator(limieten)
+    private val service = BerichtensessiecacheService(berichtenCache, clientFactory, validator)
 
     private val ontvanger = "999993653"
     private val cacheKey = BerichtenCache.cacheKey(ontvanger)
@@ -48,7 +53,7 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `getBerichten retourneert cache-resultaat wanneer aanwezig`() {
         val bericht = testBericht()
-        val expectedPage = BerichtenPage(listOf(bericht), 0, 20, 1L, 1)
+        val expectedPage = BerichtenPage(listOf(bericht.toSamenvatting()), 0, 20, 1L, 1)
         every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger) } returns Uni.createFrom().item(expectedPage)
 
         val result = service.getBerichten(0, 20, ontvanger, null).await().indefinitely()
@@ -58,12 +63,12 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `ophalenBerichten gooit 409 als lock niet verkregen`() {
+    fun `haalBerichtenOp gooit 409 als lock niet verkregen`() {
         every { clientFactory.getAllClients() } returns emptyMap()
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(false)
 
         val ex = assertThrows<WebApplicationException> {
-            service.ophalenBerichten(ontvanger)
+            service.haalBerichtenOp(ontvanger)
         }
         assertEquals(409, ex.response.status)
     }
@@ -94,7 +99,7 @@ class BerichtensessiecacheServiceTest {
     fun `updateBericht delegeert status-update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(status = Leesstatus.GELEZEN)
-        every { berichtenCache.update(bericht.berichtId, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
+        every { berichtenCache.werkBerichtBij(bericht.berichtId, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
 
         val result = service.updateBericht(bericht.berichtId, ontvanger, "GELEZEN", null).await().indefinitely()
 
@@ -106,7 +111,7 @@ class BerichtensessiecacheServiceTest {
     fun `updateBericht delegeert map-update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(map = "archief")
-        every { berichtenCache.update(bericht.berichtId, ontvanger, null, "archief") } returns Uni.createFrom().item(updated)
+        every { berichtenCache.werkBerichtBij(bericht.berichtId, ontvanger, null, "archief") } returns Uni.createFrom().item(updated)
 
         val result = service.updateBericht(bericht.berichtId, ontvanger, null, "archief").await().indefinitely()
 
@@ -118,7 +123,7 @@ class BerichtensessiecacheServiceTest {
     fun `updateBericht delegeert gecombineerde update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(status = Leesstatus.GELEZEN, map = "archief")
-        every { berichtenCache.update(bericht.berichtId, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
+        every { berichtenCache.werkBerichtBij(bericht.berichtId, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
 
         val result = service.updateBericht(bericht.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
 

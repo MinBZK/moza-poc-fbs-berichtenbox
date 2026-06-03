@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
  *
  * De `magazijnId`-waarden moeten exact overeenkomen met de magazijn-instances in
  * de sessiecache-config. De config wordt bij opstart gevalideerd
- * ([valideerConfigBijOpstart]) zodat een lege of kromme `magazijnen.urls` de
+ * ([valideerConfigBijOpstart]) zodat een lege of ongeldige `magazijnen.urls` de
  * service laat falen bij boot i.p.v. bij het eerste verkeer.
  */
 @ApplicationScoped
@@ -68,15 +68,15 @@ class MagazijnRouter(private val config: MagazijnenConfig) {
                 )
             }
 
-            // Builder-fouten (kromme URI, RestClientDefinitionException) zijn een
+            // Builder-fouten (ongeldige URI, RestClientDefinitionException) zijn een
             // config-/topologie-probleem, geen bug in deze service. Zonder deze wrap
             // ontsnapt de raw exception langs mapUpstreamFout naar een 500 die on-call
             // ten onrechte de uitvraag-service in stuurt; map daarom expliciet → 502.
             runCatching {
                 RestClientBuilder.newBuilder()
                     .baseUri(URI.create(url))
-                    .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .connectTimeout(config.client().connectTimeout().toMillis(), TimeUnit.MILLISECONDS)
+                    .readTimeout(config.client().readTimeout().toMillis(), TimeUnit.MILLISECONDS)
                     .build(MagazijnClient::class.java)
             }.getOrElse { e ->
                 log.errorf(e, "Magazijn-routering: kon REST-client niet bouwen voor magazijnId=%s url=%s", id, url)
@@ -87,11 +87,5 @@ class MagazijnRouter(private val config: MagazijnenConfig) {
 
     private companion object {
         private val log: Logger = Logger.getLogger(MagazijnRouter::class.java)
-
-        // Begrensde timeouts zodat een hangende magazijn-connectie een uitvraag-
-        // request niet onbeperkt blokkeert; de ProcessingException die volgt op een
-        // timeout mapt via mapUpstreamFout naar 502.
-        private const val CONNECT_TIMEOUT_SECONDS = 2L
-        private const val READ_TIMEOUT_SECONDS = 10L
     }
 }

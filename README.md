@@ -67,6 +67,19 @@ Maven-repository staat.
 ./mvnw test -pl services/berichtenuitvraag -am
 ```
 
+### API-requests handmatig uitvoeren (Bruno)
+
+De `bruno/`-folder bevat per service een collectie van voorbeeld-requests die je
+tegen de lokale dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
+
+- `bruno/berichtensessiecache/` — sessiecache (lijst, zoek, ophalen-SSE, detail, PATCH/DELETE)
+- `bruno/berichtenmagazijn/` — aanlever- en beheer-API
+- `bruno/berichtenuitvraag/` — frontend-facade
+
+Open de folder in Bruno, kies environment `lokaal` en run requests. De collectie
+spiegelt de OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een
+bijbehorende `.bru`-request.
+
 ### Configuratie
 
 De belangrijkste configuratie staat in `services/berichtensessiecache/src/main/resources/application.properties`:

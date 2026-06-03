@@ -129,21 +129,13 @@ class BerichtensessiecacheResource(
 
         val ontvanger = requireOntvanger(xOntvanger)
 
-        // JSON Merge Patch (RFC 7396): alleen meegegeven velden worden gewijzigd. `minProperties: 1`
-        // in de spec zou een lege body al moeten weren, maar een onbekende enum-waarde komt door
-        // Jackson als `null` binnen — dus controleren we hier nog expliciet dat er *iets* te
-        // patchen valt. Anders krijgen callers stilzwijgend een no-op die "succes" lijkt.
+        // Onbekende status-enum komt als null binnen (Jackson); zonder deze check zou een lege patch een no-op succes lijken.
         if (berichtStatusUpdate.status == null && berichtStatusUpdate.map == null) {
             throw WebApplicationException(
                 "Minimaal één van 'status' of 'map' is vereist (geen geldige waarde meegegeven).",
                 Response.Status.BAD_REQUEST,
             )
         }
-
-        // Lengte-validatie op `map` (1..64) is in de gegenereerde DTO afgedwongen via
-        // `@Size(min=1,max=64)` op de getter + `@Valid` op de parameter; lege/te lange
-        // waarden komen via ConstraintViolationExceptionMapper als 400 terug. Geen extra
-        // check hier; zou enkel dode code zijn.
 
         val nieuweStatus = berichtStatusUpdate.status?.toString()
         val nieuweMap = berichtStatusUpdate.map
@@ -297,7 +289,7 @@ class BerichtensessiecacheResource(
         }
 
         return BerichtensessiecacheResponse().apply {
-            berichten = this@toResponse.berichten.map { it.toSamenvatting() }
+            berichten = this@toResponse.berichten.map { it.toApiSamenvatting() }
             page = this@toResponse.page
             pageSize = this@toResponse.pageSize
             totalElements = this@toResponse.totalElements
@@ -326,20 +318,20 @@ class BerichtensessiecacheResource(
         }
     }
 
-    private fun Bericht.toSamenvatting(): ApiBerichtSamenvatting {
+    private fun BerichtSamenvatting.toApiSamenvatting(): ApiBerichtSamenvatting {
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
         return ApiBerichtSamenvatting().apply {
-            berichtId = this@toSamenvatting.berichtId
-            afzender = this@toSamenvatting.afzender
-            ontvanger = this@toSamenvatting.ontvanger
-            onderwerp = this@toSamenvatting.onderwerp
-            publicatietijdstip = this@toSamenvatting.publicatietijdstip
-            magazijnId = this@toSamenvatting.magazijnId
-            aantalBijlagen = this@toSamenvatting.aantalBijlagen
-            map = this@toSamenvatting.map
-            status = this@toSamenvatting.status?.let { ApiBerichtStatus.fromValue(it.wire) }
+            berichtId = this@toApiSamenvatting.berichtId
+            afzender = this@toApiSamenvatting.afzender
+            ontvanger = this@toApiSamenvatting.ontvanger
+            onderwerp = this@toApiSamenvatting.onderwerp
+            publicatietijdstip = this@toApiSamenvatting.publicatietijdstip
+            magazijnId = this@toApiSamenvatting.magazijnId
+            aantalBijlagen = this@toApiSamenvatting.aantalBijlagen
+            map = this@toApiSamenvatting.map
+            status = this@toApiSamenvatting.status?.let { ApiBerichtStatus.fromValue(it.wire) }
             links = BerichtLinks().apply {
-                self = Link().apply { href = URI.create("$basePath/berichten/${this@toSamenvatting.berichtId}") }
+                self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiSamenvatting.berichtId}") }
             }
         }
     }

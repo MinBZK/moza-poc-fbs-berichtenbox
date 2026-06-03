@@ -120,7 +120,7 @@ paths:
     get:
       tags: [Uitvraag]
       summary: Bericht ophalen
-      description: Volledig bericht inclusief inhoud en bijlage-metadata, via de sessiecache.
+      description: Volledig bericht inclusief inhoud en bijlage-metadata.
       operationId: getBerichtById
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -143,15 +143,7 @@ paths:
       tags: [Uitvraag]
       summary: Bericht-status bijwerken / verplaatsen
       description: |
-        JSON Merge Patch op `status` en/of `map`. Dual-write: eerst magazijn
-        (persistent), dan sessiecache. De operatie is op het magazijn idempotent,
-        dus een retry is veilig. Let op: het juiste magazijn wordt bepaald via de
-        bron-`magazijnId` uit de sessiecache; is die routerings-info verlopen of
-        geïnvalideerd, dan geeft een herhaalde call 404 (haal het bericht dan
-        eerst opnieuw op om de cache te vullen).
-
-        Idempotentie wordt geleverd door de onderliggende magazijn-operatie; een
-        `Idempotency-Key`-header (DON-leidraad) is daarom bewust weggelaten.
+        Werk status (`gelezen`/`ongelezen`) en/of `map` van een bericht bij. Idempotent.
       operationId: updateBericht
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -180,12 +172,7 @@ paths:
       tags: [Uitvraag]
       summary: Bericht verwijderen
       description: |
-        Soft-delete via het magazijn; daarna cache-invalidate in de sessiecache.
-        De delete is op het magazijn idempotent. Let op: routering naar het juiste
-        magazijn gebeurt via de bron-`magazijnId` uit de sessiecache. Na de eerste
-        geslaagde delete is die cache-entry geïnvalideerd (en verloopt ook via TTL),
-        dus een herhaalde call door dezelfde ontvanger levert 404 i.p.v. 204 — er is
-        dan geen veilige route meer naar het magazijn.
+        Verwijder een bericht. Idempotent.
       operationId: verwijderBericht
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'

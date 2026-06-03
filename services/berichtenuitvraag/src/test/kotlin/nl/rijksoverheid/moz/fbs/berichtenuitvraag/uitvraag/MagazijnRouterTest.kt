@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import java.time.Duration
 
 // @QuarkusTest zodat de rest-client-runtime aanwezig is; `RestClientBuilder.build`
 // heeft die nodig om een client-proxy op te bouwen.
@@ -19,6 +20,10 @@ class MagazijnRouterTest {
         MagazijnRouter(
             object : MagazijnenConfig {
                 override fun urls(): Map<String, String> = urls
+                override fun client(): MagazijnenConfig.Client = object : MagazijnenConfig.Client {
+                    override fun connectTimeout(): Duration = Duration.ofSeconds(2)
+                    override fun readTimeout(): Duration = Duration.ofSeconds(10)
+                }
             },
         )
 

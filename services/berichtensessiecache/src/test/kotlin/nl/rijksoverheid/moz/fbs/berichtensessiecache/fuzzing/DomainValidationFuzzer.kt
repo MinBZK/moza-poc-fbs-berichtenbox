@@ -46,7 +46,6 @@ object DomainValidationFuzzer {
         check(bericht.onderwerp.isNotBlank()) { "onderwerp moet niet-blank zijn na constructie" }
         check(bericht.magazijnId.isNotBlank()) { "magazijnId moet niet-blank zijn na constructie" }
         check(bericht.aantalBijlagen >= 0) { "aantalBijlagen moet niet-negatief zijn na constructie" }
-        check(bericht.bijlagen.size <= Bericht.MAX_BIJLAGEN) { "bijlagen-cap geschonden na constructie" }
         bericht.map?.let { check(it.length in 1..Bericht.MAP_MAX_LENGTE) { "map-lengte ongeldig na constructie" } }
     }
 

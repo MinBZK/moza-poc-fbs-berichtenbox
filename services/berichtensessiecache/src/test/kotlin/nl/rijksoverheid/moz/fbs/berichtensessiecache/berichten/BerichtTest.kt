@@ -67,25 +67,11 @@ class BerichtTest {
     }
 
     @Test
-    fun `lege inhoud is toegestaan voor backwards-compat met oude cache-entries`() {
-        // Bewuste keuze: domein staat lege inhoud toe (oude hash-entries hebben geen
-        // veld; OpenAPI-spec dwingt het wel af op de wire). Hier vooral als regressie-
-        // vangnet zodat de fallback in hashToBericht (`fields["inhoud"] ?: ""`) niet
-        // alsnog een require-fout krijgt.
+    fun `lege inhoud is toegestaan op het domeintype`() {
+        // Niet elk magazijn levert een inhoudssamenvatting op de lijst-respons; het cache-domein
+        // accepteert daarom een lege string. De OpenAPI-spec dwingt `inhoud` wél af op de wire.
         val bericht = geldigBericht.copy(inhoud = "")
         assertEquals("", bericht.inhoud)
-    }
-
-    @Test
-    fun `te veel bijlagen wordt geweigerd`() {
-        val tooMany = (1..Bericht.MAX_BIJLAGEN + 1).map {
-            BijlageSamenvatting(UUID.randomUUID(), "bijlage-$it.pdf")
-        }
-
-        val ex = assertThrows<IllegalArgumentException> {
-            geldigBericht.copy(bijlagen = tooMany)
-        }
-        assertEquals("Maximaal ${Bericht.MAX_BIJLAGEN} bijlagen per bericht", ex.message)
     }
 
     @Test
@@ -113,13 +99,6 @@ class BerichtTest {
     fun `BijlageSamenvatting weigert lege naam`() {
         assertThrows<IllegalArgumentException> {
             BijlageSamenvatting(UUID.randomUUID(), "")
-        }
-    }
-
-    @Test
-    fun `BijlageSamenvatting weigert te lange naam`() {
-        assertThrows<IllegalArgumentException> {
-            BijlageSamenvatting(UUID.randomUUID(), "x".repeat(BijlageSamenvatting.NAAM_MAX_LENGTE + 1))
         }
     }
 }

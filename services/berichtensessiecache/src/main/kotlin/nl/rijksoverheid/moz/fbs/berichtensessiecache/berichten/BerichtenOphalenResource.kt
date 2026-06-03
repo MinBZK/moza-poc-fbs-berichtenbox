@@ -47,7 +47,7 @@ class BerichtenOphalenResource(
         logboekContext.dataSubjectId = ontvanger
         logboekContext.dataSubjectType = "ontvanger"
 
-        val aggregation = service.ophalenBerichten(ontvanger)
+        val aggregation = service.haalBerichtenOp(ontvanger)
 
         // SSE-stream is een observer: stuurt events door zolang de client verbonden is.
         // Client disconnect stopt alleen de emitter, de aggregatie loopt onafhankelijk door.

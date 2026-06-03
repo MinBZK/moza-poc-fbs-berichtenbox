@@ -15,7 +15,7 @@ import org.jboss.logging.Logger
  * gegenereerde DTO's en serialiseren die vrijwel ongewijzigd opnieuw (idem in
  * [BerichtOphaalService.haalBericht]). Dat kost een extra Jackson-round-trip per
  * read, maar levert contract-validatie tegen de spec én de HAL-link-vertaling
- * ([vertaalPaginatieLinks]) "gratis". Berichten zijn enkele KB's (zie CLAUDE.md),
+ * ([vertaalPagineringLinks]) "gratis". Berichten zijn enkele KB's (zie CLAUDE.md),
  * dus de winst van rauwe byte-passthrough weegt niet op tegen het verlies van die
  * twee garanties; herzie pas bij een meetbare load-aanleiding.
  */
@@ -24,17 +24,17 @@ class BerichtenlijstService(
     @RestClient private val sessiecache: SessiecacheClient,
 ) {
     fun lijst(xOntvanger: String, pagina: Int?, paginaGrootte: Int?): BerichtenLijst =
-        vertaalPaginatieLinks(mapUpstreamFout(log, "cache-lijst") { sessiecache.lijst(xOntvanger, pagina, paginaGrootte) })
+        vertaalPagineringLinks(mapUpstreamFout(log, "cache-lijst") { sessiecache.lijst(xOntvanger, pagina, paginaGrootte) })
 
     fun zoek(xOntvanger: String, q: String): BerichtenLijst =
-        vertaalPaginatieLinks(mapUpstreamFout(log, "cache-zoek") { sessiecache.zoek(xOntvanger, q) })
+        vertaalPagineringLinks(mapUpstreamFout(log, "cache-zoek") { sessiecache.zoek(xOntvanger, q) })
 
-    // De sessiecache levert HAL-paginatie-links met haar eigen query-parameters
+    // De sessiecache levert HAL-paginering-links met haar eigen query-parameters
     // (`page`/`pageSize`); dit endpoint adverteert `pagina`/`paginaGrootte`. Zonder
     // vertaling komt een client die `_links.next` volgt op de verkeerde parameter-
     // namen uit en krijgt hij altijd pagina 0 terug. Paden zijn al gelijk
     // (`/api/v1/berichten`), dus alleen de parameternamen worden herschreven.
-    private fun vertaalPaginatieLinks(lijst: BerichtenLijst): BerichtenLijst {
+    private fun vertaalPagineringLinks(lijst: BerichtenLijst): BerichtenLijst {
         lijst.links?.let { links ->
             links.self?.let { it.href = vertaalParams(it.href) }
             links.next?.let { it.href = vertaalParams(it.href) }
