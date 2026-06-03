@@ -36,7 +36,11 @@ data class MagazijnBericht(
     fun toBericht(magazijnId: String): Bericht = Bericht(
         berichtId = berichtId,
         afzender = afzender,
-        ontvanger = "${ontvanger.type}:${ontvanger.waarde}",
+        // Bericht.ontvanger bewaart enkel de raw identificatie-waarde (geen TYPE:-prefix);
+        // de getypeerde vorm van het magazijn (`{type, waarde}`) wordt hier afgevlakt.
+        // Cache-eigenaar-checks vergelijken tegen Identificatienummer.waarde (zie
+        // RedisBerichtenCache.getById / MockBerichtenCache).
+        ontvanger = ontvanger.waarde,
         onderwerp = onderwerp,
         inhoud = inhoud,
         publicatietijdstip = publicatietijdstip,

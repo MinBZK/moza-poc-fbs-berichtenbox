@@ -3,8 +3,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 import io.mockk.every
 import io.mockk.mockk
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -107,7 +107,7 @@ class CloudEventBuilderTest {
 
     @Test
     fun `OntvangerData_van bouwt vanuit gevalideerd Identificatienummer`() {
-        val data = OntvangerData.van(nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn("999993653"))
+        val data = OntvangerData.van(nl.rijksoverheid.moz.fbs.common.identificatie.Bsn("999993653"))
         assertEquals("BSN", data.type)
         assertEquals("999993653", data.waarde)
     }

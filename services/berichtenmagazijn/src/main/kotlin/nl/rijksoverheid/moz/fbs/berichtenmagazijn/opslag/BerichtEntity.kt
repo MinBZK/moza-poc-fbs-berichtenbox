@@ -10,6 +10,9 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 import jakarta.ws.rs.InternalServerErrorException
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.jboss.logging.Logger
 import java.time.Instant
 import java.util.UUID

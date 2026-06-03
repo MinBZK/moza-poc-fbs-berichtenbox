@@ -1,11 +1,15 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 import java.util.UUID
 
+@QuarkusTest
+@TestProfile(MockedDependenciesProfile::class)
 class BerichtTest {
 
     private val geldigBericht = Bericht(

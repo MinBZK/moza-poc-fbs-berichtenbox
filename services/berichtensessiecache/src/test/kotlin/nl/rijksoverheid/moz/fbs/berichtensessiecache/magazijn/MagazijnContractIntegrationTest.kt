@@ -35,7 +35,7 @@ import java.time.Instant
 @QuarkusTestResource(WireMockMagazijnResource::class)
 class MagazijnContractIntegrationTest {
 
-    private val ontvanger = "999993653"
+    private val ontvanger = "BSN:999993653"
 
     private val objectMapper = ObjectMapper()
         .registerModule(JavaTimeModule())

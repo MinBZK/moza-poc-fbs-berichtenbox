@@ -36,6 +36,10 @@ node_modules/
 # Claude Code (lokaal)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+.claude/worktrees/
 
 # Coredumps (root only — ignoreert geen toekomstige core/ source-map)
 /core
+
+# Tijdelijke files van import-rewrite-scripts
+*.kt.tmp

@@ -8,7 +8,7 @@ import io.restassured.RestAssured.given
 import io.mockk.mockk
 import io.restassured.http.ContentType
 import jakarta.ws.rs.InternalServerErrorException
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.hamcrest.Matchers.`is`
 import java.time.Instant
