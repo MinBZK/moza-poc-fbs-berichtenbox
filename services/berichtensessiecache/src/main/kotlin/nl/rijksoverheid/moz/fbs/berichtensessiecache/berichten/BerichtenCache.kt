@@ -58,7 +58,7 @@ interface BerichtenCache {
 class RedisBerichtenCache(
     private val redis: ReactiveRedisDataSource,
     private val objectMapper: ObjectMapper,
-    @param:ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT24H")
+    @param:ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT12H")
     private val ttl: Duration,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
