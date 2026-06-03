@@ -12,5 +12,6 @@ import io.smallrye.config.ConfigMapping
 @ConfigMapping(prefix = "berichtensessiecache.bericht")
 interface BerichtLimieten {
     fun maxBijlagen(): Int
-    fun bijlageNaamMaxLengte(): Int
+    fun maxBijlageNaamLengte(): Int
+    fun maxMapnaamLengte(): Int
 }

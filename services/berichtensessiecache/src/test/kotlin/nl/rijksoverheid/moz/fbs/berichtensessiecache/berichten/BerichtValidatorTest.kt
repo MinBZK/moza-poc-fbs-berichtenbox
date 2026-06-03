@@ -12,7 +12,8 @@ class BerichtValidatorTest {
 
     private val limieten = object : BerichtLimieten {
         override fun maxBijlagen() = 2
-        override fun bijlageNaamMaxLengte() = 10
+        override fun maxBijlageNaamLengte() = 10
+        override fun maxMapnaamLengte() = 8
     }
 
     private val validator = BerichtValidator(limieten)
@@ -81,6 +82,28 @@ class BerichtValidatorTest {
         val bericht = basisBericht.copy(
             bijlagen = listOf(BijlageSamenvatting(UUID.randomUUID(), "x".repeat(11))),
         )
+
+        assertNull(validator.valideerOrLogAndDrop(bericht))
+    }
+
+    @Test
+    fun `valideer weigert te lange mapnaam`() {
+        val bericht = basisBericht.copy(map = "x".repeat(9))
+
+        val ex = assertThrows<IllegalArgumentException> { validator.valideer(bericht) }
+        assertEquals("mapnaam mag maximaal 8 tekens zijn", ex.message)
+    }
+
+    @Test
+    fun `valideer staat mapnaam binnen limieten toe`() {
+        val bericht = basisBericht.copy(map = "archief")
+
+        assertEquals(bericht, validator.valideer(bericht))
+    }
+
+    @Test
+    fun `valideerOrLogAndDrop retourneert null bij te lange mapnaam`() {
+        val bericht = basisBericht.copy(map = "x".repeat(9))
 
         assertNull(validator.valideerOrLogAndDrop(bericht))
     }

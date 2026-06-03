@@ -47,14 +47,10 @@ data class Bericht(
         // veld-aanwezigheid stabiel is — alleen de waarde kan leeg-string zijn.
         require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
         require(aantalBijlagen >= 0) { "aantalBijlagen mag niet negatief zijn" }
-        map?.let { require(it.length in 1..MAP_MAX_LENGTE) { "map-naam moet 1..$MAP_MAX_LENGTE tekens zijn" } }
-    }
-
-    companion object {
-        // MAP_MAX_LENGTE (1..64) spiegelt de magazijn-spec (`map` maxLength 64).
-        // Defensieve grenzen op `bijlagen` en bijlage-naam-lengte staan in BerichtLimieten
-        // (ConfigMapping) en worden gevalideerd door BerichtValidator buiten dit data class.
-        const val MAP_MAX_LENGTE = 64
+        // Mapnaam mag niet leeg zijn als hij gezet is; max-lengte is configureerbaar en staat in
+        // BerichtLimieten (gevalideerd door BerichtValidator). Splitsing: leegcheck is een
+        // universele invariant, max-lengte is een omgevings-afhankelijke defensieve grens.
+        map?.let { require(it.isNotBlank()) { "mapnaam mag niet leeg zijn als hij gezet is" } }
     }
 }
 

@@ -19,7 +19,8 @@ class BerichtensessiecacheServiceTest {
     private val clientFactory = mockk<MagazijnClientFactory>()
     private val limieten = object : BerichtLimieten {
         override fun maxBijlagen() = 100
-        override fun bijlageNaamMaxLengte() = 255
+        override fun maxBijlageNaamLengte() = 255
+        override fun maxMapnaamLengte() = 64
     }
     private val validator = BerichtValidator(limieten)
     private val service = BerichtensessiecacheService(berichtenCache, clientFactory, validator)

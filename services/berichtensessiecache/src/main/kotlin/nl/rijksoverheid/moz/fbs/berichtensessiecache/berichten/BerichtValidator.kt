@@ -27,8 +27,14 @@ class BerichtValidator(
         }
 
         bericht.bijlagen.forEach { bijlage ->
-            require(bijlage.naam.length <= limieten.bijlageNaamMaxLengte()) {
-                "bijlage-naam mag maximaal ${limieten.bijlageNaamMaxLengte()} tekens zijn"
+            require(bijlage.naam.length <= limieten.maxBijlageNaamLengte()) {
+                "bijlage-naam mag maximaal ${limieten.maxBijlageNaamLengte()} tekens zijn"
+            }
+        }
+
+        bericht.map?.let { mapnaam ->
+            require(mapnaam.length <= limieten.maxMapnaamLengte()) {
+                "mapnaam mag maximaal ${limieten.maxMapnaamLengte()} tekens zijn"
             }
         }
 
