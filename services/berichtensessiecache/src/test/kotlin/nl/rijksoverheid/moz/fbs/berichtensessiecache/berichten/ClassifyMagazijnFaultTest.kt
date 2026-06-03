@@ -33,6 +33,7 @@ class ClassifyMagazijnFaultTest {
         maxBerichtenPerMagazijn = 1000,
         magazijnQueryTimeoutSeconds = 10L,
         magazijnReadTimeoutMs = 12000L,
+        cacheAwaitTimeoutSeconds = 5L,
     ).also { it.valideerTimeouts() }
 
     @Test

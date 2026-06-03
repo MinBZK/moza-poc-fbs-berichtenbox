@@ -47,6 +47,7 @@ class BerichtensessiecacheServiceTest {
         maxBerichtenPerMagazijn = 1000,
         magazijnQueryTimeoutSeconds = 10L,
         magazijnReadTimeoutMs = 12000L,
+        cacheAwaitTimeoutSeconds = 5L,
     ).also { it.valideerTimeouts() }
 
     private val ontvanger = Bsn("999993653")
@@ -186,6 +187,7 @@ class BerichtensessiecacheServiceTest {
             maxBerichtenPerMagazijn = 1000,
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -202,6 +204,7 @@ class BerichtensessiecacheServiceTest {
             maxBerichtenPerMagazijn = 1000,
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -221,6 +224,7 @@ class BerichtensessiecacheServiceTest {
             maxBerichtenPerMagazijn = 1000,
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 10_000L,
+            cacheAwaitTimeoutSeconds = 5L,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -497,6 +501,7 @@ class BerichtensessiecacheServiceTest {
             maxBerichtenPerMagazijn = 2,
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()
@@ -558,6 +563,7 @@ class BerichtensessiecacheServiceTest {
             maxBerichtenPerMagazijn = 2,
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()

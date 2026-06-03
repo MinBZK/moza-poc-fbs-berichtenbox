@@ -61,6 +61,11 @@ class BerichtensessiecacheService(
         defaultValue = MagazijnClientFactory.READ_TIMEOUT_MS_DEFAULT,
     )
     private val magazijnReadTimeoutMs: Long,
+    // Max blocking-await op één Redis-commando vanaf de @Blocking worker-thread tijdens
+    // ophaal-orkestratie (lock-acquire, status-updates, cleanup); overschrijding → 503.
+    // Losse knop: geen invariant met de magazijn-/profiel-timeouts, dus geen kruisvalidatie.
+    @param:ConfigProperty(name = "berichtensessiecache.cache-await-timeout-seconds", defaultValue = "5")
+    private val cacheAwaitTimeoutSeconds: Long,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
@@ -84,11 +89,12 @@ class BerichtensessiecacheService(
         }
 
         log.infof(
-            "Timeouts: profiel inner=%ds outer=%ds; magazijn query-timeout=%ds read-timeout=%dms",
+            "Timeouts: profiel inner=%ds outer=%ds; magazijn query-timeout=%ds read-timeout=%dms; cache-await=%ds",
             innerTimeoutSeconds,
             outerAwaitSeconds,
             magazijnQueryTimeoutSeconds,
             magazijnReadTimeoutMs,
+            cacheAwaitTimeoutSeconds,
         )
     }
 
@@ -161,7 +167,7 @@ class BerichtensessiecacheService(
         // maar caller-side cleanup als defense-in-depth voor await-level failures.
         val wasSet = try {
             berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
-                .await().atMost(Duration.ofSeconds(5))
+                .await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
         } catch (ex: Exception) {
             // Cause-walking: Mutiny's blocking-await wrapt upstream-failures, dus directe
             // instanceof matched de echte fout niet.
@@ -308,7 +314,7 @@ class BerichtensessiecacheService(
             berichtenCache.updateAggregationStatus(
                 cacheKey,
                 bezigStatus.copy(totaalMagazijnen = clients.size),
-            ).await().atMost(Duration.ofSeconds(5))
+            ).await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
         } catch (ex: Exception) {
             val errorId = UUID.randomUUID()
 
@@ -353,7 +359,7 @@ class BerichtensessiecacheService(
                         .onFailure().invoke { e -> log.errorf(e, "storeAggregationStatus(GEREED) mislukt voor lege magazijn-set, key=%s", cacheKey) },
                 )
                 .discardItems()
-                .await().atMost(Duration.ofSeconds(5))
+                .await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
         } catch (ex: Exception) {
             val errorId = UUID.randomUUID()
             val ref = errorId.toString()
@@ -584,7 +590,7 @@ class BerichtensessiecacheService(
             berichtenCache.storeAggregationStatus(
                 cacheKey,
                 AggregationStatus(status = OphalenStatus.FOUT),
-            ).await().atMost(Duration.ofSeconds(5))
+            ).await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
 
             log.warnf("Lock vrijgegeven na fout (errorId=%s) voor key=%s: %s", errorId, cacheKey, oorzaak)
         } catch (cleanupEx: Exception) {
