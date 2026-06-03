@@ -41,8 +41,8 @@ class BerichtensessiecacheService(
     // grootte van de inkomende magazijn-respons wordt alleen begrensd door de read-timeout
     // (leesduur, niet bytes). Een harde outbound byte-cap is bewust niet toegevoegd: magazijn-
     // URLs komen uit eigen, TLS-bewaakte config (geen attacker-endpoints) en realistische
-    // responses zijn enkele KB — conform CLAUDE.md geen speculatieve payload-cap zonder
-    // concrete productieaanleiding. Niet stilzwijgend verhogen zonder load-evidence.
+    // responses zijn enkele KB — geen speculatieve payload-cap zonder concrete
+    // productieaanleiding. Niet stilzwijgend verhogen zonder load-evidence.
     @param:ConfigProperty(name = "berichtensessiecache.max-berichten-per-magazijn", defaultValue = "200")
     private val maxBerichtenPerMagazijn: Int,
     // Per-magazijn query-timeout (Mutiny `ifNoItem`): primaire TIMEOUT-signaalbron richting
@@ -62,8 +62,9 @@ class BerichtensessiecacheService(
     )
     private val magazijnReadTimeoutMs: Long,
     // Max blocking-await op één Redis-commando vanaf de @Blocking worker-thread tijdens
-    // ophaal-orkestratie (lock-acquire, status-updates, cleanup); overschrijding → 503.
-    // Losse knop: geen invariant met de magazijn-/profiel-timeouts, dus geen kruisvalidatie.
+    // ophaal-orkestratie (lock-acquire, status-updates, cleanup). Een overschreden await-deadline
+    // faalt de lopende ophaalstap (await-timeout → 503; het cleanup-pad slikt de fout en leunt
+    // op de Redis-TTL). Losse knop: geen invariant met de magazijn-/profiel-timeouts.
     @param:ConfigProperty(name = "berichtensessiecache.cache-await-timeout-seconds", defaultValue = "5")
     private val cacheAwaitTimeoutSeconds: Long,
 ) {
@@ -86,6 +87,22 @@ class BerichtensessiecacheService(
         require(magazijnReadTimeoutMs > magazijnQueryTimeoutSeconds * 1000) {
             "magazijn-client.read-timeout-ms ($magazijnReadTimeoutMs) moet groter zijn dan " +
                 "berichtensessiecache.magazijn-query-timeout-seconds × 1000 (${magazijnQueryTimeoutSeconds * 1000})"
+        }
+
+        // Ondergrens: een 0/negatieve timeout schakelt de bescherming stil uit. Mutiny's
+        // `await().atMost(ZERO)` wacht onbegrensd (blokkeert de @Blocking thread tot de TTL,
+        // 409 voor de hele sessie) en `ifNoItem().after(ZERO)` vuurt direct. De ordening-checks
+        // hierboven borgen outer>inner>0 en read>query>0 transitief; cache-await staat los.
+        require(innerTimeoutSeconds > 0) {
+            "profiel.resolver.inner-timeout-seconds ($innerTimeoutSeconds) moet groter zijn dan 0"
+        }
+
+        require(magazijnQueryTimeoutSeconds > 0) {
+            "berichtensessiecache.magazijn-query-timeout-seconds ($magazijnQueryTimeoutSeconds) moet groter zijn dan 0"
+        }
+
+        require(cacheAwaitTimeoutSeconds > 0) {
+            "berichtensessiecache.cache-await-timeout-seconds ($cacheAwaitTimeoutSeconds) moet groter zijn dan 0"
         }
 
         log.infof(

@@ -234,6 +234,55 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
+    fun `valideerTimeouts werpt IllegalArgumentException als inner-timeout 0 is`() {
+        // 0/negatief schakelt de bescherming stil uit (Mutiny atMost(ZERO) = onbegrensd wachten).
+        val mis = BerichtensessiecacheService(
+            berichtenCache, clientFactory, resolver,
+            innerTimeoutSeconds = 0L, outerAwaitSeconds = 25L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+        )
+
+        val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
+
+        assertTrue(ex.message!!.contains("inner-timeout-seconds"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `valideerTimeouts werpt IllegalArgumentException als magazijn-query-timeout 0 is`() {
+        val mis = BerichtensessiecacheService(
+            berichtenCache, clientFactory, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 0L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+        )
+
+        val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
+
+        assertTrue(ex.message!!.contains("magazijn-query-timeout-seconds"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `valideerTimeouts werpt IllegalArgumentException als cache-await-timeout 0 is`() {
+        val mis = BerichtensessiecacheService(
+            berichtenCache, clientFactory, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 0L,
+        )
+
+        val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
+
+        assertTrue(ex.message!!.contains("cache-await-timeout-seconds"), "Was: ${ex.message}")
+    }
+
+    @Test
     fun `outer-await-timeout op resolver wrapt naar resolverMislukt en zet FOUT-status`() {
         // Resource-hang vóór subscription: outer-await werpt → resolverMislukt.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
