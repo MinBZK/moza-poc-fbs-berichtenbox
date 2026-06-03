@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Plan: Review-bevindingen PR #65 (Berichtenuitvraag)
 
@@ -482,12 +482,25 @@ git diff --stat main..HEAD                                # impact overzien
 gh pr view 65 --json reviews                              # bevestig dat eerdere comments resolved zijn
 ```
 
+## Wijzigingen tijdens uitvoering
+
+De volgende afwijkingen op het oorspronkelijke plan zijn na overleg of voortschrijdend
+inzicht doorgevoerd:
+
+| Onderwerp | Plan | Uitgevoerd | Reden |
+|---|---|---|---|
+| TTL-waarde | `PT24H` | `PT12H` (later bijgesteld) | Halve werkdag is voldoende voor portaal-gebruik; minder geheugendruk |
+| C1 — `MAX_MAPNAAM_LENGTE` | Configureerbaar via `BerichtLimieten` | Constant `Bericht.MAX_MAPNAAM_LENGTE = 128` (was 64) + Flyway `V7` op `bericht_status.map` | Magazijn-DB-kolom is bron van waarheid; configureerbaar maken zou divergentie met de DB toestaan. Ook hernoemd "map" → "mapnaam" (semantisch correcter). Naamgeving van overige limieten geharmoniseerd naar `MAX_*`-prefix-stijl (consistent met magazijn + common). |
+| C8 — naamgeving cache-update | `werkBerichtBij` | `updateBerichtMetadata` (cache + service + spec operationId in 2 modules) | "update" was nog te generiek (suggereert ook inhoud-mutatie); metadata is precies wat de operatie raakt. |
+| A2 — delete-pad bij grote TTL | Comments herzien (gedrag ongewijzigd) | **Delete-pad herontworpen met LREM** in plaats van WATCH+retry-loop | Bij 12u TTL is "self-healing via TTL" geen acceptabele fallback meer; LREM is per-call atomair en raakt alleen exact-matchende values, dus geen retry-loop nodig en geen lost-update-risico met concurrent `addBericht`. `DeletePlan`/`probeerVerwijderen`/`MAX_DELETE_POGINGEN` verwijderd. |
+| C24 — PATCH/DELETE losweken van cache | Uitgesteld voor overleg | **Opgelost via `magazijnId`-query in spec** | `BerichtSamenvatting` en `Bericht` hadden `magazijnId` al als required output; verplichte query-param op PATCH/DELETE laat de client de routing-info teruggeven en elimineert de cache-lookup vóór de write. `BerichtBeheerService.resolveMagazijn` weg; gedrag is nu: magazijn eerst (bron van waarheid), cache daarna best-effort. |
+| C1 — `BerichtLimieten` afdwingen | Alleen in `addBericht` (POST) | Ook in magazijn-aggregatie (`magazijnStream` via `valideerOrLogAndDrop`) | De hoofdroute waar berichten in de cache komen is `haalBerichtenOp`, niet `POST /berichten`. Validator zonder magazijn-pad zou de config-grenzen alleen op een zelden-gebruikte route afdwingen. |
+
 ## Bewust uitgesteld (vervolg-issues)
 
 | Item | Reden | Aanmaken issue |
 |---|---|---|
-| Blok B — uitvraag als module/package | Reviewer voorstel zelf voor aparte PR | Ja, na merge van deze PR |
-| C24 — PATCH/DELETE losweken van cache | Eerst overleg of TTL-verhoging volstaat; pas bij negatief antwoord een ontwerpkeuze (fan-out óf expliciete `magazijnId`-parameter) | Voorwaardelijk, na overleg |
+| Blok B — uitvraag als module/package | Reviewer-voorstel voor aparte PR | Ja, na merge van deze PR |
 | E2 — bijlage `mimeType`/`grootte` als magazijn-spec dat niet levert | Vereist eerst magazijn-spec-uitbreiding | Voorwaardelijk |
 | E3 — `gewijzigdOp` als frontend-behoefte niet bevestigd | Vermijd cache-payload-vergroting zonder duidelijke use-case | Voorwaardelijk |
-| Volledige `BerichtFactory`-refactor (C1) | Pragmatische tussenstap volstaat voor PoC | Pas bij eerste productie-override-behoefte |
+| Volledige `BerichtFactory`-refactor (C1) | `BerichtLimieten` + `BerichtValidator`-aanpak volstaat voor PoC | Pas bij eerste productie-override-behoefte |
