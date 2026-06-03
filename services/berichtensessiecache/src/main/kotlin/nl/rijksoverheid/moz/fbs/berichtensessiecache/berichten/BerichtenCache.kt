@@ -34,7 +34,7 @@ interface BerichtenCache {
     fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: String? = null): Uni<BerichtenPage?>
     fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?>
-    fun werkBerichtBij(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?>
+    fun updateBerichtMetadata(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?>
     fun addBericht(bericht: Bericht): Uni<Void>
     fun delete(berichtId: UUID, ontvanger: String): Uni<Void>
 
@@ -418,7 +418,7 @@ class RedisBerichtenCache(
         ) : UpdatePlan
     }
 
-    override fun werkBerichtBij(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+    override fun updateBerichtMetadata(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
         // Merge-PATCH: alleen de meegegeven velden worden bijgewerkt; ontbrekende velden blijven
         // onveranderd. De sessie-`list` bevat volledige JSON-blobs die het ongefilterde `getPage`
         // direct deserialiseert — een HSET-alleen update laat die list stale (oude status/map
@@ -429,10 +429,10 @@ class RedisBerichtenCache(
         // laten we de cache met rust en levert de operatie een retriable 503 op zodat de client
         // opnieuw kan proberen.
         val leesstatus = status?.let { Leesstatus.fromWire(it) }
-        return probeerUpdate(berichtId, ontvanger, leesstatus, map, 1)
+        return probeerUpdateMetadata(berichtId, ontvanger, leesstatus, map, 1)
     }
 
-    private fun probeerUpdate(
+    private fun probeerUpdateMetadata(
         berichtId: UUID,
         ontvanger: String,
         status: Leesstatus?,
@@ -519,8 +519,8 @@ class RedisBerichtenCache(
         ).chain { result ->
             val plan = result.preTransactionResult
 
-            if (result.discarded() && poging < MAX_UPDATE_POGINGEN) {
-                probeerUpdate(berichtId, ontvanger, status, map, poging + 1)
+            if (result.discarded() && poging < MAX_UPDATE_METADATA_POGINGEN) {
+                probeerUpdateMetadata(berichtId, ontvanger, status, map, poging + 1)
             } else if (result.discarded()) {
                 // Contentie is géén not-found: een null zou de resource laten 404'en
                 // terwijl het bericht bestaat (en de magazijn-write al geslaagd kan
@@ -679,7 +679,7 @@ class RedisBerichtenCache(
         private const val MAX_DELETE_POGINGEN = 5
 
         // Idem voor `update`: zelfde optimistic-lock-retry-plafond als delete.
-        private const val MAX_UPDATE_POGINGEN = 5
+        private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"

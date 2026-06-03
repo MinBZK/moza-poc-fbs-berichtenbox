@@ -44,9 +44,9 @@ class BerichtensessiecacheService(
         return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
     }
 
-    fun updateBericht(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+    fun updateBerichtMetadata(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
         log.debugf("Bijwerken bericht: berichtId=%s, status=%s, map=%s", berichtId, status, map)
-        return berichtenCache.werkBerichtBij(berichtId, ontvanger, status, map)
+        return berichtenCache.updateBerichtMetadata(berichtId, ontvanger, status, map)
     }
 
     fun addBericht(bericht: Bericht): Uni<Bericht> {

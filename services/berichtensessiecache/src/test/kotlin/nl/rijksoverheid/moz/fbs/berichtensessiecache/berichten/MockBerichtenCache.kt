@@ -92,7 +92,7 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
     }
 
-    override fun werkBerichtBij(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
+    override fun updateBerichtMetadata(berichtId: UUID, ontvanger: String, status: String?, map: String?): Uni<Bericht?> {
         if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(berichtId))
 
         val bericht = byId[berichtId]

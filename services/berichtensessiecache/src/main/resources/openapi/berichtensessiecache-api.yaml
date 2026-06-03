@@ -105,7 +105,7 @@ paths:
 
   /berichten/{berichtId}:
     patch:
-      operationId: updateBerichtStatus
+      operationId: updateBerichtMetadata
       summary: Status van een bericht bijwerken
       description: |
         Werkt de status van een berichtrecord bij in de cache.

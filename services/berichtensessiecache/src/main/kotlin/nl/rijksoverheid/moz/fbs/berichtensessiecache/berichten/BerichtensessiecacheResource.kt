@@ -119,7 +119,7 @@ class BerichtensessiecacheResource(
         name = "bijwerken-berichtstatus",
         processingActivityId = "https://register.example.com/verwerkingen/berichtstatus-bijwerken",
     )
-    override fun updateBerichtStatus(
+    override fun updateBerichtMetadata(
         berichtId: UUID,
         xOntvanger: String?,
         berichtStatusUpdate: BerichtStatusUpdate,
@@ -141,7 +141,7 @@ class BerichtensessiecacheResource(
         val nieuweMap = berichtStatusUpdate.map
 
         val bericht = awaitOrServiceUnavailable {
-            berichtensessiecacheService.updateBericht(berichtId, ontvanger, nieuweStatus, nieuweMap)
+            berichtensessiecacheService.updateBerichtMetadata(berichtId, ontvanger, nieuweStatus, nieuweMap)
         } ?: throw WebApplicationException(
             "Bericht niet gevonden", Response.Status.NOT_FOUND,
         )

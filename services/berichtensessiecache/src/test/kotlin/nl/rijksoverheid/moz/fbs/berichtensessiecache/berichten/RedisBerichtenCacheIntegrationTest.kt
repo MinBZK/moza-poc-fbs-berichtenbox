@@ -147,7 +147,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
         val original = berichten[0]
-        val updated = berichtenCache.werkBerichtBij(original.berichtId, ontvanger, "GELEZEN", null)
+        val updated = berichtenCache.updateBerichtMetadata(original.berichtId, ontvanger, "GELEZEN", null)
             .await().indefinitely()
 
         assertNotNull(updated)
@@ -168,9 +168,9 @@ class RedisBerichtenCacheIntegrationTest {
 
         val original = berichten[0]
         // Zet eerst status zodat we kunnen verifiëren dat een map-only update die niet wist
-        berichtenCache.werkBerichtBij(original.berichtId, ontvanger, "gelezen", null).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(original.berichtId, ontvanger, "gelezen", null).await().indefinitely()
 
-        val updated = berichtenCache.werkBerichtBij(original.berichtId, ontvanger, null, "archief")
+        val updated = berichtenCache.updateBerichtMetadata(original.berichtId, ontvanger, null, "archief")
             .await().indefinitely()
 
         assertNotNull(updated)
@@ -184,7 +184,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
         val original = berichten[0]
-        val updated = berichtenCache.werkBerichtBij(original.berichtId, ontvanger, "gelezen", "archief")
+        val updated = berichtenCache.updateBerichtMetadata(original.berichtId, ontvanger, "gelezen", "archief")
             .await().indefinitely()
 
         assertNotNull(updated)
@@ -202,7 +202,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
 
-        berichtenCache.werkBerichtBij(target.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
+        berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
 
         // Ongefilterde, list-backed pad (afzender == null → LRANGE, niet RediSearch).
         val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
@@ -218,7 +218,7 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
-        val result = berichtenCache.werkBerichtBij(berichten[0].berichtId, "andere-ontvanger", "gelezen", null)
+        val result = berichtenCache.updateBerichtMetadata(berichten[0].berichtId, "andere-ontvanger", "gelezen", null)
             .await().indefinitely()
 
         assertNull(result)
@@ -226,7 +226,7 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `update op niet-bestaand bericht retourneert null`() {
-        val result = berichtenCache.werkBerichtBij(UUID.randomUUID(), ontvanger, "gelezen", null)
+        val result = berichtenCache.updateBerichtMetadata(UUID.randomUUID(), ontvanger, "gelezen", null)
             .await().indefinitely()
 
         assertNull(result)

@@ -66,7 +66,7 @@ class UitvraagResource(
     }
 
     @Logboek(name = "uitvraag-patch", processingActivityId = ProcessingActivities.UITVRAAG_BEHEER)
-    override fun updateBericht(berichtId: UUID, xOntvanger: String, berichtPatch: BerichtPatch): Bericht {
+    override fun updateBerichtMetadata(berichtId: UUID, xOntvanger: String, berichtPatch: BerichtPatch): Bericht {
         registreerLdvSubject(xOntvanger)
 
         return beheerService.patch(xOntvanger, berichtId, berichtPatch)

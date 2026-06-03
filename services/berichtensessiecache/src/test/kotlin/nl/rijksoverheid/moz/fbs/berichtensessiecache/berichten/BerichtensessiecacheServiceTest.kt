@@ -96,36 +96,36 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `updateBericht delegeert status-update naar cache`() {
+    fun `updateBerichtMetadata delegeert status-update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(status = Leesstatus.GELEZEN)
-        every { berichtenCache.werkBerichtBij(bericht.berichtId, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
+        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
 
-        val result = service.updateBericht(bericht.berichtId, ontvanger, "GELEZEN", null).await().indefinitely()
+        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, "GELEZEN", null).await().indefinitely()
 
         assertNotNull(result)
         assertEquals(Leesstatus.GELEZEN, result!!.status)
     }
 
     @Test
-    fun `updateBericht delegeert map-update naar cache`() {
+    fun `updateBerichtMetadata delegeert map-update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(map = "archief")
-        every { berichtenCache.werkBerichtBij(bericht.berichtId, ontvanger, null, "archief") } returns Uni.createFrom().item(updated)
+        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, null, "archief") } returns Uni.createFrom().item(updated)
 
-        val result = service.updateBericht(bericht.berichtId, ontvanger, null, "archief").await().indefinitely()
+        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, null, "archief").await().indefinitely()
 
         assertNotNull(result)
         assertEquals("archief", result!!.map)
     }
 
     @Test
-    fun `updateBericht delegeert gecombineerde update naar cache`() {
+    fun `updateBerichtMetadata delegeert gecombineerde update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(status = Leesstatus.GELEZEN, map = "archief")
-        every { berichtenCache.werkBerichtBij(bericht.berichtId, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
+        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
 
-        val result = service.updateBericht(bericht.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
+        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
 
         assertNotNull(result)
         assertEquals(Leesstatus.GELEZEN, result!!.status)

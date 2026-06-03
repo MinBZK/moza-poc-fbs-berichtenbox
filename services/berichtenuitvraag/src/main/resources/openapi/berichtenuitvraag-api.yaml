@@ -144,7 +144,7 @@ paths:
       summary: Bericht-status bijwerken / verplaatsen
       description: |
         Werk status (`gelezen`/`ongelezen`) en/of `map` van een bericht bij. Idempotent.
-      operationId: updateBericht
+      operationId: updateBerichtMetadata
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
       requestBody:
