@@ -6,33 +6,34 @@ import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
-import io.restassured.RestAssured
-import io.restassured.RestAssured.given
+import io.smallrye.mutiny.Multi
 import jakarta.inject.Inject
+import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockBerichtenCache
-import org.hamcrest.CoreMatchers.`is`
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.nio.ByteBuffer
-import java.util.concurrent.Flow
-import java.util.concurrent.TimeUnit
+import java.time.Duration
 
 @QuarkusTest
 @TestProfile(WireMockTestProfile::class)
 @QuarkusTestResource(WireMockMagazijnResource::class)
 class MagazijnClientWireMockTest {
 
-    // Header-waarde (TYPE:WAARDE-formaat)
-    private val ontvanger = "BSN:999993653"
+    private val ontvanger = Bsn("999993653")
     // Raw identificatiewaarde voor gebruik in bericht-body's (Bericht.ontvanger slaat geen type-prefix op)
     private val ontvangerWaarde = "999993653"
+
+    @Inject
+    lateinit var sessiecache: Sessiecache
 
     // Gedeelde in-memory cache (zelfde bean over alle tests in deze klasse); per test legen
     // zodat GET /berichten-asserts niet op state van een vorige test leunen.
@@ -56,25 +57,16 @@ class MagazijnClientWireMockTest {
         stubMagazijnSuccess(WireMockMagazijnResource.serverA!!, "magazijn-a")
         stubMagazijnSuccess(WireMockMagazijnResource.serverB!!, "magazijn-b")
 
-        val response = given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten/_ophalen")
-            .then().statusCode(200)
-            .extract().body().asString()
+        val gereed = ophaalGereedEvent()
 
-        assertTrue(response.contains("ophalen-gereed"))
         // Beide magazijnen leverden elk 1 bericht: volledig succes.
-        assertTrue(response.contains("\"geslaagd\":2"), "Verwacht geslaagd:2 in: $response")
-        assertTrue(response.contains("\"mislukt\":0"), "Verwacht mislukt:0 in: $response")
-        assertTrue(response.contains("\"totaalMagazijnen\":2"), "Verwacht totaalMagazijnen:2 in: $response")
-        assertTrue(response.contains("\"totaalBerichten\":2"), "Verwacht totaalBerichten:2 in: $response")
+        assertEquals(2, gereed.geslaagd)
+        assertEquals(0, gereed.mislukt)
+        assertEquals(2, gereed.totaalMagazijnen)
+        assertEquals(2, gereed.totaalBerichten)
 
-        // Beide berichten zijn gecached en opvraagbaar via GET /berichten.
-        given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten")
-            .then().statusCode(200)
-            .body("totalElements", `is`(2))
+        // Beide berichten zijn gecached en opvraagbaar via de facade.
+        assertEquals(2L, sessiecache.lijst(ontvanger).totalElements)
     }
 
     @Test
@@ -85,28 +77,22 @@ class MagazijnClientWireMockTest {
         )
         stubMagazijnSuccess(WireMockMagazijnResource.serverB!!, "magazijn-b")
 
-        val response = given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten/_ophalen")
-            .then().statusCode(200)
-            .extract().body().asString()
+        val events = ophaalEvents()
 
-        assertTrue(response.contains("FOUT"))
+        assertTrue(events.any { it.status == MagazijnStatus.FOUT }, "Verwacht FOUT-event in: $events")
         // Partial failure: magazijn-a (500) faalt, magazijn-b slaagt → degradatie i.p.v.
         // totale fout. De aggregatie telt 1 geslaagd / 1 mislukt en levert het ene
         // overlevende bericht.
-        assertTrue(response.contains("\"geslaagd\":1"), "Verwacht geslaagd:1 in: $response")
-        assertTrue(response.contains("\"mislukt\":1"), "Verwacht mislukt:1 in: $response")
-        assertTrue(response.contains("\"totaalMagazijnen\":2"), "Verwacht totaalMagazijnen:2 in: $response")
-        assertTrue(response.contains("\"totaalBerichten\":1"), "Verwacht totaalBerichten:1 in: $response")
+        val gereed = gereedEvent(events)
+
+        assertEquals(1, gereed.geslaagd)
+        assertEquals(1, gereed.mislukt)
+        assertEquals(2, gereed.totaalMagazijnen)
+        assertEquals(1, gereed.totaalBerichten)
 
         // Cruciaal: het bericht van het overlevende magazijn is wél gecached ondanks de fout
         // bij het andere magazijn.
-        given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten")
-            .then().statusCode(200)
-            .body("totalElements", `is`(1))
+        assertEquals(1L, sessiecache.lijst(ontvanger).totalElements)
     }
 
     @Test
@@ -122,15 +108,11 @@ class MagazijnClientWireMockTest {
         )
         stubMagazijnSuccess(WireMockMagazijnResource.serverB!!, "magazijn-b")
 
-        val response = given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten/_ophalen")
-            .then().statusCode(200)
-            .extract().body().asString()
+        val events = ophaalEvents()
 
         assertTrue(
-            response.contains("TIMEOUT"),
-            "Verwacht TIMEOUT-event op de geconfigureerde 2s-grens maar stream bevatte: $response",
+            events.any { it.status == MagazijnStatus.TIMEOUT },
+            "Verwacht TIMEOUT-event op de geconfigureerde 2s-grens maar stream bevatte: $events",
         )
     }
 
@@ -152,7 +134,7 @@ class MagazijnClientWireMockTest {
         val startNanos = System.nanoTime()
 
         val fout = assertThrows(Exception::class.java) {
-            client!!.getBerichten(ontvanger, null)
+            client!!.getBerichten(ontvanger.toCanonicalString(), null)
         }
 
         val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
@@ -169,51 +151,41 @@ class MagazijnClientWireMockTest {
 
     @Test
     fun `client-disconnect tijdens aggregatie stopt de cache-vulling niet`() {
-        // De aggregatie loopt bewust door na een client-disconnect zodat de cache alsnog gevuld
-        // raakt (een retry wordt dan een cache-hit). Magazijns antwoorden vertraagd (800ms, ruim
-        // onder de 2s query-timeout) zodat er een venster is om te disconnecten vóór completion;
-        // daarna pollen we GET /berichten tot de cache gevuld is.
+        // De aggregatie loopt bewust door na een client-disconnect zodat de cache alsnog
+        // gevuld raakt (een retry wordt dan een cache-hit). We spiegelen het SSE-resource-
+        // patroon van de consumer: een buitenste emitter observeert de aggregatie-Multi
+        // zonder cancel door te geven. De buitenste subscriptie wordt direct gecanceld
+        // (de "disconnect") terwijl de magazijn-calls (800ms delay, ruim onder de 2s
+        // query-timeout) nog onderweg zijn; daarna pollen we de facade tot de cache gevuld is.
         stubMagazijnSuccessDelayed(WireMockMagazijnResource.serverA!!, "magazijn-a", 800)
         stubMagazijnSuccessDelayed(WireMockMagazijnResource.serverB!!, "magazijn-b", 800)
 
-        val httpClient = HttpClient.newHttpClient()
-        val request = HttpRequest.newBuilder(
-            URI.create("http://localhost:${RestAssured.port}/api/v1/berichten/_ophalen"),
-        ).header("X-Ontvanger", ontvanger).GET().build()
+        val aggregation = sessiecache.ophalen(ontvanger)
+        val buitenste = Multi.createFrom().emitter<MagazijnEvent> { emitter ->
+            aggregation.subscribe().with(
+                { event -> if (!emitter.isCancelled) emitter.emit(event) },
+                { fout -> if (!emitter.isCancelled) emitter.fail(fout) },
+                { if (!emitter.isCancelled) emitter.complete() },
+            )
+        }
 
-        // Ontvangen response-headers = server is begonnen met streamen = de aggregatie is
-        // gesubscribed. Daarna cancelen we de subscription onmiddellijk: dat sluit de connectie
-        // (disconnect) terwijl de magazijn-calls nog onderweg zijn.
-        val response = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofPublisher())
-            .get(5, TimeUnit.SECONDS)
+        buitenste.subscribe().with({ }, { }, { }).cancel()
 
-        response.body().subscribe(object : Flow.Subscriber<List<ByteBuffer>> {
-            override fun onSubscribe(subscription: Flow.Subscription) = subscription.cancel()
-            override fun onNext(item: List<ByteBuffer>) = Unit
-            override fun onError(throwable: Throwable) = Unit
-            override fun onComplete() = Unit
-        })
-
-        // De aggregatie rondt de magazijns rond 800ms af en vult de cache, ondanks de disconnect.
-        // Tijdens het ophalen geeft GET /berichten 409 (ophalen-bezig); pas wanneer de
-        // aggregatie de status op GEREED zet komt 200 met de gecachte berichten. Poll dus tot
-        // 200 met data of tot een ruime deadline verstrijkt.
+        // De aggregatie rondt de magazijns rond 800ms af en vult de cache, ondanks de
+        // disconnect. Tijdens het ophalen gooit de facade 409 (ophalen-bezig); pas wanneer
+        // de aggregatie de status op GEREED zet komt de lijst terug. Poll dus tot data of
+        // tot een ruime deadline verstrijkt.
         val deadline = System.currentTimeMillis() + 6_000
-        var totaal = 0
+        var totaal = 0L
         var zagOphalenBezig = false
 
         while (System.currentTimeMillis() < deadline) {
-            val resultaat = given()
-                .header("X-Ontvanger", ontvanger)
-                .`when`().get("/api/v1/berichten")
-                .then().extract()
-
-            if (resultaat.statusCode() == 409) zagOphalenBezig = true
-
-            if (resultaat.statusCode() == 200) {
-                totaal = resultaat.path<Int>("totalElements") ?: 0
+            try {
+                totaal = sessiecache.lijst(ontvanger).totalElements
 
                 if (totaal >= 1) break
+            } catch (e: WebApplicationException) {
+                if (e.response.status == 409) zagOphalenBezig = true
             }
 
             Thread.sleep(150)
@@ -245,13 +217,9 @@ class MagazijnClientWireMockTest {
         )
         stubMagazijnSuccess(WireMockMagazijnResource.serverB!!, "magazijn-b")
 
-        val response = given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten/_ophalen")
-            .then().statusCode(200)
-            .extract().body().asString()
+        val events = ophaalEvents()
 
-        assertTrue(response.contains("FOUT"))
+        assertTrue(events.any { it.status == MagazijnStatus.FOUT }, "Verwacht FOUT-event in: $events")
     }
 
     @Test
@@ -259,15 +227,20 @@ class MagazijnClientWireMockTest {
         stubMagazijnEmpty(WireMockMagazijnResource.serverA!!)
         stubMagazijnEmpty(WireMockMagazijnResource.serverB!!)
 
-        val response = given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten/_ophalen")
-            .then().statusCode(200)
-            .extract().body().asString()
+        val gereed = ophaalGereedEvent()
 
-        assertTrue(response.contains("ophalen-gereed"))
-        assertTrue(response.contains("\"totaalBerichten\":0"))
+        assertEquals(0, gereed.totaalBerichten)
     }
+
+    private fun ophaalEvents(): List<MagazijnEvent> =
+        sessiecache.ophalen(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+    private fun gereedEvent(events: List<MagazijnEvent>): MagazijnEvent =
+        requireNotNull(events.lastOrNull { it.event == EventType.OPHALEN_GEREED }) {
+            "Verwacht OPHALEN_GEREED-event in: $events"
+        }
+
+    private fun ophaalGereedEvent(): MagazijnEvent = gereedEvent(ophaalEvents())
 
     private fun stubMagazijnSuccess(server: com.github.tomakehurst.wiremock.WireMockServer, magazijnId: String) {
         server.stubFor(

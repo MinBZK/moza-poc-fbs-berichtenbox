@@ -9,7 +9,12 @@ import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
-import io.restassured.RestAssured.given
+import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -35,7 +40,10 @@ import java.time.Instant
 @QuarkusTestResource(WireMockMagazijnResource::class)
 class MagazijnContractIntegrationTest {
 
-    private val ontvanger = "BSN:999993653"
+    private val ontvanger = Bsn("999993653")
+
+    @Inject
+    lateinit var sessiecache: Sessiecache
 
     private val objectMapper = ObjectMapper()
         .registerModule(JavaTimeModule())
@@ -191,17 +199,13 @@ class MagazijnContractIntegrationTest {
         )
         stubMinimaal(WireMockMagazijnResource.serverB!!, "b2c3d4e5-f6a7-8901-bcde-f12345678901")
 
-        val response = given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten/_ophalen")
-            .then().statusCode(200)
-            .extract().body().asString()
+        val events = ophaalEvents()
 
         assertTrue(
-            response.contains("FOUT"),
-            "Verwacht een FOUT-event voor het magazijn zonder berichten-veld, maar kreeg: $response",
+            events.any { it.status == MagazijnStatus.FOUT },
+            "Verwacht een FOUT-event voor het magazijn zonder berichten-veld, maar kreeg: $events",
         )
-        assertTrue(response.contains("ophalen-gereed"))
+        assertTrue(events.any { it.event == EventType.OPHALEN_GEREED })
     }
 
     @Test
@@ -213,18 +217,17 @@ class MagazijnContractIntegrationTest {
         stubMinimaal(WireMockMagazijnResource.serverA!!, "a1b2c3d4-e5f6-7890-abcd-ef1234567890")
         stubMinimaal(WireMockMagazijnResource.serverB!!, "b2c3d4e5-f6a7-8901-bcde-f12345678901")
 
-        val response = given()
-            .header("X-Ontvanger", ontvanger)
-            .`when`().get("/api/v1/berichten/_ophalen")
-            .then().statusCode(200)
-            .extract().body().asString()
+        val events = ophaalEvents()
 
-        assertTrue(response.contains("ophalen-gereed"))
+        assertTrue(events.any { it.event == EventType.OPHALEN_GEREED })
         assertFalse(
-            response.contains("FOUT"),
-            "Verwacht geen FOUT-event bij minimale spec-conforme magazijn-body, maar kreeg: $response",
+            events.any { it.status == MagazijnStatus.FOUT || it.event == EventType.OPHALEN_FOUT },
+            "Verwacht geen FOUT-event bij minimale spec-conforme magazijn-body, maar kreeg: $events",
         )
     }
+
+    private fun ophaalEvents(): List<MagazijnEvent> =
+        sessiecache.ophalen(ontvanger).collect().asList().await().atMost(java.time.Duration.ofSeconds(15))
 
     private fun stubMinimaal(server: com.github.tomakehurst.wiremock.WireMockServer, berichtId: String) {
         server.stubFor(
