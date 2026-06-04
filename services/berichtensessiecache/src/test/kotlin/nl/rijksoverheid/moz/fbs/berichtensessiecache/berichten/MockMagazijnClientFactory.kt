@@ -5,6 +5,8 @@ import io.mockk.mockk
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
 import jakarta.ws.rs.ProcessingException
+import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
@@ -15,7 +17,10 @@ import java.util.UUID
 
 @Alternative
 @ApplicationScoped
-class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) {
+class MockMagazijnClientFactory : MagazijnClientFactory(
+    MockMagazijnenConfig(),
+    profile = "test",
+) {
 
     companion object {
         val testBerichtenA = listOf(
@@ -24,24 +29,30 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 afzender = "00000001234567890000",
                 ontvanger = "999993653",
                 onderwerp = "Test bericht 1",
-                tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+                inhoud = "Inhoud van test bericht 1",
+                publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
                 magazijnId = "magazijn-a",
+                aantalBijlagen = 0,
             ),
             Bericht(
                 berichtId = UUID.fromString("22222222-2222-2222-2222-222222222222"),
                 afzender = "00000001234567890000",
                 ontvanger = "999993653",
                 onderwerp = "Test bericht 2",
-                tijdstip = Instant.parse("2026-03-10T11:00:00Z"),
+                inhoud = "Inhoud van test bericht 2",
+                publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
                 magazijnId = "magazijn-a",
+                aantalBijlagen = 1,
             ),
             Bericht(
                 berichtId = UUID.fromString("33333333-3333-3333-3333-333333333333"),
                 afzender = "00000009876543210000",
                 ontvanger = "999993653",
                 onderwerp = "Test bericht 3",
-                tijdstip = Instant.parse("2026-03-10T12:00:00Z"),
+                inhoud = "Inhoud van test bericht 3",
+                publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
                 magazijnId = "magazijn-a",
+                aantalBijlagen = 2,
             ),
         )
 
@@ -51,8 +62,10 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
                 afzender = "00000005555555550000",
                 ontvanger = "999993653",
                 onderwerp = "Test bericht 4",
-                tijdstip = Instant.parse("2026-03-10T13:00:00Z"),
+                inhoud = "Inhoud van test bericht 4",
+                publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
                 magazijnId = "magazijn-b",
+                aantalBijlagen = 0,
             ),
         )
 
@@ -60,12 +73,14 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
         var shouldFailB = false
         var shouldTimeoutA = false
         var shouldTimeoutB = false
+        var shouldHttpFailA: Int? = null
+        var shouldHttpFailB: Int? = null
     }
 
     override fun getAllClients(): Map<String, MagazijnClient> {
         return mapOf(
-            "magazijn-a" to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }),
-            "magazijn-b" to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }),
+            "magazijn-a" to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }, { shouldHttpFailA }),
+            "magazijn-b" to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }, { shouldHttpFailB }),
         )
     }
 
@@ -79,18 +94,37 @@ class MockMagazijnClientFactory : MagazijnClientFactory(MockMagazijnenConfig()) 
         berichten: List<Bericht>,
         shouldFail: () -> Boolean,
         shouldTimeout: () -> Boolean,
+        httpFailStatus: () -> Int? = { null },
     ): MagazijnClient = mockk<MagazijnClient>().also { client ->
+        val magazijnBerichten = berichten.map { it.toMagazijnBericht() }
+
         every { client.getBerichten(any(), any()) } answers {
             if (shouldTimeout()) Thread.sleep(15_000)
             if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
-            MagazijnBerichtenResponse(berichten = berichten)
+            httpFailStatus()?.let { status -> throw WebApplicationException(status) }
+            MagazijnBerichtenResponse(berichten = magazijnBerichten)
         }
+
         every { client.getBerichtById(any()) } answers {
             if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
             val berichtId = firstArg<String>()
-            berichten.find { it.berichtId.toString() == berichtId }
+            magazijnBerichten.find { it.berichtId.toString() == berichtId }
         }
     }
+
+    // Test-fixtures zijn cache-`Bericht` (plain string ontvanger) zodat assertions over de
+    // cache-inhoud direct werken. Magazijn-client levert echter MagazijnBericht (object-vorm
+    // ontvanger), dus we wrappen de waarde hier in een neutrale BSN-Identificatienummer —
+    // de service vlakt het type weer weg via `MagazijnBericht.toBericht`.
+    private fun Bericht.toMagazijnBericht(): MagazijnBericht = MagazijnBericht(
+        berichtId = berichtId,
+        afzender = afzender,
+        ontvanger = MagazijnBericht.Identificatienummer(type = "BSN", waarde = ontvanger),
+        onderwerp = onderwerp,
+        inhoud = inhoud,
+        publicatietijdstip = publicatietijdstip,
+        aantalBijlagen = aantalBijlagen,
+    )
 }
 
 private class MockMagazijnenConfig : MagazijnenConfig {
@@ -99,10 +133,12 @@ private class MockMagazijnenConfig : MagazijnenConfig {
             "magazijn-a" to object : MagazijnenConfig.MagazijnInstance {
                 override fun url(): String = "http://localhost:8081"
                 override fun naam(): Optional<String> = Optional.of("Magazijn A")
+                override fun afzenders(): List<String> = listOf("00000001003214345000")
             },
             "magazijn-b" to object : MagazijnenConfig.MagazijnInstance {
                 override fun url(): String = "http://localhost:8082"
                 override fun naam(): Optional<String> = Optional.of("Magazijn B")
+                override fun afzenders(): List<String> = listOf("00000001823288444000")
             },
         )
     }

@@ -1,0 +1,20 @@
+meta {
+  name: 7. Ophalen zonder voorkeur (lege resultaten)
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/berichten/_ophalen
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: BSN:999996915
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+assert {
+  res.status: eq 200
+}
