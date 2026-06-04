@@ -299,41 +299,49 @@ class BerichtensessiecacheResource(
         afzender: String? = null,
         map: String? = null,
     ): BerichtensessiecacheResponse {
-        val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        // afzender en map zijn beide optionele filters; combineer ze in de pagination-
-        // _links zodat doorbladeren de actieve filter behoudt.
-        val filterParams = buildString {
-            if (afzender != null) append("&afzender=").append(URLEncoder.encode(afzender, StandardCharsets.UTF_8))
-
-            if (map != null) append("&map=").append(URLEncoder.encode(map, StandardCharsets.UTF_8))
-        }
-
         return BerichtensessiecacheResponse().apply {
             berichten = this@toResponse.berichten.map { it.toApiSamenvatting() }
             page = this@toResponse.page
             pageSize = this@toResponse.pageSize
             totalElements = this@toResponse.totalElements
             totalPages = this@toResponse.totalPages
-            if (aggregation != null) {
-                aggregatie = ApiAggregationStatus().apply {
-                    status = ApiAggregationStatus.StatusEnum.fromString(aggregation.status.name)
-                    totaalMagazijnen = aggregation.totaalMagazijnen
-                    geslaagd = aggregation.geslaagd
-                    mislukt = aggregation.mislukt
-                }
+            aggregatie = aggregation?.toApiAggregatie()
+            links = this@toResponse.paginationLinks(filterQueryParams(afzender, map))
+        }
+    }
+
+    private fun AggregationStatus.toApiAggregatie(): ApiAggregationStatus =
+        ApiAggregationStatus().apply {
+            status = ApiAggregationStatus.StatusEnum.fromString(this@toApiAggregatie.status.name)
+            totaalMagazijnen = this@toApiAggregatie.totaalMagazijnen
+            geslaagd = this@toApiAggregatie.geslaagd
+            mislukt = this@toApiAggregatie.mislukt
+        }
+
+    // afzender en map zijn beide optionele filters; combineer ze in de pagination-
+    // _links zodat doorbladeren de actieve filter behoudt.
+    private fun filterQueryParams(afzender: String?, map: String?): String = buildString {
+        if (afzender != null) append("&afzender=").append(URLEncoder.encode(afzender, StandardCharsets.UTF_8))
+
+        if (map != null) append("&map=").append(URLEncoder.encode(map, StandardCharsets.UTF_8))
+    }
+
+    private fun BerichtenPage.paginationLinks(filterParams: String): PaginationLinks {
+        val basePath = uriInfo.baseUri.path.removeSuffix("/")
+
+        fun pageHref(page: Int) = "$basePath/berichten?page=$page&pageSize=$pageSize$filterParams"
+
+        return PaginationLinks().apply {
+            self = Link().apply { href = pageHref(this@paginationLinks.page) }
+            first = Link().apply { href = pageHref(0) }
+            if (this@paginationLinks.totalPages > 0) {
+                last = Link().apply { href = pageHref(this@paginationLinks.totalPages - 1) }
             }
-            links = PaginationLinks().apply {
-                self = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page}&pageSize=${this@toResponse.pageSize}$filterParams" }
-                first = Link().apply { href = "$basePath/berichten?page=0&pageSize=${this@toResponse.pageSize}$filterParams" }
-                if (this@toResponse.totalPages > 0) {
-                    last = Link().apply { href = "$basePath/berichten?page=${this@toResponse.totalPages - 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
-                }
-                if (this@toResponse.page > 0) {
-                    prev = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page - 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
-                }
-                if (this@toResponse.page < this@toResponse.totalPages - 1) {
-                    next = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page + 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
-                }
+            if (this@paginationLinks.page > 0) {
+                prev = Link().apply { href = pageHref(this@paginationLinks.page - 1) }
+            }
+            if (this@paginationLinks.page < this@paginationLinks.totalPages - 1) {
+                next = Link().apply { href = pageHref(this@paginationLinks.page + 1) }
             }
         }
     }

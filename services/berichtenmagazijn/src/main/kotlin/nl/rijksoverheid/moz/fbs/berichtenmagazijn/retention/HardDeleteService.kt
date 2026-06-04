@@ -37,6 +37,8 @@ class HardDeleteService(
         val durationMs: Long,
     )
 
+    private enum class KandidaatUitkomst { VERWIJDERD, VERWIJDERD_LDV_FOUT, OVERGESLAGEN, FOUT }
+
     fun run(): RunResultaat {
         val start = Instant.now()
         val receiptDeadline = subtract(start, config.minimaleLeeftijd())
@@ -53,45 +55,26 @@ class HardDeleteService(
                 softDeleteDeadline = softDeleteDeadline,
                 batchSize = remainingBatchSize(totaal, batchSize),
             )
+
             if (candidates.isEmpty()) break
 
             for (candidate in candidates) {
-                val deletedRows = try {
-                    ops.deleteOne(candidate)
-                } catch (ex: Exception) {
-                    log.errorf(
-                        ex,
-                        "hard-delete failed berichtId=%s ontvangerType=%s",
-                        candidate.berichtId,
-                        candidate.ontvangerType,
-                    )
-                    fouten++
-                    continue
+                when (verwijderEnLog(candidate)) {
+                    KandidaatUitkomst.VERWIJDERD -> totaal++
+                    KandidaatUitkomst.VERWIJDERD_LDV_FOUT -> {
+                        totaal++
+                        ldvFouten++
+                    }
+                    KandidaatUitkomst.OVERGESLAGEN -> {}
+                    KandidaatUitkomst.FOUT -> fouten++
                 }
-                if (deletedRows == 0) {
-                    log.warnf(
-                        "hard-delete affected 0 rows berichtId=%s — overgeslagen door andere pod?",
-                        candidate.berichtId,
-                    )
-                    continue
-                }
-                totaal++
-                try {
-                    ldv.logHardDelete(candidate)
-                } catch (ex: Exception) {
-                    log.errorf(
-                        ex,
-                        "LDV-write failed na hard-delete berichtId=%s ontvangerType=%s",
-                        candidate.berichtId,
-                        candidate.ontvangerType,
-                    )
-                    ldvFouten++
-                }
+
                 if (totaal >= MAX_PER_RUN) {
                     log.infof("hard-delete reached MAX_PER_RUN (%d) — restant in volgende cron-tick", MAX_PER_RUN)
                     break@loop
                 }
             }
+
             if (candidates.size < batchSize) break
         }
 
@@ -104,6 +87,48 @@ class HardDeleteService(
             durationMs,
         )
         return RunResultaat(totaal, fouten, ldvFouten, durationMs)
+    }
+
+    /**
+     * Verwijdert één kandidaat en logt het LDV-record. Fouten per kandidaat blijven
+     * geïsoleerd: een mislukte delete of LDV-write stopt de run niet, maar telt mee
+     * in de uitkomst zodat [run] ze in [RunResultaat] rapporteert.
+     */
+    private fun verwijderEnLog(candidate: HardDeleteCandidaat): KandidaatUitkomst {
+        val deletedRows = try {
+            ops.deleteOne(candidate)
+        } catch (ex: Exception) {
+            log.errorf(
+                ex,
+                "hard-delete failed berichtId=%s ontvangerType=%s",
+                candidate.berichtId,
+                candidate.ontvangerType,
+            )
+
+            return KandidaatUitkomst.FOUT
+        }
+
+        if (deletedRows == 0) {
+            log.warnf(
+                "hard-delete affected 0 rows berichtId=%s — overgeslagen door andere pod?",
+                candidate.berichtId,
+            )
+
+            return KandidaatUitkomst.OVERGESLAGEN
+        }
+
+        return try {
+            ldv.logHardDelete(candidate)
+            KandidaatUitkomst.VERWIJDERD
+        } catch (ex: Exception) {
+            log.errorf(
+                ex,
+                "LDV-write failed na hard-delete berichtId=%s ontvangerType=%s",
+                candidate.berichtId,
+                candidate.ontvangerType,
+            )
+            KandidaatUitkomst.VERWIJDERD_LDV_FOUT
+        }
     }
 
     private fun remainingBatchSize(totaal: Int, batchSize: Int): Int =
