@@ -22,8 +22,10 @@ class WireMockMagazijnResource : QuarkusTestResourceLifecycleManager {
         return mapOf(
             "magazijnen.instances.magazijn-a.url" to a.baseUrl(),
             "magazijnen.instances.magazijn-a.naam" to "WireMock Magazijn A",
+            "magazijnen.instances.magazijn-a.afzenders" to "00000001003214345000",
             "magazijnen.instances.magazijn-b.url" to b.baseUrl(),
             "magazijnen.instances.magazijn-b.naam" to "WireMock Magazijn B",
+            "magazijnen.instances.magazijn-b.afzenders" to "00000001823288444000",
         )
     }
 

@@ -33,6 +33,9 @@ data class MagazijnEvent(
     val geslaagd: Int? = null,
     val mislukt: Int? = null,
     val totaalMagazijnen: Int? = null,
+    // Gestructureerd id-anker (ipv embed in foutmelding) — voorkomt label-cardinality
+    // bij metric-collectors en geeft UI een support-doorgeefveld.
+    val referentie: String? = null,
 ) {
     init {
         when (event) {

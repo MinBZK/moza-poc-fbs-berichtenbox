@@ -11,8 +11,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -54,7 +54,7 @@ class OphaalBeheerOpenApiContractTest {
                 onderwerp = "Contract test",
                 inhoud = "Contract inhoud",
                 tijdstipOntvangst = Instant.now(),
-                publicatiedatum = Instant.now(),
+                publicatietijdstip = Instant.now(),
             ),
         )
         return berichtId

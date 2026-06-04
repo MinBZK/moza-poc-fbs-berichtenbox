@@ -8,12 +8,12 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.ToestemmingGeweigerdException
+import nl.rijksoverheid.moz.fbs.common.profiel.ToestemmingGeweigerdException
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker
 import org.jboss.logging.Logger
@@ -69,7 +69,7 @@ class BerichtOpslagService(
         ontvangerWaarde: String,
         onderwerp: String,
         inhoud: String,
-        publicatiedatum: Instant? = null,
+        publicatietijdstip: Instant? = null,
         bijlagen: List<BijlageInvoer> = emptyList(),
     ): Bericht {
         val tijdstipOntvangst = clock.instant()
@@ -81,9 +81,9 @@ class BerichtOpslagService(
             onderwerp = onderwerp,
             inhoud = inhoud,
             tijdstipOntvangst = tijdstipOntvangst,
-            // Zonder meegestuurde publicatiedatum = direct publiceren. Hergebruik
+            // Zonder meegestuurd publicatietijdstip = direct publiceren. Hergebruik
             // tijdstipOntvangst zodat bericht en outbox-rij dezelfde T0 delen.
-            publicatiedatum = publicatiedatum ?: tijdstipOntvangst,
+            publicatietijdstip = publicatietijdstip ?: tijdstipOntvangst,
         )
 
         // Validatie vóór persistentie: MIME-typen en toestemming (issue #541).
@@ -130,7 +130,7 @@ class BerichtOpslagService(
         // misconfigured downstream — anders zou de operator alleen een generieke
         // 500 zien zonder berichtId-context.
         try {
-            publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatiedatum)
+            publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatietijdstip)
         } catch (ex: RuntimeException) {
             log.errorf(
                 ex,

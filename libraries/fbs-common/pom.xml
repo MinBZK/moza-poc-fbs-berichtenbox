@@ -61,6 +61,18 @@
             <artifactId>microprofile-config-api</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- REST-client interface-annotaties voor ProfielServiceClient (door Quarkus-runtime geleverd). -->
+        <dependency>
+            <groupId>org.eclipse.microprofile.rest.client</groupId>
+            <artifactId>microprofile-rest-client-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <!-- @Retry voor ProfielServiceClient transient-fault recovery. -->
+        <dependency>
+            <groupId>org.eclipse.microprofile.fault-tolerance</groupId>
+            <artifactId>microprofile-fault-tolerance-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <!-- CDI + Quarkus runtime voor LdvEndpointValidator startup-observer. -->
         <dependency>
             <groupId>jakarta.enterprise</groupId>
