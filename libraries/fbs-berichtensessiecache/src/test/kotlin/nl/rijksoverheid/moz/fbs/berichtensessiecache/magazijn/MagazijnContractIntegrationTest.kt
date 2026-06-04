@@ -40,7 +40,8 @@ import java.time.Instant
 @QuarkusTestResource(WireMockMagazijnResource::class)
 class MagazijnContractIntegrationTest {
 
-    private val ontvanger = Bsn("999993653")
+    private val ontvangerWaarde = "999993653"
+    private val ontvanger = Bsn(ontvangerWaarde)
 
     @Inject
     lateinit var sessiecache: Sessiecache
@@ -67,7 +68,7 @@ class MagazijnContractIntegrationTest {
                     {
                         "berichtId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                         "afzender": "00000001234567890000",
-                        "ontvanger": { "type": "BSN", "waarde": "$ontvanger" },
+                        "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                         "onderwerp": "Minimaal bericht",
                         "inhoud": "Korte inhoud",
                         "tijdstipOntvangst": "2026-03-10T14:30:05Z",
@@ -91,7 +92,7 @@ class MagazijnContractIntegrationTest {
         val bericht = response.berichten.single()
         assertEquals("00000001234567890000", bericht.afzender)
         assertEquals("BSN", bericht.ontvanger.type)
-        assertEquals(ontvanger, bericht.ontvanger.waarde)
+        assertEquals(ontvangerWaarde, bericht.ontvanger.waarde)
         assertEquals("Minimaal bericht", bericht.onderwerp)
         assertEquals("Korte inhoud", bericht.inhoud)
         assertEquals(Instant.parse("2026-03-10T14:30:00Z"), bericht.publicatietijdstip)
@@ -111,7 +112,7 @@ class MagazijnContractIntegrationTest {
                     {
                         "berichtId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
                         "afzender": "00000005555555550000",
-                        "ontvanger": { "type": "BSN", "waarde": "$ontvanger" },
+                        "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                         "onderwerp": "Met bijlage",
                         "inhoud": "Tekst",
                         "tijdstipOntvangst": "2026-03-09T09:15:02Z",
@@ -243,7 +244,7 @@ class MagazijnContractIntegrationTest {
                                     {
                                         "berichtId": "$berichtId",
                                         "afzender": "00000001234567890000",
-                                        "ontvanger": { "type": "BSN", "waarde": "$ontvanger" },
+                                        "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                                         "onderwerp": "Minimaal",
                                         "inhoud": "x",
                                         "tijdstipOntvangst": "2026-03-10T14:30:05Z",

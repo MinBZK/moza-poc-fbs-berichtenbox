@@ -8,7 +8,7 @@ import org.junit.jupiter.api.assertThrows
 
 @QuarkusTest
 @TestProfile(MockedDependenciesProfile::class)
-class BerichtenPageTest {
+class BerichtenPaginaTest {
 
     @Test
     fun `negatieve page wordt geweigerd`() {

@@ -161,4 +161,12 @@ class MockSessiecache : Sessiecache {
 class MockSessiecacheProfile : QuarkusTestProfile {
 
     override fun getEnabledAlternatives(): Set<Class<*>> = setOf(MockSessiecache::class.java)
+
+    override fun getConfigOverrides(): Map<String, String> = mapOf(
+        // Met de facade-alternative is de hele library-bean-graaf "ongebruikt" en zou
+        // ArC hem wegoptimaliseren — inclusief de @ConfigMapping-roots (magazijnen.instances,
+        // berichtensessiecache.bericht), waarna de main-properties met SRCFG00050 de boot
+        // laten falen. Unremovable houden spiegelt de productie-samenstelling.
+        "quarkus.arc.unremovable-types" to "nl.rijksoverheid.moz.fbs.berichtensessiecache.**",
+    )
 }
