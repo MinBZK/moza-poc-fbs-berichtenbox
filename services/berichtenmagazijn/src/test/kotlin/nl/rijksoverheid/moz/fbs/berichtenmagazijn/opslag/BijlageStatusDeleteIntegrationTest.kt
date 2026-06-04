@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
@@ -113,7 +115,7 @@ class BijlageStatusDeleteIntegrationTest {
                 onderwerp = "Test bericht",
                 inhoud = "Test inhoud",
                 tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
-                publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                publicatietijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
             ),
         )
     }

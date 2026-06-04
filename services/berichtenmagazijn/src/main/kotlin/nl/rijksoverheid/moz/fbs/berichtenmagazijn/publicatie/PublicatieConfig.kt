@@ -5,7 +5,7 @@ import io.smallrye.config.WithDefault
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Pattern
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.hibernate.validator.constraints.URL
 import java.time.Duration
 

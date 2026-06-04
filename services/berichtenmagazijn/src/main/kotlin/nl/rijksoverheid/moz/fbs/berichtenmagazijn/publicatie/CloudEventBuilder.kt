@@ -2,8 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
@@ -45,7 +45,7 @@ class CloudEventBuilder(
                 onderwerp = bericht.onderwerp,
                 inhoud = bericht.inhoud,
                 tijdstipOntvangst = bericht.tijdstipOntvangst,
-                publicatiedatum = bericht.publicatiedatum,
+                publicatietijdstip = bericht.publicatietijdstip,
             ),
         )
     }
@@ -109,7 +109,7 @@ data class BerichtData(
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
-    val publicatiedatum: Instant,
+    val publicatietijdstip: Instant,
 )
 
 /**

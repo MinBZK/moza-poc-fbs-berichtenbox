@@ -8,13 +8,14 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageLinks
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageMetadata
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.PaginationLinks
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht as BerichtDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.PagedBerichten
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata as DomainBijlageMetadata
 import java.util.UUID
@@ -36,6 +37,7 @@ internal object BerichtDtoMapper {
             onderwerp = bericht.onderwerp
             inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
+            publicatietijdstip = bericht.publicatietijdstip
             bijlagen = bericht.bijlagen.map { toBijlageMetadataDto(it, bericht.berichtId, baseUri) }
             status = bericht.status?.let { toStatusDto(it) }
             links = BerichtLinks().apply {
@@ -62,12 +64,21 @@ internal object BerichtDtoMapper {
             afzender = bericht.afzender.waarde
             ontvanger = toIdentificatienummerDto(bericht.ontvanger)
             onderwerp = bericht.onderwerp
+            inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
+            publicatietijdstip = bericht.publicatietijdstip
             aantalBijlagen = bericht.bijlagen.size
+            bijlagen = bericht.bijlagen.map { toBijlageSamenvattingDto(it) }
             status = bericht.status?.let { toStatusDto(it) }
             links = BerichtLinks().apply {
                 self = Link().apply { href = selfHrefVoorBericht(bericht.berichtId, baseUri) }
             }
+        }
+
+    private fun toBijlageSamenvattingDto(meta: DomainBijlageMetadata): BijlageSamenvatting =
+        BijlageSamenvatting().apply {
+            bijlageId = meta.bijlageId
+            naam = meta.naam
         }
 
     private fun toBijlageMetadataDto(

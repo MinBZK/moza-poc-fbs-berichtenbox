@@ -7,8 +7,8 @@ import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -63,7 +63,7 @@ class PostgresClaimerConcurrencyTest {
                     onderwerp = "Concurrency",
                     inhoud = "x",
                     tijdstipOntvangst = verleden,
-                    publicatiedatum = verleden,
+                    publicatietijdstip = verleden,
                 )
                 berichten.save(b)
                 outbox.planDeliveries(b.berichtId, verleden)

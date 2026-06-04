@@ -28,8 +28,8 @@ class BerichtStatusTest {
     }
 
     @Test
-    fun `te lange map wordt geweigerd`() {
-        val tooLong = "x".repeat(BerichtStatus.MAX_MAP_LENGTE + 1)
+    fun `te lange mapnaam wordt geweigerd`() {
+        val tooLong = "x".repeat(BerichtStatus.MAX_MAPNAAM_LENGTE + 1)
         assertThrows<DomainValidationException> {
             BerichtStatus(gelezen = false, map = tooLong, gewijzigdOp = Instant.now())
         }

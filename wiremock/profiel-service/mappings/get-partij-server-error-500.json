@@ -1,0 +1,11 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPattern": "/api/profielservice/v1/BSN/999991401"
+  },
+  "response": {
+    "status": 500,
+    "body": "internal server error"
+  }
+}

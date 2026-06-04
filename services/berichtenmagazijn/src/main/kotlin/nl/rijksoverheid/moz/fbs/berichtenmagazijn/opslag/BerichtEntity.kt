@@ -10,6 +10,9 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 import jakarta.ws.rs.InternalServerErrorException
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.jboss.logging.Logger
 import java.time.Instant
 import java.util.UUID
@@ -59,8 +62,8 @@ internal class BerichtEntity {
     @Column(name = "tijdstip_ontvangst", nullable = false)
     var tijdstipOntvangst: Instant = Instant.EPOCH
 
-    @Column(name = "publicatiedatum", nullable = false)
-    var publicatiedatum: Instant = Instant.EPOCH
+    @Column(name = "publicatietijdstip", nullable = false)
+    var publicatietijdstip: Instant = Instant.EPOCH
 
     // Soft-delete marker. NULL = actief; niet-NULL betekent dat het bericht door
     // de ontvanger is verwijderd via DELETE /berichten/{id}. Ophaal-endpoints
@@ -77,7 +80,7 @@ internal class BerichtEntity {
             onderwerp = onderwerp,
             inhoud = inhoud,
             tijdstipOntvangst = tijdstipOntvangst,
-            publicatiedatum = publicatiedatum,
+            publicatietijdstip = publicatietijdstip,
         )
     } catch (ex: DomainValidationException) {
         // Invarianten zijn vóór persist al door fromDomain geverifieerd; een DVE hier
@@ -110,7 +113,7 @@ internal class BerichtEntity {
             onderwerp = bericht.onderwerp
             inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
-            publicatiedatum = bericht.publicatiedatum
+            publicatietijdstip = bericht.publicatietijdstip
         }
     }
 }
