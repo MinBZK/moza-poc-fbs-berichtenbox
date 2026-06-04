@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>nl.rijksoverheid.moz</groupId>
+        <artifactId>moza-poc-fbs-berichtenbox</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fbs-berichtensessiecache</artifactId>
+    <name>FBS Berichtensessiecache Library</name>
+    <description>In-process sessiecache: aggregeert berichtrecords uit decentrale magazijnen achter één CDI-facade</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-kotlin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-client-jackson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-redis-client</artifactId>
+        </dependency>
+        <!-- In-JVM Caffeine-cache voor Profiel-respons in MagazijnResolver: absorbeert
+             burst-load richting Profiel-service zonder Redis-RTT in het hot-pad.
+             Caffeine direct (geen `quarkus-cache`) omdat de annotatie-gebaseerde
+             Quarkus-cache vanaf 3.7 óók failures cacht; wij willen alléén succes
+             cachen om geen 503-loop bij tijdelijke Profiel-storing te veroorzaken. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+        <!-- MicroProfile Fault Tolerance: activeert @Retry op ProfielServiceClient.getPartij
+             (fbs-common) zodat kortstondige TCP-resets niet direct een 503 opleveren. Zonder
+             deze dependency is de annotatie aanwezig maar een no-op. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-fault-tolerance</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+        </dependency>
+
+        <!-- LdvEndpointValidator in fbs-common verwijst naar wrapper-klassen (provided
+             scope dáár); de runtime-dependency komt van de consumerende service of — voor
+             de eigen @QuarkusTest-suite — van deze module. -->
+        <dependency>
+            <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
+            <artifactId>logboekdataverwerking-wrapper</artifactId>
+            <version>1.2.1-SNAPSHOT</version>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.code-intelligence</groupId>
+            <artifactId>jazzer-api</artifactId>
+            <version>0.30.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-kotlin</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jacoco</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.mockk</groupId>
+            <artifactId>mockk-jvm</artifactId>
+            <version>1.14.11</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock</artifactId>
+            <version>3.13.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>src/main/kotlin</sourceDirectory>
+        <testSourceDirectory>src/test/kotlin</testSourceDirectory>
+
+        <plugins>
+            <!-- Nodig voor de @QuarkusTest-integratiesuite (Redis/WireMock); het
+                 geïnstalleerde artefact blijft de gewone library-jar. -->
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Jandex-index zodat de Quarkus-consumer de beans/providers kan ontdekken -->
+            <plugin>
+                <groupId>io.smallrye</groupId>
+                <artifactId>jandex-maven-plugin</artifactId>
+                <version>3.5.3</version>
+                <executions>
+                    <execution>
+                        <id>make-index</id>
+                        <goals>
+                            <goal>jandex</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.14</version>
+                <configuration>
+                    <!-- Whitelist: alleen library-eigen klassen meten. fbs-common heeft een
+                         eigen JaCoCo-gate; Quarkus-instrumented dep-classes verschijnen
+                         anders ongewenst in de BUNDLE. -->
+                    <includes>
+                        <include>nl/rijksoverheid/moz/fbs/berichtensessiecache/**</include>
+                    </includes>
+                    <excludes>
+                        <!-- Kotlin compiler-generated bridges voor interface-methods met
+                             default-parameters ($default) en default-method-impls. Geen
+                             user-logic; productie roept de concrete impl direct aan. -->
+                        <exclude>**/*$DefaultImpls.class</exclude>
+                        <!-- Pure interface-declaraties + $default static bridges; coverage
+                             zit op de implementaties. -->
+                        <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/berichten/BerichtenCache.class</exclude>
+                        <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/Sessiecache.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <!-- prepare-agent zet jacoco.exec voor pure JUnit-tests (niet @QuarkusTest).
+                         Quarkus-tests schrijven naar jacoco-quarkus.exec via eigen instrumentatie. -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <!-- Merge beide exec-bestanden tot één combined.exec voor report+check. -->
+                    <execution>
+                        <id>merge-exec</id>
+                        <phase>test</phase>
+                        <goals><goal>merge</goal></goals>
+                        <configuration>
+                            <fileSets>
+                                <fileSet>
+                                    <directory>${project.build.directory}</directory>
+                                    <includes>
+                                        <include>jacoco.exec</include>
+                                        <include>jacoco-quarkus.exec</include>
+                                    </includes>
+                                </fileSet>
+                            </fileSets>
+                            <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>test</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -1,17 +1,28 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BijlageMetadata
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht as DomeinBericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting as DomeinSamenvatting
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting as DomeinBijlage
 
 /**
- * Mapt het uitvraag-`BerichtPatch` naar het magazijn-patch-formaat. Op één punt
- * zijn de vormen niet identiek: magazijn modelleert `gelezen` als boolean,
- * uitvraag/sessiecache als enum `gelezen|ongelezen`. De overige patch-velden
- * (`map`) delen dezelfde naam, zodat geen veld-hernoeming nodig is.
+ * Mapt tussen de uitvraag-API-modellen, het sessiecache-domein en het
+ * magazijn-patch-formaat. Twee vorm-verschillen: magazijn modelleert `gelezen`
+ * als boolean waar uitvraag/sessiecache een enum gebruiken, en het sessiecache-
+ * domein draagt een `ontvanger`-veld dat de uitvraag-API bewust niet exposeert
+ * (de client ís de ontvanger).
  *
- * Lees-responses worden niet hier gemapt: die komen 1-op-1 uit de sessiecache.
- * Let op dat `BijlageMetadata.mimeType`/`grootteInBytes` daardoor leeg blijven —
- * de sessiecache bewaart per bijlage alleen `bijlageId` en `naam`.
+ * `BijlageMetadata.mimeType`/`grootteInBytes` blijven leeg: de sessiecache
+ * bewaart per bijlage alleen `bijlageId` en `naam`; het werkelijke MIME-type
+ * komt mee bij het downloaden van de bijlage zelf.
  */
 object UitvraagDtoMapper {
 
@@ -26,4 +37,50 @@ object UitvraagDtoMapper {
             },
             map = patch.map,
         )
+
+    fun toLeesstatus(status: BerichtStatus?): Leesstatus? = when (status) {
+        BerichtStatus.GELEZEN -> Leesstatus.GELEZEN
+        BerichtStatus.ONGELEZEN -> Leesstatus.ONGELEZEN
+        null -> null
+    }
+
+    fun toApiStatus(status: Leesstatus?): BerichtStatus? = when (status) {
+        Leesstatus.GELEZEN -> BerichtStatus.GELEZEN
+        Leesstatus.ONGELEZEN -> BerichtStatus.ONGELEZEN
+        null -> null
+    }
+
+    fun toApiBericht(bericht: DomeinBericht): Bericht = Bericht().apply {
+        berichtId = bericht.berichtId
+        onderwerp = bericht.onderwerp
+        afzender = bericht.afzender
+        inhoud = bericht.inhoud
+        publicatietijdstip = bericht.publicatietijdstip
+        map = bericht.map
+        status = toApiStatus(bericht.status)
+        magazijnId = bericht.magazijnId
+        bijlagen = bericht.bijlagen.map { toApiBijlage(it) }
+        links = berichtLinks(bericht.berichtId)
+    }
+
+    fun toApiSamenvatting(samenvatting: DomeinSamenvatting): BerichtSamenvatting = BerichtSamenvatting().apply {
+        berichtId = samenvatting.berichtId
+        onderwerp = samenvatting.onderwerp
+        afzender = samenvatting.afzender
+        publicatietijdstip = samenvatting.publicatietijdstip
+        aantalBijlagen = samenvatting.aantalBijlagen
+        map = samenvatting.map
+        status = toApiStatus(samenvatting.status)
+        magazijnId = samenvatting.magazijnId
+        links = berichtLinks(samenvatting.berichtId)
+    }
+
+    private fun toApiBijlage(bijlage: DomeinBijlage): BijlageMetadata = BijlageMetadata().apply {
+        bijlageId = bijlage.bijlageId
+        naam = bijlage.naam
+    }
+
+    private fun berichtLinks(berichtId: java.util.UUID): BerichtLinks = BerichtLinks().apply {
+        self = Link().apply { href = "${ApiInfo.BASE_PATH}/berichten/$berichtId" }
+    }
 }

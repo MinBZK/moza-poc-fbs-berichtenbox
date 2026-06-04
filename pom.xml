@@ -14,7 +14,7 @@
 
     <modules>
         <module>libraries/fbs-common</module>
-        <module>services/berichtensessiecache</module>
+        <module>libraries/fbs-berichtensessiecache</module>
         <module>services/berichtenmagazijn</module>
         <module>services/berichtenuitvraag</module>
     </modules>

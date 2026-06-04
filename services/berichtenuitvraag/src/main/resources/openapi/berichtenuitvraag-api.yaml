@@ -3,9 +3,9 @@ info:
   title: Berichten Uitvraag API
   version: 0.1.0
   description: |
-    Frontend-API voor het MijnOverheid-Zakelijk portaal. Aggregeert berichten
-    uit de berichtensessiecache (lees) en het berichtenmagazijn (bijlagen,
-    persistente status-mutaties).
+    Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
+    in-process berichtensessiecache (Redis-backed) en raadpleegt het
+    berichtenmagazijn voor bijlagen en persistente status-mutaties.
   contact:
     name: MOZA Team
     email: moza@minbzk.nl
@@ -21,7 +21,7 @@ tags:
   - name: Uitvraag
     description: Berichten-uitvraag voor het portaal
   - name: Ophalen
-    description: SSE-passthrough voor cache-warming; wordt buiten codegen afgehandeld
+    description: SSE-endpoint voor cache-warming; wordt buiten codegen afgehandeld
 
 paths:
   /berichten:
@@ -63,16 +63,17 @@ paths:
       summary: Vul cache voor alle mappen (Server-Sent Events)
       operationId: ophalenBerichten
       description: |
-        Triggert de sessiecache om alle mappen op te halen uit de aangesloten
-        magazijnen. Antwoordt met Server-Sent Events; events worden 1-op-1
-        doorgegeven aan de client. Geen query-parameters: alle mappen worden
-        opgehaald.
+        Start het ophalen van berichten uit de aangesloten magazijnen en vult de
+        sessiecache. Antwoordt met Server-Sent Events met per-magazijn voortgang
+        en een afsluitend gereed/fout-event. Geen query-parameters: alle mappen
+        worden opgehaald.
 
-        Foutsemantiek: header-validatie faalt vóór de stream (`400`). Zodra de
-        SSE-stream is opgezet staat de HTTP-status op `200` vast; een upstream-
-        storing daarna uit zich niet in een afwijkende status maar in het
-        uitblijven van het afsluitende `OPHALEN_GEREED`-event (en de per-magazijn
-        FOUT-events) — de client detecteert de storing dus op stream-niveau.
+        Foutsemantiek: header-validatie, een al lopende ophaling (`409`) en een
+        onbereikbare cache (`503`) falen vóór de stream. Zodra de SSE-stream is
+        opgezet staat de HTTP-status op `200` vast; een storing daarna uit zich
+        niet in een afwijkende status maar in het uitblijven van het afsluitende
+        `OPHALEN_GEREED`-event (en de per-magazijn FOUT-events) — de client
+        detecteert de storing dus op stream-niveau.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
       responses:
@@ -85,7 +86,9 @@ paths:
               schema: { type: string }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /berichten/_zoeken:
     get:
@@ -296,18 +299,26 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
       description: |
-        Upstream-conflict, doorgegeven vanuit de sessiecache. Op leespaden: de
-        cache is nog niet gevuld (`_ophalen` nog niet voltooid of nog bezig) —
-        roep eerst `GET /berichten/_ophalen` aan en probeer daarna opnieuw. Op
-        schrijfpaden: een gelijktijdige wijziging op hetzelfde bericht.
+        Sessie-conflict. Op leespaden: de cache is nog niet gevuld (`_ophalen`
+        nog niet voltooid of nog bezig) — roep eerst `GET /berichten/_ophalen`
+        aan en probeer daarna opnieuw. Op `_ophalen` zelf: er loopt al een
+        ophaling voor deze ontvanger.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ServiceUnavailable:
+      description: |
+        De cache (Redis) was tijdelijk niet bereikbaar bij het starten van een
+        ophaling; opnieuw proberen is zinvol.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     BadGateway:
       description: |
-        Een upstream (sessiecache of magazijn) was onbereikbaar of leverde een
-        onbruikbare respons. Dekt zowel een transport-/5xx-storing bij het lezen
-        als het geval waarin de magazijn-write slaagde maar de cache-update faalde.
+        Een upstream-bron (de cache-backingstore of een magazijn) was onbereikbaar
+        of leverde een onbruikbare respons. Dekt zowel een transport-/5xx-storing
+        bij het lezen als het geval waarin de magazijn-write slaagde maar de
+        cache-update faalde.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
