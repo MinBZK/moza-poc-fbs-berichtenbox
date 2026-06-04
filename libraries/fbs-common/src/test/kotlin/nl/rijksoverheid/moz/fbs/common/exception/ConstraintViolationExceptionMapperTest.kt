@@ -61,8 +61,7 @@ class ConstraintViolationExceptionMapperTest {
 
     @Test
     fun `CRLF in violation-message wordt gestript (CWE-117)`() {
-        // Round 13 H2: pin sanitizeClientDetail-wrap. Refactor die de wrap
-        // weghaalt (bv. om "performance" te winnen) zou log-injection terugbrengen.
+        // CWE-117: log-injection via CRLF in violation-message. Pinned dat sanitize-wrap blijft.
         val exception = ConstraintViolationException(
             setOf(violation("veld", "ongeldig\r\nLevel: ERROR\nfake-line")),
         )
@@ -78,8 +77,7 @@ class ConstraintViolationExceptionMapperTest {
 
     @Test
     fun `lange detail wordt op 500 chars begrensd (DoS-mitigatie)`() {
-        // Round 13 H2: pin lengte-grens. Refactor die de grens weghaalt → unbounded
-        // detail-grootte → DoS-amplification.
+        // DoS-amplification: unbounded detail-grootte. Pinned 500-char-grens.
         val longMsg = "a".repeat(2000)
         val exception = ConstraintViolationException(setOf(violation("veld", longMsg)))
 

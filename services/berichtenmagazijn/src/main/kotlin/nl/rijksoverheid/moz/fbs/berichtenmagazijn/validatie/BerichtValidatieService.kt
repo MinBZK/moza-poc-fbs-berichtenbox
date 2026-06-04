@@ -4,9 +4,11 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielVoorkeuren
+import nl.rijksoverheid.moz.fbs.common.profiel.ToestemmingGeweigerdException
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.jboss.logging.Logger
 
@@ -63,51 +65,36 @@ class BerichtValidatieService(
             // op invalide path, 401/403 op auth-misser) propageren wél zodat het
             // circuit breaker ze meetelt. 5xx en netwerk-fouten zijn geen
             // `WebApplicationException` en passeren deze catch sowieso.
+            //
+            // PII-veilig: de doorgegooide WAE belandt bij ProblemExceptionMapper, die de
+            // 4xx-detail saneert — de upstream-URL (met BSN/RSIN/KVK in het pad) komt niet in
+            // Problem.detail terecht. De Quarkus-client-message zelf bevat geen URL.
             if (ex.response?.status != 404) throw ex
             // Onbekende ontvanger → fail-closed: behandel als geen toestemming.
             // Log op WARN zodat een configuratiefout (verkeerd base-path → 404 op
-            // élke ontvanger) zichtbaar wordt. Afzender-OIN mag voluit (publiek
-            // organisatienummer); de ontvanger-waarde blijft eruit (mogelijk BSN/RSIN).
+            // élke ontvanger) zichtbaar wordt; de ontvanger-waarde blijft uit de
+            // log om geen BSN/RSIN te lekken.
             log.warnf(
                 "Profiel-service 404 voor ontvangerType=%s afzender=%s — fail-closed (geen toestemming)",
                 ontvangerType,
                 bericht.afzender.waarde,
             )
-            throw ToestemmingGeweigerdException.geenProfiel(bericht.afzender)
+            throw ToestemmingGeweigerdException.geenProfiel()
         }
 
-        if (!isAbonneeOp(partij, bericht.afzender)) {
-            // De afzender (eigen OIN van de aanleveraar) mag in de client-`detail`; de
-            // ontvanger blijft eruit omdat dat een BSN kan zijn.
-            throw ToestemmingGeweigerdException.geenActieveVoorkeur(bericht.afzender)
+        if (!ProfielVoorkeuren.isOptedInVoorAfzender(partij, bericht.afzender)) {
+            // afzender-OIN in de log (geen PII van burger; organisatie-identificatie) zodat
+            // ops kan diagnosticeren welke combinatie geweigerd werd. Body lekt afzender niet —
+            // de factory hardcodeert de message.
+            log.infof(
+                "Toestemming geweigerd: geen actieve voorkeur voor afzender=%s",
+                bericht.afzender.waarde,
+            )
+            throw ToestemmingGeweigerdException.geenActieveVoorkeur()
         }
     }
 
-    /**
-     * True als de partij een `OntvangViaBerichtenbox`-voorkeur heeft met
-     * `waarde` in ['true', 'ja'] (case-insensitive) én een scope waarvan de
-     * partij een OIN-identificatie heeft die gelijk is aan de afzender.
-     *
-     * Dienst-id binnen de scope negeren we voor nu — alle diensten van de
-     * afzender vallen onder dezelfde toestemming voor deze PoC.
-     */
-    private fun isAbonneeOp(partij: PartijResponse, afzender: Oin): Boolean =
-        partij.voorkeuren.any { voorkeur ->
-            voorkeur.voorkeurType == VOORKEUR_ONTVANG_BERICHTEN &&
-                voorkeur.waarde?.lowercase() in INGESCHAKELDE_WAARDEN &&
-                voorkeur.scopes.any { scope ->
-                    scope.partij?.identificatieType == "OIN" &&
-                        scope.partij.identificatieNummer == afzender.waarde
-                }
-        }
-
     companion object {
         private const val PDF_MIME_TYPE = "application/pdf"
-        private const val VOORKEUR_ONTVANG_BERICHTEN = "OntvangViaBerichtenbox"
-
-        // Profiel-service modelleert booleane voorkeuren als string. We accepteren
-        // beide Nederlandstalige en Engelstalige opt-in-waarden; alles anders
-        // (null, "false", "nee", lege string) telt als opt-out.
-        private val INGESCHAKELDE_WAARDEN = setOf("true", "ja")
     }
 }

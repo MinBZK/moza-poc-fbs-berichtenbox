@@ -1,0 +1,10 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "GET",
+    "urlPattern": "/api/profielservice/v1/BSN/999996915"
+  },
+  "response": {
+    "status": 404
+  }
+}

@@ -14,8 +14,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
@@ -92,7 +92,7 @@ class HardDeleteJobIntegrationTest {
                 onderwerp = "Retentietest $berichtId",
                 inhoud = "Inhoud voor hard-delete integratietest",
                 tijdstipOntvangst = Instant.now().truncatedTo(ChronoUnit.MILLIS),
-                publicatiedatum = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                publicatietijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS),
             ),
         )
 
