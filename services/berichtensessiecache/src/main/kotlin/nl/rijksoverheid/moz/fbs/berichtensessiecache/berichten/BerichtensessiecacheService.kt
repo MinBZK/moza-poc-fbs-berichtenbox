@@ -674,10 +674,10 @@ class BerichtensessiecacheService(
 
     private fun List<Throwable>.findCauseOfClass(cls: Class<*>): Throwable? = firstOrNull { cls.isInstance(it) }
 
-    // Cast safe: findCauseOfClass filtert op cls.isInstance dus result is gegarandeerd T?.
-    @Suppress("UNCHECKED_CAST")
+    // Safe cast: findCauseOfClass filtert al op cls.isInstance, dus `as?` levert
+    // nooit null voor een match en vermijdt de unchecked-cast die `as T?` zou geven.
     private inline fun <reified T : Throwable> List<Throwable>.findCauseOf(): T? =
-        findCauseOfClass(T::class.java) as T?
+        findCauseOfClass(T::class.java) as? T
 
     private fun List<Throwable>.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
 

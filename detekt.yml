@@ -1,19 +1,18 @@
 # detekt-configuratie voor moza-poc-fbs-berichtenbox.
 #
-# Scope: correctness- en robustness-rulesets die CodeQL (security/dataflow) en
-# JaCoCo (coverage) NIET dekken — complexity, potential-bugs, exceptions en
-# empty-blocks. Stijl-/naming-/comment-regels staan bewust uit (lage waarde,
-# veel ruis; code review en `.editorconfig` dekken stijl). Enige overlap met
-# CodeQL is acceptabel: bij AI-ondersteunde ontwikkeling zijn extra guardrails
-# gewenst.
+# Scope: correctness/robustness (complexity, potential-bugs, exceptions,
+# empty-blocks) plus een curated set stijl-/naming-regels (dode code,
+# redundantie, simplificatie, conventie-drift). De `comments`-ruleset
+# (UndocumentedPublic*) blijft uit: botst met de project-regel "comment het
+# waarom, niet het wat". Enige overlap met CodeQL is bewust — bij AI-ondersteunde
+# ontwikkeling zijn extra guardrails gewenst.
 #
 # We bouwen NIET voort op de detekt-default-config (`buildUponDefaultConfig=false`
 # in de POM); alleen de hieronder expliciet geactiveerde regels draaien.
 #
-# Gate: `maxIssues: 0` in combinatie met een per-module `detekt-baseline.xml`
-# (zie POM). Bestaande bevindingen staan in de baseline en falen de build niet;
-# ELKE nieuwe bevinding faalt wel. De baseline is de zichtbare debt-lijst en wordt
-# stapsgewijs naar 0 teruggebracht (vooral de complexity-methodes opsplitsen).
+# Gate: `maxIssues: 0` ZONDER baseline — 0 bevindingen is het doel (alles echt
+# opgelost). Bewuste, onvermijdelijke uitzonderingen krijgen een inline
+# `@Suppress("Rule")` met motivatie (zichtbaar in review, geen verborgen debt).
 # Test-sources zijn uitgesloten (zie POM `excludes`).
 build:
   maxIssues: 0
@@ -80,8 +79,6 @@ potential-bugs:
     active: true
   IteratorHasNextCallsNextMethod:
     active: true
-  MissingWhenCase:
-    active: true
   NullableToStringCall:
     active: true
   UnconditionalJumpStatementInLoop:
@@ -121,8 +118,13 @@ exceptions:
     active: true
   ThrowingNewInstanceOfSameException:
     active: true
+  # TooGenericExceptionCaught bewust UIT: `catch (e: Exception)` op reactieve
+  # grenzen (Mutiny wrapt fouten) is hier het juiste patroon — elke catch
+  # classificeert/logt/herwerpt. Het échte gevaar (een genegeerde exception)
+  # wordt afgevangen door SwallowedException (hierboven, actief). Narrowing zou
+  # de robuustheid verlagen voor een lint-score.
   TooGenericExceptionCaught:
-    active: true
+    active: false
   TooGenericExceptionThrown:
     active: true
 
@@ -155,4 +157,71 @@ empty-blocks:
   EmptyWhenBlock:
     active: true
   EmptyWhileBlock:
+    active: true
+
+# Curated stijl-regels: alleen dode code, redundantie en simplificatie (echte
+# kwaliteitssignalen). Bewust NIET: MagicNumber, ForbiddenComment (TODO('#'…) is
+# een sanctioned conventie), ReturnCount, MaxLineLength — opinie/ruis;
+# UnnecessaryParentheses — vlagt júist de haakjes die niet-evidente
+# operator-precedentie disambigueren (infix `and`/`shr` binden strakker dan
+# `==`/`*`), wat in security-/bit-manipulatie-code defensieve duidelijkheid is. De
+# `comments`-ruleset (UndocumentedPublic*) blijft uit: botst met de project-regel
+# "comment het waarom, niet het wat".
+style:
+  active: true
+  CanBeNonNullable:
+    active: true
+  ExplicitItLambdaParameter:
+    active: true
+  MayBeConst:
+    active: true
+  RedundantExplicitType:
+    active: true
+  RedundantHigherOrderMapUsage:
+    active: true
+  UnusedParameter:
+    active: true
+    # @Observes-startup-observers krijgen de StartupEvent-parameter framework-
+    # gedwongen; de waarde is ongebruikt maar de parameter is het CDI-contract.
+    ignoreAnnotated: ['Observes']
+  UnusedPrivateMember:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  UnnecessaryApply:
+    active: true
+  UnnecessaryFilter:
+    active: true
+  UnnecessaryLet:
+    active: true
+  UselessCallOnNotNull:
+    active: true
+  WildcardImport:
+    active: true
+
+# Naming-conventies als drift-guard (test-sources zijn uitgesloten, dus backtick-
+# testnamen vallen er sowieso buiten).
+naming:
+  active: true
+  BooleanPropertyNaming:
+    active: true
+  ClassNaming:
+    active: true
+  ConstructorParameterNaming:
+    active: true
+  EnumNaming:
+    active: true
+  FunctionNaming:
+    active: true
+  FunctionParameterNaming:
+    active: true
+  LambdaParameterNaming:
+    active: true
+  ObjectPropertyNaming:
+    active: true
+  PackageNaming:
+    active: true
+  TopLevelPropertyNaming:
+    active: true
+  VariableNaming:
     active: true
