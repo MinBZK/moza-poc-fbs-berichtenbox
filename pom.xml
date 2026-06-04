@@ -143,6 +143,12 @@
                 <configuration>
                     <config>${maven.multiModuleProjectDirectory}/detekt.yml</config>
                     <buildUponDefaultConfig>false</buildUponDefaultConfig>
+                    <!-- Per-module baseline: bestaande bevindingen (debt) zijn vastgelegd en
+                         falen de build niet; ELKE nieuwe bevinding faalt wel (maxIssues: 0 in
+                         detekt.yml). Zo blijft nieuwe code 0-debt terwijl bestaande stapsgewijs
+                         wordt weggewerkt. Ontbreekt het bestand (module zonder debt), dan is er
+                         simpelweg geen baseline-filter. -->
+                    <baseline>${project.basedir}/detekt-baseline.xml</baseline>
                     <excludes>**/target/**,**/src/test/**</excludes>
                     <report>
                         <report>sarif:${project.build.directory}/detekt.sarif</report>

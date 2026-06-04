@@ -1,0 +1,15 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CognitiveComplexMethod:HardDeleteService.kt$HardDeleteService$fun run(): RunResultaat</ID>
+    <ID>LongMethod:AanleverResource.kt$AanleverResource$override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse</ID>
+    <ID>LongMethod:HardDeleteService.kt$HardDeleteService$fun run(): RunResultaat</ID>
+    <ID>LongMethod:PublicatieClaimVerwerker.kt$PublicatieClaimVerwerker$private fun verwerkClaim(claim: PublicatieClaim)</ID>
+    <ID>NestedBlockDepth:AanleverResource.kt$AanleverResource$override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse</ID>
+    <ID>TooGenericExceptionCaught:AanleverResource.kt$AanleverResource$ex: Exception</ID>
+    <ID>TooGenericExceptionCaught:BerichtOpslagService.kt$BerichtOpslagService$ex: RuntimeException</ID>
+    <ID>TooGenericExceptionCaught:HardDeleteService.kt$HardDeleteService$ex: Exception</ID>
+    <ID>TooGenericExceptionCaught:PublicatieStream.kt$PublicatieStream$ex: RuntimeException</ID>
+  </CurrentIssues>
+</SmellBaseline>

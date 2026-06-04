@@ -272,8 +272,10 @@ class BerichtensessiecacheResource(
             throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
         } catch (e: CacheContentieException) {
             // Transiente schrijf-contentie: bron logt al op warn. Retriable 503
-            // i.p.v. de misleidende 404 die een null-resultaat zou opleveren.
-            throw WebApplicationException("Cache tijdelijk niet bij te werken. Probeer het later opnieuw", 503)
+            // i.p.v. de misleidende 404 die een null-resultaat zou opleveren. Cause
+            // doorgeven zodat de stacktrace bewaard blijft (ProblemExceptionMapper
+            // maskeert het 5xx-pad richting client, dus geen lek).
+            throw WebApplicationException("Cache tijdelijk niet bij te werken. Probeer het later opnieuw", e, 503)
         } catch (e: WebApplicationException) {
             throw e
         } catch (e: com.fasterxml.jackson.core.JsonProcessingException) {
