@@ -479,7 +479,7 @@ class RedisBerichtenCache(
     /**
      * Maakt een [BerichtSamenvatting] uit een FT.SEARCH-document. Bevat alleen de samenvatting-
      * velden uit [SAMENVATTING_VELDEN]; `inhoud` en `bijlagen` worden bewust niet geprojecteerd.
-     * Geen backwards-compat defaults: ontbrekende samenvatting-kernvelden duiden op corruptie.
+     * Ontbrekende samenvatting-kernvelden duiden op corruptie — geen fallback-defaults.
      */
     private fun documentToSamenvatting(doc: io.quarkus.redis.datasource.search.Document): BerichtSamenvatting {
         val berichtId = doc.property("berichtId").asString()
