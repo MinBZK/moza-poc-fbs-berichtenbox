@@ -57,7 +57,7 @@ class AanleverResourceIntegrationTest {
             .`when`().post("/api/v1/berichten")
             .then()
             .statusCode(201)
-            .header("API-Version", `is`("v1"))
+            .header("API-Version", `is`("0.2.0"))
             .header("X-Frame-Options", `is`("DENY"))
             .header("X-Content-Type-Options", `is`("nosniff"))
             .header("Strict-Transport-Security", containsString("max-age=31536000"))
@@ -94,7 +94,7 @@ class AanleverResourceIntegrationTest {
             .contentType("application/problem+json")
             // API-Version en security-headers horen óók op fout-responses te staan;
             // anders is het contract voor clients die op die headers steunen inconsistent.
-            .header("API-Version", `is`("v1"))
+            .header("API-Version", `is`("0.2.0"))
             .header("X-Content-Type-Options", `is`("nosniff"))
             .body("status", `is`(400))
             .body("title", `is`("Bad Request"))
