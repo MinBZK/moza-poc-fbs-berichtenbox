@@ -47,20 +47,23 @@ class AanmeldService(
             return
         }
 
-        try {
-            schrijfNieuwBericht(event.data!!)
-        } catch (e: WebApplicationException) {
-            // Transiente fout (5xx, bv. cache onbereikbaar): rol de marker terug zodat
-            // een latere her-aflevering het bericht alsnog verwerkt.
-            if (e.response.status >= INTERNAL_SERVER_ERROR) {
-                deduplicatie.verwijder(eventId)
-            }
+        // Houd de idempotentie-marker alléén aan wanneer er ook echt een bericht is
+        // geschreven. Geen actieve sessie (de meeste events) en transiente/
+        // validatiefouten schrijven niets; de marker dan vrijgeven voorkomt dat Redis
+        // volloopt met markers voor no-ops en laat een latere her-aflevering opnieuw
+        // verwerken. Best-effort: faalt het vrijgeven, dan ruimt de TTL alsnog op.
+        var geschreven = false
 
-            throw e
+        try {
+            geschreven = schrijfNieuwBericht(event.data!!)
+        } finally {
+            if (!geschreven) {
+                runCatching { deduplicatie.verwijder(eventId) }
+            }
         }
     }
 
-    private fun schrijfNieuwBericht(data: AangemeldBerichtData) {
+    private fun schrijfNieuwBericht(data: AangemeldBerichtData): Boolean {
         val afzender = parseAfzender(data.afzender!!)
         val magazijnId = afzenderIndex.magazijnVoor(afzender.waarde)
             ?: throw badRequest("Afzender hoort bij geen geconfigureerd magazijn.")
@@ -87,11 +90,13 @@ class AanmeldService(
 
         try {
             sessiecache.schrijfBericht(ontvanger, bericht)
+
+            return true
         } catch (e: WebApplicationException) {
             if (e.response.status == Response.Status.NOT_FOUND.statusCode) {
                 log.debug("Geen actieve sessie voor ontvanger; aanmelding overgeslagen")
 
-                return
+                return false
             }
 
             throw e
@@ -144,6 +149,5 @@ class AanmeldService(
         const val SPEC_VERSION = "1.0"
         const val EVENT_TYPE = "nl.rijksoverheid.fbs.bericht.gepubliceerd"
         private const val NLD_NAMESPACE = "urn:nld:"
-        private const val INTERNAL_SERVER_ERROR = 500
     }
 }

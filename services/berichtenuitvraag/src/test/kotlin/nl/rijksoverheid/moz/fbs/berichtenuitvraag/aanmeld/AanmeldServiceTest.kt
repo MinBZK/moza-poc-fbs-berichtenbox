@@ -69,6 +69,8 @@ class AanmeldServiceTest {
         assertEquals(ontvangerBsn, slot.captured.ontvanger)
         assertEquals(berichtId, slot.captured.berichtId)
         verify { logboek.dataSubjectId = ontvangerBsn }
+        // Marker behouden: bericht is echt geschreven.
+        verify(exactly = 0) { dedup.verwijder(any()) }
     }
 
     @Test
@@ -88,7 +90,8 @@ class AanmeldServiceTest {
         // Geen exception: webhook geeft 202.
         service.verwerk(event())
 
-        verify(exactly = 0) { dedup.verwijder(any()) }
+        // Niets geschreven → marker vrijgeven (geen 24u-marker voor no-ops).
+        verify(exactly = 1) { dedup.verwijder("evt-1") }
     }
 
     @Test

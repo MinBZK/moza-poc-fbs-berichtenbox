@@ -20,6 +20,12 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
  * 202 dekt zowel "cache bijgewerkt" als bewust-overgeslagen (geen actieve sessie /
  * duplicaat): voor de publicatie-stream is het event in alle drie de gevallen
  * succesvol afgeleverd. Fouten (400/503) lopen via de fbs-common ExceptionMappers.
+ *
+ * Authenticatie van de aanleverende partij (de Publicatie Stream) loopt op de
+ * transport-laag via FSC (mTLS + service-contract), gelijk aan de overige
+ * endpoints die op de gateway/FSC-grens vertrouwen; dit endpoint kent daarom geen
+ * eigen app-niveau-token. Het verwerkt alleen het verwachte event-type en raakt
+ * uitsluitend de cache van de in het event genoemde ontvanger.
  */
 @Path(ApiInfo.BASE_PATH + "/aanmeldingen")
 @ApplicationScoped
