@@ -8,6 +8,8 @@ import jakarta.transaction.Transactional
 import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.containsString

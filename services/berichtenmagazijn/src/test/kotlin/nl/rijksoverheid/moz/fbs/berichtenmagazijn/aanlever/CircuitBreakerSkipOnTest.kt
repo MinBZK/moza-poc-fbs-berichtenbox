@@ -10,8 +10,8 @@ import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.MockProfielServiceClient
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.PartijResponse
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.ProfielServiceClient
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
@@ -97,7 +97,7 @@ class CircuitBreakerSkipOnTest {
         // BerichtValidatieService — niet via de repo-mock maar via de Profiel-
         // Service-mock: een lege PartijResponse (geen voorkeur) leidt tot weigering.
         (profielClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
-            PartijResponse(partijId = 1L, voorkeuren = emptyList())
+            PartijResponse(voorkeuren = emptyList())
         }
         // Een aanleveraar die per ongeluk een loop start naar een ontvanger zonder
         // voorkeur mag het circuit niet openen — anders veroorzaakt één

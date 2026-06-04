@@ -8,8 +8,8 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
@@ -71,7 +71,7 @@ class PublicatieClaimVerwerkerCooldownTest {
         onderwerp = "X",
         inhoud = "x",
         tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-12T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-12T10:00:00Z"),
     )
     private val claim = PublicatieClaim(
         claimId = 7L,
@@ -89,7 +89,7 @@ class PublicatieClaimVerwerkerCooldownTest {
             ontvanger = OntvangerData("BSN", "999993653"),
             onderwerp = "X", inhoud = "x",
             tijdstipOntvangst = bericht.tijdstipOntvangst,
-            publicatiedatum = bericht.publicatiedatum,
+            publicatietijdstip = bericht.publicatietijdstip,
         ),
     )
 

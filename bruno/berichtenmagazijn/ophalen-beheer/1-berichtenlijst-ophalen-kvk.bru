@@ -1,0 +1,21 @@
+meta {
+  name: 1b. Berichtenlijst ophalen (X-Ontvanger KVK)
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrlMagazijn}}/berichten?page=0&pageSize=20
+  body: none
+  auth: none
+}
+
+params:query {
+  page: 0
+  pageSize: 20
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderKvk}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
