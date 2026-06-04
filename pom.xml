@@ -30,6 +30,21 @@
              zelf, java-compile draait alleen op gegenereerde sources). Zonder beheerde versie
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+
+        <!-- Eén centrale plek voor versies van gedeeld bouwgereedschap en gedeelde
+             (test-)afhankelijkheden, zodat de modules niet uit elkaar kunnen lopen
+             (configuratiedrift). Plugin-versie. -->
+        <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
+
+        <!-- Gedeelde runtime-/test-dependency-versies; de feitelijke beheersing staat in
+             <dependencyManagement> hieronder, de modules declareren alleen groupId/artifactId/scope. -->
+        <logboekdataverwerking-wrapper.version>1.2.1-SNAPSHOT</logboekdataverwerking-wrapper.version>
+        <mockk.version>1.14.11</mockk.version>
+        <wiremock.version>3.13.0</wiremock.version>
+        <json-schema-validator.version>2.0.1</json-schema-validator.version>
+        <openapi-request-validator.version>3.0.0</openapi-request-validator.version>
+        <awaitility.version>4.3.0</awaitility.version>
+        <jazzer-api.version>0.30.0</jazzer-api.version>
     </properties>
 
     <repositories>
@@ -54,6 +69,45 @@
                 <version>${quarkus.platform.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <!-- Gedeelde, niet door de Quarkus-BOM beheerde afhankelijkheden. Eén versie
+                 per artifact op één plek; modules erven groupId/artifactId/scope en laten
+                 de versie hier vandaan komen. Voorkomt configuratiedrift tussen de modules. -->
+            <dependency>
+                <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
+                <artifactId>logboekdataverwerking-wrapper</artifactId>
+                <version>${logboekdataverwerking-wrapper.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.mockk</groupId>
+                <artifactId>mockk-jvm</artifactId>
+                <version>${mockk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.wiremock</groupId>
+                <artifactId>wiremock</artifactId>
+                <version>${wiremock.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.networknt</groupId>
+                <artifactId>json-schema-validator</artifactId>
+                <version>${json-schema-validator.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.atlassian.oai</groupId>
+                <artifactId>openapi-request-validator-restassured</artifactId>
+                <version>${openapi-request-validator.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.awaitility</groupId>
+                <artifactId>awaitility</artifactId>
+                <version>${awaitility.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.code-intelligence</groupId>
+                <artifactId>jazzer-api</artifactId>
+                <version>${jazzer-api.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

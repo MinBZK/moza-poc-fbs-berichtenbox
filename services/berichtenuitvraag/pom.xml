@@ -57,7 +57,6 @@
         <dependency>
             <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
             <artifactId>logboekdataverwerking-wrapper</artifactId>
-            <version>1.2.1-SNAPSHOT</version>
         </dependency>
 
         <!-- Bean Validation for generated OpenAPI interface annotations -->
@@ -79,7 +78,6 @@
         <dependency>
             <groupId>com.code-intelligence</groupId>
             <artifactId>jazzer-api</artifactId>
-            <version>0.22.1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -95,28 +93,25 @@
         <dependency>
             <groupId>io.mockk</groupId>
             <artifactId>mockk-jvm</artifactId>
-            <version>1.14.9</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.atlassian.oai</groupId>
             <artifactId>openapi-request-validator-restassured</artifactId>
-            <version>3.0.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock</artifactId>
-            <version>3.13.0</version>
             <scope>test</scope>
         </dependency>
-        <!-- openapi-request-validator-core 3.0.0 vereist json-schema-validator 2.0.1
+        <!-- openapi-request-validator-core vereist json-schema-validator 2.0.1
              (klasse com.networknt.schema.format.Format); WireMock trekt transitief 1.5.6
-             binnen en wint via nearest-wins. Pin 2.0.1 expliciet zodat de validator laadt. -->
+             binnen. De versie staat centraal vastgezet in de parent-<dependencyManagement>,
+             wat de transitieve 1.5.6 overschrijft zodat de validator laadt. -->
         <dependency>
             <groupId>com.networknt</groupId>
             <artifactId>json-schema-validator</artifactId>
-            <version>2.0.1</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -277,7 +272,7 @@ public final class ApiInfo {
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.13</version>
+                <version>${jacoco-maven-plugin.version}</version>
                 <configuration>
                     <excludes>
                         <!-- Gegenereerde OpenAPI model-klassen -->
