@@ -33,8 +33,9 @@
 
         <!-- Eén centrale plek voor versies van gedeeld bouwgereedschap en gedeelde
              (test-)afhankelijkheden, zodat de modules niet uit elkaar kunnen lopen
-             (configuratiedrift). Plugin-versie. -->
+             (configuratiedrift). Plugin-versies. -->
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
+        <jandex-maven-plugin.version>3.5.3</jandex-maven-plugin.version>
 
         <!-- Gedeelde runtime-/test-dependency-versies; de feitelijke beheersing staat in
              <dependencyManagement> hieronder, de modules declareren alleen groupId/artifactId/scope. -->
