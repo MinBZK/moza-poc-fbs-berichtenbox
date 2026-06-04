@@ -44,7 +44,7 @@ class CircuitBreakerOpen503ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                publicatiedatum: Instant?,
+                publicatietijdstip: Instant?,
                 bijlagen: List<BijlageInvoer>,
             ): Nothing = throw CircuitBreakerOpenException("circuit open (test)")
         }

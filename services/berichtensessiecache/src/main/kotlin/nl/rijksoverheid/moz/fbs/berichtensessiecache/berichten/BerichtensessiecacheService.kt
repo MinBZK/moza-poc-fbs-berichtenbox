@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class BerichtensessiecacheService(
     private val berichtenCache: BerichtenCache,
     private val clientFactory: MagazijnClientFactory,
+    private val berichtValidator: BerichtValidator,
     private val resolver: MagazijnResolver,
     @param:ConfigProperty(name = "profiel.resolver.inner-timeout-seconds", defaultValue = "18")
     private val innerTimeoutSeconds: Long,
@@ -148,16 +149,23 @@ class BerichtensessiecacheService(
         return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
     }
 
-    fun updateBerichtStatus(berichtId: UUID, ontvanger: Identificatienummer, status: String): Uni<Bericht?> {
-        log.debugf("Bijwerken berichtstatus: berichtId=%s, status=%s", berichtId, status)
+    fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
+        log.debugf("Bijwerken bericht: berichtId=%s, status=%s, map=%s", berichtId, status, map)
 
-        return berichtenCache.updateStatus(berichtId, ontvanger, status)
+        return berichtenCache.updateBerichtMetadata(berichtId, ontvanger, status, map)
     }
 
     fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Bericht> {
         log.debugf("Toevoegen bericht aan cache: berichtId=%s", bericht.berichtId)
+        val gevalideerd = berichtValidator.valideer(bericht)
 
-        return berichtenCache.addBericht(bericht, ontvanger).replaceWith(bericht)
+        return berichtenCache.addBericht(gevalideerd, ontvanger).replaceWith(gevalideerd)
+    }
+
+    fun verwijderBericht(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
+        log.debugf("Verwijderen bericht uit cache: berichtId=%s", berichtId)
+
+        return berichtenCache.delete(berichtId, ontvanger)
     }
 
     /**
@@ -447,7 +455,15 @@ class BerichtensessiecacheService(
 
                     MagazijnResult.Failure(magazijnId, naam, MagazijnResponseOverflow(foutMessage), MagazijnFault.OVERFLOW)
                 } else {
-                    MagazijnResult.Success(magazijnId, naam, response.berichten)
+                    // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein
+                    // (toBericht) en valideer defensief (BerichtLimieten). Eén invalid bericht
+                    // mag de batch niet killen — drop het stuk en log warn i.p.v. de hele
+                    // magazijn-bevraging te laten falen.
+                    val berichten = response.berichten
+                        .map { it.toBericht(magazijnId) }
+                        .mapNotNull { berichtValidator.valideerOrLogAndDrop(it) }
+
+                    MagazijnResult.Success(magazijnId, naam, berichten)
                 }
             }
             .onFailure(Exception::class.java).recoverWithItem { error ->
@@ -739,9 +755,8 @@ class BerichtensessiecacheService(
         }
     }
 }
-
 data class BerichtenPage(
-    val berichten: List<Bericht>,
+    val berichten: List<BerichtSamenvatting>,
     val page: Int,
     val pageSize: Int,
     val totalElements: Long,

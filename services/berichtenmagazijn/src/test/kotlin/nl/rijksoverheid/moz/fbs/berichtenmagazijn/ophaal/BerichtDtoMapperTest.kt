@@ -31,7 +31,7 @@ class BerichtDtoMapperTest {
         onderwerp = "Aanslag",
         inhoud = "Tekst",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
         bijlagen = bijlagen,
         status = status,
     )
@@ -105,6 +105,35 @@ class BerichtDtoMapperTest {
         val dto = BerichtDtoMapper.toBerichtenLijst(pagina, afzender = null, baseUri())
         assertNull(dto.links.next)
         assertNull(dto.links.prev)
+    }
+
+    @Test
+    fun `toBerichtenLijst-samenvatting bevat inhoud en lichte bijlagen-lijst`() {
+        // De BerichtSamenvatting is bewust verrijkt met inhoud + bijlagen[]
+        // (bijlageId + naam) zodat downstream-consumers (sessiecache) hun cache
+        // na één lijst-call compleet kunnen vullen zonder per-bericht detail-call.
+        val bijlageId = UUID.fromString("33333333-3333-3333-3333-333333333333")
+        val pagina = PagedBerichten(
+            berichten = listOf(
+                bericht(bijlagen = listOf(BijlageMetadata(bijlageId, "brief.pdf", "application/pdf"))),
+            ),
+            page = 0,
+            pageSize = 10,
+            totalElements = 1L,
+        )
+
+        val dto = BerichtDtoMapper.toBerichtenLijst(pagina, afzender = null, baseUri())
+
+        val samenvatting = dto.berichten.single()
+        assertEquals("Tekst", samenvatting.inhoud)
+        assertEquals(1, samenvatting.aantalBijlagen)
+        assertEquals(1, samenvatting.bijlagen.size)
+        assertEquals(bijlageId, samenvatting.bijlagen[0].bijlageId)
+        assertEquals("brief.pdf", samenvatting.bijlagen[0].naam)
+        // publicatietijdstip is verplicht op de samenvatting zodat consumers (sessiecache)
+        // berichten op publicatiemoment kunnen sorteren zonder vervolg-detail-call.
+        assertEquals(Instant.parse("2026-05-13T10:00:00Z"), samenvatting.publicatietijdstip)
+        assertEquals(Instant.parse("2026-05-13T10:00:00Z"), samenvatting.tijdstipOntvangst)
     }
 
     @Test

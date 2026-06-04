@@ -54,7 +54,7 @@ class OphaalBeheerOpenApiContractTest {
                 onderwerp = "Contract test",
                 inhoud = "Contract inhoud",
                 tijdstipOntvangst = Instant.now(),
-                publicatiedatum = Instant.now(),
+                publicatietijdstip = Instant.now(),
             ),
         )
         return berichtId

@@ -21,8 +21,10 @@ class MagazijnResultTest {
         afzender = "00000001234567890000",
         ontvanger = "999993653",
         onderwerp = "test",
-        tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+        inhoud = "inhoud",
+        publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
+        aantalBijlagen = 0,
     )
 
     @Test
@@ -86,15 +88,19 @@ class MagazijnResultTest {
     }
 
     @Test
-    fun `MagazijnBerichtenResponse default is leeg`() {
-        val response = MagazijnBerichtenResponse()
-
-        assertEquals(emptyList<Bericht>(), response.berichten)
-    }
-
-    @Test
     fun `MagazijnBerichtenResponse met berichten`() {
-        val response = MagazijnBerichtenResponse(listOf(bericht))
+        val response = MagazijnBerichtenResponse(
+            listOf(
+                MagazijnBericht(
+                    berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
+                    afzender = "00000001234567890000",
+                    ontvanger = MagazijnBericht.Identificatienummer("BSN", "999993653"),
+                    onderwerp = "test",
+                    inhoud = "inhoud",
+                    publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+                ),
+            ),
+        )
 
         assertEquals(1, response.berichten.size)
         assertNotNull(response.toString())

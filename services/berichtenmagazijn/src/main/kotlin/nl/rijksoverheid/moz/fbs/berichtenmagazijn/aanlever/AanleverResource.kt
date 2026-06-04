@@ -69,7 +69,7 @@ class AanleverResource(
                     ontvangerWaarde = ontvangerDto.waarde,
                     onderwerp = berichtAanleverenRequest.onderwerp,
                     inhoud = berichtAanleverenRequest.inhoud,
-                    publicatiedatum = berichtAanleverenRequest.publicatiedatum,
+                    publicatietijdstip = berichtAanleverenRequest.publicatietijdstip,
                     bijlagen = bijlagen,
                 )
 
@@ -94,7 +94,7 @@ class AanleverResource(
                     }
                     onderwerp = bericht.onderwerp
                     tijdstipOntvangst = bericht.tijdstipOntvangst
-                    publicatiedatum = bericht.publicatiedatum
+                    publicatietijdstip = bericht.publicatietijdstip
                     links = BerichtLinks().apply {
                         self = Link().apply { href = selfHref }
                     }

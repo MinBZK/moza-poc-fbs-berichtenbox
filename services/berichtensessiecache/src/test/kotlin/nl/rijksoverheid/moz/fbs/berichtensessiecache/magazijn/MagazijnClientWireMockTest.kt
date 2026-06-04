@@ -282,10 +282,12 @@ class MagazijnClientWireMockTest {
                                     {
                                         "berichtId": "${java.util.UUID.randomUUID()}",
                                         "afzender": "00000001234567890000",
-                                        "ontvanger": "$ontvangerWaarde",
+                                        "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                                         "onderwerp": "Test bericht van $magazijnId",
-                                        "tijdstip": "2026-03-10T10:00:00Z",
-                                        "magazijnId": "$magazijnId"
+                                        "inhoud": "Inhoud van $magazijnId",
+                                        "publicatietijdstip": "2026-03-10T10:00:00Z",
+                                        "magazijnId": "$magazijnId",
+                                        "aantalBijlagen": 0
                                     }
                                 ]
                             }
@@ -312,10 +314,12 @@ class MagazijnClientWireMockTest {
                                     {
                                         "berichtId": "${java.util.UUID.randomUUID()}",
                                         "afzender": "00000001234567890000",
-                                        "ontvanger": "$ontvangerWaarde",
+                                        "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                                         "onderwerp": "Test bericht van $magazijnId",
-                                        "tijdstip": "2026-03-10T10:00:00Z",
-                                        "magazijnId": "$magazijnId"
+                                        "inhoud": "Inhoud van $magazijnId",
+                                        "publicatietijdstip": "2026-03-10T10:00:00Z",
+                                        "magazijnId": "$magazijnId",
+                                        "aantalBijlagen": 0
                                     }
                                 ]
                             }

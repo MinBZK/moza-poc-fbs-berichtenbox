@@ -27,6 +27,7 @@ class ClassifyMagazijnFaultTest {
     private val service = BerichtensessiecacheService(
         mockk<BerichtenCache>(),
         mockk<MagazijnClientFactory>(),
+        mockk<BerichtValidator>(relaxed = true),
         mockk<MagazijnResolver>(relaxed = true),
         innerTimeoutSeconds = 2L,
         outerAwaitSeconds = 3L,

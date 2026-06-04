@@ -258,10 +258,12 @@ class BerichtenOphalenResolverE2ETest {
                         {
                           "berichtId": "11111111-1111-1111-1111-111111111111",
                           "afzender": "00000001003214345000",
-                          "ontvanger": "999993653",
+                          "ontvanger": { "type": "BSN", "waarde": "999993653" },
                           "onderwerp": "Bericht van magazijn-a",
-                          "tijdstip": "2026-03-10T10:00:00Z",
-                          "magazijnId": "magazijn-a"
+                          "inhoud": "Inhoud van magazijn-a",
+                          "publicatietijdstip": "2026-03-10T10:00:00Z",
+                          "magazijnId": "magazijn-a",
+                          "aantalBijlagen": 0
                         }
                       ]
                     }
