@@ -168,5 +168,8 @@ class MockSessiecacheProfile : QuarkusTestProfile {
         // berichtensessiecache.bericht), waarna de main-properties met SRCFG00050 de boot
         // laten falen. Unremovable houden spiegelt de productie-samenstelling.
         "quarkus.arc.unremovable-types" to "nl.rijksoverheid.moz.fbs.berichtensessiecache.**",
+        // Dummy-host: de gemockte facade raakt Redis nooit, maar de (unremovable)
+        // client-bean wil bij creatie een host kunnen resolven.
+        "quarkus.redis.hosts" to "redis://localhost:6379",
     )
 }

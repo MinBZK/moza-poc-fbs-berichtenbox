@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.Test
@@ -12,6 +13,10 @@ import org.junit.jupiter.api.Test
  * faalt hierdoor CI i.p.v. onopgemerkt door te glippen.
  */
 @QuarkusTest
+// Mock-profiel om dezelfde reden als de overige endpoint-tests: zonder profiel zou de
+// (inactieve) Redis-client de boot laten falen nu de testsuite geen quarkus.redis.hosts
+// meer zet (dat zou Dev Services voor de keten-E2E onderdrukken).
+@TestProfile(MockSessiecacheProfile::class)
 class BijlageContentTypeFilterQuarkusTest {
 
     @Test
