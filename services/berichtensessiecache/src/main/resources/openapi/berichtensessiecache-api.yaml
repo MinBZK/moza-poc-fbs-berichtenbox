@@ -14,8 +14,18 @@ info:
     url: https://eupl.eu/1.2/nl/
 
 servers:
+  - url: https://berichtensessiecache.moza.example.nl/api/v1
+    description: Productie (placeholder — overschrijven per omgeving)
+  - url: http://localhost:8080/api/v1
+    description: Lokale dev-mode (quarkus:dev)
   - url: /api/v1
-    description: API v1
+    description: Relatieve fallback (reverse-proxy/ingress)
+
+tags:
+  - name: berichten
+    description: Geaggregeerde berichtrecords in de sessiecache (lees + schrijf-mutaties).
+  - name: ophalen
+    description: Cache-warming via Server-Sent Events; vult de cache uit de aangesloten magazijnen.
 
 paths:
   /berichten:
@@ -73,9 +83,12 @@ paths:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
           in: query
-          description: Filter op afzender (OIN)
+          description: Filter op afzender (OIN, 20 cijfers)
           schema:
             type: string
+            pattern: '^[0-9]{20}$'
+            minLength: 20
+            maxLength: 20
         - name: map
           in: query
           description: Filter op map (mapnaam waarin het bericht is ingedeeld)
@@ -104,7 +117,7 @@ paths:
 
   /berichten/{berichtId}:
     patch:
-      operationId: updateBerichtStatus
+      operationId: updateBerichtMetadata
       summary: Status van een bericht bijwerken
       description: |
         Werkt de status van een berichtrecord bij in de cache.
@@ -144,6 +157,36 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - berichten
+      summary: Bericht uit cache verwijderen (cache-invalidate)
+      description: |
+        Verwijdert het bericht uit de cache. Idempotent: ook als het bericht
+        niet (meer) in de cache zit retourneert dit endpoint 204. Dat is een
+        bewuste keuze: de dual-write-invalidate stuurt de DELETE nadat het
+        magazijn al verwijderd heeft; "niet in cache" is dan een normaal
+        gevolg (TTL verlopen, andere instance heeft al gewist) en geen fout.
+      operationId: verwijderBericht
+      parameters:
+        - name: berichtId
+          in: path
+          required: true
+          description: Uniek ID van het bericht
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '204':
+          description: Verwijderd (of niet aanwezig)
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
     get:
@@ -210,9 +253,12 @@ paths:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
           in: query
-          description: Filter op afzender (OIN)
+          description: Filter op afzender (OIN, 20 cijfers)
           schema:
             type: string
+            pattern: '^[0-9]{20}$'
+            minLength: 20
+            maxLength: 20
         - name: map
           in: query
           description: Filter op map (mapnaam waarin het bericht is ingedeeld)
@@ -285,12 +331,31 @@ paths:
           description: |
             Berichten worden momenteel al opgehaald voor deze ontvanger.
             Wacht tot het ophalen is afgerond.
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          description: |
+            De Profiel Service is tijdelijk niet bereikbaar. De toestemmingscontrole
+            kon niet uitgevoerd worden; client kan over 30 seconden opnieuw proberen.
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            Retry-After:
+              description: Aantal seconden waarna client opnieuw mag proberen.
+              schema:
+                type: integer
+                example: 30
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 
 components:
   parameters:
@@ -315,10 +380,19 @@ components:
       name: X-Ontvanger
       in: header
       required: true
-      description: Ontvanger (BSN of KVK-nummer). Wordt doorgegeven als header om te voorkomen dat persoonsgegevens in URL/logs terechtkomen.
+      description: |
+        Ontvanger van het bericht in formaat `<TYPE>:<WAARDE>`, bijvoorbeeld
+        `BSN:123456782`, `KVK:12345678`, `RSIN:002564440` of `OIN:00000001003214345000`.
+        Wordt als header doorgegeven om persoonsgegevens uit URL en toegangslogs te houden.
+
+        De regex koppelt de lengte aan het type: BSN/RSIN = 9 cijfers (elfproef),
+        KVK = 8 cijfers, OIN = 20 cijfers. Verdere domein-invarianten (elfproef voor
+        BSN/RSIN, niet-geheel-nullen) worden in de service-laag afgedwongen.
       schema:
         type: string
-        minLength: 1
+        pattern: '^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$'
+        minLength: 12
+        maxLength: 24
 
   headers:
     API-Version:
@@ -328,44 +402,6 @@ components:
         example: "0.1.0"
 
   schemas:
-    Bericht:
-      type: object
-      required:
-        - berichtId
-        - afzender
-        - ontvanger
-        - onderwerp
-        - tijdstip
-        - magazijnId
-      properties:
-        berichtId:
-          type: string
-          format: uuid
-          description: Uniek ID van het bericht
-        afzender:
-          type: string
-          description: OIN van de afzender
-        ontvanger:
-          type: string
-          description: BSN of KVK-nummer van de ontvanger
-        onderwerp:
-          type: string
-          description: Onderwerp van het bericht
-        tijdstip:
-          type: string
-          format: date-time
-          description: Tijdstip van het bericht
-        magazijnId:
-          type: string
-          description: ID van het bronmagazijn
-        status:
-          $ref: '#/components/schemas/BerichtStatus'
-        map:
-          type: string
-          description: Mapnaam waarin het bericht is ingedeeld
-        _links:
-          $ref: '#/components/schemas/BerichtLinks'
-
     BerichtStatus:
       type: string
       enum: [gelezen, ongelezen]
@@ -402,7 +438,7 @@ components:
         berichten:
           type: array
           items:
-            $ref: '#/components/schemas/Bericht'
+            $ref: '#/components/schemas/BerichtSamenvatting'
         page:
           type: integer
           description: Huidig paginanummer
@@ -473,6 +509,10 @@ components:
           type: integer
         totaalMagazijnen:
           type: integer
+        referentie:
+          type: string
+          format: uuid
+          description: Correlatie-id richting support-log (alleen bij `ophalen-fout`).
 
     PaginationLinks:
       type: object
@@ -488,15 +528,20 @@ components:
         next:
           $ref: '#/components/schemas/Link'
 
-    BerichtResponse:
+    BerichtSamenvatting:
       type: object
+      description: |
+        Lichte representatie voor lijst-weergave. Bevat geen `inhoud` of
+        bijlage-lijst — die zitten op de volledige `BerichtResponse` via
+        `GET /berichten/{berichtId}`.
       required:
         - berichtId
         - afzender
         - ontvanger
         - onderwerp
-        - tijdstip
+        - publicatietijdstip
         - magazijnId
+        - aantalBijlagen
       properties:
         berichtId:
           type: string
@@ -507,26 +552,108 @@ components:
           type: string
         onderwerp:
           type: string
-        tijdstip:
+        publicatietijdstip:
+          type: string
+          format: date-time
+        map:
+          type: string
+          minLength: 1
+          maxLength: 128
+        magazijnId:
+          type: string
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/BerichtStatus'
+        _links:
+          $ref: '#/components/schemas/BerichtLinks'
+
+    BerichtResponse:
+      type: object
+      required:
+        - berichtId
+        - afzender
+        - ontvanger
+        - onderwerp
+        - inhoud
+        - publicatietijdstip
+        - magazijnId
+        - aantalBijlagen
+      properties:
+        berichtId:
+          type: string
+          format: uuid
+        afzender:
+          type: string
+        ontvanger:
+          type: string
+        onderwerp:
+          type: string
+        inhoud:
+          type: string
+          description: Tekstuele inhoud van het bericht (overgenomen uit het magazijn).
+        publicatietijdstip:
           type: string
           format: date-time
         magazijnId:
           type: string
-        status:
-          $ref: '#/components/schemas/BerichtStatus'
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+          description: Aantal bijlagen bij het bericht (overgenomen uit het magazijn).
+        bijlagen:
+          type: array
+          description: Lijst van bijlagen (alleen identifier en naam).
+          items:
+            $ref: '#/components/schemas/BijlageSamenvatting'
         map:
           type: string
-          description: Mapnaam waarin het bericht is ingedeeld
+          minLength: 1
+          maxLength: 128
+          description: Map waarin het bericht is geplaatst door de ontvanger.
+        status:
+          $ref: '#/components/schemas/BerichtStatus'
         _links:
           $ref: '#/components/schemas/BerichtLinks'
 
     BerichtStatusUpdate:
       type: object
-      required:
-        - status
+      description: |
+        JSON Merge Patch (RFC 7396) op een berichtrecord. `status` wijzigt de
+        leesstatus, `map` verplaatst het bericht naar een ontvanger-map. Beide
+        velden zijn optioneel; minimaal één veld is vereist (`minProperties: 1`).
+        Naam behouden voor backwards-compat met de aanmeld-service.
+      minProperties: 1
       properties:
         status:
           $ref: '#/components/schemas/BerichtStatus'
+        map:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Nieuwe map waarin het bericht geplaatst moet worden.
+
+    BijlageSamenvatting:
+      type: object
+      description: |
+        Lichte representatie van een bijlage in de cache: alleen identifier en
+        naam, zodat de portal kan opsommen en doorklikken. Volledige metadata
+        (mimeType, grootte, _links) en de bytes blijven exclusief in het
+        magazijn — die worden niet in de sessiecache opgeslagen.
+      required:
+        - bijlageId
+        - naam
+      properties:
+        bijlageId:
+          type: string
+          format: uuid
+          description: Uniek ID van de bijlage; te gebruiken in het magazijn-bijlage-download-endpoint.
+        naam:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Bestandsnaam zoals zichtbaar voor de ontvanger.
 
     BerichtInput:
       type: object
@@ -535,8 +662,10 @@ components:
         - afzender
         - ontvanger
         - onderwerp
-        - tijdstip
+        - inhoud
+        - publicatietijdstip
         - magazijnId
+        - aantalBijlagen
       properties:
         berichtId:
           type: string
@@ -551,17 +680,48 @@ components:
         onderwerp:
           type: string
           description: Onderwerp van het bericht
-        tijdstip:
+        inhoud:
+          type: string
+          description: Tekstuele inhoud van het bericht.
+        publicatietijdstip:
           type: string
           format: date-time
-          description: Tijdstip van het bericht
+          description: Effectieve publicatie-tijd, overgenomen uit het magazijn
         magazijnId:
           type: string
           description: ID van het bronmagazijn
+        aantalBijlagen:
+          type: integer
+          minimum: 0
+          description: Aantal bijlagen bij het bericht (overgenomen uit het magazijn).
+        bijlagen:
+          type: array
+          description: Lijst van bijlagen (alleen identifier en naam).
+          items:
+            $ref: '#/components/schemas/BijlageSamenvatting'
+        map:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Map waarin het bericht is geplaatst door de ontvanger.
 
     Problem:
       type: object
-      description: Problem Details (RFC 9457)
+      description: |
+        Problem Details voor REST APIs (RFC 9457). `type` identificeert het soort
+        fout en is stabiel per fout-categorie; clients mogen op deze waarde
+        schakelen voor afwijkende UX-gedrag (bv. retry-strategie of melding).
+        Bekende `type`-waarden uitgegeven door deze API:
+
+        | type                                                            | status | semantiek                                                                 |
+        |-----------------------------------------------------------------|--------|---------------------------------------------------------------------------|
+        | `about:blank`                                                   | 4xx/5xx | Generiek; titel en detail beschrijven het probleem                       |
+        | `https://moza.nl/problems/profiel-service-onbereikbaar`         | 503    | Profiel-service tijdelijk niet bereikbaar; `Retry-After` aanwezig         |
+        | `https://moza.nl/problems/configuratie-mismatch`                | 500    | Eigen-configuratie-fout; client retry heeft geen effect (contact beheerder) |
+
+        `instance` is consistent gevuld met `urn:uuid:<errorId>` — dezelfde id
+        is terugvindbaar in de server-side log-regels rondom de fout (zowel
+        het foutpad als eventuele cleanup-acties).
       properties:
         type:
           type: string

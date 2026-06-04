@@ -16,7 +16,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtResponse
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import org.jboss.logging.Logger
@@ -69,7 +69,7 @@ class AanleverResource(
                     ontvangerWaarde = ontvangerDto.waarde,
                     onderwerp = berichtAanleverenRequest.onderwerp,
                     inhoud = berichtAanleverenRequest.inhoud,
-                    publicatiedatum = berichtAanleverenRequest.publicatiedatum,
+                    publicatietijdstip = berichtAanleverenRequest.publicatietijdstip,
                     bijlagen = bijlagen,
                 )
 
@@ -94,7 +94,7 @@ class AanleverResource(
                     }
                     onderwerp = bericht.onderwerp
                     tijdstipOntvangst = bericht.tijdstipOntvangst
-                    publicatiedatum = bericht.publicatiedatum
+                    publicatietijdstip = bericht.publicatietijdstip
                     links = BerichtLinks().apply {
                         self = Link().apply { href = selfHref }
                     }

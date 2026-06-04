@@ -9,7 +9,7 @@ import java.time.Clock
  * CDI-producer voor [Clock]. Hiermee gebruiken services geen statische
  * `Instant.now()` of `Clock.systemUTC()` — die zijn lastig te overschrijven
  * in tests. Een test-profile kan een [io.quarkus.test.Mock]'d Clock injecteren
- * om publicatiedatum-/backoff-gedrag deterministisch te testen.
+ * om publicatietijdstip-/backoff-gedrag deterministisch te testen.
  */
 @Singleton
 class ClockProducer {

@@ -15,7 +15,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.OphaalApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 
 /**

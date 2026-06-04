@@ -3,8 +3,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 import io.mockk.every
 import io.mockk.mockk
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -37,7 +37,7 @@ class CloudEventBuilderTest {
         onderwerp = "Voorlopige aanslag 2026",
         inhoud = "Hierbij ontvangt u uw aanslag.",
         tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-12T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-12T10:00:00Z"),
     )
     private val nu = Instant.parse("2026-05-12T10:00:05Z")
 
@@ -93,7 +93,7 @@ class CloudEventBuilderTest {
         assertEquals("BSN", event.data.ontvanger.type)
         assertEquals(bsnWaarde, event.data.ontvanger.waarde)
         assertEquals(bericht.tijdstipOntvangst, event.data.tijdstipOntvangst)
-        assertEquals(bericht.publicatiedatum, event.data.publicatiedatum)
+        assertEquals(bericht.publicatietijdstip, event.data.publicatietijdstip)
     }
 
     @Test
@@ -107,7 +107,7 @@ class CloudEventBuilderTest {
 
     @Test
     fun `OntvangerData_van bouwt vanuit gevalideerd Identificatienummer`() {
-        val data = OntvangerData.van(nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn("999993653"))
+        val data = OntvangerData.van(nl.rijksoverheid.moz.fbs.common.identificatie.Bsn("999993653"))
         assertEquals("BSN", data.type)
         assertEquals("999993653", data.waarde)
     }
