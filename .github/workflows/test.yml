@@ -38,13 +38,19 @@ jobs:
       # XML-rapport per service; deze action leest dat en plaatst de diff als PR-comment.
       # De harde 90%-gate blijft de JaCoCo `check` in de build; deze drempels staan op 0
       # zodat de comment informatief is en de PR niet extra blokkeert.
+      #
+      # Lees het `target/site/jacoco`-rapport (jacoco-maven-plugin), NIET
+      # `target/jacoco-report` (auto-rapport van de quarkus-jacoco-extensie). De
+      # quarkus-variant telt alleen `@QuarkusTest`-data en past geen excludes toe, dus
+      # gegenereerde OpenAPI-klassen (`api.**`) tellen als onafgedekt mee — dat drukt het
+      # cijfer kunstmatig (bv. ~38% i.p.v. ~95% voor dezelfde module). Het site/jacoco-
+      # rapport hanteert dezelfde excludes als de 90%-gate, dus de comment spiegelt de gate.
+      # Glob op `services/*` zodat nieuwe service-modules automatisch meegenomen worden.
       - name: JaCoCo coverage als PR-comment
         if: github.event_name == 'pull_request'
         uses: madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920 # v1.8.0
         with:
-          paths: |
-            ${{ github.workspace }}/services/berichtensessiecache/target/jacoco-report/jacoco.xml
-            ${{ github.workspace }}/services/berichtenmagazijn/target/jacoco-report/jacoco.xml
+          paths: ${{ github.workspace }}/services/*/target/site/jacoco/jacoco.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           title: "JaCoCo coverage"
           min-coverage-overall: 0
