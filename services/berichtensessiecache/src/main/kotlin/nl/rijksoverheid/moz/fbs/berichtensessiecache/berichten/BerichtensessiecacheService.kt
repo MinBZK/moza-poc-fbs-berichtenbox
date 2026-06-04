@@ -9,6 +9,7 @@ import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
@@ -26,6 +27,10 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
 @ApplicationScoped
+// 4 collaborators + 6 @ConfigProperty-waarden verspreid over 3 config-prefixen; groeperen in
+// een config-object zou een kunstmatige producer-indirectie vergen zonder leesbaarheidswinst —
+// CDI-constructor-injectie per property is hier het idioom.
+@Suppress("LongParameterList")
 class BerichtensessiecacheService(
     private val berichtenCache: BerichtenCache,
     private val clientFactory: MagazijnClientFactory,
@@ -181,54 +186,7 @@ class BerichtensessiecacheService(
             status = OphalenStatus.BEZIG,
             totaalMagazijnen = 0,
         )
-
-        // Atomaire lock via trySetAggregationStatus (SET NX EX in één commando): voorkom
-        // concurrent ophalen voor dezelfde ontvanger. Blokkerende await() is hier bewust:
-        // het aanroepende endpoint (BerichtenOphalenResource) is @Blocking gemarkeerd. De
-        // lock-check moet synchroon afgerond zijn voordat de Multi-stream gestart wordt,
-        // omdat de 409-response anders niet meer mogelijk is.
-        // Try/catch: bij Redis-fout (timeout, connection drop) kan de lock-set partial
-        // geslaagd zijn (lockKey wel, statusKey niet). De cache-laag compenseert intern,
-        // maar caller-side cleanup als defense-in-depth voor await-level failures.
-        val wasSet = try {
-            berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
-                .await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
-        } catch (ex: Exception) {
-            // Cause-walking: Mutiny's blocking-await wrapt upstream-failures, dus directe
-            // instanceof matched de echte fout niet.
-            val errorId = UUID.randomUUID()
-            val classification = classifyLockAcquireError(ex)
-
-            when (classification) {
-                LockAcquireError.INTERRUPTED -> {
-                    // Herstel interrupt-flag voor graceful pod-shutdown; 503 (transient), geen eigen-bug.
-                    Thread.currentThread().interrupt()
-                    log.warnf(ex, "(errorId=%s) Lock-acquire onderbroken voor key=%s", errorId, cacheKey)
-                    cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId)
-                    throw WebApplicationException("Service shutdown tijdens ophaalstart", 503)
-                }
-                LockAcquireError.JSON_SERIALIZATION -> {
-                    log.errorf(ex, "(errorId=%s) Lock-acquire JSON-serialisatie-fout voor key=%s", errorId, cacheKey)
-                    cleanupLockMetFoutStatus(cacheKey, "json-serialisatie-fout bij lock-acquire", errorId)
-                    throw WebApplicationException("Interne fout bij serialisatie status", 500)
-                }
-                LockAcquireError.TIMEOUT -> {
-                    log.errorf(ex, "(errorId=%s) Lock-acquire timeout voor key=%s", errorId, cacheKey)
-                    cleanupLockMetFoutStatus(cacheKey, "lock-acquire timeout", errorId)
-                    throw WebApplicationException("Cache niet bereikbaar bij ophaalstart (timeout)", 503)
-                }
-                LockAcquireError.IO_FAULT -> {
-                    log.errorf(ex, "(errorId=%s) Lock-acquire I/O-fout voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
-                    cleanupLockMetFoutStatus(cacheKey, "lock-acquire I/O-fout: ${ex.javaClass.simpleName}", errorId)
-                    throw WebApplicationException("Cache niet bereikbaar bij ophaalstart", 503)
-                }
-                LockAcquireError.UNEXPECTED -> {
-                    log.errorf(ex, "(errorId=%s) Lock-acquire onverwachte fout voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
-                    cleanupLockMetFoutStatus(cacheKey, "lock-acquire onverwacht: ${ex.javaClass.simpleName}", errorId)
-                    throw WebApplicationException("Interne fout bij ophaalstart", 500)
-                }
-            }
-        }
+        val wasSet = verwerfOphaalLock(cacheKey, bezigStatus)
 
         if (!wasSet) {
             throw WebApplicationException(
@@ -237,89 +195,12 @@ class BerichtensessiecacheService(
             )
         }
 
-        val resolvedIds = try {
-            // Outer-budget = inner-timeout + marge (cross-validatie in valideerTimeouts),
-            // zodat de outer nooit aanslaat vóór de inner — anders verliest de caller
-            // de juiste foutclassificatie (timeout vs onbereikbaar).
-            resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(outerAwaitSeconds))
-        } catch (ex: ProfielServiceFoutException) {
-            // ex.errorId doorgeven zodat cleanup-log dezelfde id draagt als mapper-respons.
-            cleanupLockMetFoutStatus(cacheKey, "profiel-service-fout: ${ex.categorie.name}", ex.errorId)
-            // CONFIG_DRIFT: eigen-config-fout, niet Profiel-storing — emit zichtbare
-            // OPHALEN_FOUT i.p.v. 503 zodat client weet "geen ophaling mogelijk", niet
-            // "Profiel offline, retry over 30s". Cache wordt NIET overschreven met empty.
-            if (ex.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
-                // Riem-en-bretels: gestructureerd `referentie`-veld + suffix in tekst.
-                // Single source `ref` voorkomt format-drift tussen beide velden.
-                val ref = ex.errorId.toString()
-
-                return Multi.createFrom().item(
-                    MagazijnEvent(
-                        event = EventType.OPHALEN_FOUT,
-                        totaalMagazijnen = 0,
-                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: $ref)",
-                        referentie = ref,
-                    ),
-                )
-            }
-            throw ex
-        } catch (ex: Exception) {
-            // Cause-walking via causeChain() (eenmaal materialiseren) — Mutiny wrapt
-            // InterruptedException/TimeoutException, directe instanceof matched niet.
-            // isInterrupted (non-destructive) — Thread.interrupted() zou de flag wissen
-            // ook in niet-interrupt-branches.
-            val chain = ex.causeChain()
-            val wasInterrupted = Thread.currentThread().isInterrupted ||
-                chain.hasCauseOf(InterruptedException::class.java)
-            val isOuterTimeout = chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
-                chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java)
-
-            when {
-                wasInterrupted -> {
-                    // Interrupt-flag (her)bevestigen voor graceful pod-shutdown; 503 (transient).
-                    Thread.currentThread().interrupt()
-                    val errorId = UUID.randomUUID()
-
-                    log.warnf(ex, "(errorId=%s) Resolver-await onderbroken voor key=%s", errorId, cacheKey)
-                    cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId)
-                    throw WebApplicationException("Service shutdown tijdens ophalen", 503)
-                }
-                isOuterTimeout -> {
-                    // Bouw exception eerst zodat errorId via log + cleanup + mapper consistent is.
-                    val foutException = ProfielServiceFoutException.resolverMislukt(ex)
-
-                    log.errorf(ex, "Resolver await overschreed outer-budget (%ds) (errorId=%s) voor key=%s", outerAwaitSeconds, foutException.errorId, cacheKey)
-                    cleanupLockMetFoutStatus(cacheKey, "resolver outer-await timeout", foutException.errorId)
-                    throw foutException
-                }
-                else -> {
-                    // Eigen-code-bug: 500 (geen Retry-After) zodat client niet retry'd.
-                    val errorId = UUID.randomUUID()
-
-                    log.errorf(ex, "(errorId=%s) Onverwachte fout in resolver-await voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
-                    cleanupLockMetFoutStatus(cacheKey, "onverwachte resolver-fout: ${ex.javaClass.simpleName}", errorId)
-                    throw WebApplicationException("Interne fout tijdens ophalen", 500)
-                }
-            }
+        val resolvedIds = when (val uitkomst = resolveMagazijnen(ontvanger, cacheKey)) {
+            is ResolveUitkomst.FoutStream -> return uitkomst.events
+            is ResolveUitkomst.Ids -> uitkomst.ids
         }
 
-        // De resolver mag alleen magazijn-IDs teruggeven die de factory kent;
-        // contract van MagazijnResolver. Een onbekende ID is een bug (drift tussen
-        // resolver-config en magazijn-config) en moet hard falen, niet stil leeg-degraderen.
-        // Cleanup vóór de throw: zonder dit blijft de lock tot TTL hangen en blokkeert
-        // legitieme retries na de drift-fix.
-        val allClients = clientFactory.getAllClients()
-        val onbekend = resolvedIds - allClients.keys
-
-        if (onbekend.isNotEmpty()) {
-            val errorId = UUID.randomUUID()
-
-            log.errorf("(errorId=%s) Drift: resolver leverde onbekende magazijn-IDs %s voor key=%s", errorId, onbekend, cacheKey)
-            cleanupLockMetFoutStatus(cacheKey, "drift: resolver leverde onbekende magazijn-IDs", errorId)
-            throw IllegalArgumentException("Resolver leverde onbekende magazijn-IDs: $onbekend")
-        }
-
-        val clients = allClients.filterKeys { it in resolvedIds }
+        val clients = bepaalClients(resolvedIds, cacheKey)
 
         // Geen magazijnen → lege resultaten + GEREED-status.
         if (clients.isEmpty()) {
@@ -333,20 +214,7 @@ class BerichtensessiecacheService(
         val geslaagd = AtomicInteger(0)
         val mislukt = AtomicInteger(0)
 
-        // Happy: alleen statusKey overschrijven; lockKey blijft tot GEREED/FOUT-schrijfactie.
-        // Fout: cleanupLockMetFoutStatus schrijft FOUT (geeft lock vrij via interne del).
-        try {
-            berichtenCache.updateAggregationStatus(
-                cacheKey,
-                bezigStatus.copy(totaalMagazijnen = clients.size),
-            ).await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
-        } catch (ex: Exception) {
-            val errorId = UUID.randomUUID()
-
-            log.errorf(ex, "(errorId=%s) Update aggregatie-status (BEZIG, totaalMagazijnen=%d) mislukt voor key=%s", errorId, clients.size, cacheKey)
-            cleanupLockMetFoutStatus(cacheKey, "update-aggregatie-status mislukt", errorId)
-            throw WebApplicationException("Cache niet bereikbaar tijdens initialisatie ophaalsessie.", 503)
-        }
+        zetBezigStatusMetTotaal(cacheKey, bezigStatus, clients.size)
 
         val ontvangerString = ontvanger.toCanonicalString()
 
@@ -359,6 +227,186 @@ class BerichtensessiecacheService(
             Multi.createBy().merging().streams(magazijnStreams),
             aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, geslaagd, mislukt),
         )
+    }
+
+    /**
+     * Atomaire lock via trySetAggregationStatus (SET NX EX in één commando): voorkom
+     * concurrent ophalen voor dezelfde ontvanger. Blokkerende await() is hier bewust:
+     * het aanroepende endpoint (BerichtenOphalenResource) is @Blocking gemarkeerd. De
+     * lock-check moet synchroon afgerond zijn voordat de Multi-stream gestart wordt,
+     * omdat de 409-response anders niet meer mogelijk is.
+     * Try/catch: bij Redis-fout (timeout, connection drop) kan de lock-set partial
+     * geslaagd zijn (lockKey wel, statusKey niet). De cache-laag compenseert intern,
+     * maar caller-side cleanup als defense-in-depth voor await-level failures.
+     */
+    private fun verwerfOphaalLock(cacheKey: String, bezigStatus: AggregationStatus): Boolean {
+        return try {
+            berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
+                .await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
+        } catch (ex: Exception) {
+            throw naarLockAcquireFout(ex, cacheKey)
+        }
+    }
+
+    /** Logt + ruimt de lock op en mapt de geclassificeerde lock-acquire-fout naar een HTTP-fout. */
+    private fun naarLockAcquireFout(ex: Exception, cacheKey: String): WebApplicationException {
+        // Cause-walking: Mutiny's blocking-await wrapt upstream-failures, dus directe
+        // instanceof matched de echte fout niet.
+        val errorId = UUID.randomUUID()
+
+        return when (classifyLockAcquireError(ex)) {
+            LockAcquireError.INTERRUPTED -> {
+                // Herstel interrupt-flag voor graceful pod-shutdown; 503 (transient), geen eigen-bug.
+                Thread.currentThread().interrupt()
+                log.warnf(ex, "(errorId=%s) Lock-acquire onderbroken voor key=%s", errorId, cacheKey)
+                cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId)
+                WebApplicationException("Service shutdown tijdens ophaalstart", 503)
+            }
+            LockAcquireError.JSON_SERIALIZATION -> {
+                log.errorf(ex, "(errorId=%s) Lock-acquire JSON-serialisatie-fout voor key=%s", errorId, cacheKey)
+                cleanupLockMetFoutStatus(cacheKey, "json-serialisatie-fout bij lock-acquire", errorId)
+                WebApplicationException("Interne fout bij serialisatie status", 500)
+            }
+            LockAcquireError.TIMEOUT -> {
+                log.errorf(ex, "(errorId=%s) Lock-acquire timeout voor key=%s", errorId, cacheKey)
+                cleanupLockMetFoutStatus(cacheKey, "lock-acquire timeout", errorId)
+                WebApplicationException("Cache niet bereikbaar bij ophaalstart (timeout)", 503)
+            }
+            LockAcquireError.IO_FAULT -> {
+                log.errorf(ex, "(errorId=%s) Lock-acquire I/O-fout voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
+                cleanupLockMetFoutStatus(cacheKey, "lock-acquire I/O-fout: ${ex.javaClass.simpleName}", errorId)
+                WebApplicationException("Cache niet bereikbaar bij ophaalstart", 503)
+            }
+            LockAcquireError.UNEXPECTED -> {
+                log.errorf(ex, "(errorId=%s) Lock-acquire onverwachte fout voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
+                cleanupLockMetFoutStatus(cacheKey, "lock-acquire onverwacht: ${ex.javaClass.simpleName}", errorId)
+                WebApplicationException("Interne fout bij ophaalstart", 500)
+            }
+        }
+    }
+
+    // Resolver-uitkomst: magazijn-IDs, óf een direct te retourneren OPHALEN_FOUT-stream
+    // (CONFIG_DRIFT) — dat onderscheid kan niet via een exception lopen omdat de SSE-caller
+    // dan een 5xx zou geven i.p.v. een zichtbaar fout-event.
+    private sealed interface ResolveUitkomst {
+        data class Ids(val ids: Set<String>) : ResolveUitkomst
+
+        data class FoutStream(val events: Multi<MagazijnEvent>) : ResolveUitkomst
+    }
+
+    private fun resolveMagazijnen(ontvanger: Identificatienummer, cacheKey: String): ResolveUitkomst {
+        return try {
+            // Outer-budget = inner-timeout + marge (cross-validatie in valideerTimeouts),
+            // zodat de outer nooit aanslaat vóór de inner — anders verliest de caller
+            // de juiste foutclassificatie (timeout vs onbereikbaar).
+            val ids = resolver.resolve(ontvanger).await().atMost(Duration.ofSeconds(outerAwaitSeconds))
+
+            ResolveUitkomst.Ids(ids)
+        } catch (ex: ProfielServiceFoutException) {
+            // ex.errorId doorgeven zodat cleanup-log dezelfde id draagt als mapper-respons.
+            cleanupLockMetFoutStatus(cacheKey, "profiel-service-fout: ${ex.categorie.name}", ex.errorId)
+
+            // CONFIG_DRIFT: eigen-config-fout, niet Profiel-storing — emit zichtbare
+            // OPHALEN_FOUT i.p.v. 503 zodat client weet "geen ophaling mogelijk", niet
+            // "Profiel offline, retry over 30s". Cache wordt NIET overschreven met empty.
+            if (ex.categorie != ProfielServiceFoutException.Categorie.CONFIG_DRIFT) throw ex
+
+            // Riem-en-bretels: gestructureerd `referentie`-veld + suffix in tekst.
+            // Single source `ref` voorkomt format-drift tussen beide velden.
+            val ref = ex.errorId.toString()
+
+            ResolveUitkomst.FoutStream(
+                Multi.createFrom().item(
+                    MagazijnEvent(
+                        event = EventType.OPHALEN_FOUT,
+                        totaalMagazijnen = 0,
+                        foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: $ref)",
+                        referentie = ref,
+                    ),
+                ),
+            )
+        } catch (ex: Exception) {
+            gooiResolverFout(ex, cacheKey)
+        }
+    }
+
+    private fun gooiResolverFout(ex: Exception, cacheKey: String): Nothing {
+        // Cause-walking via causeChain() (eenmaal materialiseren) — Mutiny wrapt
+        // InterruptedException/TimeoutException, directe instanceof matched niet.
+        // isInterrupted (non-destructive) — Thread.interrupted() zou de flag wissen
+        // ook in niet-interrupt-branches.
+        val chain = ex.causeChain()
+        val wasInterrupted = Thread.currentThread().isInterrupted ||
+            chain.hasCauseOf(InterruptedException::class.java)
+        val isOuterTimeout = chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
+            chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java)
+
+        when {
+            wasInterrupted -> {
+                // Interrupt-flag (her)bevestigen voor graceful pod-shutdown; 503 (transient).
+                Thread.currentThread().interrupt()
+                val errorId = UUID.randomUUID()
+
+                log.warnf(ex, "(errorId=%s) Resolver-await onderbroken voor key=%s", errorId, cacheKey)
+                cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId)
+                throw WebApplicationException("Service shutdown tijdens ophalen", 503)
+            }
+            isOuterTimeout -> {
+                // Bouw exception eerst zodat errorId via log + cleanup + mapper consistent is.
+                val foutException = ProfielServiceFoutException.resolverMislukt(ex)
+
+                log.errorf(ex, "Resolver await overschreed outer-budget (%ds) (errorId=%s) voor key=%s", outerAwaitSeconds, foutException.errorId, cacheKey)
+                cleanupLockMetFoutStatus(cacheKey, "resolver outer-await timeout", foutException.errorId)
+                throw foutException
+            }
+            else -> {
+                // Eigen-code-bug: 500 (geen Retry-After) zodat client niet retry'd.
+                val errorId = UUID.randomUUID()
+
+                log.errorf(ex, "(errorId=%s) Onverwachte fout in resolver-await voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
+                cleanupLockMetFoutStatus(cacheKey, "onverwachte resolver-fout: ${ex.javaClass.simpleName}", errorId)
+                throw WebApplicationException("Interne fout tijdens ophalen", 500)
+            }
+        }
+    }
+
+    /**
+     * De resolver mag alleen magazijn-IDs teruggeven die de factory kent;
+     * contract van MagazijnResolver. Een onbekende ID is een bug (drift tussen
+     * resolver-config en magazijn-config) en moet hard falen, niet stil leeg-degraderen.
+     * Cleanup vóór de throw: zonder dit blijft de lock tot TTL hangen en blokkeert
+     * legitieme retries na de drift-fix.
+     */
+    private fun bepaalClients(resolvedIds: Set<String>, cacheKey: String): Map<String, MagazijnClient> {
+        val allClients = clientFactory.getAllClients()
+        val onbekend = resolvedIds - allClients.keys
+
+        if (onbekend.isNotEmpty()) {
+            val errorId = UUID.randomUUID()
+
+            log.errorf("(errorId=%s) Drift: resolver leverde onbekende magazijn-IDs %s voor key=%s", errorId, onbekend, cacheKey)
+            cleanupLockMetFoutStatus(cacheKey, "drift: resolver leverde onbekende magazijn-IDs", errorId)
+            throw IllegalArgumentException("Resolver leverde onbekende magazijn-IDs: $onbekend")
+        }
+
+        return allClients.filterKeys { it in resolvedIds }
+    }
+
+    // Happy: alleen statusKey overschrijven; lockKey blijft tot GEREED/FOUT-schrijfactie.
+    // Fout: cleanupLockMetFoutStatus schrijft FOUT (geeft lock vrij via interne del).
+    private fun zetBezigStatusMetTotaal(cacheKey: String, bezigStatus: AggregationStatus, totaalMagazijnen: Int) {
+        try {
+            berichtenCache.updateAggregationStatus(
+                cacheKey,
+                bezigStatus.copy(totaalMagazijnen = totaalMagazijnen),
+            ).await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
+        } catch (ex: Exception) {
+            val errorId = UUID.randomUUID()
+
+            log.errorf(ex, "(errorId=%s) Update aggregatie-status (BEZIG, totaalMagazijnen=%d) mislukt voor key=%s", errorId, totaalMagazijnen, cacheKey)
+            cleanupLockMetFoutStatus(cacheKey, "update-aggregatie-status mislukt", errorId)
+            throw WebApplicationException("Cache niet bereikbaar tijdens initialisatie ophaalsessie.", 503)
+        }
     }
 
     /**
@@ -444,28 +492,7 @@ class BerichtensessiecacheService(
             .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
             .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
-            .map<MagazijnResult> { response ->
-                if (response.berichten.size > maxBerichtenPerMagazijn) {
-                    // ErrorF nodig voor Loki-alert-routing; SSE-event alleen gaat niet naar logs.
-                    log.errorf(
-                        "Magazijn %s (%s) overschreed berichten-cap: %d > %d",
-                        magazijnId, naam, response.berichten.size, maxBerichtenPerMagazijn,
-                    )
-                    val foutMessage = "Magazijn leverde meer berichten dan toegestaan (${response.berichten.size} > $maxBerichtenPerMagazijn)"
-
-                    MagazijnResult.Failure(magazijnId, naam, MagazijnResponseOverflow(foutMessage), MagazijnFault.OVERFLOW)
-                } else {
-                    // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein
-                    // (toBericht) en valideer defensief (BerichtLimieten). Eén invalid bericht
-                    // mag de batch niet killen — drop het stuk en log warn i.p.v. de hele
-                    // magazijn-bevraging te laten falen.
-                    val berichten = response.berichten
-                        .map { it.toBericht(magazijnId) }
-                        .mapNotNull { berichtValidator.valideerOrLogAndDrop(it) }
-
-                    MagazijnResult.Success(magazijnId, naam, berichten)
-                }
-            }
+            .map<MagazijnResult> { response -> naarMagazijnResult(response, magazijnId, naam) }
             .onFailure(Exception::class.java).recoverWithItem { error ->
                 val fault = classifyMagazijnFault(error)
 
@@ -474,44 +501,76 @@ class BerichtensessiecacheService(
             }
 
         val resultStream = resultUni.toMulti().map { result ->
-            when (result) {
-                is MagazijnResult.Success -> {
-                    alleBerichten.addAll(result.berichten)
-                    geslaagd.incrementAndGet()
-                    MagazijnEvent(
-                        event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
-                        magazijnId = magazijnId,
-                        naam = naam,
-                        status = MagazijnStatus.OK,
-                        aantalBerichten = result.berichten.size,
-                    )
-                }
-                is MagazijnResult.Failure -> {
-                    mislukt.incrementAndGet()
-                    val foutmelding = when (result.fault) {
-                        MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
-                        MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
-                        MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
-                        MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
-                        MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
-                        // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
-                        MagazijnFault.INTERNAL_BUG, MagazijnFault.NETWORK -> "Magazijn kon niet geraadpleegd worden"
-                    }
-                    MagazijnEvent(
-                        event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
-                        magazijnId = magazijnId,
-                        naam = naam,
-                        status = if (result.fault == MagazijnFault.TIMEOUT) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
-                        foutmelding = foutmelding,
-                    )
-                }
-            }
+            naarVoltooidEvent(result, alleBerichten, geslaagd, mislukt)
         }
 
         return Multi.createBy().concatenating().streams(
             Multi.createFrom().item(gestartEvent),
             resultStream,
         )
+    }
+
+    private fun naarMagazijnResult(response: MagazijnBerichtenResponse, magazijnId: String, naam: String?): MagazijnResult {
+        if (response.berichten.size > maxBerichtenPerMagazijn) {
+            // ErrorF nodig voor Loki-alert-routing; SSE-event alleen gaat niet naar logs.
+            log.errorf(
+                "Magazijn %s (%s) overschreed berichten-cap: %d > %d",
+                magazijnId, naam, response.berichten.size, maxBerichtenPerMagazijn,
+            )
+            val foutMessage = "Magazijn leverde meer berichten dan toegestaan (${response.berichten.size} > $maxBerichtenPerMagazijn)"
+
+            return MagazijnResult.Failure(magazijnId, naam, MagazijnResponseOverflow(foutMessage), MagazijnFault.OVERFLOW)
+        }
+
+        // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein
+        // (toBericht) en valideer defensief (BerichtLimieten). Eén invalid bericht
+        // mag de batch niet killen — drop het stuk en log warn i.p.v. de hele
+        // magazijn-bevraging te laten falen.
+        val berichten = response.berichten
+            .map { it.toBericht(magazijnId) }
+            .mapNotNull { berichtValidator.valideerOrLogAndDrop(it) }
+
+        return MagazijnResult.Success(magazijnId, naam, berichten)
+    }
+
+    /** Verwerkt het per-magazijn-resultaat in de tellers en mapt het naar het VOLTOOID-event. */
+    private fun naarVoltooidEvent(
+        result: MagazijnResult,
+        alleBerichten: MutableList<Bericht>,
+        geslaagd: AtomicInteger,
+        mislukt: AtomicInteger,
+    ): MagazijnEvent = when (result) {
+        is MagazijnResult.Success -> {
+            alleBerichten.addAll(result.berichten)
+            geslaagd.incrementAndGet()
+            MagazijnEvent(
+                event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
+                magazijnId = result.magazijnId,
+                naam = result.naam,
+                status = MagazijnStatus.OK,
+                aantalBerichten = result.berichten.size,
+            )
+        }
+        is MagazijnResult.Failure -> {
+            mislukt.incrementAndGet()
+            MagazijnEvent(
+                event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
+                magazijnId = result.magazijnId,
+                naam = result.naam,
+                status = if (result.fault == MagazijnFault.TIMEOUT) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
+                foutmelding = foutmeldingVoor(result.fault),
+            )
+        }
+    }
+
+    private fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
+        MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
+        MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
+        MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
+        MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
+        MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
+        // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
+        MagazijnFault.INTERNAL_BUG, MagazijnFault.NETWORK -> "Magazijn kon niet geraadpleegd worden"
     }
 
     /**
@@ -558,53 +617,67 @@ class BerichtensessiecacheService(
                     }
             }
             .onFailure(Exception::class.java).recoverWithUni { error ->
-                val errorId = UUID.randomUUID()
-                val ref = errorId.toString()
-
-                // Eerste fout = store(berichten) of storeAggregationStatus(GEREED) faalde;
-                // cacheKey + counters + errorId in log zodat ops kan correleren naar
-                // specifieke sessie én naar het MagazijnEvent.referentie veld.
-                log.errorf(
-                    error,
-                    "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
-                    errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
-                )
-                val foutStatus = AggregationStatus(
-                    status = OphalenStatus.FOUT,
-                    totaalMagazijnen = totaalMagazijnen,
-                    geslaagd = geslaagd.get(),
-                    mislukt = mislukt.get(),
-                )
-                berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
-                    // FATAL + ALERT-marker: dubbele Redis-fout = cache effectief onbruikbaar
-                    // voor deze sessie. Lock blijft tot Redis-TTL hangen. Het prefix wordt
-                    // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
-                    .onFailure().invoke { e ->
-                        log.fatalf(
-                            e,
-                            "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
-                            errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
-                        )
-                    }
-                    .onFailure().recoverWithNull()
-                    // Referentie zowel in foutmelding-tekst ("(ref: ...)") als in het
-                    // gestructureerde `referentie`-veld, voor UIs zonder veld-rendering.
-                    // Meld expliciet dat de eerder per-magazijn getoonde resultaten niet
-                    // bewaard zijn: de VOLTOOID-events zijn al geëmit, maar de cache-write
-                    // faalde, dus de client moet opnieuw ophalen i.p.v. te denken dat de
-                    // resultaten beschikbaar zijn via GET /berichten.
-                    .replaceWith(
-                        MagazijnEvent(
-                            event = EventType.OPHALEN_FOUT,
-                            geslaagd = geslaagd.get(),
-                            mislukt = mislukt.get(),
-                            totaalMagazijnen = totaalMagazijnen,
-                            foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
-                            referentie = ref,
-                        )
-                    )
+                herstelNaAggregatieCacheFout(error, cacheKey, totaalMagazijnen, alleBerichten, geslaagd, mislukt)
             }
             .toMulti()
+
+    /**
+     * Eerste fout = store(berichten) of storeAggregationStatus(GEREED) faalde;
+     * cacheKey + counters + errorId in log zodat ops kan correleren naar
+     * specifieke sessie én naar het MagazijnEvent.referentie veld.
+     */
+    private fun herstelNaAggregatieCacheFout(
+        error: Throwable,
+        cacheKey: String,
+        totaalMagazijnen: Int,
+        alleBerichten: MutableList<Bericht>,
+        geslaagd: AtomicInteger,
+        mislukt: AtomicInteger,
+    ): Uni<MagazijnEvent> {
+        val errorId = UUID.randomUUID()
+        val ref = errorId.toString()
+
+        log.errorf(
+            error,
+            "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
+            errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+        )
+        val foutStatus = AggregationStatus(
+            status = OphalenStatus.FOUT,
+            totaalMagazijnen = totaalMagazijnen,
+            geslaagd = geslaagd.get(),
+            mislukt = mislukt.get(),
+        )
+
+        return berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
+            // FATAL + ALERT-marker: dubbele Redis-fout = cache effectief onbruikbaar
+            // voor deze sessie. Lock blijft tot Redis-TTL hangen. Het prefix wordt
+            // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
+            .onFailure().invoke { e ->
+                log.fatalf(
+                    e,
+                    "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
+                    errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                )
+            }
+            .onFailure().recoverWithNull()
+            // Referentie zowel in foutmelding-tekst ("(ref: ...)") als in het
+            // gestructureerde `referentie`-veld, voor UIs zonder veld-rendering.
+            // Meld expliciet dat de eerder per-magazijn getoonde resultaten niet
+            // bewaard zijn: de VOLTOOID-events zijn al geëmit, maar de cache-write
+            // faalde, dus de client moet opnieuw ophalen i.p.v. te denken dat de
+            // resultaten beschikbaar zijn via GET /berichten.
+            .replaceWith(
+                MagazijnEvent(
+                    event = EventType.OPHALEN_FOUT,
+                    geslaagd = geslaagd.get(),
+                    mislukt = mislukt.get(),
+                    totaalMagazijnen = totaalMagazijnen,
+                    foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
+                    referentie = ref,
+                )
+            )
+    }
 
     /**
      * Best-effort lock-release na fout: schrijft FOUT-status; `storeAggregationStatus`
@@ -674,10 +747,10 @@ class BerichtensessiecacheService(
 
     private fun List<Throwable>.findCauseOfClass(cls: Class<*>): Throwable? = firstOrNull { cls.isInstance(it) }
 
-    // Cast safe: findCauseOfClass filtert op cls.isInstance dus result is gegarandeerd T?.
-    @Suppress("UNCHECKED_CAST")
+    // Safe cast: findCauseOfClass filtert al op cls.isInstance, dus `as?` levert
+    // nooit null voor een match en vermijdt de unchecked-cast die `as T?` zou geven.
     private inline fun <reified T : Throwable> List<Throwable>.findCauseOf(): T? =
-        findCauseOfClass(T::class.java) as T?
+        findCauseOfClass(T::class.java) as? T
 
     private fun List<Throwable>.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
 

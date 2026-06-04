@@ -1,15 +1,18 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.context.Context
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import org.jboss.logging.Logger
 import java.time.Clock
+import java.time.Instant
 
 /**
  * Verwerkt één geclaimde delivery binnen een eigen transactie (`REQUIRES_NEW`).
@@ -85,105 +88,23 @@ class PublicatieClaimVerwerker(
         }
         try {
             val bericht = berichten.findByBerichtId(claim.berichtId)
+
             if (bericht == null) {
-                // Bericht weg tussen plan en verwerking. Een hard-delete neemt via
-                // CASCADE op bericht_db_id ook de delivery-rij mee, dus die orphan-claim
-                // is onbereikbaar. Het live pad hierheen is soft-delete: findByBerichtId
-                // filtert verwijderdOp IS NULL, terwijl de delivery-rij blijft bestaan.
-                // dataSubject = berichtId (ontvanger ontbreekt) zodat het LDV-record
-                // auditbaar blijft zonder lege subject-velden.
-                ldvContext.dataSubjectId = claim.berichtId.toString()
-                ldvContext.dataSubjectType = "BERICHT_ID_ONLY"
-                log.warnf(
-                    "Bericht ontbreekt voor claim claimId=%d berichtId=%s; markeer MISLUKT",
-                    claim.claimId, claim.berichtId,
-                )
-                claimer.markeerMislukt(claim.claimId, "Bericht niet gevonden", volgendePoging = null)
-                ldvContext.status = StatusCode.ERROR
-                span.setStatus(StatusCode.ERROR, "Bericht niet gevonden")
+                verwerkOntbrekendBericht(claim, ldvContext, span)
                 return
             }
 
-            // LDV-attributen voor verwerkingsactiviteit "publiceren": ontvanger als
-            // dataSubject, gestripte downstream-URL als foreign_operation.processor.
             val downstreamConfig = config.downstreams()[claim.doel.key]
-            if (downstreamConfig == null && onbekendDoelWarnLimiter.magEmitten(claim.doel)) {
-                // Config-drift: doel staat in outbox-rij maar niet meer in config →
-                // eindeloze retry tegen `<onbekend>`-URL. Warn (gedempt door
-                // onbekendDoelWarnLimiter) zodat ops het lek dicht vóór de pogingen op zijn.
-                log.warnf(
-                    "Doel '%s' niet (meer) in config.downstreams — claim wordt MISLUKT-gemarkeerd via DownstreamClient (claimId=%d)",
-                    claim.doel.key, claim.claimId,
-                )
-            }
-            val downstreamUrl = downstreamConfig?.url()?.let { url ->
-                gestripteDownstreamUrls.computeIfAbsent("${claim.doel.key}|$url") {
-                    stripUrlGeheimen(url, claim.doel)
-                }
-            } ?: "<onbekend>"
-            ldvContext.dataSubjectId = bericht.ontvanger.waarde
-            ldvContext.dataSubjectType = bericht.ontvanger.type.name
-            span.setAttribute("dpl.core.foreign_operation.processor", downstreamUrl)
-            span.setAttribute("publicatie.doel", claim.doel.key)
-            span.setAttribute("publicatie.bericht_id", claim.berichtId.toString())
+
+            zetLdvEnSpanAttributen(claim, bericht, downstreamConfig, ldvContext, span)
 
             val nu = clock.instant()
             val event = cloudEventBuilder.bouw(bericht, claim.doel, nu)
+
             when (val resultaat = downstreamClient.lever(claim.doel, event)) {
-                is DownstreamResultaat.Geslaagd -> {
-                    try {
-                        claimer.markeerGeslaagd(claim.claimId, nu)
-                    } catch (ex: IllegalStateException) {
-                        // 2xx ontvangen maar status niet bijgewerkt → gegarandeerd
-                        // duplicate-send volgende ronde; ops moet dit kunnen correleren.
-                        log.errorf(
-                            ex,
-                            "Duplicate-send venster: HTTP 2xx ontvangen maar markeerGeslaagd faalde; berichtId=%s doel=%s",
-                            claim.berichtId, claim.doel,
-                        )
-                        ldvContext.status = StatusCode.ERROR
-                        span.setStatus(StatusCode.ERROR, "Duplicate-send venster")
-                        throw ex
-                    }
-                    log.debugf(
-                        "Bericht gepubliceerd: berichtId=%s doel=%s pogingen=%d",
-                        claim.berichtId, claim.doel, claim.pogingen + 1,
-                    )
-                }
-                is DownstreamResultaat.Mislukt -> {
-                    // Geen downstreamConfig (config-drift) → null volgendePoging → terminal
-                    // MISLUKT; dat klopt, een onbekend doel is een non-herstelbare config-fout.
-                    val volgendePoging = downstreamConfig?.let { dc ->
-                        RetryBeleid.volgendePoging(
-                            nu = nu,
-                            pogingenNaFout = claim.pogingen + 1,
-                            maxPogingen = dc.maxPogingen(),
-                            basis = dc.backoff().basis(),
-                            plafond = dc.backoff().plafond(),
-                            claimId = claim.claimId,
-                            herstelbaar = resultaat.herstelbaar,
-                            retryAfter = resultaat.retryAfter,
-                        )
-                    }
-                    val gesaneerdeReden = FoutBeschrijving.saneer(resultaat.reden)
-                    claimer.markeerMislukt(claim.claimId, gesaneerdeReden, volgendePoging)
-                    ldvContext.status = StatusCode.ERROR
-                    if (volgendePoging == null) {
-                        log.errorf(
-                            "Bericht-publicatie definitief mislukt: berichtId=%s doel=%s pogingen=%d categorie=%s reden=%s",
-                            claim.berichtId, claim.doel, claim.pogingen + 1,
-                            resultaat::class.simpleName, gesaneerdeReden,
-                        )
-                        span.setStatus(StatusCode.ERROR, "MISLUKT na ${claim.pogingen + 1} pogingen")
-                    } else {
-                        log.warnf(
-                            "Bericht-publicatie mislukt; retry gepland: berichtId=%s doel=%s pogingen=%d volgendePoging=%s categorie=%s reden=%s",
-                            claim.berichtId, claim.doel, claim.pogingen + 1, volgendePoging,
-                            resultaat::class.simpleName, gesaneerdeReden,
-                        )
-                        span.setStatus(StatusCode.ERROR, "Retry gepland")
-                    }
-                }
+                is DownstreamResultaat.Geslaagd -> verwerkGeslaagd(claim, nu, ldvContext, span)
+                is DownstreamResultaat.Mislukt ->
+                    verwerkMislukt(claim, resultaat, nu, downstreamConfig, ldvContext, span)
             }
         } finally {
             // LDV-koppeling mag de commit nooit terugrollen (→ duplicate send). Smal vangen
@@ -203,6 +124,135 @@ class PublicatieClaimVerwerker(
             } finally {
                 span.end()
             }
+        }
+    }
+
+    /**
+     * Bericht weg tussen plan en verwerking. Een hard-delete neemt via
+     * CASCADE op bericht_db_id ook de delivery-rij mee, dus die orphan-claim
+     * is onbereikbaar. Het live pad hierheen is soft-delete: findByBerichtId
+     * filtert verwijderdOp IS NULL, terwijl de delivery-rij blijft bestaan.
+     * dataSubject = berichtId (ontvanger ontbreekt) zodat het LDV-record
+     * auditbaar blijft zonder lege subject-velden.
+     */
+    private fun verwerkOntbrekendBericht(
+        claim: PublicatieClaim,
+        ldvContext: LogboekContext,
+        span: Span,
+    ) {
+        ldvContext.dataSubjectId = claim.berichtId.toString()
+        ldvContext.dataSubjectType = "BERICHT_ID_ONLY"
+        log.warnf(
+            "Bericht ontbreekt voor claim claimId=%d berichtId=%s; markeer MISLUKT",
+            claim.claimId, claim.berichtId,
+        )
+        claimer.markeerMislukt(claim.claimId, "Bericht niet gevonden", volgendePoging = null)
+        ldvContext.status = StatusCode.ERROR
+        span.setStatus(StatusCode.ERROR, "Bericht niet gevonden")
+    }
+
+    /**
+     * LDV-attributen voor verwerkingsactiviteit "publiceren": ontvanger als
+     * dataSubject, gestripte downstream-URL als foreign_operation.processor.
+     */
+    private fun zetLdvEnSpanAttributen(
+        claim: PublicatieClaim,
+        bericht: Bericht,
+        downstreamConfig: PublicatieConfig.Downstream?,
+        ldvContext: LogboekContext,
+        span: Span,
+    ) {
+        if (downstreamConfig == null && onbekendDoelWarnLimiter.magEmitten(claim.doel)) {
+            // Config-drift: doel staat in outbox-rij maar niet meer in config →
+            // eindeloze retry tegen `<onbekend>`-URL. Warn (gedempt door
+            // onbekendDoelWarnLimiter) zodat ops het lek dicht vóór de pogingen op zijn.
+            log.warnf(
+                "Doel '%s' niet (meer) in config.downstreams — claim wordt MISLUKT-gemarkeerd via DownstreamClient (claimId=%d)",
+                claim.doel.key, claim.claimId,
+            )
+        }
+
+        val downstreamUrl = downstreamConfig?.url()?.let { url ->
+            gestripteDownstreamUrls.computeIfAbsent("${claim.doel.key}|$url") {
+                stripUrlGeheimen(url, claim.doel)
+            }
+        } ?: "<onbekend>"
+
+        ldvContext.dataSubjectId = bericht.ontvanger.waarde
+        ldvContext.dataSubjectType = bericht.ontvanger.type.name
+        span.setAttribute("dpl.core.foreign_operation.processor", downstreamUrl)
+        span.setAttribute("publicatie.doel", claim.doel.key)
+        span.setAttribute("publicatie.bericht_id", claim.berichtId.toString())
+    }
+
+    private fun verwerkGeslaagd(
+        claim: PublicatieClaim,
+        nu: Instant,
+        ldvContext: LogboekContext,
+        span: Span,
+    ) {
+        try {
+            claimer.markeerGeslaagd(claim.claimId, nu)
+        } catch (ex: IllegalStateException) {
+            // 2xx ontvangen maar status niet bijgewerkt → gegarandeerd
+            // duplicate-send volgende ronde; ops moet dit kunnen correleren.
+            log.errorf(
+                ex,
+                "Duplicate-send venster: HTTP 2xx ontvangen maar markeerGeslaagd faalde; berichtId=%s doel=%s",
+                claim.berichtId, claim.doel,
+            )
+            ldvContext.status = StatusCode.ERROR
+            span.setStatus(StatusCode.ERROR, "Duplicate-send venster")
+            throw ex
+        }
+
+        log.debugf(
+            "Bericht gepubliceerd: berichtId=%s doel=%s pogingen=%d",
+            claim.berichtId, claim.doel, claim.pogingen + 1,
+        )
+    }
+
+    private fun verwerkMislukt(
+        claim: PublicatieClaim,
+        resultaat: DownstreamResultaat.Mislukt,
+        nu: Instant,
+        downstreamConfig: PublicatieConfig.Downstream?,
+        ldvContext: LogboekContext,
+        span: Span,
+    ) {
+        // Geen downstreamConfig (config-drift) → null volgendePoging → terminal
+        // MISLUKT; dat klopt, een onbekend doel is een non-herstelbare config-fout.
+        val volgendePoging = downstreamConfig?.let { dc ->
+            RetryBeleid.volgendePoging(
+                nu = nu,
+                pogingenNaFout = claim.pogingen + 1,
+                maxPogingen = dc.maxPogingen(),
+                basis = dc.backoff().basis(),
+                plafond = dc.backoff().plafond(),
+                claimId = claim.claimId,
+                herstelbaar = resultaat.herstelbaar,
+                retryAfter = resultaat.retryAfter,
+            )
+        }
+        val gesaneerdeReden = FoutBeschrijving.saneer(resultaat.reden)
+
+        claimer.markeerMislukt(claim.claimId, gesaneerdeReden, volgendePoging)
+        ldvContext.status = StatusCode.ERROR
+
+        if (volgendePoging == null) {
+            log.errorf(
+                "Bericht-publicatie definitief mislukt: berichtId=%s doel=%s pogingen=%d categorie=%s reden=%s",
+                claim.berichtId, claim.doel, claim.pogingen + 1,
+                resultaat::class.simpleName, gesaneerdeReden,
+            )
+            span.setStatus(StatusCode.ERROR, "MISLUKT na ${claim.pogingen + 1} pogingen")
+        } else {
+            log.warnf(
+                "Bericht-publicatie mislukt; retry gepland: berichtId=%s doel=%s pogingen=%d volgendePoging=%s categorie=%s reden=%s",
+                claim.berichtId, claim.doel, claim.pogingen + 1, volgendePoging,
+                resultaat::class.simpleName, gesaneerdeReden,
+            )
+            span.setStatus(StatusCode.ERROR, "Retry gepland")
         }
     }
 

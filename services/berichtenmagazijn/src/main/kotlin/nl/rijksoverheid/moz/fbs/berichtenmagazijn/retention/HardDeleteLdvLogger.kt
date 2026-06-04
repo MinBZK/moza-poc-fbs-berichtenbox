@@ -23,7 +23,7 @@ class HardDeleteLdvLogger {
 
     private val log = Logger.getLogger(HardDeleteLdvLogger::class.java)
 
-    fun logHardDelete(candidate: HardDeleteCandidaat) {
+    fun logHardDelete(candidate: HardDeleteKandidaat) {
         log.infof(
             "verwerkingsactiviteit=%s berichtId=%s ontvangerType=%s verwijderdOp=%s tijdstipOntvangst=%s",
             ProcessingActivities.MAGAZIJN_RETENTIE,

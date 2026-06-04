@@ -9,7 +9,7 @@ import java.util.UUID
  * de volledige `BerichtEntity` (incl. tot 1 MiB `inhoud`) wordt bewust niet
  * geladen.
  */
-data class HardDeleteCandidaat(
+data class HardDeleteKandidaat(
     val id: Long,
     val berichtId: UUID,
     val ontvangerType: String,

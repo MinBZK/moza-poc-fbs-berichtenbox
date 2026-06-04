@@ -25,6 +25,7 @@
         <kotlin.version>2.3.21</kotlin.version>
         <quarkus.platform.version>3.35.1</quarkus.platform.version>
         <openapi-generator.version>7.22.0</openapi-generator.version>
+        <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
         <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert
              zelf, java-compile draait alleen op gegenereerde sources). Zonder beheerde versie
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
@@ -121,5 +122,39 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+
+        <plugins>
+            <!-- detekt: Kotlin-native statische analyse voor cognitieve/cyclomatische
+                 complexiteit — het gat dat CodeQL (security) en JaCoCo (coverage) niet
+                 dekken. Gebonden aan verify; SARIF-output gaat in CI naar het GitHub
+                 code-scanning-dashboard. Zie detekt.yml voor de (complexity-)ruleset. -->
+            <plugin>
+                <groupId>com.github.ozsie</groupId>
+                <artifactId>detekt-maven-plugin</artifactId>
+                <version>${detekt-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <config>${maven.multiModuleProjectDirectory}/detekt.yml</config>
+                    <buildUponDefaultConfig>false</buildUponDefaultConfig>
+                    <!-- Geen baseline: 0 bevindingen is het doel (alles opgelost), zodat de
+                         gate strak kan staan. `maxIssues: 0` in detekt.yml laat élke bevinding
+                         de build falen. Bewuste, onvermijdelijke uitzonderingen krijgen een
+                         inline `@Suppress("Rule")` met motivatie — zichtbaar in review, geen
+                         verborgen debt. -->
+                    <excludes>**/target/**,**/src/test/**</excludes>
+                    <report>
+                        <report>sarif:${project.build.directory}/detekt.sarif</report>
+                        <report>xml:${project.build.directory}/detekt.xml</report>
+                    </report>
+                </configuration>
+            </plugin>
+        </plugins>
     </build>
 </project>

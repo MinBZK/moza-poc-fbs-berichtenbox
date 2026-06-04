@@ -1,0 +1,227 @@
+# detekt-configuratie voor moza-poc-fbs-berichtenbox.
+#
+# Scope: correctness/robustness (complexity, potential-bugs, exceptions,
+# empty-blocks) plus een curated set stijl-/naming-regels (dode code,
+# redundantie, simplificatie, conventie-drift). De `comments`-ruleset
+# (UndocumentedPublic*) blijft uit: botst met de project-regel "comment het
+# waarom, niet het wat". Enige overlap met CodeQL is bewust — bij AI-ondersteunde
+# ontwikkeling zijn extra guardrails gewenst.
+#
+# We bouwen NIET voort op de detekt-default-config (`buildUponDefaultConfig=false`
+# in de POM); alleen de hieronder expliciet geactiveerde regels draaien.
+#
+# Gate: `maxIssues: 0` ZONDER baseline — 0 bevindingen is het doel (alles echt
+# opgelost). Bewuste, onvermijdelijke uitzonderingen krijgen een inline
+# `@Suppress("Rule")` met motivatie (zichtbaar in review, geen verborgen debt).
+# Test-sources zijn uitgesloten (zie POM `excludes`).
+build:
+  maxIssues: 0
+  excludeCorrectable: false
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+complexity:
+  active: true
+  CognitiveComplexMethod:
+    active: true
+    threshold: 15
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 15
+    ignoreSingleWhenExpression: true
+  LongMethod:
+    active: true
+    threshold: 60
+  LongParameterList:
+    active: true
+    functionThreshold: 8
+    constructorThreshold: 8
+    ignoreDefaultParameters: true
+  NestedBlockDepth:
+    active: true
+    threshold: 4
+  TooManyFunctions:
+    active: true
+    thresholdInFiles: 20
+    thresholdInClasses: 20
+    thresholdInInterfaces: 20
+    thresholdInObjects: 20
+    thresholdInEnums: 20
+    ignoreDeprecated: true
+    ignorePrivate: true
+
+# Bug-patronen die de Kotlin-compiler en CodeQL (zwakker voor Kotlin) laten lopen.
+potential-bugs:
+  active: true
+  CastToNullableType:
+    active: true
+  Deprecation:
+    active: true
+  DontDowncastCollectionTypes:
+    active: true
+  DoubleMutabilityForCollection:
+    active: true
+  ElseCaseInsteadOfExhaustiveWhen:
+    active: true
+  EqualsAlwaysReturnsTrueOrFalse:
+    active: true
+  ExplicitGarbageCollectionCall:
+    active: true
+  HasPlatformType:
+    active: true
+  IgnoredReturnValue:
+    active: true
+  ImplicitDefaultLocale:
+    active: true
+  InvalidRange:
+    active: true
+  IteratorHasNextCallsNextMethod:
+    active: true
+  NullableToStringCall:
+    active: true
+  UnconditionalJumpStatementInLoop:
+    active: true
+  UnreachableCatchBlock:
+    active: true
+  UnreachableCode:
+    active: true
+  UnsafeCallOnNullableType:
+    active: true
+  UnsafeCast:
+    active: true
+  WrongEqualsTypeParameter:
+    active: true
+
+# Foutafhandeling — sluit aan op de project-lijn "geen stilgeslikte fouten"
+# (silent-failure-discipline, ExceptionMappers in fbs-common).
+exceptions:
+  active: true
+  ExceptionRaisedInUnexpectedLocation:
+    active: true
+  NotImplementedDeclaration:
+    active: true
+  PrintStackTrace:
+    active: true
+  RethrowCaughtException:
+    active: true
+  ReturnFromFinally:
+    active: true
+  SwallowedException:
+    active: true
+  ThrowingExceptionFromFinally:
+    active: true
+  ThrowingExceptionInMain:
+    active: true
+  ThrowingExceptionsWithoutMessageOrCause:
+    active: true
+  ThrowingNewInstanceOfSameException:
+    active: true
+  # TooGenericExceptionCaught bewust UIT: `catch (e: Exception)` op reactieve
+  # grenzen (Mutiny wrapt fouten) is hier het juiste patroon — elke catch
+  # classificeert/logt/herwerpt. Het échte gevaar (een genegeerde exception)
+  # wordt afgevangen door SwallowedException (hierboven, actief). Narrowing zou
+  # de robuustheid verlagen voor een lint-score.
+  TooGenericExceptionCaught:
+    active: false
+  TooGenericExceptionThrown:
+    active: true
+
+empty-blocks:
+  active: true
+  EmptyCatchBlock:
+    active: true
+  EmptyClassBlock:
+    active: true
+  EmptyDefaultConstructor:
+    active: true
+  EmptyElseBlock:
+    active: true
+  EmptyFinallyBlock:
+    active: true
+  EmptyForBlock:
+    active: true
+  EmptyFunctionBlock:
+    active: true
+  EmptyIfBlock:
+    active: true
+  EmptyInitBlock:
+    active: true
+  EmptyKtFile:
+    active: true
+  EmptySecondaryConstructor:
+    active: true
+  EmptyTryBlock:
+    active: true
+  EmptyWhenBlock:
+    active: true
+  EmptyWhileBlock:
+    active: true
+
+# Curated stijl-regels: alleen dode code, redundantie en simplificatie (echte
+# kwaliteitssignalen). Bewust NIET: MagicNumber, ForbiddenComment (TODO('#'…) is
+# een sanctioned conventie), ReturnCount, MaxLineLength — opinie/ruis;
+# UnnecessaryParentheses — vlagt júist de haakjes die niet-evidente
+# operator-precedentie disambigueren (infix `and`/`shr` binden strakker dan
+# `==`/`*`), wat in security-/bit-manipulatie-code defensieve duidelijkheid is. De
+# `comments`-ruleset (UndocumentedPublic*) blijft uit: botst met de project-regel
+# "comment het waarom, niet het wat".
+style:
+  active: true
+  CanBeNonNullable:
+    active: true
+  ExplicitItLambdaParameter:
+    active: true
+  MayBeConst:
+    active: true
+  RedundantExplicitType:
+    active: true
+  RedundantHigherOrderMapUsage:
+    active: true
+  UnusedParameter:
+    active: true
+    # @Observes-startup-observers krijgen de StartupEvent-parameter framework-
+    # gedwongen; de waarde is ongebruikt maar de parameter is het CDI-contract.
+    ignoreAnnotated: ['Observes']
+  UnusedPrivateMember:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  UnnecessaryApply:
+    active: true
+  UnnecessaryFilter:
+    active: true
+  UnnecessaryLet:
+    active: true
+  UselessCallOnNotNull:
+    active: true
+  WildcardImport:
+    active: true
+
+# Naming-conventies als drift-guard (test-sources zijn uitgesloten, dus backtick-
+# testnamen vallen er sowieso buiten).
+naming:
+  active: true
+  BooleanPropertyNaming:
+    active: true
+  ClassNaming:
+    active: true
+  ConstructorParameterNaming:
+    active: true
+  EnumNaming:
+    active: true
+  FunctionNaming:
+    active: true
+  FunctionParameterNaming:
+    active: true
+  LambdaParameterNaming:
+    active: true
+  ObjectPropertyNaming:
+    active: true
+  PackageNaming:
+    active: true
+  TopLevelPropertyNaming:
+    active: true
+  VariableNaming:
+    active: true

@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.opentelemetry.api.trace.StatusCode
 import io.smallrye.common.annotation.Blocking
 import io.smallrye.mutiny.Multi
+import io.smallrye.mutiny.subscription.MultiEmitter
 import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.Size
 import jakarta.ws.rs.GET
@@ -66,58 +67,76 @@ class BerichtenOphalenResource(
         // SSE-stream is een observer: stuurt events door zolang de client verbonden is.
         // Client disconnect stopt alleen de emitter, de aggregatie loopt onafhankelijk door.
         return Multi.createFrom().emitter { emitter ->
-            // Markeert of de stream normaal eindigde (completion of fout). Blijft false bij
-            // client-disconnect vóór het finale event, zodat onTermination dat kan loggen.
-            val streamAfgerond = AtomicBoolean(false)
+            koppelAggregatieAanEmitter(aggregation, emitter, ontvangerId)
+        }
+    }
 
-            aggregation.subscribe().with(
-                { event ->
-                    // Zet logboek status op basis van het finale event
-                    when (event.event) {
-                        EventType.OPHALEN_GEREED ->
-                            logboekContext.status = if (event.mislukt == 0) StatusCode.OK else StatusCode.ERROR
-                        EventType.OPHALEN_FOUT ->
-                            logboekContext.status = StatusCode.ERROR
-                        else -> { /* geen actie voor tussentijdse events */ }
-                    }
-                    if (!emitter.isCancelled) emitter.emit(event)
-                },
-                { error ->
-                    // Async-aggregatie-fouten ná SSE-stream-open hebben geen JAX-RS-mapper-
-                    // pad meer (response-headers zijn al verzonden); zonder log hier verdwijnt
-                    // de fout uit server-side observability. ontvanger.type i.p.v. waarde
-                    // (BSN/RSIN PII; type-context volstaat voor incident-triage). Géén
-                    // stacktrace meelgeven: cause-chain van lagere clients kan upstream-URL
-                    // met BSN bevatten (precedent: ProfielServiceFoutExceptionMapper).
-                    streamAfgerond.set(true)
-                    logboekContext.status = StatusCode.ERROR
-                    log.errorf(
-                        "SSE-stream gefaald na open (ontvanger.type=%s, cause=%s, msg-class=%s)",
-                        ontvangerId.type,
-                        error.cause?.javaClass?.simpleName ?: "geen",
-                        error.javaClass.simpleName,
-                    )
-                    if (!emitter.isCancelled) emitter.fail(error)
-                },
-                {
-                    streamAfgerond.set(true)
-                    if (!emitter.isCancelled) emitter.complete()
-                },
-            )
+    private fun koppelAggregatieAanEmitter(
+        aggregation: Multi<MagazijnEvent>,
+        emitter: MultiEmitter<in MagazijnEvent>,
+        ontvangerId: Identificatienummer,
+    ) {
+        // Markeert of de stream normaal eindigde (completion of fout). Blijft false bij
+        // client-disconnect vóór het finale event, zodat onTermination dat kan loggen.
+        val streamAfgerond = AtomicBoolean(false)
 
-            emitter.onTermination {
-                // De aggregatie (magazijn-calls + cache-writes) loopt bewust door na een
-                // client-disconnect zodat de cache alsnog gevuld raakt; we cancelen de
-                // subscription dus NIET. Wel loggen we een vroegtijdige terminatie (client
-                // weg vóór het finale event) zodat afgebroken ophaalsessies zichtbaar zijn
-                // in observability i.p.v. stil te verdwijnen. ontvanger.type, geen waarde (PII).
-                if (!streamAfgerond.get()) {
-                    log.infof(
-                        "SSE-client verbroken vóór completion (ontvanger.type=%s); aggregatie loopt door om cache te vullen",
-                        ontvangerId.type,
-                    )
-                }
+        aggregation.subscribe().with(
+            { event ->
+                registreerLogboekStatus(event)
+                if (!emitter.isCancelled) emitter.emit(event)
+            },
+            { error ->
+                streamAfgerond.set(true)
+                logStreamFout(error, ontvangerId)
+                if (!emitter.isCancelled) emitter.fail(error)
+            },
+            {
+                streamAfgerond.set(true)
+                if (!emitter.isCancelled) emitter.complete()
+            },
+        )
+
+        emitter.onTermination {
+            // De aggregatie (magazijn-calls + cache-writes) loopt bewust door na een
+            // client-disconnect zodat de cache alsnog gevuld raakt; we cancelen de
+            // subscription dus NIET. Wel loggen we een vroegtijdige terminatie (client
+            // weg vóór het finale event) zodat afgebroken ophaalsessies zichtbaar zijn
+            // in observability i.p.v. stil te verdwijnen. ontvanger.type, geen waarde (PII).
+            if (!streamAfgerond.get()) {
+                log.infof(
+                    "SSE-client verbroken vóór completion (ontvanger.type=%s); aggregatie loopt door om cache te vullen",
+                    ontvangerId.type,
+                )
             }
         }
+    }
+
+    /** Zet logboek-status op basis van het finale event; tussentijdse events wijzigen niets. */
+    private fun registreerLogboekStatus(event: MagazijnEvent) {
+        when (event.event) {
+            EventType.OPHALEN_GEREED ->
+                logboekContext.status = if (event.mislukt == 0) StatusCode.OK else StatusCode.ERROR
+            EventType.OPHALEN_FOUT ->
+                logboekContext.status = StatusCode.ERROR
+            else -> { /* geen actie voor tussentijdse events */ }
+        }
+    }
+
+    /**
+     * Async-aggregatie-fouten ná SSE-stream-open hebben geen JAX-RS-mapper-
+     * pad meer (response-headers zijn al verzonden); zonder log hier verdwijnt
+     * de fout uit server-side observability. ontvanger.type i.p.v. waarde
+     * (BSN/RSIN PII; type-context volstaat voor incident-triage). Géén
+     * stacktrace meelgeven: cause-chain van lagere clients kan upstream-URL
+     * met BSN bevatten (precedent: ProfielServiceFoutExceptionMapper).
+     */
+    private fun logStreamFout(error: Throwable, ontvangerId: Identificatienummer) {
+        logboekContext.status = StatusCode.ERROR
+        log.errorf(
+            "SSE-stream gefaald na open (ontvanger.type=%s, cause=%s, msg-class=%s)",
+            ontvangerId.type,
+            error.cause?.javaClass?.simpleName ?: "geen",
+            error.javaClass.simpleName,
+        )
     }
 }
