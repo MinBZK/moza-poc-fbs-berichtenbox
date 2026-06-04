@@ -18,7 +18,7 @@ import java.util.UUID
  * REST-resource voor de Berichten Uitvraag API. Implementeert de gegenereerde
  * [UitvraagApi]-interface en delegeert per endpoint naar de bijbehorende
  * service. SSE-endpoint `_ophalen` valt buiten codegen (tag `Ophalen`) en
- * wordt door [SsePassthroughResource] afgehandeld.
+ * wordt door [OphalenSseResource] afgehandeld.
  */
 @Path(ApiInfo.BASE_PATH + "/berichten")
 @ApplicationScoped

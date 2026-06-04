@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test
  */
 @QuarkusTest
 @TestProfile(KetenE2eProfile::class)
-@QuarkusTestResource(WireMockKetenBackends::class)
+@QuarkusTestResource(value = WireMockKetenBackends::class, restrictToAnnotatedClass = true)
 class UitvraagKetenE2eTest {
 
     private val profiel get() = WireMockKetenBackends.profiel!!
