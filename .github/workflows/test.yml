@@ -45,12 +45,15 @@ jobs:
       # gegenereerde OpenAPI-klassen (`api.**`) tellen als onafgedekt mee — dat drukt het
       # cijfer kunstmatig (bv. ~38% i.p.v. ~95% voor dezelfde module). Het site/jacoco-
       # rapport hanteert dezelfde excludes als de 90%-gate, dus de comment spiegelt de gate.
-      # Glob op `services/*` zodat nieuwe service-modules automatisch meegenomen worden.
+      # Glob op `services/*` + `libraries/*` zodat nieuwe modules (services én gedeelde
+      # libraries zoals fbs-common) automatisch meegenomen worden.
       - name: JaCoCo coverage als PR-comment
         if: github.event_name == 'pull_request'
         uses: madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920 # v1.8.0
         with:
-          paths: ${{ github.workspace }}/services/*/target/site/jacoco/jacoco.xml
+          paths: |
+            ${{ github.workspace }}/services/*/target/site/jacoco/jacoco.xml
+            ${{ github.workspace }}/libraries/*/target/site/jacoco/jacoco.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           title: "JaCoCo coverage"
           min-coverage-overall: 0
