@@ -7,7 +7,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.mockk.mockk
 import io.restassured.http.ContentType
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.hamcrest.Matchers.`is`
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
@@ -44,7 +44,7 @@ class DbConstraintViolation409ContractTest {
                 ontvangerWaarde: String,
                 onderwerp: String,
                 inhoud: String,
-                publicatiedatum: Instant?,
+                publicatietijdstip: Instant?,
                 bijlagen: List<BijlageInvoer>,
             ): Nothing = throw HibernateConstraintViolationException(
                 "unique violation",

@@ -11,7 +11,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.BeheerApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtDtoMapper
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusPatch as BerichtStatusPatchDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch as BerichtStatusPatchDomain

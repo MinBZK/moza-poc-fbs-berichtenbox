@@ -7,7 +7,7 @@ import jakarta.inject.Inject
 import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull

@@ -2,6 +2,11 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 
 import io.quarkus.test.Mock
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.common.profiel.IdentificatieResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
+import nl.rijksoverheid.moz.fbs.common.profiel.ScopeResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.VoorkeurResponse
 import org.eclipse.microprofile.rest.client.inject.RestClient
 
 /**

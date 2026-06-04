@@ -1,9 +1,13 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
+@QuarkusTest
+@TestProfile(MockedDependenciesProfile::class)
 class AggregationStatusTest {
 
     @Test

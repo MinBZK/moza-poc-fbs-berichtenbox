@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
 import nl.rijksoverheid.moz.fbs.common.exception.requireValid
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import java.time.Instant
 import java.util.UUID
 
@@ -19,7 +21,7 @@ data class Bericht(
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
-    val publicatiedatum: Instant,
+    val publicatietijdstip: Instant,
     // Metadata van bijlagen bij het bericht. Bytes worden separaat opgehaald via
     // de bijlage-repository; in de berichtenlijst is alleen metadata zichtbaar.
     val bijlagen: List<BijlageMetadata> = emptyList(),
@@ -48,9 +50,10 @@ data class Bericht(
         requireValid(afzender != ontvanger) {
             "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
         }
-        // publicatiedatum mag zowel in de toekomst (uitgestelde publicatie) als in het
-        // verleden liggen: bij een late her-aanlevering kan de oorspronkelijke datum al
-        // verstreken zijn. Een datum in het verleden laat de outbox direct publiceren.
+        // publicatietijdstip mag zowel in de toekomst (uitgestelde publicatie) als in
+        // het verleden liggen: bij een late her-aanlevering kan het oorspronkelijke
+        // tijdstip al verstreken zijn. Een tijdstip in het verleden laat de outbox
+        // direct publiceren.
     }
 
     companion object {

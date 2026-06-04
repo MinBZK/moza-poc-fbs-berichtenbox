@@ -17,9 +17,9 @@ data class BerichtStatus(
 ) {
     init {
         if (map != null) {
-            requireValid(map.isNotBlank()) { "Map mag niet leeg zijn" }
-            requireValid(map.length <= MAX_MAP_LENGTE) {
-                "Map mag max $MAX_MAP_LENGTE characters zijn"
+            requireValid(map.isNotBlank()) { "Mapnaam mag niet leeg zijn" }
+            requireValid(map.length <= MAX_MAPNAAM_LENGTE) {
+                "Mapnaam mag max $MAX_MAPNAAM_LENGTE characters zijn"
             }
         }
     }
@@ -27,7 +27,8 @@ data class BerichtStatus(
     companion object {
         // Synchroniseer met `BerichtStatusInfo.map.maxLength` en
         // `BerichtStatusPatch.map.maxLength` in `berichtenmagazijn-api.yaml` en
-        // met `@Column(length = ...)` in `BerichtStatusEntity`.
-        const val MAX_MAP_LENGTE = 64
+        // met `@Column(length = ...)` in `BerichtStatusEntity` (de DB-kolom is
+        // bron van waarheid; wijzigingen vragen een Flyway-migratie).
+        const val MAX_MAPNAAM_LENGTE = 128
     }
 }

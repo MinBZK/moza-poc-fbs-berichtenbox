@@ -12,9 +12,9 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Identificatienummer
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.PagedBerichten
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -40,7 +40,7 @@ class BerichtOphaalServiceTest {
         onderwerp = "Voorlopige aanslag 2026",
         inhoud = "Inhoud",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
     )
 
     @Test
