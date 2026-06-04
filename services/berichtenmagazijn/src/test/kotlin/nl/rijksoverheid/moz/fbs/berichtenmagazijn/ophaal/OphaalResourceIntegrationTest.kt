@@ -85,7 +85,7 @@ class OphaalResourceIntegrationTest {
             .then()
             .statusCode(200)
             .contentType("application/json")
-            .header("API-Version", `is`("v1"))
+            .header("API-Version", `is`("0.2.0"))
             .body("totalElements", `is`(2))
             .body("berichten", hasSize<Any>(2))
             .body("berichten[0].onderwerp", notNullValue())

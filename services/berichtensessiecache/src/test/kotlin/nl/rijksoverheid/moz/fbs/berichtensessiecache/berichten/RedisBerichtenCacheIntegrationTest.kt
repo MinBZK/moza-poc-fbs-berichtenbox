@@ -45,6 +45,7 @@ class RedisBerichtenCacheIntegrationTest {
             publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 0,
+            map = "werk",
         ),
         Bericht(
             berichtId = UUID.randomUUID(),
@@ -55,6 +56,7 @@ class RedisBerichtenCacheIntegrationTest {
             publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 2,
+            map = "prive",
         ),
         Bericht(
             berichtId = UUID.randomUUID(),
@@ -65,6 +67,7 @@ class RedisBerichtenCacheIntegrationTest {
             publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
             aantalBijlagen = 1,
+            map = "werk",
         ),
     )
 
@@ -104,6 +107,19 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertTrue(result.berichten.isNotEmpty())
         assertTrue(result.berichten.all { it.afzender == "00000009876543210000" })
+    }
+
+    @Test
+    fun `search filtert op map TAG`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val result = berichtenCache.search(ontvanger, "bericht", 0, 20, null, "prive")
+            .await().indefinitely()
+
+        assertTrue(result.berichten.isNotEmpty())
+        assertTrue(result.berichten.all { it.map == "prive" })
+        assertTrue(result.berichten.none { it.map == "werk" })
     }
 
     @Test
@@ -159,7 +175,8 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertNotNull(updated)
         assertEquals(Leesstatus.GELEZEN, updated!!.status)
-        assertNull(updated.map)
+        // status-update laat het map-veld ongemoeid (fixture-bericht zit in map 'werk')
+        assertEquals(original.map, updated.map)
         assertEquals(original.berichtId, updated.berichtId)
         assertEquals(original.afzender, updated.afzender)
         assertEquals(original.ontvanger, updated.ontvanger)
@@ -253,7 +270,7 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `delete bestaand bericht verwijdert ook list-entry`() {
-        // Regressie: list-cache bevat JSON-blobs van berichten (via addBericht.rpush /
+        // Regressie: list-cache bevat JSON-blobs van berichten (via createBericht.rpush /
         // store.rpush). `getPage` deserialiseert direct uit die list — zonder list-prune
         // bleef een verwijderd bericht zichtbaar in `GET /berichten`.
         val berichten = testBerichten()
@@ -287,9 +304,9 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `delete behoudt een concurrent toegevoegd bericht (geen lost-update)`() {
-        // Kernbelofte van het optimistic-locking-delete: een addBericht dat gelijktijdig
+        // Kernbelofte van het optimistic-locking-delete: een createBericht dat gelijktijdig
         // met de delete-rewrite plaatsvindt mag niet door de rewrite worden overschreven.
-        // addBericht doet een ongewatchte MULTI/EXEC (altijd toegepast); delete WATCHt de
+        // createBericht doet een ongewatchte MULTI/EXEC (altijd toegepast); delete WATCHt de
         // list-key en retryt bij conflict. Het concurrent toegevoegde bericht hoort dus
         // hoe dan ook te overleven, en het doelbericht hoort verwijderd te zijn.
         val berichten = testBerichten().take(2)
@@ -309,7 +326,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         // Gelijktijdig afvuren zonder onderlinge ordening.
         val deleteStage = berichtenCache.delete(teVerwijderen.berichtId, ontvanger).subscribeAsCompletionStage()
-        val addStage = berichtenCache.addBericht(nieuw, ontvanger).subscribeAsCompletionStage()
+        val addStage = berichtenCache.createBericht(nieuw, ontvanger).subscribeAsCompletionStage()
         CompletableFuture.allOf(deleteStage.toCompletableFuture(), addStage.toCompletableFuture()).join()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
@@ -381,7 +398,7 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `addBericht voegt toe aan bestaande lijst`() {
+    fun `createBericht voegt toe aan bestaande lijst`() {
         val berichten = testBerichten().take(2)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
@@ -395,12 +412,12 @@ class RedisBerichtenCacheIntegrationTest {
             magazijnId = "magazijn-c",
             aantalBijlagen = 3,
         )
-        berichtenCache.addBericht(nieuwBericht, ontvanger).await().indefinitely()
+        berichtenCache.createBericht(nieuwBericht, ontvanger).await().indefinitely()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
         assertNotNull(page)
         assertEquals(3, page!!.totalElements)
-        // `addBericht` doet RPUSH (append) — de LRANGE-volgorde geeft nieuwkomers achteraan.
+        // `createBericht` doet RPUSH (append) — de LRANGE-volgorde geeft nieuwkomers achteraan.
         // Positie-check: nieuwBericht zit op index 2 (na de 2 eerder gestoorde berichten).
         val indices = page.berichten.mapIndexed { i, b -> b.berichtId to i }.toMap()
         assertTrue(indices.containsKey(nieuwBericht.berichtId), "nieuwBericht niet in pagina: ${page.berichten.map { it.berichtId }}")
@@ -446,6 +463,31 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertNotNull(page)
         assertTrue(page!!.berichten.all { it.afzender == "00000001234567890000" })
+    }
+
+    @Test
+    fun `getPage filtert op map TAG via RediSearch`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, null, ontvanger, "werk")
+            .await().indefinitely()
+
+        assertNotNull(page)
+        assertEquals(2, page!!.berichten.size)
+        assertTrue(page.berichten.all { it.map == "werk" })
+    }
+
+    @Test
+    fun `getPage combineert afzender en map TAG-filters`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, "00000001234567890000", ontvanger, "werk")
+            .await().indefinitely()
+
+        assertNotNull(page)
+        assertTrue(page!!.berichten.all { it.afzender == "00000001234567890000" && it.map == "werk" })
     }
 
     @Test

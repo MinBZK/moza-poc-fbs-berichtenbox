@@ -35,17 +35,17 @@ interface BerichtenCache {
     fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
     fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean>
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
-    fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: Identificatienummer? = null): Uni<BerichtenPage?>
-    fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
+    fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: Identificatienummer? = null, map: String? = null): Uni<BerichtenPage?>
+    fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String? = null, map: String? = null): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?>
     fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?>
-    fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
+    fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
     fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void>
 
     companion object {
         // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
         // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
-        // request meerdere keren aangeroepen (getBerichten, getById, addBericht, etc.).
+        // request meerdere keren aangeroepen (getBerichten, getById, createBericht, etc.).
         private val SHA256_DIGEST: ThreadLocal<MessageDigest> = ThreadLocal.withInitial {
             MessageDigest.getInstance("SHA-256")
         }
@@ -104,6 +104,7 @@ class RedisBerichtenCache(
                 .indexedField("afzender", FieldType.TAG)
                 .indexedField("ontvanger", FieldType.TAG)
                 .indexedField("publicatietijdstip", FieldType.TAG)
+                .indexedField("map", FieldType.TAG)
             redis.search().ftCreate(BerichtenCache.SEARCH_INDEX, args)
                 .await().atMost(Duration.ofSeconds(5))
             log.infof("RediSearch index '%s' aangemaakt", BerichtenCache.SEARCH_INDEX)
@@ -206,11 +207,11 @@ class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis getAggregationStatus mislukt voor key=%s", key) }
     }
 
-    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?): Uni<BerichtenPage?> {
-        if (afzender != null && ontvanger != null) {
+    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?, map: String?): Uni<BerichtenPage?> {
+        if ((afzender != null || map != null) && ontvanger != null) {
             // `key` is al de cacheKey (caller berekende de SHA-256); doorgeven vermijdt een
             // tweede hash-pass in getPageFiltered op het hot path.
-            return getPageFiltered(key, page, pageSize, ontvanger, afzender)
+            return getPageFiltered(key, page, pageSize, ontvanger, afzender, map)
         }
 
         val listKey = listKey(key)
@@ -265,10 +266,16 @@ class RedisBerichtenCache(
                 .invoke { e -> log.errorf(e, "Redis getPage mislukt voor key=%s, page=%d", key, page) }
     }
 
-    private fun getPageFiltered(cacheKey: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String): Uni<BerichtenPage?> {
-        val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger.waarde)}}"
-        val afzenderFilter = "@afzender:{${escapeTag(afzender)}}"
-        val query = "$ontvangerFilter $afzenderFilter"
+    private fun getPageFiltered(cacheKey: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?, map: String?): Uni<BerichtenPage?> {
+        // ontvanger is altijd een TAG-filter; afzender en map zijn optioneel en worden met
+        // spaties (AND) gecombineerd in de RediSearch-query.
+        val query = buildList {
+            add("@ontvanger:{${escapeTag(ontvanger.waarde)}}")
+
+            if (!afzender.isNullOrBlank()) add("@afzender:{${escapeTag(afzender)}}")
+
+            if (!map.isNullOrBlank()) add("@map:{${escapeTag(map)}}")
+        }.joinToString(" ")
 
         val offset = page * pageSize
         val queryArgs = samenvattingQueryArgs()
@@ -289,15 +296,16 @@ class RedisBerichtenCache(
             .call { result -> renewReadTtlSamenvatting(cacheKey, result?.berichten) }
             // afzender is user-input zonder spec-pattern in alle gevallen (zie OpenAPI);
             // .length voorkomt log-injectie via CRLF in een rogue query-param.
-            .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt (key=%s, afzender.length=%d)", cacheKey, afzender.length) }
+            .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt (key=%s, afzender.length=%d, map.length=%d)", cacheKey, afzender?.length ?: 0, map?.length ?: 0) }
     }
 
-    override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
+    override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?, map: String?): Uni<BerichtenPage> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger.waarde)}}"
         val escapedQ = escapeRedisSearch(q)
         val afzenderFilter = if (afzender != null) " @afzender:{${escapeTag(afzender)}}" else ""
-        val query = "$ontvangerFilter (@onderwerp:$escapedQ)$afzenderFilter".trim()
+        val mapFilter = if (!map.isNullOrBlank()) " @map:{${escapeTag(map)}}" else ""
+        val query = "$ontvangerFilter (@onderwerp:$escapedQ)$afzenderFilter$mapFilter".trim()
 
         val offset = page * pageSize
         val queryArgs = samenvattingQueryArgs()
@@ -520,7 +528,7 @@ class RedisBerichtenCache(
         // direct deserialiseert — een HSET-alleen update laat die list stale (oude status/map
         // zichtbaar in `GET /berichten` tot TTL). We schrijven daarom óók de matchende list-entry
         // terug, onder hetzelfde optimistic locking als `delete` (WATCH op list- en bericht-key):
-        // een concurrente `addBericht`/`delete` tussen read en EXEC breekt de transactie af zodat
+        // een concurrente `createBericht`/`delete` tussen read en EXEC breekt de transactie af zodat
         // we geen lost-update veroorzaken. Bij afbreken herhalen we tot een klein plafond; daarna
         // laten we de cache met rust en levert de operatie een retriable 503 op zodat de client
         // opnieuw kan proberen.
@@ -644,7 +652,7 @@ class RedisBerichtenCache(
             }
     }
 
-    override fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
+    override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
@@ -663,17 +671,17 @@ class RedisBerichtenCache(
                 .replaceWithVoid()
         }.replaceWithVoid()
             .invoke { _ -> log.debugf("Bericht %s toegevoegd aan cache", bericht.berichtId) }
-            .onFailure().invoke { e -> log.errorf(e, "Redis addBericht mislukt voor berichtId=%s", bericht.berichtId) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis createBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }
 
     override fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
         // Idempotent cache-invalidate. De sessie-`list` bevat JSON-blobs (gevuld via
-        // `addBericht.rpush`) die `getPage` direct deserialiseert — dus na DEL op de hash
+        // `createBericht.rpush`) die `getPage` direct deserialiseert — dus na DEL op de hash
         // blijft het bericht zonder list-prune zichtbaar in `GET /berichten`.
         //
         // Aanpak: HGETALL (eigenaar-check) → LRANGE + parse om de matchende blob(s) op
         // `berichtId` te vinden → LREM met die exact-value(s) → DEL hash. LREM is per-call
-        // Redis-atomair en raakt alleen exact-matchende entries: een concurrent `addBericht`
+        // Redis-atomair en raakt alleen exact-matchende entries: een concurrent `createBericht`
         // tussen onze LRANGE en LREM voegt een blob met andere inhoud toe (andere berichtId
         // ⇒ andere JSON) en blijft dus behouden zonder WATCH/retry-loop. Bij eerdere TTL
         // van 60s was een WATCH+retry-aanpak met "self-healing via TTL" als noodverbetering

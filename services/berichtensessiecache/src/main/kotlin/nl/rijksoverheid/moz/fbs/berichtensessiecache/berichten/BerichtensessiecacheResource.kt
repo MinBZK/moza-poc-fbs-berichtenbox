@@ -21,7 +21,6 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BijlageSamenvatti
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.PaginationLinks
 import org.jboss.logging.Logger
-import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
@@ -51,6 +50,7 @@ class BerichtensessiecacheResource(
         page: Int?,
         pageSize: Int?,
         afzender: String?,
+        map: String?,
     ): BerichtensessiecacheResponse {
         val (ontvangerId, aggregation) = requireGereedStatus(xOntvanger)
 
@@ -60,10 +60,10 @@ class BerichtensessiecacheResource(
         val p = page ?: 0
         val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichten(p, ps, ontvangerId, afzender)
+            berichtensessiecacheService.getBerichten(p, ps, ontvangerId, afzender, map)
         }
         logboekContext.status = StatusCode.OK
-        return result.toResponse(aggregation, afzender)
+        return result.toResponse(aggregation, afzender, map)
     }
 
     @Logboek(
@@ -97,6 +97,7 @@ class BerichtensessiecacheResource(
         page: Int?,
         pageSize: Int?,
         afzender: String?,
+        map: String?,
     ): BerichtensessiecacheResponse {
         val (ontvangerId, aggregation) = requireGereedStatus(xOntvanger)
 
@@ -106,10 +107,10 @@ class BerichtensessiecacheResource(
         val p = page ?: 0
         val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvangerId, afzender)
+            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvangerId, afzender, map)
         }
         logboekContext.status = StatusCode.OK
-        return result.toResponse(aggregation, afzender)
+        return result.toResponse(aggregation, afzender, map)
     }
 
     @Logboek(
@@ -171,7 +172,7 @@ class BerichtensessiecacheResource(
         name = "toevoegen-bericht",
         processingActivityId = "https://register.example.com/verwerkingen/bericht-toevoegen",
     )
-    override fun addBericht(
+    override fun createBericht(
         xOntvanger: String?,
         berichtInput: BerichtInput,
     ): BerichtResponse {
@@ -215,7 +216,7 @@ class BerichtensessiecacheResource(
         )
 
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.addBericht(bericht, ontvangerId)
+            berichtensessiecacheService.createBericht(bericht, ontvangerId)
         }
 
         logboekContext.status = StatusCode.OK
@@ -294,12 +295,15 @@ class BerichtensessiecacheResource(
     private fun BerichtenPage.toResponse(
         aggregation: AggregationStatus?,
         afzender: String? = null,
+        map: String? = null,
     ): BerichtensessiecacheResponse {
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        val filterParams = if (afzender != null) {
-            "&afzender=" + URLEncoder.encode(afzender, StandardCharsets.UTF_8)
-        } else {
-            ""
+        // afzender en map zijn beide optionele filters; combineer ze in de pagination-
+        // _links zodat doorbladeren de actieve filter behoudt.
+        val filterParams = buildString {
+            if (afzender != null) append("&afzender=").append(URLEncoder.encode(afzender, StandardCharsets.UTF_8))
+
+            if (map != null) append("&map=").append(URLEncoder.encode(map, StandardCharsets.UTF_8))
         }
 
         return BerichtensessiecacheResponse().apply {
@@ -317,16 +321,16 @@ class BerichtensessiecacheResource(
                 }
             }
             links = PaginationLinks().apply {
-                self = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page}&pageSize=${this@toResponse.pageSize}$filterParams") }
-                first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${this@toResponse.pageSize}$filterParams") }
+                self = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page}&pageSize=${this@toResponse.pageSize}$filterParams" }
+                first = Link().apply { href = "$basePath/berichten?page=0&pageSize=${this@toResponse.pageSize}$filterParams" }
                 if (this@toResponse.totalPages > 0) {
-                    last = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.totalPages - 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                    last = Link().apply { href = "$basePath/berichten?page=${this@toResponse.totalPages - 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
                 }
                 if (this@toResponse.page > 0) {
-                    prev = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page - 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                    prev = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page - 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
                 }
                 if (this@toResponse.page < this@toResponse.totalPages - 1) {
-                    next = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page + 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                    next = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page + 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
                 }
             }
         }
@@ -345,7 +349,7 @@ class BerichtensessiecacheResource(
             map = this@toApiSamenvatting.map
             status = this@toApiSamenvatting.status?.let { ApiBerichtStatus.fromValue(it.wire) }
             links = BerichtLinks().apply {
-                self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiSamenvatting.berichtId}") }
+                self = Link().apply { href = "$basePath/berichten/${this@toApiSamenvatting.berichtId}" }
             }
         }
     }
@@ -365,7 +369,7 @@ class BerichtensessiecacheResource(
             map = this@toResponse.map
             status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.wire) }
             links = BerichtLinks().apply {
-                self = Link().apply { href = URI.create("$basePath/berichten/${this@toResponse.berichtId}") }
+                self = Link().apply { href = "$basePath/berichten/${this@toResponse.berichtId}" }
             }
         }
     }

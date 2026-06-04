@@ -26,6 +26,10 @@
         <quarkus.platform.version>3.35.1</quarkus.platform.version>
         <openapi-generator.version>7.22.0</openapi-generator.version>
         <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
+        <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert
+             zelf, java-compile draait alleen op gegenereerde sources). Zonder beheerde versie
+             waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
+        <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
     </properties>
 
     <repositories>
@@ -61,6 +65,11 @@
                     <groupId>io.quarkus</groupId>
                     <artifactId>quarkus-maven-plugin</artifactId>
                     <version>${quarkus.platform.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${maven-compiler-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.jetbrains.kotlin</groupId>

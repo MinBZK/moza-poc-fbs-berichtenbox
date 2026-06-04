@@ -89,14 +89,23 @@
         </dependency>
         <dependency>
             <groupId>com.atlassian.oai</groupId>
-            <artifactId>swagger-request-validator-restassured</artifactId>
-            <version>2.46.1</version>
+            <artifactId>openapi-request-validator-restassured</artifactId>
+            <version>3.0.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock</artifactId>
             <version>3.13.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- openapi-request-validator-core 3.0.0 vereist json-schema-validator 2.0.1
+             (klasse com.networknt.schema.format.Format); WireMock trekt transitief 1.5.6
+             binnen en wint via nearest-wins. Pin 2.0.1 expliciet zodat de validator laadt. -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>2.0.1</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -13,6 +13,11 @@ info:
     name: EUPL-1.2
     url: https://eupl.eu/1.2/nl/
 
+# ADR nlgov:servers-use-https — bewust afgeweken (pas-toe-of-leg-uit): de API wordt
+# achter een TLS-terminerende gateway geserveerd, waardoor de externe https-host per
+# omgeving verschilt. Een absolute `https://host` hier hardcoden zou per omgeving fout
+# zijn; de relatieve base-path is omgeving-onafhankelijk. Een absolute https-server kan
+# bij publicatie per omgeving geïnjecteerd worden.
 servers:
   - url: https://berichtensessiecache.moza.example.nl/api/v1
     description: Productie (placeholder — overschrijven per omgeving)
@@ -30,7 +35,7 @@ tags:
 paths:
   /berichten:
     post:
-      operationId: addBericht
+      operationId: createBericht
       summary: Bericht toevoegen aan cache
       description: |
         Voegt een berichtrecord toe aan de sessiecache.
@@ -89,6 +94,11 @@ paths:
             pattern: '^[0-9]{20}$'
             minLength: 20
             maxLength: 20
+        - name: map
+          in: query
+          description: Filter op map (mapnaam waarin het bericht is ingedeeld)
+          schema:
+            type: string
       responses:
         '200':
           description: Lijst van berichten
@@ -254,6 +264,11 @@ paths:
             pattern: '^[0-9]{20}$'
             minLength: 20
             maxLength: 20
+        - name: map
+          in: query
+          description: Filter op map (mapnaam waarin het bericht is ingedeeld)
+          schema:
+            type: string
       responses:
         '200':
           description: Zoekresultaten
@@ -414,7 +429,7 @@ components:
       properties:
         href:
           type: string
-          format: uri
+          format: uri-reference
 
     BerichtensessiecacheResponse:
       type: object
@@ -725,7 +740,7 @@ components:
           type: string
         instance:
           type: string
-          format: uri
+          format: uri-reference
 
   responses:
     BadRequest:

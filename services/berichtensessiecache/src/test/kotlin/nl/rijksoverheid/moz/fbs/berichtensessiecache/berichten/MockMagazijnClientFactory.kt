@@ -20,6 +20,8 @@ import java.util.UUID
 class MockMagazijnClientFactory : MagazijnClientFactory(
     MockMagazijnenConfig(),
     profile = "test",
+    connectTimeoutMs = 2000L,
+    readTimeoutMs = 12000L,
 ) {
 
     companion object {
@@ -33,6 +35,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(
                 publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
                 magazijnId = "magazijn-a",
                 aantalBijlagen = 0,
+                map = "werk",
             ),
             Bericht(
                 berichtId = UUID.fromString("22222222-2222-2222-2222-222222222222"),
@@ -43,6 +46,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(
                 publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
                 magazijnId = "magazijn-a",
                 aantalBijlagen = 1,
+                map = "werk",
             ),
             Bericht(
                 berichtId = UUID.fromString("33333333-3333-3333-3333-333333333333"),
@@ -53,6 +57,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(
                 publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
                 magazijnId = "magazijn-a",
                 aantalBijlagen = 2,
+                map = "prive",
             ),
         )
 
@@ -66,6 +71,7 @@ class MockMagazijnClientFactory : MagazijnClientFactory(
                 publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
                 magazijnId = "magazijn-b",
                 aantalBijlagen = 0,
+                map = "werk",
             ),
         )
 
@@ -124,6 +130,9 @@ class MockMagazijnClientFactory : MagazijnClientFactory(
         inhoud = inhoud,
         publicatietijdstip = publicatietijdstip,
         aantalBijlagen = aantalBijlagen,
+        // Magazijn levert de map via het status-object; `toBericht` leest hem daar weer uit.
+        // Zonder dit zou de fixture-`map` verloren gaan in de MagazijnBericht→Bericht-roundtrip.
+        status = map?.let { MagazijnBericht.MagazijnBerichtStatus(map = it) },
     )
 }
 

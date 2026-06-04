@@ -151,7 +151,7 @@ class BerichtensessiecacheResourceTest {
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
-            .header("API-Version", `is`("v1"))
+            .header("API-Version", `is`("0.1.0"))
             .body("berichten.size()", `is`(2))
             .body("page", `is`(0))
             .body("pageSize", `is`(2))
@@ -428,6 +428,50 @@ class BerichtensessiecacheResourceTest {
             .statusCode(200)
             .body("berichten.size()", `is`(1))
             .body("berichten[0].magazijnId", `is`("magazijn-b"))
+    }
+
+    @Test
+    fun `GET berichten met map filter retourneert alleen berichten in die map`() {
+        // Mock-magazijnberichten hebben ontvanger 999993653; gebruik dezelfde zodat het
+        // @ontvanger-TAG-filter de geaggregeerde berichten vindt.
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        // Slechts één testbericht zit in map 'prive'; de overige in 'werk'.
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("map", "prive")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(1))
+            .body("berichten[0].map", `is`("prive"))
+    }
+
+    @Test
+    fun `GET zoeken met map filter retourneert alleen berichten in die map`() {
+        val ontvanger = "BSN:999993653"
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .queryParam("q", "Test")
+            .queryParam("map", "prive")
+            .header("X-Ontvanger", ontvanger)
+            .`when`().get("/api/v1/berichten/_zoeken")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", `is`(1))
+            .body("berichten[0].map", `is`("prive"))
     }
 
     @Test
