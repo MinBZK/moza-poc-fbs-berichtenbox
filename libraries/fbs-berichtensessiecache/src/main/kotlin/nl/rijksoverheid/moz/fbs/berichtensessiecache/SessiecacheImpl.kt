@@ -150,34 +150,46 @@ internal class SessiecacheImpl(
     private fun <T> awaitOrServiceUnavailable(block: () -> Uni<T>): T {
         try {
             return block().await().atMost(TIMEOUT)
-        } catch (e: java.util.concurrent.TimeoutException) {
-            // Cache-operatie hing langer dan TIMEOUT — log warn met cause zodat operations
-            // niet alleen het 503-pad ziet maar ook welke await het was. Silent discard
-            // verbergt prestatie-regressies in Redis.
-            log.warnf(e, "Cache-operatie overschreed timeout van %s; 503 naar caller", TIMEOUT)
-            throw WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
-        } catch (e: CacheContentieException) {
-            // Transiente schrijf-contentie: bron logt al op warn. Retriable 503
-            // i.p.v. de misleidende 404 die een null-resultaat zou opleveren.
-            throw WebApplicationException("Cache tijdelijk niet bij te werken. Probeer het later opnieuw", 503)
-        } catch (e: WebApplicationException) {
-            throw e
-        } catch (e: IllegalArgumentException) {
-            // Invoervalidatie (BerichtValidator, Leesstatus.fromWire): caller-fout,
-            // geen infrastructuurfout — laat de caller dit naar 400 vertalen.
-            throw e
-        } catch (e: com.fasterxml.jackson.core.JsonProcessingException) {
-            // Cache-deserialisatie-fout = data-integriteit-issue (verkeerde versie, corrupte hash),
-            // niet "Redis onbereikbaar". 500 zonder de verkeerde infrastructuur-diagnose te suggereren.
-            log.errorf(e, "Cache-data niet deserialiseerbaar (corruptie of schema-drift)")
-            throw WebApplicationException("Cache-data niet leesbaar.", 500)
-        } catch (e: CacheCorruptedException) {
-            // Hash-velden ontbreken of onleesbaar → eigen data-issue, niet bereikbaarheids-issue.
-            log.errorf(e, "Cache-hash corrupt")
-            throw WebApplicationException("Cache-data niet leesbaar.", 500)
+        } catch (e: java.util.concurrent.CompletionException) {
+            // Mutiny's blocking await wrapt checked failures (bv. Jackson's
+            // JsonProcessingException) in een CompletionException; classificeer op de
+            // cause, anders degradeert elk data-integriteit-issue tot een generieke 503.
+            throw vertaalCacheFout(e.cause ?: e)
         } catch (e: Exception) {
+            throw vertaalCacheFout(e)
+        }
+    }
+
+    private fun vertaalCacheFout(e: Throwable): Exception = when (e) {
+        // Cache-operatie hing langer dan TIMEOUT — log warn met cause zodat operations
+        // niet alleen het 503-pad ziet maar ook welke await het was. Silent discard
+        // verbergt prestatie-regressies in Redis.
+        is java.util.concurrent.TimeoutException -> {
+            log.warnf(e, "Cache-operatie overschreed timeout van %s; 503 naar caller", TIMEOUT)
+            WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
+        }
+        // Transiente schrijf-contentie: bron logt al op warn. Retriable 503
+        // i.p.v. de misleidende 404 die een null-resultaat zou opleveren.
+        is CacheContentieException ->
+            WebApplicationException("Cache tijdelijk niet bij te werken. Probeer het later opnieuw", 503)
+        is WebApplicationException -> e
+        // Invoervalidatie (BerichtValidator, Leesstatus.fromWire): caller-fout,
+        // geen infrastructuurfout — laat de caller dit naar 400 vertalen.
+        is IllegalArgumentException -> e
+        // Cache-deserialisatie-fout = data-integriteit-issue (verkeerde versie, corrupte hash),
+        // niet "Redis onbereikbaar". 500 zonder de verkeerde infrastructuur-diagnose te suggereren.
+        is com.fasterxml.jackson.core.JsonProcessingException -> {
+            log.errorf(e, "Cache-data niet deserialiseerbaar (corruptie of schema-drift)")
+            WebApplicationException("Cache-data niet leesbaar.", 500)
+        }
+        // Hash-velden ontbreken of onleesbaar → eigen data-issue, niet bereikbaarheids-issue.
+        is CacheCorruptedException -> {
+            log.errorf(e, "Cache-hash corrupt")
+            WebApplicationException("Cache-data niet leesbaar.", 500)
+        }
+        else -> {
             log.errorf(e, "Cache-operatie mislukt")
-            throw WebApplicationException("Cache niet bereikbaar.", 503)
+            WebApplicationException("Cache niet bereikbaar.", 503)
         }
     }
 

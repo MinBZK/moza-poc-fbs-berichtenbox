@@ -1,5 +1,5 @@
 ---
-Status: Concept
+Status: Uitgevoerd
 Issue: MinBZK/MijnOverheidZakelijk#607
 ---
 
@@ -61,9 +61,11 @@ zijn eigen HAL-links uit `BerichtenPagina`).
    pod-crash midden in aggregatie een ontvanger tot 12u blokkeert.
 3. **Library-module** `libraries/fbs-berichtensessiecache`: POM (jandex + quarkus.index-dependency
    in de consumer), Redis/RediSearch/Profiel-client deps. Geen OpenAPI-generator (geen eigen API).
-4. **Core verplaatsen** naar de library, package `nl.rijksoverheid.moz.fbs.sessiecache.*`. Alles
-   behalve de facade + domein-types `internal`. JAX-RS-resources + API-version-provider + OpenAPI-
-   spec **niet** mee (vervallen).
+4. **Core verplaatsen** naar de library. Alles behalve de facade + domein-types `internal`.
+   JAX-RS-resources + API-version-provider + OpenAPI-spec **niet** mee (vervallen).
+   *Afwijking bij uitvoering:* het package blijft `nl.rijksoverheid.moz.fbs.berichtensessiecache.*`
+   (conventie `fbs.<module-naam>`, consistent met `fbs-common` → `fbs.common`) i.p.v. het in dit
+   plan genoemde `fbs.sessiecache.*` — kleinere diff, geen extra namespace.
 5. **`berichtenuitvraag` herbedraden**: `Sessiecache`-facade injecteren; `SessiecacheClient`,
    `SessiecacheSseClient`, `SsePassthroughResource` verwijderen; `BerichtenlijstService`,
    `BerichtOphaalService`, `BerichtBeheerService`, `UitvraagDtoMapper` mappen domein → uitvraag-api;
@@ -94,3 +96,18 @@ zijn eigen HAL-links uit `BerichtenPagina`).
 ## Out of scope (apart)
 
 - Dedupliceren van de twee magazijn-clients (sessiecache-aggregatie vs uitvraag-bijlage/status).
+
+## Uitvoeringsnotities
+
+- Facade-foutsemantiek spiegelt het vroegere REST-contract (409/500/503 als
+  `WebApplicationException`), zodat `mapUpstreamFout` bij de consumer ongewijzigd
+  bleef; `BerichtenPage` is hernoemd naar `BerichtenPagina` (publiek domein-type).
+- `_ophalen` kan in-process wél 409/503 vóór de stream geven (de vroegere
+  passthrough had de 200 al gecommit); de uitvraag-spec documenteert die nu.
+- Staatloosheid-guard: reflectie-test (`StaatloosheidGuardTest`) op
+  `SessiecacheImpl`/`BerichtensessiecacheService`/`RedisBerichtenCache` — geen
+  `var`/atomics/concurrent-collections; Caffeine-cache in de resolver is bewust
+  buiten scope (per-pod load-absorptie, geen sessiestaat).
+- Testlagen: unit + Redis/WireMock-integratie in de library; uitvraag-suite draait
+  op een `MockSessiecache`-alternative; volledige keten (echte Redis via Dev
+  Services) in `UitvraagKetenE2eTest`.
