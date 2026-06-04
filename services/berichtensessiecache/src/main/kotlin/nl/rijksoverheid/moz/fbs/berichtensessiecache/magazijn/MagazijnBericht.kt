@@ -11,9 +11,10 @@ import java.util.UUID
 /**
  * Vorm van een bericht zoals het magazijn het levert: `ontvanger` is een
  * getypeerd object (`{type, waarde}`). De cache-[Bericht] gebruikt een plain
- * string als ontvanger — [toBericht] formatteert het object als
- * `"TYPE:waarde"` (consistent met de `X-Ontvanger`-header), zodat reads via
- * de header dezelfde sleutel raken als writes via een magazijn-call.
+ * string als ontvanger — [toBericht] vlakt het object af tot de raw `waarde`
+ * (zonder type-prefix). Type-scoping zit in de cache-key zelf: die hasht de
+ * canonical `"TYPE:waarde"`-vorm, dus berichten van verschillende typen met
+ * dezelfde cijferreeks kunnen nooit dezelfde sessie raken.
  *
  * Bestaat naast cache-[Bericht] zodat Jackson-deserialisatie matcht met de
  * magazijn-spec zonder dat het cache-domein de getypeerde vorm hoeft te
