@@ -219,4 +219,31 @@ class ProblemExceptionMapperTest {
             "throwable moet in LogRecord.thrown — anders is stack-trace verloren in pipelines die op `thrown` filteren",
         )
     }
+
+    @Test
+    fun `4xx-instance is identiek aan errorId in de logregel (support-correlatie)`() {
+        // Borgt dat de `urn:uuid:<id>` die de client als Problem.instance terugkrijgt
+        // exact dezelfde correlatie-id is als die in de server-logregel staat. Een
+        // refactor die voor log en response losse UUID's genereert breekt support-
+        // tracering en wordt door deze test gevangen.
+        val response = mapper.toResponse(BadRequestException("ongeldig"))
+
+        val problem = response.entity as Problem
+        val rec = records.first { it.level == Level.INFO }
+        // `infov` levert positionele params: {1} is de errorId.
+        val errorIdUitLog = rec.parameters!![1].toString()
+        assertEquals("urn:uuid:$errorIdUitLog", problem.instance!!.toString())
+    }
+
+    @Test
+    fun `5xx-instance is identiek aan errorId in log en detail (support-correlatie)`() {
+        val response = mapper.toResponse(InternalServerErrorException("interne fout"))
+
+        val problem = response.entity as Problem
+        val rec = records.first { it.level == Level.SEVERE }
+        val errorIdUitLog = Regex("errorId=([0-9a-f-]+)").find(rec.message)!!.groupValues[1]
+        // Bij 5xx is het detail bewust gemaskeerd; de correlatie loopt via `instance`
+        // (urn:uuid) en dezelfde errorId in de serverlog.
+        assertEquals("urn:uuid:$errorIdUitLog", problem.instance!!.toString())
+    }
 }
