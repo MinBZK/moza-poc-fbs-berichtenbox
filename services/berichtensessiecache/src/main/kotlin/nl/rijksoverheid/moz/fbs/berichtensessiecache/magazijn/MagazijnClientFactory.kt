@@ -8,11 +8,22 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 @ApplicationScoped
 class MagazijnClientFactory(
     private val config: MagazijnenConfig,
     @param:ConfigProperty(name = "quarkus.profile") private val profile: String,
+    // Connect/read-timeout op de magazijn-client: zonder read-timeout blokkeert een hangend
+    // magazijn de socket onbegrensd (de Mutiny `ifNoItem` faalt de Uni maar interrupt de
+    // geblokkeerde call niet). De invariant read-timeout > query-timeout wordt afgedwongen in
+    // BerichtensessiecacheService.valideerTimeouts(); rationale + tuning in application.properties.
+    // Eigen prefix (niet `magazijnen.`): SmallRye weigert losse properties onder een
+    // @ConfigMapping-prefix (SRCFG00050).
+    @param:ConfigProperty(name = "magazijn-client.connect-timeout-ms", defaultValue = "2000")
+    private val connectTimeoutMs: Long,
+    @param:ConfigProperty(name = READ_TIMEOUT_MS_PROPERTY, defaultValue = READ_TIMEOUT_MS_DEFAULT)
+    private val readTimeoutMs: Long,
 ) {
     private val log = Logger.getLogger(MagazijnClientFactory::class.java)
     private lateinit var cachedClients: Map<String, MagazijnClient>
@@ -106,6 +117,16 @@ class MagazijnClientFactory(
     protected open fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient {
         return QuarkusRestClientBuilder.newBuilder()
             .baseUri(URI.create(instance.url()))
+            .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
+            .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
             .build(MagazijnClient::class.java)
+    }
+
+    companion object {
+        // Gedeeld met BerichtensessiecacheService.valideerTimeouts(), dat read > query
+        // kruisvalideert. Eén bron voor sleutel + default zodat de gevalideerde waarde niet
+        // kan afwijken van de waarde die deze factory daadwerkelijk op de socket toepast.
+        const val READ_TIMEOUT_MS_PROPERTY = "magazijn-client.read-timeout-ms"
+        const val READ_TIMEOUT_MS_DEFAULT = "12000"
     }
 }
