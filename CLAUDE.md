@@ -226,4 +226,5 @@ Bij code reviews classificeren we bevindingen op ernst (Hoog/Medium/Laag) met ee
 ## Tooling
 
 - **ADR-spec-linting:** `npx @stoplight/spectral-cli lint <spec.yaml> --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml` valideert tegen Forum-Standaardisatie API Design Rules.
+- **Coverage op PR:** `madrapps/jacoco-report` (GitHub-native, SHA-pinned in `test.yml`) plaatst de JaCoCo-coverage-diff als PR-comment uit de bestaande `jacoco.xml`-rapporten. Bewust géén Codecov (externe SaaS + upload-token + supply-chain-oppervlak). De harde 90%-gate blijft de JaCoCo `check` in de build; de comment is informatief.
 - **CI-status volgen:** `gh pr checks <PR#>` en `gh run watch <run-id> --exit-status`. Bij falen: `gh run view <id> --log-failed`.
