@@ -30,7 +30,7 @@ tags:
 paths:
   /berichten:
     post:
-      operationId: addBericht
+      operationId: createBericht
       summary: Bericht toevoegen aan cache
       description: |
         Voegt een berichtrecord toe aan de sessiecache.

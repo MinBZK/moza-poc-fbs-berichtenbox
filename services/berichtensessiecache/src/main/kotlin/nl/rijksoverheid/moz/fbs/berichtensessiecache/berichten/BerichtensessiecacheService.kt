@@ -155,11 +155,11 @@ class BerichtensessiecacheService(
         return berichtenCache.updateBerichtMetadata(berichtId, ontvanger, status, map)
     }
 
-    fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Bericht> {
+    fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Bericht> {
         log.debugf("Toevoegen bericht aan cache: berichtId=%s", bericht.berichtId)
         val gevalideerd = berichtValidator.valideer(bericht)
 
-        return berichtenCache.addBericht(gevalideerd, ontvanger).replaceWith(gevalideerd)
+        return berichtenCache.createBericht(gevalideerd, ontvanger).replaceWith(gevalideerd)
     }
 
     fun verwijderBericht(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {

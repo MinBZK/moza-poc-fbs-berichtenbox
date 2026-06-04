@@ -253,7 +253,7 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `delete bestaand bericht verwijdert ook list-entry`() {
-        // Regressie: list-cache bevat JSON-blobs van berichten (via addBericht.rpush /
+        // Regressie: list-cache bevat JSON-blobs van berichten (via createBericht.rpush /
         // store.rpush). `getPage` deserialiseert direct uit die list — zonder list-prune
         // bleef een verwijderd bericht zichtbaar in `GET /berichten`.
         val berichten = testBerichten()
@@ -287,9 +287,9 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `delete behoudt een concurrent toegevoegd bericht (geen lost-update)`() {
-        // Kernbelofte van het optimistic-locking-delete: een addBericht dat gelijktijdig
+        // Kernbelofte van het optimistic-locking-delete: een createBericht dat gelijktijdig
         // met de delete-rewrite plaatsvindt mag niet door de rewrite worden overschreven.
-        // addBericht doet een ongewatchte MULTI/EXEC (altijd toegepast); delete WATCHt de
+        // createBericht doet een ongewatchte MULTI/EXEC (altijd toegepast); delete WATCHt de
         // list-key en retryt bij conflict. Het concurrent toegevoegde bericht hoort dus
         // hoe dan ook te overleven, en het doelbericht hoort verwijderd te zijn.
         val berichten = testBerichten().take(2)
@@ -309,7 +309,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         // Gelijktijdig afvuren zonder onderlinge ordening.
         val deleteStage = berichtenCache.delete(teVerwijderen.berichtId, ontvanger).subscribeAsCompletionStage()
-        val addStage = berichtenCache.addBericht(nieuw, ontvanger).subscribeAsCompletionStage()
+        val addStage = berichtenCache.createBericht(nieuw, ontvanger).subscribeAsCompletionStage()
         CompletableFuture.allOf(deleteStage.toCompletableFuture(), addStage.toCompletableFuture()).join()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
@@ -381,7 +381,7 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `addBericht voegt toe aan bestaande lijst`() {
+    fun `createBericht voegt toe aan bestaande lijst`() {
         val berichten = testBerichten().take(2)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
@@ -395,12 +395,12 @@ class RedisBerichtenCacheIntegrationTest {
             magazijnId = "magazijn-c",
             aantalBijlagen = 3,
         )
-        berichtenCache.addBericht(nieuwBericht, ontvanger).await().indefinitely()
+        berichtenCache.createBericht(nieuwBericht, ontvanger).await().indefinitely()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
         assertNotNull(page)
         assertEquals(3, page!!.totalElements)
-        // `addBericht` doet RPUSH (append) — de LRANGE-volgorde geeft nieuwkomers achteraan.
+        // `createBericht` doet RPUSH (append) — de LRANGE-volgorde geeft nieuwkomers achteraan.
         // Positie-check: nieuwBericht zit op index 2 (na de 2 eerder gestoorde berichten).
         val indices = page.berichten.mapIndexed { i, b -> b.berichtId to i }.toMap()
         assertTrue(indices.containsKey(nieuwBericht.berichtId), "nieuwBericht niet in pagina: ${page.berichten.map { it.berichtId }}")

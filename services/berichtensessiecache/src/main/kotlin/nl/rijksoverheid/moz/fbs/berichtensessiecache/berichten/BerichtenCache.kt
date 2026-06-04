@@ -39,13 +39,13 @@ interface BerichtenCache {
     fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String? = null): Uni<BerichtenPage>
     fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?>
     fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?>
-    fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
+    fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
     fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void>
 
     companion object {
         // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
         // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
-        // request meerdere keren aangeroepen (getBerichten, getById, addBericht, etc.).
+        // request meerdere keren aangeroepen (getBerichten, getById, createBericht, etc.).
         private val SHA256_DIGEST: ThreadLocal<MessageDigest> = ThreadLocal.withInitial {
             MessageDigest.getInstance("SHA-256")
         }
@@ -520,7 +520,7 @@ class RedisBerichtenCache(
         // direct deserialiseert — een HSET-alleen update laat die list stale (oude status/map
         // zichtbaar in `GET /berichten` tot TTL). We schrijven daarom óók de matchende list-entry
         // terug, onder hetzelfde optimistic locking als `delete` (WATCH op list- en bericht-key):
-        // een concurrente `addBericht`/`delete` tussen read en EXEC breekt de transactie af zodat
+        // een concurrente `createBericht`/`delete` tussen read en EXEC breekt de transactie af zodat
         // we geen lost-update veroorzaken. Bij afbreken herhalen we tot een klein plafond; daarna
         // laten we de cache met rust en levert de operatie een retriable 503 op zodat de client
         // opnieuw kan proberen.
@@ -644,7 +644,7 @@ class RedisBerichtenCache(
             }
     }
 
-    override fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
+    override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
@@ -663,17 +663,17 @@ class RedisBerichtenCache(
                 .replaceWithVoid()
         }.replaceWithVoid()
             .invoke { _ -> log.debugf("Bericht %s toegevoegd aan cache", bericht.berichtId) }
-            .onFailure().invoke { e -> log.errorf(e, "Redis addBericht mislukt voor berichtId=%s", bericht.berichtId) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis createBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }
 
     override fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
         // Idempotent cache-invalidate. De sessie-`list` bevat JSON-blobs (gevuld via
-        // `addBericht.rpush`) die `getPage` direct deserialiseert — dus na DEL op de hash
+        // `createBericht.rpush`) die `getPage` direct deserialiseert — dus na DEL op de hash
         // blijft het bericht zonder list-prune zichtbaar in `GET /berichten`.
         //
         // Aanpak: HGETALL (eigenaar-check) → LRANGE + parse om de matchende blob(s) op
         // `berichtId` te vinden → LREM met die exact-value(s) → DEL hash. LREM is per-call
-        // Redis-atomair en raakt alleen exact-matchende entries: een concurrent `addBericht`
+        // Redis-atomair en raakt alleen exact-matchende entries: een concurrent `createBericht`
         // tussen onze LRANGE en LREM voegt een blob met andere inhoud toe (andere berichtId
         // ⇒ andere JSON) en blijft dus behouden zonder WATCH/retry-loop. Bij eerdere TTL
         // van 60s was een WATCH+retry-aanpak met "self-healing via TTL" als noodverbetering
