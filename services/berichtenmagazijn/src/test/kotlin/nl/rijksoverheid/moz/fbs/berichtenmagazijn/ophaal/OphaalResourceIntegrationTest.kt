@@ -53,7 +53,7 @@ class OphaalResourceIntegrationTest {
             onderwerp = onderwerp,
             inhoud = "Inhoud van $onderwerp",
             tijdstipOntvangst = Instant.now(),
-            publicatiedatum = Instant.now(),
+            publicatietijdstip = Instant.now(),
         )
         berichtRepository.save(b)
         return b
@@ -89,9 +89,12 @@ class OphaalResourceIntegrationTest {
             .body("totalElements", `is`(2))
             .body("berichten", hasSize<Any>(2))
             .body("berichten[0].onderwerp", notNullValue())
-            // BerichtSamenvatting bevat GEEN inhoud-veld; alleen aantalBijlagen.
-            .body("berichten[0].inhoud", nullValue())
+            // BerichtSamenvatting bevat nu de tekstuele inhoud en een lichte
+            // bijlagen-lijst (bijlageId + naam), zodat de sessiecache na één
+            // lijst-call een complete cache-state kan opbouwen.
+            .body("berichten[0].inhoud", containsString("Inhoud van"))
             .body("berichten[0].aantalBijlagen", `is`(0))
+            .body("berichten[0].bijlagen", hasSize<Any>(0))
             .body("berichten[0]._links.self.href", containsString("/api/v1/berichten/"))
             .body("_links.self.href", containsString("/api/v1/berichten"))
     }
@@ -123,6 +126,13 @@ class OphaalResourceIntegrationTest {
             .body("berichten.find { it.berichtId == '${zonder.berichtId}' }.aantalBijlagen", `is`(0))
             .body("berichten.find { it.berichtId == '${een.berichtId}' }.aantalBijlagen", `is`(1))
             .body("berichten.find { it.berichtId == '${twee.berichtId}' }.aantalBijlagen", `is`(2))
+            // Lichte bijlagen[] wordt nu in de samenvatting meegegeven; aantal moet
+            // overeenkomen en elke entry heeft minstens bijlageId + naam.
+            .body("berichten.find { it.berichtId == '${zonder.berichtId}' }.bijlagen", hasSize<Any>(0))
+            .body("berichten.find { it.berichtId == '${een.berichtId}' }.bijlagen", hasSize<Any>(1))
+            .body("berichten.find { it.berichtId == '${twee.berichtId}' }.bijlagen", hasSize<Any>(2))
+            .body("berichten.find { it.berichtId == '${een.berichtId}' }.bijlagen[0].naam", `is`("test.pdf"))
+            .body("berichten.find { it.berichtId == '${een.berichtId}' }.bijlagen[0].bijlageId", notNullValue())
     }
 
     @Transactional

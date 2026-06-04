@@ -36,7 +36,7 @@ class BerichtEdgeCaseTest {
             onderwerp = onderwerp,
             inhoud = inhoud,
             tijdstipOntvangst = nu,
-            publicatiedatum = nu,
+            publicatietijdstip = nu,
         )
     }
 

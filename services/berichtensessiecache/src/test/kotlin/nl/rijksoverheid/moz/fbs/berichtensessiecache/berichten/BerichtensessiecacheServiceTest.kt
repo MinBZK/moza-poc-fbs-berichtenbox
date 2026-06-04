@@ -31,12 +31,18 @@ class BerichtensessiecacheServiceTest {
 
     private val berichtenCache = mockk<BerichtenCache>()
     private val clientFactory = mockk<MagazijnClientFactory>()
+    private val limieten = object : BerichtLimieten {
+        override fun maxBijlagen() = 100
+        override fun maxBijlageNaamLengte() = 255
+    }
+    private val validator = BerichtValidator(limieten)
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
     // Korte timeouts in unit-tests: outer (3s) > inner (2s) zodat de cross-check
     // groen blijft maar tests niet wachten op het volledige prod-budget.
     private val service = BerichtensessiecacheService(
         berichtenCache,
         clientFactory,
+        validator,
         resolver,
         innerTimeoutSeconds = 2L,
         outerAwaitSeconds = 3L,
@@ -71,7 +77,7 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `getBerichten retourneert cache-resultaat wanneer aanwezig`() {
         val bericht = testBericht()
-        val expectedPage = BerichtenPage(listOf(bericht), 0, 20, 1L, 1)
+        val expectedPage = BerichtenPage(listOf(bericht.toSamenvatting()), 0, 20, 1L, 1)
         every { berichtenCache.getPage(cacheKey, 0, 20, null, ontvanger) } returns Uni.createFrom().item(expectedPage)
 
         val result = service.getBerichten(0, 20, ontvanger, null).await().indefinitely()
@@ -154,7 +160,7 @@ class BerichtensessiecacheServiceTest {
     fun `valideerTimeouts werpt IllegalArgumentException als outer gelijk is aan inner`() {
         // Outer == inner = race → niet-deterministische fout-classificatie. Fail-fast in startup.
         val mis = BerichtensessiecacheService(
-            berichtenCache, clientFactory, resolver,
+            berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 2L,
         )
 
@@ -167,7 +173,7 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `valideerTimeouts werpt IllegalArgumentException als outer kleiner is dan inner`() {
         val mis = BerichtensessiecacheService(
-            berichtenCache, clientFactory, resolver,
+            berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 5L, outerAwaitSeconds = 2L,
         )
 
@@ -242,15 +248,40 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `updateBerichtStatus delegeert naar cache`() {
+    fun `updateBerichtMetadata delegeert status-update naar cache`() {
         val bericht = testBericht()
-        val updated = bericht.copy(status = "GELEZEN")
-        every { berichtenCache.updateStatus(bericht.berichtId, ontvanger, "GELEZEN") } returns Uni.createFrom().item(updated)
+        val updated = bericht.copy(status = Leesstatus.GELEZEN)
+        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
 
-        val result = service.updateBerichtStatus(bericht.berichtId, ontvanger, "GELEZEN").await().indefinitely()
+        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, "GELEZEN", null).await().indefinitely()
 
         assertNotNull(result)
-        assertEquals("GELEZEN", result!!.status)
+        assertEquals(Leesstatus.GELEZEN, result!!.status)
+    }
+
+    @Test
+    fun `updateBerichtMetadata delegeert map-update naar cache`() {
+        val bericht = testBericht()
+        val updated = bericht.copy(map = "archief")
+        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, null, "archief") } returns Uni.createFrom().item(updated)
+
+        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, null, "archief").await().indefinitely()
+
+        assertNotNull(result)
+        assertEquals("archief", result!!.map)
+    }
+
+    @Test
+    fun `updateBerichtMetadata delegeert gecombineerde update naar cache`() {
+        val bericht = testBericht()
+        val updated = bericht.copy(status = Leesstatus.GELEZEN, map = "archief")
+        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
+
+        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
+
+        assertNotNull(result)
+        assertEquals(Leesstatus.GELEZEN, result!!.status)
+        assertEquals("archief", result.map)
     }
 
     @Test
@@ -382,7 +413,9 @@ class BerichtensessiecacheServiceTest {
         afzender = "00000001234567890000",
         ontvanger = ontvanger.waarde,
         onderwerp = "Test bericht",
-        tijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+        inhoud = "Inhoud van het bericht",
+        publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
+        aantalBijlagen = 0,
     )
 }

@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class BerichtensessiecacheService(
     private val berichtenCache: BerichtenCache,
     private val clientFactory: MagazijnClientFactory,
+    private val berichtValidator: BerichtValidator,
     private val resolver: MagazijnResolver,
     @param:ConfigProperty(name = "profiel.resolver.inner-timeout-seconds", defaultValue = "18")
     private val innerTimeoutSeconds: Long,
@@ -72,16 +73,23 @@ class BerichtensessiecacheService(
         return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
     }
 
-    fun updateBerichtStatus(berichtId: UUID, ontvanger: Identificatienummer, status: String): Uni<Bericht?> {
-        log.debugf("Bijwerken berichtstatus: berichtId=%s, status=%s", berichtId, status)
+    fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
+        log.debugf("Bijwerken bericht: berichtId=%s, status=%s, map=%s", berichtId, status, map)
 
-        return berichtenCache.updateStatus(berichtId, ontvanger, status)
+        return berichtenCache.updateBerichtMetadata(berichtId, ontvanger, status, map)
     }
 
     fun addBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Bericht> {
         log.debugf("Toevoegen bericht aan cache: berichtId=%s", bericht.berichtId)
+        val gevalideerd = berichtValidator.valideer(bericht)
 
-        return berichtenCache.addBericht(bericht, ontvanger).replaceWith(bericht)
+        return berichtenCache.addBericht(gevalideerd, ontvanger).replaceWith(gevalideerd)
+    }
+
+    fun verwijderBericht(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
+        log.debugf("Verwijderen bericht uit cache: berichtId=%s", berichtId)
+
+        return berichtenCache.delete(berichtId, ontvanger)
     }
 
     /**
@@ -93,24 +101,12 @@ class BerichtensessiecacheService(
     fun haalBerichtenOp(ontvanger: Identificatienummer): Multi<MagazijnEvent> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
-        val bezigStatus = AggregationStatus(
-            status = OphalenStatus.BEZIG,
-            totaalMagazijnen = 0,
-        )
-
-        // Atomaire lock (SET NX EX): voorkom concurrent ophalen voor dezelfde ontvanger.
-        // Blokkerende await() is hier bewust: het aanroepende endpoint is @Blocking en de
-        // lock-check moet synchroon af zijn voordat de Multi-stream start, anders is de
-        // 409-response niet meer mogelijk.
-        val wasSet = berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
-            .await().atMost(Duration.ofSeconds(5))
-
-        if (!wasSet) {
-            throw WebApplicationException(
-                "Berichten worden momenteel al opgehaald voor deze ontvanger. Wacht tot het ophalen is afgerond.",
-                409,
-            )
-        }
+        // BEZIG-lock zetten vóór de resolver-call. Bij collision (al een lopende ophaal-flow
+        // voor deze ontvanger) gooien we synchroon 409 vóór de Multi-stream start — anders is
+        // een 409 niet meer mogelijk omdat de response al committed is.
+        // totaalMagazijnen=0 in BEZIG-status: de resolver bepaalt het echte aantal pas hierna;
+        // het OPHALEN_GEREED-event reports het correcte totaal.
+        setBezigStatusOfFaalMet409(cacheKey)
 
         // Resolver bepaalt welke magazijnen relevant zijn. Profiel-fout = fail-closed:
         // lock vrijgeven; geen "alle magazijnen"-fallback (een Profiel-fout is geen
@@ -163,20 +159,36 @@ class BerichtensessiecacheService(
             return legeResultaten(cacheKey)
         }
 
-        val ontvangerString = ontvanger.toCanonicalString()
-        val alleBerichten = ConcurrentLinkedQueue<Bericht>()
-        val geslaagd = AtomicInteger(0)
-        val mislukt = AtomicInteger(0)
+        val acc = OphaalAccumulator(clients.size)
+        val perMagazijnStreams = clients.map { (id, client) -> magazijnStream(id, client, ontvanger, acc) }
+        val voltooiing = voltooiingsPipeline(cacheKey, acc).toMulti()
 
-        val magazijnStreams = clients.map { (magazijnId, client) ->
-            bouwMagazijnStream(magazijnId, client, ontvangerString, alleBerichten, geslaagd, mislukt)
-        }
-
-        // Aggregatie-pipeline draait onafhankelijk van de SSE-client door tot voltooiing.
         return Multi.createBy().concatenating().streams(
-            Multi.createBy().merging().streams(magazijnStreams),
-            aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, geslaagd, mislukt),
+            Multi.createBy().merging().streams(perMagazijnStreams),
+            voltooiing,
         )
+    }
+
+    /**
+     * Zet via SETNX de BEZIG-status; bij collision (al een lopende ophaal-flow voor deze
+     * ontvanger) gooien we synchroon 409 vóór de Multi-stream start.
+     */
+    private fun setBezigStatusOfFaalMet409(cacheKey: String) {
+        val bezigStatus = AggregationStatus(
+            status = OphalenStatus.BEZIG,
+            totaalMagazijnen = 0,
+        )
+
+        // Blokkerende await() is hier bewust: het aanroepende endpoint is @Blocking.
+        val wasSet = berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
+            .await().atMost(Duration.ofSeconds(5))
+
+        if (!wasSet) {
+            throw WebApplicationException(
+                "Berichten worden momenteel al opgehaald voor deze ontvanger. Wacht tot het ophalen is afgerond.",
+                409,
+            )
+        }
     }
 
     /**
@@ -198,19 +210,31 @@ class BerichtensessiecacheService(
             .toMulti()
 
     /**
-     * Bouwt de event-stream voor één magazijn: een GESTART-event gevolgd door het
-     * VOLTOOID-event (OK/TIMEOUT/FOUT). Geslaagde berichten worden in [alleBerichten]
-     * verzameld; [geslaagd]/[mislukt] tellen de uitkomst voor de eind-aggregatie.
+     * Best-effort lock-release na een fout vóór de SSE-stream start: schrijft FOUT-status
+     * (`storeAggregationStatus` doet intern `del(lockKey)`). Cleanup-failure wordt geslikt
+     * — de lock leunt dan op de Redis-TTL.
      */
-    private fun bouwMagazijnStream(
+    private fun releaseLockNaFout(cacheKey: String) {
+        try {
+            berichtenCache.storeAggregationStatus(cacheKey, AggregationStatus(status = OphalenStatus.FOUT))
+                .await().atMost(Duration.ofSeconds(5))
+        } catch (cleanupEx: Exception) {
+            log.errorf(cleanupEx, "Lock-cleanup na fout mislukt voor key=%s — lock leunt op TTL", cacheKey)
+        }
+    }
+
+    /**
+     * Levert per magazijn een Multi met een GESTART-event gevolgd door een VOLTOOID-event.
+     * Resultaten landen in [acc] zodat de [voltooiingsPipeline] ze in de cache kan opslaan.
+     */
+    private fun magazijnStream(
         magazijnId: String,
         client: MagazijnClient,
-        ontvangerString: String,
-        alleBerichten: ConcurrentLinkedQueue<Bericht>,
-        geslaagd: AtomicInteger,
-        mislukt: AtomicInteger,
+        ontvanger: Identificatienummer,
+        acc: OphaalAccumulator,
     ): Multi<MagazijnEvent> {
         val naam = clientFactory.getNaam(magazijnId)
+        val ontvangerString = ontvanger.toCanonicalString()
 
         val gestartEvent = MagazijnEvent(
             event = EventType.MAGAZIJN_BEVRAGING_GESTART,
@@ -223,7 +247,12 @@ class BerichtensessiecacheService(
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
             .ifNoItem().after(Duration.ofSeconds(10)).fail()
             .map<MagazijnResult> { response ->
-                MagazijnResult.Success(magazijnId, naam, response.berichten)
+                // Filter defensieve grenzen (BerichtLimieten) op binnenkomende magazijn-data.
+                // Eén invalid bericht mag de batch niet killen — drop het stuk en log warn.
+                val berichten = response.berichten
+                    .map { it.toBericht(magazijnId) }
+                    .mapNotNull { berichtValidator.valideerOrLogAndDrop(it) }
+                MagazijnResult.Success(magazijnId, naam, berichten)
             }
             .onFailure(Exception::class.java).recoverWithItem { error ->
                 when (error) {
@@ -235,15 +264,14 @@ class BerichtensessiecacheService(
                     else ->
                         log.errorf(error, "Onverwachte fout bij magazijn %s (%s)", magazijnId, naam)
                 }
-
                 MagazijnResult.Failure(magazijnId, naam, error)
             }
 
         val resultStream = resultUni.toMulti().map { result ->
             when (result) {
                 is MagazijnResult.Success -> {
-                    alleBerichten.addAll(result.berichten)
-                    geslaagd.incrementAndGet()
+                    acc.berichten.addAll(result.berichten)
+                    acc.geslaagd.incrementAndGet()
                     MagazijnEvent(
                         event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
                         magazijnId = magazijnId,
@@ -253,7 +281,7 @@ class BerichtensessiecacheService(
                     )
                 }
                 is MagazijnResult.Failure -> {
-                    mislukt.incrementAndGet()
+                    acc.mislukt.incrementAndGet()
                     val isTimeout = result.error is io.smallrye.mutiny.TimeoutException
                     MagazijnEvent(
                         event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
@@ -273,27 +301,28 @@ class BerichtensessiecacheService(
     }
 
     /**
-     * Slaat de verzamelde berichten + GEREED-status op en emit het afsluitende
-     * OPHALEN_GEREED-event. Bij een cache-fout een OPHALEN_FOUT-event i.p.v. een
-     * mid-stream HTTP-500 (de SSE-stream loopt dan al).
+     * Schrijft de geaccumuleerde berichten naar de cache en zet de aggregatie-status op GEREED
+     * (ook bij partial failure — FOUT zou de geslaagde berichten verbergen). Bij een cache-fout
+     * landen we op OPHALEN_FOUT met best-effort FOUT-status-write zodat de volgende request
+     * niet onterecht op GEREED-state vertrouwt.
      */
-    private fun aggregeerEnSlaOp(
-        cacheKey: String,
-        totaalMagazijnen: Int,
-        alleBerichten: ConcurrentLinkedQueue<Bericht>,
-        geslaagd: AtomicInteger,
-        mislukt: AtomicInteger,
-    ): Multi<MagazijnEvent> =
-        Uni.createFrom().voidItem()
+    private fun voltooiingsPipeline(cacheKey: String, acc: OphaalAccumulator): Uni<MagazijnEvent> {
+        return Uni.createFrom().voidItem()
             .chain { _ ->
-                val berichten = alleBerichten.toList()
+                val berichten = acc.berichten.toList()
                 berichtenCache.store(cacheKey, berichten)
                     .chain { _ ->
+                        // GEREED = "aggregatie voltooid", NIET "alle magazijnen geslaagd".
+                        // Het partial-failure-signaal reist mee via de SSE-events
+                        // (per-magazijn FOUT/TIMEOUT + het OPHALEN_GEREED-event met
+                        // geslaagd/mislukt). De latere GET /berichten is daarmee
+                        // best-effort: status FOUT is voorbehouden aan een totale
+                        // mislukking (zie OphalenStatus.FOUT in requireGereedStatus).
                         val status = AggregationStatus(
                             status = OphalenStatus.GEREED,
-                            totaalMagazijnen = totaalMagazijnen,
-                            geslaagd = geslaagd.get(),
-                            mislukt = mislukt.get(),
+                            totaalMagazijnen = acc.totaalMagazijnen,
+                            geslaagd = acc.geslaagd.get(),
+                            mislukt = acc.mislukt.get(),
                         )
 
                         berichtenCache.storeAggregationStatus(cacheKey, status)
@@ -301,10 +330,10 @@ class BerichtensessiecacheService(
                     .map { _ ->
                         MagazijnEvent(
                             event = EventType.OPHALEN_GEREED,
-                            totaalBerichten = alleBerichten.size,
-                            geslaagd = geslaagd.get(),
-                            mislukt = mislukt.get(),
-                            totaalMagazijnen = totaalMagazijnen,
+                            totaalBerichten = acc.berichten.size,
+                            geslaagd = acc.geslaagd.get(),
+                            mislukt = acc.mislukt.get(),
+                            totaalMagazijnen = acc.totaalMagazijnen,
                         )
                     }
             }
@@ -312,9 +341,9 @@ class BerichtensessiecacheService(
                 log.errorf(error, "Fout bij opslaan in cache na aggregatie (key=%s)", cacheKey)
                 val foutStatus = AggregationStatus(
                     status = OphalenStatus.FOUT,
-                    totaalMagazijnen = totaalMagazijnen,
-                    geslaagd = geslaagd.get(),
-                    mislukt = mislukt.get(),
+                    totaalMagazijnen = acc.totaalMagazijnen,
+                    geslaagd = acc.geslaagd.get(),
+                    mislukt = acc.mislukt.get(),
                 )
 
                 berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
@@ -323,32 +352,28 @@ class BerichtensessiecacheService(
                     .replaceWith(
                         MagazijnEvent(
                             event = EventType.OPHALEN_FOUT,
-                            geslaagd = geslaagd.get(),
-                            mislukt = mislukt.get(),
-                            totaalMagazijnen = totaalMagazijnen,
+                            geslaagd = acc.geslaagd.get(),
+                            mislukt = acc.mislukt.get(),
+                            totaalMagazijnen = acc.totaalMagazijnen,
                             foutmelding = "Interne fout bij opslaan van resultaten",
                         )
                     )
             }
-            .toMulti()
+    }
 
     /**
-     * Best-effort lock-release na een fout vóór de SSE-stream start: schrijft FOUT-status
-     * (`storeAggregationStatus` doet intern `del(lockKey)`). Cleanup-failure wordt geslikt
-     * — de lock leunt dan op de Redis-TTL.
+     * Accumulator voor de parallel-draaiende magazijn-streams. Wrapt de gedeelde mutable state
+     * (queue + counters) zodat [magazijnStream] en [voltooiingsPipeline] één argument delen.
      */
-    private fun releaseLockNaFout(cacheKey: String) {
-        try {
-            berichtenCache.storeAggregationStatus(cacheKey, AggregationStatus(status = OphalenStatus.FOUT))
-                .await().atMost(Duration.ofSeconds(5))
-        } catch (cleanupEx: Exception) {
-            log.errorf(cleanupEx, "Lock-cleanup na fout mislukt voor key=%s — lock leunt op TTL", cacheKey)
-        }
+    private class OphaalAccumulator(val totaalMagazijnen: Int) {
+        val berichten: ConcurrentLinkedQueue<Bericht> = ConcurrentLinkedQueue()
+        val geslaagd: AtomicInteger = AtomicInteger(0)
+        val mislukt: AtomicInteger = AtomicInteger(0)
     }
 }
 
 data class BerichtenPage(
-    val berichten: List<Bericht>,
+    val berichten: List<BerichtSamenvatting>,
     val page: Int,
     val pageSize: Int,
     val totalElements: Long,

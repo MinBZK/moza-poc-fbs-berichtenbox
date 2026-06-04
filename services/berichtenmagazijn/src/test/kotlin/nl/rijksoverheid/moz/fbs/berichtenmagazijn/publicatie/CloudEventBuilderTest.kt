@@ -37,7 +37,7 @@ class CloudEventBuilderTest {
         onderwerp = "Voorlopige aanslag 2026",
         inhoud = "Hierbij ontvangt u uw aanslag.",
         tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-12T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-12T10:00:00Z"),
     )
     private val nu = Instant.parse("2026-05-12T10:00:05Z")
 
@@ -93,7 +93,7 @@ class CloudEventBuilderTest {
         assertEquals("BSN", event.data.ontvanger.type)
         assertEquals(bsnWaarde, event.data.ontvanger.waarde)
         assertEquals(bericht.tijdstipOntvangst, event.data.tijdstipOntvangst)
-        assertEquals(bericht.publicatiedatum, event.data.publicatiedatum)
+        assertEquals(bericht.publicatietijdstip, event.data.publicatietijdstip)
     }
 
     @Test

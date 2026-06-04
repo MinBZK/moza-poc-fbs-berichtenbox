@@ -52,16 +52,16 @@ class BerichtOpslagServiceTest {
         assertEquals("999993653", bericht.ontvanger.waarde)
         assertEquals("Voorlopige aanslag 2026", bericht.onderwerp)
         assertEquals("Hierbij ontvangt u...", bericht.inhoud)
-        // Default publicatiedatum = tijdstipOntvangst (direct publiceren).
-        assertEquals(bericht.tijdstipOntvangst, bericht.publicatiedatum)
+        // Default publicatietijdstip = tijdstipOntvangst (direct publiceren).
+        assertEquals(bericht.tijdstipOntvangst, bericht.publicatietijdstip)
 
         verify { repository.save(any<Bericht>()) }
-        verify { publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatiedatum) }
+        verify { publicatieOutbox.planDeliveries(bericht.berichtId, bericht.publicatietijdstip) }
         assertEquals(bericht, berichtSlot.captured)
     }
 
     @Test
-    fun `slaBerichtOp met publicatiedatum in de toekomst gebruikt die als planning`() {
+    fun `slaBerichtOp met publicatietijdstip in de toekomst gebruikt die als planning`() {
         val toekomst = Instant.now().plusSeconds(3_600)
         val berichtIdSlot = slot<UUID>()
         val datumSlot = slot<Instant>()
@@ -73,11 +73,11 @@ class BerichtOpslagServiceTest {
             ontvangerWaarde = "999993653",
             onderwerp = "Geplande publicatie",
             inhoud = "...",
-            publicatiedatum = toekomst,
+            publicatietijdstip = toekomst,
         )
 
-        assertEquals(toekomst, bericht.publicatiedatum)
-        assertNotEquals(bericht.publicatiedatum, bericht.tijdstipOntvangst)
+        assertEquals(toekomst, bericht.publicatietijdstip)
+        assertNotEquals(bericht.publicatietijdstip, bericht.tijdstipOntvangst)
         assertEquals(bericht.berichtId, berichtIdSlot.captured)
         assertEquals(toekomst, datumSlot.captured)
     }

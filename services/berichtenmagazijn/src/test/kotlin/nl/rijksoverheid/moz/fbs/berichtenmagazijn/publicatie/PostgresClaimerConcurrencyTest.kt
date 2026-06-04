@@ -63,7 +63,7 @@ class PostgresClaimerConcurrencyTest {
                     onderwerp = "Concurrency",
                     inhoud = "x",
                     tijdstipOntvangst = verleden,
-                    publicatiedatum = verleden,
+                    publicatietijdstip = verleden,
                 )
                 berichten.save(b)
                 outbox.planDeliveries(b.berichtId, verleden)
