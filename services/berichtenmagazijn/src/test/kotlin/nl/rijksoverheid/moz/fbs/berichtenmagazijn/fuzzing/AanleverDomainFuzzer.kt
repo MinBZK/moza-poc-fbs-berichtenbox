@@ -1,13 +1,17 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.fuzzing
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider
+import io.mockk.mockk
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import java.time.Instant
 import java.util.UUID
 
@@ -26,10 +30,22 @@ import java.util.UUID
  */
 object AanleverDomainFuzzer {
 
+    // ProfielServiceClient is een externe REST-buur; relaxed-mock omdat het
+    // MIME-allowlist-pad een OIN-ontvanger gebruikt en de profiel-call dus nooit raakt.
+    private val validatieService = BerichtValidatieService(mockk<ProfielServiceClient>(relaxed = true))
+
+    // Hot-path-zuinigheid (fuzzers draaien miljoenen iteraties): hoist de type-array
+    // i.p.v. per iteratie `entries.toTypedArray()` te alloceren, en gebruik een vaste
+    // UUID i.p.v. `randomUUID()` — de id-waarde raakt geen enkele gefuzzde invariant,
+    // dus de SecureRandom-kost per iteratie is pure verspilling.
+    private val idTypes = IdentificatienummerType.entries.toTypedArray()
+    private val vasteId: UUID = UUID(0L, 0L)
+
     private val targets = arrayOf(
         ::fuzzBericht,
         ::fuzzBijlage,
         ::fuzzBijlageMetadata,
+        ::fuzzBijlageMimeAllowlist,
     )
 
     @JvmStatic
@@ -39,14 +55,18 @@ object AanleverDomainFuzzer {
 
     private fun fuzzBericht(data: FuzzedDataProvider) {
         val afzenderRaw = data.consumeString(40)
-        val ontvangerType = data.pickValue(IdentificatienummerType.entries.toTypedArray())
+        val ontvangerType = data.pickValue(idTypes)
         val ontvangerRaw = data.consumeString(40)
+        // onderwerp-cap (400) ligt bewust boven MAX_ONDERWERP_LENGTE (255) zodat de
+        // lengte-afwijzing wordt geraakt. inhoud cappen we modest: de 1 MiB-grens per
+        // iteratie genereren is fuzz-tijd- en geheugenverspilling voor weinig extra
+        // dekking — de byte-telling-tak is simpel en deterministisch.
         val onderwerp = data.consumeString(400)
         val inhoud = data.consumeString(2000)
 
         val bericht = try {
             Bericht(
-                berichtId = UUID.randomUUID(),
+                berichtId = vasteId,
                 afzender = Oin(afzenderRaw),
                 ontvanger = Identificatienummer.of(ontvangerType, ontvangerRaw),
                 onderwerp = onderwerp,
@@ -78,8 +98,8 @@ object AanleverDomainFuzzer {
 
         val bijlage = try {
             Bijlage(
-                bijlageId = UUID.randomUUID(),
-                berichtId = UUID.randomUUID(),
+                bijlageId = vasteId,
+                berichtId = vasteId,
                 naam = naam,
                 mimeType = mimeType,
                 content = content,
@@ -108,7 +128,7 @@ object AanleverDomainFuzzer {
 
         val metadata = try {
             BijlageMetadata(
-                bijlageId = UUID.randomUUID(),
+                bijlageId = vasteId,
                 naam = naam,
                 mimeType = mimeType,
             )
@@ -125,4 +145,43 @@ object AanleverDomainFuzzer {
             "metadata-mimeType-lengte overschrijdt max na constructie"
         }
     }
+
+    /**
+     * Fuzz de MIME-allowlist in [BerichtValidatieService.valideer]: alleen
+     * `application/pdf` mag door. De ontvanger is een OIN zodat de abonnements-
+     * controle (externe profiel-call) direct terugkeert en alleen de allowlist
+     * wordt uitgeoefend. Bij een geaccepteerde bijlage moet het mimeType exact
+     * `application/pdf` zijn; alles anders hoort een [DomainValidationException]
+     * te geven.
+     */
+    private fun fuzzBijlageMimeAllowlist(data: FuzzedDataProvider) {
+        val mimeType = data.consumeString(80)
+        val bericht = Bericht(
+            berichtId = vasteId,
+            afzender = Oin(AFZENDER_OIN),
+            ontvanger = Oin(ONTVANGER_OIN),
+            onderwerp = "fuzz",
+            inhoud = "fuzz",
+            tijdstipOntvangst = Instant.EPOCH,
+            publicatietijdstip = Instant.EPOCH,
+        )
+        val bijlagen = listOf(BijlageInvoer(naam = "fuzz", mimeType = mimeType, content = byteArrayOf(1)))
+
+        try {
+            validatieService.valideer(bericht, bijlagen)
+        } catch (_: DomainValidationException) {
+            return
+        }
+
+        check(bijlagen.all { it.mimeType == PDF_MIME_TYPE }) {
+            "valideer accepteerde een niet-$PDF_MIME_TYPE mimeType"
+        }
+    }
+
+    private const val PDF_MIME_TYPE = "application/pdf"
+
+    // Twee geldige, verschillende OIN's (20 cijfers, niet geheel nullen). Vast omdat
+    // deze target de bijlage-allowlist isoleert, niet de afzender/ontvanger-parsing.
+    private const val AFZENDER_OIN = "00000001003214345000"
+    private const val ONTVANGER_OIN = "00000004003214345000"
 }
