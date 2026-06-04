@@ -69,6 +69,13 @@ class RedisBerichtenCache(
     private val objectMapper: ObjectMapper,
     @param:ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT12H")
     private val ttl: Duration,
+    // Korte, aparte vangnet-TTL voor de aggregatie-lock én de BEZIG-status, losgekoppeld van de
+    // cache-bewaartermijn (`ttl`). Crasht een pod midden in aggregatie, dan mag de ontvanger niet
+    // langer dan deze timeout geblokkeerd blijven voor opnieuw `_ophalen` (met `ttl` was dat tot 12u).
+    // Moet ruim boven de normale aggregatieduur (resolver outer-await + cache-await) liggen, anders
+    // ontgrendelt een nog lopende aggregatie voortijdig en kan een concurrent `_ophalen` dubbel draaien.
+    @param:ConfigProperty(name = "berichtensessiecache.aggregation-lock-ttl", defaultValue = "PT2M")
+    private val aggregationLockTtl: Duration,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
@@ -162,7 +169,10 @@ class RedisBerichtenCache(
     override fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
         val statusKey = statusKey(key)
         val json = objectMapper.writeValueAsString(status)
-        return redis.value(String::class.java).setex(statusKey, ttl.seconds, json)
+        // Nog-lopende (BEZIG) status: korte vangnet-TTL gelijk aan de lock, zodat een crash de
+        // status niet 12u laat hangen. De terminale GEREED/FOUT-status (storeAggregationStatus)
+        // volgt wél de lange cache-`ttl` omdat die het gecachte resultaat spiegelt.
+        return redis.value(String::class.java).setex(statusKey, aggregationLockTtl.seconds, json)
             .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis updateAggregationStatus mislukt voor key=%s", key) }
     }
@@ -173,7 +183,7 @@ class RedisBerichtenCache(
 
         // SET NX EX in één commando: atomair — geen tussenliggend venster waarbij de lock
         // bestaat zonder TTL (wat bij losse SETNX + EXPIRE zou kunnen optreden als EXPIRE faalt).
-        val lockArgs = SetArgs().nx().ex(ttl.seconds)
+        val lockArgs = SetArgs().nx().ex(aggregationLockTtl.seconds)
 
         return redis.value(String::class.java).setAndChanged(lockKey, "1", lockArgs)
             .chain { wasSet ->
@@ -182,8 +192,9 @@ class RedisBerichtenCache(
                     // Bij hoge concurrent-409-druk bespaart dit Jackson-werk voor afgewezen requests.
                     val json = objectMapper.writeValueAsString(status)
                     // statusKey-fout na geslaagde lock-set: rollback de lock via best-effort DEL,
-                    // anders blijft de ontvanger 60s op TTL hangen voor wat een transient Redis-blip was.
-                    redis.value(String::class.java).setex(statusKey, ttl.seconds, json)
+                    // anders blijft de ontvanger op de aggregatie-lock-TTL hangen voor wat een transient
+                    // Redis-blip was. De BEZIG-status deelt diezelfde korte vangnet-TTL als de lock.
+                    redis.value(String::class.java).setex(statusKey, aggregationLockTtl.seconds, json)
                         .onFailure().call { _ ->
                             redis.key().del(lockKey)
                                 .onFailure().invoke { delErr ->
