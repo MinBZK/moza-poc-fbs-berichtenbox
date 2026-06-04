@@ -50,6 +50,7 @@ class BerichtensessiecacheResource(
         page: Int?,
         pageSize: Int?,
         afzender: String?,
+        map: String?,
     ): BerichtensessiecacheResponse {
         val (ontvangerId, aggregation) = requireGereedStatus(xOntvanger)
 
@@ -59,10 +60,10 @@ class BerichtensessiecacheResource(
         val p = page ?: 0
         val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.getBerichten(p, ps, ontvangerId, afzender)
+            berichtensessiecacheService.getBerichten(p, ps, ontvangerId, afzender, map)
         }
         logboekContext.status = StatusCode.OK
-        return result.toResponse(aggregation, afzender)
+        return result.toResponse(aggregation, afzender, map)
     }
 
     @Logboek(
@@ -96,6 +97,7 @@ class BerichtensessiecacheResource(
         page: Int?,
         pageSize: Int?,
         afzender: String?,
+        map: String?,
     ): BerichtensessiecacheResponse {
         val (ontvangerId, aggregation) = requireGereedStatus(xOntvanger)
 
@@ -105,10 +107,10 @@ class BerichtensessiecacheResource(
         val p = page ?: 0
         val ps = (pageSize ?: 20).coerceAtMost(100)
         val result = awaitOrServiceUnavailable {
-            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvangerId, afzender)
+            berichtensessiecacheService.zoekBerichten(q, p, ps, ontvangerId, afzender, map)
         }
         logboekContext.status = StatusCode.OK
-        return result.toResponse(aggregation, afzender)
+        return result.toResponse(aggregation, afzender, map)
     }
 
     @Logboek(
@@ -293,12 +295,15 @@ class BerichtensessiecacheResource(
     private fun BerichtenPage.toResponse(
         aggregation: AggregationStatus?,
         afzender: String? = null,
+        map: String? = null,
     ): BerichtensessiecacheResponse {
         val basePath = uriInfo.baseUri.path.removeSuffix("/")
-        val filterParams = if (afzender != null) {
-            "&afzender=" + URLEncoder.encode(afzender, StandardCharsets.UTF_8)
-        } else {
-            ""
+        // afzender en map zijn beide optionele filters; combineer ze in de pagination-
+        // _links zodat doorbladeren de actieve filter behoudt.
+        val filterParams = buildString {
+            if (afzender != null) append("&afzender=").append(URLEncoder.encode(afzender, StandardCharsets.UTF_8))
+
+            if (map != null) append("&map=").append(URLEncoder.encode(map, StandardCharsets.UTF_8))
         }
 
         return BerichtensessiecacheResponse().apply {

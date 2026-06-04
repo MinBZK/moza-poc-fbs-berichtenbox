@@ -81,12 +81,13 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(statuses["$key:status"])
     }
 
-    override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
+    override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?, map: String?): Uni<BerichtenPage> {
         val key = BerichtenCache.cacheKey(ontvanger)
         val berichten = lists["$key:list"] ?: emptyList()
         val gefilterd = berichten.filter {
             it.onderwerp.contains(q, ignoreCase = true)
         }.filter { afzender == null || it.afzender == afzender }
+            .filter { map == null || it.map == map }
         val start = page * pageSize
         val slice = gefilterd.drop(start).take(pageSize).map { it.toSamenvatting() }
         val totalPages = if (gefilterd.isEmpty()) 0 else (gefilterd.size + pageSize - 1) / pageSize
@@ -131,10 +132,12 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().voidItem()
     }
 
-    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?): Uni<BerichtenPage?> {
+    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?, map: String?): Uni<BerichtenPage?> {
         val allBerichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()
-        val berichten = if (afzender != null) allBerichten.filter { it.afzender == afzender } else allBerichten
-        if (afzender != null && berichten.isEmpty()) {
+        val berichten = allBerichten
+            .filter { afzender == null || it.afzender == afzender }
+            .filter { map == null || it.map == map }
+        if ((afzender != null || map != null) && berichten.isEmpty()) {
             return Uni.createFrom().item(BerichtenPage(emptyList(), page, pageSize, 0L, 0))
         }
         val start = page * pageSize

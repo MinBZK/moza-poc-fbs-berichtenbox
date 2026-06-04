@@ -116,7 +116,7 @@ class BerichtensessiecacheService(
         )
     }
 
-    fun getBerichten(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?): Uni<BerichtenPage> {
+    fun getBerichten(page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?, map: String? = null): Uni<BerichtenPage> {
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d", page, pageSize)
         val key = BerichtenCache.cacheKey(ontvanger)
 
@@ -124,7 +124,7 @@ class BerichtensessiecacheService(
         // collapsen bewust naar dezelfde lege pagina. Het onderscheid loopt via een aparte
         // bron: de caller raadpleegt getAggregationStatus om "nog ophalen / niets in cache"
         // te onderscheiden van een afgeronde lege ophaling.
-        return berichtenCache.getPage(key, page, pageSize, afzender, ontvanger)
+        return berichtenCache.getPage(key, page, pageSize, afzender, ontvanger, map)
             .map { it ?: BerichtenPage(emptyList(), page, pageSize, 0L, 0) }
     }
 
@@ -140,13 +140,13 @@ class BerichtensessiecacheService(
         return berichtenCache.getById(berichtId, ontvanger)
     }
 
-    fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?): Uni<BerichtenPage> {
+    fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?, map: String? = null): Uni<BerichtenPage> {
         // q is user-input zonder CRLF-filter op spec-niveau; loggen van q.length voorkomt
         // log-injectie via newline-payloads. Voor diepere debug staat de query elders in
         // RediSearch-server-log.
         log.debugf("Zoeken berichten via RediSearch: q.length=%d, page=%d, pageSize=%d", q.length, page, pageSize)
 
-        return berichtenCache.search(ontvanger, q, page, pageSize, afzender)
+        return berichtenCache.search(ontvanger, q, page, pageSize, afzender, map)
     }
 
     fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {

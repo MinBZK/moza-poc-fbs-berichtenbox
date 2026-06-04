@@ -94,6 +94,11 @@ paths:
             pattern: '^[0-9]{20}$'
             minLength: 20
             maxLength: 20
+        - name: map
+          in: query
+          description: Filter op map (mapnaam waarin het bericht is ingedeeld)
+          schema:
+            type: string
       responses:
         '200':
           description: Lijst van berichten
@@ -259,6 +264,11 @@ paths:
             pattern: '^[0-9]{20}$'
             minLength: 20
             maxLength: 20
+        - name: map
+          in: query
+          description: Filter op map (mapnaam waarin het bericht is ingedeeld)
+          schema:
+            type: string
       responses:
         '200':
           description: Zoekresultaten
