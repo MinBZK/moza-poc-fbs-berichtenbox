@@ -94,7 +94,7 @@ class HardDeleteService(
      * geïsoleerd: een mislukte delete of LDV-write stopt de run niet, maar telt mee
      * in de uitkomst zodat [run] ze in [RunResultaat] rapporteert.
      */
-    private fun verwijderEnLog(candidate: HardDeleteCandidaat): KandidaatUitkomst {
+    private fun verwijderEnLog(candidate: HardDeleteKandidaat): KandidaatUitkomst {
         val deletedRows = try {
             ops.deleteOne(candidate)
         } catch (ex: Exception) {

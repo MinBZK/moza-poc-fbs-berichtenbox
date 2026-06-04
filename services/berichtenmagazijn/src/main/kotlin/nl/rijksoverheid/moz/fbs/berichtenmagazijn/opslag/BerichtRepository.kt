@@ -4,7 +4,7 @@ import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import io.quarkus.panache.common.Page
 import io.quarkus.panache.common.Sort
 import jakarta.enterprise.context.ApplicationScoped
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention.HardDeleteCandidaat
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention.HardDeleteKandidaat
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.time.Instant
 import java.util.UUID
@@ -118,7 +118,7 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
         receiptDeadline: Instant,
         softDeleteDeadline: Instant,
         batchSize: Int,
-    ): List<HardDeleteCandidaat> {
+    ): List<HardDeleteKandidaat> {
         @Suppress("UNCHECKED_CAST")
         val rijen = getEntityManager()
             .createNativeQuery(
@@ -140,7 +140,7 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
             .resultList as List<Array<Any?>>
 
         return rijen.map { row ->
-            HardDeleteCandidaat(
+            HardDeleteKandidaat(
                 id = (row[0] as Number).toLong(),
                 berichtId = row[1] as java.util.UUID,
                 ontvangerType = row[2] as String,

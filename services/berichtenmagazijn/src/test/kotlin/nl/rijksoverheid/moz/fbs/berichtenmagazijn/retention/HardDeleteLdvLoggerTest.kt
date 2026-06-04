@@ -21,7 +21,7 @@ class HardDeleteLdvLoggerTest {
 
     @Test
     fun `logHardDelete crasht niet buiten een REST-context`() {
-        val candidate = HardDeleteCandidaat(
+        val candidate = HardDeleteKandidaat(
             id = 1L,
             berichtId = UUID.randomUUID(),
             ontvangerType = "BSN",

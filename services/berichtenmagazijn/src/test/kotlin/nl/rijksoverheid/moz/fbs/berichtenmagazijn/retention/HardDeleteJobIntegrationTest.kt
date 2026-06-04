@@ -208,7 +208,7 @@ class HardDeleteJobIntegrationTest {
 
         val aanroepVolgorde = mutableListOf<UUID>()
         every { ldvMock.logHardDelete(any()) } answers { call ->
-            aanroepVolgorde.add((call.invocation.args[0] as HardDeleteCandidaat).berichtId)
+            aanroepVolgorde.add((call.invocation.args[0] as HardDeleteKandidaat).berichtId)
         }
 
         val resultaat = service.run()

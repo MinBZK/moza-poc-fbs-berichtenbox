@@ -22,7 +22,7 @@ class HardDeleteServiceTest {
 
     private val service = HardDeleteService(ops, ldv, config)
 
-    private fun kandidaat(id: Long = 1L) = HardDeleteCandidaat(
+    private fun kandidaat(id: Long = 1L) = HardDeleteKandidaat(
         id = id,
         berichtId = UUID.randomUUID(),
         ontvangerType = "BSN",

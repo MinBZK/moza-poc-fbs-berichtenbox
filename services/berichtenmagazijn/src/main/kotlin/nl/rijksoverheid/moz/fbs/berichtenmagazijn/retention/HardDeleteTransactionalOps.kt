@@ -38,12 +38,12 @@ class HardDeleteTransactionalOps(
         receiptDeadline: Instant,
         softDeleteDeadline: Instant,
         batchSize: Int,
-    ): List<HardDeleteCandidaat> =
+    ): List<HardDeleteKandidaat> =
         berichtRepository.claimVoorHardDelete(receiptDeadline, softDeleteDeadline, batchSize)
 
     /** Retourneert het aantal verwijderde bericht-rijen (0 of 1). */
     @Transactional(Transactional.TxType.REQUIRES_NEW)
-    fun deleteOne(candidate: HardDeleteCandidaat): Int {
+    fun deleteOne(candidate: HardDeleteKandidaat): Int {
         bijlageRepository.deleteByBerichtDbId(candidate.id)
         statusRepository.deleteByBerichtDbId(candidate.id)
         return berichtRepository.hardDeleteByDbId(candidate.id)
