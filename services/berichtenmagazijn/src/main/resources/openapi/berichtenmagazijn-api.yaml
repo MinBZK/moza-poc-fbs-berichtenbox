@@ -684,7 +684,7 @@ components:
       properties:
         href:
           type: string
-          format: uri
+          format: uri-reference
 
     Problem:
       type: object
@@ -709,7 +709,7 @@ components:
           type: string
         instance:
           type: string
-          format: uri
+          format: uri-reference
 
   responses:
     BadRequest:

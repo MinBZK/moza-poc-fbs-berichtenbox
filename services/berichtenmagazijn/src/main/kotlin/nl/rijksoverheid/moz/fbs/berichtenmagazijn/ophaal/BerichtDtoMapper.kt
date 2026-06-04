@@ -136,14 +136,14 @@ internal object BerichtDtoMapper {
         if (afzender != null) {
             builder = builder.queryParam("afzender", afzender)
         }
-        return Link().apply { href = builder.build() }
+        return Link().apply { href = builder.build().toString() }
     }
 
     private fun selfHrefVoorBericht(berichtId: UUID, baseUri: UriBuilder) = baseUri.clone()
         .path(ApiInfo.BASE_PATH)
         .path("berichten")
         .path(berichtId.toString())
-        .build()
+        .build().toString()
 
     private fun bijlageHref(berichtId: UUID, bijlageId: UUID, baseUri: UriBuilder) = baseUri.clone()
         .path(ApiInfo.BASE_PATH)
@@ -151,5 +151,5 @@ internal object BerichtDtoMapper {
         .path(berichtId.toString())
         .path("bijlagen")
         .path(bijlageId.toString())
-        .build()
+        .build().toString()
 }

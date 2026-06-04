@@ -21,7 +21,6 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.BijlageSamenvatti
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.api.model.PaginationLinks
 import org.jboss.logging.Logger
-import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
@@ -317,16 +316,16 @@ class BerichtensessiecacheResource(
                 }
             }
             links = PaginationLinks().apply {
-                self = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page}&pageSize=${this@toResponse.pageSize}$filterParams") }
-                first = Link().apply { href = URI.create("$basePath/berichten?page=0&pageSize=${this@toResponse.pageSize}$filterParams") }
+                self = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page}&pageSize=${this@toResponse.pageSize}$filterParams" }
+                first = Link().apply { href = "$basePath/berichten?page=0&pageSize=${this@toResponse.pageSize}$filterParams" }
                 if (this@toResponse.totalPages > 0) {
-                    last = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.totalPages - 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                    last = Link().apply { href = "$basePath/berichten?page=${this@toResponse.totalPages - 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
                 }
                 if (this@toResponse.page > 0) {
-                    prev = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page - 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                    prev = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page - 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
                 }
                 if (this@toResponse.page < this@toResponse.totalPages - 1) {
-                    next = Link().apply { href = URI.create("$basePath/berichten?page=${this@toResponse.page + 1}&pageSize=${this@toResponse.pageSize}$filterParams") }
+                    next = Link().apply { href = "$basePath/berichten?page=${this@toResponse.page + 1}&pageSize=${this@toResponse.pageSize}$filterParams" }
                 }
             }
         }
@@ -345,7 +344,7 @@ class BerichtensessiecacheResource(
             map = this@toApiSamenvatting.map
             status = this@toApiSamenvatting.status?.let { ApiBerichtStatus.fromValue(it.wire) }
             links = BerichtLinks().apply {
-                self = Link().apply { href = URI.create("$basePath/berichten/${this@toApiSamenvatting.berichtId}") }
+                self = Link().apply { href = "$basePath/berichten/${this@toApiSamenvatting.berichtId}" }
             }
         }
     }
@@ -365,7 +364,7 @@ class BerichtensessiecacheResource(
             map = this@toResponse.map
             status = this@toResponse.status?.let { ApiBerichtStatus.fromValue(it.wire) }
             links = BerichtLinks().apply {
-                self = Link().apply { href = URI.create("$basePath/berichten/${this@toResponse.berichtId}") }
+                self = Link().apply { href = "$basePath/berichten/${this@toResponse.berichtId}" }
             }
         }
     }
