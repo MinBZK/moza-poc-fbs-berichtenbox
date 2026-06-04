@@ -1,0 +1,35 @@
+meta {
+  name: 9. Ophalen met config-drift (CONFIG_DRIFT OPHALEN_FOUT)
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/berichten/_ophalen
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: BSN:999998055
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+docs {
+  Profiel-service noemt afzender-OINs die niet bekend zijn bij de magazijn-
+  configuratie. Resolver gooit `ProfielServiceFoutException.configDrift()`;
+  service catcht en emit een enkel `ophalen-fout`-SSE-event met:
+  - `foutmelding`: bevat `(ref: <UUID>)`-suffix voor support-correlatie
+  - `referentie`: UUID gestructureerd veld (rendert UI of metric-tooling)
+
+  Voorwaarde voor reproductie in lokale dev: WireMock-stub voor deze BSN
+  moet een opt-in voorkeur teruggeven met een OIN die niet in
+  `magazijnen.instances.*.afzenders` voorkomt.
+}
+
+assert {
+  res.status: eq 200
+  res.headers["content-type"]: contains "text/event-stream"
+  res.body: contains "ophalen-fout"
+  res.body: contains "referentie"
+}

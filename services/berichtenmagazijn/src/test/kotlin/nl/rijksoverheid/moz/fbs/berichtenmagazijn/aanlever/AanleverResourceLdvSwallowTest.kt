@@ -16,9 +16,9 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bsn
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.IdentificatienummerType
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -84,7 +84,7 @@ class AanleverResourceLdvSwallowTest {
         onderwerp = "Test",
         inhoud = "Inhoud",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
-        publicatiedatum = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
     )
 
     private fun stubBaseline() {
@@ -97,7 +97,7 @@ class AanleverResourceLdvSwallowTest {
                 ontvangerWaarde = any(),
                 onderwerp = any(),
                 inhoud = any(),
-                publicatiedatum = any(),
+                publicatietijdstip = any(),
             )
         } returns gevalideerdBericht
     }

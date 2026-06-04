@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -28,6 +29,16 @@ class MockBerichtenCache : BerichtenCache {
     private val locks = ConcurrentHashMap.newKeySet<String>()
     private val byId = ConcurrentHashMap<UUID, Bericht>()
 
+    companion object {
+        // Modelleert de optimistic-lock-exhaustie van RedisBerichtenCache: bij `true`
+        // faalt `update` met CacheContentieException (zoals de echte cache na
+        // MAX_UPDATE_POGINGEN), terwijl `delete` idempotent blijft. Zo is de
+        // resource-vertaling — contentie → 503 op PATCH vs. 204 op DELETE —
+        // deterministisch testbaar zonder de timing-gevoelige Redis-retry na te bootsen.
+        @Volatile
+        var faalUpdateMetContentie: Boolean = false
+    }
+
     fun clear() {
         lists.clear()
         statuses.clear()
@@ -41,7 +52,7 @@ class MockBerichtenCache : BerichtenCache {
     }
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
-        val sorted = berichten.sortedByDescending { it.tijdstip }
+        val sorted = berichten.sortedByDescending { it.publicatietijdstip }
         lists["$key:list"] = sorted
         berichten.forEach { byId[it.berichtId] = it }
         return Uni.createFrom().voidItem()
@@ -50,6 +61,11 @@ class MockBerichtenCache : BerichtenCache {
     override fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
         statuses["$key:status"] = status
         locks.remove("$key:lock")
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
+        statuses["$key:status"] = status
         return Uni.createFrom().voidItem()
     }
 
@@ -65,41 +81,57 @@ class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(statuses["$key:status"])
     }
 
-    override fun search(ontvanger: String, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
+    override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?): Uni<BerichtenPage> {
         val key = BerichtenCache.cacheKey(ontvanger)
         val berichten = lists["$key:list"] ?: emptyList()
         val gefilterd = berichten.filter {
             it.onderwerp.contains(q, ignoreCase = true)
         }.filter { afzender == null || it.afzender == afzender }
         val start = page * pageSize
-        val slice = gefilterd.drop(start).take(pageSize)
+        val slice = gefilterd.drop(start).take(pageSize).map { it.toSamenvatting() }
         val totalPages = if (gefilterd.isEmpty()) 0 else (gefilterd.size + pageSize - 1) / pageSize
         return Uni.createFrom().item(BerichtenPage(slice, page, pageSize, gefilterd.size.toLong(), totalPages))
     }
 
-    override fun getById(berichtId: UUID, ontvanger: String): Uni<Bericht?> {
+    override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
         val bericht = byId[berichtId]
-        return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
+        return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger.waarde) bericht else null)
     }
 
-    override fun updateStatus(berichtId: UUID, ontvanger: String, status: String): Uni<Bericht?> {
+    override fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
+        if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(berichtId))
+
         val bericht = byId[berichtId]
-        if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
-        val updated = bericht.copy(status = status)
+        if (bericht == null || bericht.ontvanger != ontvanger.waarde) return Uni.createFrom().nullItem()
+        val updated = bericht.copy(
+            status = status?.let { Leesstatus.fromWire(it) } ?: bericht.status,
+            map = map ?: bericht.map,
+        )
         byId[berichtId] = updated
         return Uni.createFrom().item(updated)
     }
 
-    override fun createBericht(bericht: Bericht): Uni<Void> {
-        val key = BerichtenCache.cacheKey(bericht.ontvanger)
+    override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
+        val key = BerichtenCache.cacheKey(ontvanger)
         val listKey = "$key:list"
         val existing = lists[listKey] ?: emptyList()
-        lists[listKey] = (existing + bericht).sortedByDescending { it.tijdstip }
+        lists[listKey] = (existing + bericht).sortedByDescending { it.publicatietijdstip }
         byId[bericht.berichtId] = bericht
         return Uni.createFrom().voidItem()
     }
 
-    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: String?): Uni<BerichtenPage?> {
+    override fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
+        val existing = byId[berichtId]
+        if (existing != null && existing.ontvanger == ontvanger.waarde) {
+            byId.remove(berichtId)
+            val key = BerichtenCache.cacheKey(ontvanger)
+            val listKey = "$key:list"
+            lists[listKey]?.let { lists[listKey] = it.filter { b -> b.berichtId != berichtId } }
+        }
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?): Uni<BerichtenPage?> {
         val allBerichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()
         val berichten = if (afzender != null) allBerichten.filter { it.afzender == afzender } else allBerichten
         if (afzender != null && berichten.isEmpty()) {
@@ -107,7 +139,7 @@ class MockBerichtenCache : BerichtenCache {
         }
         val start = page * pageSize
         val end = minOf(start + pageSize, berichten.size)
-        val slice = if (start < berichten.size) berichten.subList(start, end) else emptyList()
+        val slice = if (start < berichten.size) berichten.subList(start, end).map { it.toSamenvatting() } else emptyList()
         val totalPages = if (berichten.isEmpty()) 0 else (berichten.size + pageSize - 1) / pageSize
         return Uni.createFrom().item(
             BerichtenPage(

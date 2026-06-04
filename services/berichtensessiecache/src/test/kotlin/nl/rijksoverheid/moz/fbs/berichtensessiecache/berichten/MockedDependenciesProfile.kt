@@ -7,6 +7,7 @@ class MockedDependenciesProfile : QuarkusTestProfile {
     override fun getEnabledAlternatives(): Set<Class<*>> = setOf(
         MockBerichtenCache::class.java,
         MockMagazijnClientFactory::class.java,
+        MockMagazijnResolver::class.java,
     )
 
     override fun getConfigOverrides(): Map<String, String> = mapOf(

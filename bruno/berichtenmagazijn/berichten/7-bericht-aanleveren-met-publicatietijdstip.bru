@@ -1,0 +1,25 @@
+meta {
+  name: 7. Bericht aanleveren met publicatietijdstip (uitgesteld)
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrlMagazijn}}/berichten
+  body: json
+  auth: none
+}
+
+headers {
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "afzender": "{{afzender}}",
+    "ontvanger": { "type": "BSN", "waarde": "{{ontvangerPersoon}}" },
+    "onderwerp": "Geplande publicatie",
+    "inhoud": "Dit bericht wordt pas na het opgegeven publicatietijdstip doorgezet naar Aanmeld + Notificatie service.",
+    "publicatietijdstip": "2026-12-31T08:00:00Z"
+  }
+}
