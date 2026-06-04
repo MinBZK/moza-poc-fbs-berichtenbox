@@ -116,7 +116,7 @@ internal class SessiecacheImpl(
         } catch (e: IllegalArgumentException) {
             // Defensieve limiet overschreden (BerichtValidator): invoerfout van de
             // aanleverende caller, geen infrastructuurfout.
-            throw WebApplicationException(e.message, Response.Status.BAD_REQUEST)
+            throw WebApplicationException(e.message, e, Response.Status.BAD_REQUEST)
         }
     }
 

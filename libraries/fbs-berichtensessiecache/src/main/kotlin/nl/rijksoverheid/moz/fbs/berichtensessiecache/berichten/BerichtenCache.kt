@@ -6,6 +6,8 @@ import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.redis.datasource.search.CreateArgs
 import io.quarkus.redis.datasource.search.FieldType
 import io.quarkus.redis.datasource.search.QueryArgs
+import io.quarkus.redis.datasource.transactions.OptimisticLockingTransactionResult
+import io.quarkus.redis.datasource.transactions.ReactiveTransactionalRedisDataSource
 import io.quarkus.redis.datasource.value.SetArgs
 import io.smallrye.mutiny.Uni
 import jakarta.annotation.PostConstruct
@@ -559,108 +561,145 @@ internal class RedisBerichtenCache(
         val listKey = listKey(cacheKey)
 
         return redis.withTransaction<UpdatePlan>(
-            { reads ->
-                reads.hash(String::class.java).hgetall(berichtKey)
-                    .chain { fields ->
-                        if (fields.isEmpty()) {
-                            Uni.createFrom().item(UpdatePlan.Geen)
-                        } else {
-                            val bericht = hashToBericht(fields)
-
-                            if (bericht.ontvanger != ontvanger.waarde) {
-                                Uni.createFrom().item(UpdatePlan.Geen)
-                            } else if (status == null && map == null) {
-                                Uni.createFrom().item(UpdatePlan.Ongewijzigd(bericht))
-                            } else {
-                                val updated = bericht.copy(
-                                    status = status ?: bericht.status,
-                                    map = map ?: bericht.map,
-                                )
-                                val hashVelden = buildMap {
-                                    status?.let { put("status", it.wire) }
-                                    map?.let { put("map", it) }
-                                }
-                                val updatedJson = objectMapper.writeValueAsString(updated)
-
-                                reads.list(String::class.java).lrange(listKey, 0, -1)
-                                    .map { entries ->
-                                        val nieuweLijst = entries.map { json ->
-                                            val match = runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
-                                                .onFailure { e ->
-                                                    // Onparsebare blob: kan per definitie niet het te
-                                                    // updaten bericht zijn; behoud en log (cache-corruptie).
-                                                    log.warnf(e, "Onparsebare list-entry bij update; entry behouden. berichtId=%s", berichtId)
-                                                }
-                                                .getOrNull() == berichtId.toString()
-
-                                            if (match) updatedJson else json
-                                        }
-
-                                        UpdatePlan.Wijzig(updated, hashVelden, nieuweLijst)
-                                    }
-                            }
-                        }
-                    }
-            },
-            { plan, tx ->
-                when (plan) {
-                    UpdatePlan.Geen -> Uni.createFrom().voidItem()
-
-                    is UpdatePlan.Ongewijzigd -> Uni.createFrom().voidItem()
-
-                    is UpdatePlan.Wijzig -> {
-                        val txKey = tx.key()
-                        val txList = tx.list(String::class.java)
-                        val txHash = tx.hash(String::class.java)
-
-                        val rebuildList = if (plan.nieuweLijst.isNotEmpty()) {
-                            txKey.del(listKey)
-                                .chain { _ -> txList.rpush(listKey, *plan.nieuweLijst.toTypedArray()) }
-                                .chain { _ -> txKey.expire(listKey, ttl) }
-                                .replaceWithVoid()
-                        } else {
-                            Uni.createFrom().voidItem()
-                        }
-
-                        txHash.hset(berichtKey, plan.hashVelden)
-                            .chain { _ -> txKey.expire(berichtKey, ttl) }
-                            .chain { _ -> rebuildList }
-                            .replaceWithVoid()
-                    }
-                }
-            },
+            { reads -> bepaalUpdatePlan(reads, berichtKey, listKey, berichtId, ontvanger, status, map) },
+            { plan, tx -> voerUpdatePlanUit(plan, tx, berichtKey, listKey) },
             listKey,
             berichtKey,
         ).chain { result ->
-            val plan = result.preTransactionResult
-
-            if (result.discarded() && poging < MAX_UPDATE_METADATA_POGINGEN) {
-                probeerUpdateMetadata(berichtId, ontvanger, status, map, poging + 1)
-            } else if (result.discarded()) {
-                // Contentie is géén not-found: een null zou de resource laten 404'en
-                // terwijl het bericht bestaat (en de magazijn-write al geslaagd kan
-                // zijn). Signaleer een retriable fout → 503 zodat de client opnieuw
-                // kan proberen. Op warn: verwacht onder hoge gelijktijdigheid, geen crash.
-                log.warnf(
-                    "Redis update na %d pogingen afgebroken door concurrente wijziging; retriable 503. berichtId=%s",
-                    poging,
-                    berichtId,
-                )
-
-                Uni.createFrom().failure(CacheContentieException(berichtId))
-            } else {
-                when (plan) {
-                    UpdatePlan.Geen -> Uni.createFrom().nullItem<Bericht>()
-                    is UpdatePlan.Ongewijzigd -> Uni.createFrom().item(plan.bericht)
-                    is UpdatePlan.Wijzig -> Uni.createFrom().item(plan.updated)
-                }
-            }
+            verwerkUpdateResultaat(result, berichtId, ontvanger, status, map, poging)
         }
             .onFailure().invoke { e ->
                 // Contentie is al op warn gelogd en is geen echte storing; alleen
                 // overige fouten als error loggen.
                 if (e !is CacheContentieException) log.errorf(e, "Redis update mislukt voor berichtId=%s", berichtId)
             }
+    }
+
+    /** Read-fase (onder WATCH): bepaalt wat de write-fase moet schrijven. */
+    private fun bepaalUpdatePlan(
+        reads: ReactiveRedisDataSource,
+        berichtKey: String,
+        listKey: String,
+        berichtId: UUID,
+        ontvanger: Identificatienummer,
+        status: Leesstatus?,
+        map: String?,
+    ): Uni<UpdatePlan> =
+        reads.hash(String::class.java).hgetall(berichtKey)
+            .chain { fields ->
+                if (fields.isEmpty()) {
+                    Uni.createFrom().item(UpdatePlan.Geen)
+                } else {
+                    val bericht = hashToBericht(fields)
+
+                    when {
+                        bericht.ontvanger != ontvanger.waarde -> Uni.createFrom().item(UpdatePlan.Geen)
+                        status == null && map == null -> Uni.createFrom().item(UpdatePlan.Ongewijzigd(bericht))
+                        else -> maakWijzigPlan(reads, listKey, berichtId, bericht, status, map)
+                    }
+                }
+            }
+
+    private fun maakWijzigPlan(
+        reads: ReactiveRedisDataSource,
+        listKey: String,
+        berichtId: UUID,
+        bericht: Bericht,
+        status: Leesstatus?,
+        map: String?,
+    ): Uni<UpdatePlan> {
+        val updated = bericht.copy(
+            status = status ?: bericht.status,
+            map = map ?: bericht.map,
+        )
+        val hashVelden = buildMap {
+            status?.let { put("status", it.wire) }
+            map?.let { put("map", it) }
+        }
+        val updatedJson = objectMapper.writeValueAsString(updated)
+
+        return reads.list(String::class.java).lrange(listKey, 0, -1)
+            .map { entries -> UpdatePlan.Wijzig(updated, hashVelden, herbouwLijst(entries, berichtId, updatedJson)) }
+    }
+
+    /** Vervangt het blob met `berichtId` in de sessie-list door [updatedJson]; overige entries blijven. */
+    private fun herbouwLijst(entries: List<String>, berichtId: UUID, updatedJson: String): List<String> =
+        entries.map { json ->
+            val match = runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
+                .onFailure { e ->
+                    // Onparsebare blob: kan per definitie niet het te
+                    // updaten bericht zijn; behoud en log (cache-corruptie).
+                    log.warnf(e, "Onparsebare list-entry bij update; entry behouden. berichtId=%s", berichtId)
+                }
+                .getOrNull() == berichtId.toString()
+
+            if (match) updatedJson else json
+        }
+
+    /** Write-fase (MULTI/EXEC): voert het in de read-fase bepaalde plan uit. */
+    private fun voerUpdatePlanUit(
+        plan: UpdatePlan,
+        tx: ReactiveTransactionalRedisDataSource,
+        berichtKey: String,
+        listKey: String,
+    ): Uni<Void> =
+        when (plan) {
+            UpdatePlan.Geen -> Uni.createFrom().voidItem()
+
+            is UpdatePlan.Ongewijzigd -> Uni.createFrom().voidItem()
+
+            is UpdatePlan.Wijzig -> {
+                val txKey = tx.key()
+                val txList = tx.list(String::class.java)
+                val txHash = tx.hash(String::class.java)
+
+                val rebuildList = if (plan.nieuweLijst.isNotEmpty()) {
+                    txKey.del(listKey)
+                        .chain { _ -> txList.rpush(listKey, *plan.nieuweLijst.toTypedArray()) }
+                        .chain { _ -> txKey.expire(listKey, ttl) }
+                        .replaceWithVoid()
+                } else {
+                    Uni.createFrom().voidItem()
+                }
+
+                txHash.hset(berichtKey, plan.hashVelden)
+                    .chain { _ -> txKey.expire(berichtKey, ttl) }
+                    .chain { _ -> rebuildList }
+                    .replaceWithVoid()
+            }
+        }
+
+    private fun verwerkUpdateResultaat(
+        result: OptimisticLockingTransactionResult<UpdatePlan>,
+        berichtId: UUID,
+        ontvanger: Identificatienummer,
+        status: Leesstatus?,
+        map: String?,
+        poging: Int,
+    ): Uni<Bericht?> {
+        if (result.discarded() && poging < MAX_UPDATE_METADATA_POGINGEN) {
+            return probeerUpdateMetadata(berichtId, ontvanger, status, map, poging + 1)
+        }
+
+        if (result.discarded()) {
+            // Contentie is géén not-found: een null zou de resource laten 404'en
+            // terwijl het bericht bestaat (en de magazijn-write al geslaagd kan
+            // zijn). Signaleer een retriable fout → 503 zodat de client opnieuw
+            // kan proberen. Op warn: verwacht onder hoge gelijktijdigheid, geen crash.
+            log.warnf(
+                "Redis update na %d pogingen afgebroken door concurrente wijziging; retriable 503. berichtId=%s",
+                poging,
+                berichtId,
+            )
+
+            return Uni.createFrom().failure(CacheContentieException(berichtId))
+        }
+
+        return when (val plan = result.preTransactionResult) {
+            UpdatePlan.Geen -> Uni.createFrom().nullItem<Bericht>()
+            is UpdatePlan.Ongewijzigd -> Uni.createFrom().item(plan.bericht)
+            is UpdatePlan.Wijzig -> Uni.createFrom().item(plan.updated)
+        }
     }
 
     override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {

@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
+import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.context.Context as OtelContext
 import jakarta.enterprise.context.ApplicationScoped
@@ -17,6 +18,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtResponse
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import org.jboss.logging.Logger
@@ -79,65 +81,75 @@ class AanleverResource(
                 logboekContext.dataSubjectId = bericht.ontvanger.waarde
                 logboekContext.dataSubjectType = bericht.ontvanger.type.name
 
-                val selfHref = uriInfo.baseUriBuilder
-                    .path(ApiInfo.BASE_PATH)
-                    .path("berichten")
-                    .path(bericht.berichtId.toString())
-                    .build().toString()
-
-                BerichtResponse().apply {
-                    berichtId = bericht.berichtId
-                    afzender = bericht.afzender.waarde
-                    ontvanger = IdentificatienummerDto().apply {
-                        type = IdentificatienummerDto.TypeEnum.valueOf(bericht.ontvanger.type.name)
-                        waarde = bericht.ontvanger.waarde
-                    }
-                    onderwerp = bericht.onderwerp
-                    tijdstipOntvangst = bericht.tijdstipOntvangst
-                    publicatietijdstip = bericht.publicatietijdstip
-                    links = BerichtLinks().apply {
-                        self = Link().apply { href = selfHref }
-                    }
-                }
+                naarBerichtResponse(bericht)
             }
         } catch (ex: Exception) {
             pendingFailure = ex
             span.setStatus(StatusCode.ERROR)
             throw ex
         } finally {
-            // foreign_operation.processor-attribuut equivalent aan LogboekInterceptor
-            // — alleen koppelen als upstream een traceparent stuurde.
-            val traceparent = httpHeaders.getHeaderString("traceparent")
-            if (traceparent != null) {
-                val processor = httpHeaders.getHeaderString("traceparent-processor")
-                span.setAttribute(
-                    "dpl.core.foreign_operation.processor",
-                    FoutBeschrijving.saneer(processor),
+            koppelLdvContextEnEindigSpan(span, pendingFailure)
+        }
+    }
+
+    private fun naarBerichtResponse(bericht: Bericht): BerichtResponse {
+        val selfHref = uriInfo.baseUriBuilder
+            .path(ApiInfo.BASE_PATH)
+            .path("berichten")
+            .path(bericht.berichtId.toString())
+            .build().toString()
+
+        return BerichtResponse().apply {
+            berichtId = bericht.berichtId
+            afzender = bericht.afzender.waarde
+            ontvanger = IdentificatienummerDto().apply {
+                type = IdentificatienummerDto.TypeEnum.valueOf(bericht.ontvanger.type.name)
+                waarde = bericht.ontvanger.waarde
+            }
+            onderwerp = bericht.onderwerp
+            tijdstipOntvangst = bericht.tijdstipOntvangst
+            publicatietijdstip = bericht.publicatietijdstip
+            links = BerichtLinks().apply {
+                self = Link().apply { href = selfHref }
+            }
+        }
+    }
+
+    private fun koppelLdvContextEnEindigSpan(span: Span, pendingFailure: Throwable?) {
+        // foreign_operation.processor-attribuut equivalent aan LogboekInterceptor
+        // — alleen koppelen als upstream een traceparent stuurde.
+        val traceparent = httpHeaders.getHeaderString("traceparent")
+
+        if (traceparent != null) {
+            val processor = httpHeaders.getHeaderString("traceparent-processor")
+            span.setAttribute(
+                "dpl.core.foreign_operation.processor",
+                FoutBeschrijving.saneer(processor),
+            )
+        }
+
+        // Genest try/finally: outer borgt `span.end()` (anders span-leak), inner vangt
+        // enkel de IAE die ProcessingHandler op config-fout gooit. Andere exceptions
+        // vliegen door naar de exception-mapper.
+        try {
+            try {
+                processingHandler.addLogboekContextToSpan(span, logboekContext)
+            } catch (ex: IllegalArgumentException) {
+                // Eigen errorId als tweede correlatie-handvat naast die van de
+                // ProblemExceptionMapper; pendingFailure-message blijft uit het log
+                // (categorie + cause-type volstaan, geen niet-numerieke PII).
+                val ldvErrorId = java.util.UUID.randomUUID()
+                log.errorf(
+                    ex,
+                    "LDV-context koppelen aan span faalde voor aanleveren-bericht " +
+                        "(ldvErrorId=%s); oorspronkelijke fout-categorie=%s cause=%s",
+                    ldvErrorId,
+                    pendingFailure?.javaClass?.simpleName ?: "geen",
+                    pendingFailure?.cause?.javaClass?.simpleName ?: "geen",
                 )
             }
-            // Genest try/finally: outer borgt `span.end()` (anders span-leak), inner vangt
-            // enkel de IAE die ProcessingHandler op config-fout gooit. Andere exceptions
-            // vliegen door naar de exception-mapper.
-            try {
-                try {
-                    processingHandler.addLogboekContextToSpan(span, logboekContext)
-                } catch (ex: IllegalArgumentException) {
-                    // Eigen errorId als tweede correlatie-handvat naast die van de
-                    // ProblemExceptionMapper; pendingFailure-message blijft uit het log
-                    // (categorie + cause-type volstaan, geen niet-numerieke PII).
-                    val ldvErrorId = java.util.UUID.randomUUID()
-                    log.errorf(
-                        ex,
-                        "LDV-context koppelen aan span faalde voor aanleveren-bericht " +
-                            "(ldvErrorId=%s); oorspronkelijke fout-categorie=%s cause=%s",
-                        ldvErrorId,
-                        pendingFailure?.javaClass?.simpleName ?: "geen",
-                        pendingFailure?.cause?.javaClass?.simpleName ?: "geen",
-                    )
-                }
-            } finally {
-                span.end()
-            }
+        } finally {
+            span.end()
         }
     }
 }

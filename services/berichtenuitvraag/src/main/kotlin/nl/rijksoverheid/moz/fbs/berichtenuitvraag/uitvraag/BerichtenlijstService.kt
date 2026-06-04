@@ -51,18 +51,23 @@ class BerichtenlijstService(
     private fun toBerichtenLijst(pagina: BerichtenPagina, maakHref: (Int) -> String): BerichtenLijst =
         BerichtenLijst().apply {
             berichten = pagina.berichten.map { UitvraagDtoMapper.toApiSamenvatting(it) }
-            links = PaginaLinks().apply {
-                self = Link().apply { href = maakHref(pagina.page) }
-
-                if (pagina.page > 0) {
-                    prev = Link().apply { href = maakHref(pagina.page - 1) }
-                }
-
-                if (pagina.page < pagina.totalPages - 1) {
-                    next = Link().apply { href = maakHref(pagina.page + 1) }
-                }
-            }
+            links = paginaLinks(pagina, maakHref)
         }
+
+    private fun paginaLinks(pagina: BerichtenPagina, maakHref: (Int) -> String): PaginaLinks {
+        val links = PaginaLinks()
+        links.self = Link().apply { href = maakHref(pagina.page) }
+
+        if (pagina.page > 0) {
+            links.prev = Link().apply { href = maakHref(pagina.page - 1) }
+        }
+
+        if (pagina.page < pagina.totalPages - 1) {
+            links.next = Link().apply { href = maakHref(pagina.page + 1) }
+        }
+
+        return links
+    }
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtenlijstService::class.java)
