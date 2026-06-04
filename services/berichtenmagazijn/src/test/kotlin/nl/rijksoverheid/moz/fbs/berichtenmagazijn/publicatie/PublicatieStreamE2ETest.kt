@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * End-to-end test voor [PublicatieStream]:
- *  1. POST /api/v1/berichten met `publicatiedatum=now()`
+ *  1. POST /api/v1/berichten met `publicatietijdstip=now()`
  *  2. Quarkus Scheduler polt elke 200ms (override via [DownstreamStubLifecycle])
  *  3. PublicatieStream claimt deliveries, bouwt CloudEvent, levert af aan twee
  *     embedded HTTP-servers (één per geconfigureerde downstream)

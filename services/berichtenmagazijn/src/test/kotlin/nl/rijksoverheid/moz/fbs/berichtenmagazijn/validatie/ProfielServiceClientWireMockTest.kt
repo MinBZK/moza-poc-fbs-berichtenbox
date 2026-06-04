@@ -12,6 +12,7 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -75,7 +76,6 @@ class ProfielServiceClientWireMockTest {
 
         val partij = client.getPartij("BSN", "999993653")
 
-        assertEquals(42L, partij.partijId)
         assertEquals(1, partij.voorkeuren.size)
         assertEquals("OntvangViaBerichtenbox", partij.voorkeuren[0].voorkeurType)
         assertEquals("true", partij.voorkeuren[0].waarde)
@@ -176,7 +176,7 @@ class ProfielServiceClientWireMockTest {
         )
 
         val partij = client.getPartij("BSN", "999993653")
-        assertEquals(1L, partij.partijId)
+        assertEquals(0, partij.voorkeuren.size)
     }
 
     @Test

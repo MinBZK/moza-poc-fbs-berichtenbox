@@ -8,6 +8,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import java.time.Instant
 import java.util.UUID
 
@@ -18,6 +21,7 @@ object DomainValidationFuzzer {
         ::fuzzAggregationStatus,
         ::fuzzBerichtenPage,
         ::fuzzMagazijnEventDomain,
+        ::fuzzIdentificatienummerFromHeader,
     )
 
     @JvmStatic
@@ -32,8 +36,11 @@ object DomainValidationFuzzer {
                 afzender = data.consumeString(200),
                 ontvanger = data.consumeString(200),
                 onderwerp = data.consumeString(200),
-                tijdstip = Instant.now(),
+                inhoud = data.consumeString(500),
+                publicatietijdstip = Instant.now(),
                 magazijnId = data.consumeString(200),
+                aantalBijlagen = data.consumeInt(),
+                map = if (data.consumeBoolean()) data.consumeString(100) else null,
             )
         } catch (_: IllegalArgumentException) {
             return
@@ -42,6 +49,11 @@ object DomainValidationFuzzer {
         check(bericht.ontvanger.isNotBlank()) { "ontvanger moet niet-blank zijn na constructie" }
         check(bericht.onderwerp.isNotBlank()) { "onderwerp moet niet-blank zijn na constructie" }
         check(bericht.magazijnId.isNotBlank()) { "magazijnId moet niet-blank zijn na constructie" }
+        check(bericht.aantalBijlagen >= 0) { "aantalBijlagen moet niet-negatief zijn na constructie" }
+        bericht.map?.let {
+            check(it.isNotBlank()) { "mapnaam moet niet-blank zijn na constructie" }
+            check(it.length <= Bericht.MAX_MAPNAAM_LENGTE) { "mapnaam-lengte ongeldig na constructie" }
+        }
     }
 
     private fun fuzzAggregationStatus(data: FuzzedDataProvider) {
@@ -79,6 +91,44 @@ object DomainValidationFuzzer {
         check(page.pageSize > 0) { "pageSize moet positief zijn" }
         check(page.totalElements >= 0) { "totalElements moet niet-negatief zijn" }
         check(page.totalPages >= 0) { "totalPages moet niet-negatief zijn" }
+    }
+
+    /**
+     * Fuzz `Identificatienummer.fromHeader(X-Ontvanger)`: header is attacker-
+     * controlled, parser MOET ofwel een geldig getypeerd object teruggeven
+     * ofwel `DomainValidationException` werpen. Geen ongedefinieerd gedrag,
+     * geen runtime-exception buiten die boom, geen null. Vangt regressies
+     * waarbij iemand een ander exception-type doorlaat (bv. raw
+     * IllegalArgumentException uit value-class init blok) — dat zou de
+     * mapper-pipeline omzeilen en als 500 i.p.v. 400 eindigen.
+     */
+    private fun fuzzIdentificatienummerFromHeader(data: FuzzedDataProvider) {
+        val header = data.consumeString(64)
+
+        val result: Identificatienummer = try {
+            Identificatienummer.fromHeader(header)
+        } catch (_: DomainValidationException) {
+            return
+        }
+
+        // Bij succes: invarianten moeten kloppen — `type` consistent met de
+        // parse-prefix, `waarde` numeriek + cijfer-lengte per type, en
+        // toCanonicalString() reversibel terug naar dezelfde Identificatienummer.
+        check(result.waarde.all { it.isDigit() }) { "waarde mag alleen cijfers bevatten" }
+
+        val verwachteLengte = when (result.type) {
+            IdentificatienummerType.BSN, IdentificatienummerType.RSIN -> 9
+            IdentificatienummerType.KVK -> 8
+            IdentificatienummerType.OIN -> 20
+        }
+        check(result.waarde.length == verwachteLengte) {
+            "waarde-lengte ${result.waarde.length} matcht niet met type ${result.type} (verwacht $verwachteLengte)"
+        }
+
+        val roundtrip = Identificatienummer.fromHeader(result.toCanonicalString())
+
+        check(roundtrip.type == result.type) { "roundtrip type drift" }
+        check(roundtrip.waarde == result.waarde) { "roundtrip waarde drift" }
     }
 
     private fun fuzzMagazijnEventDomain(data: FuzzedDataProvider) {
