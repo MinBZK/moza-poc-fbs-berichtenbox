@@ -13,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.BeforeEach
@@ -37,7 +38,7 @@ class AanmeldServiceTest {
     fun setup() {
         every { dedup.eerstgezien(any()) } returns true
         every { dedup.verwijder(any()) } just Runs
-        every { index.magazijnVoor(afzender) } returns "magazijn-a"
+        every { index.magazijnVoor(Oin(afzender)) } returns "magazijn-a"
     }
 
     private fun event(
@@ -106,8 +107,18 @@ class AanmeldServiceTest {
     }
 
     @Test
+    fun `dedup-store onbereikbaar (503) propageert zonder schrijven`() {
+        every { dedup.eerstgezien("evt-1") } throws WebApplicationException("redis down", 503)
+
+        val ex = assertThrows<WebApplicationException> { service.verwerk(event()) }
+
+        assertEquals(503, ex.response.status)
+        verify(exactly = 0) { sessiecache.schrijfBericht(ontvanger, any()) }
+    }
+
+    @Test
     fun `onbekende bron-OIN geeft 400`() {
-        every { index.magazijnVoor(afzender) } returns null
+        every { index.magazijnVoor(Oin(afzender)) } returns null
 
         val ex = assertThrows<WebApplicationException> { service.verwerk(event()) }
 
@@ -137,6 +148,24 @@ class AanmeldServiceTest {
     fun `ongeldige ontvanger-waarde (elfproef) geeft 400`() {
         val ex = assertThrows<WebApplicationException> {
             service.verwerk(event(data = data(ontvanger = AangemeldOntvanger("BSN", "123456789"))))
+        }
+
+        assertEquals(400, ex.response.status)
+    }
+
+    @Test
+    fun `ontbrekende ontvanger geeft 400`() {
+        val ex = assertThrows<WebApplicationException> {
+            service.verwerk(event(data = data(ontvanger = null)))
+        }
+
+        assertEquals(400, ex.response.status)
+    }
+
+    @Test
+    fun `lege ontvanger-waarde geeft 400`() {
+        val ex = assertThrows<WebApplicationException> {
+            service.verwerk(event(data = data(ontvanger = AangemeldOntvanger("BSN", ""))))
         }
 
         assertEquals(400, ex.response.status)

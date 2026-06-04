@@ -2,12 +2,13 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld
 
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.redis.datasource.value.SetArgs
+import io.smallrye.mutiny.TimeoutException as MutinyTimeoutException
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.concurrent.CompletionException
-import java.util.concurrent.TimeoutException
+import java.util.concurrent.TimeoutException as JucTimeoutException
 
 /**
  * Redis-implementatie van [AanmeldDeduplicatie]. Gebruikt `SET key 1 NX EX <ttl>`:
@@ -27,11 +28,16 @@ class RedisAanmeldDeduplicatie(
     private val log = Logger.getLogger(RedisAanmeldDeduplicatie::class.java)
     private val values = redis.value(String::class.java)
     private val keys = redis.key(String::class.java)
+    // Een TTL van 0 (of negatief) zou idempotentie stil uitschakelen (marker verloopt
+    // direct); faal liever luid bij start dan dubbele berichten in productie te krijgen.
     private val ttlSeconden = config.deduplicatie().ttl().seconds
+        .also { require(it > 0) { "aanmeld.deduplicatie.ttl moet groter dan nul zijn" } }
 
     override fun eerstgezien(eventId: String): Boolean {
         val args = SetArgs().nx().ex(ttlSeconden)
 
+        // setAndChanged (niet set): geeft true als de NX-write daadwerkelijk plaatsvond
+        // = eerste keer. Een gewone set zou de first-seen-detectie stil breken.
         return runOrServiceUnavailable("markeren") {
             values.setAndChanged(sleutel(eventId), "1", args).await().atMost(TIMEOUT)
         }
@@ -54,8 +60,9 @@ class RedisAanmeldDeduplicatie(
     }
 
     private fun vertaal(actie: String, oorzaak: Throwable): WebApplicationException {
-        val melding = if (oorzaak is TimeoutException) "timeout" else oorzaak.javaClass.simpleName
-        log.warnf("Aanmeld-deduplicatie (%s) faalde: %s; 503 naar caller", actie, melding)
+        val isTimeout = oorzaak is MutinyTimeoutException || oorzaak is JucTimeoutException
+        val melding = if (isTimeout) "timeout" else oorzaak.javaClass.simpleName
+        log.warnf(oorzaak, "Aanmeld-deduplicatie (%s) faalde: %s; 503 naar caller", actie, melding)
 
         return WebApplicationException("Idempotentie-store niet bereikbaar. Probeer het later opnieuw.", 503)
     }

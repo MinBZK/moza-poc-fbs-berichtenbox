@@ -10,10 +10,11 @@ import java.time.Duration
  * (multi-magazijn) — de map legt geen aantal vast. `client.*` begrenst de timeouts
  * op de magazijn-REST-client.
  *
- * `instances.<id>.afzenders` spiegelt dezelfde routing-config die de sessiecache-
- * library gebruikt: welke afzender-OIN(s) een magazijn serveert. De aanmeld-webhook
- * leidt hiermee uit de afzender van een CloudEvent het bron-magazijn af; de
- * properties-config is het gedeelde contract tussen beide consumers.
+ * `instances.<id>.afzenders` gebruikt dezelfde property-sleutel-conventie als de
+ * sessiecache-library (welke afzender-OIN(s) een magazijn serveert); beide lezen die
+ * sleutels onafhankelijk via hun eigen ConfigMapping — gedeeld is de conventie, niet
+ * het type. De aanmeld-webhook leidt hiermee uit de afzender van een CloudEvent het
+ * bron-magazijn af.
  */
 @ConfigMapping(prefix = "magazijnen")
 interface MagazijnenConfig {

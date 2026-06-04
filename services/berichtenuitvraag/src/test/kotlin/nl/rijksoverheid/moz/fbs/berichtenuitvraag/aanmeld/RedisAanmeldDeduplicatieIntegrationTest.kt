@@ -6,10 +6,13 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MockSessiecache
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Integratietest van [RedisAanmeldDeduplicatie] tegen een echte Redis (Dev
@@ -56,6 +59,26 @@ class RedisAanmeldDeduplicatieIntegrationTest {
         val ttl = redis.key(String::class.java).ttl("aanmeld:event:$id").await().indefinitely()
 
         assertTrue(ttl > 0, "verwachtte positieve TTL, was $ttl")
+    }
+
+    @Test
+    fun `gelijktijdige afleveringen van hetzelfde event zien er hooguit een als eerste`() {
+        val id = nieuwId()
+        val threads = 16
+        val pool = Executors.newFixedThreadPool(threads)
+        val eersten = AtomicInteger(0)
+
+        try {
+            val taken = (1..threads).map {
+                pool.submit { if (dedup.eerstgezien(id)) eersten.incrementAndGet() }
+            }
+
+            taken.forEach { it.get() }
+        } finally {
+            pool.shutdown()
+        }
+
+        assertEquals(1, eersten.get(), "NX moet precies één winnaar opleveren bij concurrent claims")
     }
 }
 

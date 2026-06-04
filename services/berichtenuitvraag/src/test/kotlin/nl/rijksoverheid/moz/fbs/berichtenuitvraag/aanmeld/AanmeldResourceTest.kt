@@ -129,8 +129,9 @@ class AanmeldResourceTest {
     }
 
     @Test
-    fun `onbekende afzender-OIN geeft 400`() {
+    fun `onbekende afzender-OIN geeft 400 (contract-gevalideerd)`() {
         given()
+            .filter(validator)
             .contentType(cloudEventsJson)
             .body(event(afzenderOin = "99999999999999999999"))
             .`when`().post("/api/v1/aanmeldingen")
@@ -140,6 +141,82 @@ class AanmeldResourceTest {
             .body("status", equalTo(400))
 
         assertTrue(sessiecache.schrijfAanroepen.isEmpty())
+    }
+
+    @Test
+    fun `dedup-store onbereikbaar geeft 503 (contract-gevalideerd)`() {
+        dedup.fout = WebApplicationException("redis down", 503)
+
+        given()
+            .filter(validator)
+            .contentType(cloudEventsJson)
+            .body(event())
+            .`when`().post("/api/v1/aanmeldingen")
+            .then()
+            .statusCode(503)
+            .contentType("application/problem+json")
+
+        assertTrue(sessiecache.schrijfAanroepen.isEmpty())
+    }
+
+    @Test
+    fun `geen-sessie-event wordt na sessie-opening alsnog geschreven bij herlevering`() {
+        val id = "evt-herlevering"
+        val berichtId = UUID.randomUUID()
+
+        // Eerste levering: geen actieve sessie → 202, niets geschreven, marker vrijgegeven.
+        sessiecache.schrijfFouten.add(WebApplicationException("geen sessie", Response.Status.NOT_FOUND))
+        given()
+            .contentType(cloudEventsJson)
+            .body(event(id = id, berichtId = berichtId))
+            .`when`().post("/api/v1/aanmeldingen")
+            .then()
+            .statusCode(202)
+
+        // Tweede levering van hetzelfde event (sessie nu actief): omdat de marker is
+        // vrijgegeven wordt het niet als duplicaat overgeslagen, maar alsnog geschreven.
+        given()
+            .contentType(cloudEventsJson)
+            .body(event(id = id, berichtId = berichtId))
+            .`when`().post("/api/v1/aanmeldingen")
+            .then()
+            .statusCode(202)
+
+        assertEquals(2, sessiecache.schrijfAanroepen.size)
+        assertEquals("magazijn-a", sessiecache.berichten[berichtId]?.magazijnId)
+    }
+
+    @Test
+    fun `onbekend extra attribuut en ontbrekend optioneel veld geven 202`() {
+        val berichtId = UUID.randomUUID()
+        val body = """
+            {
+              "id": "evt-extra",
+              "source": "urn:nld:oin:$afzender:systeem:fbs-magazijn",
+              "specversion": "1.0",
+              "type": "nl.rijksoverheid.fbs.bericht.gepubliceerd",
+              "subject": "$berichtId",
+              "sequence": "42",
+              "data": {
+                "berichtId": "$berichtId",
+                "afzender": "$afzender",
+                "ontvanger": { "type": "BSN", "waarde": "999990019" },
+                "onderwerp": "Onderwerp",
+                "inhoud": "Inhoud",
+                "publicatietijdstip": "2026-06-04T10:00:00Z"
+              }
+            }
+        """.trimIndent()
+
+        given()
+            .contentType(cloudEventsJson)
+            .body(body)
+            .`when`().post("/api/v1/aanmeldingen")
+            .then()
+            .statusCode(202)
+
+        assertEquals(1, sessiecache.berichten.size)
+        assertEquals(berichtId, sessiecache.berichten[berichtId]?.berichtId)
     }
 
     @Test

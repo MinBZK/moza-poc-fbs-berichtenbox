@@ -26,6 +26,13 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
  * endpoints die op de gateway/FSC-grens vertrouwen; dit endpoint kent daarom geen
  * eigen app-niveau-token. Het verwerkt alleen het verwachte event-type en raakt
  * uitsluitend de cache van de in het event genoemde ontvanger.
+ *
+ * De `data`-payload bevat persoonsgegevens (ontvanger-BSN/RSIN, berichtinhoud); de
+ * context-attributen niet (`subject` = berichtId). Vertrouwelijkheid leunt op de
+ * directe, wederzijds-geauthenticeerde FSC-verbinding (TLS) tussen Publicatie Stream
+ * en deze webhook — er zitten geen niet-vertrouwde intermediairs tussen. Komt die
+ * aanname te vervallen, dan is payload-encryptie (NL GOV CloudEvents: JWE of
+ * `dataref`/claim-check) vereist.
  */
 @Path(ApiInfo.BASE_PATH + "/aanmeldingen")
 @ApplicationScoped

@@ -11,11 +11,16 @@ import java.util.UUID
  * Stream van een magazijn die aflevert. Spiegelt het uitgaande contract van het
  * magazijn, maar is uitvraag-eigen (geen module-overschrijdende type-deling).
  *
- * Velden zijn nullable en worden expliciet gevalideerd in [AanmeldService]: zo
- * levert een ontbrekend verplicht attribuut een nette 400 op i.p.v. een
- * deserialisatie-NPE/500. De Jackson-annotaties maken deserialisatie onafhankelijk
- * van de kotlin-module en `-parameters` compiler-flag (beide niet runtime aanwezig).
- * Onbekende context-attributen (NL GOV-extensies) worden genegeerd.
+ * Velden zijn nullable; de verplichte velden worden in [AanmeldService] gevalideerd
+ * en naar een getypeerd [GepubliceerdBerichtEvent] geparset, zodat een ontbrekend
+ * verplicht attribuut een nette 400 oplevert i.p.v. een deserialisatie-NPE/500. De
+ * Jackson-annotaties maken deserialisatie onafhankelijk van de kotlin-module en
+ * `-parameters` compiler-flag (beide niet runtime aanwezig). Onbekende context-
+ * attributen (NL GOV-extensies zoals `sequence`) worden genegeerd.
+ *
+ * `datacontenttype`, `dataschema` en `tijdstipOntvangst` worden bewust wel gemodelleerd
+ * maar niet gebruikt: ze horen bij het CloudEvents-/magazijn-contract en blijven zo
+ * zichtbaar in de envelope (geen "dead field" om later te verwijderen).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class AangemeldCloudEvent

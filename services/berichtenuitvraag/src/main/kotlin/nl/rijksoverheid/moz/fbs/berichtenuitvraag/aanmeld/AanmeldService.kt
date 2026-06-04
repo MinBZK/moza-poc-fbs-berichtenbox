@@ -13,9 +13,10 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.jboss.logging.Logger
 
 /**
- * Verwerkt een aangemeld gepubliceerd-bericht-event: valideert de CloudEvents-
- * envelope (NL GOV-profiel), bewaakt idempotentie, leidt het bron-magazijn af uit
- * de afzender en schrijft het bericht in de sessiecache van de ontvanger.
+ * Verwerkt een aangemeld gepubliceerd-bericht-event: parseert de CloudEvents-
+ * envelope (NL GOV-profiel) naar een getypeerd [GepubliceerdBerichtEvent], bewaakt
+ * idempotentie, leidt het bron-magazijn af uit de afzender en schrijft het bericht
+ * in de sessiecache van de ontvanger.
  *
  * Alleen ontvangers met een actieve sessie worden bijgewerkt; ontbreekt die, dan
  * is dat het normale geval (de meeste ontvangers hebben geen open sessie) en wordt
@@ -37,59 +38,55 @@ class AanmeldService(
     private val log = Logger.getLogger(AanmeldService::class.java)
 
     fun verwerk(event: AangemeldCloudEvent) {
-        valideerEnvelope(event)
+        val gepubliceerd = parse(event)
 
-        val eventId = event.id!!
-
-        if (!deduplicatie.eerstgezien(eventId)) {
+        if (!deduplicatie.eerstgezien(gepubliceerd.eventId)) {
             log.debug("Aanmeld-event al eerder verwerkt; overgeslagen (idempotentie)")
 
             return
         }
 
         // Houd de idempotentie-marker alléén aan wanneer er ook echt een bericht is
-        // geschreven. Geen actieve sessie (de meeste events) en transiente/
-        // validatiefouten schrijven niets; de marker dan vrijgeven voorkomt dat Redis
-        // volloopt met markers voor no-ops en laat een latere her-aflevering opnieuw
-        // verwerken. Best-effort: faalt het vrijgeven, dan ruimt de TTL alsnog op.
+        // geschreven. Geen actieve sessie (de meeste events) en transiente fouten
+        // schrijven niets; de marker dan vrijgeven voorkomt dat Redis volloopt met
+        // markers voor no-ops en laat een latere her-aflevering opnieuw verwerken.
+        // Best-effort: faalt het vrijgeven, log het (een structureel falende DEL zou
+        // anders stil de keyspace laten groeien en her-afleveringen blokkeren); de
+        // TTL ruimt de marker dan alsnog op.
         var geschreven = false
 
         try {
-            geschreven = schrijfNieuwBericht(event.data!!)
+            geschreven = schrijf(gepubliceerd)
         } finally {
             if (!geschreven) {
-                runCatching { deduplicatie.verwijder(eventId) }
+                runCatching { deduplicatie.verwijder(gepubliceerd.eventId) }
+                    .onFailure { log.warnf(it, "Vrijgeven idempotentie-marker faalde; TTL ruimt alsnog op") }
             }
         }
     }
 
-    private fun schrijfNieuwBericht(data: AangemeldBerichtData): Boolean {
-        val afzender = parseAfzender(data.afzender!!)
-        val magazijnId = afzenderIndex.magazijnVoor(afzender.waarde)
-            ?: throw badRequest("Afzender hoort bij geen geconfigureerd magazijn.")
-
-        val ontvanger = parseOntvanger(data.ontvanger!!)
-
+    /** `true` als het bericht geschreven is; `false` bij geen actieve sessie (no-op). */
+    private fun schrijf(event: GepubliceerdBerichtEvent): Boolean {
         // AVG art. 30: leg de ontvanger als data-subject vast nu we daadwerkelijk
         // diens berichtgegevens verwerken (niet bij duplicaat/validatiefout).
-        logboekContext.dataSubjectType = ontvanger.type.name
-        logboekContext.dataSubjectId = ontvanger.waarde
+        logboekContext.dataSubjectType = event.ontvanger.type.name
+        logboekContext.dataSubjectId = event.ontvanger.waarde
 
         // De CloudEvent draagt geen bijlage-metadata; die volgen bij de volgende
         // volledige ophaling. Een aanmeld-entry heeft dus aantalBijlagen=0.
         val bericht = Bericht(
-            berichtId = data.berichtId!!,
-            afzender = afzender.waarde,
-            ontvanger = ontvanger.waarde,
-            onderwerp = data.onderwerp!!,
-            inhoud = data.inhoud!!,
-            publicatietijdstip = data.publicatietijdstip!!,
-            magazijnId = magazijnId,
+            berichtId = event.berichtId,
+            afzender = event.afzender.waarde,
+            ontvanger = event.ontvanger.waarde,
+            onderwerp = event.onderwerp,
+            inhoud = event.inhoud,
+            publicatietijdstip = event.publicatietijdstip,
+            magazijnId = event.magazijnId,
             aantalBijlagen = 0,
         )
 
         try {
-            sessiecache.schrijfBericht(ontvanger, bericht)
+            sessiecache.schrijfBericht(event.ontvanger, bericht)
 
             return true
         } catch (e: WebApplicationException) {
@@ -103,6 +100,43 @@ class AanmeldService(
         }
     }
 
+    /**
+     * Parseert en valideert de ruwe envelope in één stap naar een getypeerd event.
+     * Elke schending (ontbrekend verplicht veld, verkeerde envelope-waarde, ongeldig
+     * OIN/identificatienummer, onbekende bron) levert een 400. Magazijn-afleiding zit
+     * hier zodat een onbekende bron al vóór de idempotentie-claim afketst.
+     */
+    private fun parse(event: AangemeldCloudEvent): GepubliceerdBerichtEvent {
+        vereis(!event.id.isNullOrBlank(), "CloudEvent mist 'id'.")
+        vereis(event.specversion == SPEC_VERSION, "Niet-ondersteunde CloudEvents specversion.")
+        vereis(event.source?.startsWith(NLD_NAMESPACE) == true, "CloudEvent 'source' moet de urn:nld: namespace gebruiken.")
+        vereis(event.type == EVENT_TYPE, "Onverwacht CloudEvent-type.")
+
+        val data = event.data ?: throw badRequest("CloudEvent mist 'data'.")
+
+        val berichtId = data.berichtId ?: throw badRequest("data.berichtId ontbreekt.")
+        vereis(!data.afzender.isNullOrBlank(), "data.afzender ontbreekt.")
+        val ontvangerDto = data.ontvanger ?: throw badRequest("data.ontvanger ontbreekt.")
+        vereis(!data.onderwerp.isNullOrBlank(), "data.onderwerp ontbreekt.")
+        vereis(!data.inhoud.isNullOrBlank(), "data.inhoud ontbreekt.")
+        val publicatietijdstip = data.publicatietijdstip ?: throw badRequest("data.publicatietijdstip ontbreekt.")
+
+        val afzender = parseAfzender(data.afzender!!)
+        val magazijnId = afzenderIndex.magazijnVoor(afzender)
+            ?: throw badRequest("Afzender hoort bij geen geconfigureerd magazijn.")
+
+        return GepubliceerdBerichtEvent(
+            eventId = event.id!!,
+            berichtId = berichtId,
+            afzender = afzender,
+            ontvanger = parseOntvanger(ontvangerDto),
+            magazijnId = magazijnId,
+            onderwerp = data.onderwerp!!,
+            inhoud = data.inhoud!!,
+            publicatietijdstip = publicatietijdstip,
+        )
+    }
+
     private fun parseAfzender(afzender: String): Oin {
         try {
             return Oin(afzender)
@@ -113,29 +147,16 @@ class AanmeldService(
 
     private fun parseOntvanger(ontvanger: AangemeldOntvanger): Identificatienummer {
         val type = IdentificatienummerType.entries.firstOrNull { it.name == ontvanger.type }
-            ?: throw badRequest("Onbekend identificatienummer-type voor ontvanger.")
+            ?: throw badRequest("Onbekend of ontbrekend identificatienummer-type voor ontvanger.")
+
+        val waarde = ontvanger.waarde
+        vereis(!waarde.isNullOrBlank(), "data.ontvanger.waarde ontbreekt.")
 
         try {
-            return Identificatienummer.of(type, ontvanger.waarde!!)
+            return Identificatienummer.of(type, waarde!!)
         } catch (e: DomainValidationException) {
             throw badRequest("Ontvanger is geen geldig identificatienummer.", e)
         }
-    }
-
-    private fun valideerEnvelope(event: AangemeldCloudEvent) {
-        vereis(!event.id.isNullOrBlank(), "CloudEvent mist 'id'.")
-        vereis(event.specversion == SPEC_VERSION, "Niet-ondersteunde CloudEvents specversion.")
-        vereis(event.source?.startsWith(NLD_NAMESPACE) == true, "CloudEvent 'source' moet de urn:nld: namespace gebruiken.")
-        vereis(event.type == EVENT_TYPE, "Onverwacht CloudEvent-type.")
-
-        val data = event.data ?: throw badRequest("CloudEvent mist 'data'.")
-
-        vereis(data.berichtId != null, "data.berichtId ontbreekt.")
-        vereis(!data.afzender.isNullOrBlank(), "data.afzender ontbreekt.")
-        vereis(data.ontvanger?.waarde?.isNotBlank() == true, "data.ontvanger ontbreekt.")
-        vereis(!data.onderwerp.isNullOrBlank(), "data.onderwerp ontbreekt.")
-        vereis(!data.inhoud.isNullOrBlank(), "data.inhoud ontbreekt.")
-        vereis(data.publicatietijdstip != null, "data.publicatietijdstip ontbreekt.")
     }
 
     private fun vereis(voorwaarde: Boolean, melding: String) {

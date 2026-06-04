@@ -1,6 +1,6 @@
 # Aanmeld Service (#417)
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 ## Context
 
@@ -23,11 +23,11 @@ hierop bijgewerkt.
 Publicatie Stream (magazijn)
   │  POST <downstream.url>   Content-Type: application/cloudevents+json  (structured mode)
   ▼
-AanmeldResource (POST /api/v1/aanmeldingen, gegenereerd uit OpenAPI, tag Aanmeld)
+AanmeldResource (POST /api/v1/aanmeldingen, handgeschreven buiten codegen, tag Aanmeld)
   ▼
 AanmeldService
   ├─ valideer NL GOV CloudEvents-profiel (specversion, source urn:nld:, type)
-  ├─ idempotentie  → AanmeldDeduplicatie (Redis SET NX PX)
+  ├─ idempotentie  → AanmeldDeduplicatie (Redis SET NX EX)
   ├─ afzender-OIN  → magazijnId           (AfzenderMagazijnIndex, hergebruikt afzenders-config)
   ├─ map BerichtData → sessiecache Bericht
   └─ Sessiecache.schrijfBericht(ontvanger, bericht)
@@ -46,11 +46,12 @@ AanmeldService
   `inhoud`, `tijdstipOntvangst`, `publicatietijdstip`) — spiegelt het magazijn-contract.
 - Responses: `202` (verwerkt/geskipt/duplicaat, leeg body), `400` (`application/problem+json`),
   `503` (`application/problem+json`).
-- `pom.xml`: `apisToGenerate` → `Uitvraag,Aanmeld`.
+- Pad blijft buiten codegen (`apisToGenerate=Uitvraag`), net als het SSE-endpoint:
+  custom media type + 202-zonder-body laten zich niet schoon uit `jaxrs-spec` genereren.
 - Bruno-request onder `bruno/berichtenuitvraag/aanmeld/`.
 
 ### 2. `aanmeld/AanmeldResource.kt`
-Implementeert gegenereerde `AanmeldApi`. `@Logboek` (nieuwe activity
+Handgeschreven JAX-RS-resource (buiten codegen). `@Logboek` (nieuwe activity
 `UITVRAAG_AANMELDING`). Delegeert naar `AanmeldService`. Geen try/catch — fouten via
 de fbs-common ExceptionMappers (`WebApplicationException` → Problem).
 
@@ -70,7 +71,7 @@ de fbs-common ExceptionMappers (`WebApplicationException` → Problem).
 
 ### 4. `aanmeld/AanmeldDeduplicatie.kt`
 Redis-backed once-only marker, eigen keyspace `aanmeld:event:{id}` via de Quarkus
-Redis-client (`SET key 1 NX PX <ttl>`; gezet → eerstgezien). Cross-instance correct;
+Redis-client (`SET key 1 NX EX <ttl>`; gezet → eerstgezien). Cross-instance correct;
 in-memory zou bij horizontale schaal of herstart falen. TTL `aanmeld.deduplicatie.ttl`
 (default `PT24H`, ruim boven het magazijn-retry-plafond `PT1H`).
 
