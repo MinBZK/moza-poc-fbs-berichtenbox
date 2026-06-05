@@ -22,6 +22,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.RestStreamElementType
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -79,15 +80,18 @@ class OphalenSseResource(
         aggregation.subscribe().with(
             { event ->
                 registreerLogboekStatus(event)
+
                 if (!emitter.isCancelled) emitter.emit(event)
             },
             { error ->
                 streamAfgerond.set(true)
                 logStreamFout(error, ontvangerId)
+
                 if (!emitter.isCancelled) emitter.fail(error)
             },
             {
                 streamAfgerond.set(true)
+
                 if (!emitter.isCancelled) emitter.complete()
             },
         )
@@ -109,13 +113,7 @@ class OphalenSseResource(
 
     /** Zet logboek-status op basis van het finale event; tussentijdse events wijzigen niets. */
     private fun registreerLogboekStatus(event: MagazijnEvent) {
-        when (event.event) {
-            EventType.OPHALEN_GEREED ->
-                logboekContext.status = if (event.mislukt == 0) StatusCode.OK else StatusCode.ERROR
-            EventType.OPHALEN_FOUT ->
-                logboekContext.status = StatusCode.ERROR
-            else -> { /* geen actie voor tussentijdse events */ }
-        }
+        logboekStatusVoor(event)?.let { logboekContext.status = it }
     }
 
     /**
@@ -128,11 +126,26 @@ class OphalenSseResource(
      */
     private fun logStreamFout(error: Throwable, ontvangerId: Identificatienummer) {
         logboekContext.status = StatusCode.ERROR
+        val errorId = UUID.randomUUID()
+
         log.errorf(
-            "SSE-stream gefaald na open (ontvanger.type=%s, cause=%s, msg-class=%s)",
+            "(errorId=%s) SSE-stream gefaald na open (ontvanger.type=%s, cause=%s, msg-class=%s)",
+            errorId,
             ontvangerId.type,
             error.cause?.javaClass?.simpleName ?: "geen",
             error.javaClass.simpleName,
         )
     }
+}
+
+/**
+ * Bepaalt de LDV-status (AVG art. 30-audittrail) voor een stream-event: alleen het
+ * finale event telt — GEREED zonder mislukkingen is OK, elke (deel)mislukking ERROR;
+ * tussentijdse events leveren `null` (geen wijziging). Pure functie, los van de
+ * resource, zodat de audit-invariant per event-type gepind kan worden in een unit-test.
+ */
+internal fun logboekStatusVoor(event: MagazijnEvent): StatusCode? = when (event.event) {
+    EventType.OPHALEN_GEREED -> if (event.mislukt == 0) StatusCode.OK else StatusCode.ERROR
+    EventType.OPHALEN_FOUT -> StatusCode.ERROR
+    else -> null
 }

@@ -492,7 +492,7 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `RediSearch lijst-pad levert samenvatting zonder de zware inhoud-projectie`() {
-        // M4: FT.SEARCH op het filter-pad gebruikt een RETURN-lijst beperkt tot de
+        // FT.SEARCH op het filter-pad gebruikt een RETURN-lijst beperkt tot de
         // samenvatting-velden. `inhoud` en `bijlagen` zitten niet in [BerichtSamenvatting];
         // de samenvatting-velden moeten wél kloppen.
         val berichten = testBerichten()
@@ -644,7 +644,7 @@ class RedisBerichtenCacheIntegrationTest {
     fun `getById werpt CacheCorruptedException bij ontbrekend verplicht veld`() {
         // Schema-drift / corruptie: hash bestaat maar mist een verplicht veld.
         // hashToBericht MOET CacheCorruptedException werpen (niet RuntimeException of upcast),
-        // anders wordt het pad in BerichtensessiecacheResource verkeerd geclassificeerd (503 i.p.v. 500).
+        // anders wordt het pad in SessiecacheImpl verkeerd geclassificeerd (503 i.p.v. 500).
         val berichtId = UUID.randomUUID()
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         val partialHash = mapOf(
@@ -665,6 +665,49 @@ class RedisBerichtenCacheIntegrationTest {
         }
 
         assertTrue(ex.message!!.contains("magazijnId"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `search werpt CacheCorruptedException bij onparsebaar geindexeerd veld`() {
+        // Zelfde corruptie-classificatie als getById, maar dan op het RediSearch-pad:
+        // documentToSamenvatting moet een onparsebare waarde als CacheCorruptedException
+        // werpen zodat de facade dit als data-issue (500) classificeert en niet als
+        // "Redis onbereikbaar" (503). De hash krijgt de bericht-prefix zodat hij in de
+        // zoekindex belandt; `publicatietijdstip` is opzettelijk geen geldige Instant.
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corrupteHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "onderwerp" to "corrupt zoekdocument",
+            "inhoud" to "inhoud",
+            "publicatietijdstip" to "geen-geldig-tijdstip",
+            "magazijnId" to "magazijn-a",
+            "aantalBijlagen" to "0",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corrupteHash).await().indefinitely()
+
+        // RediSearch indexeert asynchroon: poll tot de zoekopdracht het document raakt.
+        // Vóór indexatie levert de query een lege pagina; zodra het corrupte document
+        // matcht, MOET documentToSamenvatting CacheCorruptedException werpen.
+        val deadline = System.currentTimeMillis() + 5_000
+        var corruptie: CacheCorruptedException? = null
+
+        while (System.currentTimeMillis() < deadline && corruptie == null) {
+            try {
+                val pagina = berichtenCache.search(ontvanger, "corrupt", 0, 20).await().indefinitely()
+
+                assertEquals(0L, pagina.totalElements, "corrupt document mag niet als geldig resultaat terugkomen")
+                Thread.sleep(100)
+            } catch (e: CacheCorruptedException) {
+                corruptie = e
+            }
+        }
+
+        assertNotNull(corruptie, "verwacht CacheCorruptedException zodra het corrupte document geïndexeerd is")
+        assertTrue(corruptie!!.message!!.contains("publicatietijdstip"), "Was: ${corruptie!!.message}")
     }
 
     @Test

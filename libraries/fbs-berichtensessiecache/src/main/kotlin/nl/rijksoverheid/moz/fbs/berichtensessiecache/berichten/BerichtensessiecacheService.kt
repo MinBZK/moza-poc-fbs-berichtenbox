@@ -232,7 +232,7 @@ internal class BerichtensessiecacheService(
     /**
      * Atomaire lock via trySetAggregationStatus (SET NX EX in één commando): voorkom
      * concurrent ophalen voor dezelfde ontvanger. Blokkerende await() is hier bewust:
-     * het aanroepende endpoint (BerichtenOphalenResource) is @Blocking gemarkeerd. De
+     * het aanroepende SSE-endpoint van de consumer (OphalenSseResource) is @Blocking gemarkeerd. De
      * lock-check moet synchroon afgerond zijn voordat de Multi-stream gestart wordt,
      * omdat de 409-response anders niet meer mogelijk is.
      * Try/catch: bij Redis-fout (timeout, connection drop) kan de lock-set partial

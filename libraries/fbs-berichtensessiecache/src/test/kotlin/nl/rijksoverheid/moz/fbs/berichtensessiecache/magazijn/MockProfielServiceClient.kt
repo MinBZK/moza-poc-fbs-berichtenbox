@@ -12,7 +12,7 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 /**
  * CDI-`@Mock`-bean die de echte REST-client vervangt in tests. Default-respons
  * geeft elke ontvanger toestemming voor beide configured-magazijn-OINs zodat
- * bestaande BerichtenOphalenResourceTest-cases identieke aggregatie houden.
+ * ophaal-/aggregatie-tests identieke magazijn-selectie houden.
  *
  * WireMockProfielServiceTestProfile schakelt deze mock uit (via
  * `quarkus.arc.exclude-types`) zodat de echte REST-client onder test komt.
