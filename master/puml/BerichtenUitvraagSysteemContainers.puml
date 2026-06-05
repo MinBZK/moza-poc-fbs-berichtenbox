@@ -43,7 +43,7 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
   shadowing false
 }
 skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache>> {
-  BackgroundColor #438dd5
+  BackgroundColor #6ba3dd
   FontColor #ffffff
   BorderColor #2e6295
   roundCorner 20
@@ -72,7 +72,7 @@ rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app
 rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus). Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO." <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
 
 rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<BerichtenUitvraagSysteem>> {
-  rectangle "==Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nAggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" <<BerichtenUitvraagSysteem.Berichtensessiecache>> as BerichtenUitvraagSysteem.Berichtensessiecache
+  rectangle "==Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin — gedeelde library (in-process)]</size>\n\nAfgeschermde in-process module: aggregeert berichten uit alle aangesloten magazijnen en cachet ze per pseudoniem. Geen losse service meer — enige ingang is de Sessiecache-facade; de interne werking (Redis-cache, magazijn-aggregatie) is niet zichtbaar voor consumenten." <<BerichtenUitvraagSysteem.Berichtensessiecache>> as BerichtenUitvraagSysteem.Berichtensessiecache
   rectangle "==Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nService voor burgers en ondernemers - berichtenbox inzien en berichten beheren" <<BerichtenUitvraagSysteem.BerichtenUitvraagService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService
   rectangle "==BSNk Transformatie\n<size:10>[Container: BSNk container (Logius)]</size>\n\nTransformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" <<BerichtenUitvraagSysteem.BSNkTransformatie>> as BerichtenUitvraagSysteem.BSNkTransformatie
   rectangle "==Aanmeld Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWerkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" <<BerichtenUitvraagSysteem.AanmeldService>> as BerichtenUitvraagSysteem.AanmeldService
@@ -82,8 +82,8 @@ Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUit
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[BSNk API (lokaal)]</size>"
-BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt cache bij\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
+BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt cache bij (aanmeld-write, in-sessie)\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml
