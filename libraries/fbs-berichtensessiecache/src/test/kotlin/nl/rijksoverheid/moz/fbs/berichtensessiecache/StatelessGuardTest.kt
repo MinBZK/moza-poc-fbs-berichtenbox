@@ -25,10 +25,10 @@ import java.util.concurrent.atomic.AtomicReference
  * [nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory]
  * bouwt zijn client-maps eenmalig uit config (`lateinit`, immutable na init).
  */
-class StaatloosheidGuardTest {
+class StatelessGuardTest {
 
     private val bewaakteKlassen = listOf(
-        BlokkerendeSessiecache::class.java,
+        BlockingSessiecache::class.java,
         BerichtensessiecacheService::class.java,
         RedisBerichtenCache::class.java,
     )
