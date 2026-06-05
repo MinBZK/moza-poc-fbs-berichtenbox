@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Borgt dat de facade-keten staatloos blijft: alle sessiestaat hoort in Redis
+ * Borgt dat de facade-keten stateless blijft: alle sessiestaat hoort in Redis
  * (gedeelde store), zodat meerdere pods dezelfde sessies kunnen bedienen en een
  * pod-restart geen sessiegedrag verandert. Een veld dat muteerbare staat in de
  * JVM introduceert (`var`, atomics, concurrent collections) zou die garantie
