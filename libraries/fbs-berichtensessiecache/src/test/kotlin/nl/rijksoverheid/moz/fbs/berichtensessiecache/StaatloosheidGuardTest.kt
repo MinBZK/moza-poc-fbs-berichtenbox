@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference
 class StaatloosheidGuardTest {
 
     private val bewaakteKlassen = listOf(
-        SessiecacheImpl::class.java,
+        BlokkerendeSessiecache::class.java,
         BerichtensessiecacheService::class.java,
         RedisBerichtenCache::class.java,
     )

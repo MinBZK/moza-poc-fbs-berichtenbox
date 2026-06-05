@@ -27,16 +27,16 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Pin het facade-contract van [SessiecacheImpl]: de gereed-status-gating op
+ * Pin het facade-contract van [BlokkerendeSessiecache]: de gereed-status-gating op
  * leespaden, de vertaling van infrastructuurfouten naar de gedocumenteerde
  * statuscodes en de invoervalidatie op de schrijfpaden. Dit gedrag zat eerder
  * in de REST-resource van de sessiecache-deployable; de facade is nu het
  * contractuele seam voor consumers.
  */
-class SessiecacheImplTest {
+class BlokkerendeSessiecacheTest {
 
     private val service = mockk<BerichtensessiecacheService>(relaxed = false)
-    private val facade = SessiecacheImpl(service)
+    private val facade = BlokkerendeSessiecache(service)
     private val ontvanger = Bsn("999990019")
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)

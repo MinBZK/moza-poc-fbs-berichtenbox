@@ -26,11 +26,11 @@ import java.util.UUID
  * alle sessiestaat (cache, aggregatie-status, lock) leeft in Redis.
  */
 @ApplicationScoped
-internal class SessiecacheImpl(
+internal class BlokkerendeSessiecache(
     private val service: BerichtensessiecacheService,
 ) : Sessiecache {
 
-    private val log = Logger.getLogger(SessiecacheImpl::class.java)
+    private val log = Logger.getLogger(BlokkerendeSessiecache::class.java)
 
     override fun lijst(
         ontvanger: Identificatienummer,
