@@ -59,7 +59,7 @@ class ProfielServiceFoutExceptionMapperTest {
         val problem = response.entity as Problem
 
         assertTrue(
-            !problem.detail!!.contains("503") && !problem.detail!!.contains("HTTP"),
+            !problem.detail!!.contains("503") && !problem.detail.contains("HTTP"),
             "detail mag geen upstream-statuscode lekken: ${problem.detail}",
         )
     }

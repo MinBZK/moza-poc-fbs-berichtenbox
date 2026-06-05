@@ -707,7 +707,7 @@ class RedisBerichtenCacheIntegrationTest {
         }
 
         assertNotNull(corruptie, "verwacht CacheCorruptedException zodra het corrupte document geïndexeerd is")
-        assertTrue(corruptie!!.message!!.contains("publicatietijdstip"), "Was: ${corruptie!!.message}")
+        assertTrue(corruptie!!.message!!.contains("publicatietijdstip"), "Was: ${corruptie.message}")
     }
 
     @Test
