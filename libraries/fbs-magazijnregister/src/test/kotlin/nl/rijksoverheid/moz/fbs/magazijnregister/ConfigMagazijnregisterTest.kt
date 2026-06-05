@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnregister
 
+import io.quarkus.runtime.StartupEvent
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -86,6 +87,24 @@ class ConfigMagazijnregisterTest {
         }
 
         assertTrue(ex.message!!.contains("http(s)"))
+    }
+
+    @Test
+    fun `hostloze URL faalt fail-fast`() {
+        // URI.create accepteert `http:///pad` (scheme zonder host); zonder deze check
+        // zou de boot slagen en pas het eerste verkeer falen.
+        val ex = assertThrows<IllegalStateException> {
+            register("test", oinA to inschrijving("http:///geen-host", null))
+        }
+
+        assertTrue(ex.message!!.contains("host"), "foutmelding moet de ontbrekende host benoemen")
+    }
+
+    @Test
+    fun `bijOpstart logt na geslaagde init zonder fout`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", null))
+
+        assertDoesNotThrow { (register as ConfigMagazijnregister).bijOpstart(StartupEvent()) }
     }
 
     @Test

@@ -287,5 +287,4 @@ internal class ProfielMagazijnResolver(
         internal fun veiligLogFragment(ruweUpstreamWaarde: String): String =
             ruweUpstreamWaarde.take(24).replace(CONTROL_CHARS, "?")
     }
-
 }

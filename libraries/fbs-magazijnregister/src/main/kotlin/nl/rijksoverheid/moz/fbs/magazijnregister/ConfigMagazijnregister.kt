@@ -74,9 +74,16 @@ internal class ConfigMagazijnregister(
             "$configKey moet een http(s)-URL zijn, was: '$url'"
         }
 
-        // Magazijn-verkeer bevat persoonsgegevens (berichten + ontvanger in query-param).
-        // BIO 13.2.1 / AVG art. 32 eisen TLS in prod-achtige profielen; dev/test mag
-        // http:// voor lokale WireMock-stubs.
+        // URI.create accepteert hostloze vormen als `http:///pad`; zonder host faalt
+        // de REST-client pas bij het eerste verkeer — hier afvangen houdt de boot-check
+        // dekkend.
+        check(uri.host != null) {
+            "$configKey moet een absolute URL met host zijn, was: '$url'"
+        }
+
+        // Magazijn-verkeer bevat persoonsgegevens (berichtinhoud + ontvanger in de
+        // X-Ontvanger-header). BIO 13.2.1 / AVG art. 32 eisen TLS in prod-achtige
+        // profielen; dev/test mag http:// voor lokale WireMock-stubs.
         OutboundTlsValidator.requireHttps(profile = profile, endpoint = url, configKey = configKey)
 
         return uri

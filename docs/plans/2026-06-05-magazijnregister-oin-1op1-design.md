@@ -49,7 +49,7 @@ het productie-pad — beheer-interface + database-opslag — die twee niet raakt
 | OIN in SSE-output | OIN gaat voluit mee als `magazijnId` (OIN is publiek, geen PII). |
 | Hosting | Nieuwe gedeelde library `libraries/fbs-magazijnregister`, config-backed nu, DB + beheer-UI later. |
 | Publiek contract | Getypeerd `Oin` overal (`voorOin(oin: Oin)`, keys als `Oin`). `magazijnId` blijft `String` (= `oin.waarde`) waar het door bestaande DTO's/SSE stroomt. |
-| Client-timeouts | Blijven per consument (read-aggregatie vs. bijlage-proxy hebben los timeout-beleid). Register = enkel identiteit + endpoint + naam. |
+| Client-timeouts | Blijven per consument (read-aggregatie vs. bijlage-proxy hebben los timeout-beleid). Register = enkel identiteit + endpoint + naam. Bij uitvoering verhuisd: de uitvraag-timeouts staan onder de eigen prefix `magazijn-router.*` — `magazijnen.client.*` kan niet meer bestaan omdat `magazijnen.` nu de register-map met OIN-keys is. |
 
 ## Architectuur
 
@@ -103,8 +103,9 @@ magazijnen."00000001003214345000".naam=Belastingdienst
 
 `MagazijnClientFactory` blijft de REST-client-fabriek (met zijn eigen read-/connect-timeouts);
 het haalt alleen de magazijn-set niet meer uit eigen config maar uit het register.
-`MagazijnRouter` houdt zijn `client.*`-timeouts en client-cache; alleen de URL-bron
-verschuift naar het register.
+`MagazijnRouter` houdt zijn timeouts en client-cache; alleen de URL-bron verschuift
+naar het register en de timeouts staan onder de eigen prefix `magazijn-router.*`
+(niet langer `magazijnen.client.*` — die prefix is nu de register-map).
 
 ### Gevolg voor de 1:1-invariant
 

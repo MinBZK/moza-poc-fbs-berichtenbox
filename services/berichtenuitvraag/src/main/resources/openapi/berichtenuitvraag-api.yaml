@@ -251,11 +251,14 @@ components:
       required: true
       schema: { type: string, minLength: 1 }
       description: |
-        Identifier van het magazijn waarin het bericht is opgeslagen. Te halen
-        uit het `magazijnId`-veld van de GET-response (lijst of detail). De
-        client geeft het mee zodat de uitvraag-service geen sessiecache-lookup
-        nodig heeft om het bron-magazijn te bepalen; een onbekende of foute
-        waarde wordt door het magazijn afgehandeld (404/403).
+        Identifier van het magazijn waarin het bericht is opgeslagen — het OIN
+        van de deelnemende organisatie (per organisatie bestaat precies één
+        magazijn). Te halen uit het `magazijnId`-veld van de GET-response
+        (lijst of detail); voor de client een opaque waarde. De client geeft
+        het mee zodat de uitvraag-service geen sessiecache-lookup nodig heeft
+        om het bron-magazijn te bepalen. Een waarde die niet in het
+        magazijnregister staat levert 502 op; een bekend magazijn dat het
+        bericht niet kent, handelt zelf af (404/403).
 
   headers:
     API-Version:
@@ -354,7 +357,7 @@ components:
         status: { $ref: '#/components/schemas/BerichtStatus' }
         magazijnId:
           type: string
-          description: Identifier van het decentrale magazijn waar dit bericht is opgeslagen; nodig voor bijlage-routering.
+          description: Identifier van het decentrale magazijn waar dit bericht is opgeslagen (het OIN van de deelnemende organisatie); nodig voor bijlage-routering.
         _links: { $ref: '#/components/schemas/BerichtLinks' }
 
     Bericht:
@@ -373,7 +376,7 @@ components:
         status: { $ref: '#/components/schemas/BerichtStatus' }
         magazijnId:
           type: string
-          description: Identifier van het decentrale magazijn waar dit bericht is opgeslagen; nodig voor bijlage-routering.
+          description: Identifier van het decentrale magazijn waar dit bericht is opgeslagen (het OIN van de deelnemende organisatie); nodig voor bijlage-routering.
         bijlagen:
           type: array
           items: { $ref: '#/components/schemas/BijlageMetadata' }

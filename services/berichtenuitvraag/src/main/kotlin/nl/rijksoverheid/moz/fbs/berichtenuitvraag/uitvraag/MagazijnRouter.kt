@@ -38,20 +38,23 @@ class MagazijnRouter(
         clients.computeIfAbsent(magazijnId) { id ->
             val inschrijving = inschrijvingVoor(id)
 
-            // Builder-fouten (RestClientDefinitionException) zijn een config-/topologie-
-            // probleem, geen bug in deze service. Zonder deze wrap ontsnapt de raw
-            // exception langs mapUpstreamFout naar een 500 die on-call ten onrechte de
-            // uitvraag-service in stuurt; map daarom expliciet → 502.
-            runCatching {
+            // Builder-fouten (RestClientDefinitionException e.d.) zijn een config-/
+            // topologie-probleem, geen bug in deze service. Zonder deze wrap ontsnapt
+            // de raw exception langs mapUpstreamFout naar een 500 die on-call ten
+            // onrechte de uitvraag-service in stuurt; map daarom expliciet → 502.
+            // Catch op Exception (niet Throwable): Error-types (OutOfMemoryError,
+            // LinkageError) moeten omhoog propageren naar het JVM-vangnet, niet als
+            // upstream-storing gemaskeerd worden.
+            try {
                 RestClientBuilder.newBuilder()
                     .baseUri(inschrijving.url)
                     .connectTimeout(config.connectTimeout().toMillis(), TimeUnit.MILLISECONDS)
                     .readTimeout(config.readTimeout().toMillis(), TimeUnit.MILLISECONDS)
                     .build(MagazijnClient::class.java)
-            }.getOrElse { e ->
+            } catch (e: Exception) {
                 log.errorf(e, "Magazijn-routering: kon REST-client niet bouwen voor magazijnId=%s url=%s", id, inschrijving.url)
 
-                throw upstreamBadGateway("magazijn-client-configuratie ongeldig voor '$id'")
+                throw upstreamBadGateway("magazijn-client-configuratie ongeldig voor '$id'", e)
             }
         }
 
@@ -66,6 +69,7 @@ class MagazijnRouter(
 
             throw WebApplicationException(
                 "ongeldige magazijnId '$id'; magazijn-ids zijn afzender-OINs uit het magazijnregister",
+                ex,
                 Response.Status.BAD_GATEWAY,
             )
         }
