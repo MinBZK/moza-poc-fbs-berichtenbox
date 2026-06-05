@@ -644,7 +644,7 @@ class RedisBerichtenCacheIntegrationTest {
     fun `getById werpt CacheCorruptedException bij ontbrekend verplicht veld`() {
         // Schema-drift / corruptie: hash bestaat maar mist een verplicht veld.
         // hashToBericht MOET CacheCorruptedException werpen (niet RuntimeException of upcast),
-        // anders wordt het pad in SessiecacheImpl verkeerd geclassificeerd (503 i.p.v. 500).
+        // anders wordt het pad in BlokkerendeSessiecache verkeerd geclassificeerd (503 i.p.v. 500).
         val berichtId = UUID.randomUUID()
         val berichtKey = BerichtenCache.berichtKey(berichtId)
         val partialHash = mapOf(

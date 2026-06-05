@@ -25,7 +25,7 @@ import java.util.UUID
  * Transiente schrijf-contentie: een optimistic-lock-update is na alle pogingen
  * afgebroken door gelijktijdige wijzigingen. Het bericht bestáát — alleen de
  * cache-write lukte niet. Onderscheidt zich expliciet van "niet gevonden" zodat
- * de facade (SessiecacheImpl) een retriable 503 geeft i.p.v. een misleidende 404 (na een
+ * de facade (BlokkerendeSessiecache) een retriable 503 geeft i.p.v. een misleidende 404 (na een
  * geslaagde magazijn-write zou een 404 de client laten denken dat het bericht weg is).
  */
 internal class CacheContentieException(berichtId: UUID) :
@@ -251,7 +251,7 @@ internal class RedisBerichtenCache(
                     // try/catch op JsonProcessingException: cache-data niet deserialiseerbaar duidt
                     // op schema-drift of corruptie. Aparte log + rethrow zodat dit niet als
                     // "Redis onbereikbaar" wegfiltert in het generieke onFailure-pad; de facade
-                    // (SessiecacheImpl) heeft een eigen 500-pad voor JsonProcessingException.
+                    // (BlokkerendeSessiecache) heeft een eigen 500-pad voor JsonProcessingException.
                     val berichten = try {
                         jsonList.map { objectMapper.readValue(it, Bericht::class.java).toSamenvatting() }
                     } catch (ex: com.fasterxml.jackson.core.JsonProcessingException) {
