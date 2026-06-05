@@ -1,13 +1,13 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.NotFoundException
-import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
-import org.eclipse.microprofile.rest.client.inject.RestClient
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.util.UUID
 
@@ -15,8 +15,9 @@ import java.util.UUID
  * Schrijft naar magazijn (bron van waarheid) en sessiecache (afgeleide cache).
  * Magazijn-faal → fout naar client, cache niet aangeraakt. Magazijn-OK + cache-faal
  * → best-effort invalidate ('stale' wordt 'leeg'), dan 502 om de inconsistentie te
- * signaleren. "Cache-faal" = transport-storing (timeout, connect-fout, 5xx); een 4xx
- * duidt op een contract-bug en gaat onveranderd door zonder invalidatie.
+ * signaleren. "Cache-faal" = een 5xx uit de facade (Redis-storing, schrijf-contentie,
+ * corruptie); een 4xx duidt op een contract-bug en gaat onveranderd door zonder
+ * invalidatie.
  *
  * De client geeft de `magazijnId` mee (uit de GET-response, `Bericht.magazijnId` of
  * `BerichtSamenvatting.magazijnId`). Daarmee hoeven we het bron-magazijn niet meer
@@ -27,41 +28,61 @@ import java.util.UUID
  */
 @ApplicationScoped
 class BerichtBeheerService(
-    @RestClient private val sessiecache: SessiecacheClient,
+    private val sessiecache: Sessiecache,
     private val magazijnRouter: MagazijnRouter,
 ) {
 
     fun patch(ontvanger: String, berichtId: UUID, magazijnId: String, patch: BerichtPatch): Bericht {
+        // Lege patch afwijzen vóór de magazijn-write (spec: minProperties 1; Bean
+        // Validation dwingt dat niet af op het gegenereerde model). Zonder deze check
+        // zou een no-op het magazijn raken en pas in de cache-laag op 400 stranden —
+        // ná de write, met een onnodige desync-alert tot gevolg.
+        if (patch.status == null && patch.map == null) {
+            throw WebApplicationException(
+                "Minimaal één van 'status' of 'map' is vereist (geen geldige waarde meegegeven).",
+                Response.Status.BAD_REQUEST,
+            )
+        }
+
         val magazijn = magazijnRouter.forMagazijn(magazijnId)
 
         mapUpstreamFout(log, "magazijn-PATCH") {
             magazijn.patchBericht(ontvanger, berichtId, UitvraagDtoMapper.toMagazijnPatch(patch))
         }
 
-        try {
-            return sessiecache.patchBericht(ontvanger, berichtId, patch)
+        val ontvangerId = Identificatienummer.fromHeader(ontvanger)
+
+        val bijgewerkt = try {
+            sessiecache.werkBerichtBij(ontvangerId, berichtId, UitvraagDtoMapper.toLeesstatus(patch.status), patch.map)
         } catch (e: WebApplicationException) {
             if (!isUpstreamStoring(e)) {
                 // 4xx ná een geslaagde magazijn-write is een contract-bug, geen transport-
                 // storing: de client-request passeerde immers al de magazijn-validatie, dus
-                // hoort de cache hier geen 4xx te geven. Niet compenseren (zie herverpakCache4xx),
-                // maar wél met hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
-                // desyncen zonder self-heal tot de TTL — dezelfde operationele impact als een 5xx-
-                // desync, dus géén stille warnf maar een alertbare errorf. Status propageert; body
-                // niet (facade lekt geen cache-internals/PII).
+                // hoort de cache hier geen 4xx te geven. Niet compenseren, maar wél met
+                // hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
+                // desyncen zonder self-heal tot de TTL — dezelfde operationele impact als een
+                // 5xx-desync, dus géén stille warnf maar een alertbare errorf. Status propageert.
                 log.errorf(e, "%s cache-PATCH 4xx ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
-                throw herverpakCache4xx(e)
+                throw e
             }
 
             log.errorf(e, "cache-PATCH 5xx na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
-            invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
-            throw badGateway()
-        } catch (e: ProcessingException) {
-            log.errorf(e, "cache-PATCH transport-fout na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
-            invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
+            invalideerCacheNaMagazijnWrite(ontvangerId, berichtId)
             throw badGateway()
         }
+
+        if (bijgewerkt == null) {
+            // Bericht bestaat in het magazijn (de write slaagde) maar niet (meer) in de
+            // cache — verlopen TTL of eerdere invalidate. Zelfde alert-anker: de magazijn-
+            // mutatie is doorgevoerd terwijl de client een 404 ziet; zichtbaar maken i.p.v.
+            // stil als gewone not-found wegschrijven.
+            log.errorf("%s cache-PATCH miste het bericht ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
+
+            throw NotFoundException("Bericht niet gevonden in cache")
+        }
+
+        return UitvraagDtoMapper.toApiBericht(bijgewerkt)
     }
 
     fun verwijder(ontvanger: String, berichtId: UUID, magazijnId: String) {
@@ -71,66 +92,35 @@ class BerichtBeheerService(
             magazijn.verwijderBericht(ontvanger, berichtId)
         }
 
+        val ontvangerId = Identificatienummer.fromHeader(ontvanger)
+
         try {
-            sessiecache.verwijderBericht(ontvanger, berichtId)
+            // Idempotente invalidate: "niet in cache" is geen fout, dus geen 404-pad hier.
+            sessiecache.verwijder(ontvangerId, berichtId)
         } catch (e: WebApplicationException) {
             if (!isUpstreamStoring(e)) {
-                // 4xx ná een geslaagde magazijn-write is een contract-bug, geen transport-
-                // storing: de client-request passeerde immers al de magazijn-validatie, dus
-                // hoort de cache hier geen 4xx te geven. Niet compenseren (zie herverpakCache4xx),
-                // maar wél met hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
-                // desyncen zonder self-heal tot de TTL — dezelfde operationele impact als een 5xx-
-                // desync, dus géén stille warnf maar een alertbare errorf. Status propageert; body
-                // niet (facade lekt geen cache-internals/PII).
                 log.errorf(e, "%s cache-DELETE 4xx ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
-                throw herverpakCache4xx(e)
+                throw e
             }
 
             log.errorf(e, "cache-DELETE 5xx na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
-            invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
-            throw badGateway()
-        } catch (e: ProcessingException) {
-            log.errorf(e, "cache-DELETE transport-fout na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
-            invalideerCacheNaMagazijnWrite(ontvanger, berichtId)
+            invalideerCacheNaMagazijnWrite(ontvangerId, berichtId)
             throw badGateway()
         }
     }
 
-    private fun invalideerCacheNaMagazijnWrite(ontvanger: String, berichtId: UUID) {
+    private fun invalideerCacheNaMagazijnWrite(ontvanger: Identificatienummer, berichtId: UUID) {
         try {
-            sessiecache.verwijderBericht(ontvanger, berichtId)
+            sessiecache.verwijder(ontvanger, berichtId)
         } catch (e: WebApplicationException) {
-            logCompensatieFout(e, berichtId)
-        } catch (e: ProcessingException) {
-            logCompensatieFout(e, berichtId)
-        }
-    }
-
-    // Dubbele cache-faal: de write naar de cache faalde én de compenserende invalidate
-    // faalde. De cache blijft stale tot de TTL zonder self-heal — errorf (niet warnf)
-    // zodat een aanhoudende cache-outage alertbaar is i.p.v. te verdrinken in warnings.
-    // Vooraan een stabiele marker zodat de Loki-alert-rule daarop ankert i.p.v. op de
-    // (vertaalbare) proza: een rephrase van de zin mag de alert niet stil slopen. Pak
-    // bij de volgende project-brede metric-toevoeging (review M17) een echte counter op.
-    private fun logCompensatieFout(e: Exception, berichtId: UUID) =
-        log.errorf(e, "%s compensatie-invalidate faalde ná cache-write-faal; cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
-
-    // Herverpak een cache-4xx tot een status- en type-behoudende exception zonder de
-    // upstream-response-body, zodat de client de juiste semantiek (404/403/…) krijgt
-    // maar sessiecache-internals niet via de facade lekken.
-    private fun herverpakCache4xx(e: WebApplicationException): WebApplicationException {
-        // Invariant: alleen aangeroepen in de !isUpstreamStoring-tak, en isUpstreamStoring
-        // geeft true (→ andere tak) zodra response == null. Een null hier is dus geen
-        // verwachte 4xx maar een geschonden interne aanname → luidruchtig falen (500 via
-        // UncaughtExceptionMapper) i.p.v. een 4xx-bedoelde fout stil als 502 herverpakken.
-        val status = e.response?.status
-            ?: error("herverpakCache4xx zonder response; isUpstreamStoring had dit als 502 moeten afvangen")
-
-        return when (status) {
-            404 -> NotFoundException("cache-operatie geweigerd (404)")
-            403 -> ForbiddenException("cache-operatie geweigerd (403)")
-            else -> WebApplicationException("cache-operatie geweigerd ($status)", status)
+            // Dubbele cache-faal: de write naar de cache faalde én de compenserende
+            // invalidate faalde. De cache blijft stale tot de TTL zonder self-heal —
+            // errorf (niet warnf) zodat een aanhoudende cache-outage alertbaar is i.p.v.
+            // te verdrinken in warnings. Vooraan een stabiele marker zodat de Loki-alert-
+            // rule daarop ankert i.p.v. op de (vertaalbare) proza. Pak bij de volgende
+            // project-brede metric-toevoeging een echte counter op.
+            log.errorf(e, "%s compensatie-invalidate faalde ná cache-write-faal; cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
         }
     }
 

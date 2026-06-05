@@ -1,0 +1,157 @@
+package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
+
+import io.smallrye.mutiny.Uni
+import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.inject.Alternative
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * In-memory alternatieve implementatie van [BerichtenCache] voor QuarkusTest-integratie.
+ *
+ * Dit is bewust geen MockK-stub: integratietests voeren meerdere facade-aanroepen
+ * uit die elkaars state moeten zien — `ophalen` vult de cache, een daaropvolgende
+ * `lijst` leest eruit. Zo'n stateful flow is met `every { ... } returns ...` lastig
+ * uit te drukken; een deterministische in-memory implementatie is compacter en
+ * leest natuurlijker.
+ *
+ * Voor *unit*-tests waar buren ge-isoleerd moeten worden, wordt wel MockK gebruikt
+ * (zie `MockMagazijnClientFactory` voor `MagazijnClient`-stubs en de diverse
+ * service-unit-tests).
+ */
+@Alternative
+@ApplicationScoped
+internal class MockBerichtenCache : BerichtenCache {
+
+    private val lists = ConcurrentHashMap<String, List<Bericht>>()
+    private val statuses = ConcurrentHashMap<String, AggregationStatus>()
+    private val locks = ConcurrentHashMap.newKeySet<String>()
+    private val byId = ConcurrentHashMap<UUID, Bericht>()
+
+    companion object {
+        // Modelleert de optimistic-lock-exhaustie van RedisBerichtenCache: bij `true`
+        // faalt `update` met CacheContentieException (zoals de echte cache na
+        // MAX_UPDATE_POGINGEN), terwijl `delete` idempotent blijft. Zo is de
+        // resource-vertaling — contentie → 503 op PATCH vs. 204 op DELETE —
+        // deterministisch testbaar zonder de timing-gevoelige Redis-retry na te bootsen.
+        @Volatile
+        var faalUpdateMetContentie: Boolean = false
+    }
+
+    fun clear() {
+        lists.clear()
+        statuses.clear()
+        locks.clear()
+        byId.clear()
+    }
+
+    fun simuleerBezig(key: String) {
+        locks.add("$key:lock")
+        statuses["$key:status"] = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2)
+    }
+
+    override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
+        val sorted = berichten.sortedByDescending { it.publicatietijdstip }
+        lists["$key:list"] = sorted
+        berichten.forEach { byId[it.berichtId] = it }
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
+        statuses["$key:status"] = status
+        locks.remove("$key:lock")
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
+        statuses["$key:status"] = status
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {
+        val lockAcquired = locks.add("$key:lock")
+        if (lockAcquired) {
+            statuses["$key:status"] = status
+        }
+        return Uni.createFrom().item(lockAcquired)
+    }
+
+    override fun getAggregationStatus(key: String): Uni<AggregationStatus?> {
+        return Uni.createFrom().item(statuses["$key:status"])
+    }
+
+    override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?, map: String?): Uni<BerichtenPagina> {
+        val key = BerichtenCache.cacheKey(ontvanger)
+        val berichten = lists["$key:list"] ?: emptyList()
+        val gefilterd = berichten.filter {
+            it.onderwerp.contains(q, ignoreCase = true)
+        }.filter { afzender == null || it.afzender == afzender }
+            .filter { map == null || it.map == map }
+        val start = page * pageSize
+        val slice = gefilterd.drop(start).take(pageSize).map { it.toSamenvatting() }
+        val totalPages = if (gefilterd.isEmpty()) 0 else (gefilterd.size + pageSize - 1) / pageSize
+        return Uni.createFrom().item(BerichtenPagina(slice, page, pageSize, gefilterd.size.toLong(), totalPages))
+    }
+
+    override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
+        val bericht = byId[berichtId]
+        return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger.waarde) bericht else null)
+    }
+
+    override fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
+        if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(berichtId))
+
+        val bericht = byId[berichtId]
+        if (bericht == null || bericht.ontvanger != ontvanger.waarde) return Uni.createFrom().nullItem()
+        val updated = bericht.copy(
+            status = status?.let { Leesstatus.fromWire(it) } ?: bericht.status,
+            map = map ?: bericht.map,
+        )
+        byId[berichtId] = updated
+        return Uni.createFrom().item(updated)
+    }
+
+    override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
+        val key = BerichtenCache.cacheKey(ontvanger)
+        val listKey = "$key:list"
+        val existing = lists[listKey] ?: emptyList()
+        lists[listKey] = (existing + bericht).sortedByDescending { it.publicatietijdstip }
+        byId[bericht.berichtId] = bericht
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
+        val existing = byId[berichtId]
+        if (existing != null && existing.ontvanger == ontvanger.waarde) {
+            byId.remove(berichtId)
+            val key = BerichtenCache.cacheKey(ontvanger)
+            val listKey = "$key:list"
+            lists[listKey]?.let { lists[listKey] = it.filter { b -> b.berichtId != berichtId } }
+        }
+        return Uni.createFrom().voidItem()
+    }
+
+    override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?, map: String?): Uni<BerichtenPagina?> {
+        val allBerichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()
+        val berichten = allBerichten
+            .filter { afzender == null || it.afzender == afzender }
+            .filter { map == null || it.map == map }
+        if ((afzender != null || map != null) && berichten.isEmpty()) {
+            return Uni.createFrom().item(BerichtenPagina(emptyList(), page, pageSize, 0L, 0))
+        }
+        val start = page * pageSize
+        val end = minOf(start + pageSize, berichten.size)
+        val slice = if (start < berichten.size) berichten.subList(start, end).map { it.toSamenvatting() } else emptyList()
+        val totalPages = if (berichten.isEmpty()) 0 else (berichten.size + pageSize - 1) / pageSize
+        return Uni.createFrom().item(
+            BerichtenPagina(
+                berichten = slice,
+                page = page,
+                pageSize = pageSize,
+                totalElements = berichten.size.toLong(),
+                totalPages = totalPages,
+            )
+        )
+    }
+}

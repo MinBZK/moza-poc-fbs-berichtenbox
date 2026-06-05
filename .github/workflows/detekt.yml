@@ -40,15 +40,21 @@ jobs:
         with:
           sarif_file: libraries/fbs-common/target/detekt.sarif
           category: detekt-fbs-common
-      - name: Upload SARIF — berichtensessiecache
-        if: ${{ always() && hashFiles('services/berichtensessiecache/target/detekt.sarif') != '' }}
+      - name: Upload SARIF — fbs-berichtensessiecache
+        if: ${{ always() && hashFiles('libraries/fbs-berichtensessiecache/target/detekt.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
-          sarif_file: services/berichtensessiecache/target/detekt.sarif
-          category: detekt-berichtensessiecache
+          sarif_file: libraries/fbs-berichtensessiecache/target/detekt.sarif
+          category: detekt-fbs-berichtensessiecache
       - name: Upload SARIF — berichtenmagazijn
         if: ${{ always() && hashFiles('services/berichtenmagazijn/target/detekt.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           sarif_file: services/berichtenmagazijn/target/detekt.sarif
           category: detekt-berichtenmagazijn
+      - name: Upload SARIF — berichtenuitvraag
+        if: ${{ always() && hashFiles('services/berichtenuitvraag/target/detekt.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          sarif_file: services/berichtenuitvraag/target/detekt.sarif
+          category: detekt-berichtenuitvraag

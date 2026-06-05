@@ -6,15 +6,17 @@ import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
-import org.eclipse.microprofile.rest.client.inject.RestClient
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.util.UUID
 
 /**
- * Bericht-detail uit de sessiecache; bijlagen als passthrough uit het magazijn.
- * `haalBijlage` levert `(mimeType, bytes)`: de resource zet het mimeType op een
- * request-property zodat [BijlageContentTypeFilter] de response-`Content-Type` overrult.
+ * Bericht-detail uit de in-process [Sessiecache]-facade; bijlagen als
+ * passthrough uit het magazijn. `haalBijlage` levert `(mimeType, bytes)`: de
+ * resource zet het mimeType op een request-property zodat
+ * [BijlageContentTypeFilter] de response-`Content-Type` overrult.
  *
  * Bijlage-bytes worden volledig in een ByteArray geladen; de magazijn-limiet
  * (`Bijlage.MAX_CONTENT_BYTES`) begrenst het geheugen per request.
@@ -31,23 +33,24 @@ import java.util.UUID
  */
 @ApplicationScoped
 class BerichtOphaalService(
-    @RestClient private val sessiecache: SessiecacheClient,
+    private val sessiecache: Sessiecache,
     private val magazijnRouter: MagazijnRouter,
 ) {
-    fun haalBericht(xOntvanger: String, berichtId: UUID): Bericht =
-        mapUpstreamFout(log, "cache-bericht-lookup (berichtId=$berichtId)") {
-            sessiecache.bericht(xOntvanger, berichtId)
-        }
+    fun haalBericht(xOntvanger: String, berichtId: UUID): Bericht {
+        val domeinBericht = zoekBerichtInCache(xOntvanger, berichtId)
+            ?: throw NotFoundException("Bericht niet gevonden")
+
+        return UitvraagDtoMapper.toApiBericht(domeinBericht)
+    }
 
     fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): Pair<String, ByteArray> {
-        // Lookup-then-route: cache is authoritative voor welke magazijn de
-        // bron is. De extra round-trip is acceptabel: Redis-cache is snel en
+        // Lookup-then-route: cache is authoritative voor welk magazijn de
+        // bron is. De extra cache-read is acceptabel: Redis is snel en
         // het bericht-detail is hoe dan ook nodig om de bijlage-toegang te
         // autoriseren (404 op cache → 404 op uitvraag i.p.v. lekken via 502).
-        val bericht = mapUpstreamFout(log, "cache-bericht-lookup vóór bijlage (berichtId=$berichtId)") {
-            sessiecache.bericht(xOntvanger, berichtId)
-        }
-        val magazijn = magazijnRouter.forMagazijn(vereisMagazijnId(bericht, berichtId, log))
+        val bericht = zoekBerichtInCache(xOntvanger, berichtId)
+            ?: throw NotFoundException("Bericht niet gevonden")
+        val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
 
         // `bijlage` heeft een `Response`-returntype: dán past de Quarkus REST-client
         // géén default exception-mapper toe en geeft elke upstream-status (ook >=400)
@@ -121,6 +124,11 @@ class BerichtOphaalService(
                 .onFailure { log.warnf(it, "kon upstream-response niet sluiten na magazijn-bijlage-read (mogelijk connectie-pool-lek)") }
         }
     }
+
+    private fun zoekBerichtInCache(xOntvanger: String, berichtId: UUID) =
+        mapUpstreamFout(log, "cache-bericht-lookup (berichtId=$berichtId)") {
+            sessiecache.bericht(Identificatienummer.fromHeader(xOntvanger), berichtId)
+        }
 
     // 401 niet via NotAuthorizedException: diens enige String-constructor vult een
     // WWW-Authenticate-challenge i.p.v. een message. Een expliciete WAE(401) geeft

@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import io.quarkus.runtime.StartupEvent
 import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import jakarta.ws.rs.WebApplicationException
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -12,8 +13,11 @@ import org.junit.jupiter.api.Test
 import java.time.Duration
 
 // @QuarkusTest zodat de rest-client-runtime aanwezig is; `RestClientBuilder.build`
-// heeft die nodig om een client-proxy op te bouwen.
+// heeft die nodig om een client-proxy op te bouwen. Mock-profiel: zonder profiel zou
+// de (inactieve) Redis-client de boot laten falen nu de testsuite geen
+// quarkus.redis.hosts meer zet (dat zou Dev Services voor de keten-E2E onderdrukken).
 @QuarkusTest
+@TestProfile(MockSessiecacheProfile::class)
 class MagazijnRouterTest {
 
     private fun routerMet(urls: Map<String, String>): MagazijnRouter =

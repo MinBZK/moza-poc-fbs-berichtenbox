@@ -1,10 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
-import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
-import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.inject.Inject
@@ -30,27 +27,30 @@ import java.util.UUID
  * resource net heeft gevuld). Geen reflectie, geen mock — de échte registratie.
  */
 @QuarkusTest
-@QuarkusTestResource(WireMockBackendsResource::class)
+@TestProfile(MockSessiecacheProfile::class)
 class LdvSubjectRegistrationTest {
+
+    @Inject
+    lateinit var sessiecache: MockSessiecache
 
     @BeforeEach
     fun reset() {
-        WireMockBackendsResource.sessiecache?.resetAll()
-        WireMockBackendsResource.magazijn?.resetAll()
+        sessiecache.reset()
         CaptureFilter.reset()
     }
 
     @Test
     fun `succesvolle request schrijft type en waarde uit X-Ontvanger naar de LDV-context`() {
         val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""),
-                ),
+        sessiecache.berichten[id] = nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht(
+            berichtId = id,
+            afzender = "00000001003214345000",
+            ontvanger = "999990019",
+            onderwerp = "X",
+            inhoud = "Inhoud",
+            publicatietijdstip = java.time.Instant.parse("2026-05-26T10:00:00Z"),
+            magazijnId = "magazijn-a",
+            aantalBijlagen = 0,
         )
 
         given()

@@ -38,13 +38,10 @@ De services draaien elk in hun eigen Quarkus-dev-mode. Start ze in **aparte term
 zodat beide live-reload en de devconsole blijven werken:
 
 ```bash
-# Terminal 1 — berichtensessiecache (poort 8080)
-./mvnw compile quarkus:dev -pl services/berichtensessiecache -am
-
-# Terminal 2 — berichtenmagazijn (poort 8090)
+# Terminal 1 — berichtenmagazijn (poort 8090)
 ./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am
 
-# Terminal 3 — berichtenuitvraag (poort 8086)
+# Terminal 2 — berichtenuitvraag (poort 8086, bevat de in-process sessiecache)
 ./mvnw compile quarkus:dev -pl services/berichtenuitvraag -am
 ```
 
@@ -55,14 +52,17 @@ Maven-repository staat.
 
 | Service              | API                                              | OpenAPI                                 |
 |----------------------|--------------------------------------------------|-----------------------------------------|
-| berichtensessiecache | `http://localhost:8080/api/v1/berichten`         | `http://localhost:8080/openapi.json`    |
 | berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
 | berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/openapi.json`    |
+
+De vroegere losse berichtensessiecache-service is opgegaan in `berichtenuitvraag`
+als in-process library (`libraries/fbs-berichtensessiecache`) met Redis als
+gedeelde backing store.
 
 ### Tests draaien
 
 ```bash
-./mvnw test -pl services/berichtensessiecache -am
+./mvnw test -pl libraries/fbs-berichtensessiecache -am
 ./mvnw test -pl services/berichtenmagazijn -am
 ./mvnw test -pl services/berichtenuitvraag -am
 ```
@@ -72,9 +72,8 @@ Maven-repository staat.
 De `bruno/`-folder bevat per service een collectie van voorbeeld-requests die je
 tegen de lokale dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
 
-- `bruno/berichtensessiecache/` — sessiecache (lijst, zoek, ophalen-SSE, detail, PATCH/DELETE)
 - `bruno/berichtenmagazijn/` — aanlever- en beheer-API
-- `bruno/berichtenuitvraag/` — frontend-facade
+- `bruno/berichtenuitvraag/` — frontend-facade (lijst, zoek, ophalen-SSE, detail, bijlage, PATCH/DELETE)
 
 Open de folder in Bruno, kies environment `lokaal` en run requests. De collectie
 spiegelt de OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een
@@ -82,10 +81,10 @@ bijbehorende `.bru`-request.
 
 ### Configuratie
 
-De belangrijkste configuratie staat in `services/berichtensessiecache/src/main/resources/application.properties`:
+De belangrijkste configuratie staat in `services/berichtenuitvraag/src/main/resources/application.properties`:
 
 ```properties
-# Magazijnen waarmee de berichtensessiecache communiceert
+# Magazijnen waarmee de in-process sessiecache communiceert
 magazijnen.instances.magazijn-a.url=http://localhost:8081
 magazijnen.instances.magazijn-a.naam=Magazijn A
 magazijnen.instances.magazijn-b.url=http://localhost:8082

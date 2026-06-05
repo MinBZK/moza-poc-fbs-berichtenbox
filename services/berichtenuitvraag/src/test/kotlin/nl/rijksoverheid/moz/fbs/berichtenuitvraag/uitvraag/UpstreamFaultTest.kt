@@ -2,62 +2,63 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
-import jakarta.ws.rs.core.Response
+import org.jboss.logging.Logger
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 /**
- * Unit-test van de SSE-fout-classificatie. De wire-status van een SSE-respons ligt
- * vast op 200 zodra de stream is opgezet, dus de allowlist-invariant kan niet
- * end-to-end via de HTTP-status worden geverifieerd — dat doen we hier op het
- * resultaat van [ssePreStreamFout] zelf (zie de KDoc bij die functie).
+ * Pint de allowlist-invariant van [isUpstreamStoring]/[mapUpstreamFout]: alleen
+ * een echte 4xx propageert 1-op-1; transport-fouten en elke non-4xx worden 502.
  */
 class UpstreamFaultTest {
 
+    private val log: Logger = Logger.getLogger(UpstreamFaultTest::class.java)
+
     @Test
-    fun `echte 4xx behoudt status en wordt niet hertyped`() {
-        val origineel = WebApplicationException("conflict", Response.Status.CONFLICT)
+    fun `een echte 4xx is geen upstream-storing en propageert`() {
+        assertFalse(isUpstreamStoring(WebApplicationException("niet gevonden", 404)))
 
-        val resultaat = ssePreStreamFout(origineel)
+        val ex = assertThrows<WebApplicationException> {
+            mapUpstreamFout(log, "test") { throw WebApplicationException("conflict", 409) }
+        }
 
-        // Status-behoudend: exact dezelfde exception terug (geen 502-her-wrap).
-        assertSame(origineel, resultaat)
+        assertEquals(409, ex.response.status)
     }
 
     @Test
-    fun `upstream-5xx wordt 502`() {
-        val resultaat = ssePreStreamFout(WebApplicationException("down", 503))
+    fun `een 5xx is een upstream-storing en wordt 502`() {
+        assertTrue(isUpstreamStoring(WebApplicationException("down", 503)))
 
-        assertEquals(502, (resultaat as WebApplicationException).response.status)
+        val ex = assertThrows<WebApplicationException> {
+            mapUpstreamFout(log, "test") { throw WebApplicationException("down", 503) }
+        }
+
+        assertEquals(502, ex.response.status)
     }
 
     @Test
-    fun `transport-fout (ProcessingException) wordt 502`() {
-        val resultaat = ssePreStreamFout(ProcessingException("connect timeout"))
+    fun `een WAE zonder response telt als transport-storing en wordt 502`() {
+        val zonderResponse = io.mockk.mockk<WebApplicationException>(relaxed = true) {
+            io.mockk.every { response } returns null
+        }
 
-        assertEquals(502, (resultaat as WebApplicationException).response.status)
+        assertTrue(isUpstreamStoring(zonderResponse))
     }
 
     @Test
-    fun `onverwachte non-WAE-fout wordt 502`() {
-        val resultaat = ssePreStreamFout(IllegalStateException("pijplijn-bug"))
+    fun `een ProcessingException wordt 502`() {
+        val ex = assertThrows<WebApplicationException> {
+            mapUpstreamFout(log, "test") { throw ProcessingException("connect timeout") }
+        }
 
-        assertEquals(502, (resultaat as WebApplicationException).response.status)
-    }
-
-    // De allowlist-kern: een aanwezige non-4xx-status telt óók als storing — niet
-    // alleen een ontbrekende response. Borgt de tak die de naamswijziging naar
-    // isUpstreamStoring expliciet dekt (een lekkende 3xx is geen client-contract).
-    @Test
-    fun `isUpstreamStoring true voor non-4xx met response (3xx)`() {
-        assertTrue(isUpstreamStoring(WebApplicationException("redirect", 302)))
+        assertEquals(502, ex.response.status)
     }
 
     @Test
-    fun `isUpstreamStoring false voor propageerbare 4xx`() {
-        assertFalse(isUpstreamStoring(WebApplicationException("conflict", Response.Status.CONFLICT)))
+    fun `een onverwachte non-4xx-status (3xx) telt als storing`() {
+        assertTrue(isUpstreamStoring(WebApplicationException("redirect?", 302)))
     }
 }

@@ -22,6 +22,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-berichtensessiecache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
@@ -164,7 +169,7 @@
                             </typeMappings>
                             <!-- Alleen tag "Uitvraag" genereren. _ophalen heeft tag "Ophalen" omdat
                                  het SSE retourneert; jaxrs-spec genereert geen Multi<T>. Zie
-                                 SsePassthroughResource. -->
+                                 OphalenSseResource. -->
                             <apisToGenerate>Uitvraag</apisToGenerate>
                             <generateSupportingFiles>false</generateSupportingFiles>
                             <generateApiTests>false</generateApiTests>
@@ -271,8 +276,10 @@ public final class ApiInfo {
                     <excludes>
                         <!-- Gegenereerde OpenAPI model-klassen -->
                         <exclude>nl/rijksoverheid/moz/fbs/berichtenuitvraag/api/**</exclude>
-                        <!-- fbs-common heeft eigen testsuite; uitsluiten voorkomt dubbele meting. -->
+                        <!-- fbs-common en de sessiecache-library hebben eigen testsuites met
+                             eigen 90%-gate; uitsluiten voorkomt dubbele meting. -->
                         <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                        <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/**</exclude>
                     </excludes>
                     <!-- quarkus-jacoco schrijft naar target/jacoco-quarkus.exec -->
                     <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
@@ -291,6 +298,7 @@ public final class ApiInfo {
                             <excludes>
                                 <exclude>nl/rijksoverheid/moz/fbs/berichtenuitvraag/api/**</exclude>
                                 <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                                <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/**</exclude>
                             </excludes>
                             <rules>
                                 <rule>
@@ -300,6 +308,7 @@ public final class ApiInfo {
                                              `*` matcht alleen het laatste segment. -->
                                         <exclude>nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.**</exclude>
                                         <exclude>nl.rijksoverheid.moz.fbs.common.**</exclude>
+                                        <exclude>nl.rijksoverheid.moz.fbs.berichtensessiecache.**</exclude>
                                     </excludes>
                                     <limits>
                                         <limit>

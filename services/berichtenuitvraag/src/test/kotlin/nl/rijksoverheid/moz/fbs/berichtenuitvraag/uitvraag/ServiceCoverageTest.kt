@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath
+import com.github.tomakehurst.wiremock.client.WireMock.notMatching
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.patchRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
@@ -11,46 +12,47 @@ import com.github.tomakehurst.wiremock.client.WireMock.equalTo as wmEqualTo
 import com.github.tomakehurst.wiremock.http.Fault
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
+import jakarta.inject.Inject
+import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 
 /**
  * Vult coverage-gaten in de services aan: pure unit-tests (MockK) tellen niet
  * mee voor quarkus-jacoco, dus de happy paths van [BerichtenlijstService],
  * [BerichtOphaalService] en de bijlage-foutafhandeling worden hier via een
- * @QuarkusTest end-to-end geraakt.
+ * @QuarkusTest end-to-end geraakt. De sessiecache-facade is in-memory
+ * ([MockSessiecache]); de magazijnen blijven echte HTTP-mocks (WireMock).
  */
 @QuarkusTest
+@TestProfile(MockSessiecacheProfile::class)
 @QuarkusTestResource(WireMockBackendsResource::class)
 class ServiceCoverageTest {
 
+    @Inject
+    lateinit var sessiecache: MockSessiecache
+
     @BeforeEach
     fun reset() {
-        WireMockBackendsResource.sessiecache?.resetAll()
+        sessiecache.reset()
         WireMockBackendsResource.magazijn?.resetAll()
         WireMockBackendsResource.magazijn2?.resetAll()
     }
 
     @Test
-    fun `lijst vertaalt pagina-queryparams naar sessiecache page-pageSize`() {
-        // Regressie-guard (review H1): de uitvraag-API adverteert `pagina`/`paginaGrootte`,
-        // maar de sessiecache bindt `page`/`pageSize`. Verifieer dat de outbound call de
-        // upstream-namen gebruikt — JAX-RS dropt een verkeerde naam stil, waardoor de
-        // sessiecache altijd op default-pagina 0 zou vallen.
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichten":[]}"""),
-                ),
-        )
-
+    fun `lijst geeft pagina-queryparams door aan de facade`() {
+        // Regressie-guard: de uitvraag-API adverteert `pagina`/`paginaGrootte`; de
+        // facade krijgt die waarden 1-op-1 (JAX-RS dropt een verkeerd gebonden
+        // parameternaam stil, waardoor de cache altijd op default-pagina 0 zou vallen).
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .queryParam("pagina", "1")
@@ -60,25 +62,12 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
 
-        WireMockBackendsResource.sessiecache!!.verify(
-            getRequestedFor(urlPathEqualTo("/api/v1/berichten"))
-                .withQueryParam("page", wmEqualTo("1"))
-                .withQueryParam("pageSize", wmEqualTo("50")),
-        )
+        assertEquals(1, sessiecache.laatstePagina)
+        assertEquals(50, sessiecache.laatsteGrootte)
     }
 
     @Test
-    fun `zoek bereikt BerichtenlijstService_zoek met q`() {
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/_zoeken"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichten":[]}"""),
-                ),
-        )
-
+    fun `zoek bereikt de facade met q`() {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .queryParam("q", "rente")
@@ -87,24 +76,13 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
 
-        WireMockBackendsResource.sessiecache!!.verify(
-            getRequestedFor(urlPathEqualTo("/api/v1/berichten/_zoeken"))
-                .withQueryParam("q", wmEqualTo("rente")),
-        )
+        assertEquals("rente", sessiecache.laatsteZoekQ)
     }
 
     @Test
     fun `bericht-detail bereikt BerichtOphaalService_haalBericht`() {
         val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""),
-                ),
-        )
+        seedBericht(id)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -119,7 +97,7 @@ class ServiceCoverageTest {
     fun `bijlage-error met 5xx vanuit magazijn mapt naar 502 BadGateway`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        stubBerichtLookup(berichtId)
+        seedBericht(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(503)),
@@ -137,7 +115,7 @@ class ServiceCoverageTest {
     fun `bijlage-error met 404 vanuit magazijn propageert als 404`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        stubBerichtLookup(berichtId)
+        seedBericht(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(404)),
@@ -157,7 +135,7 @@ class ServiceCoverageTest {
         // 502 (upstream-fout), niet 500 (onze fout).
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        stubBerichtLookup(berichtId)
+        seedBericht(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
@@ -177,7 +155,7 @@ class ServiceCoverageTest {
         // mimeType kan de response-Content-Type niet bepaald worden → 502.
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        stubBerichtLookup(berichtId)
+        seedBericht(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(200).withBody("pdf-bytes")),
@@ -202,7 +180,7 @@ class ServiceCoverageTest {
         // hier 1-op-1 — de attachment-forcering is in dit geval de XSS-mitigatie.
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        stubBerichtLookup(berichtId)
+        seedBericht(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
@@ -224,13 +202,13 @@ class ServiceCoverageTest {
 
     @Test
     fun `bijlage van een magazijn-b-bericht routeert naar de magazijn-b-mock, niet naar magazijn-a`() {
-        // Routerings-bewijs (security-grens): de sessiecache levert het bron-magazijnId;
+        // Routerings-bewijs (security-grens): de cache levert het bron-magazijnId;
         // MagazijnRouter moet daarop naar de júiste base-URL routeren. magazijn-a en
         // magazijn-b draaien op verschillende poorten, dus een verkeerde route landt op
-        // de andere mock. We stuben de bijlage ALLEEN op magazijn-b.
+        // de andere mock. We stubben de bijlage ALLEEN op magazijn-b.
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        stubBerichtLookup(berichtId, magazijnId = "magazijn-b")
+        seedBericht(berichtId, magazijnId = "magazijn-b")
         WireMockBackendsResource.magazijn2!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
@@ -249,15 +227,11 @@ class ServiceCoverageTest {
             .statusCode(200)
 
         WireMockBackendsResource.magazijn2!!.verify(
-            com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor(
-                urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"),
-            ),
+            getRequestedFor(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")),
         )
         WireMockBackendsResource.magazijn!!.verify(
             0,
-            com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor(
-                urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"),
-            ),
+            getRequestedFor(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")),
         )
     }
 
@@ -271,8 +245,8 @@ class ServiceCoverageTest {
     @Test
     fun `PATCH status gelezen mapt naar magazijn-patch gelezen=true`() {
         val id = UUID.randomUUID()
-        stubBerichtLookup(id)
-        stubDualWritePatchOk(id)
+        seedBericht(id)
+        stubMagazijnPatchOk(id)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -295,8 +269,8 @@ class ServiceCoverageTest {
     @Test
     fun `PATCH status ongelezen mapt naar magazijn-patch gelezen=false`() {
         val id = UUID.randomUUID()
-        stubBerichtLookup(id)
-        stubDualWritePatchOk(id)
+        seedBericht(id)
+        stubMagazijnPatchOk(id)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -316,8 +290,8 @@ class ServiceCoverageTest {
     @Test
     fun `PATCH zonder status mapt naar magazijn-patch gelezen=null`() {
         val id = UUID.randomUUID()
-        stubBerichtLookup(id)
-        stubDualWritePatchOk(id)
+        seedBericht(id)
+        stubMagazijnPatchOk(id)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -333,64 +307,42 @@ class ServiceCoverageTest {
         WireMockBackendsResource.magazijn!!.verify(
             patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id"))
                 .withRequestBody(matchingJsonPath("$.map", wmEqualTo("archief")))
-                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.notMatching(".*gelezen.*")),
+                .withRequestBody(notMatching(".*gelezen.*")),
         )
     }
 
     @Test
-    fun `lijst met HAL-links herschrijft page-parameters naar pagina-parameters`() {
-        // De sessiecache levert `_links` met haar eigen `page`/`pageSize`-namen;
-        // dit endpoint adverteert `pagina`/`paginaGrootte`. De links moeten worden
-        // herschreven zodat een client die `_links.next` volgt op de juiste
-        // parameter-namen uitkomt.
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody(
-                            """{"berichten":[],"_links":{""" +
-                                """"self":{"href":"/api/v1/berichten?page=1&pageSize=50"},""" +
-                                """"next":{"href":"/api/v1/berichten?page=2&pageSize=50"},""" +
-                                """"prev":{"href":"/api/v1/berichten?page=0&pageSize=50"}}}""",
-                        ),
-                ),
+    fun `lijst bouwt HAL-links met pagina-parameters en next-prev rond de huidige pagina`() {
+        // De service bouwt de links zelf uit BerichtenPagina (geen REST-vertaling meer);
+        // pagina 1 van 3 → self/prev/next met de uitvraag-parameternamen.
+        sessiecache.lijstResultaat = BerichtenPagina(
+            berichten = emptyList(),
+            page = 1,
+            pageSize = 50,
+            totalElements = 150,
+            totalPages = 3,
         )
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .queryParam("pagina", "1")
+            .queryParam("paginaGrootte", "50")
             .`when`()
             .get("/api/v1/berichten")
             .then()
             .statusCode(200)
-            .body("_links.next.href", containsString("pagina=2"))
-            .body("_links.next.href", containsString("paginaGrootte=50"))
             .body("_links.self.href", containsString("pagina=1"))
+            .body("_links.self.href", containsString("paginaGrootte=50"))
+            .body("_links.next.href", containsString("pagina=2"))
             .body("_links.prev.href", containsString("pagina=0"))
     }
 
-    private fun stubDualWritePatchOk(id: UUID, magazijnId: String = "magazijn-a") {
-        val body = """{"berichtId":"$id","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"$magazijnId"}"""
-        WireMockBackendsResource.magazijn!!.stubFor(
-            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(body)),
-        )
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(body)),
-        )
-    }
-
-    // ───── lees-paden: upstream cache-fout → 502 (niet gemaskeerd 500) ─────
+    // ───── lees-paden: cache-storing → 502 (niet gemaskeerd 500) ─────
 
     @Test
-    fun `bericht-detail bij cache-5xx mapt naar 502`() {
+    fun `bericht-detail bij cache-storing mapt naar 502`() {
         val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(500)),
-        )
+        sessiecache.berichtFout = WebApplicationException("Cache niet bereikbaar.", 503)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -401,44 +353,19 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `bericht-detail bij cache-transport-fout mapt naar 502`() {
-        val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
-        )
-
+    fun `bericht-detail bij cache-miss geeft 404 (geen 502)`() {
+        // null uit de facade = niet gevonden; geen upstream-storing.
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$id")
-            .then()
-            .statusCode(502)
-    }
-
-    @Test
-    fun `bericht-detail bij cache-4xx propageert 4xx (geen 502)`() {
-        // 4xx (incl. 404 cache-miss) is geen upstream-storing en propageert 1-op-1.
-        val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(404)),
-        )
-
-        given()
-            .header("X-Ontvanger", "BSN:999990019")
-            .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/${UUID.randomUUID()}")
             .then()
             .statusCode(404)
     }
 
     @Test
-    fun `lijst bij cache-5xx mapt naar 502`() {
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten"))
-                .willReturn(aResponse().withStatus(503)),
-        )
+    fun `lijst bij cache-storing mapt naar 502`() {
+        sessiecache.lijstFout = WebApplicationException("Cache niet bereikbaar.", 503)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -449,11 +376,22 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `zoek bij cache-transport-fout mapt naar 502`() {
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/_zoeken"))
-                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
-        )
+    fun `lijst bij cache-nog-niet-gevuld propageert 409`() {
+        // De gereed-status-gating van de facade (409) is een client-aanwijzing
+        // (eerst _ophalen), geen upstream-storing — propageert dus 1-op-1.
+        sessiecache.lijstFout = WebApplicationException("Berichten zijn nog niet opgehaald.", 409)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(409)
+    }
+
+    @Test
+    fun `zoek bij cache-storing mapt naar 502`() {
+        sessiecache.zoekFout = WebApplicationException("Cache niet bereikbaar.", 503)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -470,7 +408,7 @@ class ServiceCoverageTest {
     fun `bijlage met onbekend magazijnId uit cache geeft 502 zonder magazijn-call`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        stubBerichtLookup(berichtId, magazijnId = "magazijn-onbekend")
+        seedBericht(berichtId, magazijnId = "magazijn-onbekend")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -481,9 +419,7 @@ class ServiceCoverageTest {
 
         WireMockBackendsResource.magazijn!!.verify(
             0,
-            com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor(
-                urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"),
-            ),
+            getRequestedFor(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")),
         )
     }
 
@@ -515,15 +451,23 @@ class ServiceCoverageTest {
             .statusCode(502)
     }
 
-    private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "magazijn-a") {
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$berichtId"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$berichtId","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"$magazijnId"}"""),
-                ),
+    private fun seedBericht(berichtId: UUID, magazijnId: String = "magazijn-a") {
+        sessiecache.berichten[berichtId] = Bericht(
+            berichtId = berichtId,
+            afzender = "00000001003214345000",
+            ontvanger = "999990019",
+            onderwerp = "X",
+            inhoud = "Inhoud",
+            publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
+            magazijnId = magazijnId,
+            aantalBijlagen = 0,
+        )
+    }
+
+    private fun stubMagazijnPatchOk(id: UUID) {
+        WireMockBackendsResource.magazijn!!.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(204)),
         )
     }
 }

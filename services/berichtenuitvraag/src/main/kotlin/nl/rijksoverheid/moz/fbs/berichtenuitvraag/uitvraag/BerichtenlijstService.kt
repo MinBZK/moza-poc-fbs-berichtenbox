@@ -1,61 +1,75 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtenLijst
-import org.eclipse.microprofile.rest.client.inject.RestClient
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.PaginaLinks
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /**
- * Thin pass-through naar de sessiecache voor lijst- en zoekoperaties. SSE-
- * passthrough (`_ophalen`) wordt in [SsePassthroughResource] geregeld
- * omdat de Quarkus REST-client voor SSE een `Multi<T>`-signatuur nodig heeft
- * die niet in deze synchrone client past.
+ * Lijst- en zoekoperaties via de in-process [Sessiecache]-facade. De facade
+ * levert domein-types; deze service mapt naar de uitvraag-API-modellen en bouwt
+ * de HAL-paginering-links met de uitvraag-parameternamen (`pagina`/`paginaGrootte`).
  *
- * Bewuste trade-off: de lees-paden deserialiseren de sessiecache-JSON naar de
- * gegenereerde DTO's en serialiseren die vrijwel ongewijzigd opnieuw (idem in
- * [BerichtOphaalService.haalBericht]). Dat kost een extra Jackson-round-trip per
- * read, maar levert contract-validatie tegen de spec én de HAL-link-vertaling
- * ([vertaalPagineringLinks]) "gratis". Berichten zijn enkele KB's (zie CLAUDE.md),
- * dus de winst van rauwe byte-passthrough weegt niet op tegen het verlies van die
- * twee garanties; herzie pas bij een meetbare load-aanleiding.
+ * [mapUpstreamFout] blijft de fout-grens: een 5xx uit de facade (Redis-storing,
+ * mislukte ophaling, cache-corruptie) wordt 502 — voor de portaal-client is de
+ * cache een upstream-bron, of die nu over REST of in-process wordt aangesproken.
+ * Een 409 (cache nog niet gevuld / ophalen bezig) propageert ongewijzigd.
  */
 @ApplicationScoped
 class BerichtenlijstService(
-    @RestClient private val sessiecache: SessiecacheClient,
+    private val sessiecache: Sessiecache,
 ) {
-    fun lijst(xOntvanger: String, pagina: Int?, paginaGrootte: Int?): BerichtenLijst =
-        vertaalPagineringLinks(mapUpstreamFout(log, "cache-lijst") { sessiecache.lijst(xOntvanger, pagina, paginaGrootte) })
+    fun lijst(xOntvanger: String, pagina: Int?, paginaGrootte: Int?): BerichtenLijst {
+        val ontvanger = Identificatienummer.fromHeader(xOntvanger)
+        val resultaat = mapUpstreamFout(log, "cache-lijst") { sessiecache.lijst(ontvanger, pagina, paginaGrootte) }
 
-    fun zoek(xOntvanger: String, q: String): BerichtenLijst =
-        vertaalPagineringLinks(mapUpstreamFout(log, "cache-zoek") { sessiecache.zoek(xOntvanger, q) })
-
-    // De sessiecache levert HAL-paginering-links met haar eigen query-parameters
-    // (`page`/`pageSize`); dit endpoint adverteert `pagina`/`paginaGrootte`. Zonder
-    // vertaling komt een client die `_links.next` volgt op de verkeerde parameter-
-    // namen uit en krijgt hij altijd pagina 0 terug. Paden zijn al gelijk
-    // (`/api/v1/berichten`), dus alleen de parameternamen worden herschreven.
-    private fun vertaalPagineringLinks(lijst: BerichtenLijst): BerichtenLijst {
-        lijst.links?.let { links ->
-            links.self?.let { it.href = vertaalParams(it.href) }
-            links.next?.let { it.href = vertaalParams(it.href) }
-            links.prev?.let { it.href = vertaalParams(it.href) }
-        }
-
-        return lijst
+        return toBerichtenLijst(resultaat) { p -> "${ApiInfo.BASE_PATH}/berichten?pagina=$p&paginaGrootte=${resultaat.pageSize}" }
     }
 
-    // Anker op de query-param-grens (`?`/`&`) zodat alleen een echte parameternaam
-    // wordt herschreven en niet een toevallige substring (bv. een `homepage=`-waarde).
-    private fun vertaalParams(href: String?): String? =
-        href?.replace(PAGE_SIZE_PARAM, "$1paginaGrootte=")
-            ?.replace(PAGE_PARAM, "$1pagina=")
+    fun zoek(xOntvanger: String, q: String): BerichtenLijst {
+        val ontvanger = Identificatienummer.fromHeader(xOntvanger)
+        val resultaat = mapUpstreamFout(log, "cache-zoek") { sessiecache.zoek(ontvanger, q) }
+        val encodedQ = URLEncoder.encode(q, StandardCharsets.UTF_8)
+
+        // `_zoeken` kent geen paginering-parameters in de uitvraag-spec; alleen een
+        // self-link. De facade levert de eerste pagina (default-grootte).
+        return BerichtenLijst().apply {
+            berichten = resultaat.berichten.map { UitvraagDtoMapper.toApiSamenvatting(it) }
+            links = PaginaLinks().apply {
+                self = Link().apply { href = "${ApiInfo.BASE_PATH}/berichten/_zoeken?q=$encodedQ" }
+            }
+        }
+    }
+
+    private fun toBerichtenLijst(pagina: BerichtenPagina, maakHref: (Int) -> String): BerichtenLijst =
+        BerichtenLijst().apply {
+            berichten = pagina.berichten.map { UitvraagDtoMapper.toApiSamenvatting(it) }
+            links = paginaLinks(pagina, maakHref)
+        }
+
+    private fun paginaLinks(pagina: BerichtenPagina, maakHref: (Int) -> String): PaginaLinks {
+        val links = PaginaLinks()
+        links.self = Link().apply { href = maakHref(pagina.page) }
+
+        if (pagina.page > 0) {
+            links.prev = Link().apply { href = maakHref(pagina.page - 1) }
+        }
+
+        if (pagina.page < pagina.totalPages - 1) {
+            links.next = Link().apply { href = maakHref(pagina.page + 1) }
+        }
+
+        return links
+    }
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtenlijstService::class.java)
-
-        // Vooraf gecompileerd: vertaalParams draait op elke lijst/zoek-response;
-        // per-call `Regex(...)` zou de patronen telkens opnieuw compileren.
-        private val PAGE_SIZE_PARAM = Regex("([?&])pageSize=")
-        private val PAGE_PARAM = Regex("([?&])page=")
     }
 }

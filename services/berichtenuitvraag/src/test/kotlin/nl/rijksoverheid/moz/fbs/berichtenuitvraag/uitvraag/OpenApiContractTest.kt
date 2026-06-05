@@ -12,16 +12,21 @@ import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
+import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
+import jakarta.inject.Inject
+import jakarta.ws.rs.ForbiddenException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 
 /**
  * Contract-tests: response-shapes per endpoint conform berichtenuitvraag-api.yaml.
- * Backends gemockt via WireMock (sessiecache + magazijn). Tolerantie op
- * `validation.response.body.schema.type` op WARN, gelijk aan de sessiecache-
- * suite — voorkomt false positives bij null-velden in HAL-_links.
+ * De sessiecache-facade is in-memory ([MockSessiecache]); het magazijn is een
+ * WireMock. Tolerantie op `validation.response.body.schema.type` op WARN —
+ * voorkomt false positives bij null-velden in HAL-_links.
  *
  * De HAL `_links.*.href` zijn bewust relatieve URI-references (`/api/v1/...`);
  * networknt 2.x (via openapi-request-validator) dwingt `format: uri` sinds deze
@@ -30,6 +35,7 @@ import java.util.UUID
  * `uri-reference` en deze downgrade verwijderen.
  */
 @QuarkusTest
+@TestProfile(MockSessiecacheProfile::class)
 @QuarkusTestResource(WireMockBackendsResource::class)
 class OpenApiContractTest {
 
@@ -47,38 +53,34 @@ class OpenApiContractTest {
 
     private val ontvanger = "BSN:999990019"
 
+    @Inject
+    lateinit var sessiecache: MockSessiecache
+
     @BeforeEach
-    fun resetStubs() {
-        WireMockBackendsResource.sessiecache?.resetAll()
+    fun reset() {
+        sessiecache.reset()
         WireMockBackendsResource.magazijn?.resetAll()
-        // Default-lookup voor multi-magazijn routering (BerichtBeheerService +
-        // BerichtOphaalService.haalBijlage doen vóór elke write/download een
-        // sessiecache.bericht()-lookup). Wildcard met lage prio; tests met een
-        // expliciete `urlPathEqualTo`-stub voor een specifieke berichtId
-        // overschrijven dit gedrag automatisch.
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            com.github.tomakehurst.wiremock.client.WireMock.get(
-                com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching("/api/v1/berichten/[0-9a-fA-F-]{36}"),
-            ).willReturn(
-                aResponse()
-                    .withStatus(200)
-                    .withHeader("Content-Type", "application/json")
-                    .withBody("""{"berichtId":"00000000-0000-0000-0000-000000000000","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""),
-            ),
+    }
+
+    private fun seedBericht(berichtId: UUID, magazijnId: String = "magazijn-a"): Bericht {
+        val bericht = Bericht(
+            berichtId = berichtId,
+            afzender = "00000001003214345000",
+            ontvanger = "999990019",
+            onderwerp = "Test",
+            inhoud = "Inhoud",
+            publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
+            magazijnId = magazijnId,
+            aantalBijlagen = 0,
         )
+        sessiecache.berichten[berichtId] = bericht
+
+        return bericht
     }
 
     @Test
     fun `GET berichten levert valide BerichtenLijst`() {
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichten":[]}"""),
-                ),
-        )
+        seedBericht(UUID.randomUUID())
 
         given()
             .filter(validator)
@@ -91,16 +93,6 @@ class OpenApiContractTest {
 
     @Test
     fun `GET berichten-zoeken levert valide BerichtenLijst`() {
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/_zoeken"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichten":[]}"""),
-                ),
-        )
-
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
@@ -114,15 +106,7 @@ class OpenApiContractTest {
     @Test
     fun `GET bericht by id levert valide Bericht`() {
         val id = UUID.randomUUID()
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$id","onderwerp":"Test","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""),
-                ),
-        )
+        seedBericht(id)
 
         given()
             .filter(validator)
@@ -136,26 +120,10 @@ class OpenApiContractTest {
     @Test
     fun `PATCH bericht doet dual-write en levert valide Bericht`() {
         val id = UUID.randomUUID()
-        val body = """{"berichtId":"$id","onderwerp":"Test","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""
-        // Magazijn-PATCH OK
+        seedBericht(id)
         WireMockBackendsResource.magazijn!!.stubFor(
             patch(urlPathMatching("/api/v1/berichten/$id"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody(body),
-                ),
-        )
-        // Sessiecache-PATCH OK
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            patch(urlPathMatching("/api/v1/berichten/$id"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody(body),
-                ),
+                .willReturn(aResponse().withStatus(204)),
         )
 
         given()
@@ -172,11 +140,8 @@ class OpenApiContractTest {
     @Test
     fun `DELETE bericht doet dual-write en geeft 204`() {
         val id = UUID.randomUUID()
+        seedBericht(id)
         WireMockBackendsResource.magazijn!!.stubFor(
-            delete(urlPathMatching("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(204)),
-        )
-        WireMockBackendsResource.sessiecache!!.stubFor(
             delete(urlPathMatching("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
         )
@@ -195,15 +160,7 @@ class OpenApiContractTest {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         // De service haalt eerst het bericht op om de magazijnId te bepalen.
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$berichtId"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$berichtId","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z","magazijnId":"magazijn-a"}"""),
-                ),
-        )
+        seedBericht(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
@@ -228,19 +185,12 @@ class OpenApiContractTest {
     // --- Foutresponses tegen het Problem-schema (RFC 9457), via de validator ---
 
     @Test
-    fun `GET bericht by id - cache-404 levert valide Problem-404`() {
-        val id = UUID.randomUUID()
-        // Specifieke stub overschrijft de wildcard-200 uit resetStubs().
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(404)),
-        )
-
+    fun `GET bericht by id - cache-miss levert valide Problem-404`() {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/${UUID.randomUUID()}")
             .then()
             .statusCode(404)
             .contentType("application/problem+json")
@@ -250,8 +200,7 @@ class OpenApiContractTest {
     fun `GET bijlage - magazijn-5xx levert valide Problem-502`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        // Cache-lookup OK (wildcard-200 uit resetStubs levert magazijnId=magazijn-a);
-        // magazijn-bijlage faalt met 5xx → service mapt naar 502.
+        seedBericht(berichtId)
         WireMockBackendsResource.magazijn!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(500)),
@@ -269,13 +218,10 @@ class OpenApiContractTest {
 
     @Test
     fun `GET bericht by id - cache-403 levert valide Problem-403`() {
-        val id = UUID.randomUUID()
-        // Upstream dwingt de ontvanger-match af; een 403 propageert status-behoudend
+        // De facade dwingt de ontvanger-match af; een 403 propageert status-behoudend
         // (4xx-allowlist) en moet als gedeclareerde Problem-403 valideren tegen de spec.
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$id"))
-                .willReturn(aResponse().withStatus(403)),
-        )
+        val id = UUID.randomUUID()
+        sessiecache.berichtFout = ForbiddenException("ontvanger-match geweigerd")
 
         given()
             .filter(validator)
@@ -288,28 +234,16 @@ class OpenApiContractTest {
     }
 
     @Test
-    fun `GET bijlage - bericht zonder magazijnId levert valide Problem-502`() {
-        val berichtId = UUID.randomUUID()
-        val bijlageId = UUID.randomUUID()
-        // Cache levert een bericht zónder magazijnId (upstream-contractbreuk): de
-        // service kan niet routeren en mapt naar 502 i.p.v. een misleidende 500.
-        WireMockBackendsResource.sessiecache!!.stubFor(
-            get(urlPathEqualTo("/api/v1/berichten/$berichtId"))
-                .willReturn(
-                    aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""{"berichtId":"$berichtId","onderwerp":"X","publicatietijdstip":"2026-05-26T10:00:00Z"}"""),
-                ),
-        )
+    fun `GET berichten - cache nog niet gevuld levert valide Problem-409`() {
+        sessiecache.lijstFout = jakarta.ws.rs.WebApplicationException("Berichten zijn nog niet opgehaald.", 409)
 
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten")
             .then()
-            .statusCode(502)
+            .statusCode(409)
             .contentType("application/problem+json")
     }
 
@@ -364,8 +298,8 @@ class OpenApiContractTest {
     }
 
     // Borgt dat de generator de spec-grenzen op de query-parameters daadwerkelijk als
-    // Bean Validation afdwingt: een out-of-range pagina/paginaGrootte of een lege/te-lange
-    // map mag niet stilletjes naar de sessiecache doorlekken maar hoort 400 te geven.
+    // Bean Validation afdwingt: een out-of-range pagina/paginaGrootte mag niet stilletjes
+    // naar de cache doorlekken maar hoort 400 te geven.
 
     @Test
     fun `GET berichten met paginaGrootte boven maximum levert 400 problem+json`() {
@@ -403,9 +337,9 @@ class OpenApiContractTest {
             .contentType("application/problem+json")
     }
 
-    // CR-M1: uitvraag harmoniseert `q` minLength met de sessiecache (2), zodat een
-    // 1-teken-zoekopdracht hier al op 400 strandt i.p.v. verwarrend door te lekken naar
-    // een upstream-400. Bewijst tevens dat de generator de @Size(min=2)-constraint toepast.
+    // Uitvraag harmoniseert `q` minLength met de cache (2), zodat een 1-teken-
+    // zoekopdracht hier al op 400 strandt. Bewijst tevens dat de generator de
+    // @Size(min=2)-constraint toepast.
     @Test
     fun `GET berichten-zoeken met te korte q levert 400 problem+json`() {
         given()

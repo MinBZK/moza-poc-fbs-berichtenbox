@@ -90,14 +90,14 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         "architectuur.autorisatie" "Autorisatie in het Uitvraag Systeem volgt het PEP/PDP-patroon conform AuthZEN NL GOV op twee niveaus: (1) Token Validatie fungeert als PEP en extraheert de gebruikersidentiteit en machtigingsclaims uit het JWT — voor burgers het PP (DigiD), voor zakelijke gebruikers KvK/RSIN, dienstcodes en machtigingstype (eHerkenning ketenmachtiging). (2) MagazijnResolver fungeert als PEP/PDP voor magazijntoegang: evalueert per magazijn of de combinatie van machtigingsclaims en dienstcodes toegang rechtvaardigt. Bij eHerkenning ketenmachtiging wordt de volledige machtigingsketen (persoon → gemachtigde organisatie → vertegenwoordigde organisatie) meegewogen. Autorisatiebeslissingen worden gelogd conform de Authorization Decision Log standaard (Logius)."
                     }
 
-                    sessiecacheApp = container "Berichtensessiecache" "Aggregeert berichten uit alle aangesloten magazijnen voor een burger of zakelijke gebruiker" "Quarkus / Kotlin" "Service" {
-                        sessiecacheResource = component "Berichtensessiecache API" "REST endpoints voor berichtensessiecache en zoeken" "JAX-RS Resource"
-                        magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean"
-                        pseudoniemService = component "PseudoniemService" "Transformeert PP naar EP per magazijn via BSNk" "CDI Bean"
-                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" "CDI Bean"
-                        sessiecacheCache = component "Cache" "Sessiecache voor berichten met full-text zoekindex (60s TTL)" "Redis / RediSearch"
-                        sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client"
-                        sessiecacheResource -> sessiecacheService "Gebruikt" "CDI"
+                    sessiecacheApp = container "Berichtensessiecache" "Afgeschermde in-process module: aggregeert berichten uit alle aangesloten magazijnen en cachet ze per pseudoniem. Geen losse service meer — enige ingang is de Sessiecache-facade; de interne werking (Redis-cache, magazijn-aggregatie) is niet zichtbaar voor consumenten." "Quarkus / Kotlin — gedeelde library (in-process)" "Interne Module" {
+                        sessiecacheFacade = component "Sessiecache-facade" "De enige publieke ingang: lijst, zoeken, bericht, status bijwerken, verwijderen, ophalen-stream en aanmeld-write. De implementatie erachter is Kotlin `internal` — compile-afgedwongen onzichtbaar voor consumenten." "CDI Facade"
+                        magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean (internal)"
+                        pseudoniemService = component "PseudoniemService" "Transformeert PP naar EP per magazijn via BSNk" "CDI Bean (internal)"
+                        sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" "CDI Bean (internal)"
+                        sessiecacheCache = component "Cache" "Afgeschermd implementatiedetail: berichten met full-text zoekindex en sliding-TTL, gedeeld over pods zodat ophalen én aanmelden dezelfde tijdelijke opslag delen" "Redis / RediSearch (internal)"
+                        sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client (internal)"
+                        sessiecacheFacade -> sessiecacheService "Gebruikt" "CDI"
                         sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden" "CDI"
                         sessiecacheService -> pseudoniemService "Transformeert PP naar EP per magazijn" "CDI"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache" "Redis"
@@ -127,10 +127,10 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
-                    aanmeldService -> sessiecacheResource "Werkt cache bij" "REST API (intern, mTLS)"
-                    uitvraagOphaalService -> sessiecacheResource "Haalt berichten op" "REST API (intern, mTLS)"
-                    uitvraagBerichtenlijst -> sessiecacheResource "Haalt berichtenlijst op" "REST API (intern, mTLS)"
-                    uitvraagBeheerService -> sessiecacheResource "Werkt berichtstatus bij in cache" "REST API (intern, mTLS)"
+                    aanmeldService -> sessiecacheFacade "Werkt cache bij (aanmeld-write, in-sessie)" "CDI (in-process facade)"
+                    uitvraagOphaalService -> sessiecacheFacade "Haalt berichten op" "CDI (in-process facade)"
+                    uitvraagBerichtenlijst -> sessiecacheFacade "Haalt berichtenlijst op" "CDI (in-process facade)"
+                    uitvraagBeheerService -> sessiecacheFacade "Werkt berichtstatus bij in cache" "CDI (in-process facade)"
                 }
 
             }
@@ -288,6 +288,13 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                 background #438DD5
                 color #ffffff
                 stroke #2E6295
+            }
+            element "Interne Module" {
+                shape RoundedBox
+                background #6BA3DD
+                color #ffffff
+                stroke #2E6295
+                border dashed
             }
             element "Extern Geleverd" {
                 shape RoundedBox

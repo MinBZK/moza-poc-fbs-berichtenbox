@@ -16,14 +16,14 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **Taal:** Kotlin (JVM 21, all-open plugin voor CDI/JAX-RS)
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
-- **Caching:** sessiecache-specifiek: Redis (60s sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via `BerichtenCache` interface — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes. Berichtenmagazijn heeft geen cache.
+- **Caching:** sessiecache-specifiek (library `fbs-berichtensessiecache`, in-process in `berichtenuitvraag`): Redis (sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via de interne `BerichtenCache`-laag — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes. Consumers gebruiken uitsluitend de publieke `Sessiecache`-facade. Berichtenmagazijn heeft geen cache.
 - **Persistentie:** berichtenmagazijn-specifiek: PostgreSQL 18 + Hibernate ORM Panache. Tests via Quarkus Dev Services (Testcontainers); dev via `compose.yaml`. Geen H2.
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
 
 ## Architectuurprincipes
 
-- **OpenAPI-first:** De OpenAPI spec (`berichtensessiecache-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze.
+- **OpenAPI-first:** De OpenAPI spec per service (`berichtenuitvraag-api.yaml`, `berichtenmagazijn-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze. De sessiecache is een interne library zonder eigen API-spec: de `Sessiecache`-CDI-facade is daar het contract.
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`. Spec valideren met Spectral-linter (zie Tooling).
 - **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
@@ -37,7 +37,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
-- **Actieve modules:** `services/berichtensessiecache`, `services/berichtenmagazijn`. De gedeelde JAX-RS filters en exception mappers staan in `libraries/fbs-common`. `services/berichtenlijst/` bestaat als directory maar is niet actief.
+- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag`. Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`). `services/berichtenlijst/` bestaat als directory maar is niet actief.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
 - **Bruno-collectie:** per service met een OpenAPI-spec hoort een Bruno-collectie onder `bruno/<service-naam>/` (met `bruno.json`, `environments/lokaal.bru` en requests per functioneel pad). Nieuwe endpoints in de OpenAPI-spec krijgen direct een bijbehorende `.bru`-request; zo blijft de collectie een levend exempel van de spec.
@@ -130,14 +130,15 @@ class Voorbeeld {
 > "Failed to start quarkus"-fouten in ongewijzigde code. `mvn clean ...` voorkomt dit.
 
 ```bash
-docker compose up -d                                       # Start Redis, WireMock, ClickHouse
-./mvnw compile -pl services/berichtensessiecache           # Compileren
-./mvnw clean test -pl services/berichtensessiecache        # Tests draaien
-./mvnw quarkus:dev -pl services/berichtensessiecache       # Dev mode
+docker compose up -d                                             # Start Redis, WireMock, ClickHouse
+./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
+./mvnw compile -pl services/berichtenuitvraag -am                # Compileren berichtenuitvraag
+./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
+./mvnw quarkus:dev -pl services/berichtenuitvraag                # Dev mode (poort 8086)
 ./mvnw compile -pl services/berichtenmagazijn -am                # Compileren berichtenmagazijn
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn
 ./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo (Docker vereist)
-./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode
+./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode (poort 8090)
 ```
 
 ### Build- en test-warnings nalopen
@@ -163,8 +164,8 @@ transitieve libraries, niet uit onze code of config):
 | Pad                                    | Beschrijving                                                    |
 |----------------------------------------|-----------------------------------------------------------------|
 | `pom.xml`                              | Parent POM (Quarkus BOM, Kotlin plugin config)                  |
-| `services/berichtensessiecache/pom.xml`| Module POM (OpenAPI generator, dependencies)                    |
-| `services/berichtensessiecache/src/main/resources/openapi/berichtensessiecache-api.yaml` | OpenAPI spec (bron van waarheid) |
+| `libraries/fbs-berichtensessiecache/`  | In-process sessiecache-library (`Sessiecache`-facade, Redis)    |
+| `services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml` | OpenAPI spec frontend-API |
 | `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, H2, JPA, Fault Tolerance)        |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
