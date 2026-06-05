@@ -26,9 +26,11 @@ import org.junit.jupiter.api.Test
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockedDependenciesProfile
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import java.io.IOException
+import java.net.URI
 import java.time.Duration
-import java.util.Optional
 
 @QuarkusTest
 @TestProfile(MockedDependenciesProfile::class)
@@ -36,23 +38,20 @@ class ProfielMagazijnResolverTest {
 
     private val profielClient = mockk<ProfielServiceClient>()
 
-    // Echte factory + stub-config i.p.v. mockk: MockK kan de Oin-value-class niet
+    // magazijnId == afzender-OIN (register-conventie).
+    private val oinA = "00000001003214345000"
+    private val oinB = "00000001823288444000"
+
+    // Echte factory + stub-register i.p.v. mockk: MockK kan de Oin-value-class niet
     // synthesiseren tijdens matcher-recording (`any<Oin>()` triggert de validerende
-    // constructor met dummy-waarden → DomainValidationException). De factory bouwt
-    // de reverse-index in init() zelf op, identiek aan productie. Subclass overschrijft
+    // constructor met dummy-waarden → DomainValidationException). Subclass overschrijft
     // createClient zodat geen Quarkus-CDI-context nodig is voor de REST-client-builder.
     private val factory = object : MagazijnClientFactory(
-        config = object : MagazijnenConfig {
-            override fun instances() = mapOf(
-                "magazijn-a" to instance("http://test-a", "00000001003214345000"),
-                "magazijn-b" to instance("http://test-b", "00000001823288444000"),
-            )
-        },
-        profile = "test",
+        register = stubRegister(oinA, oinB),
         connectTimeoutMs = 2000L,
         readTimeoutMs = 12000L,
     ) {
-        override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
+        override fun createClient(inschrijving: Magazijninschrijving): MagazijnClient = mockk()
     }.also { it.init() }
 
     // Korte inner-timeout (2s) in unit-tests: prod-defaults zou tests vertragen
@@ -61,12 +60,14 @@ class ProfielMagazijnResolverTest {
     // op exact-N-Profiel-calls blijft deterministisch.
     private val resolver = ProfielMagazijnResolver(profielClient, factory, innerTimeoutSeconds = 2L, cacheTtlSeconds = 0L, cacheMaxSize = 100L)
 
-    private fun instance(url: String, afzender: String): MagazijnenConfig.MagazijnInstance =
-        object : MagazijnenConfig.MagazijnInstance {
-            override fun url() = url
-            override fun naam() = Optional.empty<String>()
-            override fun afzenders() = listOf(afzender)
+    private fun stubRegister(vararg oins: String): Magazijnregister {
+        val inschrijvingen = oins.map { Magazijninschrijving(Oin(it), URI.create("http://test-$it"), naam = null) }
+
+        return object : Magazijnregister {
+            override fun alle(): Collection<Magazijninschrijving> = inschrijvingen
+            override fun voorOin(oin: Oin): Magazijninschrijving? = inschrijvingen.firstOrNull { it.oin == oin }
         }
+    }
 
     @Test
     fun `BSN met 1 OIN-match levert 1 magazijn`() {
@@ -80,7 +81,7 @@ class ProfielMagazijnResolverTest {
             ),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(setOf("magazijn-a"), result)
+        assertEquals(setOf(oinA), result)
     }
 
     @Test
@@ -97,7 +98,7 @@ class ProfielMagazijnResolverTest {
             ),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(setOf("magazijn-a", "magazijn-b"), result)
+        assertEquals(setOf(oinA, oinB), result)
     }
 
     @Test
@@ -147,7 +148,7 @@ class ProfielMagazijnResolverTest {
             ),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(setOf("magazijn-a", "magazijn-b"), result)
+        assertEquals(setOf(oinA, oinB), result)
     }
 
     @Test
@@ -202,7 +203,7 @@ class ProfielMagazijnResolverTest {
     @Test
     fun `OIN-ontvanger skipt Profiel-call en levert alle magazijnen`() {
         val result = resolver.resolve(Oin("00000001003214345000")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(setOf("magazijn-a", "magazijn-b"), result)
+        assertEquals(setOf(oinA, oinB), result)
         verify(exactly = 0) { profielClient.getPartij(any(), any()) }
     }
 
@@ -345,41 +346,6 @@ class ProfielMagazijnResolverTest {
     }
 
     @Test
-    fun `OIN die door beide magazijnen wordt geserveerd levert beide magazijnen op`() {
-        // Reverse-index overlap-case: zelfde afzender-OIN op magazijn-a EN magazijn-b.
-        // De resolver moet dan beide magazijnen leveren (set-union via reverse-index).
-        val gedeeldeOin = "00000001003214345000"
-        val overlapFactory = object : MagazijnClientFactory(
-            config = object : MagazijnenConfig {
-                override fun instances() = mapOf(
-                    "magazijn-a" to instance("http://test-a", gedeeldeOin),
-                    "magazijn-b" to instance("http://test-b", gedeeldeOin),
-                )
-            },
-            profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
-        ) {
-            override fun createClient(instance: MagazijnenConfig.MagazijnInstance): MagazijnClient = mockk()
-        }.also { it.init() }
-
-        val overlapResolver = ProfielMagazijnResolver(profielClient, overlapFactory, innerTimeoutSeconds = 2L, cacheTtlSeconds = 0L, cacheMaxSize = 100L)
-
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
-            voorkeuren = listOf(
-                VoorkeurResponse(
-                    voorkeurType = "OntvangViaBerichtenbox",
-                    waarde = "true",
-                    scopes = listOf(ScopeResponse(partij = IdentificatieResponse("OIN", gedeeldeOin))),
-                ),
-            ),
-        )
-
-        val result = overlapResolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(setOf("magazijn-a", "magazijn-b"), result)
-    }
-
-    @Test
     fun `onleesbare upstream-OIN wordt defensief overgeslagen zonder exception`() {
         every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
             voorkeuren = listOf(
@@ -394,7 +360,7 @@ class ProfielMagazijnResolverTest {
             ),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(setOf("magazijn-a"), result)
+        assertEquals(setOf(oinA), result)
     }
 
     @Test
@@ -416,7 +382,7 @@ class ProfielMagazijnResolverTest {
             ),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(setOf("magazijn-a"), result)
+        assertEquals(setOf(oinA), result)
     }
 
     @Test
@@ -497,7 +463,7 @@ class ProfielMagazijnResolverTest {
             ),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
-        assertEquals(setOf("magazijn-a"), result)
+        assertEquals(setOf(oinA), result)
     }
 
     @Test

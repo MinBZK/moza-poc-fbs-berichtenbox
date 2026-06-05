@@ -62,7 +62,7 @@ class OpenApiContractTest {
         WireMockBackendsResource.magazijn?.resetAll()
     }
 
-    private fun seedBericht(berichtId: UUID, magazijnId: String = "magazijn-a"): Bericht {
+    private fun seedBericht(berichtId: UUID, magazijnId: String = WireMockBackendsResource.OIN_A): Bericht {
         val bericht = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
@@ -132,7 +132,7 @@ class OpenApiContractTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
     }
@@ -150,7 +150,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(204)
     }

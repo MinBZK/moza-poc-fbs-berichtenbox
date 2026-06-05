@@ -21,6 +21,13 @@
             <artifactId>fbs-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Magazijnregister: levert per afzender-OIN het bijbehorende magazijn (1:1);
+             MagazijnClientFactory bouwt hieruit zijn REST-clients. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-magazijnregister</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-kotlin</artifactId>

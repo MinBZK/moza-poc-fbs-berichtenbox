@@ -33,7 +33,7 @@ class ProfielMagazijnResolverIntegrationTest {
     }
 
     @Test
-    fun `200 met opted-in voorkeur retourneert magazijn-a`() {
+    fun `200 met opted-in voorkeur retourneert het magazijn van die OIN`() {
         wireMock.stubFor(
             get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
@@ -50,7 +50,7 @@ class ProfielMagazijnResolverIntegrationTest {
             ),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
-        assertEquals(setOf("magazijn-a"), result)
+        assertEquals(setOf(WireMockMagazijnResource.OIN_A), result)
     }
 
     @Test
@@ -97,7 +97,7 @@ class ProfielMagazijnResolverIntegrationTest {
     }
 
     @Test
-    fun `RSIN-pad gebruikt URL-template per type (200 met opt-in retourneert magazijn-b)`() {
+    fun `RSIN-pad gebruikt URL-template per type (200 met opt-in retourneert het magazijn van die OIN)`() {
         // naarProfielType-mapping is alleen unit-getest via MockK; deze test pinned dat
         // het echte URL-pad `/RSIN/...` wordt geraakt op de upstream-stub (geen drift
         // tussen interne enum-naam en extern contract-pad).
@@ -119,11 +119,11 @@ class ProfielMagazijnResolverIntegrationTest {
 
         val result = resolver.resolve(nl.rijksoverheid.moz.fbs.common.identificatie.Rsin("002564440")).await().atMost(Duration.ofSeconds(5))
 
-        assertEquals(setOf("magazijn-b"), result)
+        assertEquals(setOf(WireMockMagazijnResource.OIN_B), result)
     }
 
     @Test
-    fun `KVK-pad gebruikt URL-template per type (200 met opt-in retourneert magazijn-a)`() {
+    fun `KVK-pad gebruikt URL-template per type (200 met opt-in retourneert het magazijn van die OIN)`() {
         wireMock.stubFor(
             get(urlEqualTo("/api/profielservice/v1/KVK/12345678")).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
@@ -142,7 +142,7 @@ class ProfielMagazijnResolverIntegrationTest {
 
         val result = resolver.resolve(nl.rijksoverheid.moz.fbs.common.identificatie.Kvk("12345678")).await().atMost(Duration.ofSeconds(5))
 
-        assertEquals(setOf("magazijn-a"), result)
+        assertEquals(setOf(WireMockMagazijnResource.OIN_A), result)
     }
 
     @Test

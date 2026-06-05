@@ -21,6 +21,13 @@
             <artifactId>fbs-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Magazijnregister: levert per magazijnId (= afzender-OIN) het endpoint
+             voor MagazijnRouter (bijlage-/write-routering). -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-magazijnregister</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>nl.rijksoverheid.moz</groupId>
             <artifactId>fbs-berichtensessiecache</artifactId>
@@ -279,6 +286,7 @@ public final class ApiInfo {
                         <!-- fbs-common en de sessiecache-library hebben eigen testsuites met
                              eigen 90%-gate; uitsluiten voorkomt dubbele meting. -->
                         <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                        <exclude>nl/rijksoverheid/moz/fbs/magazijnregister/**</exclude>
                         <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/**</exclude>
                     </excludes>
                     <!-- quarkus-jacoco schrijft naar target/jacoco-quarkus.exec -->

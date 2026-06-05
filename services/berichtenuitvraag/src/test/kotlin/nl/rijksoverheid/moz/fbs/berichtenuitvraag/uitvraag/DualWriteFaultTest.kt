@@ -47,7 +47,7 @@ class DualWriteFaultTest {
             onderwerp = "X",
             inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
-            magazijnId = "magazijn-a",
+            magazijnId = WireMockBackendsResource.OIN_A,
             aantalBijlagen = 0,
         )
     }
@@ -81,7 +81,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
 
@@ -101,7 +101,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(400)
 
@@ -126,7 +126,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
 
@@ -150,7 +150,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(403)
 
@@ -169,7 +169,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
 
@@ -191,7 +191,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(409)
 
@@ -211,7 +211,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(404)
 
@@ -233,7 +233,7 @@ class DualWriteFaultTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
 
@@ -251,7 +251,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(204)
 
@@ -271,7 +271,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
 
@@ -289,7 +289,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
 
@@ -307,7 +307,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
 
@@ -324,7 +324,7 @@ class DualWriteFaultTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(403)
 

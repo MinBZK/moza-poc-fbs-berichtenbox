@@ -10,16 +10,18 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnenConfig
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockMagazijnResource
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
+import java.net.URI
 import java.time.Instant
-import java.util.Optional
 import java.util.UUID
 
 @Alternative
 @ApplicationScoped
 internal class MockMagazijnClientFactory : MagazijnClientFactory(
-    MockMagazijnenConfig(),
-    profile = "test",
+    MockMagazijnregister(),
     connectTimeoutMs = 2000L,
     readTimeoutMs = 12000L,
 ) {
@@ -33,7 +35,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
                 onderwerp = "Test bericht 1",
                 inhoud = "Inhoud van test bericht 1",
                 publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
-                magazijnId = "magazijn-a",
+                magazijnId = WireMockMagazijnResource.OIN_A,
                 aantalBijlagen = 0,
                 map = "werk",
             ),
@@ -44,7 +46,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
                 onderwerp = "Test bericht 2",
                 inhoud = "Inhoud van test bericht 2",
                 publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
-                magazijnId = "magazijn-a",
+                magazijnId = WireMockMagazijnResource.OIN_A,
                 aantalBijlagen = 1,
                 map = "werk",
             ),
@@ -55,7 +57,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
                 onderwerp = "Test bericht 3",
                 inhoud = "Inhoud van test bericht 3",
                 publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
-                magazijnId = "magazijn-a",
+                magazijnId = WireMockMagazijnResource.OIN_A,
                 aantalBijlagen = 2,
                 map = "prive",
             ),
@@ -69,7 +71,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
                 onderwerp = "Test bericht 4",
                 inhoud = "Inhoud van test bericht 4",
                 publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
-                magazijnId = "magazijn-b",
+                magazijnId = WireMockMagazijnResource.OIN_B,
                 aantalBijlagen = 0,
                 map = "werk",
             ),
@@ -85,16 +87,21 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
 
     override fun getAllClients(): Map<String, MagazijnClient> {
         return mapOf(
-            "magazijn-a" to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }, { shouldHttpFailA }),
-            "magazijn-b" to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }, { shouldHttpFailB }),
+            WireMockMagazijnResource.OIN_A to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }, { shouldHttpFailA }),
+            WireMockMagazijnResource.OIN_B to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }, { shouldHttpFailB }),
         )
     }
 
     override fun getNaam(magazijnId: String): String? = when (magazijnId) {
-        "magazijn-a" -> "Magazijn A"
-        "magazijn-b" -> "Magazijn B"
+        WireMockMagazijnResource.OIN_A -> "Magazijn A"
+        WireMockMagazijnResource.OIN_B -> "Magazijn B"
         else -> null
     }
+
+    // De @PostConstruct-init van de superclass bouwt clients voor de register-entries;
+    // mockk() voorkomt dat de Quarkus-REST-client-builder echte clients opzet (de
+    // overrides hierboven leveren de daadwerkelijke test-clients).
+    override fun createClient(inschrijving: Magazijninschrijving): MagazijnClient = mockk()
 
     private fun magazijnClient(
         berichten: List<Bericht>,
@@ -136,19 +143,13 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
     )
 }
 
-private class MockMagazijnenConfig : MagazijnenConfig {
-    override fun instances(): Map<String, MagazijnenConfig.MagazijnInstance> {
-        return mapOf(
-            "magazijn-a" to object : MagazijnenConfig.MagazijnInstance {
-                override fun url(): String = "http://localhost:8081"
-                override fun naam(): Optional<String> = Optional.of("Magazijn A")
-                override fun afzenders(): List<String> = listOf("00000001003214345000")
-            },
-            "magazijn-b" to object : MagazijnenConfig.MagazijnInstance {
-                override fun url(): String = "http://localhost:8082"
-                override fun naam(): Optional<String> = Optional.of("Magazijn B")
-                override fun afzenders(): List<String> = listOf("00000001823288444000")
-            },
-        )
-    }
+private class MockMagazijnregister : Magazijnregister {
+    private val inschrijvingen = listOf(
+        Magazijninschrijving(Oin(WireMockMagazijnResource.OIN_A), URI.create("http://localhost:8081"), "Magazijn A"),
+        Magazijninschrijving(Oin(WireMockMagazijnResource.OIN_B), URI.create("http://localhost:8082"), "Magazijn B"),
+    )
+
+    override fun alle(): Collection<Magazijninschrijving> = inschrijvingen
+
+    override fun voorOin(oin: Oin): Magazijninschrijving? = inschrijvingen.firstOrNull { it.oin == oin }
 }

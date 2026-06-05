@@ -56,7 +56,7 @@ class UitvraagKetenE2eTest {
         )
     }
 
-    private fun stubMagazijnBericht(server: WireMockServer, berichtId: String, bsn: String, magazijnId: String, afzender: String) {
+    private fun stubMagazijnBericht(server: WireMockServer, berichtId: String, bsn: String, label: String, afzender: String) {
         server.stubFor(
             get(urlPathMatching("/api/v1/berichten")).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
@@ -67,8 +67,8 @@ class UitvraagKetenE2eTest {
                           "berichtId": "$berichtId",
                           "afzender": "$afzender",
                           "ontvanger": { "type": "BSN", "waarde": "$bsn" },
-                          "onderwerp": "Bericht van $magazijnId",
-                          "inhoud": "Inhoud van $magazijnId",
+                          "onderwerp": "Bericht van $label",
+                          "inhoud": "Inhoud van $label",
                           "publicatietijdstip": "2026-03-10T10:00:00Z",
                           "aantalBijlagen": 0
                         }
@@ -112,7 +112,7 @@ class UitvraagKetenE2eTest {
             .then()
             .statusCode(200)
             .body("berichten[0].berichtId", equalTo(berichtId))
-            .body("berichten[0].magazijnId", equalTo("magazijn-a"))
+            .body("berichten[0].magazijnId", equalTo(OIN_A))
 
         // Detail inclusief inhoud.
         given()
@@ -131,7 +131,7 @@ class UitvraagKetenE2eTest {
             .header("X-Ontvanger", "BSN:$bsn")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
-            .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=magazijn-a")
+            .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(200)
             .body("status", equalTo("gelezen"))
@@ -143,7 +143,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
-            .`when`().delete("/api/v1/berichten/$berichtId?magazijnId=magazijn-a")
+            .`when`().delete("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(204)
 
@@ -195,11 +195,12 @@ class UitvraagKetenE2eTest {
             .header("Retry-After", "30")
     }
 
-    private companion object {
-        private const val OIN_A = "00000001003214345000"
-        private const val OIN_B = "00000001823288444000"
-    }
 }
+
+// magazijnId == afzender-OIN (register-conventie); gedeeld door de testklasse en
+// de WireMock-backends die de register-config op deze OINs zetten.
+private const val OIN_A = "00000001003214345000"
+private const val OIN_B = "00000001823288444000"
 
 /**
  * Echte facade-keten: Redis via Dev Services (Redis Stack — RediSearch is nodig
@@ -213,7 +214,7 @@ class KetenE2eProfile : QuarkusTestProfile {
     )
 }
 
-/** Profiel-service + twee magazijnen als WireMock; bedient zowel de aggregatie (instances) als de router (urls). */
+/** Profiel-service + twee magazijnen als WireMock; het register bedient zowel de aggregatie als de router. */
 class WireMockKetenBackends : QuarkusTestResourceLifecycleManager {
 
     companion object {
@@ -235,10 +236,8 @@ class WireMockKetenBackends : QuarkusTestResourceLifecycleManager {
 
         return mapOf(
             "quarkus.rest-client.profiel-service.url" to p.baseUrl(),
-            "magazijnen.instances.magazijn-a.url" to a.baseUrl(),
-            "magazijnen.instances.magazijn-b.url" to b.baseUrl(),
-            "magazijnen.urls.magazijn-a" to a.baseUrl(),
-            "magazijnen.urls.magazijn-b" to b.baseUrl(),
+            "magazijnen.\"$OIN_A\".url" to a.baseUrl(),
+            "magazijnen.\"$OIN_B\".url" to b.baseUrl(),
         )
     }
 

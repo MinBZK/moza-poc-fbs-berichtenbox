@@ -1,6 +1,6 @@
 # Magazijnregister — 1:1 OIN↔magazijn
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 ## Context
 
