@@ -19,7 +19,6 @@
         <dependency>
             <groupId>nl.rijksoverheid.moz</groupId>
             <artifactId>fbs-common</artifactId>
-            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -49,11 +48,6 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-smallrye-fault-tolerance</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.jetbrains.kotlin</groupId>
-            <artifactId>kotlin-stdlib</artifactId>
-        </dependency>
-
         <!-- LdvEndpointValidator in fbs-common verwijst naar wrapper-klassen (provided
              scope dáár); de runtime-dependency komt van de consumerende service of — voor
              de eigen @QuarkusTest-suite — van deze module. -->
