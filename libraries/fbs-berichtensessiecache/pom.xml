@@ -104,7 +104,11 @@
 
         <plugins>
             <!-- Nodig voor de @QuarkusTest-integratiesuite (Redis/WireMock); het
-                 geïnstalleerde artefact blijft de gewone library-jar. -->
+                 geïnstalleerde artefact blijft de gewone library-jar. Bewust géén
+                 `build`-goal: quarkus-junit bouwt de test-app zelf tijdens de testrun,
+                 en zonder `build`-goal slaat `quarkus:dev` deze module over als
+                 support-library — anders blijft dev mode hierop hangen bij
+                 `quarkus:dev -pl services/<service> -am`. -->
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>
@@ -112,7 +116,6 @@
                 <executions>
                     <execution>
                         <goals>
-                            <goal>build</goal>
                             <goal>generate-code</goal>
                             <goal>generate-code-tests</goal>
                         </goals>
