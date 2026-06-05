@@ -66,7 +66,7 @@ register; geen van beide bezit de koppeling.
 ```kotlin
 package nl.rijksoverheid.moz.fbs.magazijnregister
 
-data class MagazijnInschrijving(
+data class Magazijninschrijving(
     val oin: Oin,
     val url: URI,
     val naam: String?,
@@ -74,10 +74,10 @@ data class MagazijnInschrijving(
 
 interface Magazijnregister {
     /** Alle ingeschreven magazijnen — sessiecache bouwt hieruit zijn REST-clients. */
-    fun alle(): Collection<MagazijnInschrijving>
+    fun alle(): Collection<Magazijninschrijving>
 
     /** Inschrijving voor [oin], of null als die OIN geen magazijn heeft (drift/onbekend). */
-    fun voorOin(oin: Oin): MagazijnInschrijving?
+    fun voorOin(oin: Oin): Magazijninschrijving?
 }
 ```
 
