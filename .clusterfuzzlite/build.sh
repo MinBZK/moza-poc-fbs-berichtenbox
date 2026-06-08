@@ -2,7 +2,7 @@
 
 # Modules met fuzz-targets. Elke nieuwe service met een Jazzer-fuzzer hoort hier
 # bij te komen, anders wordt hij niet meegebouwd én niet gefuzzd in CI.
-MODULES=(libraries/fbs-berichtensessiecache services/berichtenmagazijn services/berichtenuitvraag)
+MODULES=(libraries/fbs-common libraries/fbs-berichtensessiecache services/berichtenmagazijn services/berichtenuitvraag)
 
 # Comma-gescheiden lijst voor de Maven `-pl`-flag.
 PL=$(IFS=,; echo "${MODULES[*]}")
