@@ -43,7 +43,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
             // (1) de BBO-gehoste referentie-implementatie hieronder, volledig uitgemodelleerd, en
             // (2) een door een organisatie zelf gehost magazijn (eigenMagazijn), als black box gemodelleerd
             //     omdat de interne werking voor het stelsel niet zichtbaar is.
-            eigenMagazijn = softwareSystem "Berichtenmagazijn (eigen gehost)" "Door een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie. De interne werking is voor het stelsel niet zichtbaar; het magazijn voldoet aan dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." "Magazijn"
+            eigenMagazijn = softwareSystem "Berichtenmagazijn (eigen gehost)" "Door een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie. De interne werking is voor het stelsel niet zichtbaar; het magazijn voldoet aan dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." "Extern Systeem"
 
             bboMagazijn = softwareSystem "Berichtenmagazijn (BBO-gehost)" "Berichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." "Magazijn" {
                 properties {
