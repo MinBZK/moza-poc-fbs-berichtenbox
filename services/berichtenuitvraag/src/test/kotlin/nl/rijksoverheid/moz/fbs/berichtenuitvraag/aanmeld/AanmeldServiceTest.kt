@@ -107,6 +107,19 @@ class AanmeldServiceTest {
     }
 
     @Test
+    fun `cache ongeldige-invoer propageert status-behoudend 400`() {
+        // Een niet-GeenActieveSessie cache-fout op het aanmeld-pad gaat status-behoudend
+        // door via naApiFout (geen 502-conversie): OngeldigeInvoer blijft 400.
+        every { sessiecache.schrijfBericht(ontvanger, any()) } throws
+            SessiecacheException.OngeldigeInvoer("bericht overschrijdt limiet")
+
+        val ex = assertThrows<WebApplicationException> { service.verwerk(event()) }
+
+        assertEquals(400, ex.response.status)
+        verify(exactly = 1) { dedup.verwijder("evt-1") }
+    }
+
+    @Test
     fun `dedup-store onbereikbaar (503) propageert zonder schrijven`() {
         every { dedup.eerstgezien("evt-1") } throws WebApplicationException("redis down", 503)
 
