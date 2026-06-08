@@ -19,7 +19,6 @@
         <dependency>
             <groupId>nl.rijksoverheid.moz</groupId>
             <artifactId>fbs-common</artifactId>
-            <version>${project.version}</version>
         </dependency>
 
         <dependency>
@@ -66,16 +65,10 @@
             <artifactId>quarkus-flyway</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.jetbrains.kotlin</groupId>
-            <artifactId>kotlin-stdlib</artifactId>
-        </dependency>
-
         <!-- LDV -->
         <dependency>
             <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
             <artifactId>logboekdataverwerking-wrapper</artifactId>
-            <version>1.2.1-SNAPSHOT</version>
         </dependency>
 
         <!-- Test -->
@@ -99,21 +92,13 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>io.mockk</groupId>
-            <artifactId>mockk-jvm</artifactId>
-            <version>1.14.11</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>com.atlassian.oai</groupId>
             <artifactId>openapi-request-validator-restassured</artifactId>
-            <version>3.0.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock</artifactId>
-            <version>3.13.0</version>
             <scope>test</scope>
         </dependency>
         <!-- openapi-request-validator-core 3.0.0 vereist json-schema-validator 2.0.1
@@ -122,13 +107,11 @@
         <dependency>
             <groupId>com.networknt</groupId>
             <artifactId>json-schema-validator</artifactId>
-            <version>2.0.1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
-            <version>4.3.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -166,7 +149,6 @@
             <plugin>
                 <groupId>org.openapitools</groupId>
                 <artifactId>openapi-generator-maven-plugin</artifactId>
-                <version>${openapi-generator.version}</version>
                 <executions>
                     <execution>
                         <goals>
@@ -320,7 +302,6 @@ public final class ApiInfo {
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.14</version>
                 <configuration>
                     <excludes>
                         <exclude>nl/rijksoverheid/moz/fbs/berichtenmagazijn/api/**</exclude>
