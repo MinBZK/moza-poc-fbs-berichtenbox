@@ -1,0 +1,45 @@
+meta {
+  name: 8. Bericht aanmelden (CloudEvents-webhook)
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrlUitvraag}}/aanmeldingen
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/cloudevents+json
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "id": "evt-{{berichtId}}",
+    "source": "urn:nld:oin:00000001003214345000:systeem:fbs-magazijn",
+    "specversion": "1.0",
+    "type": "nl.rijksoverheid.fbs.bericht.gepubliceerd",
+    "subject": "{{berichtId}}",
+    "time": "2026-06-04T10:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": "https://schemas.fbs.rijksoverheid.nl/bericht-gepubliceerd/v1",
+    "data": {
+      "berichtId": "{{berichtId}}",
+      "afzender": "00000001003214345000",
+      "ontvanger": { "type": "BSN", "waarde": "999990019" },
+      "onderwerp": "Nieuw bericht via aanmelding",
+      "inhoud": "Dit bericht is via de CloudEvents-webhook in de sessiecache geschreven.",
+      "tijdstipOntvangst": "2026-06-04T09:59:00Z",
+      "publicatietijdstip": "2026-06-04T10:00:00Z"
+    }
+  }
+}
+
+docs {
+  CloudEvents-webhook (structured mode) waarop de Publicatie Stream van een magazijn
+  een gepubliceerd bericht aanmeldt. 202 = geaccepteerd (cache bijgewerkt, of bewust
+  overgeslagen bij geen actieve sessie / duplicaat). Werkt alleen als de ontvanger een
+  actieve sessie heeft — start die eerst via request 1 (berichtenlijst ophalen, SSE).
+}

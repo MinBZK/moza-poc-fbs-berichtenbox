@@ -95,6 +95,15 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Jazzer: fuzz-target voor de gedeelde header-/identificatie-validatie
+             (Identificatienummer.fromHeader). Draait onder ClusterFuzzLite, niet onder
+             Surefire; alleen de API-jar is nodig om te compileren. -->
+        <dependency>
+            <groupId>com.code-intelligence</groupId>
+            <artifactId>jazzer-api</artifactId>
+            <version>0.30.0</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>io.mockk</groupId>
             <artifactId>mockk-jvm</artifactId>

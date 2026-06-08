@@ -48,8 +48,13 @@ class MockSessiecache : Sessiecache {
     var werkBijAanroepen = 0
     val verwijderAanroepen = mutableListOf<UUID>()
 
+    val schrijfFouten = ArrayDeque<RuntimeException>()
+    val schrijfAanroepen = mutableListOf<Bericht>()
+
     fun reset() {
         berichten.clear()
+        schrijfFouten.clear()
+        schrijfAanroepen.clear()
         lijstFout = null
         zoekFout = null
         berichtFout = null
@@ -134,6 +139,8 @@ class MockSessiecache : Sessiecache {
     }
 
     override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht {
+        schrijfAanroepen += bericht
+        schrijfFouten.removeFirstOrNull()?.let { throw it }
         berichten[bericht.berichtId] = bericht
 
         return bericht

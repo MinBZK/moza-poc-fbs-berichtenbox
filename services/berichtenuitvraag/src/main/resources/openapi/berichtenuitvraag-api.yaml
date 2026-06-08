@@ -22,6 +22,12 @@ tags:
     description: Berichten-uitvraag voor het portaal
   - name: Ophalen
     description: SSE-endpoint voor cache-warming; wordt buiten codegen afgehandeld
+  - name: Aanmeld
+    description: |
+      CloudEvents-webhook waarop de Publicatie Stream van een magazijn een nieuw
+      gepubliceerd bericht aanmeldt. Werkt de sessiecache bij voor ontvangers met
+      een actieve sessie. Wordt buiten codegen afgehandeld (custom media type +
+      202-respons).
 
 paths:
   /berichten:
@@ -232,6 +238,34 @@ paths:
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
+  /aanmeldingen:
+    post:
+      tags: [Aanmeld]
+      summary: Bericht aanmelden (CloudEvents-webhook)
+      description: |
+        Ontvangt een CloudEvent (`nl.rijksoverheid.fbs.bericht.gepubliceerd`) van de
+        Publicatie Stream van een magazijn (structured content mode, NL GOV
+        CloudEvents-profiel) en werkt daarmee de sessiecache bij voor de ontvanger.
+        Alleen ontvangers met een actieve sessie worden bijgewerkt; ontbreekt die,
+        dan wordt het event geaccepteerd maar overgeslagen. Idempotent op het
+        CloudEvents `id`.
+      operationId: meldBerichtAan
+      requestBody:
+        required: true
+        content:
+          application/cloudevents+json:
+            schema: { $ref: '#/components/schemas/CloudEvent' }
+      responses:
+        '202':
+          description: |
+            Event geaccepteerd. De cache is bijgewerkt, of bewust overgeslagen
+            (geen actieve sessie / duplicaat). Geen response-body.
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
 components:
   parameters:
     OntvangerHeader:
@@ -434,6 +468,74 @@ components:
         self: { $ref: '#/components/schemas/Link' }
         next: { $ref: '#/components/schemas/Link' }
         prev: { $ref: '#/components/schemas/Link' }
+
+    CloudEvent:
+      type: object
+      description: |
+        CloudEvents-envelope (structured content mode) conform NL GOV
+        CloudEvents-profiel v1.1 (op basis van CloudEvents core v1.0). Context-
+        attributen bevatten geen persoonsgegevens: `subject` is het berichtId,
+        niet de ontvanger.
+      required: [id, source, specversion, type, data]
+      properties:
+        id:
+          type: string
+          description: Unieke event-identifier; `source` + `id` is globaal uniek. Basis voor idempotentie.
+        source:
+          type: string
+          format: uri-reference
+          description: 'URN met nld-namespace, bijv. `urn:nld:oin:<OIN>:systeem:fbs-magazijn`.'
+        specversion:
+          type: string
+          enum: ["1.0"]
+        type:
+          type: string
+          enum: [nl.rijksoverheid.fbs.bericht.gepubliceerd]
+          description: Reverse Domain Name Notation.
+        subject:
+          type: string
+          description: Onderwerp van het event (berichtId). Nooit een BSN/RSIN.
+        time:
+          type: string
+          format: date-time
+        datacontenttype:
+          type: string
+          example: application/json
+        dataschema:
+          type: string
+          format: uri
+        data: { $ref: '#/components/schemas/AangemeldBerichtData' }
+
+    AangemeldBerichtData:
+      type: object
+      description: Payload van het gepubliceerd-bericht-event; spiegelt het magazijn-contract.
+      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, publicatietijdstip]
+      properties:
+        berichtId: { type: string, format: uuid }
+        afzender:
+          type: string
+          description: OIN (20 cijfers) van de afzendende organisatie.
+        ontvanger: { $ref: '#/components/schemas/AangemeldOntvanger' }
+        onderwerp: { type: string }
+        inhoud: { type: string }
+        tijdstipOntvangst:
+          type: string
+          format: date-time
+        publicatietijdstip:
+          type: string
+          format: date-time
+
+    AangemeldOntvanger:
+      type: object
+      description: Identificatienummer van de ontvanger (type + waarde, los i.p.v. geprefixt).
+      required: [type, waarde]
+      properties:
+        type:
+          type: string
+          enum: [BSN, RSIN, KVK, OIN]
+        waarde:
+          type: string
+          pattern: '^[0-9]+$'
 
     Problem:
       type: object

@@ -3,6 +3,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'libraries/**'
       - 'services/**'
       - 'pom.xml'
       - '.clusterfuzzlite/**'
