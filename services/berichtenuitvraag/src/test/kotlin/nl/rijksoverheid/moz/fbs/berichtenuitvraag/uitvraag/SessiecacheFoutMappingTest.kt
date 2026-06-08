@@ -65,6 +65,15 @@ class SessiecacheFoutMappingTest {
     }
 
     @Test
+    fun `leesUitCache maakt Onleesbaar 502`() {
+        val ex = assertThrows<WebApplicationException> {
+            leesUitCache<Unit>(log, "test") { throw SessiecacheException.Onleesbaar("cache-data niet leesbaar") }
+        }
+
+        assertEquals(502, ex.response.status)
+    }
+
+    @Test
     fun `leesUitCache laat een client-aanwijzing (409) ongewijzigd door`() {
         val ex = assertThrows<WebApplicationException> {
             leesUitCache<Unit>(log, "test") { throw SessiecacheException.NogNietGevuld("nog niet opgehaald") }

@@ -118,7 +118,9 @@ internal class BlockingSessiecache(
     /**
      * Lees- en zoekpaden vereisen een afgeronde ophaling: zonder status is de cache
      * (mogelijk) leeg of verouderd en zou een lege lijst onterecht "geen berichten"
-     * suggereren. De caller krijgt 409 om eerst [Sessiecache.ophalen] aan te roepen.
+     * suggereren. De caller krijgt [SessiecacheException.NogNietGevuld] (nog niet gestart)
+     * resp. [SessiecacheException.OphalenBezig] (loopt nog) en moet eerst [Sessiecache.ophalen]
+     * aanroepen; een mislukte ophaling levert [SessiecacheException.OphalenMislukt].
      */
     private fun requireGereedStatus(ontvanger: Identificatienummer): AggregationStatus {
         val aggregation = awaitOrServiceUnavailable { service.getAggregationStatus(ontvanger) }

@@ -62,16 +62,6 @@ internal fun upstreamBadGateway(detail: String, cause: Throwable? = null): WebAp
     WebApplicationException(detail, cause, Response.Status.BAD_GATEWAY)
 
 /**
- * Enige plek waar de gesloten [SessiecacheException]-hiërarchie naar een HTTP-status
- * wordt vertaald. De `when` is exhaustief zónder `else`: een nieuw foutscenario in de
- * cache-library breekt hier de build i.p.v. stil verkeerd bij de gebruiker te landen.
- *
- * Bewust géén 502-mapping hier: deze functie reproduceert exact de status die de
- * facade vroeger zelf gooide. De per-consumer transportpolitiek (lees-pad → [mapUpstreamFout]
- * dat 5xx naar 502 maakt; aanmeld-pad → status-behoudend) blijft daar belegd, zodat
- * het externe gedrag ongewijzigd is.
- */
-/**
  * Of een cache-fout een upstream-storing is (de cache zelf hapert) dan wel een client-/
  * contract-aanwijzing die status-behoudend hoort te propageren. Exhaustief náást [naApiFout],
  * waarmee de cache→transport-kennis op één plek belegd blijft; een nieuw [SessiecacheException]-
@@ -93,6 +83,16 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
     -> false
 }
 
+/**
+ * Enige plek waar de gesloten [SessiecacheException]-hiërarchie naar een HTTP-status
+ * wordt vertaald. De `when` is exhaustief zónder `else`: een nieuw foutscenario in de
+ * cache-library breekt hier de build i.p.v. stil verkeerd bij de gebruiker te landen.
+ *
+ * Bewust géén 502-mapping hier: deze functie reproduceert exact de status die de
+ * facade vroeger zelf gooide. De per-consumer transportpolitiek (lees-pad → [mapUpstreamFout]
+ * dat 5xx naar 502 maakt; aanmeld-pad → status-behoudend) blijft daar belegd, zodat
+ * het externe gedrag ongewijzigd is.
+ */
 internal fun SessiecacheException.naApiFout(): WebApplicationException = when (this) {
     is SessiecacheException.NogNietGevuld -> WebApplicationException(message, this, Response.Status.CONFLICT)
     is SessiecacheException.OphalenBezig -> WebApplicationException(message, this, Response.Status.CONFLICT)
@@ -109,6 +109,11 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
  * toe als op het magazijn ([mapUpstreamFout]) — een 5xx wordt 502, een 4xx (409 cache-
  * nog-niet-gevuld) propageert ongewijzigd. Zo blijft "502 = upstream-fout" gelden voor
  * de in-process cache zoals voorheen.
+ *
+ * De lees-facademethoden (`lijst`/`zoek`/`bericht`) produceren alleen storing-fouten en de
+ * 409-gating ([SessiecacheException.NogNietGevuld]/[SessiecacheException.OphalenBezig]); de
+ * 400/404-gevallen ([SessiecacheException.OngeldigeInvoer]/[SessiecacheException.GeenActieveSessie])
+ * ontstaan uitsluitend op de schrijfpaden en bereiken deze grens dus niet.
  */
 internal inline fun <T> leesUitCache(log: Logger, context: String, block: () -> T): T =
     mapUpstreamFout(log, context) {

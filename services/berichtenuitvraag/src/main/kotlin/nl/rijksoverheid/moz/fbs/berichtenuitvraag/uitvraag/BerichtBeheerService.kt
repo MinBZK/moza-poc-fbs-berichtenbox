@@ -68,7 +68,7 @@ class BerichtBeheerService(
                 throw e.naApiFout()
             }
 
-            log.errorf(e, "cache-PATCH 5xx na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
+            log.errorf(e, "cache-PATCH storing na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
             invalideerCacheNaMagazijnWrite(ontvangerId, berichtId)
             throw badGateway(e)
         }
@@ -105,7 +105,7 @@ class BerichtBeheerService(
                 throw e.naApiFout()
             }
 
-            log.errorf(e, "cache-DELETE 5xx na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
+            log.errorf(e, "cache-DELETE storing na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
             invalideerCacheNaMagazijnWrite(ontvangerId, berichtId)
             throw badGateway(e)
         }
