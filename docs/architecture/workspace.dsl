@@ -41,9 +41,9 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
             // Het stelsel kent twee verschijningsvormen van het berichtenmagazijn met identieke koppelvlakken:
             // (1) de BBO-gehoste referentie-implementatie hieronder, volledig uitgemodelleerd, en
-            // (2) een door een organisatie zelf gehost magazijn (eigenMagazijn), als black box gemodelleerd
-            //     omdat de interne werking voor het stelsel niet zichtbaar is.
-            eigenMagazijn = softwareSystem "Berichtenmagazijn (eigen gehost)" "Door een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie. De interne werking is voor het stelsel niet zichtbaar; het magazijn voldoet aan dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." "Extern Systeem"
+            // (2) een door een organisatie zelf gehost magazijn (eigenMagazijn), als extern systeem en
+            //     daarmee als black box gemodelleerd — het valt buiten het centrale stelsel.
+            eigenMagazijn = softwareSystem "Berichtenmagazijn (eigen gehost)" "Door een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie met dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." "Extern Systeem"
 
             bboMagazijn = softwareSystem "Berichtenmagazijn (BBO-gehost)" "Berichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." "Magazijn" {
                 properties {
@@ -169,13 +169,17 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         orgA -> eigenMagazijn "Levert berichten aan" "Digikoppeling REST API via FSC"
         orgB -> magazijnAanleverApi "Levert berichten aan" "Digikoppeling REST API via FSC"
 
-        // Een eigen-gehost magazijn doet als black box volwaardig mee in het stelsel: het meldt nieuwe
-        // berichten aan bij de centrale Aanmeld Service, stuurt bericht-events naar de Notificatie Service,
-        // en wordt door het centrale Berichten Uitvraag Systeem bevraagd voor ophalen en beheren.
+        // Een eigen-gehost magazijn doet als black box volwaardig mee in het stelsel en heeft exact
+        // dezelfde koppelvlakken (zelfde beschrijving en techniek) als het BBO-gehoste magazijn: het
+        // wordt bevraagd voor ophalen en beheren, meldt nieuwe berichten aan bij de centrale Aanmeld
+        // Service, stuurt bericht-events naar de Notificatie Service, en controleert toestemming bij de
+        // Profiel Service. Het enige verschil is de aanleverende organisatie (orgA i.p.v. orgB).
+        uitvraagOphaalService -> eigenMagazijn "Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op" "Digikoppeling REST API via FSC"
+        uitvraagBeheerService -> eigenMagazijn "Beheert berichtstatus" "Digikoppeling REST API via FSC"
+        sessiecacheMagazijnClient -> eigenMagazijn "Haalt berichten op" "Digikoppeling REST API via FSC"
         eigenMagazijn -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         eigenMagazijn -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook via FSC" "Async"
-        sessiecacheMagazijnClient -> eigenMagazijn "Haalt berichten op" "Digikoppeling REST API via FSC"
-        uitvraagBeheerService -> eigenMagazijn "Beheert berichtstatus" "Digikoppeling REST API via FSC"
+        eigenMagazijn -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
