@@ -113,7 +113,7 @@ class MagazijnCircuitBreakerTest {
 
     @Test
     fun `meldOnbeslist geeft de half-open proef vrij zonder te sluiten of te heropenen`() {
-        // Regressie: een toegestane half-open proef die het magazijn niet bereikte (pool-overbelast)
+        // Regressie: een toegestane half-open proef die het magazijn niet bereikte (bulkhead-overbelast)
         // mag het circuit niet permanent open laten staan. meldOnbeslist geeft de proef vrij; omdat
         // het venster al verstreken is, mag een volgende toegestaan() opnieuw een proef geven.
         val b = breaker(drempel = 1, openNanos = 1_000L)

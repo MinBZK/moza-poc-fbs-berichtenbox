@@ -669,6 +669,92 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
+    fun `vol bulkhead levert OVERBELAST-foutmelding en bezet geen extra permit`() {
+        // maxConcurrent=1, permit vooraf vastgehouden → de magazijn-call wordt afgewezen (OVERBELAST):
+        // VOLTOOID met FOUT + "systeem druk", en de afwijzing claimt zelf geen permit.
+        val volBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
+        val vastgehouden = volBulkhead.begrensd(
+            afgewezen = { Uni.createFrom().item("x") },
+            taak = { Uni.createFrom().nothing<String>() },
+        ).subscribe().with({}, {})
+
+        val serviceVolBulkhead = BerichtensessiecacheService(
+            berichtenCache, clientFactory, validator, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = volBulkhead,
+            circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+        ).also { it.valideerTimeouts() }
+
+        val client = mockk<MagazijnClient>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
+        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = serviceVolBulkhead.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(15))
+
+        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+
+        assertEquals(MagazijnStatus.FOUT, voltooid.status)
+        assertTrue(
+            voltooid.foutmelding!!.contains("systeem druk"),
+            "Foutmelding moet OVERBELAST signaleren: ${voltooid.foutmelding}",
+        )
+        // De magazijn-call is nooit gestart: de afwijzing claimt geen permit (blijft 0 = vastgehouden).
+        assertEquals(0, volBulkhead.vrijePermits())
+
+        // verify getBerichten nooit aangeroepen: bevestigt dat de call daadwerkelijk werd overgeslagen.
+        verify(exactly = 0) { client.getBerichten(any(), any()) }
+
+        vastgehouden.cancel()
+    }
+
+    @Test
+    fun `bulkhead-permit wordt vrijgegeven na een geslaagde aggregatie`() {
+        // Permit-balans door de échte stream-pipeline (onTermination-release): met maxConcurrent=1
+        // moet na één geslaagde ophaling de permit terug zijn, anders zou een volgende call lekken.
+        val balansBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
+        val serviceBalans = BerichtensessiecacheService(
+            berichtenCache, clientFactory, validator, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = balansBulkhead,
+            circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+        ).also { it.valideerTimeouts() }
+
+        val client = mockk<MagazijnClient>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
+        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { client.getBerichten(any(), any()) } returns MagazijnBerichtenResponse(listOf(testMagazijnBericht()))
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = serviceBalans.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(15))
+
+        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+
+        assertEquals(MagazijnStatus.OK, voltooid.status)
+        assertEquals(1, balansBulkhead.vrijePermits(), "permit teruggegeven na geslaagde aggregatie")
+    }
+
+    @Test
     fun `boundary - response exact op max-berichten-cap is succesvol (cap is strikt groter dan)`() {
         // Pinned off-by-one: cap-check is `>` (strikt), niet `>=`.
         val serviceMetLageCap = BerichtensessiecacheService(

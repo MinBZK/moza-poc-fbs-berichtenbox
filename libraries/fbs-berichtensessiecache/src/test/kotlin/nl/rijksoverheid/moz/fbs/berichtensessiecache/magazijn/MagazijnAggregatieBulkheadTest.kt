@@ -1,46 +1,82 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
+import io.smallrye.mutiny.Uni
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
 /**
- * Concurrency-bulkhead: deterministisch (zonder threads) gepind op claim/vrijgave-balans,
- * uitputting bij een vol bulkhead en de fail-fast config-validatie.
+ * Concurrency-bulkhead via [MagazijnAggregatieBulkhead.begrensd]: pint de acquire/release-balans
+ * op élke terminatie (succes/fout/cancel/taak-opbouwfout), de afwijzing bij een vol bulkhead, en
+ * de fail-fast config-validatie. Deterministisch, zonder eigen threads.
  */
 class MagazijnAggregatieBulkheadTest {
 
     @Test
-    fun `claimt tot maxConcurrent en wijst daarna af`() {
-        val bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 2)
-
-        assertTrue(bulkhead.probeerBinnen(), "eerste permit")
-        assertTrue(bulkhead.probeerBinnen(), "tweede permit")
-
-        assertFalse(bulkhead.probeerBinnen(), "bulkhead vol → afwijzen")
-        assertEquals(0, bulkhead.vrijePermits())
-    }
-
-    @Test
-    fun `verlaat geeft een permit vrij voor een volgende call`() {
+    fun `taak draait onder een permit en geeft die vrij bij succes`() {
         val bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
 
-        assertTrue(bulkhead.probeerBinnen())
-        assertFalse(bulkhead.probeerBinnen(), "vol")
+        val uitkomst = bulkhead.begrensd(
+            afgewezen = { Uni.createFrom().item("AFGEWEZEN") },
+            taak = { Uni.createFrom().item("OK") },
+        ).await().indefinitely()
 
-        bulkhead.verlaat()
-
-        assertEquals(1, bulkhead.vrijePermits())
-        assertTrue(bulkhead.probeerBinnen(), "permit weer beschikbaar")
+        assertEquals("OK", uitkomst)
+        assertEquals(1, bulkhead.vrijePermits(), "permit vrijgegeven na succes")
     }
 
     @Test
-    fun `start met alle permits vrij`() {
-        val bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 5)
+    fun `permit vrijgegeven bij een falende taak`() {
+        val bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
 
-        assertEquals(5, bulkhead.vrijePermits())
+        val uni = bulkhead.begrensd(
+            afgewezen = { Uni.createFrom().item("AFGEWEZEN") },
+            taak = { Uni.createFrom().failure(RuntimeException("boem")) },
+        )
+
+        assertThrows<RuntimeException> { uni.await().indefinitely() }
+        assertEquals(1, bulkhead.vrijePermits(), "permit vrijgegeven na fout")
+    }
+
+    @Test
+    fun `permit vrijgegeven als het opbouwen van de taak-Uni gooit`() {
+        // Regressie: gooit de taak-lambda vóór er een Uni (met onTermination) is, dan is er niets om
+        // de permit op terminatie vrij te geven — begrensd MOET hem alsnog vrijgeven, anders lekt hij.
+        val bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
+
+        val uni = bulkhead.begrensd<String>(
+            afgewezen = { Uni.createFrom().item("AFGEWEZEN") },
+            taak = { throw IllegalStateException("opbouw faalt") },
+        )
+
+        assertThrows<IllegalStateException> { uni.await().indefinitely() }
+        assertEquals(1, bulkhead.vrijePermits(), "permit vrijgegeven ondanks opbouwfout")
+    }
+
+    @Test
+    fun `vol bulkhead wijst af zonder een permit te claimen`() {
+        val bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
+
+        // Houd de enige permit vast met een taak die niet termineert (nooit emit, niet geannuleerd).
+        val vastgehouden = bulkhead.begrensd(
+            afgewezen = { Uni.createFrom().item("AFGEWEZEN") },
+            taak = { Uni.createFrom().nothing<String>() },
+        ).subscribe().with({}, {})
+
+        assertEquals(0, bulkhead.vrijePermits(), "permit geclaimd door de lopende taak")
+
+        val uitkomst = bulkhead.begrensd(
+            afgewezen = { Uni.createFrom().item("AFGEWEZEN") },
+            taak = { Uni.createFrom().item("OK") },
+        ).await().indefinitely()
+
+        assertEquals("AFGEWEZEN", uitkomst, "bulkhead vol → afgewezen-tak")
+        assertEquals(0, bulkhead.vrijePermits(), "afwijzing claimt geen extra permit")
+
+        // Annuleer de vasthoudende subscription: onTermination(cancel) geeft de permit vrij.
+        vastgehouden.cancel()
+
+        assertEquals(1, bulkhead.vrijePermits(), "permit vrijgegeven bij cancel")
     }
 
     @Test

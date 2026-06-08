@@ -85,7 +85,7 @@ internal class BerichtensessiecacheService(
     // Vert.x-duplicated-context voor de downstream-Redis-writes zou verliezen).
     private val bulkhead: MagazijnAggregatieBulkhead,
     // Per-magazijn circuit breaker: slaat een magazijn na herhaalde storingen tijdelijk over,
-    // zodat een dood magazijn de aggregatie-pool niet vol blijft houden.
+    // zodat een dood magazijn niet onnodig bulkhead-permits bezet houdt.
     private val circuitBreaker: MagazijnCircuitBreaker,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
@@ -502,10 +502,9 @@ internal class BerichtensessiecacheService(
             naam = naam,
         )
 
-        // `deferred` zodat de circuit-check + bulkhead-claim PAS bij subscription lopen, gepaard
-        // met de release in `onTermination`. Zou het bulkhead/circuit eager (bij assembly) worden
-        // geclaimd, dan lekt een nooit-gesubscribete stream (cancel vóór subscribe in het SSE-pad)
-        // de permit/half-open-proef permanent — uiteindelijk loopt het bulkhead leeg.
+        // `deferred` zodat de circuit-check PAS bij subscription loopt: een nooit-gesubscribete
+        // stream (cancel vóór subscribe in het SSE-pad) claimt zo geen half-open proef. Het bulkhead
+        // beheert zijn eigen acquire/release-paring binnen [MagazijnAggregatieBulkhead.begrensd].
         val resultUni: Uni<MagazijnResult> = Uni.createFrom().deferred {
             if (!circuitBreaker.toegestaan(magazijnId)) {
                 // Circuit open na herhaalde storingen: call overslaan en direct een nette
@@ -517,37 +516,39 @@ internal class BerichtensessiecacheService(
                 Uni.createFrom().item(
                     MagazijnResult.Failure(magazijnId, naam, MagazijnCircuitOpenException(magazijnId), MagazijnFault.CIRCUIT_OPEN),
                 )
-            } else if (!bulkhead.probeerBinnen()) {
-                // Bulkhead vol: geen vrije permit → call niet starten, direct OVERBELAST. toegestaan()
-                // kan nét een half-open proef hebben geclaimd; die MOET via registreerCircuit
-                // (→ MELD_ONBESLIST) worden vrijgegeven, anders blijft het circuit permanent open.
-                // Niets vrij te geven aan het bulkhead: probeerBinnen() gaf false (geen permit).
-                val result = MagazijnResult.Failure(
-                    magazijnId, naam, MagazijnOverbelastException(magazijnId), MagazijnFault.OVERBELAST,
-                )
-
-                logMagazijnFault(result.error, magazijnId, naam, MagazijnFault.OVERBELAST)
-                registreerCircuit(magazijnId, result)
-
-                Uni.createFrom().item(result)
             } else {
-                // De blokkerende magazijn-call draait op de context-bewuste default-worker-pool (de
-                // downstream-Redis-writes vereisen de Vert.x-duplicated-context, die een eigen pool
-                // niet levert); het bulkhead begrenst enkel de GELIJKTIJDIGHEID. De permit wordt op
-                // élke terminatie (succes/fout/cancel) precies één keer vrijgegeven.
-                Uni.createFrom().item { client }
-                    .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
-                    .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-                    .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
-                    .map<MagazijnResult> { response -> naarMagazijnResult(response, magazijnId, naam) }
-                    .onFailure(Exception::class.java).recoverWithItem { error ->
-                        val fault = classifyMagazijnFault(error)
+                bulkhead.begrensd(
+                    afgewezen = {
+                        // Bulkhead vol: call niet gestart, direct OVERBELAST. toegestaan() kan nét
+                        // een half-open proef hebben geclaimd; die MOET via registreerCircuit
+                        // (→ MELD_ONBESLIST) worden vrijgegeven, anders blijft het circuit open.
+                        val result = MagazijnResult.Failure(
+                            magazijnId, naam, MagazijnOverbelastException(magazijnId), MagazijnFault.OVERBELAST,
+                        )
 
-                        logMagazijnFault(error, magazijnId, naam, fault)
-                        MagazijnResult.Failure(magazijnId, naam, error, fault)
-                    }
-                    .onItem().invoke { result -> registreerCircuit(magazijnId, result) }
-                    .onTermination().invoke(Runnable { bulkhead.verlaat() })
+                        logMagazijnFault(result.error, magazijnId, naam, MagazijnFault.OVERBELAST)
+                        registreerCircuit(magazijnId, result)
+
+                        Uni.createFrom().item(result)
+                    },
+                    taak = {
+                        // De blokkerende magazijn-call draait op de context-bewuste default-worker-
+                        // pool (de downstream-Redis-writes vereisen de Vert.x-duplicated-context, die
+                        // een eigen pool niet levert); het bulkhead begrenst enkel de gelijktijdigheid.
+                        Uni.createFrom().item { client }
+                            .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
+                            .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
+                            .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
+                            .map<MagazijnResult> { response -> naarMagazijnResult(response, magazijnId, naam) }
+                            .onFailure(Exception::class.java).recoverWithItem { error ->
+                                val fault = classifyMagazijnFault(error)
+
+                                logMagazijnFault(error, magazijnId, naam, fault)
+                                MagazijnResult.Failure(magazijnId, naam, error, fault)
+                            }
+                            .onItem().invoke { result -> registreerCircuit(magazijnId, result) }
+                    },
+                )
             }
         }
 
@@ -617,7 +618,7 @@ internal class BerichtensessiecacheService(
     /**
      * Voedt de per-magazijn circuit breaker met de uitkomst van een echte aggregatie-call. Elke
      * afgeronde call geeft een terminale actie ([circuitActieVoor]) zodat een half-open proef
-     * nooit blijft hangen — ook niet bij een niet-storing-fout (4xx/malformed) of pool-overbelast.
+     * nooit blijft hangen — ook niet bij een niet-storing-fout (4xx/malformed) of bulkhead-OVERBELAST.
      */
     private fun registreerCircuit(magazijnId: String, result: MagazijnResult) {
         when (circuitActieVoor(result)) {

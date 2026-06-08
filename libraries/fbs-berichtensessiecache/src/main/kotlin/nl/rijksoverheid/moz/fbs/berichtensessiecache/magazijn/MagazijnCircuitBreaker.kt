@@ -11,8 +11,8 @@ import java.util.concurrent.TimeUnit
  * Per-magazijn circuit breaker voor de aggregatie-calls. Na [drempel] opeenvolgende
  * availability-storingen (timeout/5xx/netwerk — zie [teltAlsStoring]) bij één magazijn
  * "opent" het circuit voor [openSeconds]: vervolg-calls worden direct overgeslagen
- * (snelle fail i.p.v. wachten op de read-/query-timeout), zodat de begrensde
- * aggregatie-pool niet vol blijft lopen met calls naar een dood magazijn en de
+ * (snelle fail i.p.v. wachten op de read-/query-timeout), zodat het aggregatie-bulkhead
+ * niet onnodig permits bezet houdt met calls naar een dood magazijn en de
  * gebruiker snel een nette "tijdelijk niet beschikbaar" krijgt.
  *
  * Per-magazijn i.p.v. globaal: een storing bij leverancier A mag leverancier B niet
@@ -78,7 +78,7 @@ internal class MagazijnCircuitBreaker(
         }
     }
 
-    /** Proef afgerond zonder uitspraak over het magazijn (bv. pool-OVERBELAST): geef de
+    /** Proef afgerond zonder uitspraak over het magazijn (bv. bulkhead-OVERBELAST): geef de
      *  half-open proef vrij zonder de fouten-teller te raken. */
     fun meldOnbeslist(magazijnId: String) = breaker(magazijnId).meldOnbeslist()
 
@@ -97,7 +97,7 @@ internal class MagazijnCircuitBreaker(
  * Toestanden: CLOSED (telt opeenvolgende fouten) → OPEN ([openNanos]) bij ≥ [drempel] fouten
  * → na het venster één HALF-OPEN proef-call. Die proef heeft drie terminale uitkomsten:
  * succes ([meldSucces]) sluit het circuit, een availability-storing ([meldFout]) heropent het,
- * en een proef-zonder-uitspraak ([meldOnbeslist], bv. pool-OVERBELAST: magazijn niet bereikt)
+ * en een proef-zonder-uitspraak ([meldOnbeslist], bv. bulkhead-OVERBELAST: magazijn niet bereikt)
  * geeft de proef enkel vrij zonder de toestand te wijzigen.
  *
  * De `meld*`-methoden retourneren of déze melding een dicht↔open-grensovergang veroorzaakte,
@@ -148,7 +148,7 @@ internal class Breaker(
      * geef alleen de proef vrij. De fouten-teller en het open-venster blijven ongemoeid; omdat
      * het venster al verstreken is, wordt de eerstvolgende call meteen opnieuw als half-open
      * proef toegelaten (geen nieuw [openNanos]-venster). Zonder deze afronding zou een proef die
-     * het magazijn niet bereikte (pool-overbelast) het circuit permanent open laten staan.
+     * het magazijn niet bereikte (bulkhead-overbelast) het circuit permanent open laten staan.
      */
     @Synchronized
     fun meldOnbeslist() {
