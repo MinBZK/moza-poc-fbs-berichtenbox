@@ -15,7 +15,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
-import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import org.hamcrest.Matchers.containsString
@@ -343,7 +343,7 @@ class ServiceCoverageTest {
     @Test
     fun `bericht-detail bij cache-storing mapt naar 502`() {
         val id = UUID.randomUUID()
-        sessiecache.berichtFout = WebApplicationException("Cache niet bereikbaar.", 503)
+        sessiecache.berichtFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -366,7 +366,7 @@ class ServiceCoverageTest {
 
     @Test
     fun `lijst bij cache-storing mapt naar 502`() {
-        sessiecache.lijstFout = WebApplicationException("Cache niet bereikbaar.", 503)
+        sessiecache.lijstFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -380,7 +380,7 @@ class ServiceCoverageTest {
     fun `lijst bij cache-nog-niet-gevuld propageert 409`() {
         // De gereed-status-gating van de facade (409) is een client-aanwijzing
         // (eerst _ophalen), geen upstream-storing — propageert dus 1-op-1.
-        sessiecache.lijstFout = WebApplicationException("Berichten zijn nog niet opgehaald.", 409)
+        sessiecache.lijstFout = SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -392,7 +392,7 @@ class ServiceCoverageTest {
 
     @Test
     fun `zoek bij cache-storing mapt naar 502`() {
-        sessiecache.zoekFout = WebApplicationException("Cache niet bereikbaar.", 503)
+        sessiecache.zoekFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")

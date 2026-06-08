@@ -217,9 +217,10 @@ class OpenApiContractTest {
     }
 
     @Test
-    fun `GET bericht by id - cache-403 levert valide Problem-403`() {
-        // De facade dwingt de ontvanger-match af; een 403 propageert status-behoudend
-        // (4xx-allowlist) en moet als gedeclareerde Problem-403 valideren tegen de spec.
+    fun `GET bericht by id - propagerende 4xx op leespad levert valide Problem-403`() {
+        // Een propagerende client-/contract-4xx op het leespad (allowlist in
+        // mapUpstreamFout) gaat status-behoudend door en moet als gedeclareerde
+        // Problem-403 valideren tegen de spec.
         val id = UUID.randomUUID()
         sessiecache.berichtFout = ForbiddenException("ontvanger-match geweigerd")
 
@@ -235,7 +236,7 @@ class OpenApiContractTest {
 
     @Test
     fun `GET berichten - cache nog niet gevuld levert valide Problem-409`() {
-        sessiecache.lijstFout = jakarta.ws.rs.WebApplicationException("Berichten zijn nog niet opgehaald.", 409)
+        sessiecache.lijstFout = nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
 
         given()
             .filter(validator)

@@ -28,10 +28,11 @@ import java.util.UUID
 
 /**
  * Pin het facade-contract van [BlockingSessiecache]: de gereed-status-gating op
- * leespaden, de vertaling van infrastructuurfouten naar de gedocumenteerde
- * statuscodes en de invoervalidatie op de schrijfpaden. Dit gedrag zat eerder
- * in de REST-resource van de sessiecache-deployable; de facade is nu het
- * contractuele seam voor consumers.
+ * leespaden, de vertaling van infrastructuurfouten naar de gesloten
+ * [SessiecacheException]-hiërarchie en de invoervalidatie op de schrijfpaden. Dit
+ * gedrag zat eerder in de REST-resource van de sessiecache-deployable; de facade is
+ * nu het contractuele seam voor consumers. De facade draagt géén HTTP-transport-type
+ * meer — de vertaling naar statuscodes leeft bij de consumer (zie de uitvraag-service).
  */
 class BlockingSessiecacheTest {
 
@@ -60,30 +61,24 @@ class BlockingSessiecacheTest {
     // --- gereed-status-gating op leespaden ---
 
     @Test
-    fun `lijst zonder aggregatie-status geeft 409`() {
+    fun `lijst zonder aggregatie-status geeft NogNietGevuld`() {
         stubStatus(null)
 
-        val ex = assertThrows<WebApplicationException> { facade.lijst(ontvanger) }
-
-        assertEquals(409, ex.response.status)
+        assertThrows<SessiecacheException.NogNietGevuld> { facade.lijst(ontvanger) }
     }
 
     @Test
-    fun `lijst met BEZIG-status geeft 409`() {
+    fun `lijst met BEZIG-status geeft OphalenBezig`() {
         stubStatus(AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2))
 
-        val ex = assertThrows<WebApplicationException> { facade.lijst(ontvanger) }
-
-        assertEquals(409, ex.response.status)
+        assertThrows<SessiecacheException.OphalenBezig> { facade.lijst(ontvanger) }
     }
 
     @Test
-    fun `lijst met FOUT-status geeft 500`() {
+    fun `lijst met FOUT-status geeft OphalenMislukt`() {
         stubStatus(AggregationStatus(status = OphalenStatus.FOUT))
 
-        val ex = assertThrows<WebApplicationException> { facade.lijst(ontvanger) }
-
-        assertEquals(500, ex.response.status)
+        assertThrows<SessiecacheException.OphalenMislukt> { facade.lijst(ontvanger) }
     }
 
     @Test
@@ -103,7 +98,7 @@ class BlockingSessiecacheTest {
     fun `zoek kent dezelfde gating en geeft q door`() {
         stubStatus(null)
 
-        assertThrows<WebApplicationException> { facade.zoek(ontvanger, "factuur") }
+        assertThrows<SessiecacheException.NogNietGevuld> { facade.zoek(ontvanger, "factuur") }
 
         stubStatus(gereed)
         every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
@@ -124,12 +119,10 @@ class BlockingSessiecacheTest {
     // --- werkBerichtBij ---
 
     @Test
-    fun `werkBerichtBij zonder status en map geeft 400`() {
-        val ex = assertThrows<WebApplicationException> {
+    fun `werkBerichtBij zonder status en map geeft OngeldigeInvoer`() {
+        assertThrows<SessiecacheException.OngeldigeInvoer> {
             facade.werkBerichtBij(ontvanger, UUID.randomUUID(), status = null, map = null)
         }
-
-        assertEquals(400, ex.response.status)
     }
 
     @Test
@@ -143,23 +136,21 @@ class BlockingSessiecacheTest {
     }
 
     @Test
-    fun `werkBerichtBij vertaalt schrijf-contentie naar 503`() {
+    fun `werkBerichtBij vertaalt schrijf-contentie naar Onbereikbaar`() {
         val id = UUID.randomUUID()
 
         every { service.updateBerichtMetadata(id, ontvanger, null, "archief") } returns
             Uni.createFrom().failure(CacheContentieException(id))
 
-        val ex = assertThrows<WebApplicationException> {
+        assertThrows<SessiecacheException.Onbereikbaar> {
             facade.werkBerichtBij(ontvanger, id, status = null, map = "archief")
         }
-
-        assertEquals(503, ex.response.status)
     }
 
     // --- verwijder / ophalen ---
 
     @Test
-    fun `verwijder delegeert en vertaalt Redis-fouten naar 503`() {
+    fun `verwijder delegeert en vertaalt Redis-fouten naar Onbereikbaar`() {
         val id = UUID.randomUUID()
 
         every { service.verwijderBericht(id, ontvanger) } returns Uni.createFrom().voidItem()
@@ -171,9 +162,7 @@ class BlockingSessiecacheTest {
         every { service.verwijderBericht(id, ontvanger) } returns
             Uni.createFrom().failure(RuntimeException("redis weg"))
 
-        val ex = assertThrows<WebApplicationException> { facade.verwijder(ontvanger, id) }
-
-        assertEquals(503, ex.response.status)
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, id) }
     }
 
     @Test
@@ -190,21 +179,17 @@ class BlockingSessiecacheTest {
     // --- schrijfBericht ---
 
     @Test
-    fun `schrijfBericht wijst ontvanger-mismatch af met 400`() {
-        val ex = assertThrows<WebApplicationException> {
+    fun `schrijfBericht wijst ontvanger-mismatch af met OngeldigeInvoer`() {
+        assertThrows<SessiecacheException.OngeldigeInvoer> {
             facade.schrijfBericht(ontvanger, testBericht(ontvangerWaarde = "999990020"))
         }
-
-        assertEquals(400, ex.response.status)
     }
 
     @Test
-    fun `schrijfBericht zonder actieve sessie geeft 404`() {
+    fun `schrijfBericht zonder actieve sessie geeft GeenActieveSessie`() {
         stubStatus(null)
 
-        val ex = assertThrows<WebApplicationException> { facade.schrijfBericht(ontvanger, testBericht()) }
-
-        assertEquals(404, ex.response.status)
+        assertThrows<SessiecacheException.GeenActieveSessie> { facade.schrijfBericht(ontvanger, testBericht()) }
     }
 
     @Test
@@ -218,7 +203,7 @@ class BlockingSessiecacheTest {
     }
 
     @Test
-    fun `schrijfBericht vertaalt validator-afwijzing naar 400`() {
+    fun `schrijfBericht vertaalt validator-afwijzing naar OngeldigeInvoer`() {
         stubStatus(gereed)
         val bericht = testBericht()
 
@@ -226,56 +211,49 @@ class BlockingSessiecacheTest {
             throw IllegalArgumentException("Maximaal 100 bijlagen per bericht")
         }
 
-        val ex = assertThrows<WebApplicationException> { facade.schrijfBericht(ontvanger, bericht) }
-
-        assertEquals(400, ex.response.status)
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.schrijfBericht(ontvanger, bericht) }
     }
 
     // --- foutvertaling awaitOrServiceUnavailable ---
 
     @Test
-    fun `cache-deserialisatiefout geeft 500`() {
+    fun `cache-deserialisatiefout geeft Onleesbaar`() {
         stubStatus(gereed)
         val id = UUID.randomUUID()
 
         every { service.getBerichtById(id, ontvanger) } returns
             Uni.createFrom().failure(JsonParseException(null, "corrupt"))
 
-        val ex = assertThrows<WebApplicationException> { facade.bericht(ontvanger, id) }
-
-        assertEquals(500, ex.response.status)
+        assertThrows<SessiecacheException.Onleesbaar> { facade.bericht(ontvanger, id) }
     }
 
     @Test
-    fun `corrupte cache-hash geeft 500`() {
+    fun `corrupte cache-hash geeft Onleesbaar`() {
         stubStatus(gereed)
         val id = UUID.randomUUID()
 
         every { service.getBerichtById(id, ontvanger) } returns
             Uni.createFrom().failure(CacheCorruptedException.veldOntbreekt("onderwerp"))
 
-        val ex = assertThrows<WebApplicationException> { facade.bericht(ontvanger, id) }
-
-        assertEquals(500, ex.response.status)
+        assertThrows<SessiecacheException.Onleesbaar> { facade.bericht(ontvanger, id) }
     }
 
     @Test
-    fun `onverwachte fout geeft 503`() {
+    fun `onverwachte fout geeft Onbereikbaar`() {
         every { service.getAggregationStatus(ontvanger) } returns
             Uni.createFrom().failure(IllegalStateException("redis connection reset"))
 
-        val ex = assertThrows<WebApplicationException> { facade.lijst(ontvanger) }
-
-        assertEquals(503, ex.response.status)
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.lijst(ontvanger) }
     }
 
     @Test
-    fun `WebApplicationException uit de service propageert ongewijzigd`() {
+    fun `onverwacht transport-type uit de service lekt niet, maar wordt Onbereikbaar`() {
+        // De interne service hoort op de sync-paden geen WebApplicationException te gooien;
+        // mocht dat tóch gebeuren, dan maskeert de facade dit als infrastructuurfout zodat er
+        // geen HTTP-transport-type uit het library-contract lekt.
         every { service.getAggregationStatus(ontvanger) } returns
             Uni.createFrom().failure(WebApplicationException("teapot", 418))
 
-        val ex = assertThrows<WebApplicationException> { facade.lijst(ontvanger) }
-
-        assertEquals(418, ex.response.status)
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.lijst(ontvanger) }
     }
 }

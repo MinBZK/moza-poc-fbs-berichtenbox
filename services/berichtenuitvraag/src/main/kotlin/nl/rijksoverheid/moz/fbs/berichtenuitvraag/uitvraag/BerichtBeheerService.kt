@@ -5,6 +5,7 @@ import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
@@ -54,8 +55,8 @@ class BerichtBeheerService(
 
         val bijgewerkt = try {
             sessiecache.werkBerichtBij(ontvangerId, berichtId, UitvraagDtoMapper.toLeesstatus(patch.status), patch.map)
-        } catch (e: WebApplicationException) {
-            if (!isUpstreamStoring(e)) {
+        } catch (e: SessiecacheException) {
+            if (!isUpstreamStoring(e.naApiFout())) {
                 // 4xx ná een geslaagde magazijn-write is een contract-bug, geen transport-
                 // storing: de client-request passeerde immers al de magazijn-validatie, dus
                 // hoort de cache hier geen 4xx te geven. Niet compenseren, maar wél met
@@ -64,12 +65,12 @@ class BerichtBeheerService(
                 // 5xx-desync, dus géén stille warnf maar een alertbare errorf. Status propageert.
                 log.errorf(e, "%s cache-PATCH 4xx ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
-                throw e
+                throw e.naApiFout()
             }
 
             log.errorf(e, "cache-PATCH 5xx na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
             invalideerCacheNaMagazijnWrite(ontvangerId, berichtId)
-            throw badGateway()
+            throw badGateway(e)
         }
 
         if (bijgewerkt == null) {
@@ -97,23 +98,23 @@ class BerichtBeheerService(
         try {
             // Idempotente invalidate: "niet in cache" is geen fout, dus geen 404-pad hier.
             sessiecache.verwijder(ontvangerId, berichtId)
-        } catch (e: WebApplicationException) {
-            if (!isUpstreamStoring(e)) {
+        } catch (e: SessiecacheException) {
+            if (!isUpstreamStoring(e.naApiFout())) {
                 log.errorf(e, "%s cache-DELETE 4xx ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
-                throw e
+                throw e.naApiFout()
             }
 
             log.errorf(e, "cache-DELETE 5xx na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
             invalideerCacheNaMagazijnWrite(ontvangerId, berichtId)
-            throw badGateway()
+            throw badGateway(e)
         }
     }
 
     private fun invalideerCacheNaMagazijnWrite(ontvanger: Identificatienummer, berichtId: UUID) {
         try {
             sessiecache.verwijder(ontvanger, berichtId)
-        } catch (e: WebApplicationException) {
+        } catch (e: SessiecacheException) {
             // Dubbele cache-faal: de write naar de cache faalde én de compenserende
             // invalidate faalde. De cache blijft stale tot de TTL zonder self-heal —
             // errorf (niet warnf) zodat een aanhoudende cache-outage alertbaar is i.p.v.
@@ -125,8 +126,9 @@ class BerichtBeheerService(
     }
 
     // 502: magazijn-write slaagde, maar de cache-update faalde (zie [upstreamBadGateway]).
-    private fun badGateway(): WebApplicationException =
-        upstreamBadGateway("cache-update faalde; magazijn bijgewerkt")
+    // De cache-fout gaat als cause mee zodat de oorzaak in exception-keten-logging behouden blijft.
+    private fun badGateway(cause: Throwable): WebApplicationException =
+        upstreamBadGateway("cache-update faalde; magazijn bijgewerkt", cause)
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtBeheerService::class.java)

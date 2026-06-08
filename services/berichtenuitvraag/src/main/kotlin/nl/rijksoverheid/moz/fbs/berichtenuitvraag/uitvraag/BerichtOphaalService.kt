@@ -126,7 +126,7 @@ class BerichtOphaalService(
     }
 
     private fun zoekBerichtInCache(xOntvanger: String, berichtId: UUID) =
-        mapUpstreamFout(log, "cache-bericht-lookup (berichtId=$berichtId)") {
+        leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId)") {
             sessiecache.bericht(Identificatienummer.fromHeader(xOntvanger), berichtId)
         }
 
