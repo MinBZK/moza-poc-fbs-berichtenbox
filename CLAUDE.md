@@ -23,7 +23,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 ## Architectuurprincipes
 
-- **OpenAPI-first:** De OpenAPI spec per service (`berichtenuitvraag-api.yaml`, `berichtenmagazijn-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze. De sessiecache is een interne library zonder eigen API-spec: de `Sessiecache`-CDI-facade is daar het contract.
+- **OpenAPI-first:** De OpenAPI spec per service (`berichtenuitvraag-api.yaml`, `berichtenmagazijn-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze. De sessiecache en het magazijnregister zijn interne libraries zonder eigen API-spec: hun CDI-facades (`Sessiecache`, `Magazijnregister`) zijn daar het contract.
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`. Spec valideren met Spectral-linter (zie Tooling).
 - **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
@@ -37,7 +37,8 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
-- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag`. Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`). `services/berichtenlijst/` bestaat als directory maar is niet actief.
+- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag`. Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`). `services/berichtenlijst/` bestaat als directory maar is niet actief.
+- **Magazijnregister:** één magazijn per deelnemende organisatie; het `magazijnId` dat door DTO's/SSE stroomt ís de afzender-OIN (publiek, geen PII). Config-conventie: `magazijnen."<OIN>".{url,naam}` — de map-key is de OIN, dus dubbele OIN's zijn structureel onmogelijk. `ConfigMagazijnregister` valideert keys/URLs fail-fast bij boot (https-eis buiten dev/test). Consumers (sessiecache-aggregatie, `MagazijnRouter`-routering) lezen uitsluitend de `Magazijnregister`-facade; database-opslag + beheer-interface volgen later.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
 - **Bruno-collectie:** per service met een OpenAPI-spec hoort een Bruno-collectie onder `bruno/<service-naam>/` (met `bruno.json`, `environments/lokaal.bru` en requests per functioneel pad). Nieuwe endpoints in de OpenAPI-spec krijgen direct een bijbehorende `.bru`-request; zo blijft de collectie een levend exempel van de spec.
@@ -131,6 +132,7 @@ class Voorbeeld {
 
 ```bash
 docker compose up -d                                             # Start Redis, WireMock, ClickHouse
+./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
 ./mvnw compile -pl services/berichtenuitvraag -am                # Compileren berichtenuitvraag
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
@@ -164,6 +166,7 @@ transitieve libraries, niet uit onze code of config):
 | Pad                                    | Beschrijving                                                    |
 |----------------------------------------|-----------------------------------------------------------------|
 | `pom.xml`                              | Parent POM (Quarkus BOM, Kotlin plugin config)                  |
+| `libraries/fbs-magazijnregister/`      | Magazijnregister-library (1:1 OIN↔magazijn, `Magazijnregister`-facade) |
 | `libraries/fbs-berichtensessiecache/`  | In-process sessiecache-library (`Sessiecache`-facade, Redis)    |
 | `services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml` | OpenAPI spec frontend-API |
 | `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |

@@ -201,14 +201,15 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `bijlage van een magazijn-b-bericht routeert naar de magazijn-b-mock, niet naar magazijn-a`() {
-        // Routerings-bewijs (security-grens): de cache levert het bron-magazijnId;
-        // MagazijnRouter moet daarop naar de júiste base-URL routeren. magazijn-a en
-        // magazijn-b draaien op verschillende poorten, dus een verkeerde route landt op
-        // de andere mock. We stubben de bijlage ALLEEN op magazijn-b.
+    fun `bijlage van een magazijn-B-bericht routeert naar de magazijn-B-mock, niet naar magazijn A`() {
+        // Routerings-bewijs (security-grens): de cache levert het bron-magazijnId
+        // (= afzender-OIN); MagazijnRouter moet daarop naar de júiste base-URL routeren.
+        // De mocks voor OIN A en OIN B draaien op verschillende poorten, dus een
+        // verkeerde route landt op de andere mock. We stubben de bijlage ALLEEN op
+        // de magazijn-B-mock.
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        seedBericht(berichtId, magazijnId = "magazijn-b")
+        seedBericht(berichtId, magazijnId = WireMockBackendsResource.OIN_B)
         WireMockBackendsResource.magazijn2!!.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
@@ -253,7 +254,7 @@ class ServiceCoverageTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
 
@@ -277,7 +278,7 @@ class ServiceCoverageTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"ongelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
 
@@ -298,7 +299,7 @@ class ServiceCoverageTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"map":"archief"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-a")
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
 
@@ -425,7 +426,7 @@ class ServiceCoverageTest {
 
     @Test
     fun `PATCH met onbekende magazijnId-query geeft 502 zonder magazijn-call`() {
-        // MagazijnRouter.forMagazijn gooit 502 als de id niet in `magazijnen.urls`
+        // MagazijnRouter.forMagazijn gooit 502 als de id niet in het magazijnregister
         // staat — infrastructuur-mismatch, geen client-fout (4xx).
         val id = UUID.randomUUID()
 
@@ -451,7 +452,7 @@ class ServiceCoverageTest {
             .statusCode(502)
     }
 
-    private fun seedBericht(berichtId: UUID, magazijnId: String = "magazijn-a") {
+    private fun seedBericht(berichtId: UUID, magazijnId: String = WireMockBackendsResource.OIN_A) {
         sessiecache.berichten[berichtId] = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",

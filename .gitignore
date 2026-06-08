@@ -37,6 +37,7 @@ node_modules/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.claude/ralph-loop.local.md
 
 # Coredumps (root only — ignoreert geen toekomstige core/ source-map)
 /core

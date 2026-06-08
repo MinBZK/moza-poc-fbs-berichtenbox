@@ -23,7 +23,7 @@
           "inhoud": "Uw aanvraag voor een omgevingsvergunning is ontvangen en in behandeling.",
           "tijdstipOntvangst": "2026-03-10T10:00:02Z",
           "publicatietijdstip": "2026-03-10T10:00:00Z",
-          "magazijnId": "magazijn-b",
+          "magazijnId": "00000001823288444000",
           "aantalBijlagen": 3,
           "bijlagen": [
             { "bijlageId": "bbbbbbbb-1111-2222-3333-bbbbbbbbbbbb", "naam": "ontvangstbevestiging.pdf" },
@@ -41,7 +41,7 @@
           "inhoud": "Uw bezwaar tegen de WOZ-waarde dient binnen 6 weken te worden ingediend.",
           "tijdstipOntvangst": "2026-03-07T13:20:01Z",
           "publicatietijdstip": "2026-03-07T13:20:00Z",
-          "magazijnId": "magazijn-b",
+          "magazijnId": "00000001823288444000",
           "aantalBijlagen": 0,
           "bijlagen": [],
           "status": { "gelezen": false, "gewijzigdOp": "2026-03-07T13:20:01Z" },

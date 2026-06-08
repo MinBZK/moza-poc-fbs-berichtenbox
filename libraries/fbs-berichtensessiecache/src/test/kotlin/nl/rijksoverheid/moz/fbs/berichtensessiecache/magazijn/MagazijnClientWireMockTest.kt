@@ -127,9 +127,9 @@ class MagazijnClientWireMockTest {
                 .willReturn(aResponse().withFixedDelay(6_000).withStatus(200).withBody("""{"berichten":[]}"""))
         )
 
-        val client = clientFactory.getAllClients()["magazijn-a"]
+        val client = clientFactory.getAllClients()[WireMockMagazijnResource.OIN_A]
 
-        assertNotNull(client, "magazijn-a client moet geconfigureerd zijn")
+        assertNotNull(client, "client voor magazijn-OIN A moet geconfigureerd zijn")
 
         val startNanos = System.nanoTime()
 

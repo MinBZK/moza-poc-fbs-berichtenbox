@@ -14,8 +14,8 @@ import java.util.UUID
  * REST-client naar een Berichtenmagazijn. Instances worden niet statisch
  * geïnjecteerd — [MagazijnRouter] bouwt ze op runtime per `magazijnId` via
  * `RestClientBuilder`. Daarom géén `@RegisterRestClient`: de URL hoort niet
- * via `quarkus.rest-client.*.url`-config te komen maar via de
- * `magazijnen.urls.<id>`-map.
+ * via `quarkus.rest-client.*.url`-config te komen maar uit het
+ * magazijnregister (`magazijnen."<OIN>".url`).
  *
  * TODO(#552): vervangen door FSC outway zodra de federatieve connectiviteit
  * op MOZ-niveau is vastgesteld.

@@ -126,11 +126,16 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
 
+                    magazijnregister = container "Magazijnregister" "Houdt per deelnemende organisatie (OIN) bij welk berichtenmagazijn erbij hoort — 1:1, het magazijnId ís de OIN. Nu config-backed; later database-opslag met beheer-interface." "Quarkus / Kotlin — gedeelde library (in-process)" "Interne Module"
+
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldService -> sessiecacheFacade "Werkt cache bij (aanmeld-write, in-sessie)" "CDI (in-process facade)"
                     uitvraagOphaalService -> sessiecacheFacade "Haalt berichten op" "CDI (in-process facade)"
                     uitvraagBerichtenlijst -> sessiecacheFacade "Haalt berichtenlijst op" "CDI (in-process facade)"
                     uitvraagBeheerService -> sessiecacheFacade "Werkt berichtstatus bij in cache" "CDI (in-process facade)"
+                    sessiecacheService -> magazijnregister "Bepaalt de magazijn-set en endpoints per afzender-OIN" "CDI (in-process)"
+                    uitvraagOphaalService -> magazijnregister "Zoekt het magazijn-endpoint op voor bijlage-routering" "CDI (in-process)"
+                    uitvraagBeheerService -> magazijnregister "Zoekt het magazijn-endpoint op voor write-routering" "CDI (in-process)"
                 }
 
             }
