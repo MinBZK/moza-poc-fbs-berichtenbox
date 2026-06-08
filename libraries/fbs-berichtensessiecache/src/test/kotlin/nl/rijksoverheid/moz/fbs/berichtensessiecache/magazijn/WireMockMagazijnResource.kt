@@ -7,6 +7,11 @@ import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
 class WireMockMagazijnResource : QuarkusTestResourceLifecycleManager {
 
     companion object {
+        // magazijnId == afzender-OIN (register-conventie); gedeeld door tests die
+        // resolver-resultaten of client-map-keys asserten.
+        const val OIN_A = "00000001003214345000"
+        const val OIN_B = "00000001823288444000"
+
         var serverA: WireMockServer? = null
         var serverB: WireMockServer? = null
     }
@@ -20,12 +25,10 @@ class WireMockMagazijnResource : QuarkusTestResourceLifecycleManager {
         serverB = b
 
         return mapOf(
-            "magazijnen.instances.magazijn-a.url" to a.baseUrl(),
-            "magazijnen.instances.magazijn-a.naam" to "WireMock Magazijn A",
-            "magazijnen.instances.magazijn-a.afzenders" to "00000001003214345000",
-            "magazijnen.instances.magazijn-b.url" to b.baseUrl(),
-            "magazijnen.instances.magazijn-b.naam" to "WireMock Magazijn B",
-            "magazijnen.instances.magazijn-b.afzenders" to "00000001823288444000",
+            "magazijnen.\"$OIN_A\".url" to a.baseUrl(),
+            "magazijnen.\"$OIN_A\".naam" to "WireMock Magazijn A",
+            "magazijnen.\"$OIN_B\".url" to b.baseUrl(),
+            "magazijnen.\"$OIN_B\".naam" to "WireMock Magazijn B",
         )
     }
 

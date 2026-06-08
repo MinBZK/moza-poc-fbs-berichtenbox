@@ -1,165 +1,79 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
+import io.mockk.mockk
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockedDependenciesProfile
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
-import java.util.Optional
+import java.net.URI
 
+/**
+ * De config-validatie (OIN-keys, URL/TLS, leeg register) leeft — met eigen tests —
+ * in fbs-magazijnregister; hier pinnen we alleen het factory-gedrag bovenop het
+ * register: client-map met `magazijnId == oin.waarde`, namen-lookup en de
+ * 1:1-afzender-lookup.
+ */
 @QuarkusTest
 @TestProfile(MockedDependenciesProfile::class)
 class MagazijnClientFactoryInitTest {
 
-    private fun makeConfig(instances: Map<String, MagazijnenConfig.MagazijnInstance>): MagazijnenConfig =
-        object : MagazijnenConfig {
-            override fun instances() = instances
+    private val oinA = "00000001003214345000"
+    private val oinB = "00000001823288444000"
+    private val onbekendeOin = "99999999999999999999"
+
+    // Stub-register i.p.v. mockk: MockK kan de Oin-value-class niet synthesiseren
+    // tijdens matcher-recording (`any<Oin>()` triggert de validerende constructor
+    // met dummy-waarden → DomainValidationException). Subclass overschrijft
+    // createClient zodat geen Quarkus-CDI-context nodig is voor de REST-client-builder.
+    private fun factory(vararg inschrijvingen: Magazijninschrijving): MagazijnClientFactory =
+        object : MagazijnClientFactory(
+            register = stubRegister(*inschrijvingen),
+            connectTimeoutMs = 2000L,
+            readTimeoutMs = 12000L,
+        ) {
+            override fun createClient(inschrijving: Magazijninschrijving): MagazijnClient = mockk()
+        }.also { it.init() }
+
+    private fun stubRegister(vararg inschrijvingen: Magazijninschrijving): Magazijnregister =
+        object : Magazijnregister {
+            override fun alle(): Collection<Magazijninschrijving> = inschrijvingen.toList()
+            override fun voorOin(oin: Oin): Magazijninschrijving? = inschrijvingen.firstOrNull { it.oin == oin }
         }
 
-    private fun makeInstance(
-        url: String,
-        naam: String? = null,
-        afzenders: List<String> = emptyList(),
-    ): MagazijnenConfig.MagazijnInstance =
-        object : MagazijnenConfig.MagazijnInstance {
-            override fun url() = url
-            override fun naam() = Optional.ofNullable(naam)
-            override fun afzenders() = afzenders
-        }
+    private fun inschrijving(oin: String, naam: String? = null): Magazijninschrijving =
+        Magazijninschrijving(oin = Oin(oin), url = URI.create("http://localhost:8081"), naam = naam)
 
     @Test
-    fun `init met lege instances faalt met 'Geen magazijnen geconfigureerd'`() {
-        val factory = MagazijnClientFactory(makeConfig(emptyMap()), profile = "test", connectTimeoutMs = 2000L, readTimeoutMs = 12000L)
+    fun `init bouwt per inschrijving een client met de OIN-waarde als magazijnId`() {
+        val factory = factory(inschrijving(oinA), inschrijving(oinB))
 
-        val ex = assertThrows<IllegalArgumentException> { factory.init() }
-
-        assertTrue(ex.message!!.contains("Geen magazijnen"), "Bericht was: ${ex.message}")
+        assertEquals(setOf(oinA, oinB), factory.getAllClients().keys)
     }
 
     @Test
-    fun `init met ongeldige URL faalt met 'Ongeldige URL voor magazijn'`() {
-        // Spaties in het host-deel maken de URI illegaal volgens RFC 2396 / java.net.URI.
-        val factory = MagazijnClientFactory(
-            makeConfig(
-                mapOf("mag-a" to makeInstance(url = "http://host met spaties/pad", afzenders = listOf("00000001003214345000"))),
-            ),
-            profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
-        )
+    fun `getNaam levert de register-naam per magazijnId`() {
+        val factory = factory(inschrijving(oinA, naam = "Belastingdienst"), inschrijving(oinB))
 
-        val ex = assertThrows<IllegalStateException> { factory.init() }
-
-        assertTrue(ex.message!!.contains("Ongeldige URL"), "Bericht was: ${ex.message}")
+        assertEquals("Belastingdienst", factory.getNaam(oinA))
+        assertNull(factory.getNaam(oinB))
     }
 
     @Test
-    fun `init met lege afzenders-lijst faalt met 'geen afzenders geconfigureerd'`() {
-        val factory = MagazijnClientFactory(
-            makeConfig(
-                mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = emptyList())),
-            ),
-            profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
-        )
+    fun `magazijnenVoorAfzender levert singleton-set voor een ingeschreven OIN`() {
+        val factory = factory(inschrijving(oinA))
 
-        val ex = assertThrows<IllegalArgumentException> { factory.init() }
-
-        assertTrue(ex.message!!.contains("afzenders"), "Bericht was: ${ex.message}")
+        assertEquals(setOf(oinA), factory.magazijnenVoorAfzender(Oin(oinA)))
     }
 
     @Test
-    fun `init met ongeldige OIN (geen 20 cijfers) faalt met 'Ongeldige afzender-OIN'`() {
-        val factory = MagazijnClientFactory(
-            makeConfig(
-                mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf("12345"))),
-            ),
-            profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
-        )
+    fun `magazijnenVoorAfzender levert lege set voor een onbekende OIN (drift)`() {
+        val factory = factory(inschrijving(oinA))
 
-        val ex = assertThrows<IllegalStateException> { factory.init() }
-
-        assertTrue(ex.message!!.contains("Ongeldige afzender-OIN"), "Bericht was: ${ex.message}")
-    }
-
-    @Test
-    fun `init met http-URL in prod-profiel faalt met TLS-verplichting`() {
-        val factory = MagazijnClientFactory(
-            makeConfig(
-                mapOf("mag-a" to makeInstance(url = "http://magazijn-a.prod.local", afzenders = listOf("00000001003214345000"))),
-            ),
-            profile = "prod",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
-        )
-
-        val ex = assertThrows<IllegalArgumentException> { factory.init() }
-
-        assertTrue(ex.message!!.contains("https://"), "Bericht was: ${ex.message}")
-        assertTrue(ex.message!!.contains("magazijnen.instances.mag-a.url"), "Bericht was: ${ex.message}")
-    }
-
-    @Test
-    fun `init met meerdere afzenders per magazijn bouwt reverse-index correct`() {
-        // Pinned: reverse-index moet ALLE OIN's van een multi-afzender-magazijn dekken.
-        val oinA = "00000001003214345000"
-        val oinB = "00000001003214345001"
-        val factory = MagazijnClientFactory(
-            makeConfig(
-                mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf(oinA, oinB))),
-            ),
-            profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
-        )
-
-        factory.init()
-
-        assertEquals(setOf("mag-a"), factory.magazijnenVoorAfzender(Oin(oinA)))
-        assertEquals(setOf("mag-a"), factory.magazijnenVoorAfzender(Oin(oinB)))
-        assertEquals(setOf(Oin(oinA), Oin(oinB)), factory.getAfzenders("mag-a"))
-    }
-
-    @Test
-    fun `init met overlappende OIN over meerdere magazijnen merget reverse-index sets`() {
-        // Zelfde OIN bij twee magazijnen → set-union; reverse-index moet beide IDs bevatten.
-        val gedeeld = "00000001003214345000"
-        val factory = MagazijnClientFactory(
-            makeConfig(
-                mapOf(
-                    "mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf(gedeeld)),
-                    "mag-b" to makeInstance(url = "http://localhost:8082", afzenders = listOf(gedeeld)),
-                ),
-            ),
-            profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
-        )
-
-        factory.init()
-
-        assertEquals(setOf("mag-a", "mag-b"), factory.magazijnenVoorAfzender(Oin(gedeeld)))
-    }
-
-    @Test
-    fun `init met afzender bestaande uit geheel nullen faalt met 'Ongeldige afzender-OIN'`() {
-        val factory = MagazijnClientFactory(
-            makeConfig(
-                mapOf("mag-a" to makeInstance(url = "http://localhost:8081", afzenders = listOf("00000000000000000000"))),
-            ),
-            profile = "test",
-            connectTimeoutMs = 2000L,
-            readTimeoutMs = 12000L,
-        )
-
-        val ex = assertThrows<IllegalStateException> { factory.init() }
-
-        assertTrue(ex.message!!.contains("Ongeldige afzender-OIN"), "Bericht was: ${ex.message}")
+        assertEquals(emptySet<String>(), factory.magazijnenVoorAfzender(Oin(onbekendeOin)))
     }
 }

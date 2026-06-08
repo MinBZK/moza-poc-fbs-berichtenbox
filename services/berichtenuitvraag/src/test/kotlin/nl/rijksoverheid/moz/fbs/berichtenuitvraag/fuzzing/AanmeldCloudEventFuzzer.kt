@@ -15,9 +15,10 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldBerichtData
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldCloudEvent
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldOntvanger
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AfzenderMagazijnIndex
-import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MagazijnenConfig
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import java.time.Instant
 import java.util.UUID
 
@@ -112,17 +113,15 @@ object AanmeldCloudEventFuzzer {
             override fun verwijder(eventId: String) = Unit
         }
 
-        // Lege config volstaat: magazijnVoor wordt overschreven, dus de in de
-        // constructor opgebouwde reverse-index wordt nooit geraadpleegd.
-        val legeConfig = object : MagazijnenConfig {
-            override fun urls(): Map<String, String> = emptyMap()
+        // Leeg register volstaat: magazijnVoor wordt overschreven, dus het register
+        // wordt nooit geraadpleegd.
+        val leegRegister = object : Magazijnregister {
+            override fun alle(): Collection<Magazijninschrijving> = emptyList()
 
-            override fun instances(): Map<String, MagazijnenConfig.Instance> = emptyMap()
-
-            override fun client(): MagazijnenConfig.Client = throw UnsupportedOperationException()
+            override fun voorOin(oin: Oin): Magazijninschrijving? = null
         }
 
-        val index = object : AfzenderMagazijnIndex(legeConfig) {
+        val index = object : AfzenderMagazijnIndex(leegRegister) {
             override fun magazijnVoor(afzender: Oin): String = "magazijn-a"
         }
 

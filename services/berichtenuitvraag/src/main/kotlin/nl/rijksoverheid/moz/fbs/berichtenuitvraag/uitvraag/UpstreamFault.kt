@@ -55,6 +55,7 @@ internal fun isUpstreamStoring(e: WebApplicationException): Boolean {
 
 // Jakarta REST 3.1 kent geen BadGatewayException; een expliciete WAE met
 // 502-status geeft downstream dezelfde semantiek. Canonieke 502-helper voor de
-// hele uitvraag-service.
-internal fun upstreamBadGateway(detail: String): WebApplicationException =
-    WebApplicationException(detail, Response.Status.BAD_GATEWAY)
+// hele uitvraag-service. Geef waar beschikbaar de onderliggende fout als cause
+// mee zodat exception-keten-gebaseerde logging de oorzaak niet verliest.
+internal fun upstreamBadGateway(detail: String, cause: Throwable? = null): WebApplicationException =
+    WebApplicationException(detail, cause, Response.Status.BAD_GATEWAY)

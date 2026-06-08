@@ -176,8 +176,8 @@ internal class ProfielMagazijnResolver(
         // direct kan fixen. Alleen een ongeldige, ongevalideerde upstream-string wordt
         // afgekapt + ontdaan van control-chars (een buggy upstream kan daar onverwachte
         // inhoud of een CRLF-log-injectie in zetten — dat is geen geldige OIN meer).
-        // Reverse-index lookup via clientFactory.magazijnenVoorAfzender: O(1) per OIN i.p.v.
-        // O(N×M) scan over alle magazijn-afzender-paren.
+        // Register-lookup via clientFactory.magazijnenVoorAfzender: 1:1 OIN↔magazijn,
+        // dus per opted-in OIN hooguit één magazijn-id.
         var totaal = 0
         var ongeldig = 0
         var driftSkips = 0
@@ -207,13 +207,13 @@ internal class ProfielMagazijnResolver(
                 val matched = clientFactory.magazijnenVoorAfzender(oin)
 
                 if (matched.isEmpty()) {
-                    // Config-drift: Profiel kent een geldige OIN die niet in magazijn-config
-                    // staat. Volledige (publieke) OIN in de log zodat ops de config-mismatch
-                    // direct kan herleiden.
+                    // Config-drift: Profiel kent een geldige OIN die niet in het
+                    // magazijnregister staat. Volledige (publieke) OIN in de log zodat ops
+                    // de mismatch direct kan herleiden.
                     driftSkips++
 
                     log.warnf(
-                        "Profiel-service noemt afzender-OIN '%s' die bij geen geconfigureerd magazijn hoort — config-drift?",
+                        "Profiel-service noemt afzender-OIN '%s' die niet in het magazijnregister staat — config-drift?",
                         oin.waarde,
                     )
 
@@ -242,7 +242,7 @@ internal class ProfielMagazijnResolver(
 
             if (driftSkips > 0) {
                 log.errorf(
-                    "Config-drift (errorId=%s): %d van %d opted-in afzender-OIN(s) onbekend bij magazijn-config (ongeldig=%d)",
+                    "Config-drift (errorId=%s): %d van %d opted-in afzender-OIN(s) onbekend in het magazijnregister (ongeldig=%d)",
                     foutException.errorId, driftSkips, totaal, ongeldig,
                 )
             } else {
@@ -287,5 +287,4 @@ internal class ProfielMagazijnResolver(
         internal fun veiligLogFragment(ruweUpstreamWaarde: String): String =
             ruweUpstreamWaarde.take(24).replace(CONTROL_CHARS, "?")
     }
-
 }
