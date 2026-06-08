@@ -16,4 +16,5 @@ object ProcessingActivities {
 
     const val UITVRAAG_LEZEN = "$NAMESPACE:lezen"
     const val UITVRAAG_BEHEER = "$NAMESPACE:beheer"
+    const val UITVRAAG_AANMELDING = "$NAMESPACE:aanmelding"
 }

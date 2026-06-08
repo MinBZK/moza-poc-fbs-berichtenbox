@@ -24,6 +24,7 @@ class MagazijnRouterTest {
         MagazijnRouter(
             object : MagazijnenConfig {
                 override fun urls(): Map<String, String> = urls
+                override fun instances(): Map<String, MagazijnenConfig.Instance> = emptyMap()
                 override fun client(): MagazijnenConfig.Client = object : MagazijnenConfig.Client {
                     override fun connectTimeout(): Duration = Duration.ofSeconds(2)
                     override fun readTimeout(): Duration = Duration.ofSeconds(10)
