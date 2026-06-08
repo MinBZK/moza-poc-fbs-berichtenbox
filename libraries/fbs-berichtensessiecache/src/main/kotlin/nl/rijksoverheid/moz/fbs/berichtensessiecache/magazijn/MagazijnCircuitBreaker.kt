@@ -20,6 +20,13 @@ import java.util.concurrent.TimeUnit
  * wordt programmatisch per OIN gebouwd (geen CDI-bean, dus geen interceptor), en de
  * annotatie kent geen per-instance (per-magazijn) state. Vandaar deze expliciete,
  * los testbare state-machine.
+ *
+ * De drempel telt over álle ontvangers/sessies heen (per-magazijn state, niet per-ontvanger),
+ * dus het circuit opent al na [drempel] storingen systeem-breed — sneller dan per-ontvanger.
+ * Bekende beperking: de eerste [drempel] getroffen ophaalsessies wachten nog de volledige
+ * magazijn-query-timeout af vóór het circuit opent; pas daarna krijgen volgende sessies de
+ * directe "tijdelijk niet beschikbaar". Dat is de bedoelde degradatie t.o.v. de oude situatie
+ * waarin élke sessie op de timeout wachtte én de gedeelde worker-pool liet vollopen.
  */
 @ApplicationScoped
 internal class MagazijnCircuitBreaker(

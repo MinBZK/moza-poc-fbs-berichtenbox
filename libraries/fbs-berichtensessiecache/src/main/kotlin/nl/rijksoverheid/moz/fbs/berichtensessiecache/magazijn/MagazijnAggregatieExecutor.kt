@@ -29,8 +29,15 @@ import java.util.concurrent.atomic.AtomicInteger
  * opent het circuit niet, dus zonder grens zou de queue onbeperkt groeien (geheugen-DoS) —
  * precies het overload-voetkanon dat deze feature dicht. Bij een volle queue wordt de taak
  * afgewezen (`RejectedExecutionException` → [MagazijnFault.OVERBELAST]: snelle "tijdelijk niet
- * beschikbaar" i.p.v. bufferen). Saturatie raakt zo alle aggregatie-calls van dat moment, maar
- * de circuit breaker ruimt het verantwoordelijke (dode) magazijn snel op zodat de pool herstelt.
+ * beschikbaar" i.p.v. bufferen).
+ *
+ * Bekende beperking (bewuste trade-off van het bounded-pool-alternatief, niet een per-magazijn
+ * bulkhead): deze pool wordt door álle magazijnen en ontvangers gedeeld. Tijdens het korte
+ * venster waarin een trage leverancier de pool vult vóórdat zijn [MagazijnCircuitBreaker] opent,
+ * kunnen ook calls naar gezonde leveranciers tijdelijk worden afgewezen (OVERBELAST). Zodra het
+ * circuit van de verantwoordelijke leverancier opent, worden diens calls overgeslagen en herstelt
+ * de pool, waarna gezonde leveranciers weer normaal bediend worden. Een harde per-magazijn-garantie
+ * zou een per-magazijn concurrency-cap vereisen; dat valt buiten dit alternatief.
  */
 @ApplicationScoped
 internal class MagazijnAggregatieExecutor(
