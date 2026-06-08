@@ -8,6 +8,7 @@ import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieExecutor
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
@@ -18,7 +19,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.teltAlsStoring
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.circuitActieVoor
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.eclipse.microprofile.config.inject.ConfigProperty
@@ -586,11 +587,16 @@ internal class BerichtensessiecacheService(
         }
     }
 
-    /** Voedt de per-magazijn circuit breaker met de uitkomst van een echte aggregatie-call. */
+    /**
+     * Voedt de per-magazijn circuit breaker met de uitkomst van een echte aggregatie-call. Elke
+     * afgeronde call geeft een terminale actie ([circuitActieVoor]) zodat een half-open proef
+     * nooit blijft hangen — ook niet bij een niet-storing-fout (4xx/malformed) of pool-overbelast.
+     */
     private fun registreerCircuit(magazijnId: String, result: MagazijnResult) {
-        when (result) {
-            is MagazijnResult.Success -> circuitBreaker.meldSucces(magazijnId)
-            is MagazijnResult.Failure -> if (result.fault.teltAlsStoring) circuitBreaker.meldFout(magazijnId)
+        when (circuitActieVoor(result)) {
+            CircuitActie.MELD_SUCCES -> circuitBreaker.meldSucces(magazijnId)
+            CircuitActie.MELD_FOUT -> circuitBreaker.meldFout(magazijnId)
+            CircuitActie.MELD_ONBESLIST -> circuitBreaker.meldOnbeslist(magazijnId)
         }
     }
 
@@ -601,6 +607,7 @@ internal class BerichtensessiecacheService(
         MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
         MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
         MagazijnFault.CIRCUIT_OPEN -> "Magazijn tijdelijk niet beschikbaar (herhaalde storingen)"
+        MagazijnFault.OVERBELAST -> "Magazijn tijdelijk niet beschikbaar (systeem druk, probeer het later opnieuw)"
         // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
         MagazijnFault.INTERNAL_BUG, MagazijnFault.NETWORK -> "Magazijn kon niet geraadpleegd worden"
     }
@@ -815,6 +822,9 @@ internal class BerichtensessiecacheService(
 
         return when {
             chain.hasCauseOf(MagazijnResponseOverflow::class.java) -> MagazijnFault.OVERFLOW
+            // Pool-rejectie: de begrensde aggregatie-pool zat vol → taak afgewezen vóór de call.
+            // Geen uitspraak over dít magazijn (saturatie komt typisch door een ánder, traag magazijn).
+            chain.hasCauseOf(java.util.concurrent.RejectedExecutionException::class.java) -> MagazijnFault.OVERBELAST
             chain.hasCauseOf(TimeoutException::class.java) -> MagazijnFault.TIMEOUT
             chain.hasCauseOf(JsonProcessingException::class.java) -> MagazijnFault.MALFORMED
             chain.hasCauseOf(ConnectException::class.java) -> MagazijnFault.NETWORK
@@ -860,6 +870,10 @@ internal class BerichtensessiecacheService(
             // via classifyMagazijnFault binnenkomen (kan niet, maar houdt de when exhaustief).
             MagazijnFault.CIRCUIT_OPEN ->
                 log.debugf("Magazijn %s (%s) overgeslagen door circuit breaker", magazijnId, naam)
+            // Pool-saturatie: warnf (capaciteits-/load-signaal voor ops), geen errorf — het is
+            // geen eigen-bug maar een overload-conditie.
+            MagazijnFault.OVERBELAST ->
+                log.warnf(error, "Aggregatie-pool vol; magazijn %s (%s) afgewezen (OVERBELAST)", magazijnId, naam)
             MagazijnFault.INTERNAL_BUG ->
                 log.errorf(error, "Onverwachte fout bij magazijn %s (%s) (cause=%s)", magazijnId, naam, error.javaClass.simpleName)
         }

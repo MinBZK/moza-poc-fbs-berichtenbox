@@ -38,23 +38,50 @@ internal sealed class MagazijnResult {
  * [CIRCUIT_OPEN]: de per-magazijn circuit breaker is open na herhaalde storingen, dus
  * de call is bewust overgeslagen (snelle fail i.p.v. wachten op een timeout). Geen
  * resultaat van een echte call, dus nooit door `classifyMagazijnFault` geproduceerd.
+ *
+ * [OVERBELAST]: de begrensde aggregatie-pool wees de taak af (queue vol) — het magazijn is
+ * niet eens bevraagd. Geen uitspraak over de beschikbaarheid van dít magazijn (de saturatie
+ * komt typisch door een ánder, traag magazijn), dus telt niet als storing én niet als succes.
  */
-internal enum class MagazijnFault { TIMEOUT, MALFORMED, OVERFLOW, HTTP_5XX, HTTP_4XX, NETWORK, INTERNAL_BUG, CIRCUIT_OPEN }
+internal enum class MagazijnFault {
+    TIMEOUT, MALFORMED, OVERFLOW, HTTP_5XX, HTTP_4XX, NETWORK, INTERNAL_BUG, CIRCUIT_OPEN, OVERBELAST
+}
 
 /**
  * Of een fault als availability-storing telt voor de per-magazijn circuit breaker: alleen
  * transient-onbeschikbaarheid (timeout, 5xx, netwerk) opent het circuit. Config-/contract-
- * fouten (4xx), data-issues (malformed/overflow), eigen bugs en de breaker-eigen CIRCUIT_OPEN
- * tellen NIET mee — anders zou een blijvende 4xx of een eenmalige bug het magazijn onnodig
- * uitsluiten. Eén bron van waarheid zodat service en breaker-registratie niet uiteenlopen.
+ * fouten (4xx), data-issues (malformed/overflow), eigen bugs, de breaker-eigen CIRCUIT_OPEN
+ * en pool-OVERBELAST tellen NIET mee — anders zou een blijvende 4xx, een eenmalige bug of een
+ * door een ánder magazijn veroorzaakte saturatie dít magazijn onnodig uitsluiten. Eén bron van
+ * waarheid zodat service en breaker-registratie niet uiteenlopen.
  */
 internal val MagazijnFault.teltAlsStoring: Boolean
     get() = when (this) {
         MagazijnFault.TIMEOUT, MagazijnFault.HTTP_5XX, MagazijnFault.NETWORK -> true
         MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW, MagazijnFault.HTTP_4XX,
-        MagazijnFault.INTERNAL_BUG, MagazijnFault.CIRCUIT_OPEN,
+        MagazijnFault.INTERNAL_BUG, MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST,
         -> false
     }
+
+/** Wat de uitkomst van een echte aggregatie-call met de per-magazijn circuit breaker doet. */
+internal enum class CircuitActie { MELD_SUCCES, MELD_FOUT, MELD_ONBESLIST }
+
+/**
+ * Vertaalt een [MagazijnResult] naar de circuit-actie. Pure functie (los testbaar) zodat de
+ * half-open-afronding voor élke fault-categorie gepind is: een afgeronde call MOET altijd een
+ * terminale actie geven, anders blijft een half-open proef hangen en zit het circuit permanent
+ * open. Een functioneel antwoord (succes óf een niet-storing-fout zoals 4xx/malformed: het
+ * magazijn ís bereikbaar) sluit het circuit; een availability-storing opent het; een
+ * OVERBELAST/CIRCUIT_OPEN (magazijn niet bereikt) geeft alleen de proef vrij zonder de
+ * fouten-teller te raken.
+ */
+internal fun circuitActieVoor(result: MagazijnResult): CircuitActie = when (result) {
+    is MagazijnResult.Success -> CircuitActie.MELD_SUCCES
+    is MagazijnResult.Failure -> when (result.fault) {
+        MagazijnFault.OVERBELAST, MagazijnFault.CIRCUIT_OPEN -> CircuitActie.MELD_ONBESLIST
+        else -> if (result.fault.teltAlsStoring) CircuitActie.MELD_FOUT else CircuitActie.MELD_SUCCES
+    }
+}
 
 /**
  * Marker-exception voor de availability-cap op magazijn-responses (zie

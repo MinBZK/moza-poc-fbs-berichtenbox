@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -15,6 +16,8 @@ class MagazijnCircuitBreakerTest {
     private val klok = { nu }
 
     private fun breaker(drempel: Int = 3, openNanos: Long = 1_000L) = Breaker(drempel, openNanos, klok)
+
+    private fun failure(fault: MagazijnFault) = MagazijnResult.Failure("m", null, RuntimeException("x"), fault)
 
     @Test
     fun `gesloten circuit laat alles door`() {
@@ -106,6 +109,42 @@ class MagazijnCircuitBreakerTest {
         b.meldFout()
 
         assertTrue(b.toegestaan(), "succes resette de teller, drempel nooit bereikt")
+    }
+
+    @Test
+    fun `meldOnbeslist geeft de half-open proef vrij zonder te sluiten of te heropenen`() {
+        // Regressie: een toegestane half-open proef die het magazijn niet bereikte (pool-overbelast)
+        // mag het circuit niet permanent open laten staan. meldOnbeslist geeft de proef vrij; omdat
+        // het venster al verstreken is, mag een volgende toegestaan() opnieuw een proef geven.
+        val b = breaker(drempel = 1, openNanos = 1_000L)
+
+        b.meldFout()
+        nu += 1_000
+
+        assertTrue(b.toegestaan(), "eerste proef toegestaan")
+
+        b.meldOnbeslist()
+
+        assertTrue(b.toegestaan(), "na onbeslist mag opnieuw een proef worden gestart")
+    }
+
+    @Test
+    fun `circuitActieVoor mapt elke uitkomst op de juiste circuit-actie`() {
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(MagazijnResult.Success("m", null, emptyList())))
+
+        assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.TIMEOUT)))
+        assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.HTTP_5XX)))
+        assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.NETWORK)))
+
+        // Niet-storing: het magazijn antwoordde (4xx/malformed/overflow/bug) → bereikbaar → sluiten.
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.HTTP_4XX)))
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.MALFORMED)))
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.OVERFLOW)))
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.INTERNAL_BUG)))
+
+        // Magazijn niet bereikt → proef onbeslist vrijgeven (teller ongemoeid).
+        assertEquals(CircuitActie.MELD_ONBESLIST, circuitActieVoor(failure(MagazijnFault.OVERBELAST)))
+        assertEquals(CircuitActie.MELD_ONBESLIST, circuitActieVoor(failure(MagazijnFault.CIRCUIT_OPEN)))
     }
 
     @Test

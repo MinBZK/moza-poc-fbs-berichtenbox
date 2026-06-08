@@ -5,8 +5,9 @@ import jakarta.enterprise.context.ApplicationScoped
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -23,15 +24,35 @@ import java.util.concurrent.atomic.AtomicInteger
  * Het lagere doorvoer-plafond is de bewuste trade-off van deze isolatie; de per-magazijn
  * [MagazijnCircuitBreaker] beperkt de tijd dat een dood magazijn pool-threads bezet houdt
  * (snelle fail zodra het circuit opent).
+ *
+ * De queue is bewust BEGRENSD ([queueCapaciteit]): een trage-maar-niet-falende leverancier
+ * opent het circuit niet, dus zonder grens zou de queue onbeperkt groeien (geheugen-DoS) —
+ * precies het overload-voetkanon dat deze feature dicht. Bij een volle queue wordt de taak
+ * afgewezen (`RejectedExecutionException` → [MagazijnFault.OVERBELAST]: snelle "tijdelijk niet
+ * beschikbaar" i.p.v. bufferen). Saturatie raakt zo alle aggregatie-calls van dat moment, maar
+ * de circuit breaker ruimt het verantwoordelijke (dode) magazijn snel op zodat de pool herstelt.
  */
 @ApplicationScoped
 internal class MagazijnAggregatieExecutor(
     @param:ConfigProperty(name = "berichtensessiecache.magazijn-pool.size", defaultValue = "20")
     private val poolSize: Int,
+    @param:ConfigProperty(name = "berichtensessiecache.magazijn-pool.queue-capaciteit", defaultValue = "200")
+    private val queueCapaciteit: Int,
 ) {
     private val log = Logger.getLogger(MagazijnAggregatieExecutor::class.java)
 
-    private val executor: ExecutorService = Executors.newFixedThreadPool(poolSize, naamgevendeFactory())
+    private val executor: ExecutorService = ThreadPoolExecutor(
+        poolSize,
+        poolSize,
+        0L,
+        TimeUnit.MILLISECONDS,
+        LinkedBlockingQueue(queueCapaciteit),
+        naamgevendeFactory(),
+        // Volle queue → RejectedExecutionException naar de submitter (Mutiny-subscribe), die het
+        // als Uni-failure afhandelt. Bewust géén CallerRunsPolicy: dat zou de blocking magazijn-
+        // call op de event-loop/aanroep-thread draaien en juist de isolatie ondermijnen.
+        ThreadPoolExecutor.AbortPolicy(),
+    )
 
     fun executor(): ExecutorService = executor
 

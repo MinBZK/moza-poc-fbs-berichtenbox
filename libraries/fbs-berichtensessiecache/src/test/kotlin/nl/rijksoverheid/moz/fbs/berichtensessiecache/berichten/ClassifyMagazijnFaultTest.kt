@@ -37,7 +37,7 @@ class ClassifyMagazijnFaultTest {
         magazijnQueryTimeoutSeconds = 10L,
         magazijnReadTimeoutMs = 12000L,
         cacheAwaitTimeoutSeconds = 5L,
-        magazijnExecutor = MagazijnAggregatieExecutor(poolSize = 2),
+        magazijnExecutor = MagazijnAggregatieExecutor(poolSize = 2, queueCapaciteit = 50),
         circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
     ).also { it.valideerTimeouts() }
 
@@ -49,6 +49,14 @@ class ClassifyMagazijnFaultTest {
     @Test
     fun `MagazijnResponseOverflow direct = OVERFLOW`() {
         assertEquals(MagazijnFault.OVERFLOW, service.classifyMagazijnFault(MagazijnResponseOverflow("te veel")))
+    }
+
+    @Test
+    fun `RejectedExecutionException = OVERBELAST`() {
+        assertEquals(
+            MagazijnFault.OVERBELAST,
+            service.classifyMagazijnFault(java.util.concurrent.RejectedExecutionException("pool vol")),
+        )
     }
 
     @Test

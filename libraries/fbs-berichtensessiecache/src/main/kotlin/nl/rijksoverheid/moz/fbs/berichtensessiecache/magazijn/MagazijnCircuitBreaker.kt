@@ -43,6 +43,10 @@ internal class MagazijnCircuitBreaker(
 
     fun meldFout(magazijnId: String) = breaker(magazijnId).meldFout()
 
+    /** Proef afgerond zonder uitspraak over het magazijn (bv. pool-OVERBELAST): geef de
+     *  half-open proef vrij zonder de fouten-teller te raken. */
+    fun meldOnbeslist(magazijnId: String) = breaker(magazijnId).meldOnbeslist()
+
     /**
      * Wist alle circuit-state. Alleen voor test-isolatie: de breaker is een singleton die over
      * @QuarkusTest-klassen (zelfde profiel/JVM) heen leeft, dus een fout-injecterende test zou
@@ -91,6 +95,17 @@ internal class Breaker(
     fun meldSucces() {
         opeenvolgendeFouten = 0
         openTot = 0L
+        halfOpenProefLopend = false
+    }
+
+    /**
+     * Een toegestane (half-open) proef-call is afgerond zónder uitspraak over het magazijn —
+     * geef alleen de proef vrij. De fouten-teller en het open-venster blijven ongemoeid, zodat
+     * een volgend venster opnieuw een proef toelaat. Zonder deze afronding zou een proef die
+     * het magazijn niet bereikte (pool-overbelast) het circuit permanent open laten staan.
+     */
+    @Synchronized
+    fun meldOnbeslist() {
         halfOpenProefLopend = false
     }
 

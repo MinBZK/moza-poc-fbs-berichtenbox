@@ -46,7 +46,7 @@ class BerichtensessiecacheServiceTest {
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
     // Echte (kleine) instances: de aggregatie-pool + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
-    private val testExecutor = MagazijnAggregatieExecutor(poolSize = 4)
+    private val testExecutor = MagazijnAggregatieExecutor(poolSize = 4, queueCapaciteit = 50)
     private val testBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L)
     // Korte timeouts in unit-tests: outer (3s) > inner (2s) zodat de cross-check
     // groen blijft maar tests niet wachten op het volledige prod-budget.
