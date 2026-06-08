@@ -8,7 +8,7 @@ import io.smallrye.mutiny.TimeoutException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieExecutor
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
@@ -37,7 +37,7 @@ class ClassifyMagazijnFaultTest {
         magazijnQueryTimeoutSeconds = 10L,
         magazijnReadTimeoutMs = 12000L,
         cacheAwaitTimeoutSeconds = 5L,
-        magazijnExecutor = MagazijnAggregatieExecutor(poolSize = 2, queueCapaciteit = 50),
+        bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20),
         circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
     ).also { it.valideerTimeouts() }
 
@@ -49,14 +49,6 @@ class ClassifyMagazijnFaultTest {
     @Test
     fun `MagazijnResponseOverflow direct = OVERFLOW`() {
         assertEquals(MagazijnFault.OVERFLOW, service.classifyMagazijnFault(MagazijnResponseOverflow("te veel")))
-    }
-
-    @Test
-    fun `RejectedExecutionException = OVERBELAST`() {
-        assertEquals(
-            MagazijnFault.OVERBELAST,
-            service.classifyMagazijnFault(java.util.concurrent.RejectedExecutionException("pool vol")),
-        )
     }
 
     @Test

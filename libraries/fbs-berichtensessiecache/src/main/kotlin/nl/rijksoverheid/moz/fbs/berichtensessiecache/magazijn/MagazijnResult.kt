@@ -39,9 +39,10 @@ internal sealed class MagazijnResult {
  * de call is bewust overgeslagen (snelle fail i.p.v. wachten op een timeout). Geen
  * resultaat van een echte call, dus nooit door `classifyMagazijnFault` geproduceerd.
  *
- * [OVERBELAST]: de begrensde aggregatie-pool wees de taak af (queue vol) — het magazijn is
- * niet eens bevraagd. Geen uitspraak over de beschikbaarheid van dít magazijn (de saturatie
- * komt typisch door een ánder, traag magazijn), dus telt niet als storing én niet als succes.
+ * [OVERBELAST]: het concurrency-bulkhead ([MagazijnAggregatieBulkhead]) zat vol — er was geen
+ * vrije permit, dus het magazijn is niet eens bevraagd. Geen uitspraak over de beschikbaarheid
+ * van dít magazijn (de saturatie komt typisch door een ánder, traag magazijn), dus telt niet als
+ * storing én niet als succes.
  */
 internal enum class MagazijnFault {
     TIMEOUT, MALFORMED, OVERFLOW, HTTP_5XX, HTTP_4XX, NETWORK, INTERNAL_BUG, CIRCUIT_OPEN, OVERBELAST
@@ -97,3 +98,11 @@ internal class MagazijnResponseOverflow(message: String) : RuntimeException(mess
  */
 internal class MagazijnCircuitOpenException(magazijnId: String) :
     RuntimeException("Magazijn '$magazijnId' tijdelijk overgeslagen: circuit open na herhaalde storingen")
+
+/**
+ * Marker-exception voor een door het concurrency-bulkhead afgewezen magazijn-call: er was geen
+ * vrije permit ([MagazijnAggregatieBulkhead] vol), dus de call is niet gestart. Draagt de
+ * `magazijnId` als `error`-veld van de [MagazijnResult.Failure]; nooit een echte upstream-fout.
+ */
+internal class MagazijnOverbelastException(magazijnId: String) :
+    RuntimeException("Magazijn '$magazijnId' tijdelijk afgewezen: aggregatie-bulkhead vol")

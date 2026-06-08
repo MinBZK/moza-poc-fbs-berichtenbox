@@ -9,7 +9,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.ProcessingException
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieExecutor
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
@@ -44,9 +44,9 @@ class BerichtensessiecacheServiceTest {
     }
     private val validator = BerichtValidator(limieten)
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
-    // Echte (kleine) instances: de aggregatie-pool + circuit breaker bevatten geen externe
+    // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
-    private val testExecutor = MagazijnAggregatieExecutor(poolSize = 4, queueCapaciteit = 50)
+    private val testBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20)
     private val testBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L)
     // Korte timeouts in unit-tests: outer (3s) > inner (2s) zodat de cross-check
     // groen blijft maar tests niet wachten op het volledige prod-budget.
@@ -61,7 +61,7 @@ class BerichtensessiecacheServiceTest {
         magazijnQueryTimeoutSeconds = 10L,
         magazijnReadTimeoutMs = 12000L,
         cacheAwaitTimeoutSeconds = 5L,
-        magazijnExecutor = testExecutor,
+        bulkhead = testBulkhead,
         circuitBreaker = testBreaker,
     ).also { it.valideerTimeouts() }
 
@@ -214,7 +214,7 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
-            magazijnExecutor = testExecutor,
+            bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
         )
 
@@ -233,7 +233,7 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
-            magazijnExecutor = testExecutor,
+            bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
         )
 
@@ -255,7 +255,7 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 10_000L,
             cacheAwaitTimeoutSeconds = 5L,
-            magazijnExecutor = testExecutor,
+            bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
         )
 
@@ -275,7 +275,7 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
-            magazijnExecutor = testExecutor,
+            bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
         )
 
@@ -293,7 +293,7 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 0L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
-            magazijnExecutor = testExecutor,
+            bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
         )
 
@@ -311,7 +311,7 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 0L,
-            magazijnExecutor = testExecutor,
+            bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
         )
 
@@ -614,7 +614,7 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
-            magazijnExecutor = testExecutor,
+            bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
         ).also { it.valideerTimeouts() }
 
@@ -678,7 +678,7 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
-            magazijnExecutor = testExecutor,
+            bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
         ).also { it.valideerTimeouts() }
 
