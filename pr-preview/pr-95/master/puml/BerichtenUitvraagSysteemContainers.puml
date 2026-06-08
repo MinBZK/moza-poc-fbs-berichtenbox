@@ -82,7 +82,7 @@ skinparam rectangle<<BerichtenUitvraagSysteem>> {
 
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" <<Interactielaag>> as Interactielaag
-rectangle "==Berichtenmagazijn (eigen gehost)\n<size:10>[Software System]</size>\n\nDoor een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie. De interne werking is voor het stelsel niet zichtbaar; het magazijn voldoet aan dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." <<Berichtenmagazijneigengehost>> as Berichtenmagazijneigengehost
+rectangle "==Berichtenmagazijn (eigen gehost)\n<size:10>[Software System]</size>\n\nDoor een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie met dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." <<Berichtenmagazijneigengehost>> as Berichtenmagazijneigengehost
 rectangle "==Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." <<BerichtenmagazijnBBOgehost>> as BerichtenmagazijnBBOgehost
 
 rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<BerichtenUitvraagSysteem>> {
@@ -95,9 +95,9 @@ rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<Beri
 
 BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijneigengehost .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Beheert berichtstatus\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+Berichtenmagazijneigengehost .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[BSNk API (lokaal)]</size>"

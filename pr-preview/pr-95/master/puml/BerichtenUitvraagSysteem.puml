@@ -51,7 +51,7 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
   skinparam RectangleFontColor<<group1>> #cccccc
   skinparam RectangleBorderStyle<<group1>> dashed
 
-  rectangle "==Berichtenmagazijn (eigen gehost)\n<size:10>[Software System]</size>\n\nDoor een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie. De interne werking is voor het stelsel niet zichtbaar; het magazijn voldoet aan dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." <<Berichtenmagazijneigengehost>> as Berichtenmagazijneigengehost
+  rectangle "==Berichtenmagazijn (eigen gehost)\n<size:10>[Software System]</size>\n\nDoor een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie met dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." <<Berichtenmagazijneigengehost>> as Berichtenmagazijneigengehost
   rectangle "==Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." <<BerichtenmagazijnBBOgehost>> as BerichtenmagazijnBBOgehost
     rectangle "Centraal gehoste services" <<group2>> as group2 {
       skinparam RectangleBorderColor<<group2>> #cccccc
@@ -68,8 +68,8 @@ rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app
 
 BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Berichtenmagazijneigengehost .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
 @enduml
