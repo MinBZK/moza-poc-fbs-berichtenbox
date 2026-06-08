@@ -14,7 +14,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De zware test-job is
+  # hieraan gegate, maar de workflow blijft triggeren zodat de required status check `test`
+  # ook bij een docs-only PR gerapporteerd wordt: een via `if` overgeslagen job telt als
+  # 'skipped' = succes voor branch protection. Een workflow-niveau paths-filter zou de check
+  # juist nooit rapporteren en de PR eeuwig blokkeren.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Detecteer niet-documentatie wijzigingen
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          echo "Gewijzigde bestanden:"
+          printf '%s\n' "$files"
+          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Alleen documentatie gewijzigd — code-checks overgeslagen."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     # pull-requests: write voor de coverage-PR-comment (madrapps/jacoco-report).
     permissions:
