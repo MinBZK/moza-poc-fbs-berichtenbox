@@ -66,6 +66,13 @@ skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResol
   BorderColor #0b4884
   shadowing false
 }
+skinparam rectangle<<BerichtenUitvraagSysteem.Magazijnregister>> {
+  BackgroundColor #6ba3dd
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
+  shadowing false
+}
 skinparam rectangle<<ProfielService>> {
   BackgroundColor #666666
   FontColor #ffffff
@@ -95,6 +102,7 @@ rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software
 rectangle "==Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nService voor burgers en ondernemers - berichtenbox inzien en berichten beheren" <<BerichtenUitvraagSysteem.BerichtenUitvraagService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService
 rectangle "==BSNk Transformatie\n<size:10>[Container: BSNk container (Logius)]</size>\n\nTransformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" <<BerichtenUitvraagSysteem.BSNkTransformatie>> as BerichtenUitvraagSysteem.BSNkTransformatie
 rectangle "==Aanmeld Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWerkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" <<BerichtenUitvraagSysteem.AanmeldService>> as BerichtenUitvraagSysteem.AanmeldService
+rectangle "==Magazijnregister\n<size:10>[Container: Quarkus / Kotlin — gedeelde library (in-process)]</size>\n\nHoudt per deelnemende organisatie (OIN) bij welk berichtenmagazijn erbij hoort — 1:1, het magazijnId ís de OIN. Nu config-backed; later database-opslag met beheer-interface." <<BerichtenUitvraagSysteem.Magazijnregister>> as BerichtenUitvraagSysteem.Magazijnregister
 
 rectangle "Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin — gedeelde library (in-process)]</size>" <<BerichtenUitvraagSysteem.Berichtensessiecache>> {
   rectangle "==Sessiecache-facade\n<size:10>[Component: CDI Facade]</size>\n\nDe enige publieke ingang: lijst, zoeken, bericht, status bijwerken, verwijderen, ophalen-stream en aanmeld-write. De implementatie erachter is Kotlin `internal` — compile-afgedwongen onzichtbaar voor consumenten." <<BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade>> as BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade
@@ -115,4 +123,5 @@ BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707
 BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[BSNk API (lokaal)]</size>"
 BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade : "<color:#707070>Werkt cache bij (aanmeld-write, in-sessie)\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Bepaalt de magazijn-set en endpoints per afzender-OIN\n<color:#707070><size:8>[CDI (in-process)]</size>"
 @enduml
