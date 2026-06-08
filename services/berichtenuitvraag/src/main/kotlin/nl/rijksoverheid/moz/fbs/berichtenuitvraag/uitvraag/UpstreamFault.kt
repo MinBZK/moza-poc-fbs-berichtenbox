@@ -71,6 +71,28 @@ internal fun upstreamBadGateway(detail: String, cause: Throwable? = null): WebAp
  * dat 5xx naar 502 maakt; aanmeld-pad → status-behoudend) blijft daar belegd, zodat
  * het externe gedrag ongewijzigd is.
  */
+/**
+ * Of een cache-fout een upstream-storing is (de cache zelf hapert) dan wel een client-/
+ * contract-aanwijzing die status-behoudend hoort te propageren. Exhaustief náást [naApiFout],
+ * waarmee de cache→transport-kennis op één plek belegd blijft; een nieuw [SessiecacheException]-
+ * geval breekt ook hier de build. Het schrijfpad gebruikt dit om te beslissen of het na een
+ * geslaagde magazijn-write de cache compenseert (invalidate + 502) of de status doorlaat —
+ * zonder daarvoor een wegwerp-[WebApplicationException] te bouwen of statuscode-ranges te
+ * reverse-engineeren.
+ */
+internal fun SessiecacheException.isStoring(): Boolean = when (this) {
+    is SessiecacheException.OphalenMislukt,
+    is SessiecacheException.Onbereikbaar,
+    is SessiecacheException.Onleesbaar,
+    -> true
+
+    is SessiecacheException.NogNietGevuld,
+    is SessiecacheException.OphalenBezig,
+    is SessiecacheException.OngeldigeInvoer,
+    is SessiecacheException.GeenActieveSessie,
+    -> false
+}
+
 internal fun SessiecacheException.naApiFout(): WebApplicationException = when (this) {
     is SessiecacheException.NogNietGevuld -> WebApplicationException(message, this, Response.Status.CONFLICT)
     is SessiecacheException.OphalenBezig -> WebApplicationException(message, this, Response.Status.CONFLICT)

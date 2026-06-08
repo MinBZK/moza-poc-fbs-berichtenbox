@@ -14,11 +14,11 @@ import java.util.UUID
 
 /**
  * Schrijft naar magazijn (bron van waarheid) en sessiecache (afgeleide cache).
- * Magazijn-faal → fout naar client, cache niet aangeraakt. Magazijn-OK + cache-faal
+ * Magazijn-faal → fout naar client, cache niet aangeraakt. Magazijn-OK + cache-storing
  * → best-effort invalidate ('stale' wordt 'leeg'), dan 502 om de inconsistentie te
- * signaleren. "Cache-faal" = een 5xx uit de facade (Redis-storing, schrijf-contentie,
- * corruptie); een 4xx duidt op een contract-bug en gaat onveranderd door zonder
- * invalidatie.
+ * signaleren. "Cache-storing" = [SessiecacheException.isStoring] (Redis-storing, schrijf-
+ * contentie, corruptie, mislukte ophaling); een niet-storing cache-fout duidt op een
+ * contract-bug en gaat status-behoudend door zonder invalidatie.
  *
  * De client geeft de `magazijnId` mee (uit de GET-response, `Bericht.magazijnId` of
  * `BerichtSamenvatting.magazijnId`). Daarmee hoeven we het bron-magazijn niet meer
@@ -56,14 +56,14 @@ class BerichtBeheerService(
         val bijgewerkt = try {
             sessiecache.werkBerichtBij(ontvangerId, berichtId, UitvraagDtoMapper.toLeesstatus(patch.status), patch.map)
         } catch (e: SessiecacheException) {
-            if (!isUpstreamStoring(e.naApiFout())) {
-                // 4xx ná een geslaagde magazijn-write is een contract-bug, geen transport-
-                // storing: de client-request passeerde immers al de magazijn-validatie, dus
-                // hoort de cache hier geen 4xx te geven. Niet compenseren, maar wél met
-                // hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
+            if (!e.isStoring()) {
+                // Een niet-storing fout ná een geslaagde magazijn-write is een contract-bug,
+                // geen transport-storing: de client-request passeerde immers al de magazijn-
+                // validatie, dus hoort de cache hier geen client-fout te geven. Niet compenseren,
+                // maar wél met hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
                 // desyncen zonder self-heal tot de TTL — dezelfde operationele impact als een
-                // 5xx-desync, dus géén stille warnf maar een alertbare errorf. Status propageert.
-                log.errorf(e, "%s cache-PATCH 4xx ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
+                // storing-desync, dus géén stille warnf maar een alertbare errorf. Status propageert.
+                log.errorf(e, "%s cache-PATCH niet-storing ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
                 throw e.naApiFout()
             }
@@ -99,8 +99,8 @@ class BerichtBeheerService(
             // Idempotente invalidate: "niet in cache" is geen fout, dus geen 404-pad hier.
             sessiecache.verwijder(ontvangerId, berichtId)
         } catch (e: SessiecacheException) {
-            if (!isUpstreamStoring(e.naApiFout())) {
-                log.errorf(e, "%s cache-DELETE 4xx ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
+            if (!e.isStoring()) {
+                log.errorf(e, "%s cache-DELETE niet-storing ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
                 throw e.naApiFout()
             }

@@ -4,6 +4,8 @@ import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import org.jboss.logging.Logger
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
@@ -30,6 +32,18 @@ class SessiecacheFoutMappingTest {
         assertEquals(500, SessiecacheException.Onleesbaar("x").naApiFout().response.status)
         assertEquals(400, SessiecacheException.OngeldigeInvoer("x").naApiFout().response.status)
         assertEquals(404, SessiecacheException.GeenActieveSessie("x").naApiFout().response.status)
+    }
+
+    @Test
+    fun `isStoring classificeert storing- versus client-fouten`() {
+        assertTrue(SessiecacheException.OphalenMislukt("x").isStoring())
+        assertTrue(SessiecacheException.Onbereikbaar("x").isStoring())
+        assertTrue(SessiecacheException.Onleesbaar("x").isStoring())
+
+        assertFalse(SessiecacheException.NogNietGevuld("x").isStoring())
+        assertFalse(SessiecacheException.OphalenBezig("x").isStoring())
+        assertFalse(SessiecacheException.OngeldigeInvoer("x").isStoring())
+        assertFalse(SessiecacheException.GeenActieveSessie("x").isStoring())
     }
 
     @Test
