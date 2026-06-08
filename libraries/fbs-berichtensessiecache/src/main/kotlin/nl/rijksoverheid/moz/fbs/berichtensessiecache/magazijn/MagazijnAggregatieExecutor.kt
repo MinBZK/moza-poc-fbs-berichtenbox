@@ -41,6 +41,17 @@ internal class MagazijnAggregatieExecutor(
 ) {
     private val log = Logger.getLogger(MagazijnAggregatieExecutor::class.java)
 
+    init {
+        // Fail-fast bij boot met een sleutel-benoemende melding (ThreadPoolExecutor/
+        // LinkedBlockingQueue zouden zelf wel falen, maar generiek). Loopt vóór de
+        // executor-constructie hieronder dankzij declaratie-volgorde.
+        require(poolSize > 0) { "berichtensessiecache.magazijn-pool.size ($poolSize) moet groter zijn dan 0" }
+
+        require(queueCapaciteit > 0) {
+            "berichtensessiecache.magazijn-pool.queue-capaciteit ($queueCapaciteit) moet groter zijn dan 0"
+        }
+    }
+
     private val executor: ExecutorService = ThreadPoolExecutor(
         poolSize,
         poolSize,

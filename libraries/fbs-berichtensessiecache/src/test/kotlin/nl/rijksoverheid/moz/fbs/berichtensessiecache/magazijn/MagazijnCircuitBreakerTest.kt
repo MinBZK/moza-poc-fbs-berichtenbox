@@ -157,4 +157,15 @@ class MagazijnCircuitBreakerTest {
         assertFalse(cb.toegestaan("magazijn-a"), "A open na 2 fouten")
         assertTrue(cb.toegestaan("magazijn-b"), "B ongemoeid")
     }
+
+    @Test
+    fun `niet-positieve config faalt fail-fast bij valideerConfig`() {
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            MagazijnCircuitBreaker(drempel = 0, openSeconds = 30L).valideerConfig()
+        }
+
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            MagazijnCircuitBreaker(drempel = 3, openSeconds = 0L).valideerConfig()
+        }
+    }
 }

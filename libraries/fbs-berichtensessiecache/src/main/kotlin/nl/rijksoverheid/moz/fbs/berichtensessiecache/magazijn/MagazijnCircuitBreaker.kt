@@ -1,7 +1,9 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
+import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import org.eclipse.microprofile.config.inject.ConfigProperty
+import org.jboss.logging.Logger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -26,6 +28,8 @@ internal class MagazijnCircuitBreaker(
     @param:ConfigProperty(name = "berichtensessiecache.magazijn-circuit.open-seconds", defaultValue = "30")
     private val openSeconds: Long,
 ) {
+    private val log = Logger.getLogger(MagazijnCircuitBreaker::class.java)
+
     private val openNanos = TimeUnit.SECONDS.toNanos(openSeconds)
 
     // Monotone klok (geen wall-clock): immuun voor NTP-sprongen tijdens een open-venster.
@@ -33,15 +37,39 @@ internal class MagazijnCircuitBreaker(
 
     private val breakers = ConcurrentHashMap<String, Breaker>()
 
+    @PostConstruct
+    fun valideerConfig() {
+        // Fail-fast bij boot (vgl. de timeout-checks in BerichtensessiecacheService): een
+        // niet-positieve drempel zou het circuit bij de eerste storing openen, en een
+        // niet-positief open-venster maakt openTot altijd-verleden → het circuit gaat nooit
+        // echt dicht maar laat permanent half-open proeven door (stille uitschakeling).
+        require(drempel > 0) { "berichtensessiecache.magazijn-circuit.drempel ($drempel) moet groter zijn dan 0" }
+
+        require(openSeconds > 0) {
+            "berichtensessiecache.magazijn-circuit.open-seconds ($openSeconds) moet groter zijn dan 0"
+        }
+    }
+
     private fun breaker(magazijnId: String): Breaker =
         breakers.computeIfAbsent(magazijnId) { Breaker(drempel, openNanos, klok) }
 
     /** `true` = call mag door; `false` = circuit open, call overslaan. */
     fun toegestaan(magazijnId: String): Boolean = breaker(magazijnId).toegestaan()
 
-    fun meldSucces(magazijnId: String) = breaker(magazijnId).meldSucces()
+    fun meldSucces(magazijnId: String) {
+        // Log alleen de daadwerkelijke open→dicht-overgang (herstel), niet elke geslaagde call.
+        if (breaker(magazijnId).meldSucces()) {
+            log.infof("Circuit gesloten voor magazijn %s: hersteld na storing", magazijnId)
+        }
+    }
 
-    fun meldFout(magazijnId: String) = breaker(magazijnId).meldFout()
+    fun meldFout(magazijnId: String) {
+        // Log de dicht→open-overgang op warn: het uitsluiten van een magazijn is het alertbare
+        // veerkracht-event. OIN is publiek (geen PII), dus mag voluit in de log.
+        if (breaker(magazijnId).meldFout()) {
+            log.warnf("Circuit geopend voor magazijn %s na %d opeenvolgende storingen; %ds overslaan", magazijnId, drempel, openSeconds)
+        }
+    }
 
     /** Proef afgerond zonder uitspraak over het magazijn (bv. pool-OVERBELAST): geef de
      *  half-open proef vrij zonder de fouten-teller te raken. */
@@ -60,8 +88,13 @@ internal class MagazijnCircuitBreaker(
  * zodat de open/half-open-overgangen deterministisch (zonder `Thread.sleep`) te pinnen zijn.
  *
  * Toestanden: CLOSED (telt opeenvolgende fouten) → OPEN ([openNanos]) bij ≥ [drempel] fouten
- * → na het venster één HALF-OPEN proef-call; die proef sluit het circuit bij succes of
- * heropent het bij fout.
+ * → na het venster één HALF-OPEN proef-call. Die proef heeft drie terminale uitkomsten:
+ * succes ([meldSucces]) sluit het circuit, een availability-storing ([meldFout]) heropent het,
+ * en een proef-zonder-uitspraak ([meldOnbeslist], bv. pool-OVERBELAST: magazijn niet bereikt)
+ * geeft de proef enkel vrij zonder de toestand te wijzigen.
+ *
+ * De `meld*`-methoden retourneren of déze melding een dicht↔open-grensovergang veroorzaakte,
+ * zodat de [MagazijnCircuitBreaker]-wrapper alleen die overgangen logt (niet elke call).
  */
 internal class Breaker(
     private val drempel: Int,
@@ -91,17 +124,23 @@ internal class Breaker(
         return true
     }
 
+    /** @return `true` als deze melding een open circuit sloot (herstel-overgang). */
     @Synchronized
-    fun meldSucces() {
+    fun meldSucces(): Boolean {
+        val wasOpen = openTot != 0L
+
         opeenvolgendeFouten = 0
         openTot = 0L
         halfOpenProefLopend = false
+
+        return wasOpen
     }
 
     /**
      * Een toegestane (half-open) proef-call is afgerond zónder uitspraak over het magazijn —
-     * geef alleen de proef vrij. De fouten-teller en het open-venster blijven ongemoeid, zodat
-     * een volgend venster opnieuw een proef toelaat. Zonder deze afronding zou een proef die
+     * geef alleen de proef vrij. De fouten-teller en het open-venster blijven ongemoeid; omdat
+     * het venster al verstreken is, wordt de eerstvolgende call meteen opnieuw als half-open
+     * proef toegelaten (geen nieuw [openNanos]-venster). Zonder deze afronding zou een proef die
      * het magazijn niet bereikte (pool-overbelast) het circuit permanent open laten staan.
      */
     @Synchronized
@@ -109,15 +148,19 @@ internal class Breaker(
         halfOpenProefLopend = false
     }
 
+    /** @return `true` als deze melding het circuit zojuist opende (dicht→open-overgang). */
     @Synchronized
-    fun meldFout() {
+    fun meldFout(): Boolean {
         halfOpenProefLopend = false
         opeenvolgendeFouten++
 
-        if (opeenvolgendeFouten >= drempel) {
-            openTot = klok() + openNanos
-            // Cap zodat de teller niet onbegrensd doorloopt tijdens een lang open-venster.
-            opeenvolgendeFouten = drempel
-        }
+        if (opeenvolgendeFouten < drempel) return false
+
+        val wasGesloten = openTot == 0L
+        openTot = klok() + openNanos
+        // Cap zodat de teller niet onbegrensd doorloopt tijdens een lang open-venster.
+        opeenvolgendeFouten = drempel
+
+        return wasGesloten
     }
 }
