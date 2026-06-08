@@ -10,11 +10,11 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * In-memory alternatieve implementatie van [BerichtenCache] voor QuarkusTest-integratie.
  *
- * Dit is bewust geen MockK-stub: de tests (zoals `BerichtensessiecacheResourceTest` en
- * `OpenApiContractTest`) voeren meerdere HTTP-calls uit die elkaars state moeten zien —
- * `_ophalen` vult de cache, een daaropvolgende `GET /berichten` leest eruit. Zo'n
- * stateful flow is met `every { ... } returns ...` lastig uit te drukken; een
- * deterministische in-memory implementatie is compacter en leest natuurlijker.
+ * Dit is bewust geen MockK-stub: integratietests voeren meerdere facade-aanroepen
+ * uit die elkaars state moeten zien — `ophalen` vult de cache, een daaropvolgende
+ * `lijst` leest eruit. Zo'n stateful flow is met `every { ... } returns ...` lastig
+ * uit te drukken; een deterministische in-memory implementatie is compacter en
+ * leest natuurlijker.
  *
  * Voor *unit*-tests waar buren ge-isoleerd moeten worden, wordt wel MockK gebruikt
  * (zie `MockMagazijnClientFactory` voor `MagazijnClient`-stubs en de diverse

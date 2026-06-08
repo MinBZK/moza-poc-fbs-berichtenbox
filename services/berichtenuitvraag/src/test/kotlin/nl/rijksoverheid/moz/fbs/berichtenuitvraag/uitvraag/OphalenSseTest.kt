@@ -98,6 +98,32 @@ class OphalenSseTest {
     }
 
     @Test
+    fun `_ophalen geeft een OPHALEN_FOUT-event ongemaskeerd door`() {
+        // Het fout-eindevent (bv. cache-write-faal ná de magazijn-rondgang) moet de
+        // client bereiken inclusief de referentie, zodat de UI "haal opnieuw op" kan
+        // tonen; de bijbehorende LDV-ERROR-mapping is gepind in LogboekStatusVoorTest.
+        sessiecache.ophalenEvents = Multi.createFrom().items(
+            MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_GESTART, magazijnId = "magazijn-a"),
+            MagazijnEvent(
+                event = EventType.OPHALEN_FOUT,
+                totaalMagazijnen = 1,
+                foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: test)",
+                referentie = "test",
+            ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Accept", "text/event-stream")
+            .`when`()
+            .get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .body(containsString("\"event\":\"ophalen-fout\""))
+            .body(containsString("\"referentie\":\"test\""))
+    }
+
+    @Test
     fun `_ophalen geeft 409 als er al een ophaling loopt`() {
         // In-process gooit de facade vóór de SSE-subscriptie; anders dan bij de
         // vroegere REST-passthrough (200 al gecommit) bereikt de 409 de client nu wél.

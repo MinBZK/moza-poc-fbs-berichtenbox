@@ -25,7 +25,7 @@ import java.util.UUID
  * Transiente schrijf-contentie: een optimistic-lock-update is na alle pogingen
  * afgebroken door gelijktijdige wijzigingen. Het bericht bestáát — alleen de
  * cache-write lukte niet. Onderscheidt zich expliciet van "niet gevonden" zodat
- * de resource een retriable 503 geeft i.p.v. een misleidende 404 (na een
+ * de facade (BlockingSessiecache) een retriable 503 geeft i.p.v. een misleidende 404 (na een
  * geslaagde magazijn-write zou een 404 de client laten denken dat het bericht weg is).
  */
 internal class CacheContentieException(berichtId: UUID) :
@@ -250,12 +250,10 @@ internal class RedisBerichtenCache(
                     // BerichtenPagina één uniform element-type met het RediSearch-pad.
                     // try/catch op JsonProcessingException: cache-data niet deserialiseerbaar duidt
                     // op schema-drift of corruptie. Aparte log + rethrow zodat dit niet als
-                    // "Redis onbereikbaar" wegfiltert in het generieke onFailure-pad; de resource
-                    // heeft een eigen 500-pad voor JsonProcessingException.
+                    // "Redis onbereikbaar" wegfiltert in het generieke onFailure-pad; de facade
+                    // (BlockingSessiecache) heeft een eigen 500-pad voor JsonProcessingException.
                     val berichten = try {
-                        jsonList
-                            .map { objectMapper.readValue(it, Bericht::class.java) }
-                            .map { it.toSamenvatting() }
+                        jsonList.map { objectMapper.readValue(it, Bericht::class.java).toSamenvatting() }
                     } catch (ex: com.fasterxml.jackson.core.JsonProcessingException) {
                         log.errorf(ex, "Cache-bericht niet deserialiseerbaar voor key=%s (corruptie of schema-drift)", key)
                         throw ex
@@ -451,7 +449,7 @@ internal class RedisBerichtenCache(
         // ontbreken duidt op een corrupte/partiële hash-entry. We wrappen ontbrekende velden,
         // onleesbare UUID/Instant/Int én Jackson-parseerfouten in CacheCorruptedException zodat
         // het oproep-pad dit niet als "Redis onbereikbaar" wegfiltert maar als 500 surfacet
-        // (de resource heeft een dedicated CacheCorruptedException-pad).
+        // (de facade heeft een dedicated CacheCorruptedException-pad).
         // `bijlagen` en `map` zijn écht optioneel: lege lijst en null betekenen "geen" — niet "corrupt".
         fun required(name: String): String = fields[name]
             ?: throw CacheCorruptedException.veldOntbreekt(name)
@@ -503,18 +501,42 @@ internal class RedisBerichtenCache(
      * Ontbrekende samenvatting-kernvelden duiden op corruptie — geen fallback-defaults.
      */
     private fun documentToSamenvatting(doc: io.quarkus.redis.datasource.search.Document): BerichtSamenvatting {
-        val berichtId = doc.property("berichtId").asString()
+        // Ontbrekende of onparsebare velden wikkelen we — net als hashToBericht — in
+        // CacheCorruptedException, zodat corruptie op het zoek-/filterpad als eigen
+        // data-issue (500) surfacet en niet als "Redis onbereikbaar" (503) wegfiltert.
+        fun required(name: String): String = doc.property(name)?.asString()
+            ?: throw CacheCorruptedException.veldOntbreekt(name)
+
+        val berichtIdStr = required("berichtId")
+
         return BerichtSamenvatting(
-            berichtId = UUID.fromString(berichtId),
-            afzender = doc.property("afzender").asString(),
-            ontvanger = doc.property("ontvanger").asString(),
-            onderwerp = doc.property("onderwerp").asString(),
-            publicatietijdstip = Instant.parse(doc.property("publicatietijdstip").asString()),
-            magazijnId = doc.property("magazijnId").asString(),
-            aantalBijlagen = doc.property("aantalBijlagen")?.asString()?.toInt()
-                ?: error("samenvatting-document mist 'aantalBijlagen' (corrupt entry) berichtId=$berichtId"),
+            berichtId = try {
+                UUID.fromString(berichtIdStr)
+            } catch (ex: IllegalArgumentException) {
+                throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
+            },
+            afzender = required("afzender"),
+            ontvanger = required("ontvanger"),
+            onderwerp = required("onderwerp"),
+            publicatietijdstip = try {
+                Instant.parse(required("publicatietijdstip"))
+            } catch (ex: java.time.format.DateTimeParseException) {
+                throw CacheCorruptedException.onleesbareWaarde("publicatietijdstip", ex)
+            },
+            magazijnId = required("magazijnId"),
+            aantalBijlagen = try {
+                required("aantalBijlagen").toInt()
+            } catch (ex: NumberFormatException) {
+                throw CacheCorruptedException.onleesbareWaarde("aantalBijlagen", ex)
+            },
             map = doc.property("map")?.asString(),
-            status = doc.property("status")?.asString()?.let { Leesstatus.fromWire(it) },
+            status = doc.property("status")?.asString()?.let {
+                try {
+                    Leesstatus.fromWire(it)
+                } catch (ex: IllegalArgumentException) {
+                    throw CacheCorruptedException.onleesbareWaarde("status", ex)
+                }
+            },
         )
     }
 
@@ -682,7 +704,7 @@ internal class RedisBerichtenCache(
         }
 
         if (result.discarded()) {
-            // Contentie is géén not-found: een null zou de resource laten 404'en
+            // Contentie is géén not-found: een null zou de facade-caller laten 404'en
             // terwijl het bericht bestaat (en de magazijn-write al geslaagd kan
             // zijn). Signaleer een retriable fout → 503 zodat de client opnieuw
             // kan proberen. Op warn: verwacht onder hoge gelijktijdigheid, geen crash.
