@@ -31,6 +31,17 @@
              zelf, java-compile draait alleen op gegenereerde sources). Zonder beheerde versie
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+        <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
+             niet uiteenlopen (drift). -->
+        <jandex-maven-plugin.version>3.5.3</jandex-maven-plugin.version>
+        <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
+        <logboekdataverwerking-wrapper.version>1.2.1-SNAPSHOT</logboekdataverwerking-wrapper.version>
+        <mockk.version>1.14.11</mockk.version>
+        <jazzer-api.version>0.30.0</jazzer-api.version>
+        <wiremock.version>3.13.0</wiremock.version>
+        <openapi-request-validator.version>3.0.0</openapi-request-validator.version>
+        <json-schema-validator.version>2.0.1</json-schema-validator.version>
+        <awaitility.version>4.3.0</awaitility.version>
     </properties>
 
     <repositories>
@@ -56,8 +67,73 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Interne modules: consumers declareren alleen GA, versie volgt de reactor. -->
+            <dependency>
+                <groupId>nl.rijksoverheid.moz</groupId>
+                <artifactId>fbs-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>nl.rijksoverheid.moz</groupId>
+                <artifactId>fbs-berichtensessiecache</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- Niet-BOM-beheerde deps: versie centraal zodat modules niet uiteenlopen.
+                 Scope laten de modules zelf bepalen (provided in de library, compile/test
+                 in de services). -->
+            <dependency>
+                <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
+                <artifactId>logboekdataverwerking-wrapper</artifactId>
+                <version>${logboekdataverwerking-wrapper.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.code-intelligence</groupId>
+                <artifactId>jazzer-api</artifactId>
+                <version>${jazzer-api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.wiremock</groupId>
+                <artifactId>wiremock</artifactId>
+                <version>${wiremock.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.atlassian.oai</groupId>
+                <artifactId>openapi-request-validator-restassured</artifactId>
+                <version>${openapi-request-validator.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.networknt</groupId>
+                <artifactId>json-schema-validator</artifactId>
+                <version>${json-schema-validator.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.awaitility</groupId>
+                <artifactId>awaitility</artifactId>
+                <version>${awaitility.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <!-- Alleen dependencies die élke module nodig heeft; al het overige declareren
+         de modules zelf. -->
+    <dependencies>
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- MockK in elke module gebruikt; versie via mockk.version. -->
+        <dependency>
+            <groupId>io.mockk</groupId>
+            <artifactId>mockk-jvm</artifactId>
+            <version>${mockk.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
     <build>
         <pluginManagement>
@@ -71,6 +147,21 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>${maven-compiler-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.openapitools</groupId>
+                    <artifactId>openapi-generator-maven-plugin</artifactId>
+                    <version>${openapi-generator.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>io.smallrye</groupId>
+                    <artifactId>jandex-maven-plugin</artifactId>
+                    <version>${jandex-maven-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco-maven-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.jetbrains.kotlin</groupId>

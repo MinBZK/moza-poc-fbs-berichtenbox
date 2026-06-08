@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 
 @ApplicationScoped
 internal class ProfielMagazijnResolver(
-    @RestClient private val profielClient: ProfielServiceClient,
+    @param:RestClient private val profielClient: ProfielServiceClient,
     private val clientFactory: MagazijnClientFactory,
     @param:ConfigProperty(name = "profiel.resolver.inner-timeout-seconds", defaultValue = "18")
     private val innerTimeoutSeconds: Long,

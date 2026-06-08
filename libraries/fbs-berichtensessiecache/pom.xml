@@ -19,7 +19,6 @@
         <dependency>
             <groupId>nl.rijksoverheid.moz</groupId>
             <artifactId>fbs-common</artifactId>
-            <version>${project.version}</version>
         </dependency>
         <!-- Magazijnregister: levert per afzender-OIN het bijbehorende magazijn (1:1);
              MagazijnClientFactory bouwt hieruit zijn REST-clients. -->
@@ -56,24 +55,18 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-smallrye-fault-tolerance</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.jetbrains.kotlin</groupId>
-            <artifactId>kotlin-stdlib</artifactId>
-        </dependency>
-
         <!-- LdvEndpointValidator in fbs-common verwijst naar wrapper-klassen (provided
              scope dáár); de runtime-dependency komt van de consumerende service of — voor
              de eigen @QuarkusTest-suite — van deze module. -->
         <dependency>
             <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
             <artifactId>logboekdataverwerking-wrapper</artifactId>
-            <version>1.2.1-SNAPSHOT</version>
         </dependency>
 
         <!-- Test -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-junit5</artifactId>
+            <artifactId>quarkus-junit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -84,7 +77,6 @@
         <dependency>
             <groupId>com.code-intelligence</groupId>
             <artifactId>jazzer-api</artifactId>
-            <version>0.30.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -98,15 +90,8 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>io.mockk</groupId>
-            <artifactId>mockk-jvm</artifactId>
-            <version>1.14.11</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock</artifactId>
-            <version>3.13.0</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -117,7 +102,11 @@
 
         <plugins>
             <!-- Nodig voor de @QuarkusTest-integratiesuite (Redis/WireMock); het
-                 geïnstalleerde artefact blijft de gewone library-jar. -->
+                 geïnstalleerde artefact blijft de gewone library-jar. Bewust géén
+                 `build`-goal: quarkus-junit bouwt de test-app zelf tijdens de testrun,
+                 en zonder `build`-goal slaat `quarkus:dev` deze module over als
+                 support-library — anders blijft dev mode hierop hangen bij
+                 `quarkus:dev -pl services/<service> -am`. -->
             <plugin>
                 <groupId>io.quarkus</groupId>
                 <artifactId>quarkus-maven-plugin</artifactId>
@@ -125,7 +114,6 @@
                 <executions>
                     <execution>
                         <goals>
-                            <goal>build</goal>
                             <goal>generate-code</goal>
                             <goal>generate-code-tests</goal>
                         </goals>
@@ -157,7 +145,6 @@
             <plugin>
                 <groupId>io.smallrye</groupId>
                 <artifactId>jandex-maven-plugin</artifactId>
-                <version>3.5.3</version>
                 <executions>
                     <execution>
                         <id>make-index</id>
@@ -171,7 +158,6 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.14</version>
                 <configuration>
                     <!-- Whitelist: alleen library-eigen klassen meten. fbs-common heeft een
                          eigen JaCoCo-gate; Quarkus-instrumented dep-classes verschijnen
