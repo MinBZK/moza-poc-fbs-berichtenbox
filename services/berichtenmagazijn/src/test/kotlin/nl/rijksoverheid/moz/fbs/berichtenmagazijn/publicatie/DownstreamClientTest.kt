@@ -75,6 +75,10 @@ class DownstreamClientTest {
         server.start()
         config = mockk()
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
+        every { config.client() } returns mockk {
+            every { connectTimeout() } returns java.time.Duration.ofSeconds(5)
+            every { requestTimeout() } returns java.time.Duration.ofSeconds(10)
+        }
         client = DownstreamClient(config, objectMapper, openTelemetry)
     }
 
@@ -278,6 +282,42 @@ class DownstreamClientTest {
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.SerialisatieFout)
+    }
+
+    @Test
+    fun `lage request-timeout uit config leidt tot Timeout-degradatie`() {
+        // Een server die langer wacht dan de geconfigureerde request-timeout: bewijst dat
+        // magazijn.publicatie.client.request-timeout daadwerkelijk de per-request deadline
+        // bedient (een losgekoppelde property zou op de default 10s blijven en niet aanslaan).
+        val traag = com.sun.net.httpserver.HttpServer.create(
+            java.net.InetSocketAddress("127.0.0.1", 0), 0,
+        )
+        traag.createContext("/events") { exchange ->
+            Thread.sleep(2_000)
+            exchange.sendResponseHeaders(202, -1)
+            exchange.close()
+        }
+        traag.start()
+        try {
+            every { config.client() } returns mockk {
+                every { connectTimeout() } returns java.time.Duration.ofSeconds(5)
+                every { requestTimeout() } returns java.time.Duration.ofMillis(200)
+            }
+            every { config.downstreams() } returns mapOf(
+                "aanmeld" to DownstreamStub("http://127.0.0.1:${traag.address.port}/events"),
+            )
+            client = DownstreamClient(config, objectMapper, openTelemetry)
+
+            val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+            assertTrue(resultaat is DownstreamResultaat.Timeout, "verwacht Timeout, kreeg $resultaat")
+            assertTrue(
+                (resultaat as DownstreamResultaat.Timeout).reden.contains("Read-timeout"),
+                "verwacht read-timeout-categorie, kreeg: ${resultaat.reden}",
+            )
+        } finally {
+            traag.stop(0)
+        }
     }
 
     @Test

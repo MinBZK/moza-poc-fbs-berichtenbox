@@ -45,7 +45,7 @@ class DownstreamClient(
 
     private val log = Logger.getLogger(DownstreamClient::class.java)
     private val http: HttpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(5))
+        .connectTimeout(config.client().connectTimeout())
         // Forum Standaardisatie: alleen TLS 1.3/1.2. JDK21 sluit oudere versies al uit,
         // maar expliciet pinnen documenteert de baseline en weert profile-overrides.
         .sslContext(SSLContext.getDefault())
@@ -83,7 +83,7 @@ class DownstreamClient(
 
         val requestBuilder = HttpRequest.newBuilder()
             .uri(URI.create(url))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(config.client().requestTimeout())
             .header("Content-Type", "application/cloudevents+json")
             .POST(BodyPublishers.ofByteArray(payload))
 

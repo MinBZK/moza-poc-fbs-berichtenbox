@@ -66,3 +66,18 @@ omgeving aanpasbaar zijn:
 - `./mvnw clean test -pl libraries/fbs-berichtensessiecache -am` (Docker vereist).
 - `./mvnw detekt:check`.
 - Build-output op nieuwe waarschuwingen controleren.
+
+## Uitbreiding: DownstreamClient (berichtenmagazijn)
+
+Tijdens de PR-review bleek dat ook de publicatie-`DownstreamClient` (berichtenmagazijn)
+twee vaste timeouts had — `connectTimeout` 5s en per-request `.timeout` 10s. Thematisch
+identiek, maar een remote (cross-organisatie) call i.p.v. lokale Redis. Op verzoek
+meegenomen in deze PR:
+
+- `magazijn.publicatie.client.connect-timeout` (default `PT5S`) — TCP+TLS-opbouw.
+- `magazijn.publicatie.client.request-timeout` (default `PT10S`) — volledige POST-round-trip.
+- Beide via `PublicatieConfig.Client` (`@ConfigMapping` + `@WithDefault`); defaults in
+  ISO-8601 zodat de raw-SmallRye-config in `PublicatieConfigValidationTest` ze eager kan
+  parsen. Documentatie benoemt remote- vs. lokale-latency.
+- Tests: `DownstreamClientTest` (lage request-timeout → `Timeout`-degradatie) en
+  `PublicatieConfigValidationTest` (defaults + property-binding).
