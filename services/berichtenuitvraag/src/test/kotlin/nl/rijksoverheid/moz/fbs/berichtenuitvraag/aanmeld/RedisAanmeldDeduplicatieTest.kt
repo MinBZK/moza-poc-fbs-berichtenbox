@@ -30,9 +30,19 @@ class RedisAanmeldDeduplicatieTest {
         every { key(String::class.java) } returns keys
     }
     private val config = mockk<AanmeldConfig> {
-        every { deduplicatie() } returns mockk { every { ttl() } returns Duration.ofHours(24) }
+        every { deduplicatie() } returns mockk {
+            every { ttl() } returns Duration.ofHours(24)
+            every { redisAwaitTimeout() } returns Duration.ofSeconds(2)
+        }
     }
     private val dedup = RedisAanmeldDeduplicatie(redis, config)
+
+    private fun configMet(ttl: Duration, awaitTimeout: Duration) = mockk<AanmeldConfig> {
+        every { deduplicatie() } returns mockk {
+            every { ttl() } returns ttl
+            every { redisAwaitTimeout() } returns awaitTimeout
+        }
+    }
 
     @Test
     fun `redis-fout bij markeren wordt 503`() {
@@ -59,5 +69,14 @@ class RedisAanmeldDeduplicatieTest {
         every { values.setAndChanged(any(), any(), any<SetArgs>()) } returns Uni.createFrom().item(true)
 
         assertTrue(dedup.eerstgezien("evt-1"))
+    }
+
+    @Test
+    fun `redis-await-timeout van nul wordt geweigerd bij constructie`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            RedisAanmeldDeduplicatie(redis, configMet(ttl = Duration.ofHours(24), awaitTimeout = Duration.ZERO))
+        }
+
+        assertTrue(ex.message!!.contains("redis-await-timeout"), "Was: ${ex.message}")
     }
 }
