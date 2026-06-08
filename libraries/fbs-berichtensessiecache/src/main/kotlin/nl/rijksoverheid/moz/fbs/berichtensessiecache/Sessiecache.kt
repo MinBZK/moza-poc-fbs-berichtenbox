@@ -12,7 +12,7 @@ import java.util.UUID
  * Facade van de berichtensessiecache: de enige publieke ingang van deze library.
  * Consumers injecteren dit CDI-bean; alle implementatie (Redis-cache, magazijn-
  * aggregatie, Profiel-resolver) is `internal` en alle sessiestaat leeft in Redis —
- * de facade-impl is staatloos zodat meerdere pods dezelfde sessies kunnen bedienen.
+ * de facade-impl is stateless zodat meerdere pods dezelfde sessies kunnen bedienen.
  *
  * Foutsemantiek (gespiegeld aan het vroegere REST-contract van de sessiecache-
  * service, zodat de Problem-mapping bij de consumer ongewijzigd blijft):

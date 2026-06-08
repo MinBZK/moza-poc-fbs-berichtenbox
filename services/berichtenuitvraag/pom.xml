@@ -40,6 +40,13 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-client-jackson</artifactId>
         </dependency>
+        <!-- Redis-client: aanmeld-idempotentie (eigen keyspace, los van de sessiecache-
+             library die Redis transitief meebrengt) — expliciet voor directe injectie. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-redis-client</artifactId>
+        </dependency>
+
         <!-- Logboek Dataverwerkingen (AVG Art. 30 logging) -->
         <dependency>
             <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
