@@ -46,9 +46,9 @@ skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
   shadowing false
 }
 skinparam rectangle<<Berichtenmagazijneigengehost>> {
-  BackgroundColor #2d8a4e
+  BackgroundColor #666666
   FontColor #ffffff
-  BorderColor #1e6b38
+  BorderColor #0b4884
   shadowing false
 }
 skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache>> {
@@ -62,6 +62,13 @@ skinparam rectangle<<Interactielaag>> {
   BackgroundColor #666666
   FontColor #ffffff
   BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Magazijnregister>> {
+  BackgroundColor #6ba3dd
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
   shadowing false
 }
 skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService.TokenValidatie>> {
@@ -80,6 +87,7 @@ rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app
 rectangle "==Berichtenmagazijn (eigen gehost)\n<size:10>[Software System]</size>\n\nDoor een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie. De interne werking is voor het stelsel niet zichtbaar; het magazijn voldoet aan dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." <<Berichtenmagazijneigengehost>> as Berichtenmagazijneigengehost
 rectangle "==Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." <<BerichtenmagazijnBBOgehost>> as BerichtenmagazijnBBOgehost
 rectangle "==Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin — gedeelde library (in-process)]</size>\n\nAfgeschermde in-process module: aggregeert berichten uit alle aangesloten magazijnen en cachet ze per pseudoniem. Geen losse service meer — enige ingang is de Sessiecache-facade; de interne werking (Redis-cache, magazijn-aggregatie) is niet zichtbaar voor consumenten." <<BerichtenUitvraagSysteem.Berichtensessiecache>> as BerichtenUitvraagSysteem.Berichtensessiecache
+rectangle "==Magazijnregister\n<size:10>[Container: Quarkus / Kotlin — gedeelde library (in-process)]</size>\n\nHoudt per deelnemende organisatie (OIN) bij welk berichtenmagazijn erbij hoort — 1:1, het magazijnId ís de OIN. Nu config-backed; later database-opslag met beheer-interface." <<BerichtenUitvraagSysteem.Magazijnregister>> as BerichtenUitvraagSysteem.Magazijnregister
 
 rectangle "Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</size>" <<BerichtenUitvraagSysteem.BerichtenUitvraagService>> {
   rectangle "==Berichten Uitvraag API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor berichtenlijst, ophalen, beheer en verwijderen" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI
@@ -89,6 +97,7 @@ rectangle "Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</s
   rectangle "==Bericht Beheer Service\n<size:10>[Component: CDI Bean]</size>\n\nVerplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService
 }
 
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Beheert berichtstatus\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Beheert berichtstatus\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.TokenValidatie : "<color:#707070>Valideert identiteit aanroeper\n<color:#707070><size:8>[CDI]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService : "<color:#707070>Berichtenlijst per map\n<color:#707070><size:8>[CDI]</size>"
@@ -97,7 +106,8 @@ BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichtenlijst op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt berichtstatus bij in cache\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Zoekt het magazijn-endpoint op voor bijlage-routering\n<color:#707070><size:8>[CDI (in-process)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Zoekt het magazijn-endpoint op voor write-routering\n<color:#707070><size:8>[CDI (in-process)]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Beheert berichtstatus\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml

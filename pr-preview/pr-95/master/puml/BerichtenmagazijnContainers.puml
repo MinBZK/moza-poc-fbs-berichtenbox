@@ -100,6 +100,7 @@ rectangle "Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>" <<
   rectangle "==Autorisatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nToetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie" <<BerichtenmagazijnBBOgehost.AutorisatieService>> as BerichtenmagazijnBBOgehost.AutorisatieService
 }
 
+BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost.PublicatieStream .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
 OrganisatieB .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
@@ -110,5 +111,4 @@ BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].>
 BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
 BerichtenmagazijnBBOgehost.PublicatieStream .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.Dataopslag : "<color:#707070>Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding\n<color:#707070><size:8>[SQL/JDBC]</size>"
 BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.AutorisatieService : "<color:#707070>Toetst autorisatie per verzoek\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
-BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml
