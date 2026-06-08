@@ -4,18 +4,21 @@ import com.fasterxml.jackson.core.JsonProcessingException
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.TimeoutException
 import io.smallrye.mutiny.Uni
-import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieExecutor
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitOpenException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.teltAlsStoring
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.eclipse.microprofile.config.inject.ConfigProperty
@@ -73,6 +76,12 @@ internal class BerichtensessiecacheService(
     // op de Redis-TTL). Losse knop: geen invariant met de magazijn-/profiel-timeouts.
     @param:ConfigProperty(name = "berichtensessiecache.cache-await-timeout-seconds", defaultValue = "5")
     private val cacheAwaitTimeoutSeconds: Long,
+    // Begrensde, dedicated pool voor de blokkerende magazijn-aggregatie-calls: isoleert een
+    // trage leverancier van de gedeelde default-worker-pool (en dus van andere endpoints).
+    private val magazijnExecutor: MagazijnAggregatieExecutor,
+    // Per-magazijn circuit breaker: slaat een magazijn na herhaalde storingen tijdelijk over,
+    // zodat een dood magazijn de aggregatie-pool niet vol blijft houden.
+    private val circuitBreaker: MagazijnCircuitBreaker,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
@@ -488,17 +497,31 @@ internal class BerichtensessiecacheService(
             naam = naam,
         )
 
-        val resultUni = Uni.createFrom().item { client }
-            .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
-            .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-            .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
-            .map<MagazijnResult> { response -> naarMagazijnResult(response, magazijnId, naam) }
-            .onFailure(Exception::class.java).recoverWithItem { error ->
-                val fault = classifyMagazijnFault(error)
+        val resultUni: Uni<MagazijnResult> = if (!circuitBreaker.toegestaan(magazijnId)) {
+            // Circuit open na herhaalde storingen: call overslaan en direct een nette
+            // CIRCUIT_OPEN-failure leveren — geen pool-thread bezet, geen wachttijd tot de
+            // timeout. De gebruiker krijgt zo snel "tijdelijk niet beschikbaar".
+            log.debugf("Magazijn %s (%s) overgeslagen: circuit open", magazijnId, naam)
 
-                logMagazijnFault(error, magazijnId, naam, fault)
-                MagazijnResult.Failure(magazijnId, naam, error, fault)
-            }
+            Uni.createFrom().item(
+                MagazijnResult.Failure(magazijnId, naam, MagazijnCircuitOpenException(magazijnId), MagazijnFault.CIRCUIT_OPEN),
+            )
+        } else {
+            // De blokkerende magazijn-call draait op de begrensde aggregatie-pool (niet de
+            // gedeelde default-worker-pool), zodat een trage leverancier alléén deze pool raakt.
+            Uni.createFrom().item { client }
+                .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
+                .runSubscriptionOn(magazijnExecutor.executor())
+                .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
+                .map<MagazijnResult> { response -> naarMagazijnResult(response, magazijnId, naam) }
+                .onFailure(Exception::class.java).recoverWithItem { error ->
+                    val fault = classifyMagazijnFault(error)
+
+                    logMagazijnFault(error, magazijnId, naam, fault)
+                    MagazijnResult.Failure(magazijnId, naam, error, fault)
+                }
+                .onItem().invoke { result -> registreerCircuit(magazijnId, result) }
+        }
 
         val resultStream = resultUni.toMulti().map { result ->
             naarVoltooidEvent(result, alleBerichten, geslaagd, mislukt)
@@ -563,12 +586,21 @@ internal class BerichtensessiecacheService(
         }
     }
 
+    /** Voedt de per-magazijn circuit breaker met de uitkomst van een echte aggregatie-call. */
+    private fun registreerCircuit(magazijnId: String, result: MagazijnResult) {
+        when (result) {
+            is MagazijnResult.Success -> circuitBreaker.meldSucces(magazijnId)
+            is MagazijnResult.Failure -> if (result.fault.teltAlsStoring) circuitBreaker.meldFout(magazijnId)
+        }
+    }
+
     private fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
         MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
         MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
         MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
         MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
         MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
+        MagazijnFault.CIRCUIT_OPEN -> "Magazijn tijdelijk niet beschikbaar (herhaalde storingen)"
         // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
         MagazijnFault.INTERNAL_BUG, MagazijnFault.NETWORK -> "Magazijn kon niet geraadpleegd worden"
     }
@@ -823,6 +855,11 @@ internal class BerichtensessiecacheService(
                 log.errorf(error, "Magazijn %s (%s) 4xx — configuratie/auth-fout", magazijnId, naam)
             MagazijnFault.NETWORK ->
                 log.warnf(error, "Magazijn %s (%s) niet bereikbaar (network/processing)", magazijnId, naam)
+            // Bewust overgeslagen door de circuit breaker — geen echte call-fout. Het CIRCUIT_OPEN-
+            // pad logt zelf op debug; deze tak is een vangnet mocht een CIRCUIT_OPEN onverwacht
+            // via classifyMagazijnFault binnenkomen (kan niet, maar houdt de when exhaustief).
+            MagazijnFault.CIRCUIT_OPEN ->
+                log.debugf("Magazijn %s (%s) overgeslagen door circuit breaker", magazijnId, naam)
             MagazijnFault.INTERNAL_BUG ->
                 log.errorf(error, "Onverwachte fout bij magazijn %s (%s) (cause=%s)", magazijnId, naam, error.javaClass.simpleName)
         }

@@ -46,6 +46,11 @@ class MagazijnContractIntegrationTest {
     @Inject
     lateinit var sessiecache: Sessiecache
 
+    // Singleton circuit breaker leeft over @QuarkusTest-klassen (zelfde profiel) heen; reset
+    // zodat een fout-injecterende test elders dit contract-pad niet met een open circuit raakt.
+    @Inject
+    internal lateinit var circuitBreaker: MagazijnCircuitBreaker
+
     private val objectMapper = ObjectMapper()
         .registerModule(JavaTimeModule())
         .registerModule(KotlinModule.Builder().build())
@@ -54,6 +59,7 @@ class MagazijnContractIntegrationTest {
     fun setUp() {
         WireMockMagazijnResource.serverA!!.resetAll()
         WireMockMagazijnResource.serverB!!.resetAll()
+        circuitBreaker.herstelAlles()
     }
 
     @Test

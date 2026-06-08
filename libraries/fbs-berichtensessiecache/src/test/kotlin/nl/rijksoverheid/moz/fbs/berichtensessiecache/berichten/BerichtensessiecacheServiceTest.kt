@@ -9,8 +9,10 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.ProcessingException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieExecutor
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
@@ -42,6 +44,10 @@ class BerichtensessiecacheServiceTest {
     }
     private val validator = BerichtValidator(limieten)
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
+    // Echte (kleine) instances: de aggregatie-pool + circuit breaker bevatten geen externe
+    // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
+    private val testExecutor = MagazijnAggregatieExecutor(poolSize = 4)
+    private val testBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L)
     // Korte timeouts in unit-tests: outer (3s) > inner (2s) zodat de cross-check
     // groen blijft maar tests niet wachten op het volledige prod-budget.
     private val service = BerichtensessiecacheService(
@@ -55,6 +61,8 @@ class BerichtensessiecacheServiceTest {
         magazijnQueryTimeoutSeconds = 10L,
         magazijnReadTimeoutMs = 12000L,
         cacheAwaitTimeoutSeconds = 5L,
+        magazijnExecutor = testExecutor,
+        circuitBreaker = testBreaker,
     ).also { it.valideerTimeouts() }
 
     private val ontvanger = Bsn("999993653")
@@ -206,6 +214,8 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
+            magazijnExecutor = testExecutor,
+            circuitBreaker = testBreaker,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -223,6 +233,8 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
+            magazijnExecutor = testExecutor,
+            circuitBreaker = testBreaker,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -243,6 +255,8 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 10_000L,
             cacheAwaitTimeoutSeconds = 5L,
+            magazijnExecutor = testExecutor,
+            circuitBreaker = testBreaker,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -261,6 +275,8 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
+            magazijnExecutor = testExecutor,
+            circuitBreaker = testBreaker,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -277,6 +293,8 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 0L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
+            magazijnExecutor = testExecutor,
+            circuitBreaker = testBreaker,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -293,6 +311,8 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 0L,
+            magazijnExecutor = testExecutor,
+            circuitBreaker = testBreaker,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -594,6 +614,8 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
+            magazijnExecutor = testExecutor,
+            circuitBreaker = testBreaker,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()
@@ -656,6 +678,8 @@ class BerichtensessiecacheServiceTest {
             magazijnQueryTimeoutSeconds = 10L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
+            magazijnExecutor = testExecutor,
+            circuitBreaker = testBreaker,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()
