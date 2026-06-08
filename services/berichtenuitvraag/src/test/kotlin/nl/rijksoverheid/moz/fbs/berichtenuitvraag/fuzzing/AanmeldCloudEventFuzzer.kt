@@ -1,19 +1,23 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.fuzzing
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider
-import io.mockk.Runs
-import io.mockk.every
-import io.mockk.just
-import io.mockk.mockk
+import io.smallrye.mutiny.Multi
+import jakarta.ws.rs.WebApplicationException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldDeduplicatie
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldService
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldBerichtData
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldCloudEvent
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldOntvanger
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AfzenderMagazijnIndex
-import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MagazijnenConfig
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import java.time.Instant
 import java.util.UUID
 
@@ -25,9 +29,11 @@ import java.util.UUID
  * normaal terugkeren. Een NPE/IllegalArgumentException/etc. die ontsnapt zou een 500
  * met mogelijk lekkende detail betekenen en faalt de fuzz.
  *
- * De buren zijn gemockt (geen Redis/cache): de aandacht ligt op het parse-/validatie-
- * pad. De magazijn-index accepteert elke OIN, zodat ook het volledige schrijf-pad
- * bereikbaar is voor geldige combinaties.
+ * De buren zijn handgeschreven fakes (geen Redis/cache en geen mock-framework: MockK
+ * genereert bytecode via een eigen agent en botst met de Jazzer-instrumentatie in de
+ * fuzz-runtime). De aandacht ligt op het parse-/validatiepad; de magazijn-index
+ * accepteert elke OIN zodat ook het volledige schrijfpad bereikbaar is voor geldige
+ * combinaties.
  */
 object AanmeldCloudEventFuzzer {
 
@@ -63,18 +69,63 @@ object AanmeldCloudEventFuzzer {
     }
 
     private fun bouwService(): AanmeldService {
-        // Relaxed: vermijdt een expliciete stub op schrijfBericht(Identificatienummer, …)
-        // — MockK kan voor de value-class-parameter geen any()-matcher bouwen. De
-        // returnwaarde wordt door de service genegeerd.
-        val sessiecache = mockk<Sessiecache>(relaxed = true)
+        val sessiecache = object : Sessiecache {
+            override fun lijst(
+                ontvanger: Identificatienummer,
+                pagina: Int?,
+                paginaGrootte: Int?,
+                afzender: String?,
+                map: String?,
+            ): BerichtenPagina = throw UnsupportedOperationException()
 
-        val dedup = mockk<AanmeldDeduplicatie>()
-        every { dedup.eerstgezien(any()) } returns true
-        every { dedup.verwijder(any()) } just Runs
+            override fun zoek(
+                ontvanger: Identificatienummer,
+                q: String,
+                pagina: Int?,
+                paginaGrootte: Int?,
+                afzender: String?,
+                map: String?,
+            ): BerichtenPagina = throw UnsupportedOperationException()
 
-        val index = mockk<AfzenderMagazijnIndex>()
-        every { index.magazijnVoor(any()) } returns "magazijn-a"
+            override fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht? =
+                throw UnsupportedOperationException()
 
-        return AanmeldService(sessiecache, dedup, index, mockk<LogboekContext>(relaxed = true))
+            override fun werkBerichtBij(
+                ontvanger: Identificatienummer,
+                berichtId: UUID,
+                status: Leesstatus?,
+                map: String?,
+            ): Bericht? = throw UnsupportedOperationException()
+
+            override fun verwijder(ontvanger: Identificatienummer, berichtId: UUID): Unit =
+                throw UnsupportedOperationException()
+
+            override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> =
+                throw UnsupportedOperationException()
+
+            override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht = bericht
+        }
+
+        val dedup = object : AanmeldDeduplicatie {
+            override fun eerstgezien(eventId: String): Boolean = true
+
+            override fun verwijder(eventId: String) = Unit
+        }
+
+        // Lege config volstaat: magazijnVoor wordt overschreven, dus de in de
+        // constructor opgebouwde reverse-index wordt nooit geraadpleegd.
+        val legeConfig = object : MagazijnenConfig {
+            override fun urls(): Map<String, String> = emptyMap()
+
+            override fun instances(): Map<String, MagazijnenConfig.Instance> = emptyMap()
+
+            override fun client(): MagazijnenConfig.Client = throw UnsupportedOperationException()
+        }
+
+        val index = object : AfzenderMagazijnIndex(legeConfig) {
+            override fun magazijnVoor(afzender: Oin): String = "magazijn-a"
+        }
+
+        return AanmeldService(sessiecache, dedup, index, LogboekContext())
     }
 }
