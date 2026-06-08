@@ -15,6 +15,9 @@ concurrency:
 
 jobs:
   detekt:
+    # Naam onderscheidt deze build-gate van de gelijknamige code-scanning-check die
+    # GitHub Advanced Security post (SARIF tool.name "detekt"). Required status check.
+    name: detekt-gate
     runs-on: ubuntu-latest
     permissions:
       contents: read
