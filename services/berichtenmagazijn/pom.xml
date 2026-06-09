@@ -17,7 +17,7 @@
 
     <properties>
         <!-- Voeden de gedeelde API-generatie (openapi-generator + ApiInfo-antrun) in de
-             parent-pluginManagement: spec-pad en het wortelpakket van deze service. -->
+             parent-pluginManagement: spec-pad en de root package van deze service. -->
         <api.spec.file>${project.basedir}/src/main/resources/openapi/berichtenmagazijn-api.yaml</api.spec.file>
         <api.base.package>nl.rijksoverheid.moz.fbs.berichtenmagazijn</api.base.package>
     </properties>
