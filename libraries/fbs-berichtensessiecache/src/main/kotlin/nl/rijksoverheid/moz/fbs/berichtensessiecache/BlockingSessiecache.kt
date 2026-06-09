@@ -13,22 +13,38 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.UUID
 
 /**
  * Synchrone facade over de reactieve [BerichtensessiecacheService]: blokkeert
- * begrensd ([TIMEOUT]) op de Mutiny-pijplijn en vertaalt infrastructuurfouten
+ * begrensd ([timeout]) op de Mutiny-pijplijn en vertaalt infrastructuurfouten
  * naar de gesloten [SessiecacheException]-hiërarchie uit het [Sessiecache]-contract.
  * Houdt zelf géén staat — alle sessiestaat (cache, aggregatie-status, lock) leeft in Redis.
  */
 @ApplicationScoped
 internal class BlockingSessiecache(
     private val service: BerichtensessiecacheService,
+    // Begrenzing op de blocking-await van de facade over élk lees-/schrijfpad van het
+    // Sessiecache-contract (de paden raken een lokale/naast-de-pod Redis, geen remote
+    // magazijn-RTT — vandaar dezelfde 5s-ondergrens als cache-await-timeout-seconds).
+    // Overschrijden → 503. Moet > 0: Mutiny's `atMost(ZERO)` wacht onbegrensd en zou de
+    // bescherming stil uitschakelen.
+    @param:ConfigProperty(name = "berichtensessiecache.facade-await-timeout-seconds", defaultValue = "5")
+    private val facadeAwaitTimeoutSeconds: Long,
 ) : Sessiecache {
 
     private val log = Logger.getLogger(BlockingSessiecache::class.java)
+
+    private val timeout: Duration = Duration.ofSeconds(facadeAwaitTimeoutSeconds)
+
+    init {
+        require(facadeAwaitTimeoutSeconds > 0) {
+            "berichtensessiecache.facade-await-timeout-seconds ($facadeAwaitTimeoutSeconds) moet groter zijn dan 0"
+        }
+    }
 
     override fun lijst(
         ontvanger: Identificatienummer,
@@ -143,7 +159,7 @@ internal class BlockingSessiecache(
 
     private fun <T> awaitOrServiceUnavailable(block: () -> Uni<T>): T {
         try {
-            return block().await().atMost(TIMEOUT)
+            return block().await().atMost(timeout)
         } catch (e: java.util.concurrent.CompletionException) {
             // Mutiny's blocking await wrapt checked failures (bv. Jackson's
             // JsonProcessingException) in een CompletionException; classificeer op de
@@ -155,11 +171,11 @@ internal class BlockingSessiecache(
     }
 
     private fun vertaalCacheFout(e: Throwable): Exception = when (e) {
-        // Cache-operatie hing langer dan TIMEOUT — log warn met cause zodat operations
-        // niet alleen het onbereikbaar-pad ziet maar ook welke await het was. Silent
+        // Cache-operatie hing langer dan de facade-await-timeout — log warn met cause zodat
+        // operations niet alleen het onbereikbaar-pad ziet maar ook welke await het was. Silent
         // discard verbergt prestatie-regressies in Redis.
         is java.util.concurrent.TimeoutException -> {
-            log.warnf(e, "Cache-operatie overschreed timeout van %s; onbereikbaar naar caller", TIMEOUT)
+            log.warnf(e, "Cache-operatie overschreed timeout van %s; onbereikbaar naar caller", timeout)
             SessiecacheException.Onbereikbaar("Cache niet bereikbaar. Probeer het later opnieuw", e)
         }
         // Transiente schrijf-contentie: bron logt al op warn. Retriable onbereikbaar
@@ -184,9 +200,5 @@ internal class BlockingSessiecache(
             log.errorf(e, "Cache-operatie mislukt")
             SessiecacheException.Onbereikbaar("Cache niet bereikbaar.", e)
         }
-    }
-
-    companion object {
-        private val TIMEOUT = Duration.ofSeconds(5)
     }
 }

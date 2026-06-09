@@ -35,6 +35,7 @@ interface PublicatieConfig {
     fun organisatie(): Organisatie
     fun polling(): Polling
     fun opschonen(): Opschonen
+    fun client(): Client
 
     @WithDefault("50")
     @Min(1)
@@ -103,6 +104,24 @@ interface PublicatieConfig {
         /** Bovengrens om runaway-backoff te voorkomen. */
         @WithDefault("PT1H")
         fun plafond(): Duration
+    }
+
+    /**
+     * Timeouts op de gedeelde [DownstreamClient]-`HttpClient` richting downstreams.
+     * Anders dan de sessiecache-awaits (lokale Redis) zijn dit remote, cross-organisatie
+     * calls: de defaults dekken TCP+TLS-opbouw en een POST-round-trip over publiek
+     * internet naar een federatieve dienstverlener. Per omgeving instelbaar voor een
+     * trager netwerk of een striktere SLO. Beide moeten positief zijn — `HttpClient`/
+     * `HttpRequest` weigeren een niet-positieve Duration al fail-fast bij opbouw.
+     */
+    interface Client {
+        /** Max wachttijd op TCP+TLS-verbindingsopbouw naar een downstream. */
+        @WithDefault("PT5S")
+        fun connectTimeout(): Duration
+
+        /** Max wachttijd op de volledige POST-round-trip (verbinding + verzenden + antwoord). */
+        @WithDefault("PT10S")
+        fun requestTimeout(): Duration
     }
 
     interface Downstream {

@@ -21,6 +21,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.Instant
@@ -37,7 +38,7 @@ import java.util.UUID
 class BlockingSessiecacheTest {
 
     private val service = mockk<BerichtensessiecacheService>(relaxed = false)
-    private val facade = BlockingSessiecache(service)
+    private val facade = BlockingSessiecache(service, facadeAwaitTimeoutSeconds = 5)
     private val ontvanger = Bsn("999990019")
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
@@ -255,5 +256,16 @@ class BlockingSessiecacheTest {
             Uni.createFrom().failure(WebApplicationException("teapot", 418))
 
         assertThrows<SessiecacheException.Onbereikbaar> { facade.lijst(ontvanger) }
+    }
+
+    // --- config-validatie facade-await-timeout ---
+
+    @Test
+    fun `facade-await-timeout van 0 wordt geweigerd bij constructie`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            BlockingSessiecache(service, facadeAwaitTimeoutSeconds = 0)
+        }
+
+        assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")
     }
 }
