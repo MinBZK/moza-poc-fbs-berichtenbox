@@ -96,14 +96,14 @@ internal class MockBerichtenCache : BerichtenCache {
 
     override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
         val bericht = byId[berichtId]
-        return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger.waarde) bericht else null)
+        return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
     }
 
     override fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
         if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(berichtId))
 
         val bericht = byId[berichtId]
-        if (bericht == null || bericht.ontvanger != ontvanger.waarde) return Uni.createFrom().nullItem()
+        if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
         val updated = bericht.copy(
             status = status?.let { Leesstatus.fromWire(it) } ?: bericht.status,
             map = map ?: bericht.map,
@@ -123,7 +123,7 @@ internal class MockBerichtenCache : BerichtenCache {
 
     override fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
         val existing = byId[berichtId]
-        if (existing != null && existing.ontvanger == ontvanger.waarde) {
+        if (existing != null && existing.ontvanger == ontvanger) {
             byId.remove(berichtId)
             val key = BerichtenCache.cacheKey(ontvanger)
             val listKey = "$key:list"

@@ -18,6 +18,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -42,10 +43,10 @@ class BlockingSessiecacheTest {
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
     private val legePagina = BerichtenPagina(emptyList(), 0, 20, 0L, 0)
 
-    private fun testBericht(ontvangerWaarde: String = ontvanger.waarde) = Bericht(
+    private fun testBericht(ontvanger: Identificatienummer = this.ontvanger) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001003214345000",
-        ontvanger = ontvangerWaarde,
+        ontvanger = ontvanger,
         onderwerp = "Testonderwerp",
         inhoud = "Testinhoud",
         publicatietijdstip = Instant.parse("2026-01-01T10:00:00Z"),
@@ -192,7 +193,7 @@ class BlockingSessiecacheTest {
     @Test
     fun `schrijfBericht wijst ontvanger-mismatch af met 400`() {
         val ex = assertThrows<WebApplicationException> {
-            facade.schrijfBericht(ontvanger, testBericht(ontvangerWaarde = "999990020"))
+            facade.schrijfBericht(ontvanger, testBericht(ontvanger = Bsn("999990020")))
         }
 
         assertEquals(400, ex.response.status)

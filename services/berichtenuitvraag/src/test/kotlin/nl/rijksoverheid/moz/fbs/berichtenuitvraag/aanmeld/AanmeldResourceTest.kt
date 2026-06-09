@@ -11,6 +11,7 @@ import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MockSessiecache
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -95,7 +96,7 @@ class AanmeldResourceTest {
         assertEquals(afzender, bericht?.magazijnId)
         assertEquals(0, bericht?.aantalBijlagen)
         assertEquals(afzender, bericht?.afzender)
-        assertEquals("999990019", bericht?.ontvanger)
+        assertEquals(Bsn("999990019"), bericht?.ontvanger)
     }
 
     @Test

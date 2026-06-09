@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -15,7 +16,7 @@ class BerichtTest {
     private val geldigBericht = Bericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",
-        ontvanger = "999993653",
+        ontvanger = Bsn("999993653"),
         onderwerp = "Test bericht",
         inhoud = "Inhoud van het bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
@@ -38,13 +39,9 @@ class BerichtTest {
         }
     }
 
-    @Test
-    fun `lege ontvanger wordt geweigerd`() {
-        val ex = assertThrows<IllegalArgumentException> {
-            geldigBericht.copy(ontvanger = "")
-        }
-        assertEquals("ontvanger mag niet leeg zijn", ex.message)
-    }
+    // De ontvanger-invariant (niet-leeg, elfproef, lengte) is verplaatst naar het type
+    // Identificatienummer zelf — een Bericht kan per constructie geen ongeldige ontvanger
+    // meer dragen, dus een aparte leeg-check-test op Bericht is niet meer construeerbaar.
 
     @Test
     fun `lege onderwerp wordt geweigerd`() {

@@ -94,9 +94,7 @@ internal class BlockingSessiecache(
     override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> = service.haalBerichtenOp(ontvanger)
 
     override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht {
-        // Vergelijk op .waarde: Bericht.ontvanger slaat de raw identificatiewaarde op
-        // (geen type-prefix), zodat JSON-serialisatie en upstream-contracten ongewijzigd blijven.
-        if (bericht.ontvanger != ontvanger.waarde) {
+        if (bericht.ontvanger != ontvanger) {
             throw WebApplicationException(
                 "Ontvanger in bericht komt niet overeen met de opgegeven ontvanger.",
                 Response.Status.BAD_REQUEST,

@@ -13,6 +13,7 @@ import io.smallrye.mutiny.Uni
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.security.MessageDigest
@@ -112,6 +113,7 @@ internal class RedisBerichtenCache(
                 .indexedField("onderwerp", FieldType.TEXT)
                 .indexedField("afzender", FieldType.TAG)
                 .indexedField("ontvanger", FieldType.TAG)
+                .indexedField("ontvangerType", FieldType.TAG)
                 .indexedField("publicatietijdstip", FieldType.TAG)
                 .indexedField("map", FieldType.TAG)
             redis.search().ftCreate(BerichtenCache.SEARCH_INDEX, args)
@@ -282,6 +284,7 @@ internal class RedisBerichtenCache(
         // spaties (AND) gecombineerd in de RediSearch-query.
         val query = buildList {
             add("@ontvanger:{${escapeTag(ontvanger.waarde)}}")
+            add("@ontvangerType:{${escapeTag(ontvanger.type.name)}}")
 
             if (!afzender.isNullOrBlank()) add("@afzender:{${escapeTag(afzender)}}")
 
@@ -312,7 +315,8 @@ internal class RedisBerichtenCache(
 
     override fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String?, map: String?): Uni<BerichtenPagina> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
-        val ontvangerFilter = "@ontvanger:{${escapeTag(ontvanger.waarde)}}"
+        val ontvangerFilter =
+            "@ontvanger:{${escapeTag(ontvanger.waarde)}} @ontvangerType:{${escapeTag(ontvanger.type.name)}}"
         val escapedQ = escapeRedisSearch(q)
         val afzenderFilter = if (afzender != null) " @afzender:{${escapeTag(afzender)}}" else ""
         val mapFilter = if (!map.isNullOrBlank()) " @map:{${escapeTag(map)}}" else ""
@@ -359,7 +363,7 @@ internal class RedisBerichtenCache(
             .map { fields ->
                 if (fields.isEmpty()) return@map null
                 val bericht = hashToBericht(fields)
-                if (bericht.ontvanger != ontvanger.waarde) null else bericht
+                if (bericht.ontvanger != ontvanger) null else bericht
             }
             .call { bericht ->
                 if (bericht != null) renewReadTtl(cacheKey, listOf(bericht))
@@ -427,7 +431,8 @@ internal class RedisBerichtenCache(
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
         put("berichtId", bericht.berichtId.toString())
         put("afzender", bericht.afzender)
-        put("ontvanger", bericht.ontvanger)
+        put("ontvanger", bericht.ontvanger.waarde)
+        put("ontvangerType", bericht.ontvanger.type.name)
         put("onderwerp", bericht.onderwerp)
         put("inhoud", bericht.inhoud)
         put("publicatietijdstip", bericht.publicatietijdstip.toString())
@@ -443,6 +448,20 @@ internal class RedisBerichtenCache(
         // RediSearch-index-waarden ongewijzigd blijven t.o.v. de stringly-typed versie.
         bericht.status?.let { put("status", it.wire) }
     }
+
+    /**
+     * Herbouwt het getypeerde [Identificatienummer] uit opgeslagen `type` + `waarde` en
+     * hervalideert daarbij (elfproef/lengte). Een onbekende type-naam of invariant-schending
+     * duidt op cache-corruptie → [CacheCorruptedException] (500), niet "Redis onbereikbaar".
+     * `DomainValidationException` is een `IllegalArgumentException`, dus één catch volstaat
+     * voor zowel `valueOf` (onbekend type) als `of` (elfproef/lengte).
+     */
+    private fun reconstrueerOntvanger(waarde: String, typeNaam: String): Identificatienummer =
+        try {
+            Identificatienummer.of(IdentificatienummerType.valueOf(typeNaam), waarde)
+        } catch (ex: IllegalArgumentException) {
+            throw CacheCorruptedException.onleesbareWaarde("ontvanger", ex)
+        }
 
     private fun hashToBericht(fields: Map<String, String>): Bericht {
         // Alle hieronder verplichte velden worden onvoorwaardelijk geschreven door `berichtToHash`;
@@ -463,7 +482,7 @@ internal class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
             afzender = required("afzender"),
-            ontvanger = required("ontvanger"),
+            ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
             inhoud = required("inhoud"),
             publicatietijdstip = try {
@@ -516,7 +535,7 @@ internal class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
             afzender = required("afzender"),
-            ontvanger = required("ontvanger"),
+            ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
             publicatietijdstip = try {
                 Instant.parse(required("publicatietijdstip"))
@@ -615,7 +634,7 @@ internal class RedisBerichtenCache(
                     val bericht = hashToBericht(fields)
 
                     when {
-                        bericht.ontvanger != ontvanger.waarde -> Uni.createFrom().item(UpdatePlan.Geen)
+                        bericht.ontvanger != ontvanger -> Uni.createFrom().item(UpdatePlan.Geen)
                         status == null && map == null -> Uni.createFrom().item(UpdatePlan.Ongewijzigd(bericht))
                         else -> maakWijzigPlan(reads, listKey, berichtId, bericht, status, map)
                     }
@@ -765,7 +784,10 @@ internal class RedisBerichtenCache(
 
         return redis.hash(String::class.java).hgetall(berichtKey)
             .chain { fields ->
-                if (fields.isEmpty() || fields["ontvanger"] != ontvanger.waarde) {
+                if (fields.isEmpty() ||
+                    fields["ontvanger"] != ontvanger.waarde ||
+                    fields["ontvangerType"] != ontvanger.type.name
+                ) {
                     Uni.createFrom().voidItem()
                 } else {
                     pruneListEnDelHash(listKey, berichtKey, berichtId)
@@ -822,6 +844,7 @@ internal class RedisBerichtenCache(
             "berichtId",
             "afzender",
             "ontvanger",
+            "ontvangerType",
             "onderwerp",
             "publicatietijdstip",
             "magazijnId",

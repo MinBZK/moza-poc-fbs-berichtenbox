@@ -13,6 +13,7 @@ import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -43,7 +44,7 @@ class DualWriteFaultTest {
         sessiecache.berichten[id] = Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
-            ontvanger = "999990019",
+            ontvanger = Bsn("999990019"),
             onderwerp = "X",
             inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),

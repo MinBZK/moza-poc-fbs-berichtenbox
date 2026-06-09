@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer as OntvangerId
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
@@ -10,15 +12,13 @@ import java.util.UUID
 
 /**
  * Vorm van een bericht zoals het magazijn het levert: `ontvanger` is een
- * getypeerd object (`{type, waarde}`). De cache-[Bericht] gebruikt een plain
- * string als ontvanger — [toBericht] vlakt het object af tot de raw `waarde`
- * (zonder type-prefix). Type-scoping zit in de cache-key zelf: die hasht de
- * canonical `"TYPE:waarde"`-vorm, dus berichten van verschillende typen met
- * dezelfde cijferreeks kunnen nooit dezelfde sessie raken.
+ * getypeerd object (`{type, waarde}`) met losse string-velden. [toBericht] zet dit
+ * om naar het gevalideerde domeintype [OntvangerId] van de cache-[Bericht]
+ * (elfproef/lengte afgedwongen aan de cache-grens).
  *
  * Bestaat naast cache-[Bericht] zodat Jackson-deserialisatie matcht met de
- * magazijn-spec zonder dat het cache-domein de getypeerde vorm hoeft te
- * dragen. `inhoud`, `bijlagen`, `status.map` en de leesstatus (`status.gelezen`
+ * magazijn-spec (`{type, waarde}`) zonder dat die wire-vorm het cache-domein
+ * raakt. `inhoud`, `bijlagen`, `status.map` en de leesstatus (`status.gelezen`
  * → [Leesstatus]) worden uit de magazijn-respons overgenomen; `gewijzigdOp` en
  * bijlage-`mimeType`/`_links` blijven bewust buiten de cache (alleen-magazijn-gegevens).
  */
@@ -37,11 +37,10 @@ internal data class MagazijnBericht(
     fun toBericht(magazijnId: String): Bericht = Bericht(
         berichtId = berichtId,
         afzender = afzender,
-        // Bericht.ontvanger bewaart enkel de raw identificatie-waarde (geen TYPE:-prefix);
-        // de getypeerde vorm van het magazijn (`{type, waarde}`) wordt hier afgevlakt.
-        // Cache-eigenaar-checks vergelijken tegen Identificatienummer.waarde (zie
-        // RedisBerichtenCache.getById / MockBerichtenCache).
-        ontvanger = ontvanger.waarde,
+        // Het magazijn levert ontvanger als {type, waarde}; aan de cache-grens bouwen we het
+        // gevalideerde domeintype (elfproef/lengte afgedwongen). Ongeldige magazijn-data faalt
+        // hier hard i.p.v. ongemerkt het cache-domein in te stromen.
+        ontvanger = OntvangerId.of(IdentificatienummerType.valueOf(ontvanger.type), ontvanger.waarde),
         onderwerp = onderwerp,
         inhoud = inhoud,
         publicatietijdstip = publicatietijdstip,

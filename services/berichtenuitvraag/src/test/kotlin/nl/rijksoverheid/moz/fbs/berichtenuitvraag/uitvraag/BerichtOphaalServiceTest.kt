@@ -10,6 +10,7 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -29,7 +30,7 @@ class BerichtOphaalServiceTest {
     private fun domeinBericht(berichtId: UUID, magazijnId: String = "magazijn-a") = Bericht(
         berichtId = berichtId,
         afzender = "00000001003214345000",
-        ontvanger = "999990019",
+        ontvanger = Bsn("999990019"),
         onderwerp = "X",
         inhoud = "Inhoud",
         publicatietijdstip = java.time.Instant.parse("2026-05-26T10:00:00Z"),
