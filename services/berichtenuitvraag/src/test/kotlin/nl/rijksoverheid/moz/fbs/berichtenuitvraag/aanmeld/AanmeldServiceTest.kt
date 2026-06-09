@@ -67,7 +67,7 @@ class AanmeldServiceTest {
         assertEquals("magazijn-a", slot.captured.magazijnId)
         assertEquals(0, slot.captured.aantalBijlagen)
         assertEquals(afzender, slot.captured.afzender)
-        assertEquals(ontvangerBsn, slot.captured.ontvanger)
+        assertEquals(ontvanger, slot.captured.ontvanger)
         assertEquals(berichtId, slot.captured.berichtId)
         verify { logboek.dataSubjectId = ontvangerBsn }
         // Marker behouden: bericht is echt geschreven.

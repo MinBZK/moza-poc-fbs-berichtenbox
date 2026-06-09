@@ -16,6 +16,7 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -65,7 +66,7 @@ class OpenApiContractTest {
         val bericht = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
-            ontvanger = "999990019",
+            ontvanger = Bsn("999990019"),
             onderwerp = "Test",
             inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),

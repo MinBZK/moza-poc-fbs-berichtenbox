@@ -6,6 +6,7 @@ import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -27,6 +28,9 @@ class RedisBerichtenCacheIntegrationTest {
     @Inject
     lateinit var redis: ReactiveRedisDataSource
 
+    @Inject
+    lateinit var objectMapper: com.fasterxml.jackson.databind.ObjectMapper
+
     // OIN gebruikt als test-ontvanger: geen elfproef-vereiste, 20-cijferig uniek per test-run.
     private val ontvangerWaarde = System.nanoTime().toString().padStart(20, '0').takeLast(20)
     private val ontvanger = Oin(ontvangerWaarde)
@@ -39,7 +43,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
-            ontvanger = ontvanger.waarde,
+            ontvanger = ontvanger,
             onderwerp = "Eerste bericht over belastingaangifte",
             inhoud = "Inhoud eerste bericht",
             publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
@@ -50,7 +54,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000009876543210000",
-            ontvanger = ontvanger.waarde,
+            ontvanger = ontvanger,
             onderwerp = "Tweede bericht over subsidie",
             inhoud = "Inhoud tweede bericht",
             publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
@@ -61,7 +65,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
-            ontvanger = ontvanger.waarde,
+            ontvanger = ontvanger,
             onderwerp = "Derde bericht over vergunning",
             inhoud = "Inhoud derde bericht",
             publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
@@ -316,7 +320,7 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuw = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000005555555550000",
-            ontvanger = ontvanger.waarde,
+            ontvanger = ontvanger,
             onderwerp = "Concurrent toegevoegd",
             inhoud = "Tijdens delete",
             publicatietijdstip = Instant.parse("2026-03-10T15:00:00Z"),
@@ -357,7 +361,7 @@ class RedisBerichtenCacheIntegrationTest {
         val bericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
-            ontvanger = ontvanger.waarde,
+            ontvanger = ontvanger,
             onderwerp = "Bericht met bijlage",
             inhoud = "Met bijlage",
             publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
@@ -405,7 +409,7 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuwBericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000005555555550000",
-            ontvanger = ontvanger.waarde,
+            ontvanger = ontvanger,
             onderwerp = "Nieuw bericht",
             inhoud = "Inhoud nieuw bericht",
             publicatietijdstip = Instant.parse("2026-03-10T14:00:00Z"),
@@ -520,6 +524,50 @@ class RedisBerichtenCacheIntegrationTest {
         val bericht = result.berichten.single()
         assertEquals("Tweede bericht over subsidie", bericht.onderwerp)
     }
+
+    @Test
+    fun `BSN en RSIN met dezelfde cijfers zien elkaars berichten niet (#648)`() {
+        // Dezelfde 9 cijfers zijn tegelijk een geldig BSN en RSIN (identieke elfproef). Met het
+        // type als geindexeerd TAG-veld moeten zoek/lijst/getById strikt op type+waarde scopen.
+        val cijfers = "999993653"
+        val bsn = Bsn(cijfers)
+        val rsin = Rsin(cijfers)
+        val token = "klacht${UUID.randomUUID().toString().replace("-", "")}"
+
+        val bsnBericht = berichtVoor(bsn, token, "magazijn-a")
+        val rsinBericht = berichtVoor(rsin, token, "magazijn-b")
+        berichtenCache.store(BerichtenCache.cacheKey(bsn), listOf(bsnBericht)).await().indefinitely()
+        berichtenCache.store(BerichtenCache.cacheKey(rsin), listOf(rsinBericht)).await().indefinitely()
+
+        // Zoek (FT.SEARCH, type-aware filter): elk type ziet enkel het eigen bericht.
+        val bsnZoek = berichtenCache.search(bsn, token, 0, 20).await().indefinitely()
+        assertTrue(bsnZoek.berichten.all { it.ontvanger == bsn }, "BSN-zoek mag geen RSIN-berichten bevatten")
+        assertTrue(bsnZoek.berichten.any { it.berichtId == bsnBericht.berichtId })
+        assertTrue(bsnZoek.berichten.none { it.berichtId == rsinBericht.berichtId })
+
+        val rsinZoek = berichtenCache.search(rsin, token, 0, 20).await().indefinitely()
+        assertTrue(rsinZoek.berichten.all { it.ontvanger == rsin }, "RSIN-zoek mag geen BSN-berichten bevatten")
+        assertTrue(rsinZoek.berichten.any { it.berichtId == rsinBericht.berichtId })
+
+        // getById: een via een ander type gelekt berichtId mag niet ophaalbaar zijn.
+        assertNull(berichtenCache.getById(rsinBericht.berichtId, bsn).await().indefinitely())
+
+        // Eigen bericht is ophaalbaar én reconstrueert naar het juiste subtype.
+        val eigen = berichtenCache.getById(bsnBericht.berichtId, bsn).await().indefinitely()
+        assertNotNull(eigen)
+        assertEquals(bsn, eigen!!.ontvanger)
+    }
+
+    private fun berichtVoor(ontvanger: nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer, onderwerp: String, magazijnId: String) = Bericht(
+        berichtId = UUID.randomUUID(),
+        afzender = "00000001234567890000",
+        ontvanger = ontvanger,
+        onderwerp = onderwerp,
+        inhoud = "inhoud",
+        publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+        magazijnId = magazijnId,
+        aantalBijlagen = 0,
+    )
 
     @Test
     fun `samenvatting-velden bevatten precies de mapper-velden zonder inhoud of bijlagen`() {
@@ -651,6 +699,7 @@ class RedisBerichtenCacheIntegrationTest {
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
             "ontvanger" to ontvanger.waarde,
+            "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
             "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
@@ -680,6 +729,7 @@ class RedisBerichtenCacheIntegrationTest {
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
             "ontvanger" to ontvanger.waarde,
+            "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "corrupt zoekdocument",
             "inhoud" to "inhoud",
             "publicatietijdstip" to "geen-geldig-tijdstip",
@@ -718,6 +768,7 @@ class RedisBerichtenCacheIntegrationTest {
             "berichtId" to "geen-uuid-meer",
             "afzender" to "00000001234567890000",
             "ontvanger" to ontvanger.waarde,
+            "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
             "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
@@ -743,6 +794,7 @@ class RedisBerichtenCacheIntegrationTest {
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
             "ontvanger" to ontvanger.waarde,
+            "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
             "inhoud" to "inhoud",
             "publicatietijdstip" to "niet-een-iso-instant",
@@ -758,6 +810,58 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertTrue(ex.message!!.contains("publicatietijdstip"), "Was: ${ex.message}")
         assertTrue(ex.cause is java.time.format.DateTimeParseException, "Cause moet Instant-parse-fout zijn: ${ex.cause}")
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij ontvanger-waarde die de elfproef schendt`() {
+        // Opgeslagen ontvanger-waarde is geen geldig BSN (elfproef): reconstructie via
+        // Identificatienummer.of MOET dit als cache-corruptie (500) surfacen, niet stil doorlaten.
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corruptHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to "123456789",
+            "ontvangerType" to "BSN",
+            "onderwerp" to "test",
+            "inhoud" to "inhoud",
+            "publicatietijdstip" to "2026-03-10T10:00:00Z",
+            "magazijnId" to "magazijn-a",
+            "aantalBijlagen" to "0",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, Bsn("999993653")).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("ontvanger"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij onbekend ontvangerType`() {
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corruptHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "ontvangerType" to "ONBEKEND",
+            "onderwerp" to "test",
+            "inhoud" to "inhoud",
+            "publicatietijdstip" to "2026-03-10T10:00:00Z",
+            "magazijnId" to "magazijn-a",
+            "aantalBijlagen" to "0",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("ontvanger"), "Was: ${ex.message}")
     }
 
     @Test
@@ -779,6 +883,28 @@ class RedisBerichtenCacheIntegrationTest {
         assertTrue(
             rootCause is com.fasterxml.jackson.core.JsonProcessingException,
             "Verwachtte JsonProcessingException als root-cause; was: ${rootCause.javaClass.name} (${rootCause.message})",
+        )
+    }
+
+    @Test
+    fun `getPage met ongeldige ontvanger in list-blob surfacet als CacheCorruptedException (geen 400)`() {
+        // Het ongefilterde lijst-pad deserialiseert de volledige Bericht-blob via Jackson; de
+        // ontvanger-deserializer reconstrueert + hervalideert. Een ongeldige opgeslagen waarde
+        // (elfproef) MOET als cache-corruptie (500) surfacen — net als het hash-pad — en niet als
+        // kale IllegalArgumentException die de facade als caller-fout (400) zou vertalen.
+        val geldig = berichtVoor(Bsn("999993653"), "corrupt-ontvanger-test", "magazijn-a")
+        val corrupteBlob = objectMapper.writeValueAsString(geldig).replace("BSN:999993653", "BSN:123456789")
+        redis.list(String::class.java).rpush(listKey(), corrupteBlob).await().indefinitely()
+
+        val ex = assertThrows<Throwable> {
+            berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
+        }
+
+        // Of ongewrapt (CacheCorruptedException) óf door Jackson gewrapt — in beide gevallen
+        // zit de CacheCorruptedException in de cause-keten en eindigt het als 500.
+        assertTrue(
+            generateSequence(ex as Throwable?) { it.cause }.any { it is CacheCorruptedException },
+            "Verwachtte CacheCorruptedException in de cause-keten; was: ${ex.javaClass.name} (${ex.message})",
         )
     }
 

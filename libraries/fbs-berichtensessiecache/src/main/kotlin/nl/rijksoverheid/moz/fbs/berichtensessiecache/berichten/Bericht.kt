@@ -2,6 +2,9 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonValue
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize
+import com.fasterxml.jackson.databind.annotation.JsonSerialize
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.time.Instant
 import java.util.UUID
 
@@ -28,7 +31,9 @@ enum class Leesstatus(@get:JsonValue val wire: String) {
 data class Bericht(
     val berichtId: UUID,
     val afzender: String,
-    val ontvanger: String,
+    @param:JsonDeserialize(using = IdentificatienummerCanonicalDeserializer::class)
+    @get:JsonSerialize(using = IdentificatienummerCanonicalSerializer::class)
+    val ontvanger: Identificatienummer,
     val onderwerp: String,
     val inhoud: String,
     val publicatietijdstip: Instant,
@@ -40,7 +45,6 @@ data class Bericht(
 ) {
     init {
         require(afzender.isNotBlank()) { "afzender mag niet leeg zijn" }
-        require(ontvanger.isNotBlank()) { "ontvanger mag niet leeg zijn" }
         require(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }
         // `inhoud` mag leeg zijn: niet elk magazijn levert een inhoudssamenvatting op de lijst-respons
         // (zie MagazijnBericht). Voor consumers blijft `inhoud` in de OpenAPI-spec required zodat de
@@ -84,7 +88,7 @@ fun Bericht.toSamenvatting(): BerichtSamenvatting = BerichtSamenvatting(
 data class BerichtSamenvatting(
     val berichtId: UUID,
     val afzender: String,
-    val ontvanger: String,
+    val ontvanger: Identificatienummer,
     val onderwerp: String,
     val publicatietijdstip: Instant,
     val magazijnId: String,

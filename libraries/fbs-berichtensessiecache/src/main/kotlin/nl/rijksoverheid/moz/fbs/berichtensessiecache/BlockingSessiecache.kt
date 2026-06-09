@@ -107,9 +107,7 @@ internal class BlockingSessiecache(
     override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> = service.haalBerichtenOp(ontvanger)
 
     override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht {
-        // Vergelijk op .waarde: Bericht.ontvanger slaat de raw identificatiewaarde op
-        // (geen type-prefix), zodat JSON-serialisatie en upstream-contracten ongewijzigd blijven.
-        if (bericht.ontvanger != ontvanger.waarde) {
+        if (bericht.ontvanger != ontvanger) {
             throw SessiecacheException.OngeldigeInvoer(
                 "Ontvanger in bericht komt niet overeen met de opgegeven ontvanger.",
             )
@@ -188,12 +186,17 @@ internal class BlockingSessiecache(
         // Cache-deserialisatie-fout = data-integriteit-issue (verkeerde versie, corrupte hash),
         // niet "Redis onbereikbaar". Onleesbaar zonder de verkeerde infrastructuur-diagnose.
         is com.fasterxml.jackson.core.JsonProcessingException -> {
-            log.errorf(e, "Cache-data niet deserialiseerbaar (corruptie of schema-drift)")
+            // Log de fout-soort, NIET de exception: Jackson's message bevat bij
+            // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment met BSN/RSIN +
+            // inhoud. PII mag nooit in de log.
+            log.errorf("Cache-data niet deserialiseerbaar (corruptie of schema-drift); fout=%s", e.javaClass.name)
             SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }
         // Hash-velden ontbreken of onleesbaar → eigen data-issue, niet bereikbaarheids-issue.
         is CacheCorruptedException -> {
-            log.errorf(e, "Cache-hash corrupt")
+            // Eigen message is statisch (PII-veilig); de cause kan een Jackson-fout met
+            // JSON-fragment zijn (bv. bijlagen), dus log de cause-klasse, niet de cause zelf.
+            log.errorf("Cache-hash corrupt: %s (oorzaak=%s)", e.message, e.cause?.javaClass?.name ?: "geen")
             SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }
         else -> {

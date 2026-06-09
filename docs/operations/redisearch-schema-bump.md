@@ -125,6 +125,29 @@ Search-endpoint is weer beschikbaar. Sluit het maintenance-window.
 | Search retourneert 0 resultaten op zojuist opgeslagen bericht | Bericht is geschreven vóór de create | Wacht tot volgende `store()`-aanroep of trigger handmatig een ophaalsessie |
 | Pods loggen `Kan RediSearch indexen niet opvragen (Redis onbereikbaar bij startup?)` | Redis-cluster niet bereikbaar bij pod-start | Standard troubleshooting: netwerk, DNS, credentials |
 
+## Toegepaste schema-bumps
+
+| Wijziging | Aanleiding | Actie nodig |
+|---|---|---|
+| `ontvangerType` (TAG) toegevoegd; zoek/filter worden type-aware (`@ontvanger:{..} @ontvangerType:{..}`) | Getypeerde ontvanger + cross-type-isolatie (#625, #648) | Eenmalig deze procedure (drop + restart). **Pre-productie:** cache mag leeglopen; geen maintenance-window nodig. |
+
+**Veiligheid tijdens de transitie (`ontvangerType`):** draait de type-aware filter op een
+nog-niet-gebumpte index (zonder `ontvangerType`-veld), dan levert RediSearch **lege resultaten
+óf een query-fout** (afhankelijk van de versie) — in beide gevallen géén cross-type-match
+(fail-*closed*). Het effect is dus hooguit "tijdelijk niets vindbaar / 5xx tot de bump", nooit
+"verkeerde berichten zichtbaar".
+
+## Gegevensbescherming (DPIA / verwerkingsregister)
+
+De sessiecache bewaart de ontvanger-identificatie (incl. **BSN/RSIN**) in klare vorm: als
+hash-veld `ontvanger` (+ `ontvangerType`) en in de lijst-JSON-blob als canonieke `"TYPE:waarde"`.
+Dit is functioneel noodzakelijk (eigenaar-checks, zoeken) en conform de logging-regels (de waarde
+mag in Redis, nooit in applicatie-logs). Borg in de DPIA / het verwerkingsregister dat hiervoor
+versleuteling at-rest én in transport actief is, dat de **toegang tot de Redis-instance**
+beperkt is (authenticatie/ACL + netwerksegmentatie, least-privilege) en zo nodig wordt
+geaudit, en dat de bewaartermijn via de sessie-TTL geminimaliseerd blijft (BIO 9.x / AVG
+art. 32). Dit is een procesactie voor het team, geen codewijziging.
+
 ## Schema-versie-bijhouden
 
 Geen automatische versie-tracking in Redis (zoals Flyway voor PostgreSQL).

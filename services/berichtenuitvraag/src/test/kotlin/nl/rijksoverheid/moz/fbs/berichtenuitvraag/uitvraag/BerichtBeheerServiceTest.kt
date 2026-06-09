@@ -39,7 +39,7 @@ class BerichtBeheerServiceTest {
     private val bijgewerkt = Bericht(
         berichtId = id,
         afzender = "00000001003214345000",
-        ontvanger = "999990019",
+        ontvanger = Bsn("999990019"),
         onderwerp = "X",
         inhoud = "Inhoud",
         publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),

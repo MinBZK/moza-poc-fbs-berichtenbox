@@ -11,6 +11,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenR
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockMagazijnResource
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
@@ -31,7 +32,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 afzender = "00000001234567890000",
-                ontvanger = "999993653",
+                ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 1",
                 inhoud = "Inhoud van test bericht 1",
                 publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
@@ -42,7 +43,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("22222222-2222-2222-2222-222222222222"),
                 afzender = "00000001234567890000",
-                ontvanger = "999993653",
+                ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 2",
                 inhoud = "Inhoud van test bericht 2",
                 publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
@@ -53,7 +54,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("33333333-3333-3333-3333-333333333333"),
                 afzender = "00000009876543210000",
-                ontvanger = "999993653",
+                ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 3",
                 inhoud = "Inhoud van test bericht 3",
                 publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
@@ -67,7 +68,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("44444444-4444-4444-4444-444444444444"),
                 afzender = "00000005555555550000",
-                ontvanger = "999993653",
+                ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 4",
                 inhoud = "Inhoud van test bericht 4",
                 publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
@@ -125,14 +126,14 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
         }
     }
 
-    // Test-fixtures zijn cache-`Bericht` (plain string ontvanger) zodat assertions over de
-    // cache-inhoud direct werken. Magazijn-client levert echter MagazijnBericht (object-vorm
-    // ontvanger), dus we wrappen de waarde hier in een neutrale BSN-Identificatienummer —
-    // de service vlakt het type weer weg via `MagazijnBericht.toBericht`.
+    // Test-fixtures zijn cache-`Bericht` (getypeerde ontvanger). De magazijn-client levert
+    // MagazijnBericht (wire-vorm `{type, waarde}`), dus we projecteren de getypeerde ontvanger
+    // hier terug naar die losse string-velden — de service bouwt het domeintype weer op via
+    // `MagazijnBericht.toBericht`.
     private fun Bericht.toMagazijnBericht(): MagazijnBericht = MagazijnBericht(
         berichtId = berichtId,
         afzender = afzender,
-        ontvanger = MagazijnBericht.Identificatienummer(type = "BSN", waarde = ontvanger),
+        ontvanger = MagazijnBericht.MagazijnOntvanger(type = ontvanger.type.name, waarde = ontvanger.waarde),
         onderwerp = onderwerp,
         inhoud = inhoud,
         publicatietijdstip = publicatietijdstip,

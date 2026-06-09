@@ -792,6 +792,36 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
+    fun `bericht met ongeldige ontvanger wordt gedropt zonder de magazijn-aggregatie te laten falen`() {
+        // Partial-failure: toBericht bouwt nu het gevalideerde ontvanger-domeintype en kan gooien
+        // (ongeldige elfproef). Eén pathologisch bericht mag de hele magazijn-bevraging niet kapot
+        // maken — het wordt gedropt en de rest komt door (status OK).
+        val client = mockk<MagazijnClient>()
+        val geldig = testMagazijnBericht().copy(berichtId = UUID.fromString("00000000-0000-0000-0000-000000000001"))
+        val ongeldig = testMagazijnBericht().copy(
+            berichtId = UUID.fromString("00000000-0000-0000-0000-000000000002"),
+            ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", "123456789"),
+        )
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
+        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { client.getBerichten(any(), any()) } returns MagazijnBerichtenResponse(listOf(geldig, ongeldig))
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(15))
+
+        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+
+        assertEquals(MagazijnStatus.OK, voltooid.status)
+        assertEquals(1, voltooid.aantalBerichten)
+    }
+
+    @Test
     fun `lock-acquire JSON-fout via 2-niveau cause-wrap classificeert nog steeds als 500`() {
         // Productie-pad is CompletionException → SyncFailure → JPE (>=2 niveaus).
         // Pinned dat hasCauseOf de volledige chain afloopt (geen 1-niveau-shortcut).
@@ -1022,7 +1052,7 @@ class BerichtensessiecacheServiceTest {
     private fun testBericht() = Bericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",
-        ontvanger = ontvanger.waarde,
+        ontvanger = ontvanger,
         onderwerp = "Test bericht",
         inhoud = "Inhoud van het bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
@@ -1035,7 +1065,7 @@ class BerichtensessiecacheServiceTest {
     private fun testMagazijnBericht() = MagazijnBericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",
-        ontvanger = MagazijnBericht.Identificatienummer("BSN", ontvanger.waarde),
+        ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", ontvanger.waarde),
         onderwerp = "Test bericht",
         inhoud = "Inhoud van het bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),

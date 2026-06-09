@@ -8,6 +8,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import java.time.Instant
 import java.util.UUID
 
@@ -30,7 +31,10 @@ object DomainValidationFuzzer {
             Bericht(
                 berichtId = UUID.randomUUID(),
                 afzender = data.consumeString(200),
-                ontvanger = data.consumeString(200),
+                // ontvanger is een getypeerd Identificatienummer; de waarde-invarianten worden
+                // door dat type afgedwongen en elders gefuzzd. Hier vast zodat de overige
+                // Bericht-init-invarianten (afzender/onderwerp/magazijnId/...) gefuzzd worden.
+                ontvanger = Bsn("999993653"),
                 onderwerp = data.consumeString(200),
                 inhoud = data.consumeString(500),
                 publicatietijdstip = Instant.now(),
@@ -42,7 +46,6 @@ object DomainValidationFuzzer {
             return
         }
         check(bericht.afzender.isNotBlank()) { "afzender moet niet-blank zijn na constructie" }
-        check(bericht.ontvanger.isNotBlank()) { "ontvanger moet niet-blank zijn na constructie" }
         check(bericht.onderwerp.isNotBlank()) { "onderwerp moet niet-blank zijn na constructie" }
         check(bericht.magazijnId.isNotBlank()) { "magazijnId moet niet-blank zijn na constructie" }
         check(bericht.aantalBijlagen >= 0) { "aantalBijlagen moet niet-negatief zijn na constructie" }

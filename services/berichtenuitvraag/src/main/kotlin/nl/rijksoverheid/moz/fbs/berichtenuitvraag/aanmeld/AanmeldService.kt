@@ -79,7 +79,7 @@ class AanmeldService(
         val bericht = Bericht(
             berichtId = event.berichtId,
             afzender = event.afzender.waarde,
-            ontvanger = event.ontvanger.waarde,
+            ontvanger = event.ontvanger,
             onderwerp = event.onderwerp,
             inhoud = event.inhoud,
             publicatietijdstip = event.publicatietijdstip,

@@ -4,6 +4,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -83,7 +84,7 @@ class UitvraagDtoMapperTest {
         val domein = Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
-            ontvanger = "999990019",
+            ontvanger = Bsn("999990019"),
             onderwerp = "Onderwerp",
             inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
@@ -113,7 +114,7 @@ class UitvraagDtoMapperTest {
         val domein = BerichtSamenvatting(
             berichtId = id,
             afzender = "00000001003214345000",
-            ontvanger = "999990019",
+            ontvanger = Bsn("999990019"),
             onderwerp = "Onderwerp",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = "magazijn-b",

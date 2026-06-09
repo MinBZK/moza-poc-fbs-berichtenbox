@@ -18,6 +18,7 @@ import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -456,7 +457,7 @@ class ServiceCoverageTest {
         sessiecache.berichten[berichtId] = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
-            ontvanger = "999990019",
+            ontvanger = Bsn("999990019"),
             onderwerp = "X",
             inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),

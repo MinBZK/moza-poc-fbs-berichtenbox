@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -20,7 +21,7 @@ class BerichtValidatorTest {
     private val basisBericht = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001234567890000",
-        ontvanger = "999993653",
+        ontvanger = Bsn("999993653"),
         onderwerp = "Test",
         inhoud = "Inhoud",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),

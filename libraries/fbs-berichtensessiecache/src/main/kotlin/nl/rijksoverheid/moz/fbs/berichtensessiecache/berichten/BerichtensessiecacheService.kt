@@ -11,6 +11,7 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitOpenException
@@ -577,12 +578,37 @@ internal class BerichtensessiecacheService(
         // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein
         // (toBericht) en valideer defensief (BerichtLimieten). Eén invalid bericht
         // mag de batch niet killen — drop het stuk en log warn i.p.v. de hele
-        // magazijn-bevraging te laten falen.
+        // magazijn-bevraging te laten falen. Dit geldt óók voor een ongeldige
+        // ontvanger-identificatie: toBericht bouwt het gevalideerde domeintype en kan
+        // gooien (onbekend type, elfproef/lengte), dus vangen we dat hier per bericht.
         val berichten = response.berichten
-            .map { it.toBericht(magazijnId) }
-            .mapNotNull { berichtValidator.valideerOrLogAndDrop(it) }
+            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId) }
 
         return MagazijnResult.Success(magazijnId, naam, berichten)
+    }
+
+    /**
+     * Mapt één magazijn-DTO naar een gevalideerd cache-[Bericht], of null wanneer het bericht
+     * moet worden overgeslagen. Twee drop-redenen, beide log-warn-en-drop (één pathologisch
+     * bericht mag de aggregatie niet kapotmaken): een ongeldige ontvanger-identificatie
+     * (toBericht gooit) of een limietsoverschrijding ([BerichtValidator]). berichtId/magazijnId
+     * zijn geen PII; de ontvanger-waarde wordt bewust niet gelogd.
+     */
+    private fun naarValidCacheBericht(magazijnBericht: MagazijnBericht, magazijnId: String): Bericht? {
+        val bericht = try {
+            magazijnBericht.toBericht(magazijnId)
+        } catch (e: IllegalArgumentException) {
+            log.warnf(
+                "Bericht overgeslagen tijdens magazijn-aggregatie (ongeldige ontvanger): berichtId=%s magazijnId=%s reden=%s",
+                magazijnBericht.berichtId,
+                magazijnId,
+                e.message,
+            )
+
+            return null
+        }
+
+        return berichtValidator.valideerOrLogAndDrop(bericht)
     }
 
     /** Verwerkt het per-magazijn-resultaat in de tellers en mapt het naar het VOLTOOID-event. */
