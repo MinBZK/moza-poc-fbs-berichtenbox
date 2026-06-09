@@ -28,6 +28,9 @@ class RedisBerichtenCacheIntegrationTest {
     @Inject
     lateinit var redis: ReactiveRedisDataSource
 
+    @Inject
+    lateinit var objectMapper: com.fasterxml.jackson.databind.ObjectMapper
+
     // OIN gebruikt als test-ontvanger: geen elfproef-vereiste, 20-cijferig uniek per test-run.
     private val ontvangerWaarde = System.nanoTime().toString().padStart(20, '0').takeLast(20)
     private val ontvanger = Oin(ontvangerWaarde)
@@ -880,6 +883,28 @@ class RedisBerichtenCacheIntegrationTest {
         assertTrue(
             rootCause is com.fasterxml.jackson.core.JsonProcessingException,
             "Verwachtte JsonProcessingException als root-cause; was: ${rootCause.javaClass.name} (${rootCause.message})",
+        )
+    }
+
+    @Test
+    fun `getPage met ongeldige ontvanger in list-blob surfacet als CacheCorruptedException (geen 400)`() {
+        // Het ongefilterde lijst-pad deserialiseert de volledige Bericht-blob via Jackson; de
+        // ontvanger-deserializer reconstrueert + hervalideert. Een ongeldige opgeslagen waarde
+        // (elfproef) MOET als cache-corruptie (500) surfacen — net als het hash-pad — en niet als
+        // kale IllegalArgumentException die de facade als caller-fout (400) zou vertalen.
+        val geldig = berichtVoor(Bsn("999993653"), "corrupt-ontvanger-test", "magazijn-a")
+        val corrupteBlob = objectMapper.writeValueAsString(geldig).replace("BSN:999993653", "BSN:123456789")
+        redis.list(String::class.java).rpush(listKey(), corrupteBlob).await().indefinitely()
+
+        val ex = assertThrows<Throwable> {
+            berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
+        }
+
+        // Of ongewrapt (CacheCorruptedException) óf door Jackson gewrapt — in beide gevallen
+        // zit de CacheCorruptedException in de cause-keten en eindigt het als 500.
+        assertTrue(
+            generateSequence(ex as Throwable?) { it.cause }.any { it is CacheCorruptedException },
+            "Verwachtte CacheCorruptedException in de cause-keten; was: ${ex.javaClass.name} (${ex.message})",
         )
     }
 

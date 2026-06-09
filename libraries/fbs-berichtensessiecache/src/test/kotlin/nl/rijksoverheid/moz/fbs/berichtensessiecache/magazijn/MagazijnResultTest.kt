@@ -95,7 +95,7 @@ class MagazijnResultTest {
                 MagazijnBericht(
                     berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
                     afzender = "00000001234567890000",
-                    ontvanger = MagazijnBericht.Identificatienummer("BSN", "999993653"),
+                    ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", "999993653"),
                     onderwerp = "test",
                     inhoud = "inhoud",
                     publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),

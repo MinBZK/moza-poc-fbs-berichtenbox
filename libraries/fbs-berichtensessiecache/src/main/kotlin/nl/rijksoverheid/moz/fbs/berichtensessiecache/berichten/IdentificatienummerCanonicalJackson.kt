@@ -22,5 +22,14 @@ class IdentificatienummerCanonicalSerializer : JsonSerializer<Identificatienumme
 
 class IdentificatienummerCanonicalDeserializer : JsonDeserializer<Identificatienummer>() {
     override fun deserialize(p: JsonParser, ctxt: DeserializationContext): Identificatienummer =
-        Identificatienummer.fromHeader(p.valueAsString)
+        try {
+            Identificatienummer.fromHeader(p.valueAsString)
+        } catch (ex: IllegalArgumentException) {
+            // Een ongeldige/corrupte opgeslagen ontvanger (onbekend type, elfproef/lengte) is
+            // cache-corruptie, geen caller-fout. Wrap als CacheCorruptedException zodat het
+            // ongefilterde lijst-pad (getPage → readValue) hetzelfde als 500 surfacet als het
+            // hash-pad (reconstrueerOntvanger), niet als kale IllegalArgumentException (→ 400).
+            // DomainValidationException is een IllegalArgumentException, dus één catch volstaat.
+            throw CacheCorruptedException.onleesbareWaarde("ontvanger", ex)
+        }
 }

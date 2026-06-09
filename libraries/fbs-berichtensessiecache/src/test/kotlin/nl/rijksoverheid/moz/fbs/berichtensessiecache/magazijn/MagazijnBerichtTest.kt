@@ -12,7 +12,7 @@ class MagazijnBerichtTest {
     private fun magazijnBericht(status: MagazijnBericht.MagazijnBerichtStatus?) = MagazijnBericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001234567890000",
-        ontvanger = MagazijnBericht.Identificatienummer("BSN", "123456782"),
+        ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", "123456782"),
         onderwerp = "Onderwerp",
         inhoud = "Inhoud",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),

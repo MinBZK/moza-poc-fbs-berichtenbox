@@ -133,7 +133,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
     private fun Bericht.toMagazijnBericht(): MagazijnBericht = MagazijnBericht(
         berichtId = berichtId,
         afzender = afzender,
-        ontvanger = MagazijnBericht.Identificatienummer(type = ontvanger.type.name, waarde = ontvanger.waarde),
+        ontvanger = MagazijnBericht.MagazijnOntvanger(type = ontvanger.type.name, waarde = ontvanger.waarde),
         onderwerp = onderwerp,
         inhoud = inhoud,
         publicatietijdstip = publicatietijdstip,

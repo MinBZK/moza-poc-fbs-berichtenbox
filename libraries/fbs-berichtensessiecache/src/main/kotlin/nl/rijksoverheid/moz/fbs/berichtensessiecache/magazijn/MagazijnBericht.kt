@@ -2,7 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer as OntvangerId
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
@@ -13,7 +13,7 @@ import java.util.UUID
 /**
  * Vorm van een bericht zoals het magazijn het levert: `ontvanger` is een
  * getypeerd object (`{type, waarde}`) met losse string-velden. [toBericht] zet dit
- * om naar het gevalideerde domeintype [OntvangerId] van de cache-[Bericht]
+ * om naar het gevalideerde domeintype [Identificatienummer] van de cache-[Bericht]
  * (elfproef/lengte afgedwongen aan de cache-grens).
  *
  * Bestaat naast cache-[Bericht] zodat Jackson-deserialisatie matcht met de
@@ -26,7 +26,7 @@ import java.util.UUID
 internal data class MagazijnBericht(
     @param:JsonProperty("berichtId") val berichtId: UUID,
     @param:JsonProperty("afzender") val afzender: String,
-    @param:JsonProperty("ontvanger") val ontvanger: Identificatienummer,
+    @param:JsonProperty("ontvanger") val ontvanger: MagazijnOntvanger,
     @param:JsonProperty("onderwerp") val onderwerp: String,
     @param:JsonProperty("inhoud") val inhoud: String,
     @param:JsonProperty("publicatietijdstip") val publicatietijdstip: Instant,
@@ -40,7 +40,7 @@ internal data class MagazijnBericht(
         // Het magazijn levert ontvanger als {type, waarde}; aan de cache-grens bouwen we het
         // gevalideerde domeintype (elfproef/lengte afgedwongen). Ongeldige magazijn-data faalt
         // hier hard i.p.v. ongemerkt het cache-domein in te stromen.
-        ontvanger = OntvangerId.of(IdentificatienummerType.valueOf(ontvanger.type), ontvanger.waarde),
+        ontvanger = Identificatienummer.of(IdentificatienummerType.valueOf(ontvanger.type), ontvanger.waarde),
         onderwerp = onderwerp,
         inhoud = inhoud,
         publicatietijdstip = publicatietijdstip,
@@ -56,7 +56,8 @@ internal data class MagazijnBericht(
         status = status?.gelezen?.let { if (it) Leesstatus.GELEZEN else Leesstatus.ONGELEZEN },
     )
 
-    data class Identificatienummer(
+    /** Wire-vorm van de ontvanger zoals het magazijn die levert (`{type, waarde}`), losse strings. */
+    data class MagazijnOntvanger(
         @param:JsonProperty("type") val type: String,
         @param:JsonProperty("waarde") val waarde: String,
     )
