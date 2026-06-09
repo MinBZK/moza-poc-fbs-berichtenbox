@@ -59,7 +59,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                     magazijnAanleverResource -> magazijnCircuitBreaker "Schrijfoperaties via" "CDI"
                     magazijnCircuitBreaker -> magazijnOpslagService "Delegeert naar (als circuit closed)" "CDI"
                 }
-                magazijnDatastore = container "Dataopslag" "Berichtstatus, inhoud en bijlagen (0 berichtverlies)" "Naar keuze implementatie" "Magazijn Database"
+                magazijnDatastore = container "Dataopslag" "Berichtstatus, inhoud en bijlagen (0 berichtverlies)" "PostgreSQL 18 + Hibernate ORM Panache (Flyway-migraties)" "Magazijn Database"
 
                 berichtValidatie = container "Bericht Validatie Service" "Valideert berichten op technische eisen en controleert toestemming via Profiel Service" "Quarkus / Kotlin" "Magazijn Service" {
                     validatieApi = component "Validatie API" "REST endpoint voor berichtvalidatie" "JAX-RS Resource" "Magazijn Component"
@@ -86,6 +86,10 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                 autorisatieService = container "Autorisatie Service" "Toetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie" "Quarkus / Kotlin" "Magazijn Service"
 
                 magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek" "REST API (intern, mTLS)"
+
+                retentieService = container "Retentie Service" "Geplande hard-delete-job: ruimt soft-deleted berichten op na de retentietermijn en logt de verwijdering naar het LDV-logboek. Cross-pod-veilig via SELECT ... FOR UPDATE SKIP LOCKED." "Quarkus / Kotlin (Scheduler)" "Magazijn Service"
+
+                retentieService -> magazijnDatastore "Verwijdert verlopen soft-deleted berichten definitief" "SQL/JDBC"
             }
 
             group "Centraal gehoste services" {
@@ -102,12 +106,16 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         pseudoniemService = component "PseudoniemService" "Transformeert PP naar EP per magazijn via BSNk" "CDI Bean (internal)"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" "CDI Bean (internal)"
                         sessiecacheCache = component "Cache" "Afgeschermd implementatiedetail: berichten met full-text zoekindex en sliding-TTL, gedeeld over pods zodat ophalen én aanmelden dezelfde tijdelijke opslag delen" "Redis / RediSearch (internal)"
-                        sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen" "REST Client (internal)"
+                        sessiecacheBulkhead = component "MagazijnAggregatieBulkhead" "Semafoor-bulkhead die het aantal gelijktijdige blokkerende magazijn-aggregatie-calls begrenst, zodat één trage leverancier de gedeelde worker-pool niet laat vollopen en overige endpoints responsief blijven" "CDI Bean (internal)"
+                        sessiecacheCircuitBreaker = component "MagazijnCircuitBreaker" "Per-magazijn circuit breaker: opent na opeenvolgende fouten/timeouts zodat een onbereikbaar magazijn de aggregatie niet blijft ophouden" "CDI Bean (internal)"
+                        sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen (per magazijn opgebouwd via MagazijnClientFactory)" "REST Client (internal)"
                         sessiecacheFacade -> sessiecacheService "Gebruikt" "CDI"
                         sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden" "CDI"
                         sessiecacheService -> pseudoniemService "Transformeert PP naar EP per magazijn" "CDI"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache" "Redis"
-                        sessiecacheService -> sessiecacheMagazijnClient "Haalt berichten op" "CDI"
+                        sessiecacheService -> sessiecacheBulkhead "Begrenst gelijktijdigheid van aggregatie-calls" "CDI"
+                        sessiecacheService -> sessiecacheCircuitBreaker "Schermt per-magazijn calls af" "CDI"
+                        sessiecacheCircuitBreaker -> sessiecacheMagazijnClient "Roept magazijn aan (als circuit closed)" "CDI"
                     }
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
