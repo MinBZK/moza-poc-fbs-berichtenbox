@@ -3,12 +3,12 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache
 /**
  * Foutsemantiek van de synchrone [Sessiecache]-facade als gesloten hiërarchie.
  *
- * De library heeft geen HTTP-laag, dus draagt zij haar fouten niet langer via een
- * transport-type ([jakarta.ws.rs.WebApplicationException] + statuscode): consumers
- * vertalen elk geval naar hun eigen transport. Doordat de hiërarchie
- * `sealed` is, dwingt een nieuw foutscenario een bouwfout af bij de consumer (de
- * `when` dekt niet langer alle gevallen) i.p.v. een runtime-verrassing waarbij een
- * onbedoeld foutgeval verkeerd bij de gebruiker terechtkomt. Vgl. het bestaande
+ * De library draagt haar fouten als domein-type (deze gesloten hiërarchie) en niet als
+ * transport-type met statuscode: elke consumer vertaalt zelf elk geval naar zijn eigen
+ * transport. Doordat de hiërarchie `sealed` is, dwingt een nieuw foutscenario een bouwfout
+ * af bij de consumer (de `when` dekt dan niet meer alle gevallen) i.p.v. een
+ * runtime-verrassing waarbij een onbedoeld foutgeval verkeerd bij de gebruiker terechtkomt.
+ * Vgl. het bestaande
  * [nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult].
  *
  * Het streaming-ophaalpad ([Sessiecache.ophalen]) heeft een eigen, asynchroon

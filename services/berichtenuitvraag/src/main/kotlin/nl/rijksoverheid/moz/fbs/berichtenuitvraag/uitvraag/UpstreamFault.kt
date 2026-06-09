@@ -88,10 +88,9 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
  * wordt vertaald. De `when` dekt alle gevallen zónder `else`: een nieuw foutscenario in de
  * cache-library breekt hier de build i.p.v. stil verkeerd bij de gebruiker te landen.
  *
- * Bewust géén 502-mapping hier: deze functie reproduceert exact de status die de
- * facade vroeger zelf gooide. De per-consumer transportpolitiek (lees-pad → [mapUpstreamFout]
- * dat 5xx naar 502 maakt; aanmeld-pad → status-behoudend) blijft daar belegd, zodat
- * het externe gedrag ongewijzigd is.
+ * Bewust géén 502-mapping hier: deze functie levert puur de status die per cache-foutgeval
+ * hoort. De per-consumer transportpolitiek (lees-pad → [mapUpstreamFout] dat 5xx naar 502
+ * maakt; aanmeld-pad → status-behoudend) blijft daar belegd.
  */
 internal fun SessiecacheException.naApiFout(): WebApplicationException = when (this) {
     is SessiecacheException.NogNietGevuld -> WebApplicationException(message, this, Response.Status.CONFLICT)
@@ -107,8 +106,8 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
  * Lees-pad-grens voor cache-facade-calls: vertaalt een [SessiecacheException] eerst
  * naar zijn status ([naApiFout]) en past daarna dezelfde upstream-politiek
  * toe als op het magazijn ([mapUpstreamFout]) — een 5xx wordt 502, een 4xx (409 cache-
- * nog-niet-gevuld) propageert ongewijzigd. Zo blijft "502 = upstream-fout" gelden voor
- * de in-process cache zoals voorheen.
+ * nog-niet-gevuld) propageert ongewijzigd. Zo geldt "502 = upstream-fout" ook voor
+ * de in-process cache.
  *
  * De lees-facademethoden (`lijst`/`zoek`/`bericht`) produceren alleen storing-fouten en de
  * 409-gating ([SessiecacheException.NogNietGevuld]/[SessiecacheException.OphalenBezig]); de

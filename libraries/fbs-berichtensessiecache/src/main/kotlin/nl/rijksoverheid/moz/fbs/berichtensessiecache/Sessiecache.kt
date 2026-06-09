@@ -15,16 +15,9 @@ import java.util.UUID
  * de facade-impl is stateless zodat meerdere pods dezelfde sessies kunnen bedienen.
  *
  * Foutsemantiek: de synchrone lees-/schrijfmethoden gooien een [SessiecacheException]
- * (gesloten hiërarchie, geen HTTP-transport-type) zodat de consumer elk geval
- * naar zijn eigen transport vertaalt; een nieuw foutscenario dwingt daar
- * een bouwfout af. De gevallen:
- * - cache nog niet gevuld → [SessiecacheException.NogNietGevuld]
- * - ophalen bezig → [SessiecacheException.OphalenBezig]
- * - laatste ophaling mislukt → [SessiecacheException.OphalenMislukt] (client moet `ophalen` herhalen)
- * - opslag onbereikbaar / schrijf-contentie → [SessiecacheException.Onbereikbaar] (retriable)
- * - cache-data onleesbaar (corruptie) → [SessiecacheException.Onleesbaar]
- * - ongeldige invoer → [SessiecacheException.OngeldigeInvoer]
- * - geen actieve sessie (schrijfpad) → [SessiecacheException.GeenActieveSessie]
+ * (gesloten hiërarchie) zodat de consumer elk geval naar zijn eigen transport vertaalt;
+ * een nieuw foutscenario dwingt daar een bouwfout af. Zie [SessiecacheException] voor de
+ * afzonderlijke foutgevallen.
  *
  * Het streaming [ophalen] heeft een eigen asynchroon foutkanaal (`Multi`-failure) en
  * valt buiten deze hiërarchie.
