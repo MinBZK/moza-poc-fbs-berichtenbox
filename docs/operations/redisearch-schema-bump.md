@@ -132,9 +132,10 @@ Search-endpoint is weer beschikbaar. Sluit het maintenance-window.
 | `ontvangerType` (TAG) toegevoegd; zoek/filter worden type-aware (`@ontvanger:{..} @ontvangerType:{..}`) | Getypeerde ontvanger + cross-type-isolatie (#625, #648) | Eenmalig deze procedure (drop + restart). **Pre-productie:** cache mag leeglopen; geen maintenance-window nodig. |
 
 **Veiligheid tijdens de transitie (`ontvangerType`):** draait de type-aware filter op een
-nog-niet-gebumpte index (zonder `ontvangerType`-veld), dan matcht RediSearch het filter niet en
-levert de query **lege resultaten** (fail-*closed*) — geen cross-type-lek. Het effect is dus
-hooguit "tijdelijk niets vindbaar tot de bump", nooit "verkeerde berichten zichtbaar".
+nog-niet-gebumpte index (zonder `ontvangerType`-veld), dan levert RediSearch **lege resultaten
+óf een query-fout** (afhankelijk van de versie) — in beide gevallen géén cross-type-match
+(fail-*closed*). Het effect is dus hooguit "tijdelijk niets vindbaar / 5xx tot de bump", nooit
+"verkeerde berichten zichtbaar".
 
 ## Gegevensbescherming (DPIA / verwerkingsregister)
 
@@ -142,8 +143,10 @@ De sessiecache bewaart de ontvanger-identificatie (incl. **BSN/RSIN**) in klare 
 hash-veld `ontvanger` (+ `ontvangerType`) en in de lijst-JSON-blob als canonieke `"TYPE:waarde"`.
 Dit is functioneel noodzakelijk (eigenaar-checks, zoeken) en conform de logging-regels (de waarde
 mag in Redis, nooit in applicatie-logs). Borg in de DPIA / het verwerkingsregister dat hiervoor
-versleuteling at-rest én in transport actief is en dat de bewaartermijn via de sessie-TTL
-geminimaliseerd blijft. Dit is een procesactie voor het team, geen codewijziging.
+versleuteling at-rest én in transport actief is, dat de **toegang tot de Redis-instance**
+beperkt is (authenticatie/ACL + netwerksegmentatie, least-privilege) en zo nodig wordt
+geaudit, en dat de bewaartermijn via de sessie-TTL geminimaliseerd blijft (BIO 9.x / AVG
+art. 32). Dit is een procesactie voor het team, geen codewijziging.
 
 ## Schema-versie-bijhouden
 

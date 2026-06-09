@@ -257,7 +257,11 @@ internal class RedisBerichtenCache(
                     val berichten = try {
                         jsonList.map { objectMapper.readValue(it, Bericht::class.java).toSamenvatting() }
                     } catch (ex: com.fasterxml.jackson.core.JsonProcessingException) {
-                        log.errorf(ex, "Cache-bericht niet deserialiseerbaar voor key=%s (corruptie of schema-drift)", key)
+                        // Log de fout-soort, NIET de exception zelf: Jackson zet bij
+                        // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment in de
+                        // message — dat bevat BSN/RSIN + inhoud. PII mag nooit in de log; key +
+                        // exception-klasse volstaan voor diagnose (corruptie/schema-drift).
+                        log.errorf("Cache-bericht niet deserialiseerbaar voor key=%s (corruptie of schema-drift); fout=%s", key, ex.javaClass.name)
                         throw ex
                     }
                     val totalPages = ((total + pageSize - 1) / pageSize).toInt()
