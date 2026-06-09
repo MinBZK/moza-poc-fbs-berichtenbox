@@ -78,8 +78,8 @@ internal class MagazijnCircuitBreaker(
         }
     }
 
-    /** Proef afgerond zonder uitspraak over het magazijn (bv. bulkhead-OVERBELAST): geef de
-     *  half-open proef vrij zonder de fouten-teller te raken. */
+    /** Probe afgerond zonder uitspraak over het magazijn (bv. bulkhead-OVERBELAST): geef de
+     *  half-open probe vrij zonder de fouten-teller te raken. */
     fun meldOnbeslist(magazijnId: String) = breaker(magazijnId).meldOnbeslist()
 
     /**
@@ -95,10 +95,10 @@ internal class MagazijnCircuitBreaker(
  * zodat de open/half-open-overgangen deterministisch (zonder `Thread.sleep`) te pinnen zijn.
  *
  * Toestanden: CLOSED (telt opeenvolgende fouten) → OPEN ([openNanos]) bij ≥ [drempel] fouten
- * → na het venster één HALF-OPEN proef-call. Die proef heeft drie terminale uitkomsten:
+ * → na het venster één HALF-OPEN probe-call. Die probe heeft drie terminale uitkomsten:
  * succes ([meldSucces]) sluit het circuit, een availability-storing ([meldFout]) heropent het,
- * en een proef-zonder-uitspraak ([meldOnbeslist], bv. bulkhead-OVERBELAST: magazijn niet bereikt)
- * geeft de proef enkel vrij zonder de toestand te wijzigen.
+ * en een probe-zonder-uitspraak ([meldOnbeslist], bv. bulkhead-OVERBELAST: magazijn niet bereikt)
+ * geeft de probe enkel vrij zonder de toestand te wijzigen.
  *
  * De `meld*`-methoden retourneren of déze melding een dicht↔open-grensovergang veroorzaakte,
  * zodat de [MagazijnCircuitBreaker]-wrapper alleen die overgangen logt (niet elke call).
@@ -113,9 +113,9 @@ internal class Breaker(
     // 0 = gesloten; anders het nanoTime-moment waarop het open-venster afloopt.
     private var openTot = 0L
 
-    // True zodra de ene toegestane half-open proef-call is uitgegeven en nog geen
-    // uitkomst (succes/fout) heeft gemeld — verhindert een tweede gelijktijdige proef.
-    private var halfOpenProefLopend = false
+    // True zodra de ene toegestane half-open probe-call is uitgegeven en nog geen
+    // uitkomst (succes/fout) heeft gemeld — verhindert een tweede gelijktijdige probe.
+    private var halfOpenProbeLopend = false
 
     @Synchronized
     fun toegestaan(): Boolean {
@@ -123,10 +123,10 @@ internal class Breaker(
 
         if (klok() < openTot) return false
 
-        // Venster verstreken: precies één half-open proef-call toestaan.
-        if (halfOpenProefLopend) return false
+        // Venster verstreken: precies één half-open probe-call toestaan.
+        if (halfOpenProbeLopend) return false
 
-        halfOpenProefLopend = true
+        halfOpenProbeLopend = true
 
         return true
     }
@@ -138,27 +138,27 @@ internal class Breaker(
 
         opeenvolgendeFouten = 0
         openTot = 0L
-        halfOpenProefLopend = false
+        halfOpenProbeLopend = false
 
         return wasOpen
     }
 
     /**
-     * Een toegestane (half-open) proef-call is afgerond zónder uitspraak over het magazijn —
-     * geef alleen de proef vrij. De fouten-teller en het open-venster blijven ongemoeid; omdat
+     * Een toegestane (half-open) probe-call is afgerond zónder uitspraak over het magazijn —
+     * geef alleen de probe vrij. De fouten-teller en het open-venster blijven ongemoeid; omdat
      * het venster al verstreken is, wordt de eerstvolgende call meteen opnieuw als half-open
-     * proef toegelaten (geen nieuw [openNanos]-venster). Zonder deze afronding zou een proef die
+     * probe toegelaten (geen nieuw [openNanos]-venster). Zonder deze afronding zou een probe die
      * het magazijn niet bereikte (bulkhead-overbelast) het circuit permanent open laten staan.
      */
     @Synchronized
     fun meldOnbeslist() {
-        halfOpenProefLopend = false
+        halfOpenProbeLopend = false
     }
 
     /** @return `true` als deze melding het circuit zojuist opende (dicht→open-overgang). */
     @Synchronized
     fun meldFout(): Boolean {
-        halfOpenProefLopend = false
+        halfOpenProbeLopend = false
         opeenvolgendeFouten++
 
         if (opeenvolgendeFouten < drempel) return false

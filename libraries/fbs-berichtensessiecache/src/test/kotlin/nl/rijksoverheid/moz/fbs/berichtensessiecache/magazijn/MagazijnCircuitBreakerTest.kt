@@ -54,22 +54,22 @@ class MagazijnCircuitBreakerTest {
 
         nu += 1
 
-        assertTrue(b.toegestaan(), "venster verstreken → half-open proef toegestaan")
+        assertTrue(b.toegestaan(), "venster verstreken → half-open probe toegestaan")
     }
 
     @Test
-    fun `na het venster is precies één half-open proef toegestaan`() {
+    fun `na het venster is precies één half-open probe toegestaan`() {
         val b = breaker(drempel = 1, openNanos = 1_000L)
 
         b.meldFout()
         nu += 1_000
 
-        assertTrue(b.toegestaan(), "eerste proef toegestaan")
-        assertFalse(b.toegestaan(), "tweede gelijktijdige proef geweigerd")
+        assertTrue(b.toegestaan(), "eerste probe toegestaan")
+        assertFalse(b.toegestaan(), "tweede gelijktijdige probe geweigerd")
     }
 
     @Test
-    fun `half-open proef-succes sluit het circuit`() {
+    fun `half-open probe-succes sluit het circuit`() {
         val b = breaker(drempel = 1, openNanos = 1_000L)
 
         b.meldFout()
@@ -82,7 +82,7 @@ class MagazijnCircuitBreakerTest {
     }
 
     @Test
-    fun `half-open proef-fout heropent het circuit`() {
+    fun `half-open probe-fout heropent het circuit`() {
         val b = breaker(drempel = 1, openNanos = 1_000L)
 
         b.meldFout()
@@ -91,11 +91,11 @@ class MagazijnCircuitBreakerTest {
         assertTrue(b.toegestaan())
         b.meldFout()
 
-        assertFalse(b.toegestaan(), "proef faalde → opnieuw open")
+        assertFalse(b.toegestaan(), "probe faalde → opnieuw open")
 
         nu += 1_000
 
-        assertTrue(b.toegestaan(), "nieuw venster verstreken → nieuwe proef")
+        assertTrue(b.toegestaan(), "nieuw venster verstreken → nieuwe probe")
     }
 
     @Test
@@ -112,20 +112,20 @@ class MagazijnCircuitBreakerTest {
     }
 
     @Test
-    fun `meldOnbeslist geeft de half-open proef vrij zonder te sluiten of te heropenen`() {
-        // Regressie: een toegestane half-open proef die het magazijn niet bereikte (bulkhead-overbelast)
-        // mag het circuit niet permanent open laten staan. meldOnbeslist geeft de proef vrij; omdat
-        // het venster al verstreken is, mag een volgende toegestaan() opnieuw een proef geven.
+    fun `meldOnbeslist geeft de half-open probe vrij zonder te sluiten of te heropenen`() {
+        // Regressie: een toegestane half-open probe die het magazijn niet bereikte (bulkhead-overbelast)
+        // mag het circuit niet permanent open laten staan. meldOnbeslist geeft de probe vrij; omdat
+        // het venster al verstreken is, mag een volgende toegestaan() opnieuw een probe geven.
         val b = breaker(drempel = 1, openNanos = 1_000L)
 
         b.meldFout()
         nu += 1_000
 
-        assertTrue(b.toegestaan(), "eerste proef toegestaan")
+        assertTrue(b.toegestaan(), "eerste probe toegestaan")
 
         b.meldOnbeslist()
 
-        assertTrue(b.toegestaan(), "na onbeslist mag opnieuw een proef worden gestart")
+        assertTrue(b.toegestaan(), "na onbeslist mag opnieuw een probe worden gestart")
     }
 
     @Test
@@ -142,7 +142,7 @@ class MagazijnCircuitBreakerTest {
         assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.OVERFLOW)))
         assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.INTERNAL_BUG)))
 
-        // Magazijn niet bereikt → proef onbeslist vrijgeven (teller ongemoeid).
+        // Magazijn niet bereikt → probe onbeslist vrijgeven (teller ongemoeid).
         assertEquals(CircuitActie.MELD_ONBESLIST, circuitActieVoor(failure(MagazijnFault.OVERBELAST)))
         assertEquals(CircuitActie.MELD_ONBESLIST, circuitActieVoor(failure(MagazijnFault.CIRCUIT_OPEN)))
     }

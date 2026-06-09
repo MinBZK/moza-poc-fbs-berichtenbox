@@ -503,14 +503,14 @@ internal class BerichtensessiecacheService(
         )
 
         // `deferred` zodat de circuit-check PAS bij subscription loopt: een nooit-gesubscribete
-        // stream (cancel vóór subscribe in het SSE-pad) claimt zo geen half-open proef. Het bulkhead
-        // beheert zijn eigen acquire/release-paring binnen [MagazijnAggregatieBulkhead.begrensd].
+        // stream (cancel vóór subscribe in het SSE-pad) claimt zo geen half-open probe. Het bulkhead
+        // beheert zijn eigen acquire/release-pairing binnen [MagazijnAggregatieBulkhead.begrensd].
         val resultUni: Uni<MagazijnResult> = Uni.createFrom().deferred {
             if (!circuitBreaker.toegestaan(magazijnId)) {
                 // Circuit open na herhaalde storingen: call overslaan en direct een nette
                 // CIRCUIT_OPEN-failure leveren — geen thread bezet, geen wachttijd tot de
                 // timeout. De gebruiker krijgt zo snel "tijdelijk niet beschikbaar". toegestaan()
-                // gaf false, dus er is GEEN half-open proef geclaimd: geen registreerCircuit nodig.
+                // gaf false, dus er is GEEN half-open probe geclaimd: geen registreerCircuit nodig.
                 log.debugf("Magazijn %s (%s) overgeslagen: circuit open", magazijnId, naam)
 
                 Uni.createFrom().item(
@@ -520,7 +520,7 @@ internal class BerichtensessiecacheService(
                 bulkhead.begrensd(
                     afgewezen = {
                         // Bulkhead vol: call niet gestart, direct OVERBELAST. toegestaan() kan nét
-                        // een half-open proef hebben geclaimd; die MOET via registreerCircuit
+                        // een half-open probe hebben geclaimd; die MOET via registreerCircuit
                         // (→ MELD_ONBESLIST) worden vrijgegeven, anders blijft het circuit open.
                         val result = MagazijnResult.Failure(
                             magazijnId, naam, MagazijnOverbelastException(magazijnId), MagazijnFault.OVERBELAST,
@@ -617,7 +617,7 @@ internal class BerichtensessiecacheService(
 
     /**
      * Voedt de per-magazijn circuit breaker met de uitkomst van een echte aggregatie-call. Elke
-     * afgeronde call geeft een terminale actie ([circuitActieVoor]) zodat een half-open proef
+     * afgeronde call geeft een terminale actie ([circuitActieVoor]) zodat een half-open probe
      * nooit blijft hangen — ook niet bij een niet-storing-fout (4xx/malformed) of bulkhead-OVERBELAST.
      */
     private fun registreerCircuit(magazijnId: String, result: MagazijnResult) {

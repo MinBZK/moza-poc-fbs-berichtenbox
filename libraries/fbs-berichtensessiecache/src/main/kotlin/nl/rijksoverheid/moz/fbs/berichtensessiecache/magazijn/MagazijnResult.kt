@@ -85,9 +85,9 @@ internal enum class CircuitActie { MELD_SUCCES, MELD_FOUT, MELD_ONBESLIST }
 /**
  * Vertaalt een [MagazijnResult] naar de circuit-actie. Pure functie (los testbaar) zodat de
  * half-open-afronding voor élke fault-categorie gepind is: een afgeronde call MOET altijd een
- * terminale actie geven, anders blijft een half-open proef hangen en zit het circuit permanent
+ * terminale actie geven, anders blijft een half-open probe hangen en zit het circuit permanent
  * open. Een call die het magazijn niet bereikte ([magazijnBereikt] = false: OVERBELAST/CIRCUIT_OPEN)
- * geeft alleen de proef vrij zonder de fouten-teller te raken; een availability-storing opent het;
+ * geeft alleen de probe vrij zonder de fouten-teller te raken; een availability-storing opent het;
  * een functioneel antwoord (succes óf een niet-storing-fout zoals 4xx/malformed: het magazijn ís
  * bereikbaar) sluit het. Via [magazijnBereikt]/[teltAlsStoring] i.p.v. een `else`, zodat een nieuwe
  * fault niet stil in een verkeerde actie valt (bv. een niet-bereikt-fault die het circuit sluit).

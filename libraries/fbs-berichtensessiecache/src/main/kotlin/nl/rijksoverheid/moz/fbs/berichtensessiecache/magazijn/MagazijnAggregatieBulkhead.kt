@@ -20,7 +20,7 @@ import java.util.concurrent.Semaphore
  * en begrenst deze semafoor enkel hun GELIJKTIJDIGHEID ([maxConcurrent]): hooguit zoveel default-
  * pool-threads zijn met magazijn-calls bezig, de rest blijft vrij voor andere endpoints.
  *
- * De acquire/release-paring zit volledig in [begrensd] (geen losse claim/vrijgave-API): de permit
+ * De acquire/release-pairing zit volledig in [begrensd] (geen losse claim/vrijgave-API): de permit
  * wordt op subscription geclaimd en op élke terminatie (succes/fout/cancel) — óók als het opbouwen
  * van de taak-`Uni` gooit — precies één keer vrijgegeven. Zo kan een caller de permits niet
  * onbalanceren (lek of dubbele release die de semafoor stilletjes boven [maxConcurrent] oprekt).
@@ -45,8 +45,8 @@ internal class MagazijnAggregatieBulkhead(
     }
 
     // Geen fairness: de enige acquire is `tryAcquire()` (barge), die nooit blokkeert/queue't — een
-    // vol bulkhead wijst direct af. Er is dus geen wachtende call om uit te hongeren; `fair=true`
-    // zou een no-op zijn.
+    // vol bulkhead wijst direct af. Er is dus geen wachtende call die starvation kan oplopen;
+    // `fair=true` zou een no-op zijn.
     private val semaphore = Semaphore(maxConcurrent)
 
     /**
