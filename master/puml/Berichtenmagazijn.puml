@@ -1,6 +1,6 @@
 @startuml
 set separator none
-title Berichtenmagazijn (per deelnemende organisatie) - System Context
+title Berichtenmagazijn (BBO-gehost) - System Context
 
 top to bottom direction
 skinparam ranksep 60
@@ -21,7 +21,7 @@ skinparam rectangle<<BerichtenUitvraagSysteem>> {
   BorderColor #2e6295
   shadowing false
 }
-skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
+skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
   BackgroundColor #2d8a4e
   FontColor #ffffff
   BorderColor #1e6b38
@@ -29,12 +29,6 @@ skinparam rectangle<<Berichtenmagazijnperdeelnemendeorganisatie>> {
 }
 skinparam rectangle<<NotificatieService>> {
   BackgroundColor #666666
-  FontColor #ffffff
-  BorderColor #0b4884
-  shadowing false
-}
-skinparam rectangle<<OrganisatieA>> {
-  BackgroundColor #8c8c8c
   FontColor #ffffff
   BorderColor #0b4884
   shadowing false
@@ -57,7 +51,7 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
   skinparam RectangleFontColor<<group1>> #cccccc
   skinparam RectangleBorderStyle<<group1>> dashed
 
-  rectangle "==Berichtenmagazijn (per deelnemende organisatie)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus). Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO." <<Berichtenmagazijnperdeelnemendeorganisatie>> as Berichtenmagazijnperdeelnemendeorganisatie
+  rectangle "==Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." <<BerichtenmagazijnBBOgehost>> as BerichtenmagazijnBBOgehost
     rectangle "Centraal gehoste services" <<group2>> as group2 {
       skinparam RectangleBorderColor<<group2>> #cccccc
       skinparam RectangleFontColor<<group2>> #cccccc
@@ -68,15 +62,13 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 
 }
 
-rectangle "==Organisatie A\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - host zelf een berichtenmagazijn" <<OrganisatieA>> as OrganisatieA
 rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
 
-BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
-OrganisatieA .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-OrganisatieB .[#707070,thickness=2].> Berichtenmagazijnperdeelnemendeorganisatie : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-Berichtenmagazijnperdeelnemendeorganisatie .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenmagazijnBBOgehost .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenmagazijnBBOgehost .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
+OrganisatieB .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenmagazijnBBOgehost .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml
