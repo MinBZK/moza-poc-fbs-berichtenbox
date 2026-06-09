@@ -11,8 +11,8 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
  *
  * In het 1:1-model OIN↔magazijn (zie [Magazijnregister]) is het magazijn-id de
  * afzender-OIN zélf; het register-lookup bevestigt enkel dat die organisatie een
- * ingeschreven magazijn heeft. De koppeling leeft daarmee op één plek — geen
- * eigen reverse-index meer die uit de config opnieuw moet worden opgebouwd.
+ * ingeschreven magazijn heeft. Het register is de enige bron van de OIN→magazijn-
+ * koppeling; deze klasse houdt er geen eigen kopie van.
  */
 @ApplicationScoped
 class AfzenderMagazijnIndex(private val register: Magazijnregister) {

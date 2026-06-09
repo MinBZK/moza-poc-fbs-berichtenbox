@@ -211,6 +211,7 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 Bij elke codewijziging beoordelen of er tests toegevoegd of aangepast moeten worden:
 
 - **Happy én unhappy paths:** Niet alleen het successcenario, maar ook foutgevallen, edge cases en validatiefouten.
+- **Creatief denken over inputvariatie:** kies testdata die het gedrag écht uitlokt, niet de makkelijkste die slaagt. Bij collecties/lijsten áltijd minstens leeg, één én meerdere elementen dekken (een lijst van 1 verbergt "geeft eerste/enige terug" i.p.v. "discrimineert per sleutel"); gebruik `@ParameterizedTest` om die cardinaliteiten te bundelen. Denk verder aan grenswaarden, duplicaten, volgorde en null/afwezig.
 - **Unit tests** zijn de basis (JUnit 5 + REST-assured).
 - **Integratietests** (`@QuarkusTest`) wanneer de wijziging meerdere componenten raakt of externe afhankelijkheden (Redis, REST-clients) betreft.
 - **Fuzzing / property-based tests** overwegen bij input-parsing, validatielogica of security-gevoelige code.
