@@ -97,6 +97,7 @@ rectangle "Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</s
   rectangle "==Bericht Beheer Service\n<size:10>[Component: CDI Bean]</size>\n\nVerplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService
 }
 
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Beheert berichtstatus\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Beheert berichtstatus\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
@@ -110,5 +111,4 @@ BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Zoekt het magazijn-endpoint op voor bijlage-routering\n<color:#707070><size:8>[CDI (in-process)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Zoekt het magazijn-endpoint op voor write-routering\n<color:#707070><size:8>[CDI (in-process)]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI : "<color:#707070>Berichtenbox API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 @enduml

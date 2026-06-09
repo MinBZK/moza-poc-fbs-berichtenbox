@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Deployment-units: logisch vs. fysiek | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="./" class="is-active">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Deployment-units: logisch vs. fysiek</h1>
+<p>Dit model beschrijft de <strong>doel-architectuur</strong>. De C4-containers zijn een <em>logische</em> decompositie: ze drukken verantwoordelijkheden en koppelvlakken uit, niet de fysieke deploybare eenheden. In de huidige implementatie (PoC) zijn meerdere logische containers samengevoegd tot één deploybaar proces.</p>
+<h2>Fysieke deploybare eenheden</h2>
+<p>De implementatie kent <strong>twee</strong> deploybare Quarkus-services plus <strong>drie</strong> in-process gedeelde libraries die binnen die services meedraaien (geen eigen proces, geen netwerk-hop):</p>
+<table>
+ <thead>
+  <tr>
+   <th>Deploybare eenheid</th>
+   <th>Type</th>
+   <th>Bevat (logische containers / modules)</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><code>services/berichtenmagazijn</code></td>
+   <td>Quarkus-service</td>
+   <td>Berichtenmagazijn Aanlever API, Ophaal- en Beheer API, Bericht Validatie Service, Autorisatie Service, Publicatie Stream, Retentie Service, Dataopslag (PostgreSQL via Dev Services/compose)</td>
+  </tr>
+  <tr>
+   <td><code>services/berichtenuitvraag</code></td>
+   <td>Quarkus-service</td>
+   <td>Berichten Uitvraag Service, Aanmeld Service, en — in-process — Berichtensessiecache en Magazijnregister</td>
+  </tr>
+  <tr>
+   <td><code>libraries/fbs-berichtensessiecache</code></td>
+   <td>in-process library</td>
+   <td>Berichtensessiecache-container (Sessiecache-facade); draait binnen berichtenuitvraag</td>
+  </tr>
+  <tr>
+   <td><code>libraries/fbs-magazijnregister</code></td>
+   <td>in-process library</td>
+   <td>Magazijnregister-container; draait binnen berichtenuitvraag</td>
+  </tr>
+  <tr>
+   <td><code>libraries/fbs-common</code></td>
+   <td>in-process library</td>
+   <td>Gedeelde JAX-RS filters, exception mappers, identificatienummers, Profiel-client</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Waarom logisch ≠ fysiek</h2>
+<ul>
+ <li><strong>Berichtensessiecache</strong> is in het model een container met een eigen <code>Sessiecache</code>-facade, maar is bewust <strong>geen losse service</strong>: het is een Kotlin-<code>internal</code> library die in-process in berichtenuitvraag draait. De facade is het enige publieke koppelvlak; de interne werking (Redis-cache, magazijn-aggregatie) is compile-afgedwongen onzichtbaar. Relaties die in het model als CDI lopen (<code>CDI (in-process facade)</code>) zijn dus in-process method-calls, geen REST.</li>
+ <li><strong>Bericht Validatie Service</strong> en <strong>Autorisatie Service</strong> zijn logisch losse containers met een intern REST-koppelvlak (<code>REST API (intern, mTLS)</code>), maar in de PoC zijn het in-process CDI-beans binnen berichtenmagazijn. Zie <a href="../03-poc-afwijkingen.md">PoC-afwijkingen</a>.</li>
+</ul>
+<p>De logische container-grenzen blijven in het model staan omdat ze de <strong>doel</strong>-decompositie beschrijven (en de koppelvlakken waarlangs later opgesplitst kan worden). De fysieke groepering hierboven beschrijft wat vandaag daadwerkelijk als één proces deployt.</p></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

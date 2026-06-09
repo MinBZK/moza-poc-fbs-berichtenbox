@@ -80,6 +80,13 @@ skinparam rectangle<<BerichtenmagazijnBBOgehost.PublicatieStream>> {
   roundCorner 20
   shadowing false
 }
+skinparam rectangle<<BerichtenmagazijnBBOgehost.RetentieService>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  roundCorner 20
+  shadowing false
+}
 skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
   BorderColor #1e6b38
   FontColor #1e6b38
@@ -94,10 +101,11 @@ rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCe
 rectangle "Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>" <<BerichtenmagazijnBBOgehost>> {
   rectangle "==Berichtenmagazijn Ophaal- en Beheer API\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nREST API voor het ophalen van berichten en bijlagen, en het beheren van berichtstatus per gebruiker" <<BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI>> as BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI
   rectangle "==Berichtenmagazijn Aanlever API\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nREST API voor het aanleveren van berichten door organisaties" <<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI>> as BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI
-  database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtstatus, inhoud en bijlagen (0 berichtverlies)" <<BerichtenmagazijnBBOgehost.Dataopslag>> as BerichtenmagazijnBBOgehost.Dataopslag
+  database "==Dataopslag\n<size:10>[Container: PostgreSQL 18 + Hibernate ORM Panache (Flyway-migraties)]</size>\n\nBerichtstatus, inhoud en bijlagen (0 berichtverlies)" <<BerichtenmagazijnBBOgehost.Dataopslag>> as BerichtenmagazijnBBOgehost.Dataopslag
   rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Profiel Service" <<BerichtenmagazijnBBOgehost.BerichtValidatieService>> as BerichtenmagazijnBBOgehost.BerichtValidatieService
   rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<BerichtenmagazijnBBOgehost.PublicatieStream>> as BerichtenmagazijnBBOgehost.PublicatieStream
   rectangle "==Autorisatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nToetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie" <<BerichtenmagazijnBBOgehost.AutorisatieService>> as BerichtenmagazijnBBOgehost.AutorisatieService
+  rectangle "==Retentie Service\n<size:10>[Container: Quarkus / Kotlin (Scheduler)]</size>\n\nGeplande hard-delete-job: ruimt soft-deleted berichten op na de retentietermijn en logt de verwijdering naar het LDV-logboek. Cross-pod-veilig via SELECT ... FOR UPDATE SKIP LOCKED." <<BerichtenmagazijnBBOgehost.RetentieService>> as BerichtenmagazijnBBOgehost.RetentieService
 }
 
 BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
@@ -111,4 +119,5 @@ BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].>
 BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
 BerichtenmagazijnBBOgehost.PublicatieStream .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.Dataopslag : "<color:#707070>Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding\n<color:#707070><size:8>[SQL/JDBC]</size>"
 BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.AutorisatieService : "<color:#707070>Toetst autorisatie per verzoek\n<color:#707070><size:8>[REST API (intern, mTLS)]</size>"
+BerichtenmagazijnBBOgehost.RetentieService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.Dataopslag : "<color:#707070>Verwijdert verlopen soft-deleted berichten definitief\n<color:#707070><size:8>[SQL/JDBC]</size>"
 @enduml

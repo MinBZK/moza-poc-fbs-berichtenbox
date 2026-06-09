@@ -59,7 +59,7 @@ skinparam rectangle<<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI>> {
   shadowing false
 }
 
-database "==Dataopslag\n<size:10>[Container: Naar keuze implementatie]</size>\n\nBerichtstatus, inhoud en bijlagen (0 berichtverlies)" <<BerichtenmagazijnBBOgehost.Dataopslag>> as BerichtenmagazijnBBOgehost.Dataopslag
+database "==Dataopslag\n<size:10>[Container: PostgreSQL 18 + Hibernate ORM Panache (Flyway-migraties)]</size>\n\nBerichtstatus, inhoud en bijlagen (0 berichtverlies)" <<BerichtenmagazijnBBOgehost.Dataopslag>> as BerichtenmagazijnBBOgehost.Dataopslag
 rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Profiel Service" <<BerichtenmagazijnBBOgehost.BerichtValidatieService>> as BerichtenmagazijnBBOgehost.BerichtValidatieService
 rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<BerichtenmagazijnBBOgehost.PublicatieStream>> as BerichtenmagazijnBBOgehost.PublicatieStream
 
