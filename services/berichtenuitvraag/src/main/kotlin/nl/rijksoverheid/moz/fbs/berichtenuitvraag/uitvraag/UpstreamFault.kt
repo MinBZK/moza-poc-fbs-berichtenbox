@@ -63,9 +63,9 @@ internal fun upstreamBadGateway(detail: String, cause: Throwable? = null): WebAp
 
 /**
  * Of een cache-fout een upstream-storing is (de cache zelf hapert) dan wel een client-/
- * contract-aanwijzing die status-behoudend hoort te propageren. Exhaustief náást [naApiFout],
- * waarmee de cache→transport-kennis op één plek belegd blijft; een nieuw [SessiecacheException]-
- * geval breekt ook hier de build. Het schrijfpad gebruikt dit om te beslissen of het na een
+ * contract-aanwijzing die status-behoudend hoort te propageren. Dekt alle gevallen af, náást
+ * [naApiFout], waarmee de cache→transport-kennis op één plek belegd blijft; een nieuw
+ * [SessiecacheException]-geval breekt ook hier de build. Het schrijfpad gebruikt dit om te beslissen of het na een
  * geslaagde magazijn-write de cache compenseert (invalidate + 502) of de status doorlaat —
  * zonder daarvoor een wegwerp-[WebApplicationException] te bouwen of statuscode-ranges te
  * reverse-engineeren.
@@ -85,7 +85,7 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
 
 /**
  * Enige plek waar de gesloten [SessiecacheException]-hiërarchie naar een HTTP-status
- * wordt vertaald. De `when` is exhaustief zónder `else`: een nieuw foutscenario in de
+ * wordt vertaald. De `when` dekt alle gevallen zónder `else`: een nieuw foutscenario in de
  * cache-library breekt hier de build i.p.v. stil verkeerd bij de gebruiker te landen.
  *
  * Bewust géén 502-mapping hier: deze functie reproduceert exact de status die de
@@ -105,7 +105,7 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
 
 /**
  * Lees-pad-grens voor cache-facade-calls: vertaalt een [SessiecacheException] eerst
- * exhaustief naar zijn status ([naApiFout]) en past daarna dezelfde upstream-politiek
+ * naar zijn status ([naApiFout]) en past daarna dezelfde upstream-politiek
  * toe als op het magazijn ([mapUpstreamFout]) — een 5xx wordt 502, een 4xx (409 cache-
  * nog-niet-gevuld) propageert ongewijzigd. Zo blijft "502 = upstream-fout" gelden voor
  * de in-process cache zoals voorheen.

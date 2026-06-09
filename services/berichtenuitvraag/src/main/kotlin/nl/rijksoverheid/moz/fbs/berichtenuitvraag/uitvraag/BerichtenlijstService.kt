@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets
  * levert domein-types; deze service mapt naar de uitvraag-API-modellen en bouwt
  * de HAL-paginering-links met de uitvraag-parameternamen (`pagina`/`paginaGrootte`).
  *
- * [leesUitCache] blijft de fout-grens: een [SessiecacheException] wordt exhaustief
+ * [leesUitCache] blijft de fout-grens: een [SessiecacheException] wordt
  * naar zijn status vertaald en daarna geldt dezelfde upstream-politiek als op het
  * magazijn — een storing (Redis-storing, mislukte ophaling, cache-corruptie) wordt
  * 502 (de cache is voor de portaal-client een upstream-bron, of die nu over REST of

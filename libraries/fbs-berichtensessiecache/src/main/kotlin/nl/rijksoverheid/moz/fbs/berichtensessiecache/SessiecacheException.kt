@@ -5,9 +5,9 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache
  *
  * De library heeft geen HTTP-laag, dus draagt zij haar fouten niet langer via een
  * transport-type ([jakarta.ws.rs.WebApplicationException] + statuscode): consumers
- * vertalen elk geval exhaustief naar hun eigen transport. Doordat de hiërarchie
+ * vertalen elk geval naar hun eigen transport. Doordat de hiërarchie
  * `sealed` is, dwingt een nieuw foutscenario een bouwfout af bij de consumer (de
- * `when` is niet langer exhaustief) i.p.v. een runtime-verrassing waarbij een
+ * `when` dekt niet langer alle gevallen) i.p.v. een runtime-verrassing waarbij een
  * onbedoeld foutgeval verkeerd bij de gebruiker terechtkomt. Vgl. het bestaande
  * [nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult].
  *

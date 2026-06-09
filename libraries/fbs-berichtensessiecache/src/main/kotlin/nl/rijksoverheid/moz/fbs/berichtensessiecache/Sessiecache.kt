@@ -16,7 +16,7 @@ import java.util.UUID
  *
  * Foutsemantiek: de synchrone lees-/schrijfmethoden gooien een [SessiecacheException]
  * (gesloten hiërarchie, geen HTTP-transport-type) zodat de consumer elk geval
- * exhaustief naar zijn eigen transport vertaalt; een nieuw foutscenario dwingt daar
+ * naar zijn eigen transport vertaalt; een nieuw foutscenario dwingt daar
  * een bouwfout af. De gevallen:
  * - cache nog niet gevuld → [SessiecacheException.NogNietGevuld]
  * - ophalen bezig → [SessiecacheException.OphalenBezig]

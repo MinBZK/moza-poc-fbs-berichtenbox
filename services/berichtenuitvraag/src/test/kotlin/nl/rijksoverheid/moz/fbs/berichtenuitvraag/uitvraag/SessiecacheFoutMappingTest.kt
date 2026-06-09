@@ -16,7 +16,7 @@ import org.junit.jupiter.api.assertThrows
  * Pint dat [naApiFout] exact de status reproduceert die de facade vroeger zelf gooide
  * (gedragspariteit), en dat het lees-pad daar bovenop dezelfde upstream-politiek
  * toepast als op het magazijn: storing → 502, client-aanwijzing (409) propageert.
- * De `when` in [naApiFout] is exhaustief zonder `else`, dus een nieuw foutscenario in
+ * De `when` in [naApiFout] dekt alle gevallen zonder `else`, dus een nieuw foutscenario in
  * de cache-library breekt hier de build i.p.v. stil verkeerd bij de gebruiker te landen.
  */
 class SessiecacheFoutMappingTest {
