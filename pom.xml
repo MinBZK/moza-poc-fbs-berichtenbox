@@ -31,6 +31,7 @@
              zelf, java-compile draait alleen op gegenereerde sources). Zonder beheerde versie
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+        <maven-antrun-plugin.version>3.1.0</maven-antrun-plugin.version>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
         <jandex-maven-plugin.version>3.5.3</jandex-maven-plugin.version>
@@ -148,11 +149,155 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>${maven-compiler-plugin.version}</version>
                 </plugin>
+
+                <!-- API-generatie uit de OpenAPI-spec. Identiek voor elke service op
+                     spec-pad en doelpakket na; die twee komen uit de module-properties
+                     `api.spec.file` en `api.base.package`. Een service activeert dit blok
+                     door de plugin (coördinaten) te declareren; libraries zonder spec doen
+                     dat niet en blijven onaangeroerd. Een service die maar een deel van de
+                     tags wil genereren (`apisToGenerate`) voegt dat toe in de eigen
+                     execution `generate` — dat merge't in deze configuratie. -->
                 <plugin>
                     <groupId>org.openapitools</groupId>
                     <artifactId>openapi-generator-maven-plugin</artifactId>
                     <version>${openapi-generator.version}</version>
+                    <executions>
+                        <execution>
+                            <id>generate</id>
+                            <goals>
+                                <goal>generate</goal>
+                            </goals>
+                            <configuration>
+                                <inputSpec>${api.spec.file}</inputSpec>
+                                <generatorName>jaxrs-spec</generatorName>
+                                <output>${project.build.directory}/generated-sources/openapi</output>
+                                <apiPackage>${api.base.package}.api</apiPackage>
+                                <modelPackage>${api.base.package}.api.model</modelPackage>
+                                <configOptions>
+                                    <interfaceOnly>true</interfaceOnly>
+                                    <returnResponse>false</returnResponse>
+                                    <useJakartaEe>true</useJakartaEe>
+                                    <useSwaggerAnnotations>false</useSwaggerAnnotations>
+                                    <useTags>true</useTags>
+                                    <dateLibrary>java8</dateLibrary>
+                                    <!-- Zonder deze flag wrapt de generator `nullable: true`-velden in
+                                         JsonNullable<T> uit org.openapitools.jackson.nullable; we hebben
+                                         die dependency niet nodig voor onze use-case (optioneel veld met
+                                         null-waarde) en willen gewoon T? krijgen. -->
+                                    <openApiNullable>false</openApiNullable>
+                                </configOptions>
+                                <typeMappings>
+                                    <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
+                                    <typeMapping>File=byte[]</typeMapping>
+                                </typeMappings>
+                                <generateSupportingFiles>false</generateSupportingFiles>
+                                <generateApiTests>false</generateApiTests>
+                                <generateModelTests>false</generateModelTests>
+                            </configuration>
+                        </execution>
+                    </executions>
                 </plugin>
+
+                <!--
+                  Genereert een `ApiInfo.java`-klasse met compile-time constanten uit de
+                  OpenAPI-spec (BASE_PATH, API_VERSION, SPEC_VERSION). Zo komt de
+                  API-versie op één plek — de spec — en kan de resource z'n @Path relatief
+                  samenstellen, en kan de service de string waar nodig gebruiken zonder
+                  pad-parsing op runtime. Ant-ingebouwde filters extraheren de waardes;
+                  geen extra plugin-dependencies zoals ant-contrib nodig.
+
+                  Per service identiek op spec-pad en doelpakket na; die komen uit de
+                  module-properties `api.spec.file` en `api.base.package`. Een service
+                  activeert dit blok door de plugin (coördinaten) te declareren.
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-antrun-plugin</artifactId>
+                    <version>${maven-antrun-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>generate-api-info</id>
+                            <phase>generate-sources</phase>
+                            <goals><goal>run</goal></goals>
+                            <configuration>
+                                <target>
+                                    <!-- Doelmap = doelpakket in slash-vorm onder de gegenereerde bron-root. -->
+                                    <loadresource property="api.package.path">
+                                        <string value="${api.base.package}"/>
+                                        <filterchain>
+                                            <tokenfilter>
+                                                <replaceregex pattern="\." replace="/" flags="g"/>
+                                            </tokenfilter>
+                                        </filterchain>
+                                    </loadresource>
+
+                                    <property name="apiinfo.dir" value="${project.build.directory}/generated-sources/openapi/src/gen/java/${api.package.path}"/>
+                                    <mkdir dir="${apiinfo.dir}"/>
+
+                                    <!-- info.version (ingesprongen `version:`-regel in het info-blok). -->
+                                    <loadfile srcFile="${api.spec.file}" property="api.spec.version">
+                                        <filterchain>
+                                            <linecontainsregexp>
+                                                <regexp pattern="^\s{2,}version:\s*\S+"/>
+                                            </linecontainsregexp>
+                                            <headfilter lines="1"/>
+                                            <tokenfilter>
+                                                <replaceregex pattern='^\s*version:\s*&quot;?([^&quot;\s]+)&quot;?\s*$' replace="\1"/>
+                                            </tokenfilter>
+                                            <striplinebreaks/>
+                                        </filterchain>
+                                    </loadfile>
+
+                                    <!-- servers[0].url — eerste `- url:`-regel onder `servers:`. -->
+                                    <loadfile srcFile="${api.spec.file}" property="api.base.path">
+                                        <filterchain>
+                                            <linecontainsregexp>
+                                                <regexp pattern="^\s*-\s+url:\s*\S+"/>
+                                            </linecontainsregexp>
+                                            <headfilter lines="1"/>
+                                            <tokenfilter>
+                                                <replaceregex pattern='^\s*-\s+url:\s*&quot;?([^&quot;\s]+)&quot;?\s*$' replace="\1"/>
+                                            </tokenfilter>
+                                            <striplinebreaks/>
+                                        </filterchain>
+                                    </loadfile>
+
+                                    <!-- API-majorversie (v1, v2, ...) uit de base-path. -->
+                                    <loadresource property="api.version">
+                                        <string value="${api.base.path}"/>
+                                        <filterchain>
+                                            <tokenfilter>
+                                                <replaceregex pattern=".*/(v\d+).*" replace="\1"/>
+                                            </tokenfilter>
+                                        </filterchain>
+                                    </loadresource>
+
+                                    <echo file="${apiinfo.dir}/ApiInfo.java">package ${api.base.package};
+
+/**
+ * Compile-time constanten afgeleid uit de OpenAPI-spec van deze service. Automatisch
+ * gegenereerd door maven-antrun-plugin in fase generate-sources; niet handmatig
+ * bewerken.
+ */
+public final class ApiInfo {
+    /** Volledige base-path uit servers[0].url, bv. "/api/v1". */
+    public static final String BASE_PATH = "${api.base.path}";
+
+    /** API-majorversie, bv. "v1". */
+    public static final String API_VERSION = "${api.version}";
+
+    /** Spec-versie uit info.version, bv. "0.1.0". */
+    public static final String SPEC_VERSION = "${api.spec.version}";
+
+    private ApiInfo() {}
+}
+</echo>
+                                </target>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
                 <plugin>
                     <groupId>io.smallrye</groupId>
                     <artifactId>jandex-maven-plugin</artifactId>
