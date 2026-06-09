@@ -11,10 +11,14 @@ on:
 permissions: read-all
 
 jobs:
-  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De analyze-job is
-  # hieraan gegate, maar de workflow blijft triggeren zodat de required status check
-  # `Analyze (kotlin)` ook bij een docs-only PR gerapporteerd wordt: een via `if`
-  # overgeslagen job telt als 'skipped' = succes voor branch protection.
+  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De analyze-stappen
+  # zijn hieraan gegate. LET OP: de gating zit op STAP-niveau, niet op job-niveau. Analyze
+  # is een matrix-job (`language`), dus de required status check heet `Analyze (kotlin)`.
+  # Bij een job-niveau `if` dat false is, expandeert de matrix niet en rapporteert GitHub
+  # de check onder de basisnaam `Analyze` — de required context `Analyze (kotlin)` ontbreekt
+  # dan en blokkeert de PR eeuwig. Door de matrix te laten expanden en alleen de stappen te
+  # skippen, rapporteert de job als `Analyze (kotlin)` met conclusie success (alle stappen
+  # overgeslagen) bij een docs-only PR.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -44,7 +48,6 @@ jobs:
 
   analyze:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
     name: Analyze
     runs-on: ubuntu-latest
     permissions:
@@ -59,14 +62,18 @@ jobs:
         # Bijvoorbeeld / For example: ['java', 'javascript', 'python']
     steps:
       - name: Checkout repository
+        if: needs.changes.outputs.run == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Initialize CodeQL
+        if: needs.changes.outputs.run == 'true'
         uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           languages: ${{ matrix.language }}
       - name: Autobuild
+        if: needs.changes.outputs.run == 'true'
         uses: github/codeql-action/autobuild@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
       - name: Perform CodeQL Analysis
+        if: needs.changes.outputs.run == 'true'
         uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           category: "/language:${{ matrix.language }}"
