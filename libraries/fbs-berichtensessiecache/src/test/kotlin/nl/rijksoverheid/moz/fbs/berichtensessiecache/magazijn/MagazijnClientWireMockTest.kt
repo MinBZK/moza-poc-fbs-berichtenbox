@@ -45,11 +45,17 @@ class MagazijnClientWireMockTest {
     @Inject
     internal lateinit var clientFactory: MagazijnClientFactory
 
+    // Singleton circuit breaker leeft over tests heen; reset zodat fout-injecterende tests
+    // het circuit niet voor een volgende test open laten staan.
+    @Inject
+    internal lateinit var circuitBreaker: MagazijnCircuitBreaker
+
     @BeforeEach
     fun setUp() {
         WireMockMagazijnResource.serverA!!.resetAll()
         WireMockMagazijnResource.serverB!!.resetAll()
         cache.clear()
+        circuitBreaker.herstelAlles()
     }
 
     @Test

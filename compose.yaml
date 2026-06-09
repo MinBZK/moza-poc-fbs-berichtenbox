@@ -40,17 +40,14 @@ services:
       - ./wiremock/profiel-service/mappings:/home/wiremock/mappings
     command: ["--verbose"]
 
-  # Aanmeld Service stub voor Publicatie Stream. Ontvangt CloudEvents
-  # `nl.rijksoverheid.fbs.bericht.gepubliceerd` op POST /events.
-  #
-  # Gegated achter het `publicatie-stubs` profile zodat ze niet 24/7 draaien op
-  # dev-machines (geheugen + watt-besparing). Aanzetten met:
-  #     docker compose --profile publicatie-stubs up -d
-  # Tests gebruiken een embedded JDK HttpServer en hebben deze containers niet
-  # nodig.
+  # Aanmeld- en Notificatie-stubs voor de Publicatie Stream. Ontvangen CloudEvents
+  # `nl.rijksoverheid.fbs.bericht.gepubliceerd` op POST /events. Draaien standaard
+  # mee: de outbox-poller heeft deze downstreams nodig om claims af te leveren, dus
+  # `docker compose up -d` test lokaal de volledige keten. Zonder deze stubs blijft
+  # de poller claims herproberen en stapelen de WARN/ERROR-logs zich op.
+  # Tests gebruiken een embedded JDK HttpServer en hebben deze containers niet nodig.
   aanmeld-stub:
     image: wiremock/wiremock:3.13.2
-    profiles: ["publicatie-stubs"]
     ports:
       - "8083:8080"
     volumes:
@@ -59,7 +56,6 @@ services:
 
   notificatie-stub:
     image: wiremock/wiremock:3.13.2
-    profiles: ["publicatie-stubs"]
     ports:
       - "8084:8080"
     volumes:

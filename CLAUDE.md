@@ -9,6 +9,11 @@ Monorepo met Maven, Quarkus en Kotlin. Architectuurdocumentatie in Structurizr D
 
 Communicatie in het Nederlands. Code en technische termen in het Engels waar gangbaar.
 
+Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
+- **Domeinbegrippen blijven Nederlands:** bericht, magazijn, ontvanger, afzender, ophalen, aanleveren, sessie. Ook in code (`meldFout`, `toegestaan`, `drempel`).
+- **Vaste technische idiomen blijven Engels en worden NIET vertaald.** Patroon-, concurrency- en infrastructuurjargon hebben een herkenbare Engelse standaardvorm; vertalen maakt ze juist minder leesbaar. Voorbeelden: circuit breaker, bulkhead, (half-open) probe, acquire/release pairing, starvation, retry, backoff, timeout, permit, semaphore. Dus `probe`/`pairing`/`starvation`, niet `proef`/`paring`/`uithongeren`.
+- **Twijfel?** Is de Engelse vorm de term die in de docs/libraries van dát patroon staat? Dan niet vertalen.
+
 ## Technische stack
 
 - **Build:** Maven monorepo (parent POM + modules), Maven wrapper (`./mvnw`)
