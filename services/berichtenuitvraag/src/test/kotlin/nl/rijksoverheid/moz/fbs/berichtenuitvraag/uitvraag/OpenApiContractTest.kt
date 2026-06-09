@@ -15,7 +15,6 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
-import jakarta.ws.rs.ForbiddenException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -217,11 +216,13 @@ class OpenApiContractTest {
     }
 
     @Test
-    fun `GET bericht by id - cache-403 levert valide Problem-403`() {
-        // De facade dwingt de ontvanger-match af; een 403 propageert status-behoudend
-        // (4xx-allowlist) en moet als gedeclareerde Problem-403 valideren tegen de spec.
+    fun `GET bericht by id - cache nog niet gevuld levert valide Problem-409`() {
+        // De gereed-status-gating geldt óók op het detail-pad: NogNietGevuld propageert
+        // status-behoudend als 409 (client-aanwijzing: eerst _ophalen) en moet als
+        // gedeclareerde Problem-409 valideren tegen de spec.
         val id = UUID.randomUUID()
-        sessiecache.berichtFout = ForbiddenException("ontvanger-match geweigerd")
+        sessiecache.berichtFout =
+            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
 
         given()
             .filter(validator)
@@ -229,13 +230,13 @@ class OpenApiContractTest {
             .`when`()
             .get("/api/v1/berichten/$id")
             .then()
-            .statusCode(403)
+            .statusCode(409)
             .contentType("application/problem+json")
     }
 
     @Test
     fun `GET berichten - cache nog niet gevuld levert valide Problem-409`() {
-        sessiecache.lijstFout = jakarta.ws.rs.WebApplicationException("Berichten zijn nog niet opgehaald.", 409)
+        sessiecache.lijstFout = nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
 
         given()
             .filter(validator)

@@ -3,8 +3,6 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.WebApplicationException
-import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
@@ -23,8 +21,8 @@ import java.util.UUID
 /**
  * Synchrone facade over de reactieve [BerichtensessiecacheService]: blokkeert
  * begrensd ([timeout]) op de Mutiny-pijplijn en vertaalt infrastructuurfouten
- * naar de statuscodes uit het [Sessiecache]-contract. Houdt zelf géén staat —
- * alle sessiestaat (cache, aggregatie-status, lock) leeft in Redis.
+ * naar de gesloten [SessiecacheException]-hiërarchie uit het [Sessiecache]-contract.
+ * Houdt zelf géén staat — alle sessiestaat (cache, aggregatie-status, lock) leeft in Redis.
  */
 @ApplicationScoped
 internal class BlockingSessiecache(
@@ -92,9 +90,8 @@ internal class BlockingSessiecache(
         // Een lege patch zou als no-op-succes ogen; expliciet afwijzen zodat de
         // caller (en diens client) weet dat er niets gewijzigd is.
         if (status == null && map == null) {
-            throw WebApplicationException(
+            throw SessiecacheException.OngeldigeInvoer(
                 "Minimaal één van 'status' of 'map' is vereist (geen geldige waarde meegegeven).",
-                Response.Status.BAD_REQUEST,
             )
         }
 
@@ -113,18 +110,16 @@ internal class BlockingSessiecache(
         // Vergelijk op .waarde: Bericht.ontvanger slaat de raw identificatiewaarde op
         // (geen type-prefix), zodat JSON-serialisatie en upstream-contracten ongewijzigd blijven.
         if (bericht.ontvanger != ontvanger.waarde) {
-            throw WebApplicationException(
+            throw SessiecacheException.OngeldigeInvoer(
                 "Ontvanger in bericht komt niet overeen met de opgegeven ontvanger.",
-                Response.Status.BAD_REQUEST,
             )
         }
 
         // Aanmeld-pad mag alleen bestaande, actieve sessies bijwerken: als er geen
         // aggregatie heeft plaatsgevonden voor deze ontvanger, hoort er ook geen cache te zijn.
         awaitOrServiceUnavailable { service.getAggregationStatus(ontvanger) }
-            ?: throw WebApplicationException(
+            ?: throw SessiecacheException.GeenActieveSessie(
                 "Geen actieve sessie voor deze ontvanger; bericht niet toegevoegd.",
-                Response.Status.NOT_FOUND,
             )
 
         return try {
@@ -132,31 +127,30 @@ internal class BlockingSessiecache(
         } catch (e: IllegalArgumentException) {
             // Defensieve limiet overschreden (BerichtValidator): invoerfout van de
             // aanleverende caller, geen infrastructuurfout.
-            throw WebApplicationException(e.message, e, Response.Status.BAD_REQUEST)
+            throw SessiecacheException.OngeldigeInvoer(e.message ?: "Ongeldig bericht.", e)
         }
     }
 
     /**
      * Lees- en zoekpaden vereisen een afgeronde ophaling: zonder status is de cache
      * (mogelijk) leeg of verouderd en zou een lege lijst onterecht "geen berichten"
-     * suggereren. De caller krijgt 409 om eerst [Sessiecache.ophalen] aan te roepen.
+     * suggereren. De caller krijgt [SessiecacheException.NogNietGevuld] (nog niet gestart)
+     * resp. [SessiecacheException.OphalenBezig] (loopt nog) en moet eerst [Sessiecache.ophalen]
+     * aanroepen; een mislukte ophaling levert [SessiecacheException.OphalenMislukt].
      */
     private fun requireGereedStatus(ontvanger: Identificatienummer): AggregationStatus {
         val aggregation = awaitOrServiceUnavailable { service.getAggregationStatus(ontvanger) }
-            ?: throw WebApplicationException(
+            ?: throw SessiecacheException.NogNietGevuld(
                 "Berichten zijn nog niet opgehaald. Start eerst het ophalen van berichten.",
-                Response.Status.CONFLICT,
             )
 
         return when (aggregation.status) {
             OphalenStatus.GEREED -> aggregation
-            OphalenStatus.BEZIG -> throw WebApplicationException(
+            OphalenStatus.BEZIG -> throw SessiecacheException.OphalenBezig(
                 "Berichten worden momenteel opgehaald. Wacht tot het ophalen is afgerond.",
-                Response.Status.CONFLICT,
             )
-            OphalenStatus.FOUT -> throw WebApplicationException(
+            OphalenStatus.FOUT -> throw SessiecacheException.OphalenMislukt(
                 "Het ophalen van berichten is mislukt. Start het ophalen van berichten opnieuw.",
-                Response.Status.INTERNAL_SERVER_ERROR,
             )
         }
     }
@@ -178,34 +172,33 @@ internal class BlockingSessiecache(
 
     private fun vertaalCacheFout(e: Throwable): Exception = when (e) {
         // Cache-operatie hing langer dan de facade-await-timeout — log warn met cause zodat
-        // operations niet alleen het 503-pad ziet maar ook welke await het was. Silent discard
-        // verbergt prestatie-regressies in Redis.
+        // operations niet alleen het onbereikbaar-pad ziet maar ook welke await het was. Silent
+        // discard verbergt prestatie-regressies in Redis.
         is java.util.concurrent.TimeoutException -> {
-            log.warnf(e, "Cache-operatie overschreed timeout van %s; 503 naar caller", timeout)
-            WebApplicationException("Cache niet bereikbaar. Probeer het later opnieuw", 503)
+            log.warnf(e, "Cache-operatie overschreed timeout van %s; onbereikbaar naar caller", timeout)
+            SessiecacheException.Onbereikbaar("Cache niet bereikbaar. Probeer het later opnieuw", e)
         }
-        // Transiente schrijf-contentie: bron logt al op warn. Retriable 503
-        // i.p.v. de misleidende 404 die een null-resultaat zou opleveren.
+        // Transiente schrijf-contentie: bron logt al op warn. Retriable onbereikbaar
+        // i.p.v. de misleidende not-found die een null-resultaat zou opleveren.
         is CacheContentieException ->
-            WebApplicationException("Cache tijdelijk niet bij te werken. Probeer het later opnieuw", 503)
-        is WebApplicationException -> e
+            SessiecacheException.Onbereikbaar("Cache tijdelijk niet bij te werken. Probeer het later opnieuw", e)
         // Invoervalidatie (BerichtValidator, Leesstatus.fromWire): caller-fout,
-        // geen infrastructuurfout — laat de caller dit naar 400 vertalen.
+        // geen infrastructuurfout — laat schrijfBericht dit naar OngeldigeInvoer vertalen.
         is IllegalArgumentException -> e
         // Cache-deserialisatie-fout = data-integriteit-issue (verkeerde versie, corrupte hash),
-        // niet "Redis onbereikbaar". 500 zonder de verkeerde infrastructuur-diagnose te suggereren.
+        // niet "Redis onbereikbaar". Onleesbaar zonder de verkeerde infrastructuur-diagnose.
         is com.fasterxml.jackson.core.JsonProcessingException -> {
             log.errorf(e, "Cache-data niet deserialiseerbaar (corruptie of schema-drift)")
-            WebApplicationException("Cache-data niet leesbaar.", 500)
+            SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }
         // Hash-velden ontbreken of onleesbaar → eigen data-issue, niet bereikbaarheids-issue.
         is CacheCorruptedException -> {
             log.errorf(e, "Cache-hash corrupt")
-            WebApplicationException("Cache-data niet leesbaar.", 500)
+            SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }
         else -> {
             log.errorf(e, "Cache-operatie mislukt")
-            WebApplicationException("Cache niet bereikbaar.", 503)
+            SessiecacheException.Onbereikbaar("Cache niet bereikbaar.", e)
         }
     }
 }

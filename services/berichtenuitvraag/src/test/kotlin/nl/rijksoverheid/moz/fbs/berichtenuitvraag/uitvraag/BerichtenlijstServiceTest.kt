@@ -5,6 +5,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
@@ -117,14 +118,14 @@ class BerichtenlijstServiceTest {
     }
 
     @Test
-    fun `cache-storing wordt 502 en cache-409 propageert`() {
-        every { sessiecache.lijst(ontvanger, null, null) } throws WebApplicationException("cache weg", 503)
+    fun `cache-storing wordt 502 en cache-NogNietGevuld propageert 409`() {
+        every { sessiecache.lijst(ontvanger, null, null) } throws SessiecacheException.Onbereikbaar("cache weg")
 
         val storing = assertThrows<WebApplicationException> { service.lijst("BSN:999990019", null, null) }
 
         assertEquals(502, storing.response.status)
 
-        every { sessiecache.lijst(ontvanger, null, null) } throws WebApplicationException("nog niet opgehaald", 409)
+        every { sessiecache.lijst(ontvanger, null, null) } throws SessiecacheException.NogNietGevuld("nog niet opgehaald")
 
         val conflict = assertThrows<WebApplicationException> { service.lijst("BSN:999990019", null, null) }
 

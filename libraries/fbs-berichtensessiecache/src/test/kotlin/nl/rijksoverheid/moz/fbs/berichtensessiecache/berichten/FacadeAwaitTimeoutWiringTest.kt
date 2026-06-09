@@ -7,10 +7,9 @@ import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
 import jakarta.inject.Inject
-import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -25,8 +24,8 @@ import java.time.Duration
  *
  * De gereed-status-lookup wordt 3s vertraagd; de override zet de grens op 1s. 3s ligt tússen de
  * geconfigureerde 1s en de default 5s: alleen als de property gelezen wordt slaat de facade-await
- * aan (→ 503). Bij een losgekoppelde property zou de default 5s de 3s-delay opvangen en zou er
- * geen fout volgen.
+ * aan (→ [SessiecacheException.Onbereikbaar]). Bij een losgekoppelde property zou de default 5s de
+ * 3s-delay opvangen en zou er geen fout volgen.
  */
 @QuarkusTest
 @TestProfile(FacadeAwaitTimeoutTestProfile::class)
@@ -37,11 +36,10 @@ class FacadeAwaitTimeoutWiringTest {
 
     @Test
     fun `facade-await-timeout uit config bedient de blocking-await-grens`() {
-        val ex = assertThrows(WebApplicationException::class.java) {
+        val ex = assertThrows(SessiecacheException.Onbereikbaar::class.java) {
             sessiecache.lijst(Bsn("999993653"))
         }
 
-        assertEquals(503, ex.response.status)
         assertTrue(ex.message!!.contains("bereikbaar", ignoreCase = true), "Was: ${ex.message}")
     }
 }

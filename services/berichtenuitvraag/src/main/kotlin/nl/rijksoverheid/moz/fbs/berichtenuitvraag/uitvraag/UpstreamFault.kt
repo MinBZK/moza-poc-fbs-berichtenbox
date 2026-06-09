@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import org.jboss.logging.Logger
 
 /**
@@ -59,3 +60,65 @@ internal fun isUpstreamStoring(e: WebApplicationException): Boolean {
 // mee zodat exception-keten-gebaseerde logging de oorzaak niet verliest.
 internal fun upstreamBadGateway(detail: String, cause: Throwable? = null): WebApplicationException =
     WebApplicationException(detail, cause, Response.Status.BAD_GATEWAY)
+
+/**
+ * Of een cache-fout een upstream-storing is (de cache zelf hapert) dan wel een client-/
+ * contract-aanwijzing die status-behoudend hoort te propageren. Dekt alle gevallen af, náást
+ * [naApiFout], waarmee de cache→transport-kennis op één plek belegd blijft; een nieuw
+ * [SessiecacheException]-geval breekt ook hier de build. Het schrijfpad gebruikt dit om te beslissen of het na een
+ * geslaagde magazijn-write de cache compenseert (invalidate + 502) of de status doorlaat —
+ * zonder daarvoor een wegwerp-[WebApplicationException] te bouwen of statuscode-ranges te
+ * reverse-engineeren.
+ */
+internal fun SessiecacheException.isStoring(): Boolean = when (this) {
+    is SessiecacheException.OphalenMislukt,
+    is SessiecacheException.Onbereikbaar,
+    is SessiecacheException.Onleesbaar,
+    -> true
+
+    is SessiecacheException.NogNietGevuld,
+    is SessiecacheException.OphalenBezig,
+    is SessiecacheException.OngeldigeInvoer,
+    is SessiecacheException.GeenActieveSessie,
+    -> false
+}
+
+/**
+ * Enige plek waar de gesloten [SessiecacheException]-hiërarchie naar een HTTP-status
+ * wordt vertaald. De `when` dekt alle gevallen zónder `else`: een nieuw foutscenario in de
+ * cache-library breekt hier de build i.p.v. stil verkeerd bij de gebruiker te landen.
+ *
+ * Bewust géén 502-mapping hier: deze functie levert puur de status die per cache-foutgeval
+ * hoort. De per-consumer transportpolitiek (lees-pad → [mapUpstreamFout] dat 5xx naar 502
+ * maakt; aanmeld-pad → status-behoudend) blijft daar belegd.
+ */
+internal fun SessiecacheException.naApiFout(): WebApplicationException = when (this) {
+    is SessiecacheException.NogNietGevuld -> WebApplicationException(message, this, Response.Status.CONFLICT)
+    is SessiecacheException.OphalenBezig -> WebApplicationException(message, this, Response.Status.CONFLICT)
+    is SessiecacheException.OphalenMislukt -> WebApplicationException(message, this, Response.Status.INTERNAL_SERVER_ERROR)
+    is SessiecacheException.Onbereikbaar -> WebApplicationException(message, this, Response.Status.SERVICE_UNAVAILABLE)
+    is SessiecacheException.Onleesbaar -> WebApplicationException(message, this, Response.Status.INTERNAL_SERVER_ERROR)
+    is SessiecacheException.OngeldigeInvoer -> WebApplicationException(message, this, Response.Status.BAD_REQUEST)
+    is SessiecacheException.GeenActieveSessie -> WebApplicationException(message, this, Response.Status.NOT_FOUND)
+}
+
+/**
+ * Lees-pad-grens voor cache-facade-calls: vertaalt een [SessiecacheException] eerst
+ * naar zijn status ([naApiFout]) en past daarna dezelfde upstream-politiek
+ * toe als op het magazijn ([mapUpstreamFout]) — een 5xx wordt 502, een 4xx (409 cache-
+ * nog-niet-gevuld) propageert ongewijzigd. Zo geldt "502 = upstream-fout" ook voor
+ * de in-process cache.
+ *
+ * De lees-facademethoden (`lijst`/`zoek`/`bericht`) produceren alleen storing-fouten en de
+ * 409-gating ([SessiecacheException.NogNietGevuld]/[SessiecacheException.OphalenBezig]); de
+ * 400/404-gevallen ([SessiecacheException.OngeldigeInvoer]/[SessiecacheException.GeenActieveSessie])
+ * ontstaan uitsluitend op de schrijfpaden en bereiken deze grens dus niet.
+ */
+internal inline fun <T> leesUitCache(log: Logger, context: String, block: () -> T): T =
+    mapUpstreamFout(log, context) {
+        try {
+            block()
+        } catch (e: SessiecacheException) {
+            throw e.naApiFout()
+        }
+    }
