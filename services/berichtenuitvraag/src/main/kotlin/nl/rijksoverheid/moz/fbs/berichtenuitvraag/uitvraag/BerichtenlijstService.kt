@@ -17,10 +17,11 @@ import java.nio.charset.StandardCharsets
  * levert domein-types; deze service mapt naar de uitvraag-API-modellen en bouwt
  * de HAL-paginering-links met de uitvraag-parameternamen (`pagina`/`paginaGrootte`).
  *
- * [mapUpstreamFout] blijft de fout-grens: een 5xx uit de facade (Redis-storing,
- * mislukte ophaling, cache-corruptie) wordt 502 — voor de portaal-client is de
- * cache een upstream-bron, of die nu over REST of in-process wordt aangesproken.
- * Een 409 (cache nog niet gevuld / ophalen bezig) propageert ongewijzigd.
+ * [leesUitCache] blijft de fout-grens: een [SessiecacheException] wordt naar zijn status
+ * vertaald en daarna geldt dezelfde upstream-politiek als op het magazijn — een storing
+ * (cache onbereikbaar, mislukte ophaling, cache-corruptie) wordt 502, omdat de cache voor
+ * de portaal-client een upstream-bron is; een 409 (cache nog niet gevuld / ophalen bezig)
+ * propageert ongewijzigd.
  */
 @ApplicationScoped
 class BerichtenlijstService(
@@ -28,14 +29,14 @@ class BerichtenlijstService(
 ) {
     fun lijst(xOntvanger: String, pagina: Int?, paginaGrootte: Int?): BerichtenLijst {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
-        val resultaat = mapUpstreamFout(log, "cache-lijst") { sessiecache.lijst(ontvanger, pagina, paginaGrootte) }
+        val resultaat = leesUitCache(log, "cache-lijst") { sessiecache.lijst(ontvanger, pagina, paginaGrootte) }
 
         return toBerichtenLijst(resultaat) { p -> "${ApiInfo.BASE_PATH}/berichten?pagina=$p&paginaGrootte=${resultaat.pageSize}" }
     }
 
     fun zoek(xOntvanger: String, q: String): BerichtenLijst {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
-        val resultaat = mapUpstreamFout(log, "cache-zoek") { sessiecache.zoek(ontvanger, q) }
+        val resultaat = leesUitCache(log, "cache-zoek") { sessiecache.zoek(ontvanger, q) }
         val encodedQ = URLEncoder.encode(q, StandardCharsets.UTF_8)
 
         // `_zoeken` kent geen paginering-parameters in de uitvraag-spec; alleen een

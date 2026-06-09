@@ -98,6 +98,23 @@ class PublicatieConfigValidationTest {
         )
     }
 
+    @Test
+    fun `client-timeouts vallen terug op verklaarde defaults en binden op config`() {
+        val defaults = bouwConfigMetMinimaal(emptyMap())
+            .getConfigMapping(PublicatieConfig::class.java).client()
+        assertEquals(java.time.Duration.ofSeconds(5), defaults.connectTimeout())
+        assertEquals(java.time.Duration.ofSeconds(10), defaults.requestTimeout())
+
+        val overschreven = bouwConfigMetMinimaal(
+            mapOf(
+                "magazijn.publicatie.client.connect-timeout" to "PT2S",
+                "magazijn.publicatie.client.request-timeout" to "PT30S",
+            ),
+        ).getConfigMapping(PublicatieConfig::class.java).client()
+        assertEquals(java.time.Duration.ofSeconds(2), overschreven.connectTimeout())
+        assertEquals(java.time.Duration.ofSeconds(30), overschreven.requestTimeout())
+    }
+
     /** Eenvoudige in-memory ConfigSource zodat we niet afhankelijk zijn van system-properties of yaml. */
     private class InMemoryConfigSource(private val props: Map<String, String>) : ConfigSource {
         override fun getProperties(): Map<String, String> = props

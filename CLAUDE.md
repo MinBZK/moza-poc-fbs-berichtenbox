@@ -9,6 +9,11 @@ Monorepo met Maven, Quarkus en Kotlin. Architectuurdocumentatie in Structurizr D
 
 Communicatie in het Nederlands. Code en technische termen in het Engels waar gangbaar.
 
+Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
+- **Domeinbegrippen blijven Nederlands:** bericht, magazijn, ontvanger, afzender, ophalen, aanleveren, sessie. Ook in code (`meldFout`, `toegestaan`, `drempel`).
+- **Vaste technische idiomen blijven Engels en worden NIET vertaald.** Patroon-, concurrency- en infrastructuurjargon hebben een herkenbare Engelse standaardvorm; vertalen maakt ze juist minder leesbaar. Voorbeelden: circuit breaker, bulkhead, (half-open) probe, acquire/release pairing, starvation, retry, backoff, timeout, permit, semaphore. Dus `probe`/`pairing`/`starvation`, niet `proef`/`paring`/`uithongeren`.
+- **Twijfel?** Is de Engelse vorm de term die in de docs/libraries van dát patroon staat? Dan niet vertalen.
+
 ## Technische stack
 
 - **Build:** Maven monorepo (parent POM + modules), Maven wrapper (`./mvnw`)
@@ -211,6 +216,7 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 Bij elke codewijziging beoordelen of er tests toegevoegd of aangepast moeten worden:
 
 - **Happy én unhappy paths:** Niet alleen het successcenario, maar ook foutgevallen, edge cases en validatiefouten.
+- **Creatief denken over inputvariatie:** kies testdata die het gedrag écht uitlokt, niet de makkelijkste die slaagt. Bij collecties/lijsten áltijd minstens leeg, één én meerdere elementen dekken (een lijst van 1 verbergt "geeft eerste/enige terug" i.p.v. "discrimineert per sleutel"); gebruik `@ParameterizedTest` om die cardinaliteiten te bundelen. Denk verder aan grenswaarden, duplicaten, volgorde en null/afwezig.
 - **Unit tests** zijn de basis (JUnit 5 + REST-assured).
 - **Integratietests** (`@QuarkusTest`) wanneer de wijziging meerdere componenten raakt of externe afhankelijkheden (Redis, REST-clients) betreft.
 - **Fuzzing / property-based tests** overwegen bij input-parsing, validatielogica of security-gevoelige code.

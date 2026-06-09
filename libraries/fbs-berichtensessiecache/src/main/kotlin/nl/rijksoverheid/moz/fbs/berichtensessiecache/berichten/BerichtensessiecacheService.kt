@@ -9,14 +9,20 @@ import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitOpenException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnOverbelastException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.circuitActieVoor
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.eclipse.microprofile.config.inject.ConfigProperty
@@ -74,6 +80,14 @@ internal class BerichtensessiecacheService(
     // op de Redis-TTL). Losse knop: geen invariant met de magazijn-/profiel-timeouts.
     @param:ConfigProperty(name = "berichtensessiecache.cache-await-timeout-seconds", defaultValue = "5")
     private val cacheAwaitTimeoutSeconds: Long,
+    // Concurrency-bulkhead voor de blokkerende magazijn-aggregatie-calls: begrenst hoeveel van de
+    // gedeelde default-worker-pool tegelijk een magazijn bevragen, zodat een trage leverancier niet
+    // alle threads opsoupeert en andere endpoints blokkeert — zonder een eigen pool (die de
+    // Vert.x-duplicated-context voor de downstream-Redis-writes zou verliezen).
+    private val bulkhead: MagazijnAggregatieBulkhead,
+    // Per-magazijn circuit breaker: slaat een magazijn na herhaalde storingen tijdelijk over,
+    // zodat een dood magazijn niet onnodig bulkhead-permits bezet houdt.
+    private val circuitBreaker: MagazijnCircuitBreaker,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
@@ -489,17 +503,55 @@ internal class BerichtensessiecacheService(
             naam = naam,
         )
 
-        val resultUni = Uni.createFrom().item { client }
-            .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
-            .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-            .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
-            .map<MagazijnResult> { response -> naarMagazijnResult(response, magazijnId, naam) }
-            .onFailure(Exception::class.java).recoverWithItem { error ->
-                val fault = classifyMagazijnFault(error)
+        // `deferred` zodat de circuit-check PAS bij subscription loopt: een nooit-gesubscribete
+        // stream (cancel vóór subscribe in het SSE-pad) claimt zo geen half-open probe. Het bulkhead
+        // beheert zijn eigen acquire/release-pairing binnen [MagazijnAggregatieBulkhead.begrensd].
+        val resultUni: Uni<MagazijnResult> = Uni.createFrom().deferred {
+            if (!circuitBreaker.toegestaan(magazijnId)) {
+                // Circuit open na herhaalde storingen: call overslaan en direct een nette
+                // CIRCUIT_OPEN-failure leveren — geen thread bezet, geen wachttijd tot de
+                // timeout. De gebruiker krijgt zo snel "tijdelijk niet beschikbaar". toegestaan()
+                // gaf false, dus er is GEEN half-open probe geclaimd: geen registreerCircuit nodig.
+                log.debugf("Magazijn %s (%s) overgeslagen: circuit open", magazijnId, naam)
 
-                logMagazijnFault(error, magazijnId, naam, fault)
-                MagazijnResult.Failure(magazijnId, naam, error, fault)
+                Uni.createFrom().item(
+                    MagazijnResult.Failure(magazijnId, naam, MagazijnCircuitOpenException(magazijnId), MagazijnFault.CIRCUIT_OPEN),
+                )
+            } else {
+                bulkhead.begrensd(
+                    afgewezen = {
+                        // Bulkhead vol: call niet gestart, direct OVERBELAST. toegestaan() kan nét
+                        // een half-open probe hebben geclaimd; die MOET via registreerCircuit
+                        // (→ MELD_ONBESLIST) worden vrijgegeven, anders blijft het circuit open.
+                        val result = MagazijnResult.Failure(
+                            magazijnId, naam, MagazijnOverbelastException(magazijnId), MagazijnFault.OVERBELAST,
+                        )
+
+                        logMagazijnFault(result.error, magazijnId, naam, MagazijnFault.OVERBELAST)
+                        registreerCircuit(magazijnId, result)
+
+                        Uni.createFrom().item(result)
+                    },
+                    taak = {
+                        // De blokkerende magazijn-call draait op de context-bewuste default-worker-
+                        // pool (de downstream-Redis-writes vereisen de Vert.x-duplicated-context, die
+                        // een eigen pool niet levert); het bulkhead begrenst enkel de gelijktijdigheid.
+                        Uni.createFrom().item { client }
+                            .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
+                            .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
+                            .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
+                            .map<MagazijnResult> { response -> naarMagazijnResult(response, magazijnId, naam) }
+                            .onFailure(Exception::class.java).recoverWithItem { error ->
+                                val fault = classifyMagazijnFault(error)
+
+                                logMagazijnFault(error, magazijnId, naam, fault)
+                                MagazijnResult.Failure(magazijnId, naam, error, fault)
+                            }
+                            .onItem().invoke { result -> registreerCircuit(magazijnId, result) }
+                    },
+                )
             }
+        }
 
         val resultStream = resultUni.toMulti().map { result ->
             naarVoltooidEvent(result, alleBerichten, geslaagd, mislukt)
@@ -589,12 +641,27 @@ internal class BerichtensessiecacheService(
         }
     }
 
+    /**
+     * Voedt de per-magazijn circuit breaker met de uitkomst van een echte aggregatie-call. Elke
+     * afgeronde call geeft een terminale actie ([circuitActieVoor]) zodat een half-open probe
+     * nooit blijft hangen — ook niet bij een niet-storing-fout (4xx/malformed) of bulkhead-OVERBELAST.
+     */
+    private fun registreerCircuit(magazijnId: String, result: MagazijnResult) {
+        when (circuitActieVoor(result)) {
+            CircuitActie.MELD_SUCCES -> circuitBreaker.meldSucces(magazijnId)
+            CircuitActie.MELD_FOUT -> circuitBreaker.meldFout(magazijnId)
+            CircuitActie.MELD_ONBESLIST -> circuitBreaker.meldOnbeslist(magazijnId)
+        }
+    }
+
     private fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
         MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
         MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
         MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
         MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
         MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
+        MagazijnFault.CIRCUIT_OPEN -> "Magazijn tijdelijk niet beschikbaar (herhaalde storingen)"
+        MagazijnFault.OVERBELAST -> "Magazijn tijdelijk niet beschikbaar (systeem druk, probeer het later opnieuw)"
         // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
         MagazijnFault.INTERNAL_BUG, MagazijnFault.NETWORK -> "Magazijn kon niet geraadpleegd worden"
     }
@@ -849,6 +916,15 @@ internal class BerichtensessiecacheService(
                 log.errorf(error, "Magazijn %s (%s) 4xx — configuratie/auth-fout", magazijnId, naam)
             MagazijnFault.NETWORK ->
                 log.warnf(error, "Magazijn %s (%s) niet bereikbaar (network/processing)", magazijnId, naam)
+            // Bewust overgeslagen door de circuit breaker — geen echte call-fout. Het CIRCUIT_OPEN-
+            // pad logt zelf op debug; deze tak is een vangnet mocht een CIRCUIT_OPEN onverwacht
+            // via classifyMagazijnFault binnenkomen (kan niet, maar houdt de when exhaustief).
+            MagazijnFault.CIRCUIT_OPEN ->
+                log.debugf("Magazijn %s (%s) overgeslagen door circuit breaker", magazijnId, naam)
+            // Bulkhead-saturatie: warnf (capaciteits-/load-signaal voor ops), geen errorf — het is
+            // geen eigen-bug maar een overload-conditie.
+            MagazijnFault.OVERBELAST ->
+                log.warnf(error, "Aggregatie-bulkhead vol; magazijn %s (%s) afgewezen (OVERBELAST)", magazijnId, naam)
             MagazijnFault.INTERNAL_BUG ->
                 log.errorf(error, "Onverwachte fout bij magazijn %s (%s) (cause=%s)", magazijnId, naam, error.javaClass.simpleName)
         }

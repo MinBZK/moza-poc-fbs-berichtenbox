@@ -8,8 +8,8 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.smallrye.mutiny.Multi
 import jakarta.inject.Inject
-import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
@@ -45,11 +45,17 @@ class MagazijnClientWireMockTest {
     @Inject
     internal lateinit var clientFactory: MagazijnClientFactory
 
+    // Singleton circuit breaker leeft over tests heen; reset zodat fout-injecterende tests
+    // het circuit niet voor een volgende test open laten staan.
+    @Inject
+    internal lateinit var circuitBreaker: MagazijnCircuitBreaker
+
     @BeforeEach
     fun setUp() {
         WireMockMagazijnResource.serverA!!.resetAll()
         WireMockMagazijnResource.serverB!!.resetAll()
         cache.clear()
+        circuitBreaker.herstelAlles()
     }
 
     @Test
@@ -172,8 +178,8 @@ class MagazijnClientWireMockTest {
         buitenste.subscribe().with({ }, { }, { }).cancel()
 
         // De aggregatie rondt de magazijns rond 800ms af en vult de cache, ondanks de
-        // disconnect. Tijdens het ophalen gooit de facade 409 (ophalen-bezig); pas wanneer
-        // de aggregatie de status op GEREED zet komt de lijst terug. Poll dus tot data of
+        // disconnect. Tijdens het ophalen gooit de facade OphalenBezig; pas wanneer de
+        // aggregatie de status op GEREED zet komt de lijst terug. Poll dus tot data of
         // tot een ruime deadline verstrijkt.
         val deadline = System.currentTimeMillis() + 6_000
         var totaal = 0L
@@ -184,19 +190,19 @@ class MagazijnClientWireMockTest {
                 totaal = sessiecache.lijst(ontvanger).totalElements
 
                 if (totaal >= 1) break
-            } catch (e: WebApplicationException) {
-                if (e.response.status == 409) zagOphalenBezig = true
+            } catch (e: SessiecacheException.OphalenBezig) {
+                zagOphalenBezig = true
             }
 
             Thread.sleep(150)
         }
 
-        // 409 ná de disconnect bewijst dat de aggregatie nog liep (de disconnect is dus
-        // load-bearing, niet een race ná completion); totalElements>=1 bewijst dat ze alsnog
+        // OphalenBezig ná de disconnect bewijst dat de aggregatie nog liep (de disconnect is
+        // dus load-bearing, niet een race ná completion); totalElements>=1 bewijst dat ze alsnog
         // afrondde en de cache vulde. Beide samen pinnen "disconnect stopt de cache-vulling niet".
         assertTrue(
             zagOphalenBezig,
-            "Verwacht minstens één 409 (ophalen-bezig) ná de disconnect — anders liep de aggregatie niet door",
+            "Verwacht minstens één OphalenBezig ná de disconnect — anders liep de aggregatie niet door",
         )
         assertTrue(
             totaal >= 1,

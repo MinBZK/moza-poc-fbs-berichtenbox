@@ -9,7 +9,7 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
-import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MockSessiecache
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.equalTo
@@ -101,7 +101,7 @@ class AanmeldResourceTest {
 
     @Test
     fun `geen actieve sessie geeft 202 maar schrijft niets`() {
-        sessiecache.schrijfFouten.add(WebApplicationException("geen sessie", Response.Status.NOT_FOUND))
+        sessiecache.schrijfFouten.add(SessiecacheException.GeenActieveSessie("geen sessie"))
 
         given()
             .contentType(cloudEventsJson)
@@ -167,7 +167,7 @@ class AanmeldResourceTest {
         val berichtId = UUID.randomUUID()
 
         // Eerste levering: geen actieve sessie → 202, niets geschreven, marker vrijgegeven.
-        sessiecache.schrijfFouten.add(WebApplicationException("geen sessie", Response.Status.NOT_FOUND))
+        sessiecache.schrijfFouten.add(SessiecacheException.GeenActieveSessie("geen sessie"))
         given()
             .contentType(cloudEventsJson)
             .body(event(id = id, berichtId = berichtId))

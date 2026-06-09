@@ -1,0 +1,171 @@
+package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/**
+ * State-machine van de per-magazijn circuit breaker, deterministisch gepind met een
+ * injecteerbare klok (geen `Thread.sleep`). Plus de per-magazijn isolatie van de
+ * CDI-wrapper.
+ */
+class MagazijnCircuitBreakerTest {
+
+    private var nu = 0L
+    private val klok = { nu }
+
+    private fun breaker(drempel: Int = 3, openNanos: Long = 1_000L) = Breaker(drempel, openNanos, klok)
+
+    private fun failure(fault: MagazijnFault) = MagazijnResult.Failure("m", null, RuntimeException("x"), fault)
+
+    @Test
+    fun `gesloten circuit laat alles door`() {
+        val b = breaker()
+
+        repeat(5) { assertTrue(b.toegestaan()) }
+    }
+
+    @Test
+    fun `opent na drempel opeenvolgende fouten`() {
+        val b = breaker(drempel = 3)
+
+        b.meldFout()
+        b.meldFout()
+
+        assertTrue(b.toegestaan(), "nog onder de drempel")
+
+        b.meldFout()
+
+        assertFalse(b.toegestaan(), "drempel bereikt → open")
+    }
+
+    @Test
+    fun `open circuit slaat calls over tot het venster verstrijkt`() {
+        val b = breaker(drempel = 1, openNanos = 1_000L)
+
+        b.meldFout()
+
+        assertFalse(b.toegestaan())
+
+        nu += 999
+
+        assertFalse(b.toegestaan(), "venster nog niet verstreken")
+
+        nu += 1
+
+        assertTrue(b.toegestaan(), "venster verstreken → half-open probe toegestaan")
+    }
+
+    @Test
+    fun `na het venster is precies één half-open probe toegestaan`() {
+        val b = breaker(drempel = 1, openNanos = 1_000L)
+
+        b.meldFout()
+        nu += 1_000
+
+        assertTrue(b.toegestaan(), "eerste probe toegestaan")
+        assertFalse(b.toegestaan(), "tweede gelijktijdige probe geweigerd")
+    }
+
+    @Test
+    fun `half-open probe-succes sluit het circuit`() {
+        val b = breaker(drempel = 1, openNanos = 1_000L)
+
+        b.meldFout()
+        nu += 1_000
+
+        assertTrue(b.toegestaan())
+        b.meldSucces()
+
+        repeat(3) { assertTrue(b.toegestaan(), "circuit weer gesloten") }
+    }
+
+    @Test
+    fun `half-open probe-fout heropent het circuit`() {
+        val b = breaker(drempel = 1, openNanos = 1_000L)
+
+        b.meldFout()
+        nu += 1_000
+
+        assertTrue(b.toegestaan())
+        b.meldFout()
+
+        assertFalse(b.toegestaan(), "probe faalde → opnieuw open")
+
+        nu += 1_000
+
+        assertTrue(b.toegestaan(), "nieuw venster verstreken → nieuwe probe")
+    }
+
+    @Test
+    fun `verspreide fouten met tussentijds succes openen het circuit niet`() {
+        val b = breaker(drempel = 3)
+
+        b.meldFout()
+        b.meldFout()
+        b.meldSucces()
+        b.meldFout()
+        b.meldFout()
+
+        assertTrue(b.toegestaan(), "succes resette de teller, drempel nooit bereikt")
+    }
+
+    @Test
+    fun `meldOnbeslist geeft de half-open probe vrij zonder te sluiten of te heropenen`() {
+        // Regressie: een toegestane half-open probe die het magazijn niet bereikte (bulkhead-overbelast)
+        // mag het circuit niet permanent open laten staan. meldOnbeslist geeft de probe vrij; omdat
+        // het venster al verstreken is, mag een volgende toegestaan() opnieuw een probe geven.
+        val b = breaker(drempel = 1, openNanos = 1_000L)
+
+        b.meldFout()
+        nu += 1_000
+
+        assertTrue(b.toegestaan(), "eerste probe toegestaan")
+
+        b.meldOnbeslist()
+
+        assertTrue(b.toegestaan(), "na onbeslist mag opnieuw een probe worden gestart")
+    }
+
+    @Test
+    fun `circuitActieVoor mapt elke uitkomst op de juiste circuit-actie`() {
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(MagazijnResult.Success("m", null, emptyList())))
+
+        assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.TIMEOUT)))
+        assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.HTTP_5XX)))
+        assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.NETWORK)))
+
+        // Niet-storing: het magazijn antwoordde (4xx/malformed/overflow/bug) → bereikbaar → sluiten.
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.HTTP_4XX)))
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.MALFORMED)))
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.OVERFLOW)))
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(failure(MagazijnFault.INTERNAL_BUG)))
+
+        // Magazijn niet bereikt → probe onbeslist vrijgeven (teller ongemoeid).
+        assertEquals(CircuitActie.MELD_ONBESLIST, circuitActieVoor(failure(MagazijnFault.OVERBELAST)))
+        assertEquals(CircuitActie.MELD_ONBESLIST, circuitActieVoor(failure(MagazijnFault.CIRCUIT_OPEN)))
+    }
+
+    @Test
+    fun `wrapper isoleert per magazijn`() {
+        val cb = MagazijnCircuitBreaker(drempel = 2, openSeconds = 30L)
+
+        cb.meldFout("magazijn-a")
+        cb.meldFout("magazijn-a")
+
+        assertFalse(cb.toegestaan("magazijn-a"), "A open na 2 fouten")
+        assertTrue(cb.toegestaan("magazijn-b"), "B ongemoeid")
+    }
+
+    @Test
+    fun `niet-positieve config faalt fail-fast bij valideerConfig`() {
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            MagazijnCircuitBreaker(drempel = 0, openSeconds = 30L).valideerConfig()
+        }
+
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            MagazijnCircuitBreaker(drempel = 3, openSeconds = 0L).valideerConfig()
+        }
+    }
+}

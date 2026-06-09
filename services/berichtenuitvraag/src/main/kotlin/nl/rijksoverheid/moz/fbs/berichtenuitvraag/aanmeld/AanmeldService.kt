@@ -5,7 +5,9 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.naApiFout
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
@@ -89,14 +91,17 @@ class AanmeldService(
             sessiecache.schrijfBericht(event.ontvanger, bericht)
 
             return true
-        } catch (e: WebApplicationException) {
-            if (e.response.status == Response.Status.NOT_FOUND.statusCode) {
-                log.debug("Geen actieve sessie voor ontvanger; aanmelding overgeslagen")
+        } catch (ignored: SessiecacheException.GeenActieveSessie) {
+            // Geen actieve sessie is het normale geval (de meeste ontvangers hebben er geen):
+            // geaccepteerd-maar-overgeslagen, geen fout. Bewust geen detail loggen.
+            log.debug("Geen actieve sessie voor ontvanger; aanmelding overgeslagen")
 
-                return false
-            }
-
-            throw e
+            return false
+        } catch (e: SessiecacheException) {
+            // Overige cache-fouten (ongeldige invoer, opslag onbereikbaar, onleesbaar)
+            // status-behoudend naar de webhook-caller: naApiFout reproduceert dezelfde
+            // status (400/503/500) die de facade voorheen zelf gooide.
+            throw e.naApiFout()
         }
     }
 

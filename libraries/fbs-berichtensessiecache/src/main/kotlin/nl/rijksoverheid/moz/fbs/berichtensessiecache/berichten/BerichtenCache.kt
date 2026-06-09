@@ -79,17 +79,32 @@ internal class RedisBerichtenCache(
     // ontgrendelt een nog lopende aggregatie voortijdig en kan een concurrent `_ophalen` dubbel draaien.
     @param:ConfigProperty(name = "berichtensessiecache.aggregation-lock-ttl", defaultValue = "PT2M")
     private val aggregationLockTtl: Duration,
+    // Begrenzing op de blocking-await van de RediSearch-bootstrap bij startup (presence-check
+    // `ft_list` + index-aanmaak `ftCreate`). Beide raken een lokale/naast-de-pod Redis, dus
+    // dezelfde 5s-ondergrens als de overige cache-awaits. Overschrijden → fail-fast bij startup.
+    @param:ConfigProperty(name = "berichtensessiecache.startup-redisearch-timeout-seconds", defaultValue = "5")
+    private val startupRedisearchTimeoutSeconds: Long,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
     @PostConstruct
     fun init() {
+        // Moet > 0: een 0/negatieve waarde maakt `atMost(ZERO)` onbegrensd en zou de
+        // startup-bescherming stil uitschakelen. Vóór de Redis-calls zodat de guard ook
+        // zonder bereikbare Redis aanslaat.
+        require(startupRedisearchTimeoutSeconds > 0) {
+            "berichtensessiecache.startup-redisearch-timeout-seconds " +
+                "($startupRedisearchTimeoutSeconds) moet groter zijn dan 0"
+        }
+
+        val startupTimeout = Duration.ofSeconds(startupRedisearchTimeoutSeconds)
+
         // Idempotente bootstrap: meerdere pods delen één Redis-cluster. Bestaande index
         // NIET droppen — dat laat queries van andere replicas tijdelijk falen. Schema-
         // wijzigingen lopen via de handmatige operations-procedure: docs/operations/redisearch-schema-bump.md.
         // Presence-check via FT._LIST i.p.v. drop-en-catch (foutmelding-tekst is geen API-contract).
         val bestaandeIndexen = try {
-            redis.search().ft_list().await().atMost(Duration.ofSeconds(5))
+            redis.search().ft_list().await().atMost(startupTimeout)
         } catch (e: Exception) {
             throw IllegalStateException(
                 "Kan RediSearch indexen niet opvragen (Redis onbereikbaar bij startup?)",
@@ -117,7 +132,7 @@ internal class RedisBerichtenCache(
                 .indexedField("publicatietijdstip", FieldType.TAG)
                 .indexedField("map", FieldType.TAG)
             redis.search().ftCreate(BerichtenCache.SEARCH_INDEX, args)
-                .await().atMost(Duration.ofSeconds(5))
+                .await().atMost(startupTimeout)
             log.infof("RediSearch index '%s' aangemaakt", BerichtenCache.SEARCH_INDEX)
         } catch (e: Exception) {
             // Zonder search-index werken filter- en zoek-endpoints niet; laat de container fail-fast

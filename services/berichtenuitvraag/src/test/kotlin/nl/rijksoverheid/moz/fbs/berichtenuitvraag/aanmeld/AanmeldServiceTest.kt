@@ -7,9 +7,9 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import jakarta.ws.rs.WebApplicationException
-import jakarta.ws.rs.core.Response
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
@@ -84,9 +84,9 @@ class AanmeldServiceTest {
     }
 
     @Test
-    fun `geen actieve sessie (404) wordt geaccepteerd-maar-overgeslagen`() {
+    fun `geen actieve sessie wordt geaccepteerd-maar-overgeslagen`() {
         every { sessiecache.schrijfBericht(ontvanger, any()) } throws
-            WebApplicationException("geen sessie", Response.Status.NOT_FOUND)
+            SessiecacheException.GeenActieveSessie("geen sessie")
 
         // Geen exception: webhook geeft 202.
         service.verwerk(event())
@@ -96,13 +96,26 @@ class AanmeldServiceTest {
     }
 
     @Test
-    fun `cache onbereikbaar (503) propageert en rolt de marker terug`() {
+    fun `cache onbereikbaar propageert 503 en rolt de marker terug`() {
         every { sessiecache.schrijfBericht(ontvanger, any()) } throws
-            WebApplicationException("cache down", 503)
+            SessiecacheException.Onbereikbaar("cache down")
 
         val ex = assertThrows<WebApplicationException> { service.verwerk(event()) }
 
         assertEquals(503, ex.response.status)
+        verify(exactly = 1) { dedup.verwijder("evt-1") }
+    }
+
+    @Test
+    fun `cache ongeldige-invoer propageert status-behoudend 400`() {
+        // Een niet-GeenActieveSessie cache-fout op het aanmeld-pad gaat status-behoudend
+        // door via naApiFout (geen 502-conversie): OngeldigeInvoer blijft 400.
+        every { sessiecache.schrijfBericht(ontvanger, any()) } throws
+            SessiecacheException.OngeldigeInvoer("bericht overschrijdt limiet")
+
+        val ex = assertThrows<WebApplicationException> { service.verwerk(event()) }
+
+        assertEquals(400, ex.response.status)
         verify(exactly = 1) { dedup.verwijder("evt-1") }
     }
 

@@ -14,12 +14,13 @@ import java.util.UUID
  * aggregatie, Profiel-resolver) is `internal` en alle sessiestaat leeft in Redis —
  * de facade-impl is stateless zodat meerdere pods dezelfde sessies kunnen bedienen.
  *
- * Foutsemantiek (gespiegeld aan het vroegere REST-contract van de sessiecache-
- * service, zodat de Problem-mapping bij de consumer ongewijzigd blijft):
- * - cache nog niet gevuld of ophalen bezig → [jakarta.ws.rs.WebApplicationException] 409
- * - laatste ophaling mislukt → 500 (client moet `ophalen` opnieuw aanroepen)
- * - Redis onbereikbaar / schrijf-contentie → 503 (retriable)
- * - cache-corruptie (onleesbare entry) → 500
+ * Foutsemantiek: de synchrone lees-/schrijfmethoden gooien een [SessiecacheException]
+ * (gesloten hiërarchie) zodat de consumer elk geval naar zijn eigen transport vertaalt;
+ * een nieuw foutscenario dwingt daar een bouwfout af. Zie [SessiecacheException] voor de
+ * afzonderlijke foutgevallen.
+ *
+ * Het streaming [ophalen] heeft een eigen asynchroon foutkanaal (`Multi`-failure) en
+ * valt buiten deze hiërarchie.
  */
 interface Sessiecache {
 

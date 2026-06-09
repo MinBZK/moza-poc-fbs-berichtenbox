@@ -113,8 +113,8 @@ object AanmeldCloudEventFuzzer {
             override fun verwijder(eventId: String) = Unit
         }
 
-        // Leeg register volstaat: magazijnVoor wordt overschreven, dus het register
-        // wordt nooit geraadpleegd.
+        // De superclass-constructor vereist een register; hier inhoudsloos omdat de
+        // override van magazijnVoor het register nooit raadpleegt.
         val leegRegister = object : Magazijnregister {
             override fun alle(): Collection<Magazijninschrijving> = emptyList()
 

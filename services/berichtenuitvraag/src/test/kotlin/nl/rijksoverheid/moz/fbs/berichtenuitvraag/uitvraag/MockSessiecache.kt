@@ -5,6 +5,7 @@ import io.smallrye.mutiny.Multi
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
@@ -30,11 +31,15 @@ class MockSessiecache : Sessiecache {
 
     val berichten = ConcurrentHashMap<UUID, Bericht>()
 
-    var lijstFout: RuntimeException? = null
-    var zoekFout: RuntimeException? = null
-    var berichtFout: RuntimeException? = null
-    val werkBijFouten = ArrayDeque<RuntimeException>()
-    val verwijderFouten = ArrayDeque<RuntimeException>()
+    // Sync-facade-foutinjectie is getypeerd op SessiecacheException: de echte facade gooit
+    // uitsluitend dat type, dus dwingt de compiler af dat tests geen onbereikbaar fout-pad
+    // (bv. een rauwe WebApplicationException/ForbiddenException) simuleren.
+    var lijstFout: SessiecacheException? = null
+    var zoekFout: SessiecacheException? = null
+    var berichtFout: SessiecacheException? = null
+    val werkBijFouten = ArrayDeque<SessiecacheException>()
+    val verwijderFouten = ArrayDeque<SessiecacheException>()
+    // ophalen() is het streaming-pad met een eigen (WAE-)foutkanaal; bewust niet vernauwd.
     var ophalenFout: RuntimeException? = null
     var ophalenEvents: Multi<MagazijnEvent> = Multi.createFrom().empty()
 
@@ -48,7 +53,7 @@ class MockSessiecache : Sessiecache {
     var werkBijAanroepen = 0
     val verwijderAanroepen = mutableListOf<UUID>()
 
-    val schrijfFouten = ArrayDeque<RuntimeException>()
+    val schrijfFouten = ArrayDeque<SessiecacheException>()
     val schrijfAanroepen = mutableListOf<Bericht>()
 
     fun reset() {

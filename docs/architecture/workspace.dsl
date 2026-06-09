@@ -39,7 +39,13 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
         group "Federatief Berichtenstelsel (FBS)" {
 
-            decentraalMagazijn = softwareSystem "Berichtenmagazijn (per deelnemende organisatie)" "Berichten opslaan, ophalen en beheren (incl. berichtstatus). Elke deelnemende organisatie host een eigen instantie, of neemt er een af bij BBO." "Magazijn" {
+            // Het stelsel kent twee verschijningsvormen van het berichtenmagazijn met identieke koppelvlakken:
+            // (1) de BBO-gehoste referentie-implementatie hieronder, volledig uitgemodelleerd, en
+            // (2) een door een organisatie zelf gehost magazijn (eigenMagazijn), als extern systeem en
+            //     daarmee als black box gemodelleerd — het valt buiten het centrale stelsel.
+            eigenMagazijn = softwareSystem "Berichtenmagazijn (eigen gehost)" "Door een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie met dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." "Extern Systeem"
+
+            bboMagazijn = softwareSystem "Berichtenmagazijn (BBO-gehost)" "Berichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." "Magazijn" {
                 properties {
                     "architectuur.fsc" "FSC-infrastructuur (Inway, Outway, Manager, Directory) is niet als aparte containers gemodelleerd. Het magazijn biedt een Inway aan voor inkomende verzoeken van het Berichten Uitvraag Systeem en deelnemende organisaties. Elke relatie gemarkeerd als 'Digikoppeling REST API via FSC' impliceert: mTLS met PKIoverheid-certificaten, cryptografisch ondertekende FSC-contracten (ServiceConnectionGrant), certificate-bound JWT access tokens (Fsc-Authorization header), en tokenvalidatie door de Inway conform FSC Core v1.1.2."
                     "architectuur.autorisatie" "Autorisatie in het magazijn volgt het PEP/PDP-patroon conform AuthZEN NL GOV. De Ophaal- en Beheer API en Aanlever API fungeren als Policy Enforcement Point (PEP): ze onderscheppen verzoeken en handhaven de autorisatiebeslissing. Het Policy Decision Point (PDP) evalueert het autorisatieverzoek (subject/action/resource/context) tegen het beleid — dit kan een interne component zijn of een gedeeld PDP over magazijnen. Autorisatiebeleid wordt beheerd via een Policy Administration Point (PAP). Aanvullende context (bijv. organisatieregistratie, machtigingen) wordt opgehaald via een Policy Information Point (PIP). Autorisatiebeslissingen worden gelogd conform de Authorization Decision Log standaard (Logius)."
@@ -165,8 +171,20 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
         notificatieService -> profielService "Haalt contactgegevens en voorkeuren op" "Digikoppeling REST API via FSC"
 
-        orgA -> magazijnAanleverApi "Levert berichten aan" "Digikoppeling REST API via FSC"
+        orgA -> eigenMagazijn "Levert berichten aan" "Digikoppeling REST API via FSC"
         orgB -> magazijnAanleverApi "Levert berichten aan" "Digikoppeling REST API via FSC"
+
+        // Een eigen-gehost magazijn doet als black box volwaardig mee in het stelsel en heeft exact
+        // dezelfde koppelvlakken (zelfde beschrijving en techniek) als het BBO-gehoste magazijn: het
+        // wordt bevraagd voor ophalen en beheren, meldt nieuwe berichten aan bij de centrale Aanmeld
+        // Service, stuurt bericht-events naar de Notificatie Service, en controleert toestemming bij de
+        // Profiel Service. Het enige verschil is de aanleverende organisatie (orgA i.p.v. orgB).
+        uitvraagOphaalService -> eigenMagazijn "Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op" "Digikoppeling REST API via FSC"
+        uitvraagBeheerService -> eigenMagazijn "Beheert berichtstatus" "Digikoppeling REST API via FSC"
+        sessiecacheMagazijnClient -> eigenMagazijn "Haalt berichten op" "Digikoppeling REST API via FSC"
+        eigenMagazijn -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
+        eigenMagazijn -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook via FSC" "Async"
+        eigenMagazijn -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
@@ -184,11 +202,12 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
         systemLandscape "SystemLandscape" "Het Federatief Berichtenstelsel - een stelsel van federatief gekoppelde diensten" {
             include *
-            exclude "decentraalMagazijn -> berichtenUitvraagSysteem"
+            exclude "bboMagazijn -> berichtenUitvraagSysteem"
+            exclude "eigenMagazijn -> berichtenUitvraagSysteem"
             autoLayout
         }
 
-        systemContext decentraalMagazijn "Berichtenmagazijn" "Context van het Berichtenmagazijn" {
+        systemContext bboMagazijn "Berichtenmagazijn" "Context van het BBO-gehoste Berichtenmagazijn" {
             include *?
             autoLayout
         }
@@ -198,7 +217,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
             autoLayout
         }
 
-        container decentraalMagazijn "BerichtenmagazijnContainers" "Containers binnen het Berichtenmagazijn" {
+        container bboMagazijn "BerichtenmagazijnContainers" "Containers binnen het BBO-gehoste Berichtenmagazijn" {
             include *?
             autoLayout
         }

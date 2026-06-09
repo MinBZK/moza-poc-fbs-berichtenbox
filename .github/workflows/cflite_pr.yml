@@ -2,16 +2,40 @@ name: ClusterFuzzLite PR fuzzing
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'libraries/**'
-      - 'services/**'
-      - 'pom.xml'
-      - '.clusterfuzzlite/**'
 
 permissions: read-all
 
 jobs:
+  # Bepaalt of er fuzz-relevante bronnen (libraries/, services/, pom.xml, .clusterfuzzlite/)
+  # zijn gewijzigd. De fuzz-job is hieraan gegate i.p.v. via een workflow-niveau paths-filter:
+  # `PR` is een required status check, en een paths-filter zou de check bij niet-relevante PR's
+  # (docs, bruno, workflows) nooit rapporteren en de merge eeuwig blokkeren. Een via `if`
+  # overgeslagen job telt daarentegen als 'skipped' = succes voor branch protection.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Detecteer fuzz-relevante wijzigingen
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          echo "Gewijzigde bestanden:"
+          printf '%s\n' "$files"
+          if printf '%s\n' "$files" | grep -qE '(^libraries/|^services/|^pom\.xml$|^\.clusterfuzzlite/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Geen fuzz-relevante wijzigingen — fuzzing overgeslagen."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   PR:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number }}

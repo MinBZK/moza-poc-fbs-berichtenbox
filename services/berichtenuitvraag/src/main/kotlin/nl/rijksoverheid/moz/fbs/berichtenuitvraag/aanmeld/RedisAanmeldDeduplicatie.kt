@@ -6,7 +6,6 @@ import io.smallrye.mutiny.TimeoutException as MutinyTimeoutException
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import org.jboss.logging.Logger
-import java.time.Duration
 import java.util.concurrent.CompletionException
 import java.util.concurrent.TimeoutException as JucTimeoutException
 
@@ -33,19 +32,24 @@ class RedisAanmeldDeduplicatie(
     private val ttlSeconden = config.deduplicatie().ttl().seconds
         .also { require(it > 0) { "aanmeld.deduplicatie.ttl moet groter dan nul zijn" } }
 
+    // Een await van 0 (of negatief) maakt `atMost(ZERO)` onbegrensd: een hangende Redis
+    // zou de webhook-thread blokkeren i.p.v. fail-fast naar 503. Faal luid bij start.
+    private val awaitTimeout = config.deduplicatie().redisAwaitTimeout()
+        .also { require(!it.isZero && !it.isNegative) { "aanmeld.deduplicatie.redis-await-timeout moet groter dan nul zijn" } }
+
     override fun eerstgezien(eventId: String): Boolean {
         val args = SetArgs().nx().ex(ttlSeconden)
 
         // setAndChanged (niet set): geeft true als de NX-write daadwerkelijk plaatsvond
         // = eerste keer. Een gewone set zou de first-seen-detectie stil breken.
         return runOrServiceUnavailable("markeren") {
-            values.setAndChanged(sleutel(eventId), "1", args).await().atMost(TIMEOUT)
+            values.setAndChanged(sleutel(eventId), "1", args).await().atMost(awaitTimeout)
         }
     }
 
     override fun verwijder(eventId: String) {
         runOrServiceUnavailable("verwijderen") {
-            keys.del(sleutel(eventId)).await().atMost(TIMEOUT)
+            keys.del(sleutel(eventId)).await().atMost(awaitTimeout)
         }
     }
 
@@ -71,6 +75,5 @@ class RedisAanmeldDeduplicatie(
 
     companion object {
         private const val KEY_PREFIX = "aanmeld:event:"
-        private val TIMEOUT: Duration = Duration.ofSeconds(2)
     }
 }

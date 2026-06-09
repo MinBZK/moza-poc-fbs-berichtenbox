@@ -11,7 +11,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
-import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -67,7 +67,7 @@ class DualWriteFaultTest {
         )
     }
 
-    private fun cacheStoring() = WebApplicationException("Cache niet bereikbaar.", 503)
+    private fun cacheStoring() = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
     // ───── PATCH ─────
 
@@ -178,14 +178,14 @@ class DualWriteFaultTest {
     }
 
     @Test
-    fun `PATCH cache-4xx na magazijn-OK propageert 4xx zonder compensatie`() {
-        // 4xx = contract-bug (geen transport-storing) — moet 1-op-1 propageren
-        // i.p.v. als 502 maskeren, anders ziet ops "magazijn bijgewerkt" terwijl
-        // het probleem in de cache-implementatie zit.
+    fun `PATCH cache-niet-storing na magazijn-OK propageert status zonder compensatie`() {
+        // Een niet-storing cache-fout (OngeldigeInvoer → 400, geen transport-storing) moet
+        // 1-op-1 propageren i.p.v. als 502 maskeren, anders ziet ops "magazijn bijgewerkt"
+        // terwijl het probleem in de cache-implementatie zit.
         val id = UUID.randomUUID()
         seedBericht(id)
         stubMagazijnPatchOk(id)
-        sessiecache.werkBijFouten += WebApplicationException("cache-conflict", 409)
+        sessiecache.werkBijFouten += SessiecacheException.OngeldigeInvoer("cache-ongeldig")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -194,7 +194,7 @@ class DualWriteFaultTest {
             .`when`()
             .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
-            .statusCode(409)
+            .statusCode(400)
 
         assertEquals(emptyList<UUID>(), sessiecache.verwijderAanroepen)
     }
@@ -316,20 +316,20 @@ class DualWriteFaultTest {
     }
 
     @Test
-    fun `DELETE cache-4xx na magazijn-OK propageert 4xx zonder compensatie`() {
+    fun `DELETE cache-niet-storing na magazijn-OK propageert status zonder compensatie`() {
         val id = UUID.randomUUID()
         seedBericht(id)
         stubMagazijnDeleteOk(id)
-        sessiecache.verwijderFouten += WebApplicationException("cache-weigert", 403)
+        sessiecache.verwijderFouten += SessiecacheException.OngeldigeInvoer("cache-ongeldig")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
-            .statusCode(403)
+            .statusCode(400)
 
-        // Eén call (de write die 403 gaf); geen tweede compensatie-call.
+        // Eén call (de write die de niet-storing-fout gaf); geen tweede compensatie-call.
         assertEquals(listOf(id), sessiecache.verwijderAanroepen)
     }
 }

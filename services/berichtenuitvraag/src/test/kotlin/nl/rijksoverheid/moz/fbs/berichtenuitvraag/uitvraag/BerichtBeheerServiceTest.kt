@@ -10,6 +10,7 @@ import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
@@ -101,7 +102,7 @@ class BerichtBeheerServiceTest {
     @Test
     fun `patch cache-faal triggert invalidate en gooit 502`() {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } throws WebApplicationException("cache-down", 503)
+        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } throws SessiecacheException.Onbereikbaar("cache-down")
         every { sessiecache.verwijder(ontvangerId, any()) } returns Unit
 
         val ex = assertThrows(WebApplicationException::class.java) {
@@ -115,8 +116,8 @@ class BerichtBeheerServiceTest {
     @Test
     fun `patch cache-faal en invalidate-faal gooit nog steeds 502`() {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } throws WebApplicationException("cache-down", 503)
-        every { sessiecache.verwijder(ontvangerId, any()) } throws WebApplicationException("ook-down", 503)
+        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } throws SessiecacheException.Onbereikbaar("cache-down")
+        every { sessiecache.verwijder(ontvangerId, any()) } throws SessiecacheException.Onbereikbaar("ook-down")
 
         val ex = assertThrows(WebApplicationException::class.java) {
             service.patch(ontvanger, id, magazijnId, patch)
@@ -140,16 +141,19 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
-    fun `patch cache-4xx propageert onveranderd zonder compensatie`() {
+    fun `patch cache-niet-storing-fout propageert onveranderd zonder compensatie`() {
+        // Een niet-storing cache-fout (OngeldigeInvoer → 400) ná een geslaagde magazijn-
+        // write is een contract-bug, geen transport-storing: status-behoudend door, geen
+        // invalidate (de cache-write is niet doorgegaan).
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } throws
-            WebApplicationException("cache-conflict", Response.Status.CONFLICT)
+            SessiecacheException.OngeldigeInvoer("cache-ongeldig")
 
         val ex = assertThrows(WebApplicationException::class.java) {
             service.patch(ontvanger, id, magazijnId, patch)
         }
 
-        assertEquals(Response.Status.CONFLICT.statusCode, ex.response.status)
+        assertEquals(Response.Status.BAD_REQUEST.statusCode, ex.response.status)
         verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any()) }
     }
 
@@ -186,7 +190,7 @@ class BerichtBeheerServiceTest {
         every { sessiecache.verwijder(ontvangerId, any()) } answers {
             aanroepen++
 
-            if (aanroepen == 1) throw WebApplicationException("cache-down", 503)
+            if (aanroepen == 1) throw SessiecacheException.Onbereikbaar("cache-down")
         }
 
         val ex = assertThrows(WebApplicationException::class.java) {
@@ -198,23 +202,23 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
-    fun `verwijder cache-403 propageert zonder compensatie`() {
+    fun `verwijder cache-niet-storing-fout propageert zonder compensatie`() {
         every { magazijn.verwijderBericht(any(), any()) } returns Unit
-        every { sessiecache.verwijder(ontvangerId, any()) } throws ForbiddenException("cache-weigert")
+        every { sessiecache.verwijder(ontvangerId, any()) } throws SessiecacheException.OngeldigeInvoer("cache-ongeldig")
 
-        val ex = assertThrows(ForbiddenException::class.java) {
+        val ex = assertThrows(WebApplicationException::class.java) {
             service.verwijder(ontvanger, id, magazijnId)
         }
 
-        assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
-        // Eén call (de write die 403 gaf); geen tweede compensatie-call.
+        assertEquals(Response.Status.BAD_REQUEST.statusCode, ex.response.status)
+        // Eén call (de write die de niet-storing-fout gaf); geen tweede compensatie-call.
         verify(exactly = 1) { sessiecache.verwijder(ontvangerId, id) }
     }
 
     @Test
     fun `verwijder cache-faal + compensatie-faal gooit 502`() {
         every { magazijn.verwijderBericht(any(), any()) } returns Unit
-        every { sessiecache.verwijder(ontvangerId, any()) } throws WebApplicationException("cache-down", 503)
+        every { sessiecache.verwijder(ontvangerId, any()) } throws SessiecacheException.Onbereikbaar("cache-down")
 
         val ex = assertThrows(WebApplicationException::class.java) {
             service.verwijder(ontvanger, id, magazijnId)
