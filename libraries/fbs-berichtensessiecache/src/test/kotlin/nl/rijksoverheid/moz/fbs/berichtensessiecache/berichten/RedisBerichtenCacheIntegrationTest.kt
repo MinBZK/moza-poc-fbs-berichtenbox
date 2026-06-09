@@ -6,6 +6,7 @@ import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -522,6 +523,50 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `BSN en RSIN met dezelfde cijfers zien elkaars berichten niet (#648)`() {
+        // Dezelfde 9 cijfers zijn tegelijk een geldig BSN en RSIN (identieke elfproef). Met het
+        // type als geindexeerd TAG-veld moeten zoek/lijst/getById strikt op type+waarde scopen.
+        val cijfers = "999993653"
+        val bsn = Bsn(cijfers)
+        val rsin = Rsin(cijfers)
+        val token = "klacht${UUID.randomUUID().toString().replace("-", "")}"
+
+        val bsnBericht = berichtVoor(bsn, token, "magazijn-a")
+        val rsinBericht = berichtVoor(rsin, token, "magazijn-b")
+        berichtenCache.store(BerichtenCache.cacheKey(bsn), listOf(bsnBericht)).await().indefinitely()
+        berichtenCache.store(BerichtenCache.cacheKey(rsin), listOf(rsinBericht)).await().indefinitely()
+
+        // Zoek (FT.SEARCH, type-aware filter): elk type ziet enkel het eigen bericht.
+        val bsnZoek = berichtenCache.search(bsn, token, 0, 20).await().indefinitely()
+        assertTrue(bsnZoek.berichten.all { it.ontvanger == bsn }, "BSN-zoek mag geen RSIN-berichten bevatten")
+        assertTrue(bsnZoek.berichten.any { it.berichtId == bsnBericht.berichtId })
+        assertTrue(bsnZoek.berichten.none { it.berichtId == rsinBericht.berichtId })
+
+        val rsinZoek = berichtenCache.search(rsin, token, 0, 20).await().indefinitely()
+        assertTrue(rsinZoek.berichten.all { it.ontvanger == rsin }, "RSIN-zoek mag geen BSN-berichten bevatten")
+        assertTrue(rsinZoek.berichten.any { it.berichtId == rsinBericht.berichtId })
+
+        // getById: een via een ander type gelekt berichtId mag niet ophaalbaar zijn.
+        assertNull(berichtenCache.getById(rsinBericht.berichtId, bsn).await().indefinitely())
+
+        // Eigen bericht is ophaalbaar én reconstrueert naar het juiste subtype.
+        val eigen = berichtenCache.getById(bsnBericht.berichtId, bsn).await().indefinitely()
+        assertNotNull(eigen)
+        assertEquals(bsn, eigen!!.ontvanger)
+    }
+
+    private fun berichtVoor(ontvanger: nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer, onderwerp: String, magazijnId: String) = Bericht(
+        berichtId = UUID.randomUUID(),
+        afzender = "00000001234567890000",
+        ontvanger = ontvanger,
+        onderwerp = onderwerp,
+        inhoud = "inhoud",
+        publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+        magazijnId = magazijnId,
+        aantalBijlagen = 0,
+    )
+
+    @Test
     fun `samenvatting-velden bevatten precies de mapper-velden zonder inhoud of bijlagen`() {
         // Bewaakt dat de RETURN-projectie niet stilletjes `inhoud`/`bijlagen` opneemt
         // (de twee velden die de samenvatting-mapper weggooit).
@@ -762,6 +807,58 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertTrue(ex.message!!.contains("publicatietijdstip"), "Was: ${ex.message}")
         assertTrue(ex.cause is java.time.format.DateTimeParseException, "Cause moet Instant-parse-fout zijn: ${ex.cause}")
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij ontvanger-waarde die de elfproef schendt`() {
+        // Opgeslagen ontvanger-waarde is geen geldig BSN (elfproef): reconstructie via
+        // Identificatienummer.of MOET dit als cache-corruptie (500) surfacen, niet stil doorlaten.
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corruptHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to "123456789",
+            "ontvangerType" to "BSN",
+            "onderwerp" to "test",
+            "inhoud" to "inhoud",
+            "publicatietijdstip" to "2026-03-10T10:00:00Z",
+            "magazijnId" to "magazijn-a",
+            "aantalBijlagen" to "0",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, Bsn("999993653")).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("ontvanger"), "Was: ${ex.message}")
+    }
+
+    @Test
+    fun `getById werpt CacheCorruptedException bij onbekend ontvangerType`() {
+        val berichtId = UUID.randomUUID()
+        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val corruptHash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "ontvangerType" to "ONBEKEND",
+            "onderwerp" to "test",
+            "inhoud" to "inhoud",
+            "publicatietijdstip" to "2026-03-10T10:00:00Z",
+            "magazijnId" to "magazijn-a",
+            "aantalBijlagen" to "0",
+        )
+
+        redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
+
+        val ex = assertThrows<CacheCorruptedException> {
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        assertTrue(ex.message!!.contains("ontvanger"), "Was: ${ex.message}")
     }
 
     @Test
