@@ -17,5 +17,14 @@ interface AanmeldConfig {
          */
         @WithDefault("PT24H")
         fun ttl(): Duration
+
+        /**
+         * Begrensde blocking-await op de Redis-idempotentie-operaties (NX-write/delete).
+         * Lokale Redis-latency, dus dezelfde orde als de overige cache-awaits; overschrijden
+         * → 503 (transient) zodat de publicatie-stream opnieuw aflevert. Moet positief zijn —
+         * `atMost(ZERO)` wacht onbegrensd en zou de bescherming stil uitschakelen.
+         */
+        @WithDefault("PT2S")
+        fun redisAwaitTimeout(): Duration
     }
 }
