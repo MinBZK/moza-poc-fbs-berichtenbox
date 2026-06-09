@@ -1,6 +1,6 @@
 # Ontvanger getypeerd vastleggen in het sessiecache-domein (#625, incl. #648)
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 ## Context
 
