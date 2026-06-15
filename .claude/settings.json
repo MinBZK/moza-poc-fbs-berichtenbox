@@ -1,5 +1,4 @@
 {
-  "enabledPlugins": {},
   "hooks": {
     "PostToolUse": [
       {
@@ -23,5 +22,8 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "zad-actions@overheid-plugins": true
   }
 }
