@@ -104,6 +104,18 @@ Wel is het zo dat we hiermee oppervlakkige kennis opdoen, omdat we het op een
 presenteerblaadje aangereikt krijgen en we weer snel door kunnen. Maar dat is ook
 omdat we hier een PoC ontwikkelen en dat een bewuste keuze is.
 
+Daarnaast heeft hij meer doorzettingsvermogen. Als een open source tool niet werkt
+zoals verwacht, gaat Claude Code de sources in om te achterhalen wat het echte
+gedrag is. Iets wat een ontwikkelaar niet snel zou doen. Nu is dit niet per se
+goed, maar geeft wel meer opties.
+
+In een ander geval konden weinig vinden op het implementeren van een techniek waar
+we weinig van wisten. We liepen vast met foutmeldingen. StackOverflow gaf geen
+resultaten, de documentatie was niet uitgebreid genoeg en Google gaf geen
+relevante resultaten. Claude Code had het probleem snel gevonden. In zijn model
+zat hier blijkbaar toch meer kennis over, of hij kon wel de juiste informatie
+achterhalen.
+
 ### Maximale code-vangrails
 
 We zijn steeds meer automatische code-kwaliteit-checks gaan toevoegen. Claude Code
