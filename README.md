@@ -102,7 +102,9 @@ alle niet-testcode wordt menselijk gereviewd en testcode wordt functioneel
 beproefd. Zie [DISCLAIMER.md](DISCLAIMER.md) voor de
 disclaimer en [docs/ai-verantwoording.md](docs/ai-verantwoording.md) voor de
 volledige verantwoording, getoetst aan de Overheidsbrede handreiking voor de
-verantwoorde inzet van generatieve AI.
+verantwoorde inzet van generatieve AI. In
+[docs/ai-ervaringen.md](docs/ai-ervaringen.md) delen we onze praktische ervaringen
+met het bouwen van deze PoC met AI.
 
 ## Ondersteuning
 
