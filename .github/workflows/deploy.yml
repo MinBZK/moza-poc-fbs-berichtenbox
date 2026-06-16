@@ -122,15 +122,16 @@ jobs:
           # (quarkus-smallrye-health toevoegen + readiness-path: /q/health/ready). Nu
           # zou een readiness-check op '/' kunnen 404'en en de deploy onterecht falen.
           wait-for-ready: 'false'
-          # magazijnen-a/-b draaien hetzelfde image, maar als losse componenten met elk
-          # een eigen MAGAZIJN_OIN + Postgres (via de production-baseline-config). Extra
-          # magazijn = entry hier toevoegen + zijn env op `production` configureren.
+          # magazijna/magazijnb draaien hetzelfde image, maar als losse componenten met
+          # elk een eigen MAGAZIJN_OIN + Postgres (via de production-baseline-config).
+          # Component-namen: geen streepjes (worden in de ZAD-URL als scheidingsteken
+          # gebruikt). Extra magazijn = entry hier toevoegen + zijn env op `production`.
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "berichtenuitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
-              {"name": "berichtenmagazijn-a", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "berichtenmagazijn-b", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+              {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
+              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
 
   # Opruimen bij PR-sluiten: ZAD-deployment + GitHub-env + ÓNZE images (niet de
@@ -181,6 +182,6 @@ jobs:
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "berichtenuitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
-              {"name": "berichtenmagazijn-a", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "berichtenmagazijn-b", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+              {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
+              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
