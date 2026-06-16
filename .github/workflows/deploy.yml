@@ -1,12 +1,13 @@
 # Deploy naar ZAD (Operations Manager) via RijksICTGilde/zad-actions.
 #
 # Topologie: 1 berichtenuitvraag + N berichtenmagazijn (1 per deelnemende organisatie/OIN)
-# + een ZELF-gedeployde Redis Stack. De centrale ZAD-Redis is v7 zonder RediSearch; de
-# sessiecache van berichtenuitvraag vereist RediSearch+ReJSON, dus draaien we eigen
-# redis-stack mee. Die mag ephemeral (geen volume): sliding-TTL, herbouwbaar via _ophalen.
+# + een ZELF-gedeployd `redis`-component (image redis-stack-server). De centrale ZAD-Redis
+# is v7 zonder RediSearch; de sessiecache van berichtenuitvraag vereist RediSearch+ReJSON,
+# dus draaien we eigen Redis Stack mee. Mag ephemeral (geen volume): sliding-TTL,
+# herbouwbaar via _ophalen.
 #
 # App-config woont NIET hier. De deploy-action draagt geen env/secrets; runtime-env
-# (REDIS_HOSTS → redis-stack, DB_*, CLICKHOUSE_*, MAGAZIJN_OIN per magazijn, profiel-URL)
+# (REDIS_HOSTS → het `redis`-component, DB_*, CLICKHOUSE_*, MAGAZIJN_OIN per magazijn, profiel-URL)
 # configureer je éénmalig per component op de `production`-deployment in ZAD Operations
 # Manager. Previews erven die config via `clone-from: production` — zo verschilt per PR
 # alleen het image.
@@ -95,7 +96,7 @@ jobs:
             -Dquarkus.container-image.username="$GHCR_USER" \
             -Dquarkus.container-image.password="$GHCR_TOKEN"
 
-  # PR-preview: één atomische multi-component deploy (redis-stack + uitvraag + magazijnen).
+  # PR-preview: één atomische multi-component deploy (redis + uitvraag + magazijnen).
   # clone-from kopieert de per-component env/secrets van `production`.
   deploy-preview:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
@@ -126,14 +127,14 @@ jobs:
           # magazijn = entry hier toevoegen + zijn env op `production` configureren.
           components: |
             [
-              {"name": "redis-stack", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "berichtenuitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
               {"name": "berichtenmagazijn-a", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "berichtenmagazijn-b", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
 
   # Opruimen bij PR-sluiten: ZAD-deployment + GitHub-env + ÓNZE images (niet de
-  # publieke redis-stack).
+  # publieke redis-image).
   cleanup-preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     needs: meta
@@ -178,7 +179,7 @@ jobs:
           deployment-name: production
           components: |
             [
-              {"name": "redis-stack", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "berichtenuitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
               {"name": "berichtenmagazijn-a", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "berichtenmagazijn-b", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
