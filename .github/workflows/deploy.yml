@@ -12,8 +12,9 @@
 # alleen het image.
 #
 # Repo-secrets (Settings → Secrets and variables → Actions):
-#   ZAD_API_KEY         — ZAD Operations Manager API-key (verplicht)
-#   GITHUB_ADMIN_TOKEN  — PAT met repo-admin, alleen voor cleanup van GitHub-environments
+#   ZAD_API_KEY    — ZAD Operations Manager API-key (verplicht)
+#   GH_ADMIN_TOKEN — PAT met repo-admin, alleen voor cleanup van GitHub-environments.
+#                    (Niet `GITHUB_*` noemen: GitHub reserveert die prefix voor secrets.)
 #
 # TODO(SHA-pin): conform repo-conventie (Scorecard) externe actions op commit-SHA pinnen
 # i.p.v. tags vóór dit als productie-pipeline geldt.
@@ -154,7 +155,7 @@ jobs:
               {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "pr-${{ github.event.number }}"},
               {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"}
             ]
-          github-admin-token: ${{ secrets.GITHUB_ADMIN_TOKEN }}
+          github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
   # Productie bij push naar main. `production` is de baseline-deployment waarvan previews
   # hun config klonen; configureer de env/secrets hier rechtstreeks in Operations Manager.
