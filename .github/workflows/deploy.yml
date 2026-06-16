@@ -12,9 +12,14 @@
 # alleen het image.
 #
 # Repo-secrets (Settings → Secrets and variables → Actions):
-#   ZAD_API_KEY    — ZAD Operations Manager API-key (verplicht)
-#   GH_ADMIN_TOKEN — PAT met repo-admin, alleen voor cleanup van GitHub-environments.
-#                    (Niet `GITHUB_*` noemen: GitHub reserveert die prefix voor secrets.)
+#   ZAD_API_KEY — ZAD Operations Manager API-key (verplicht)
+#
+# GitHub-environment-verwijdering bij cleanup staat UIT (delete-github-env: false),
+# omdat dat repo-admin-rechten vereist (PAT of GitHub App) die hier nog niet
+# beschikbaar zijn. Gevolg: lege `pr-<n>`-environments stapelen cosmetisch op; de
+# ZAD-deployment en images worden wél opgeruimd. Zet weer op true + voeg een
+# admin-token toe (secret zónder `GITHUB_`-prefix, bv. GH_ADMIN_TOKEN, of een
+# GitHub-App-token via actions/create-github-app-token) zodra dat geregeld is.
 #
 # TODO(SHA-pin): conform repo-conventie (Scorecard) externe actions op commit-SHA pinnen
 # i.p.v. tags vóór dit als productie-pipeline geldt.
@@ -147,7 +152,8 @@ jobs:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: ${{ env.PROJECT_ID }}
           deployment-name: pr-${{ github.event.pull_request.number }}
-          delete-github-env: 'true'
+          # Env-verwijdering uit: vereist repo-admin-token (PAT/App) dat er nog niet is.
+          delete-github-env: 'false'
           delete-github-deployments: 'true'
           delete-container: 'true'
           containers: |
@@ -155,7 +161,6 @@ jobs:
               {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "pr-${{ github.event.number }}"},
               {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"}
             ]
-          github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
   # Productie bij push naar main. `production` is de baseline-deployment waarvan previews
   # hun config klonen; configureer de env/secrets hier rechtstreeks in Operations Manager.
