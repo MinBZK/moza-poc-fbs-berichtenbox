@@ -36,7 +36,7 @@ import java.util.UUID
  */
 @QuarkusTest
 @TestProfile(MockSessiecacheProfile::class)
-@QuarkusTestResource(WireMockBackendsResource::class)
+@QuarkusTestResource(value = WireMockBackendsResource::class, restrictToAnnotatedClass = true)
 class OpenApiContractTest {
 
     private val validator = OpenApiValidationFilter(
@@ -59,7 +59,7 @@ class OpenApiContractTest {
     @BeforeEach
     fun reset() {
         sessiecache.reset()
-        WireMockBackendsResource.magazijn?.resetAll()
+        WireMockBackendsResource.magazijnA.resetAll()
     }
 
     private fun seedBericht(berichtId: UUID, magazijnId: String = WireMockBackendsResource.OIN_A): Bericht {
@@ -121,7 +121,7 @@ class OpenApiContractTest {
     fun `PATCH bericht doet dual-write en levert valide Bericht`() {
         val id = UUID.randomUUID()
         seedBericht(id)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             patch(urlPathMatching("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
         )
@@ -141,7 +141,7 @@ class OpenApiContractTest {
     fun `DELETE bericht doet dual-write en geeft 204`() {
         val id = UUID.randomUUID()
         seedBericht(id)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             delete(urlPathMatching("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
         )
@@ -161,7 +161,7 @@ class OpenApiContractTest {
         val bijlageId = UUID.randomUUID()
         // De service haalt eerst het bericht op om de magazijnId te bepalen.
         seedBericht(berichtId)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
                     aResponse()
@@ -201,7 +201,7 @@ class OpenApiContractTest {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         seedBericht(berichtId)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(500)),
         )

@@ -36,7 +36,7 @@ import java.util.UUID
  */
 @QuarkusTest
 @TestProfile(MockSessiecacheProfile::class)
-@QuarkusTestResource(WireMockBackendsResource::class)
+@QuarkusTestResource(value = WireMockBackendsResource::class, restrictToAnnotatedClass = true)
 class ServiceCoverageTest {
 
     @Inject
@@ -45,8 +45,8 @@ class ServiceCoverageTest {
     @BeforeEach
     fun reset() {
         sessiecache.reset()
-        WireMockBackendsResource.magazijn?.resetAll()
-        WireMockBackendsResource.magazijn2?.resetAll()
+        WireMockBackendsResource.magazijnA.resetAll()
+        WireMockBackendsResource.magazijnB.resetAll()
     }
 
     @Test
@@ -99,7 +99,7 @@ class ServiceCoverageTest {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         seedBericht(berichtId)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(503)),
         )
@@ -117,7 +117,7 @@ class ServiceCoverageTest {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         seedBericht(berichtId)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(404)),
         )
@@ -137,7 +137,7 @@ class ServiceCoverageTest {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         seedBericht(berichtId)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
         )
@@ -157,7 +157,7 @@ class ServiceCoverageTest {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         seedBericht(berichtId)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(aResponse().withStatus(200).withBody("pdf-bytes")),
         )
@@ -182,7 +182,7 @@ class ServiceCoverageTest {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         seedBericht(berichtId)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
                     aResponse()
@@ -211,7 +211,7 @@ class ServiceCoverageTest {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         seedBericht(berichtId, magazijnId = WireMockBackendsResource.OIN_B)
-        WireMockBackendsResource.magazijn2!!.stubFor(
+        WireMockBackendsResource.magazijnB.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
                     aResponse()
@@ -228,10 +228,10 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
 
-        WireMockBackendsResource.magazijn2!!.verify(
+        WireMockBackendsResource.magazijnB.verify(
             getRequestedFor(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")),
         )
-        WireMockBackendsResource.magazijn!!.verify(
+        WireMockBackendsResource.magazijnA.verify(
             0,
             getRequestedFor(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")),
         )
@@ -262,7 +262,7 @@ class ServiceCoverageTest {
         // Assert de body op de wire: `status:gelezen` → `{"gelezen":true}` richting
         // magazijn. Zonder deze check zou een veld-rename of geïnverteerde mapping
         // door alle tests glippen (status 200 zegt niets over de payload).
-        WireMockBackendsResource.magazijn!!.verify(
+        WireMockBackendsResource.magazijnA.verify(
             patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id"))
                 .withRequestBody(matchingJsonPath("$.gelezen", wmEqualTo("true"))),
         )
@@ -283,7 +283,7 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
 
-        WireMockBackendsResource.magazijn!!.verify(
+        WireMockBackendsResource.magazijnA.verify(
             patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id"))
                 .withRequestBody(matchingJsonPath("$.gelezen", wmEqualTo("false"))),
         )
@@ -306,7 +306,7 @@ class ServiceCoverageTest {
 
         // `gelezen` afwezig (Jackson non_null), alleen `map` doorgegeven: bevestigt
         // dat een afwezige status géén `gelezen=false` naar het magazijn stuurt.
-        WireMockBackendsResource.magazijn!!.verify(
+        WireMockBackendsResource.magazijnA.verify(
             patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id"))
                 .withRequestBody(matchingJsonPath("$.map", wmEqualTo("archief")))
                 .withRequestBody(notMatching(".*gelezen.*")),
@@ -419,7 +419,7 @@ class ServiceCoverageTest {
             .then()
             .statusCode(502)
 
-        WireMockBackendsResource.magazijn!!.verify(
+        WireMockBackendsResource.magazijnA.verify(
             0,
             getRequestedFor(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")),
         )
@@ -467,7 +467,7 @@ class ServiceCoverageTest {
     }
 
     private fun stubMagazijnPatchOk(id: UUID) {
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
         )

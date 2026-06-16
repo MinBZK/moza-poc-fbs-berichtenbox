@@ -28,7 +28,7 @@ import java.util.UUID
  */
 @QuarkusTest
 @TestProfile(MockSessiecacheProfile::class)
-@QuarkusTestResource(WireMockBackendsResource::class)
+@QuarkusTestResource(value = WireMockBackendsResource::class, restrictToAnnotatedClass = true)
 class DualWriteFaultTest {
 
     @Inject
@@ -37,7 +37,7 @@ class DualWriteFaultTest {
     @BeforeEach
     fun reset() {
         sessiecache.reset()
-        WireMockBackendsResource.magazijn?.resetAll()
+        WireMockBackendsResource.magazijnA.resetAll()
     }
 
     private fun seedBericht(id: UUID) {
@@ -54,14 +54,14 @@ class DualWriteFaultTest {
     }
 
     private fun stubMagazijnPatchOk(id: UUID) {
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
         )
     }
 
     private fun stubMagazijnDeleteOk(id: UUID) {
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             wmDelete(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
         )
@@ -86,7 +86,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(200)
 
-        WireMockBackendsResource.magazijn!!.verify(patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+        WireMockBackendsResource.magazijnA.verify(patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
 
         assertEquals(1, sessiecache.werkBijAanroepen)
     }
@@ -106,7 +106,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(400)
 
-        WireMockBackendsResource.magazijn!!.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+        WireMockBackendsResource.magazijnA.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
 
         assertEquals(0, sessiecache.werkBijAanroepen)
     }
@@ -117,7 +117,7 @@ class DualWriteFaultTest {
         // consistent met het bijlage-pad; de cache wordt niet aangeraakt.
         val id = UUID.randomUUID()
         seedBericht(id)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(503)),
         )
@@ -141,7 +141,7 @@ class DualWriteFaultTest {
         // cache mag niet aangeraakt worden (magazijn-write is niet doorgegaan).
         val id = UUID.randomUUID()
         seedBericht(id)
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(403)),
         )
@@ -256,7 +256,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(204)
 
-        WireMockBackendsResource.magazijn!!.verify(deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+        WireMockBackendsResource.magazijnA.verify(deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
 
         assertEquals(listOf(id), sessiecache.verwijderAanroepen)
     }
@@ -264,7 +264,7 @@ class DualWriteFaultTest {
     @Test
     fun `DELETE magazijn-5xx normaliseert naar 502 en raakt de cache niet aan`() {
         val id = UUID.randomUUID()
-        WireMockBackendsResource.magazijn!!.stubFor(
+        WireMockBackendsResource.magazijnA.stubFor(
             wmDelete(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(503)),
         )
