@@ -8,8 +8,8 @@
 #
 # App-config woont NIET hier. De deploy-action draagt geen env/secrets; runtime-env
 # (REDIS_HOSTS → het `redis`-component, DB_*, CLICKHOUSE_*, MAGAZIJN_OIN per magazijn, profiel-URL)
-# configureer je éénmalig per component op de `production`-deployment in ZAD Operations
-# Manager. Previews erven die config via `clone-from: production` — zo verschilt per PR
+# configureer je éénmalig per component op de `test`-deployment in ZAD Operations
+# Manager. Previews erven die config via `clone-from: test` — zo verschilt per PR
 # alleen het image.
 #
 # Repo-secrets (Settings → Secrets and variables → Actions):
@@ -97,7 +97,7 @@ jobs:
             -Dquarkus.container-image.password="$GHCR_TOKEN"
 
   # PR-preview: één atomische multi-component deploy (redis + uitvraag + magazijnen).
-  # clone-from kopieert de per-component env/secrets van `production`.
+  # clone-from kopieert de per-component env/secrets van `test`.
   deploy-preview:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     needs: [meta, build]
@@ -116,16 +116,16 @@ jobs:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: ${{ env.PROJECT_ID }}
           deployment-name: pr-${{ github.event.pull_request.number }}
-          clone-from: production
+          clone-from: test
           comment-on-pr: 'true'
           # wait-for-ready staat uit tot de services een health-endpoint hebben
           # (quarkus-smallrye-health toevoegen + readiness-path: /q/health/ready). Nu
           # zou een readiness-check op '/' kunnen 404'en en de deploy onterecht falen.
           wait-for-ready: 'false'
           # magazijna/magazijnb draaien hetzelfde image, maar als losse componenten met
-          # elk een eigen MAGAZIJN_OIN + Postgres (via de production-baseline-config).
+          # elk een eigen MAGAZIJN_OIN + Postgres (via de test-baseline-config).
           # Component-namen: geen streepjes (worden in de ZAD-URL als scheidingsteken
-          # gebruikt). Extra magazijn = entry hier toevoegen + zijn env op `production`.
+          # gebruikt). Extra magazijn = entry hier toevoegen + zijn env op `test`.
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
@@ -161,23 +161,23 @@ jobs:
             ]
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
-  # Productie bij push naar main. `production` is de baseline-deployment waarvan previews
-  # hun config klonen; configureer de env/secrets hier rechtstreeks in Operations Manager.
-  deploy-production:
+  # Push naar main → de `test`-deployment. Dit is tevens de baseline waarvan previews
+  # hun config klonen; configureer de env/secrets hier in Operations Manager.
+  deploy-test:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [meta, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     environment:
-      name: production
+      name: test
     steps:
-      - name: Deploy production
+      - name: Deploy test
         uses: RijksICTGilde/zad-actions/deploy@v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY }}
           project-id: ${{ env.PROJECT_ID }}
-          deployment-name: production
+          deployment-name: test
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
