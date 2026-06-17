@@ -1,15 +1,15 @@
 # Deploy naar ZAD (Operations Manager) via RijksICTGilde/zad-actions.
 #
 # Topologie per deployment (pr-<n> of test): uitvraag + magazijna + magazijnb + redis +
-# profiel — allemaal componenten BÍNNEN dezelfde deployment. ZAD-deployments zijn
+# clickhouse — allemaal componenten BÍNNEN dezelfde deployment. ZAD-deployments zijn
 # geïsoleerd: infra delen tussen deployments kan niet, dus elke deployment draait z'n
 # eigen `redis` (sessiecache; image redis-stack omdat de centrale ZAD-Redis v7 geen
-# RediSearch heeft; ephemeral, herbouwbaar via _ophalen) en eigen `profiel`-stub.
-# magazijna/magazijnb = zelfde image, eigen OIN + DB-schema per component.
+# RediSearch heeft; ephemeral, herbouwbaar via _ophalen) en eigen `clickhouse` (LDV).
+# magazijna/magazijnb = zelfde image, eigen OIN/DB per component.
 #
 # App-config woont NIET hier. De deploy-action draagt geen env/secrets; runtime-env
-# (REDIS_HOSTS → eigen `redis`-component, PROFIEL_SERVICE_URL → eigen `profiel`-stub,
-#  DB_* + DB_SCHEMA + MAGAZIJN_OIN per magazijn, LOGBOEKDATAVERWERKING_ENABLED=false)
+# (REDIS_HOSTS → eigen `redis`-component, LDV_CLICKHOUSE_ENDPOINT → eigen `clickhouse`,
+#  DB_*, MAGAZIJN_OIN per magazijn, profiel-URL)
 # configureer je éénmalig per component op de `test`-deployment in ZAD Operations
 # Manager. Previews erven die config via `clone-from: test` — zo verschilt per PR
 # alleen het image.
@@ -40,16 +40,13 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   PROJECT_ID: mpfb-8wh
-  # ZAD-deployments zijn geïsoleerd, dus Redis draait als component bínnen elke
-  # deployment (Redis Stack omdat de centrale ZAD-Redis v7 geen RediSearch heeft).
-  # Publiek image → niet door de cleanup verwijderd. Pin in sync met compose.yaml
-  # (zie pin-consistency.yml).
-  #
-  # ClickHouse (LDV) draait NIET als component: zware, stateful DB die zonder persistent
-  # volume (ZAD ondersteunt geen volumes) niet betrouwbaar opkomt. LDV staat in deze
-  # omgeving uit (LOGBOEKDATAVERWERKING_ENABLED=false op de app-componenten); voor
-  # productie een externe/managed ClickHouse aanwijzen en LDV weer aanzetten.
+  # ZAD-deployments zijn geïsoleerd (geen gedeelde infra tussen deployments), dus
+  # Redis én ClickHouse draaien als component bínnen elke deployment. Redis Stack omdat
+  # de centrale ZAD-Redis (v7) geen RediSearch heeft; ClickHouse voor het Logboek
+  # Dataverwerkingen (LDV). Beide images publiek → niet door de cleanup verwijderd.
+  # Pins in sync houden met compose.yaml (zie pin-consistency.yml).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
+  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.5
 
 jobs:
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
@@ -129,8 +126,8 @@ jobs:
           docker build -t "$IMG" wiremock/profiel-service
           docker push "$IMG"
 
-  # PR-preview: één atomische multi-component deploy (redis + profiel + uitvraag +
-  # magazijnen).
+  # PR-preview: één atomische multi-component deploy (redis + clickhouse + profiel +
+  # uitvraag + magazijnen).
   # clone-from kopieert de per-component env/secrets van `test`.
   deploy-preview:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
@@ -162,7 +159,9 @@ jobs:
           # gebruikt). Extra magazijn = entry hier toevoegen + zijn env op `test`.
           components: |
             [
-              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"},
+              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
@@ -215,7 +214,9 @@ jobs:
           deployment-name: test
           components: |
             [
-              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"},
+              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
