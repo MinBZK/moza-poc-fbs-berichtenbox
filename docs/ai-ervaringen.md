@@ -3,9 +3,9 @@
 **Status:** Levend document (wordt periodiek aangevuld)
 
 Dit document legt onze praktische ervaringen vast met het bouwen van deze PoC met
-een AI-assistent (Claude Code). De insteek is concreet en direct: wat werkte, wat
-niet, en welke afspraken we onderweg hebben gemaakt om de samenwerking productief
-te houden.
+een AI-assistent. In ons geval gebruiken we uitsluitend Claude Code (vanaf nu
+afgekort met CC). De insteek is concreet en direct: wat werkte, wat niet, en welke
+afspraken we onderweg hebben gemaakt om de samenwerking productief te houden.
 
 Het is geen verantwoordingsdocument. Daarvoor verwijzen we naar
 [`ai-verantwoording.md`](ai-verantwoording.md). Hier gaat het puur om de praktijk:
@@ -22,6 +22,34 @@ componenten, die we met Bruno-scripts afzonderlijk kunnen aanspreken. Er is nog
 geen werkend geheel en nog geen demo-engine, dus functioneel end-to-end beproeven
 kan nog niet. Een eind-oordeel over de aanpak is daarom nog niet mogelijk.
 
+### Ervaringen in grote lijnen
+
+Voor ons is CC een zeer waardevolle aanvulling op ons team geweest. Als je het zou
+uitdrukken in toevoeging aan het team, dan varieert dat sterk tussen:
+
+- Een externe die even over onze schouder meekijkt, tot
+- Een aantal teamleden die tickets voor ons oplossen
+
+Waarbij in beide gevallen de kwaliteit van zeer junior tot zeer senior ging, maar
+gemiddeld toch echt wel sterk was. Het aantal keren dat we elkaar in de armen
+moesten knijpen met "gebeurt dit nu echt?" is groter dan de irritatie als het slecht
+loopt.
+
+Een paar dingen die regelmatig terugkomen en horen bij "standaard AI-gebruik":
+
+- Soms maakt CC nog in detail fouten.
+- Soms zit CC vast in een slechte feedback loop en moet je bijsturen door
+  te zeggen "je gaat in rondjes, dit werkt niet".
+
+Maar dit is wel op het niveau van het hebben van "een slechte dag". Over het
+algemeen is wat er opgeleverd wordt erg goed.
+
+Het allerbelangrijkste is om niet uit te gaan van een enkele bouw-fase. Er is altijd
+een ronde van review en fixes nodig. Voor ons werkt het nu het beste om in een
+prompt te vragen wat er gebeuren moet en aansluitend drie review+fix-rondes te
+vragen, gebruikmakend van de skills die we toegevoegd hebben. Pas daarna kijken we
+naar het resultaat.
+
 ### Overheid AI-assistent skills
 
 We maken dankbaar gebruik van de
@@ -36,7 +64,7 @@ te ervaren hoe de standaarden uitpakken en gaandeweg ervaring en kennis op te do
 We roepen bij het maken van plannen, ontwerpen en review-rondes expliciet deze
 skills aan.
 
-- Claude Code kan hier goed gebruik van maken. We zien dat hij echt focus krijgt op
+- CC kan hier goed gebruik van maken. We zien dat hij echt focus krijgt op
   het naleven van richtlijnen, standaarden en werkwijzen die erin vastgelegd zijn.
 - De mate van detail, met name bij reviews, is "onmenselijk". We hadden dit zelf
   nooit op dit niveau kunnen toepassen. Dit geeft vertrouwen in de code en het
@@ -47,10 +75,10 @@ skills aan.
 Het [C4-model](https://minbzk.github.io/moza-poc-fbs-berichtenbox/master/) is de
 basis voor het ontwikkelen van onze componenten. Dit is ook met behulp van AI
 opgesteld, met gebruik van de skills hierboven. Uit een eerder project hadden we al
-ervaren dat het helpt om een model te hebben op basis waarvan Claude Code kan
+ervaren dat het helpt om een model te hebben op basis waarvan CC kan
 werken.
 
-Zonder zo'n plan is er te veel vrijheid en is het lastiger voor Claude Code om een
+Zonder zo'n plan is er te veel vrijheid en is het lastiger voor CC om een
 samenhangend geheel te maken.
 
 ### Selectief human-in-the-loop
@@ -62,7 +90,7 @@ C4-model is hier het kader voor. We laten deze in `docs/plans` opslaan ter
 referentie.
 
 > Persoonlijk merkte ik dat ik gaandeweg minder belang hechtte aan deze plannen. Ik
-> kreeg steeds meer het gevoel dat Claude Code "gewoon wist" hoe het project in
+> kreeg steeds meer het gevoel dat CC "gewoon wist" hoe het project in
 > elkaar stak en met de kaders uit de voeten kon om iets goeds op te leveren.
 
 #### Beperkte review
@@ -90,13 +118,13 @@ kans is dat dit toch naar productie gebracht moet worden.
 Overigens zijn we wel tot de conclusie gekomen dat het alsnog belangrijk is om in
 kleinere brokken te werken. Tot nu toe hebben we relatief grote brokken in één keer
 laten oppakken. En ondanks dat we tests niet bekeken, bleek het alsnog een flinke
-kluif om te reviewen. Wanneer Claude Code aangeeft dat iets in een los PR zou
+kluif om te reviewen. Wanneer CC aangeeft dat iets in een los PR zou
 moeten, is het verstandig om daar goed over na te denken. Het kost ook weinig extra
-moeite en tijd omdat Claude Code dit allemaal verzorgt.
+moeite en tijd omdat CC dit allemaal verzorgt.
 
 ### Kennisniveau
 
-Wat we gemerkt hebben is dat Claude Code erg veel "weet". Het hele internet is zijn
+Wat we gemerkt hebben is dat CC erg veel "weet". Het hele internet is zijn
 geheugen. Dit leidt tot oplossingen waar we zelf nooit aan hadden gedacht of lang
 naar hadden moeten zoeken of inlezen.
 
@@ -105,26 +133,25 @@ presenteerblaadje aangereikt krijgen en we weer snel door kunnen. Maar dat is oo
 omdat we hier een PoC ontwikkelen en dat een bewuste keuze is.
 
 Daarnaast heeft hij meer doorzettingsvermogen. Als een open source tool niet werkt
-zoals verwacht, gaat Claude Code de sources in om te achterhalen wat het echte
+zoals verwacht, gaat CC de sources in om te achterhalen wat het echte
 gedrag is. Iets wat een ontwikkelaar niet snel zou doen. Nu is dit niet per se
 goed, maar geeft wel meer opties.
 
-In een ander geval konden weinig vinden op het implementeren van een techniek waar
-we weinig van wisten. We liepen vast met foutmeldingen. StackOverflow gaf geen
-resultaten, de documentatie was niet uitgebreid genoeg en Google gaf geen
-relevante resultaten. Claude Code had het probleem snel gevonden. In zijn model
-zat hier blijkbaar toch meer kennis over, of hij kon wel de juiste informatie
-achterhalen.
+In een ander geval konden we weinig vinden over het implementeren van een techniek
+waar we weinig van wisten. We liepen vast met foutmeldingen. StackOverflow gaf geen
+resultaten, de documentatie was niet uitgebreid genoeg en Google gaf geen relevante
+resultaten. CC had het probleem snel gevonden. In zijn model zat hier blijkbaar toch
+meer kennis over, of hij kon wel de juiste informatie achterhalen.
 
 ### Maximale code-vangrails
 
-We zijn steeds meer automatische code-kwaliteit-checks gaan toevoegen. Claude Code
+We zijn steeds meer automatische code-kwaliteit-checks gaan toevoegen. CC
 noemen we soms "Claudje-van-Leiden". Het lijkt erop dat het doorzettingsvermogen
 snel kan dalen en werk "afgeraffeld" lijkt, of dat de te makkelijke oplossing
 gekozen wordt.
 
 Dit kan te weinig of slechte tests opleveren, spaghetti code, etc. Er zijn tools die
-dit automatisch aantonen en daarmee Claude Code forceren om het op te lossen.
+dit automatisch aantonen en daarmee CC forceren om het op te lossen.
 
 - Kotlin code-kwaliteit met [detekt](https://detekt.dev/) op `maxIssues: 0`
   voorkomt spaghetti code en veel code-smell.
@@ -143,23 +170,23 @@ aanwezig moeten zijn.
 
 Voor sommige richtlijnen zijn geen (of niet zo makkelijk) automatische tools
 beschikbaar om ze te controleren. Die kunnen we dan toevoegen aan `CLAUDE.md`. Dit
-is een project-geheugen, met o.a. richtlijnen over hoe Claude Code zijn werk moet
+is een project-geheugen, met o.a. richtlijnen over hoe CC zijn werk moet
 doen.
 
-- Claude Code is erg goed in taal, en lijkt dat ook te willen tonen. Comments kunnen
+- CC is erg goed in taal, en lijkt dat ook te willen tonen. Comments kunnen
   erg lang worden, met als effect dat ze niet meer gelezen worden (TL;DR). Beschrijf
   "waarom, niet wat".
-- Claude Code heeft ook de neiging om elke vorm van feedback uitgebreid in comments
+- CC heeft ook de neiging om elke vorm van feedback uitgebreid in comments
   te plaatsen. Dit is vaak onnodig of verwijst naar referenties die later geen
   relevantie meer hebben (bevinding B4, in de vorige iteratie deden we het zo, ...).
-- Claude Code is nog niet goed in het gebruiken van Nederlands in een technische
+- CC is nog niet goed in het gebruiken van Nederlands in een technische
   context waar Engels eigenlijk de voertaal is. Letterlijk vertaalde woorden als
   *voetpistool*, of moeilijk Nederlands als 'exhaustief', maken het commentaar
   moeilijker leesbaar.
-- Claude Code reviews gebeuren vaak vanuit een nieuwe context. Het is daarom
+- CC reviews gebeuren vaak vanuit een nieuwe context. Het is daarom
   belangrijk om "won't fix"-keuzes vast te leggen, zodat ze niet elke review weer
   terugkomen.
-- Claude Code heeft (soms) de neiging om de makkelijkste optie te kiezen. Met name
+- CC heeft (soms) de neiging om de makkelijkste optie te kiezen. Met name
   bij het ontwikkelen van tests is sturing nodig. We hebben toegevoegd dat hij
   creatief tests moet toevoegen.
 
@@ -176,29 +203,12 @@ doen.
 ### Concrete technische lessen
 
 Hard geleerde details die zonder context terugkomen als bug of verwarring. Veel
-hiervan staat samengevat ook in `CLAUDE.md`, zodat Claude Code ze meekrijgt.
+hiervan staat samengevat ook in `CLAUDE.md`, zodat CC ze meekrijgt.
 
 - **`clean` vóór `test`/`verify`.** Door het hoge ontwikkeltempo en het gelijktijdig
   werken zijn er veel branch-wisselingen. Op een gedeelde bind mount blijven dan
   stale `.class`-bestanden achter, wat misleidende
   `NoSuchMethodError`/"Failed to start Quarkus"-fouten geeft in ongewijzigde code.
-
-### Assistentgebruik in grote lijnen
-
-Een paar dingen die regelmatig terugkomen en horen bij "standaard AI-gebruik":
-
-- Soms maakt Claude Code nog in detail fouten.
-- Soms zit Claude Code vast in een slechte feedback loop en moet je bijsturen door
-  te zeggen "je gaat in rondjes, dit werkt niet".
-
-Maar dit is wel op het niveau van het hebben van "een slechte dag". Over het
-algemeen is wat er opgeleverd wordt erg goed.
-
-Het allerbelangrijkste is om niet uit te gaan van een enkele bouw-fase. Er is altijd
-een ronde van review en fixes nodig. Voor ons werkt het nu het beste om in een
-prompt te vragen wat er gebeuren moet en aansluitend drie review+fix-rondes te
-vragen, gebruikmakend van de skills die we toegevoegd hebben. Pas daarna kijken we
-naar het resultaat.
 
 ### Open vragen en nog te onderzoeken
 
