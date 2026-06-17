@@ -103,11 +103,35 @@ jobs:
             -Dquarkus.container-image.username="$GHCR_USER" \
             -Dquarkus.container-image.password="$GHCR_TOKEN"
 
-  # PR-preview: één atomische multi-component deploy (redis + uitvraag + magazijnen).
+  # Profiel-stub: WireMock-image met de mappings erin gebakken (plain docker, geen jib).
+  # De officiële Profiel-service is niet bereikbaar; elke deployment draait een eigen stub.
+  build-profiel-stub:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + push profiel-stub
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          IMG="$REGISTRY/$OWNER/fbs-profiel-stub:$TAG"
+          docker build -t "$IMG" wiremock/profiel-service
+          docker push "$IMG"
+
+  # PR-preview: één atomische multi-component deploy (redis + clickhouse + profiel +
+  # uitvraag + magazijnen).
   # clone-from kopieert de per-component env/secrets van `test`.
   deploy-preview:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build]
+    needs: [meta, build, build-profiel-stub]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -137,6 +161,7 @@ jobs:
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
@@ -165,7 +190,8 @@ jobs:
           containers: |
             [
               {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "pr-${{ github.event.number }}"},
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"}
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"},
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-profiel-stub", "tag": "pr-${{ github.event.number }}"}
             ]
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
@@ -173,7 +199,7 @@ jobs:
   # hun config klonen; configureer de env/secrets hier in Operations Manager.
   deploy-test:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build]
+    needs: [meta, build, build-profiel-stub]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -190,6 +216,7 @@ jobs:
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
