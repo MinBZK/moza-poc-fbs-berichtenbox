@@ -1,13 +1,15 @@
 # Deploy naar ZAD (Operations Manager) via RijksICTGilde/zad-actions.
 #
-# Topologie: 1 berichtenuitvraag + N berichtenmagazijn (1 per deelnemende organisatie/OIN)
-# + een ZELF-gedeployd `redis`-component (image redis-stack-server). De centrale ZAD-Redis
-# is v7 zonder RediSearch; de sessiecache van berichtenuitvraag vereist RediSearch+ReJSON,
-# dus draaien we eigen Redis Stack mee. Mag ephemeral (geen volume): sliding-TTL,
-# herbouwbaar via _ophalen.
+# Topologie per deployment (pr-<n> of test): uitvraag + magazijna + magazijnb + redis +
+# clickhouse — allemaal componenten BÍNNEN dezelfde deployment. ZAD-deployments zijn
+# geïsoleerd: infra delen tussen deployments kan niet, dus elke deployment draait z'n
+# eigen `redis` (sessiecache; image redis-stack omdat de centrale ZAD-Redis v7 geen
+# RediSearch heeft; ephemeral, herbouwbaar via _ophalen) en eigen `clickhouse` (LDV).
+# magazijna/magazijnb = zelfde image, eigen OIN/DB per component.
 #
 # App-config woont NIET hier. De deploy-action draagt geen env/secrets; runtime-env
-# (REDIS_HOSTS → het `redis`-component, DB_*, CLICKHOUSE_*, MAGAZIJN_OIN per magazijn, profiel-URL)
+# (REDIS_HOSTS → eigen `redis`-component, LDV_CLICKHOUSE_ENDPOINT → eigen `clickhouse`,
+#  DB_*, MAGAZIJN_OIN per magazijn, profiel-URL)
 # configureer je éénmalig per component op de `test`-deployment in ZAD Operations
 # Manager. Previews erven die config via `clone-from: test` — zo verschilt per PR
 # alleen het image.
@@ -38,8 +40,13 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   PROJECT_ID: mpfb-8wh
-  # Centrale ZAD-Redis (v7) mist RediSearch → eigen Redis Stack als component.
+  # ZAD-deployments zijn geïsoleerd (geen gedeelde infra tussen deployments), dus
+  # Redis én ClickHouse draaien als component bínnen elke deployment. Redis Stack omdat
+  # de centrale ZAD-Redis (v7) geen RediSearch heeft; ClickHouse voor het Logboek
+  # Dataverwerkingen (LDV). Beide images publiek → niet door de cleanup verwijderd.
+  # Pins in sync houden met compose.yaml (zie pin-consistency.yml).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
+  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.5
 
 jobs:
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
@@ -129,6 +136,7 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
@@ -181,6 +189,7 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
