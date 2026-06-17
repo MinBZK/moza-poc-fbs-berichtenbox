@@ -1,0 +1,32 @@
+# Houdt de redis-stack-server-image-pin uniform over alle locaties.
+#
+# De pin staat (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
+# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE) en de test-
+# devservices-image-names. Dependabot's docker-compose-ecosystem ziet alléén
+# compose.yaml; de workflow-env en de Kotlin-test-strings niet. Een Dependabot-bump
+# zou dus drift veroorzaken. Deze guard maakt zo'n gedeeltelijke bump een harde fout,
+# zodat alle pins samen bewegen (de pins zelf blijven expliciet).
+
+name: Pin consistency
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  redis-stack-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+      - name: redis-stack-server-pin moet overal identiek zijn
+        run: |
+          mapfile -t pins < <(git ls-files | xargs grep -hoE 'redis/redis-stack-server:[A-Za-z0-9._-]+' 2>/dev/null | sort -u)
+          printf 'gevonden pin(s): %s\n' "${pins[*]:-<geen>}"
+          if [ "${#pins[@]}" -gt 1 ]; then
+            echo "::error::redis-stack-server-pin niet uniform (${pins[*]}). Sync compose.yaml, .github/workflows/deploy.yml en de test-image-names; Dependabot bumpt alleen compose.yaml."
+            exit 1
+          fi
