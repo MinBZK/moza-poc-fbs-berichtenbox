@@ -1,8 +1,8 @@
-# Houdt de pins van de zelf-gedeployde infra-images uniform over alle locaties.
+# Houdt de redis-stack-server-image-pin uniform over alle locaties.
 #
-# De pins staan (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
-# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE/CLICKHOUSE_IMAGE) en
-# de test-devservices-image-names. Dependabot's docker-compose-ecosystem ziet alléén
+# De pin staat (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
+# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE) en de test-
+# devservices-image-names. Dependabot's docker-compose-ecosystem ziet alléén
 # compose.yaml; de workflow-env en de Kotlin-test-strings niet. Een Dependabot-bump
 # zou dus drift veroorzaken. Deze guard maakt zo'n gedeeltelijke bump een harde fout,
 # zodat alle pins samen bewegen (de pins zelf blijven expliciet).
@@ -18,19 +18,15 @@ permissions:
   contents: read
 
 jobs:
-  infra-image-pins:
+  redis-stack-pin:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
-      - name: infra-image-pins moeten overal identiek zijn
+      - name: redis-stack-server-pin moet overal identiek zijn
         run: |
-          fail=0
-          for img in redis/redis-stack-server clickhouse/clickhouse-server; do
-            mapfile -t pins < <(git ls-files | xargs grep -hoE "${img}:[A-Za-z0-9._-]+" 2>/dev/null | sort -u)
-            printf '%s pin(s): %s\n' "$img" "${pins[*]:-<geen>}"
-            if [ "${#pins[@]}" -gt 1 ]; then
-              echo "::error::${img}-pin niet uniform (${pins[*]}). Sync compose.yaml, .github/workflows/deploy.yml en de test-image-names; Dependabot bumpt alleen compose.yaml."
-              fail=1
-            fi
-          done
-          exit "$fail"
+          mapfile -t pins < <(git ls-files | xargs grep -hoE 'redis/redis-stack-server:[A-Za-z0-9._-]+' 2>/dev/null | sort -u)
+          printf 'gevonden pin(s): %s\n' "${pins[*]:-<geen>}"
+          if [ "${#pins[@]}" -gt 1 ]; then
+            echo "::error::redis-stack-server-pin niet uniform (${pins[*]}). Sync compose.yaml, .github/workflows/deploy.yml en de test-image-names; Dependabot bumpt alleen compose.yaml."
+            exit 1
+          fi
