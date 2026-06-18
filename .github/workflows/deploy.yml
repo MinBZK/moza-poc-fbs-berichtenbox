@@ -1,28 +1,35 @@
 # Deploy naar ZAD (Operations Manager) via RijksICTGilde/zad-actions.
 #
-# Topologie per deployment (pr-<n> of test): uitvraag + magazijna + magazijnb + redis +
-# clickhouse — allemaal componenten BÍNNEN dezelfde deployment. ZAD-deployments zijn
-# geïsoleerd: infra delen tussen deployments kan niet, dus elke deployment draait z'n
-# eigen `redis` (sessiecache; image redis-stack omdat de centrale ZAD-Redis v7 geen
-# RediSearch heeft; ephemeral, herbouwbaar via _ophalen) en eigen `clickhouse` (LDV).
-# magazijna/magazijnb = zelfde image, eigen OIN/DB per component.
+# DRIE losse ZAD-projecten (deployments zijn geïsoleerd; cross-project bereik je via de
+# https-ingress-URLs `<component>-<deployment>-<projectid>.rig.prd1.gn2.quattro.rijksapps.nl`):
 #
-# App-config woont NIET hier. De deploy-action draagt geen env/secrets; runtime-env
-# (REDIS_HOSTS → eigen `redis`-component, LDV_CLICKHOUSE_ENDPOINT → eigen `clickhouse`,
-#  DB_*, MAGAZIJN_OIN per magazijn, profiel-URL)
-# configureer je éénmalig per component op de `test`-deployment in ZAD Operations
-# Manager. Previews erven die config via `clone-from: test` — zo verschilt per PR
-# alleen het image.
+#   uitvraag    (mpfb-8wh)     componenten: redis + clickhouse + uitvraag
+#   profiel     (mpfpsm-lcl)   componenten: profiel (WireMock-stub)
+#   magazijnen  (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb
+#
+# Redis (sessiecache) en ClickHouse (LDV) draaien per project intern (centrale ZAD-Redis
+# v7 mist RediSearch; ClickHouse niet deelbaar tussen deployments). Interne calls zijn
+# http: redis via redis://…:6379, LDV via http://…:8123 (de %prod-https-eis op het LDV-
+# endpoint staat uit via FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT — bewust onveilig, BSN
+# plaintext, alleen verantwoord bij mesh-mTLS/test-data).
+#
+# App-config woont NIET hier (de deploy-action draagt geen env). Configureer de runtime-env
+# éénmalig per component op de `test`-deployment van elk project in Operations Manager;
+# previews erven via `clone-from: test`. Cross-project-URLs wijzen naar de STABIELE `test`-
+# deployments (de deploy-action kan geen per-PR-env injecteren), bv. op uitvraag(test):
+#   MAGAZIJN_A_URL=https://magazijna-test-mpfm-w3h.rig...    (en magazijnb)
+#   PROFIEL_SERVICE_URL=https://profiel-test-mpfpsm-lcl.rig...
+# Een uitvraag-preview praat dus met de `test`-magazijnen/profiel; per-PR magazijn/profiel-
+# previews zijn losse smoke-tests van hun eigen API.
 #
 # Repo-secrets (Settings → Secrets and variables → Actions):
-#   ZAD_API_KEY    — ZAD Operations Manager API-key (verplicht)
-#   GH_ADMIN_TOKEN — PAT met repo-admin (Administration: read/write), voor het
-#                    verwijderen van GitHub-environments bij cleanup. De default
-#                    GITHUB_TOKEN kan dat niet. (Naam zónder `GITHUB_`-prefix: die
-#                    prefix is gereserveerd en wordt door GitHub geweigerd.)
+#   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
+#   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl
+#   ZAD_API_KEY_MAGAZIJNEN  — API-key project mpfm-w3h
+#   GH_ADMIN_TOKEN          — PAT met repo-admin (env-cleanup; GITHUB_TOKEN mag dat niet;
+#                             naam zónder `GITHUB_`-prefix — die is gereserveerd)
 #
-# TODO(SHA-pin): conform repo-conventie (Scorecard) externe actions op commit-SHA pinnen
-# i.p.v. tags vóór dit als productie-pipeline geldt.
+# TODO(SHA-pin): externe actions op commit-SHA pinnen (Scorecard) vóór dit productie is.
 
 name: Deploy ZAD
 
@@ -39,12 +46,11 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  PROJECT_ID: mpfb-8wh
-  # ZAD-deployments zijn geïsoleerd (geen gedeelde infra tussen deployments), dus
-  # Redis én ClickHouse draaien als component bínnen elke deployment. Redis Stack omdat
-  # de centrale ZAD-Redis (v7) geen RediSearch heeft; ClickHouse voor het Logboek
-  # Dataverwerkingen (LDV). Beide images publiek → niet door de cleanup verwijderd.
-  # Pins in sync houden met compose.yaml (zie pin-consistency.yml).
+  PROJECT_UITVRAAG: mpfb-8wh
+  PROJECT_PROFIEL: mpfpsm-lcl
+  PROJECT_MAGAZIJNEN: mpfm-w3h
+  # Publieke infra-images (niet door de cleanup verwijderd). Pin in sync met compose.yaml
+  # (zie pin-consistency.yml).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
   CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.5
 
@@ -65,7 +71,7 @@ jobs:
           fi
           echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-  # Bouw + push beide images met jib (geen Dockerfile). Niet op PR-close.
+  # Bouw + push de service-images met jib (geen Dockerfile). Niet op PR-close.
   build:
     if: github.event_name == 'push' || github.event.action != 'closed'
     needs: meta
@@ -83,9 +89,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Build + push image (jib)
-        # Untrusted/variabele waarden via env i.p.v. inline interpolatie in het commando
-        # (defense-in-depth tegen shell-injectie); SERVICE/OWNER/TAG zijn intern, maar
-        # uniforme env-doorgifte houdt het commando injectie-vrij.
+        # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         env:
           SERVICE: ${{ matrix.service }}
           GROUP: ${{ needs.meta.outputs.owner }}
@@ -104,7 +108,6 @@ jobs:
             -Dquarkus.container-image.password="$GHCR_TOKEN"
 
   # Profiel-stub: WireMock-image met de mappings erin gebakken (plain docker, geen jib).
-  # De officiële Profiel-service is niet bereikbaar; elke deployment draait een eigen stub.
   build-profiel-stub:
     if: github.event_name == 'push' || github.event.action != 'closed'
     needs: meta
@@ -126,9 +129,7 @@ jobs:
           docker build -t "$IMG" wiremock/profiel-service
           docker push "$IMG"
 
-  # PR-preview: één atomische multi-component deploy (redis + clickhouse + profiel +
-  # uitvraag + magazijnen).
-  # clone-from kopieert de per-component env/secrets van `test`.
+  # PR-preview: per project een deploy naar deployment `pr-<n>`, config geërfd van `test`.
   deploy-preview:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     needs: [meta, build, build-profiel-stub]
@@ -138,37 +139,59 @@ jobs:
       pull-requests: write
     environment:
       name: pr-${{ github.event.pull_request.number }}
-      url: ${{ steps.deploy.outputs.url }}
+      url: ${{ steps.deploy-uitvraag.outputs.url }}
+    env:
+      DEPLOYMENT: pr-${{ github.event.pull_request.number }}
     steps:
-      - name: Deploy preview
-        id: deploy
+      # wait-for-ready blijft uit tot de services een health-endpoint hebben
+      # (quarkus-smallrye-health + readiness-path: /q/health/ready).
+      - name: Deploy uitvraag-project
+        id: deploy-uitvraag
         uses: RijksICTGilde/zad-actions/deploy@v4
         with:
-          api-key: ${{ secrets.ZAD_API_KEY }}
-          project-id: ${{ env.PROJECT_ID }}
-          deployment-name: pr-${{ github.event.pull_request.number }}
+          api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          project-id: ${{ env.PROJECT_UITVRAAG }}
+          deployment-name: ${{ env.DEPLOYMENT }}
           clone-from: test
           comment-on-pr: 'true'
-          # wait-for-ready staat uit tot de services een health-endpoint hebben
-          # (quarkus-smallrye-health toevoegen + readiness-path: /q/health/ready). Nu
-          # zou een readiness-check op '/' kunnen 404'en en de deploy onterecht falen.
           wait-for-ready: 'false'
-          # magazijna/magazijnb draaien hetzelfde image, maar als losse componenten met
-          # elk een eigen MAGAZIJN_OIN + Postgres (via de test-baseline-config).
-          # Component-namen: geen streepjes (worden in de ZAD-URL als scheidingsteken
-          # gebruikt). Extra magazijn = entry hier toevoegen + zijn env op `test`.
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"},
-              {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
+              {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
+            ]
+
+      - name: Deploy profiel-project
+        uses: RijksICTGilde/zad-actions/deploy@v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+          project-id: ${{ env.PROJECT_PROFIEL }}
+          deployment-name: ${{ env.DEPLOYMENT }}
+          clone-from: test
+          wait-for-ready: 'false'
+          components: |
+            [
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"}
+            ]
+
+      - name: Deploy magazijnen-project
+        uses: RijksICTGilde/zad-actions/deploy@v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: ${{ env.DEPLOYMENT }}
+          clone-from: test
+          wait-for-ready: 'false'
+          components: |
+            [
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
 
-  # Opruimen bij PR-sluiten: ZAD-deployment + GitHub-env + ÓNZE images (niet de
-  # publieke redis-image).
+  # Opruimen bij PR-sluiten: per project de deployment + ÓNZE images. De GitHub-environment
+  # (één per PR) ruimt alleen de uitvraag-stap op; de andere zetten delete-github-env uit.
   cleanup-preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     needs: meta
@@ -177,26 +200,52 @@ jobs:
       deployments: write
       packages: write
       pull-requests: write
+    env:
+      DEPLOYMENT: pr-${{ github.event.pull_request.number }}
     steps:
-      - name: Cleanup preview
+      - name: Cleanup uitvraag-project
         uses: RijksICTGilde/zad-actions/cleanup@v4
         with:
-          api-key: ${{ secrets.ZAD_API_KEY }}
-          project-id: ${{ env.PROJECT_ID }}
-          deployment-name: pr-${{ github.event.pull_request.number }}
+          api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          project-id: ${{ env.PROJECT_UITVRAAG }}
+          deployment-name: ${{ env.DEPLOYMENT }}
           delete-github-env: 'true'
           delete-github-deployments: 'true'
           delete-container: 'true'
           containers: |
             [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "pr-${{ github.event.number }}"},
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"},
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-profiel-stub", "tag": "pr-${{ github.event.number }}"}
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "pr-${{ github.event.number }}"}
             ]
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
-  # Push naar main → de `test`-deployment. Dit is tevens de baseline waarvan previews
-  # hun config klonen; configureer de env/secrets hier in Operations Manager.
+      - name: Cleanup profiel-project
+        uses: RijksICTGilde/zad-actions/cleanup@v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+          project-id: ${{ env.PROJECT_PROFIEL }}
+          deployment-name: ${{ env.DEPLOYMENT }}
+          delete-github-env: 'false'
+          delete-container: 'true'
+          containers: |
+            [
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-profiel-stub", "tag": "pr-${{ github.event.number }}"}
+            ]
+
+      - name: Cleanup magazijnen-project
+        uses: RijksICTGilde/zad-actions/cleanup@v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: ${{ env.DEPLOYMENT }}
+          delete-github-env: 'false'
+          delete-container: 'true'
+          containers: |
+            [
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"}
+            ]
+
+  # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
+  # env/secrets configureer je daar in Operations Manager).
   deploy-test:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [meta, build, build-profiel-stub]
@@ -206,18 +255,39 @@ jobs:
     environment:
       name: test
     steps:
-      - name: Deploy test
+      - name: Deploy uitvraag-project (test)
         uses: RijksICTGilde/zad-actions/deploy@v4
         with:
-          api-key: ${{ secrets.ZAD_API_KEY }}
-          project-id: ${{ env.PROJECT_ID }}
+          api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          project-id: ${{ env.PROJECT_UITVRAAG }}
           deployment-name: test
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"},
-              {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"},
+              {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
+            ]
+
+      - name: Deploy profiel-project (test)
+        uses: RijksICTGilde/zad-actions/deploy@v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+          project-id: ${{ env.PROJECT_PROFIEL }}
+          deployment-name: test
+          components: |
+            [
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"}
+            ]
+
+      - name: Deploy magazijnen-project (test)
+        uses: RijksICTGilde/zad-actions/deploy@v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: test
+          components: |
+            [
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
