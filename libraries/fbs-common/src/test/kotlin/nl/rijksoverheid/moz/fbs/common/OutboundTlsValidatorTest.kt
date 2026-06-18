@@ -66,4 +66,27 @@ class OutboundTlsValidatorTest {
             OutboundTlsValidator.requireHttps("Dev", "http://x", key)
         }
     }
+
+    @Test
+    fun `prod met http mag als unsafeAllowPlaintext aanstaat (bewust onveilig)`() {
+        // Bewust onveilige override: plaintext toegestaan voor een intern endpoint.
+        // Alleen verantwoord bij mesh-mTLS of zonder echte persoonsgegevens.
+        assertDoesNotThrow {
+            OutboundTlsValidator.requireHttps("prod", "http://clickhouse.intern:8123", key, unsafeAllowPlaintext = true)
+        }
+    }
+
+    @Test
+    fun `unsafeAllowPlaintext staat default uit, dus http in prod blijft falen`() {
+        assertThrows<IllegalArgumentException> {
+            OutboundTlsValidator.requireHttps("prod", "http://clickhouse.intern:8123", key)
+        }
+    }
+
+    @Test
+    fun `unsafeAllowPlaintext laat https ongemoeid`() {
+        assertDoesNotThrow {
+            OutboundTlsValidator.requireHttps("prod", "https://clickhouse.intern:8443", key, unsafeAllowPlaintext = true)
+        }
+    }
 }

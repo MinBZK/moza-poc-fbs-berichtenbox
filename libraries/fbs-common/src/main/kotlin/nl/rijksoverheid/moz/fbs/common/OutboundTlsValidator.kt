@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.common
 
+import java.util.logging.Logger
+
 /**
  * Gedeelde TLS-check voor uitgaande URL-endpoints (REST-clients, ClickHouse-
  * connector, etc.). Borgt dat persoonsgegevens niet onversleuteld over het
@@ -13,6 +15,8 @@ package nl.rijksoverheid.moz.fbs.common
  */
 object OutboundTlsValidator {
 
+    private val log = Logger.getLogger(OutboundTlsValidator::class.java.name)
+
     private val PROFIELEN_ZONDER_TLS_EIS = setOf("dev", "test")
 
     /**
@@ -20,13 +24,35 @@ object OutboundTlsValidator {
      * [configKey] verschijnt in de foutmelding zodat ops direct weet welke
      * property aangepast moet worden.
      *
-     * @throws IllegalArgumentException als het profiel TLS vereist en het
-     *   endpoint niet met `https://` begint.
+     * [unsafeAllowPlaintext] zet de TLS-eis voor dit endpoint BEWUST uit. Dit is een
+     * KNOWINGLY ONVEILIGE keuze: persoonsgegevens (o.a. de BSN in het LDV-`dataSubjectId`)
+     * gaan dan plaintext over het netwerk. Alleen verantwoord wanneer het netwerk zelf
+     * transport-security levert (mesh-mTLS) óf wanneer er geen echte persoonsgegevens
+     * stromen (PoC/test-data). Bij gebruik wordt luid gewaarschuwd. Default false
+     * (fail-closed) zodat het nooit per ongeluk aan staat.
+     *
+     * @throws IllegalArgumentException als het profiel TLS vereist, het endpoint geen
+     *   `https://` is, en de onveilige override niet expliciet aan staat.
      */
-    fun requireHttps(profile: String, endpoint: String, configKey: String) {
+    fun requireHttps(
+        profile: String,
+        endpoint: String,
+        configKey: String,
+        unsafeAllowPlaintext: Boolean = false,
+    ) {
         if (profile in PROFIELEN_ZONDER_TLS_EIS) return
 
-        require(endpoint.startsWith("https://")) {
+        val isHttps = endpoint.startsWith("https://")
+
+        if (unsafeAllowPlaintext && !isHttps) {
+            log.warning(
+                "ONVEILIG: TLS-eis BEWUST uitgeschakeld voor $configKey ('$endpoint') in profiel " +
+                    "'$profile' — persoonsgegevens (o.a. BSN) gaan PLAINTEXT over het netwerk. Alleen " +
+                    "toegestaan bij mesh-mTLS of zonder echte persoonsgegevens.",
+            )
+        }
+
+        require(isHttps || unsafeAllowPlaintext) {
             "$configKey MOET https:// gebruiken in profiel '$profile' " +
                 "(BIO 13.2.1: persoonsgegevens versleuteld over netwerk). Huidige waarde: '$endpoint'"
         }
