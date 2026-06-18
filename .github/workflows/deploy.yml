@@ -3,9 +3,9 @@
 # DRIE losse ZAD-projecten (deployments zijn geïsoleerd; cross-project bereik je via de
 # https-ingress-URLs `<component>-<deployment>-<projectid>.rig.prd1.gn2.quattro.rijksapps.nl`):
 #
-#   uitvraag    (mpfb-8wh)     componenten: redis + clickhouse + uitvraag
-#   profiel     (mpfpsm-lcl)   componenten: profiel (WireMock-stub)
-#   magazijnen  (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb
+#   uitvraag       (mpfb-8wh)     componenten: redis + clickhouse + uitvraag
+#   externe-stubs  (mpfpsm-lcl)   componenten: profiel + notificatie (WireMock-stubs)
+#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb
 #
 # Redis (sessiecache) en ClickHouse (LDV) draaien per project intern (centrale ZAD-Redis
 # v7 mist RediSearch; ClickHouse niet deelbaar tussen deployments). Interne calls zijn
@@ -15,16 +15,17 @@
 #
 # App-config woont NIET hier (de deploy-action draagt geen env). Configureer de runtime-env
 # éénmalig per component op de `test`-deployment van elk project in Operations Manager;
-# previews erven via `clone-from: test`. Cross-project-URLs wijzen naar de STABIELE `test`-
-# deployments (de deploy-action kan geen per-PR-env injecteren), bv. op uitvraag(test):
-#   MAGAZIJN_A_URL=https://magazijna-test-mpfm-w3h.rig...    (en magazijnb)
-#   PROFIEL_SERVICE_URL=https://profiel-test-mpfpsm-lcl.rig...
-# Een uitvraag-preview praat dus met de `test`-magazijnen/profiel; per-PR magazijn/profiel-
-# previews zijn losse smoke-tests van hun eigen API.
+# previews erven via `clone-from: test`. Cross-project-URLs templaten op de ZAD-systeemvar
+# `$DEPLOYMENT_NAME` (door ZAD geïnjecteerd + geëxpandeerd), zodat een preview met ZIJN EIGEN
+# pr-<n>-buren praat — het doel-project-id staat vast in de URL. Bv. op uitvraag:
+#   MAGAZIJN_A_URL=https://magazijna-$DEPLOYMENT_NAME-mpfm-w3h.rig...    (en magazijnb)
+#   PROFIEL_SERVICE_URL=https://profiel-$DEPLOYMENT_NAME-mpfpsm-lcl.rig...
+# En op magazijnen: AANMELD_URL → uitvraag-webhook (POST /api/v1/aanmeldingen),
+# NOTIFICATIE_URL → notificatie-stub (POST /events).
 #
 # Repo-secrets (Settings → Secrets and variables → Actions):
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
-#   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl
+#   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl (externe-stubs)
 #   ZAD_API_KEY_MAGAZIJNEN  — API-key project mpfm-w3h
 #   GH_ADMIN_TOKEN          — PAT met repo-admin (env-cleanup; GITHUB_TOKEN mag dat niet;
 #                             naam zónder `GITHUB_`-prefix — die is gereserveerd)
@@ -45,7 +46,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   PROJECT_UITVRAAG: mpfb-8wh
-  PROJECT_PROFIEL: mpfpsm-lcl
+  PROJECT_EXTERNE_STUBS: mpfpsm-lcl
   PROJECT_MAGAZIJNEN: mpfm-w3h
   # Publieke infra-images (niet door de cleanup verwijderd). Pin in sync met compose.yaml
   # (zie pin-consistency.yml).
@@ -105,8 +106,9 @@ jobs:
             -Dquarkus.container-image.username="$GHCR_USER" \
             -Dquarkus.container-image.password="$GHCR_TOKEN"
 
-  # Profiel-stub: WireMock-image met de mappings erin gebakken (plain docker, geen jib).
-  build-profiel-stub:
+  # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
+  # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
+  build-externe-stubs:
     if: github.event_name == 'push' || github.event.action != 'closed'
     needs: meta
     runs-on: ubuntu-latest
@@ -115,7 +117,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Build + push profiel-stub
+      - name: Build + push externe-stubs
         env:
           OWNER: ${{ needs.meta.outputs.owner }}
           TAG: ${{ needs.meta.outputs.tag }}
@@ -123,8 +125,8 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
-          IMG="$REGISTRY/$OWNER/fbs-profiel-stub:$TAG"
-          docker build -t "$IMG" wiremock/profiel-service
+          IMG="$REGISTRY/$OWNER/fbs-externe-stubs:$TAG"
+          docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
   # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
@@ -133,7 +135,7 @@ jobs:
   # de services een health-endpoint hebben (quarkus-smallrye-health, readiness /q/health/ready).
   deploy-preview-uitvraag:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-profiel-stub]
+    needs: [meta, build, build-externe-stubs]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -161,29 +163,31 @@ jobs:
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
-  deploy-preview-profiel:
+  deploy-preview-externe-stubs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-profiel-stub]
+    needs: [meta, build, build-externe-stubs]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Deploy profiel-project
+      # profiel + notificatie = zelfde image, losse componenten (eigen subdomein per stub).
+      - name: Deploy externe-stubs-project
         uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
-          project-id: ${{ env.PROJECT_PROFIEL }}
+          project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
           deployment-name: pr-${{ github.event.pull_request.number }}
           clone-from: test
           wait-for-ready: 'false'
           components: |
             [
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"}
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
             ]
 
   deploy-preview-magazijnen:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-profiel-stub]
+    needs: [meta, build, build-externe-stubs]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -230,24 +234,24 @@ jobs:
             ]
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
-  cleanup-preview-profiel:
+  cleanup-preview-externe-stubs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     needs: meta
     runs-on: ubuntu-latest
     permissions:
       packages: write
     steps:
-      - name: Cleanup profiel-project
+      - name: Cleanup externe-stubs-project
         uses: RijksICTGilde/zad-actions/cleanup@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
-          project-id: ${{ env.PROJECT_PROFIEL }}
+          project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
           deployment-name: pr-${{ github.event.pull_request.number }}
           delete-github-env: 'false'
           delete-container: 'true'
           containers: |
             [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-profiel-stub", "tag": "pr-${{ github.event.number }}"}
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-externe-stubs", "tag": "pr-${{ github.event.number }}"}
             ]
 
   cleanup-preview-magazijnen:
@@ -274,7 +278,7 @@ jobs:
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
   deploy-test-uitvraag:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-profiel-stub]
+    needs: [meta, build, build-externe-stubs]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -294,27 +298,28 @@ jobs:
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
-  deploy-test-profiel:
+  deploy-test-externe-stubs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-profiel-stub]
+    needs: [meta, build, build-externe-stubs]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Deploy profiel-project (test)
+      - name: Deploy externe-stubs-project (test)
         uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
-          project-id: ${{ env.PROJECT_PROFIEL }}
+          project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
           deployment-name: test
           components: |
             [
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-profiel-stub:${{ needs.meta.outputs.tag }}"}
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
             ]
 
   deploy-test-magazijnen:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-profiel-stub]
+    needs: [meta, build, build-externe-stubs]
     runs-on: ubuntu-latest
     permissions:
       contents: read

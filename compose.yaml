@@ -37,7 +37,9 @@ services:
     ports:
       - "8089:8080"
     volumes:
-      - ./wiremock/profiel-service/mappings:/home/wiremock/mappings
+      # Gedeelde mappings met de ZAD externe-stubs-image (profiel + notificatie); lokaal
+      # serveert deze container alleen de profiel-mappings, de notificatie-mapping is ongebruikt.
+      - ./wiremock/externe-stubs/mappings:/home/wiremock/mappings
     command: ["--verbose"]
 
   # Aanmeld- en Notificatie-stubs voor de Publicatie Stream. Ontvangen CloudEvents
