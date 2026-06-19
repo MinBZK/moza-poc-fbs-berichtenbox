@@ -21,12 +21,16 @@
     <mmap_cache_size>0</mmap_cache_size>
     <compiled_expression_cache_size>0</compiled_expression_cache_size>
 
-    <!-- Background-pools minimaliseren: elke thread reserveert stack/geheugen. -->
+    <!-- Merge/mutatie-pool klein (doet zwaar werk → bewust knijpen). -->
     <background_pool_size>2</background_pool_size>
-    <background_schedule_pool_size>2</background_schedule_pool_size>
     <background_common_pool_size>2</background_common_pool_size>
     <background_message_broker_schedule_pool_size>1</background_message_broker_schedule_pool_size>
     <background_distributed_schedule_pool_size>1</background_distributed_schedule_pool_size>
+    <!-- Schedule-pool draait de PERIODIEKE taken (system-log-flushes, cleanup-threads,
+         DNSCacheUpdater, merge-assignee). Te krap (2) → de pool pauzeert continu en spamt
+         'Temporarily pause scheduling'-warnings. Deze threads zijn licht/idle, dus ruimer
+         is goedkoop; 16 is ruim zat voor een kleine instance. -->
+    <background_schedule_pool_size>16</background_schedule_pool_size>
 
     <!-- Met background_pool_size=2 is de mutation/merge-pool = 2 * concurrency_ratio(2) = 4.
          ClickHouse's sanity-check eist dat ALLE drie 'number_of_free_entries_in_pool_to_*'-
@@ -40,6 +44,24 @@
     </merge_tree>
 
     <max_concurrent_queries>8</max_concurrent_queries>
+
+    <!-- Interne observability-tabellen uit: LDV schrijft via z'n eigen exporter naar z'n
+         eigen tabel en leest deze system-logs nooit. Ze genereren anders constant parts
+         (merges/cleanups) → werk + geheugen + disk op een ephemeral instance zonder volume.
+         remove="1" verwijdert de default-config zodat de log niet wordt aangemaakt. -->
+    <query_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+    <part_log remove="1"/>
+    <trace_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <text_log remove="1"/>
+    <session_log remove="1"/>
+    <crash_log remove="1"/>
+    <opentelemetry_span_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <asynchronous_insert_log remove="1"/>
 
     <!-- console=1: schrijf óók naar stdout. Anders gaat de fatale fout alleen naar
          /var/log/clickhouse-server/*.err.log in de container en blijft 'kubectl logs' leeg. -->
