@@ -28,9 +28,21 @@
     <background_message_broker_schedule_pool_size>1</background_message_broker_schedule_pool_size>
     <background_distributed_schedule_pool_size>1</background_distributed_schedule_pool_size>
 
+    <!-- Met background_pool_size=2 is de mutation/merge-pool = 2 * concurrency_ratio(2) = 4.
+         De MergeTree-defaults eisen number_of_free_entries_in_pool_to_execute_mutation=20 en
+         _to_lower_max_size_of_merge=8 vrije slots; 20/8 > 4 → ClickHouse aborteert bij start
+         (BAD_ARGUMENTS). Verlaag beide drempels onder pool*ratio zodat mutaties/merges werken. -->
+    <merge_tree>
+        <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>2</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    </merge_tree>
+
     <max_concurrent_queries>8</max_concurrent_queries>
 
+    <!-- console=1: schrijf óók naar stdout. Anders gaat de fatale fout alleen naar
+         /var/log/clickhouse-server/*.err.log in de container en blijft 'kubectl logs' leeg. -->
     <logger>
         <level>warning</level>
+        <console>1</console>
     </logger>
 </clickhouse>
