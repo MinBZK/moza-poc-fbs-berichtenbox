@@ -9,8 +9,8 @@
   genoeg geheugen via het container-limit (~2Gi); ClickHouse heeft een geheugen-bodem en is
   niet bedoeld voor sub-GB. level=warning houdt stdout rustig.
 
-  Kan ZAD de component-command/args zetten? Dan is dít bestand + het custom image overbodig:
-  draai het stock-image met arg `--logger.console=1`.
+  Kan ZAD de component-command/args zetten? Dan is dit bestand + het custom image overbodig:
+  draai het stock-image met de server-arg "logger.console=1" (met dubbel-streepje-prefix).
 -->
 <clickhouse>
     <logger>
