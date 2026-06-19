@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!--
+  Enige reden voor dit config-bestand (en daarmee het custom image): de officiële
+  clickhouse-server logt naar /var/log/clickhouse-server/*.log BINNEN de container, niet
+  naar stdout, en er is geen env-var die dat omzet. console=1 stuurt de logs naar stdout
+  zodat ze in 'kubectl logs' / de ZAD-UI verschijnen.
+
+  Alle eerdere geheugen-/merge-/pool-tuning is bewust verwijderd. Geef de instance gewoon
+  genoeg geheugen via het container-limit (~2Gi); ClickHouse heeft een geheugen-bodem en is
+  niet bedoeld voor sub-GB. level=warning houdt stdout rustig.
+
+  Kan ZAD de component-command/args zetten? Dan is dít bestand + het custom image overbodig:
+  draai het stock-image met arg `--logger.console=1`.
+-->
+<clickhouse>
+    <logger>
+        <level>warning</level>
+        <console>1</console>
+    </logger>
+</clickhouse>

@@ -1,8 +1,10 @@
-# Low-resource ClickHouse voor ZAD: het Logboek Dataverwerkingen (LDV) draait per
-# project als ephemeral component (geen grote volumes, lage load). De stock
-# clickhouse-server detecteert in deze cgroup soms het host-RAM i.p.v. de container-
-# limit en over-alloceert → OOM-kill. De config.d-override hieronder capt het geheugen
-# en de caches hard, zodat CH ruim binnen een kleine container-limit (~768Mi–1Gi) blijft.
-# Pin gelijk houden met compose.yaml + deploy.yml (zie pin-consistency.yml).
+# ClickHouse voor ZAD met enkel console-logging erin gebakken. De officiële
+# clickhouse-server logt naar bestanden in de container, niet naar stdout, en geen env-var
+# zet dat om → fouten bleven onzichtbaar in 'kubectl logs'/de UI. config.d/logging.xml zet
+# console=1. Géén geheugen-/merge-tuning meer: geef de instance genoeg geheugen via het
+# container-limit (~2Gi). Pin gelijk houden met compose.yaml (zie pin-consistency.yml).
+#
+# Overbodig zodra ZAD de component-command/args ondersteunt: draai dan het stock-image met
+# arg `--logger.console=1` en verwijder dit image + de build-clickhouse-job.
 FROM clickhouse/clickhouse-server:26.5
 COPY config.d/ /etc/clickhouse-server/config.d/
