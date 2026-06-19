@@ -72,10 +72,6 @@ services:
       CLICKHOUSE_USER: ldv
       CLICKHOUSE_PASSWORD: ldv
       CLICKHOUSE_DB: ldv_logging
-    volumes:
-      # Zelfde low-resource config als het ZAD fbs-clickhouse-image (clickhouse/Dockerfile),
-      # zodat lokaal en deployed gelijk draaien.
-      - ./clickhouse/config.d:/etc/clickhouse-server/config.d
 
   postgres-a:
     image: postgres:18
