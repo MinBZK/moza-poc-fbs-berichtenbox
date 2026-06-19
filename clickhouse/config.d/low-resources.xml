@@ -29,12 +29,14 @@
     <background_distributed_schedule_pool_size>1</background_distributed_schedule_pool_size>
 
     <!-- Met background_pool_size=2 is de mutation/merge-pool = 2 * concurrency_ratio(2) = 4.
-         De MergeTree-defaults eisen number_of_free_entries_in_pool_to_execute_mutation=20 en
-         _to_lower_max_size_of_merge=8 vrije slots; 20/8 > 4 → ClickHouse aborteert bij start
-         (BAD_ARGUMENTS). Verlaag beide drempels onder pool*ratio zodat mutaties/merges werken. -->
+         ClickHouse's sanity-check eist dat ALLE drie 'number_of_free_entries_in_pool_to_*'-
+         drempels <= pool*ratio zijn; de defaults (20, 8, 25) > 4 → abort bij start
+         (BAD_ARGUMENTS, Code 36). Verlaag alle drie onder pool*ratio zodat mutaties/merges/
+         optimize werken bij kleine pools. -->
     <merge_tree>
         <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
         <number_of_free_entries_in_pool_to_lower_max_size_of_merge>2</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
     </merge_tree>
 
     <max_concurrent_queries>8</max_concurrent_queries>
