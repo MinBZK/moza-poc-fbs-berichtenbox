@@ -48,10 +48,11 @@ env:
   PROJECT_UITVRAAG: mpfb-8wh
   PROJECT_EXTERNE_STUBS: mpfpsm-lcl
   PROJECT_MAGAZIJNEN: mpfm-w3h
-  # Publieke infra-images (niet door de cleanup verwijderd). Pin in sync met compose.yaml
-  # (zie pin-consistency.yml).
+  # Redis Stack: publiek image, direct als component (niet door de cleanup verwijderd).
+  # Pin in sync met compose.yaml (zie pin-consistency.yml). ClickHouse draait NIET op het
+  # stock-image maar op ons fbs-clickhouse (low-resource config tegen OOM); zie
+  # build-clickhouse + clickhouse/Dockerfile.
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
-  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.5
 
 jobs:
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
@@ -129,13 +130,36 @@ jobs:
           docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
+  # ClickHouse (LDV) met low-resource config erin gebakken (plain docker). Stock-image
+  # OOM't in een kleine ZAD-container; zie clickhouse/Dockerfile + config.d.
+  build-clickhouse:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Build + push clickhouse
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          IMG="$REGISTRY/$OWNER/fbs-clickhouse:$TAG"
+          docker build -t "$IMG" clickhouse
+          docker push "$IMG"
+
   # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
   # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
   # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready blijft uit tot
   # de services een health-endpoint hebben (quarkus-smallrye-health, readiness /q/health/ready).
   deploy-preview-uitvraag:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, build-clickhouse]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -159,13 +183,13 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
-              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-clickhouse:${{ needs.meta.outputs.tag }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
   deploy-preview-externe-stubs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, build-clickhouse]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -187,7 +211,7 @@ jobs:
 
   deploy-preview-magazijnen:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, build-clickhouse]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -202,7 +226,7 @@ jobs:
           wait-for-ready: 'false'
           components: |
             [
-              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-clickhouse:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
@@ -230,7 +254,8 @@ jobs:
           delete-container: 'true'
           containers: |
             [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "pr-${{ github.event.number }}"}
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "pr-${{ github.event.number }}"},
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-clickhouse", "tag": "pr-${{ github.event.number }}"}
             ]
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
@@ -271,14 +296,15 @@ jobs:
           delete-container: 'true'
           containers: |
             [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"}
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"},
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-clickhouse", "tag": "pr-${{ github.event.number }}"}
             ]
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
   deploy-test-uitvraag:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, build-clickhouse]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -294,13 +320,13 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
-              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-clickhouse:${{ needs.meta.outputs.tag }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
   deploy-test-externe-stubs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, build-clickhouse]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -319,7 +345,7 @@ jobs:
 
   deploy-test-magazijnen:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, build-clickhouse]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -332,7 +358,7 @@ jobs:
           deployment-name: test
           components: |
             [
-              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-clickhouse:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]

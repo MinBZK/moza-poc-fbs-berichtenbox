@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!--
+  Geheugen-cap voor ClickHouse als kleine ephemeral LDV-component op ZAD.
+
+  Probleem: in de container leest de stock-server soms het host-RAM i.p.v. de cgroup-
+  limit; met de default ratio (0.9 van "RAM") zet het zijn interne limit veel te hoog en
+  wordt het proces door de cgroup OOM-gekild. De caches (mark_cache default 5 GiB!) groeien
+  daarbij lazy mee.
+
+  Oplossing: een ABSOLUTE geheugen-cap (defeat de RAM-misdetectie) + kleine caches + lage
+  background-pools. Afgestemd op een container-limit van ~768Mi–1Gi. Lager limit gewenst?
+  Verlaag max_server_memory_usage navenant en herbouw het image.
+-->
+<clickhouse>
+    <!-- Harde absolute cap (bytes): 512 MiB tracked geheugen, los van gedetecteerd RAM. -->
+    <max_server_memory_usage>536870912</max_server_memory_usage>
+
+    <!-- Caches klein i.p.v. de multi-GiB defaults (LDV-load is licht). -->
+    <mark_cache_size>67108864</mark_cache_size>          <!-- 64 MiB (default 5 GiB) -->
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    <mmap_cache_size>0</mmap_cache_size>
+    <compiled_expression_cache_size>0</compiled_expression_cache_size>
+
+    <!-- Background-pools minimaliseren: elke thread reserveert stack/geheugen. -->
+    <background_pool_size>2</background_pool_size>
+    <background_schedule_pool_size>2</background_schedule_pool_size>
+    <background_common_pool_size>2</background_common_pool_size>
+    <background_message_broker_schedule_pool_size>1</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>1</background_distributed_schedule_pool_size>
+
+    <max_concurrent_queries>8</max_concurrent_queries>
+
+    <logger>
+        <level>warning</level>
+    </logger>
+</clickhouse>
