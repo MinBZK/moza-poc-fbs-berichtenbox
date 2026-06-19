@@ -13,11 +13,12 @@
 -->
 <clickhouse>
     <!-- Harde absolute cap (bytes), los van gedetecteerd RAM. ClickHouse's eigen baseline-
-         RSS ligt al rond ~500 MiB; een cap daar vlak boven (512) laat geen ruimte voor merges/
-         reads → interne MEMORY_LIMIT_EXCEEDED. 768 MiB geeft kop-ruimte. Stem het container-
-         memory-limit hierop af: ~1Gi (cap + non-tracked overhead). Lager dan ~768 kan CH niet
-         betrouwbaar. -->
-    <max_server_memory_usage>805306368</max_server_memory_usage>
+         RSS ligt al rond ~500 MiB; merges/reads hebben daarbovenop honderden MiB nodig, dus
+         een krappe cap (512/768) gaf MEMORY_LIMIT_EXCEEDED. 1.5 GiB geeft ruim baan zodat het
+         betrouwbaar draait. Stem het container-memory-limit hierop af: ~2Gi (cap + non-tracked
+         overhead). TODO: na bevestiging dat het stabiel draait kan dit omlaag, of vervangen
+         door LDV-uit (DummyExporter) / managed ClickHouse — zie deferred-discussie. -->
+    <max_server_memory_usage>1610612736</max_server_memory_usage>
 
     <!-- Caches klein i.p.v. de multi-GiB defaults (LDV-load is licht). -->
     <mark_cache_size>67108864</mark_cache_size>          <!-- 64 MiB (default 5 GiB) -->
