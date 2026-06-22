@@ -24,12 +24,11 @@ object OutboundTlsValidator {
      * [configKey] verschijnt in de foutmelding zodat ops direct weet welke
      * property aangepast moet worden.
      *
-     * [unsafeAllowPlaintext] zet de TLS-eis voor dit endpoint BEWUST uit. Dit is een
-     * KNOWINGLY ONVEILIGE keuze: persoonsgegevens (o.a. de BSN in het LDV-`dataSubjectId`)
-     * gaan dan plaintext over het netwerk. Alleen verantwoord wanneer het netwerk zelf
-     * transport-security levert (mesh-mTLS) óf wanneer er geen echte persoonsgegevens
-     * stromen (PoC/test-data). Bij gebruik wordt luid gewaarschuwd. Default false
-     * (fail-closed) zodat het nooit per ongeluk aan staat.
+     * [unsafeAllowPlaintext] zet de TLS-eis voor dit endpoint BEWUST ONVEILIG uit:
+     * persoonsgegevens (o.a. de BSN in het LDV-`dataSubjectId`) gaan dan plaintext over
+     * het netwerk. Alleen verantwoord wanneer het netwerk zelf transport-security levert
+     * (mesh-mTLS) óf wanneer er geen echte persoonsgegevens stromen (test-data). Bij gebruik
+     * wordt luid gewaarschuwd. Default false (fail-closed) zodat het nooit per ongeluk aan staat.
      *
      * @throws IllegalArgumentException als het profiel TLS vereist, het endpoint geen
      *   `https://` is, en de onveilige override niet expliciet aan staat.

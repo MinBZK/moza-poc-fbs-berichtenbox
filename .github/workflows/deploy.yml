@@ -38,7 +38,9 @@ on:
   push:
     branches: [main]
 
-# Eén lopende deploy per PR; nieuwe push annuleert de vorige preview-deploy.
+# Eén deploy-run tegelijk per PR; een nieuwe push wacht op de lopende i.p.v. die af te
+# breken (cancel-in-progress: false) — een halverwege afgebroken ZAD-deploy kan een
+# deployment in een inconsistente staat achterlaten.
 concurrency:
   group: zad-deploy-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
@@ -91,12 +93,15 @@ jobs:
           java-version: '21'
       - name: Build + push image (jib)
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
+        # Het GHCR-token gaat via de MicroProfile-env-vorm QUARKUS_CONTAINER_IMAGE_PASSWORD
+        # i.p.v. een -D-flag, zodat het secret niet in de proceslijst (ps) of build-output
+        # belandt. Quarkus mapt die env-var op quarkus.container-image.password.
         env:
           SERVICE: ${{ matrix.service }}
           GROUP: ${{ needs.meta.outputs.owner }}
           TAG: ${{ needs.meta.outputs.tag }}
           GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./mvnw -B package -DskipTests \
             -pl "services/$SERVICE" -am \
@@ -105,8 +110,7 @@ jobs:
             -Dquarkus.container-image.registry="$REGISTRY" \
             -Dquarkus.container-image.group="$GROUP" \
             -Dquarkus.container-image.tag="$TAG" \
-            -Dquarkus.container-image.username="$GHCR_USER" \
-            -Dquarkus.container-image.password="$GHCR_TOKEN"
+            -Dquarkus.container-image.username="$GHCR_USER"
 
   # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
   # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
