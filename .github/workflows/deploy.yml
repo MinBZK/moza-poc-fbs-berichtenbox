@@ -10,8 +10,8 @@
 # Redis (sessiecache) en ClickHouse (LDV) draaien per project intern (centrale ZAD-Redis
 # v7 mist RediSearch; ClickHouse niet deelbaar tussen deployments). Interne calls zijn
 # http: redis via redis://…:6379, LDV via http://…:8123 (de %prod-https-eis op het LDV-
-# endpoint staat uit via FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT — bewust onveilig, BSN
-# plaintext, alleen verantwoord bij mesh-mTLS/test-data).
+# endpoint staat uit via FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT; rationale + voorwaarden
+# in de KDoc van OutboundTlsValidator.requireHttps).
 #
 # App-config woont NIET hier (de deploy-action draagt geen env). Configureer de runtime-env
 # éénmalig per component op de `test`-deployment van elk project in Operations Manager;

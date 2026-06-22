@@ -19,9 +19,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 class LdvEndpointValidator(
     @param:ConfigProperty(name = "logboekdataverwerking.clickhouse.endpoint") private val endpoint: String,
     @param:ConfigProperty(name = "quarkus.profile") private val profile: String,
-    // BEWUST ONVEILIG: zet de https-eis op het LDV-endpoint uit. Alleen voor omgevingen
-    // waar ClickHouse intern blijft én het netwerk transport-security levert (mesh-mTLS),
-    // of waar geen echte persoonsgegevens stromen. Default false (fail-closed).
+    // BEWUST ONVEILIG: zet de https-eis op het LDV-endpoint uit; rationale + voorwaarden in
+    // de KDoc van OutboundTlsValidator.requireHttps. Default false (fail-closed).
     @param:ConfigProperty(name = UNSAFE_PLAINTEXT_KEY, defaultValue = "false")
     private val unsafeAllowPlaintext: Boolean,
 ) {
