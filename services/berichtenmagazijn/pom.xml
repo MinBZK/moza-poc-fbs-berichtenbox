@@ -87,6 +87,14 @@
             <artifactId>quarkus-container-image-jib</artifactId>
         </dependency>
 
+        <!-- Health: exposeert readiness (/q/health/ready) + liveness (/q/health/live) zodat
+             het deploy-platform een probe heeft (Haven-eis) en de deploy op echte readiness
+             kan wachten i.p.v. blind door te gaan. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-health</artifactId>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>io.quarkus</groupId>

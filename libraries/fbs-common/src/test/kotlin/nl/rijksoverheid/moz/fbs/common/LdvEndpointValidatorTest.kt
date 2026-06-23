@@ -49,4 +49,21 @@ class LdvEndpointValidatorTest {
     fun `lege endpoint-waarde faalt buiten dev-test`() {
         assertThrows<IllegalArgumentException> { LdvEndpointValidator.validate("prod", "") }
     }
+
+    @Test
+    fun `prod met http slaagt als de onveilige override via de LDV-laag wordt doorgegeven`() {
+        // Borgt dat de unsafeAllowPlaintext-parameter daadwerkelijk doorvloeit naar de
+        // onderliggende TLS-check; dit is de hele reden dat de parameter bestaat (ClickHouse
+        // plaintext op ZAD).
+        assertDoesNotThrow {
+            LdvEndpointValidator.validate("prod", "http://clickhouse.intern:8123", unsafeAllowPlaintext = true)
+        }
+    }
+
+    @Test
+    fun `override staat default uit, dus prod met http blijft fail-fast via de LDV-laag`() {
+        assertThrows<IllegalArgumentException> {
+            LdvEndpointValidator.validate("prod", "http://clickhouse.intern:8123", unsafeAllowPlaintext = false)
+        }
+    }
 }

@@ -13,6 +13,12 @@
 # endpoint staat uit via FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT; rationale + voorwaarden
 # in de KDoc van OutboundTlsValidator.requireHttps).
 #
+# HARDE VOORWAARDE voor plaintext-LDV met echte persoonsgegevens: het ZAD-project levert
+# pod-to-pod transport-encryptie (mesh-mTLS), niet enkel netwerk-isolatie — de BSN in het
+# LDV-dataSubjectId gaat anders onversleuteld over de draad (BIO 13.2.1 / AVG art. 32). De
+# applicatie kan dit niet verifiëren; bevestig het per project in het deployment-runbook
+# vóór je de override aanzet. Zonder die bevestiging: alleen synthetische test-data.
+#
 # App-config woont NIET hier (de deploy-action draagt geen env). Configureer de runtime-env
 # éénmalig per component op de `test`-deployment van elk project in Operations Manager;
 # previews erven via `clone-from: test`. Cross-project-URLs templaten op de ZAD-systeemvar
@@ -91,6 +97,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          # Cache de Maven-dependency-tree tussen runs; elke PR-push bouwt anders de
+          # volledige boom opnieuw (~/.m2 redownload) — onnodig netwerk/energie/CI-tijd.
+          cache: maven
       - name: Build + push image (jib)
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         # Het GHCR-token gaat via de MicroProfile-env-vorm QUARKUS_CONTAINER_IMAGE_PASSWORD
@@ -137,8 +146,12 @@ jobs:
 
   # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
   # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
-  # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready blijft uit tot
-  # de services een health-endpoint hebben (quarkus-smallrye-health, readiness /q/health/ready).
+  # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready staat UIT: de
+  # zad-action doet geen k8s-readinessprobe maar curlt vanaf de runner ELKE component-URL op
+  # één health-endpoint (input `health-endpoint`, default '/'). De services bieden nu wél
+  # /q/health/ready (smallrye-health), maar deze deployments mengen niet-HTTP-componenten
+  # (redis, clickhouse) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
+  # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     needs: [meta, build, build-externe-stubs]
@@ -225,6 +238,16 @@ jobs:
       packages: write
       pull-requests: write
     steps:
+      # Pre-flight: een ontbrekende GH_ADMIN_TOKEN zou de env-/deployment-cleanup pas
+      # diep in de action laten falen (low-visibility moment bij PR-close). Faal hier luid.
+      - name: Controleer GH_ADMIN_TOKEN aanwezig
+        env:
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$GH_ADMIN_TOKEN" ]; then
+            echo "::error::GH_ADMIN_TOKEN ontbreekt — env-/deployment-cleanup kan niet draaien. Zet de repo-secret (PAT met repo-admin)."
+            exit 1
+          fi
       - name: Cleanup uitvraag-project
         uses: RijksICTGilde/zad-actions/cleanup@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
         with:
@@ -236,7 +259,7 @@ jobs:
           delete-container: 'true'
           containers: |
             [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "pr-${{ github.event.number }}"}
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "${{ needs.meta.outputs.tag }}"}
             ]
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
@@ -257,7 +280,7 @@ jobs:
           delete-container: 'true'
           containers: |
             [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-externe-stubs", "tag": "pr-${{ github.event.number }}"}
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-externe-stubs", "tag": "${{ needs.meta.outputs.tag }}"}
             ]
 
   cleanup-preview-magazijnen:
@@ -277,7 +300,7 @@ jobs:
           delete-container: 'true'
           containers: |
             [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "pr-${{ github.event.number }}"}
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "${{ needs.meta.outputs.tag }}"}
             ]
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;

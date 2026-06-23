@@ -37,8 +37,9 @@ services:
     ports:
       - "8089:8080"
     volumes:
-      # Gedeelde mappings met de ZAD externe-stubs-image (profiel + notificatie); lokaal
-      # serveert deze container alleen de profiel-mappings, de notificatie-mapping is ongebruikt.
+      # Gedeelde mappings met de ZAD externe-stubs-image (profiel + notificatie). WireMock
+      # laadt álle mappings in deze map, dus ook notificatie-events.json (POST /events); lokaal
+      # roept de profielclient die alleen niet aan (de notificatie-stub draait apart op 8084).
       - ./wiremock/externe-stubs/mappings:/home/wiremock/mappings
     command: ["--verbose"]
 
