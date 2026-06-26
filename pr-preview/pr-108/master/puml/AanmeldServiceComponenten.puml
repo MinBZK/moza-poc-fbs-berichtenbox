@@ -44,7 +44,7 @@ rectangle "==Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin — ged
 
 rectangle "Aanmeld Service\n<size:10>[Container: Quarkus / Kotlin]</size>" <<BerichtenUitvraagSysteem.AanmeldService>> {
   rectangle "==Aanmeld Verwerking\n<size:10>[Component: CDI Bean]</size>\n\nVerwerkt inkomende aanmeldingen en werkt de sessiecache bij (aanmeld-write, in-sessie)" <<BerichtenUitvraagSysteem.AanmeldService.AanmeldVerwerking>> as BerichtenUitvraagSysteem.AanmeldService.AanmeldVerwerking
-  rectangle "==Aanmeld Deduplicatie\n<size:10>[Component: CDI Bean / Redis]</size>\n\nOntdubbelt inkomende aanmeldingen idempotent (Redis SETNX), zodat herhaalde levering van hetzelfde gepubliceerde bericht de cache niet dubbel bijwerkt" <<BerichtenUitvraagSysteem.AanmeldService.AanmeldDeduplicatie>> as BerichtenUitvraagSysteem.AanmeldService.AanmeldDeduplicatie
+  rectangle "==Aanmeld Deduplicatie\n<size:10>[Component: CDI Bean / Redis]</size>\n\nOntdubbelt inkomende aanmeldingen idempotent (Redis SET NX EX, atomaire write met TTL), zodat herhaalde levering van hetzelfde gepubliceerde bericht de cache niet dubbel bijwerkt" <<BerichtenUitvraagSysteem.AanmeldService.AanmeldDeduplicatie>> as BerichtenUitvraagSysteem.AanmeldService.AanmeldDeduplicatie
 }
 
 BerichtenUitvraagSysteem.AanmeldService.AanmeldVerwerking .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService.AanmeldDeduplicatie : "<color:#707070>Controleert op duplicaat vóór cache-update\n<color:#707070><size:8>[CDI]</size>"
