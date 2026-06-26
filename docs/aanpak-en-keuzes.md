@@ -9,7 +9,7 @@ aanpassingen om verschillende situaties te doorlopen, al dan niet naast elkaar.
 
 Dit document beschrijft **hoe** we deze Proof of Concept (PoC) aanvliegen en
 **welke keuzes** we aan het begin hebben gemaakt — de context die het C4-model
-(zie [`docs/architecture/`](architecture/)) zelf niet geeft. Het C4-model toont
+(zie [`architecture/`](architecture/)) zelf niet geeft. Het C4-model toont
 *wat* er is; deze pagina geeft het *waarom* en de herkomst van de keuzes.
 
 ## 1. Hoe we dit project aanvliegen
@@ -64,7 +64,7 @@ een bronlink.
 | [OIN-Stelsel](https://www.logius.nl/diensten/oin) | Deelnemende organisaties worden geïdentificeerd via hun OIN; het `magazijnId` dat door het systeem stroomt *is* de afzender-OIN (publiek, geen PII) | Landelijke identificatie van overheidsorganisaties; basis voor het FSC PeerID |
 | [Digikoppeling](https://www.logius.nl/diensten/digikoppeling) (REST-API, Identificatie & Authenticatie) | Magazijn-koppelvlakken als Digikoppeling REST-API; OIN uit het `subject.serialNumber` van het PKIoverheid-certificaat | Verplichte koppelvlakstandaard voor gegevensuitwisseling tussen overheden |
 | [FSC (Federated Service Connectivity)](https://fsc-standaard.nl/) | mTLS-transportlaag met ondertekende contracten als doel-architectuur; in de PoC nog plain HTTP (zie PoC-afwijkingen) | Opvolger van NLX; verplicht transport bij Digikoppeling REST-API |
-| OAuth 2.0 / OpenID Connect — NL GOV-profiel | Token-uitgifte door de Interactielaag en JWT-bearer-tokenvalidatie in de Berichten Uitvraag Service (doel-architectuur) | Standaard voor authenticatie/autorisatie bij de overheid |
+| [OAuth 2.0 / OpenID Connect — NL GOV-profiel](https://publicatie.centrumvoorstandaarden.nl/api/oauth/) | Token-uitgifte door de Interactielaag en JWT-bearer-tokenvalidatie in de Berichten Uitvraag Service (doel-architectuur) | Standaard voor authenticatie/autorisatie bij de overheid |
 | [NL GOV CloudEvents-profiel](https://vng-realisatie.github.io/NL-GOV-profile-for-CloudEvents/) | Notificatie-forwarding via CloudEvents (structured mode, `source` als OIN-URN) | Standaardprofiel voor notificaties tussen overheidsorganisaties |
 | [Logboek Dataverwerkingen (LDV)](https://logius-standaarden.github.io/logboek-dataverwerkingen/) (NEN 7513) | Verwerkingenlogging via OpenTelemetry/OTLP voor elk component dat persoonsgegevens verwerkt | AVG/GDPR-transparantie; vastgelegd in de LDV-standaard |
 | [NeRDS](https://github.com/MinBZK/nerds) / [BIO](https://www.digitaleoverheid.nl/overzicht-van-alle-onderwerpen/cybersecurity/kaders-voor-cybersecurity/baseline-informatiebeveiliging-overheid/) / AVG | Functionele package-structuur, security-headers en -scans, geen persoonsgegevens in de PoC | Richtlijnen voor verantwoorde overheidssoftware |

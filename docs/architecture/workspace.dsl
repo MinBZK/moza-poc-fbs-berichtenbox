@@ -140,7 +140,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
                     aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service" {
                         aanmeldVerwerker = component "Aanmeld Verwerking" "Verwerkt inkomende aanmeldingen en werkt de sessiecache bij (aanmeld-write, in-sessie)" "CDI Bean"
-                        aanmeldDeduplicatie = component "Aanmeld Deduplicatie" "Ontdubbelt inkomende aanmeldingen idempotent (Redis SETNX), zodat herhaalde levering van hetzelfde gepubliceerde bericht de cache niet dubbel bijwerkt" "CDI Bean / Redis"
+                        aanmeldDeduplicatie = component "Aanmeld Deduplicatie" "Ontdubbelt inkomende aanmeldingen idempotent (Redis SET NX EX, atomaire write met TTL), zodat herhaalde levering van hetzelfde gepubliceerde bericht de cache niet dubbel bijwerkt" "CDI Bean / Redis"
 
                         aanmeldVerwerker -> aanmeldDeduplicatie "Controleert op duplicaat vóór cache-update" "CDI"
                     }
