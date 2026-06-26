@@ -25,9 +25,10 @@ gedeelde libraries die binnen die services meedraaien (geen eigen proces, geen n
   berichtenuitvraag draait. De facade is het enige publieke koppelvlak; de interne werking
   (Redis-cache, magazijn-aggregatie) is compile-afgedwongen onzichtbaar. Relaties die in het
   model als CDI lopen (`CDI (in-process facade)`) zijn dus in-process method-calls, geen REST.
-- **Bericht Validatie Service** en **Autorisatie Service** zijn logisch losse containers met een
-  intern REST-koppelvlak (`REST API (intern, mTLS)`), maar in de PoC zijn het in-process
-  CDI-beans binnen berichtenmagazijn. Zie [PoC-afwijkingen](03-poc-afwijkingen.md).
+- **Bericht Validatie Service** en **Autorisatie Service** zijn logisch losse containers, maar
+  draaien in-process als CDI-beans binnen berichtenmagazijn — geen losse REST-services. De
+  relaties ernaartoe lopen in het model dan ook als `CDI` (in-process method-calls), niet via
+  een intern REST-koppelvlak.
 
 De logische container-grenzen blijven in het model staan omdat ze de **doel**-decompositie
 beschrijven (en de koppelvlakken waarlangs later opgesplitst kan worden). De fysieke
