@@ -34,7 +34,7 @@
         <maven-antrun-plugin.version>3.1.0</maven-antrun-plugin.version>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
-        <jandex-maven-plugin.version>3.5.3</jandex-maven-plugin.version>
+        <jandex-maven-plugin.version>3.6.0</jandex-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
         <logboekdataverwerking-wrapper.version>1.2.1-SNAPSHOT</logboekdataverwerking-wrapper.version>
         <mockk.version>1.14.11</mockk.version>
