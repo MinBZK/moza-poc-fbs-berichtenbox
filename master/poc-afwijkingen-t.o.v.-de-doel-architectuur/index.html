@@ -41,22 +41,15 @@
       <div class="container is-fluid">
         <div class="content p-3">
           <div><h1>PoC-afwijkingen t.o.v. de doel-architectuur</h1>
-<p>Het model beschrijft de doel-architectuur van het Federatief Berichtenstelsel. De huidige Proof of Concept implementeert daarvan een deel; sommige containers en relaties zijn nog niet (of anders) gerealiseerd. Deze pagina houdt die afwijkingen bij zodat het model leesbaar blijft als doelbeeld zonder te suggereren dat alles al gebouwd is.</p>
-<h2>Niet geïmplementeerd in de PoC</h2>
+<p>Het model beschrijft de doel-architectuur van het Federatief Berichtenstelsel. De Proof of Concept werkt toe naar dat <strong>volledige</strong> doel — geen bewust afgebakende deelverzameling. Eén samenhangend deel is nog niet gerealiseerd: authenticatie en autorisatie over de hele keten. Daarvoor is nog geen oplossingsrichting, dus dat stellen we uit en werken we door aan wat we wél in de hand hebben. Deze pagina houdt bij wat daardoor nu nog niet gebouwd is, zodat het model leesbaar blijft als doelbeeld zonder te suggereren dat alles al gebouwd is.</p>
+<h2>Nog niet gerealiseerd: authenticatie, autorisatie en vertrouwen over de keten</h2>
+<p>Deze onderdelen zijn gemodelleerd als doelbeeld, maar wachten op een oplossingsrichting voor keten-brede authenticatie en autorisatie binnen MOZa.</p>
 <ul>
- <li><strong>Interactielaag, DigiD, eHerkenning</strong> — authenticatie en token-uitgifte (OIDC NL GOV) zijn gemodelleerd maar buiten PoC-scope. Er is geen browser-/portaal-laag.</li>
+ <li><strong>Interactielaag, DigiD, eHerkenning</strong> — authenticatie en token-uitgifte (OIDC NL GOV) zijn gemodelleerd maar nog niet gerealiseerd. Er is geen browser-/portaal-laag.</li>
  <li><strong>Token Validatie</strong> (JWT bearer) in de Berichten Uitvraag Service is nog niet gerealiseerd. De ontvanger wordt in de PoC meegegeven via de <code>X-Ontvanger</code>-header (<code>BSN:&lt;waarde&gt;</code> / <code>RSIN:&lt;waarde&gt;</code> / OIN), niet via een gevalideerd JWT.</li>
  <li><strong>BSNk Transformatie en PseudoniemService</strong> (PP → EP per magazijn) — geen pseudonimisering in de PoC. Identificatie loopt rechtstreeks via getypeerde ontvanger-identificatienummers.</li>
  <li><strong>FSC-transportlaag</strong> (Inway/Outway/Manager/Directory, mTLS met PKIoverheid, ondertekende contracten) — relaties gemarkeerd als <code>Digikoppeling REST API via FSC</code> zijn in de PoC gewone HTTP/REST-clients zonder FSC-infrastructuur.</li>
  <li><strong>AuthZEN PEP/PDP</strong> — de Autorisatie Service is in het model een PEP/PDP-container; de PoC doet ontvanger-autorisatie centraal in-process via <code>opslag/BerichtAutorisatie</code> in berichtenmagazijn (één <code>vereisOntvanger</code>-check, geen externe PDP).</li>
-</ul>
-<h2>Anders gerealiseerd dan gemodelleerd</h2>
-<ul>
- <li><strong>Bericht Validatie &amp; Autorisatie als in-process CDI, niet als losse REST-services.</strong> Het model toont losse containers met <code>REST API (intern, mTLS)</code>. In de PoC zijn dit CDI-beans binnen berichtenmagazijn; de relaties zijn in-process method-calls. Zie <a href="../02-deployment-units.md">Deployment-units</a>. Toestemmingscontrole via de Profiel Service (<code>fbs-common/profiel/ProfielServiceClient</code>) is wél geïmplementeerd.</li>
- <li><strong>Magazijn-routering via Magazijnregister + MagazijnRouter.</strong> In de Berichten Uitvraag Service routeert een <code>MagazijnRouter</code> ophaal-/beheer-calls (bijlage-download, status-write) naar het juiste magazijn-endpoint. Het <code>magazijnId</code> dat door de sessiecache stroomt ís de afzender-OIN; <code>MagazijnRouter</code> zoekt de bijbehorende inschrijving op in het Magazijnregister (1:1 OIN↔magazijn) en bouwt per magazijn een REST-client. Het register is config-backed (<code>magazijnen."&lt;OIN&gt;".{url,naam}</code>); database-opslag + beheer-interface volgen later.</li>
- <li><strong>Aanmeld-deduplicatie.</strong> De Aanmeld Service ontdubbelt inkomende aanmeldingen idempotent (<code>RedisAanmeldDeduplicatie</code>) zodat herhaalde levering van hetzelfde gepubliceerde bericht de cache niet dubbel bijwerkt — een implementatiedetail dat het model bewust niet toont.</li>
- <li><strong>Veerkracht rond magazijn-aggregatie.</strong> De Berichtensessiecache schermt de aggregatie af met een semafoor-bulkhead (<code>MagazijnAggregatieBulkhead</code>) en een per-magazijn circuit breaker (<code>MagazijnCircuitBreaker</code>), zodat één traag/onbereikbaar magazijn de overige verzoeken niet blokkeert. Deze componenten staan inmiddels in het model.</li>
- <li><strong>Dataopslag = PostgreSQL.</strong> De doel-architectuur liet de opslagtechniek vrij ("naar keuze"); de PoC gebruikt PostgreSQL 18 met Hibernate ORM Panache en Flyway-migraties (geen H2). De Publicatie Stream is een database-outbox (<code>SELECT ... FOR UPDATE SKIP LOCKED</code>); de Retentie Service ruimt soft-deleted berichten op via dezelfde lock-strategie.</li>
 </ul></div>
         </div>
       </div>
