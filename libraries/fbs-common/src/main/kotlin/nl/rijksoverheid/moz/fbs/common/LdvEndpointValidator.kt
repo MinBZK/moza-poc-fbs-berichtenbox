@@ -19,17 +19,22 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 class LdvEndpointValidator(
     @param:ConfigProperty(name = "logboekdataverwerking.clickhouse.endpoint") private val endpoint: String,
     @param:ConfigProperty(name = "quarkus.profile") private val profile: String,
+    // BEWUST ONVEILIG: zet de https-eis op het LDV-endpoint uit; rationale + voorwaarden in
+    // de KDoc van OutboundTlsValidator.requireHttps. Default false (fail-closed).
+    @param:ConfigProperty(name = UNSAFE_PLAINTEXT_KEY, defaultValue = "false")
+    private val unsafeAllowPlaintext: Boolean,
 ) {
 
     fun onStartup(@Observes event: StartupEvent) {
-        validate(profile, endpoint)
+        validate(profile, endpoint, unsafeAllowPlaintext)
     }
 
     companion object {
         private const val CONFIG_KEY = "logboekdataverwerking.clickhouse.endpoint"
+        const val UNSAFE_PLAINTEXT_KEY = "fbs.ldv.unsafe-allow-plaintext-endpoint"
 
-        fun validate(profile: String, endpoint: String) {
-            OutboundTlsValidator.requireHttps(profile, endpoint, CONFIG_KEY)
+        fun validate(profile: String, endpoint: String, unsafeAllowPlaintext: Boolean = false) {
+            OutboundTlsValidator.requireHttps(profile, endpoint, CONFIG_KEY, unsafeAllowPlaintext)
         }
     }
 }
