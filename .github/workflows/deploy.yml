@@ -61,7 +61,7 @@ env:
   # geheugen via het container-limit (~2–4Gi). Logt naar bestanden in de container, niet
   # naar stdout (geen env-var verandert dat).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
-  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.5
+  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.6
 
 jobs:
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
