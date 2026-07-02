@@ -153,13 +153,13 @@ jobs:
   # Kwaliteitspoort vóór élke ZAD-deploy: geen cluster-capaciteit (en geen review-ruis van een
   # "geslaagde" preview) verspillen aan een revisie die de tests/kwaliteitsgates niet haalt. De
   # functionele checks draaien in aparte workflows (Test, detekt, Pin consistency), dus we kunnen
-  # er niet via `needs` aan hangen; in plaats daarvan pollen we de check-runs op dezelfde head-SHA
-  # tot ze allemaal geslaagd (of overgeslagen) zijn. Eén rode check → gate faalt → alle deploy-jobs
-  # die hierop wachten worden overgeslagen. CodeQL en architecture bewust NIET in de set: CodeQL
-  # mag traag of tijdelijk rood zijn (bv. extractor-lag op een nieuwe Kotlin-versie) zonder de
-  # preview te blokkeren, en architecture draait alleen op docs/architecture-wijzigingen (zou
-  # anders permanent 'afwezig' blijven en de gate laten timen out).
+  # er niet via `needs` aan hangen — vandaar dat we hun check-runs op dezelfde head-SHA pollen.
+  # CodeQL en architecture bewust NIET in de set: CodeQL mag traag of tijdelijk rood zijn (bv.
+  # extractor-lag op een nieuwe Kotlin-versie) zonder de preview te blokkeren, en architecture
+  # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
+  # check-run ('afwezig'), waardoor de gate anders tot de timeout zou blijven wachten.
   gate:
+    # Niet op PR-close: dat pad is teardown/cleanup, geen deploy.
     if: github.event_name == 'push' || github.event.action != 'closed'
     runs-on: ubuntu-latest
     permissions:
@@ -175,24 +175,33 @@ jobs:
           # Exacte check-namen: Test-workflow → 'test', detekt.yml → 'detekt-gate',
           # pin-consistency.yml → 'infra-image-pins'.
           REQUIRED: 'test detekt-gate infra-image-pins'
-          TIMEOUT_SECONDS: '1200'
+          # Ruim boven de typische `test`-duur (~7 min incl. Testcontainers) zodat een trage
+          # runner geen op-zich-groene build fail-closed blokkeert.
+          TIMEOUT_SECONDS: '1800'
           POLL_SECONDS: '15'
         run: |
           set -euo pipefail
           # REQUIRED komt uit de job-`env` hierboven; shellcheck ziet die bron niet en denkt
-          # ten onrechte aan een typo van de lokale `required`-array.
+          # dat het een misspelling van de lokale `required`-array is (SC2153).
           # shellcheck disable=SC2153
           read -ra required <<< "$REQUIRED"
           deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 
           while :; do
-            runs=$(gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100")
             pending=()
 
             for name in "${required[@]}"; do
-              # Nieuwste check-run met deze naam (een rerun levert meerdere; sorteer op started_at).
-              entry=$(jq -c --arg n "$name" \
-                '[.check_runs[] | select(.name == $n)] | sort_by(.started_at) | last // empty' <<< "$runs")
+              # Server-side op naam filteren én alle pagina's mergen: op een drukke PR staan er
+              # (met reruns) makkelijk >100 check-runs op de SHA. Eén ongepagineerde pagina zou
+              # de nieuwste run kunnen missen en stil een oudere conclusie kiezen. Nieuwste =
+              # hoogste `id` (monotoon; `started_at` is null zolang een rerun nog queued is en
+              # zou dan verkeerd vooraan sorteren).
+              if ! entry=$(gh api --paginate \
+                    "repos/$REPO/commits/$SHA/check-runs?check_name=$name&per_page=100" \
+                    --jq '.check_runs[]' | jq -sc 'sort_by(.id) | last // empty'); then
+                echo "::warning::Ophalen van check-runs voor '$name' faalde — retry over ${POLL_SECONDS}s."
+                entry=""
+              fi
 
               if [ -z "$entry" ]; then
                 pending+=("$name(afwezig)")
@@ -208,10 +217,14 @@ jobs:
 
               conclusion=$(jq -r '.conclusion // ""' <<< "$entry")
 
-              # skipped/neutral = geen bezwaar (bv. docs-only PR waar de test-job via `changes`
-              # is overgeslagen). Alleen een echte mislukking blokkeert de deploy.
               case "$conclusion" in
-                success|skipped|neutral) ;;
+                success) ;;
+                skipped|neutral)
+                  # Alleen legitiem als de check bewust is overgeslagen (docs-only PR, via de
+                  # `changes`-gate die fail-safe naar draaien valt). Luid loggen zodat een
+                  # onbedoelde overslag auditbaar is i.p.v. stil als 'groen' doortelt.
+                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (verwacht docs-only-overslag)."
+                  ;;
                 *)
                   echo "::error::Verplichte check '$name' concludeerde '$conclusion' — deploy geblokkeerd."
                   exit 1
