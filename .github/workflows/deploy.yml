@@ -19,7 +19,7 @@
 # applicatie kan dit niet verifiëren; bevestig het per project in het deployment-runbook
 # vóór je de override aanzet. Zonder die bevestiging: alleen synthetische test-data.
 #
-# App-config woont NIET hier (de deploy-action draagt geen env). Configureer de runtime-env
+# App-config staat NIET hier (de deploy-action draagt geen env). Configureer de runtime-env
 # éénmalig per component op de `test`-deployment van elk project in Operations Manager;
 # previews erven via `clone-from: test`. Cross-project-URLs templaten op de ZAD-systeemvar
 # `$DEPLOYMENT_NAME` (door ZAD geïnjecteerd + geëxpandeerd), zodat een preview met ZIJN EIGEN
