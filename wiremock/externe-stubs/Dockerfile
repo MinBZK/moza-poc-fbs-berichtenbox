@@ -6,5 +6,5 @@
 # notificatie); elk component krijgt op zijn eigen subdomein alleen zijn eigen
 # verkeer, de overige mappings staan ongebruikt mee. WireMock serveert op poort
 # 8080 en leest /home/wiremock/mappings.
-FROM wiremock/wiremock:3.13.2
+FROM wiremock/wiremock:3.13.2@sha256:fd27e46090916e85326229e5102ee169ae729059f3374549615bd20a35fee1f2
 COPY mappings /home/wiremock/mappings
