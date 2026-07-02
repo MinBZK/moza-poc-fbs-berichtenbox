@@ -150,6 +150,102 @@ jobs:
           docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
+  # Kwaliteitspoort vóór élke ZAD-deploy: geen cluster-capaciteit (en geen review-ruis van een
+  # "geslaagde" preview) verspillen aan een revisie die de tests/kwaliteitsgates niet haalt. De
+  # functionele checks draaien in aparte workflows (Test, detekt, Pin consistency), dus we kunnen
+  # er niet via `needs` aan hangen — vandaar dat we hun check-runs op dezelfde head-SHA pollen.
+  # CodeQL en architecture bewust NIET in de set: CodeQL mag traag of tijdelijk rood zijn (bv.
+  # extractor-lag op een nieuwe Kotlin-versie) zonder de preview te blokkeren, en architecture
+  # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
+  # check-run ('afwezig'), waardoor de gate anders tot de timeout zou blijven wachten.
+  gate:
+    # Niet op PR-close: dat pad is teardown/cleanup, geen deploy.
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+    steps:
+      - name: Wacht tot de verplichte checks slagen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # PR: de branch-head (waar de sibling-workflows hun checks aan hangen). Push naar
+          # main: de push-SHA. Bij push is de pull_request-context leeg → valt terug op github.sha.
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Exacte check-namen: Test-workflow → 'test', detekt.yml → 'detekt-gate',
+          # pin-consistency.yml → 'infra-image-pins'.
+          REQUIRED: 'test detekt-gate infra-image-pins'
+          # ~2× de typische `test`-duur (~7 min incl. Testcontainers) als marge voor een trage
+          # runner; fail-closed, dus liever iets ruimer dan een op-zich-groene build blokkeren.
+          TIMEOUT_SECONDS: '900'
+          POLL_SECONDS: '15'
+        run: |
+          set -euo pipefail
+          # REQUIRED komt uit de job-`env` hierboven; shellcheck ziet die bron niet en denkt
+          # dat het een misspelling van de lokale `required`-array is (SC2153).
+          # shellcheck disable=SC2153
+          read -ra required <<< "$REQUIRED"
+          deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+
+          while :; do
+            pending=()
+
+            for name in "${required[@]}"; do
+              # Server-side op naam filteren én alle pagina's mergen: op een drukke PR staan er
+              # (met reruns) makkelijk >100 check-runs op de SHA. Eén ongepagineerde pagina zou
+              # de nieuwste run kunnen missen en stil een oudere conclusie kiezen. Nieuwste =
+              # hoogste `id` (monotoon; `started_at` is null zolang een rerun nog queued is en
+              # zou dan verkeerd vooraan sorteren).
+              if ! entry=$(gh api --paginate \
+                    "repos/$REPO/commits/$SHA/check-runs?check_name=$name&per_page=100" \
+                    --jq '.check_runs[]' | jq -sc 'sort_by(.id) | last // empty'); then
+                echo "::warning::Ophalen van check-runs voor '$name' faalde — retry over ${POLL_SECONDS}s."
+                entry=""
+              fi
+
+              if [ -z "$entry" ]; then
+                pending+=("$name(afwezig)")
+                continue
+              fi
+
+              status=$(jq -r '.status' <<< "$entry")
+
+              if [ "$status" != "completed" ]; then
+                pending+=("$name($status)")
+                continue
+              fi
+
+              conclusion=$(jq -r '.conclusion // ""' <<< "$entry")
+
+              case "$conclusion" in
+                success) ;;
+                skipped|neutral)
+                  # Alleen legitiem als de check bewust is overgeslagen (docs-only PR, via de
+                  # `changes`-gate die bij een ophaal-fout juist tóch draait). Luid loggen zodat
+                  # een onbedoelde overslag auditbaar is i.p.v. stil als 'groen' doortelt.
+                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (verwacht docs-only-overslag)."
+                  ;;
+                *)
+                  echo "::error::Verplichte check '$name' concludeerde '$conclusion' — deploy geblokkeerd."
+                  exit 1
+                  ;;
+              esac
+            done
+
+            if [ "${#pending[@]}" -eq 0 ]; then
+              echo "Alle verplichte checks groen ($REQUIRED) op $SHA — deploy vrijgegeven."
+              exit 0
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timeout na ${TIMEOUT_SECONDS}s — nog niet afgerond: ${pending[*]}"
+              exit 1
+            fi
+
+            echo "Wachten op: ${pending[*]} — opnieuw over ${POLL_SECONDS}s"
+            sleep "$POLL_SECONDS"
+          done
+
   # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
   # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
   # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready staat UIT: de
@@ -160,7 +256,7 @@ jobs:
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -191,7 +287,7 @@ jobs:
 
   deploy-preview-externe-stubs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -214,7 +310,7 @@ jobs:
 
   deploy-preview-magazijnen:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -316,7 +412,7 @@ jobs:
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
   deploy-test-uitvraag:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -338,7 +434,7 @@ jobs:
 
   deploy-test-externe-stubs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -357,7 +453,7 @@ jobs:
 
   deploy-test-magazijnen:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
