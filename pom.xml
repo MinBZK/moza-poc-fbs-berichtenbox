@@ -30,7 +30,7 @@
         <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert
              zelf, java-compile draait alleen op gegenereerde sources). Zonder beheerde versie
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
-        <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
