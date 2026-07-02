@@ -196,8 +196,14 @@ jobs:
 
   # Kwaliteitspoort vóór élke ZAD-deploy: geen cluster-capaciteit (en geen review-ruis van een
   # "geslaagde" preview) verspillen aan een revisie die de tests/kwaliteitsgates niet haalt. De
-  # functionele checks draaien in aparte workflows (Test, detekt, Pin consistency), dus we kunnen
-  # er niet via `needs` aan hangen — vandaar dat we hun check-runs op dezelfde head-SHA pollen.
+  # functionele checks draaien in aparte workflows (Test, detekt, Pin consistency, ClusterFuzzLite),
+  # dus we kunnen er niet via `needs` aan hangen — vandaar dat we hun check-runs op dezelfde
+  # head-SHA pollen.
+  # De fuzz-check ('PR', cflite_pr.yml) hoort erbij: een nog lopende fuzzer of een gevonden crash
+  # mag niet ingehaald worden door een preview-deploy. Die check bestaat echter ALLEEN op
+  # pull_request-events; op push-naar-main draait cflite_pr niet, dus daar zou 'PR' eeuwig
+  # 'afwezig' zijn en de gate tot de timeout laten falen. Daarom staat 'PR' alleen in de set bij
+  # een pull_request (conditionele REQUIRED hieronder).
   # CodeQL en architecture bewust NIET in de set: CodeQL mag traag of tijdelijk rood zijn (bv.
   # extractor-lag op een nieuwe Kotlin-versie) zonder de preview te blokkeren, en architecture
   # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
@@ -218,8 +224,8 @@ jobs:
           # main: de push-SHA. Bij push is de pull_request-context leeg → valt terug op github.sha.
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           # Exacte check-namen: Test-workflow → 'test', detekt.yml → 'detekt-gate',
-          # pin-consistency.yml → 'infra-image-pins'.
-          REQUIRED: 'test detekt-gate infra-image-pins'
+          # pin-consistency.yml → 'infra-image-pins', cflite_pr.yml → 'PR' (fuzz, alleen op PR).
+          REQUIRED: ${{ (github.event_name == 'pull_request' && 'test detekt-gate infra-image-pins PR') || 'test detekt-gate infra-image-pins' }}
           # ~2× de typische `test`-duur (~7 min incl. Testcontainers) als marge voor een trage
           # runner; fail-closed, dus liever iets ruimer dan een op-zich-groene build blokkeren.
           TIMEOUT_SECONDS: '900'
@@ -265,10 +271,12 @@ jobs:
               case "$conclusion" in
                 success) ;;
                 skipped|neutral)
-                  # Alleen legitiem als de check bewust is overgeslagen (docs-only PR, via de
-                  # `changes`-gate die bij een ophaal-fout juist tóch draait). Luid loggen zodat
-                  # een onbedoelde overslag auditbaar is i.p.v. stil als 'groen' doortelt.
-                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (verwacht docs-only-overslag)."
+                  # Alleen legitiem als de check bewust is overgeslagen door zijn eigen
+                  # relevantie-filter: de fuzz-`PR` bij een niet-fuzz-relevante wijziging, of een
+                  # paths-gated check zonder rakende bestanden. (Een docs-only PR bereikt deze gate
+                  # niet — dan is de deploy zelf al overgeslagen.) Luid loggen zodat een onbedoelde
+                  # overslag auditbaar is i.p.v. stil als 'groen' doortelt.
+                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (check overgeslagen via eigen relevantie-filter)."
                   ;;
                 *)
                   echo "::error::Verplichte check '$name' concludeerde '$conclusion' — deploy geblokkeerd."
