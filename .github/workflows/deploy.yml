@@ -62,6 +62,12 @@ env:
   # naar stdout (geen env-var verandert dat).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
   CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.6
+  # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
+  # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
+  # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
+  # ("Task did not complete within 300s"), terwijl de test-deploys (bestaande deployment) in
+  # <100s klaar zijn en de default houden.
+  PREVIEW_TASK_TIMEOUT: '600'
 
 jobs:
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
@@ -175,6 +181,7 @@ jobs:
           clone-from: test
           comment-on-pr: 'true'
           wait-for-ready: 'false'
+          task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
@@ -198,6 +205,7 @@ jobs:
           deployment-name: pr-${{ github.event.pull_request.number }}
           clone-from: test
           wait-for-ready: 'false'
+          task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: |
             [
               {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
@@ -219,6 +227,7 @@ jobs:
           deployment-name: pr-${{ github.event.pull_request.number }}
           clone-from: test
           wait-for-ready: 'false'
+          task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: |
             [
               {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
