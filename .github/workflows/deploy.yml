@@ -70,6 +70,46 @@ env:
   PREVIEW_TASK_TIMEOUT: '600'
 
 jobs:
+  # Docs-only PR's (alleen docs/ of *.md) hoeven niet naar ZAD te deployen. Deze job bepaalt dat
+  # één keer; de kwaliteits-`gate` en de deploy-preview-jobs hangen eraan en worden op een
+  # docs-only PR overgeslagen — 'skipped' telt als succes voor de required checks, dus de merge
+  # blijft mogelijk. Op een push naar main draait alles altijd (run=true).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Detecteer niet-documentatie wijzigingen
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), deploy
+          # dan TÓCH i.p.v. stil overslaan — anders zou een overgeslagen deploy onterecht als
+          # 'skipped' (= succes) doortellen in de required checks.
+          if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
+            echo "::warning::Kon gewijzigde bestanden niet ophalen — deploy draait fail-safe."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Gewijzigde bestanden:"
+          printf '%s\n' "$files"
+
+          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Alleen documentatie gewijzigd — deploy overgeslagen."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
   meta:
     runs-on: ubuntu-latest
@@ -98,8 +138,8 @@ jobs:
       matrix:
         service: [berichtenuitvraag, berichtenmagazijn]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
         with:
           distribution: temurin
           java-version: '21'
@@ -137,7 +177,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Build + push externe-stubs
         env:
           OWNER: ${{ needs.meta.outputs.owner }}
@@ -159,8 +199,9 @@ jobs:
   # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
   # check-run ('afwezig'), waardoor de gate anders tot de timeout zou blijven wachten.
   gate:
-    # Niet op PR-close: dat pad is teardown/cleanup, geen deploy.
-    if: github.event_name == 'push' || github.event.action != 'closed'
+    # Niet op PR-close (teardown, geen deploy) en niet op een docs-only PR (niets te deployen).
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: changes
     runs-on: ubuntu-latest
     permissions:
       checks: read
@@ -255,8 +296,8 @@ jobs:
   # (redis, clickhouse) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs, gate]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -269,7 +310,7 @@ jobs:
     steps:
       - name: Deploy uitvraag-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -286,15 +327,15 @@ jobs:
             ]
 
   deploy-preview-externe-stubs:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs, gate]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       # profiel + notificatie = zelfde image, losse componenten (eigen subdomein per stub).
       - name: Deploy externe-stubs-project
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -309,14 +350,14 @@ jobs:
             ]
 
   deploy-preview-magazijnen:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs, gate]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - name: Deploy magazijnen-project
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -354,7 +395,7 @@ jobs:
             exit 1
           fi
       - name: Cleanup uitvraag-project
-        uses: RijksICTGilde/zad-actions/cleanup@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -376,7 +417,7 @@ jobs:
       packages: write
     steps:
       - name: Cleanup externe-stubs-project
-        uses: RijksICTGilde/zad-actions/cleanup@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -396,7 +437,7 @@ jobs:
       packages: write
     steps:
       - name: Cleanup magazijnen-project
-        uses: RijksICTGilde/zad-actions/cleanup@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -420,7 +461,7 @@ jobs:
       name: test
     steps:
       - name: Deploy uitvraag-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -440,7 +481,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy externe-stubs-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -459,7 +500,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy magazijnen-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
