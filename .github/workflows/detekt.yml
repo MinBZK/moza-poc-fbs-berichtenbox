@@ -72,25 +72,25 @@ jobs:
       # category. De hashFiles-guard slaat upload over als een module geen rapport opleverde.
       - name: Upload SARIF — fbs-common
         if: ${{ always() && hashFiles('libraries/fbs-common/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: libraries/fbs-common/target/detekt.sarif
           category: detekt-fbs-common
       - name: Upload SARIF — fbs-berichtensessiecache
         if: ${{ always() && hashFiles('libraries/fbs-berichtensessiecache/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: libraries/fbs-berichtensessiecache/target/detekt.sarif
           category: detekt-fbs-berichtensessiecache
       - name: Upload SARIF — berichtenmagazijn
         if: ${{ always() && hashFiles('services/berichtenmagazijn/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: services/berichtenmagazijn/target/detekt.sarif
           category: detekt-berichtenmagazijn
       - name: Upload SARIF — berichtenuitvraag
         if: ${{ always() && hashFiles('services/berichtenuitvraag/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: services/berichtenuitvraag/target/detekt.sarif
           category: detekt-berichtenuitvraag
