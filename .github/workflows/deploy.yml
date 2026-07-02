@@ -150,6 +150,89 @@ jobs:
           docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
+  # Kwaliteitspoort vóór élke ZAD-deploy: geen cluster-capaciteit (en geen review-ruis van een
+  # "geslaagde" preview) verspillen aan een revisie die de tests/kwaliteitsgates niet haalt. De
+  # functionele checks draaien in aparte workflows (Test, detekt, Pin consistency), dus we kunnen
+  # er niet via `needs` aan hangen; in plaats daarvan pollen we de check-runs op dezelfde head-SHA
+  # tot ze allemaal geslaagd (of overgeslagen) zijn. Eén rode check → gate faalt → alle deploy-jobs
+  # die hierop wachten worden overgeslagen. CodeQL en architecture bewust NIET in de set: CodeQL
+  # mag traag of tijdelijk rood zijn (bv. extractor-lag op een nieuwe Kotlin-versie) zonder de
+  # preview te blokkeren, en architecture draait alleen op docs/architecture-wijzigingen (zou
+  # anders permanent 'afwezig' blijven en de gate laten timen out).
+  gate:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+    steps:
+      - name: Wacht tot de verplichte checks slagen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # PR: de branch-head (waar de sibling-workflows hun checks aan hangen). Push naar
+          # main: de push-SHA. Bij push is de pull_request-context leeg → valt terug op github.sha.
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Exacte check-namen: Test-workflow → 'test', detekt.yml → 'detekt-gate',
+          # pin-consistency.yml → 'infra-image-pins'.
+          REQUIRED: 'test detekt-gate infra-image-pins'
+          TIMEOUT_SECONDS: '1200'
+          POLL_SECONDS: '15'
+        run: |
+          set -euo pipefail
+          # REQUIRED komt uit de job-`env` hierboven; shellcheck ziet die bron niet en denkt
+          # ten onrechte aan een typo van de lokale `required`-array.
+          # shellcheck disable=SC2153
+          read -ra required <<< "$REQUIRED"
+          deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+
+          while :; do
+            runs=$(gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100")
+            pending=()
+
+            for name in "${required[@]}"; do
+              # Nieuwste check-run met deze naam (een rerun levert meerdere; sorteer op started_at).
+              entry=$(jq -c --arg n "$name" \
+                '[.check_runs[] | select(.name == $n)] | sort_by(.started_at) | last // empty' <<< "$runs")
+
+              if [ -z "$entry" ]; then
+                pending+=("$name(afwezig)")
+                continue
+              fi
+
+              status=$(jq -r '.status' <<< "$entry")
+
+              if [ "$status" != "completed" ]; then
+                pending+=("$name($status)")
+                continue
+              fi
+
+              conclusion=$(jq -r '.conclusion // ""' <<< "$entry")
+
+              # skipped/neutral = geen bezwaar (bv. docs-only PR waar de test-job via `changes`
+              # is overgeslagen). Alleen een echte mislukking blokkeert de deploy.
+              case "$conclusion" in
+                success|skipped|neutral) ;;
+                *)
+                  echo "::error::Verplichte check '$name' concludeerde '$conclusion' — deploy geblokkeerd."
+                  exit 1
+                  ;;
+              esac
+            done
+
+            if [ "${#pending[@]}" -eq 0 ]; then
+              echo "Alle verplichte checks groen ($REQUIRED) op $SHA — deploy vrijgegeven."
+              exit 0
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timeout na ${TIMEOUT_SECONDS}s — nog niet afgerond: ${pending[*]}"
+              exit 1
+            fi
+
+            echo "Wachten op: ${pending[*]} — opnieuw over ${POLL_SECONDS}s"
+            sleep "$POLL_SECONDS"
+          done
+
   # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
   # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
   # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready staat UIT: de
@@ -160,7 +243,7 @@ jobs:
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -191,7 +274,7 @@ jobs:
 
   deploy-preview-externe-stubs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -214,7 +297,7 @@ jobs:
 
   deploy-preview-magazijnen:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -316,7 +399,7 @@ jobs:
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
   deploy-test-uitvraag:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -338,7 +421,7 @@ jobs:
 
   deploy-test-externe-stubs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -357,7 +440,7 @@ jobs:
 
   deploy-test-magazijnen:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
