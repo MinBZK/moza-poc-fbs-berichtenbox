@@ -70,6 +70,46 @@ env:
   PREVIEW_TASK_TIMEOUT: '600'
 
 jobs:
+  # Docs-only PR's (alleen docs/ of *.md) hoeven niet naar ZAD te deployen. Deze job bepaalt dat
+  # één keer; de kwaliteits-`gate` en de deploy-preview-jobs hangen eraan en worden op een
+  # docs-only PR overgeslagen — 'skipped' telt als succes voor de required checks, dus de merge
+  # blijft mogelijk. Op een push naar main draait alles altijd (run=true).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Detecteer niet-documentatie wijzigingen
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), deploy
+          # dan TÓCH i.p.v. stil overslaan — anders zou een overgeslagen deploy onterecht als
+          # 'skipped' (= succes) doortellen in de required checks.
+          if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
+            echo "::warning::Kon gewijzigde bestanden niet ophalen — deploy draait fail-safe."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Gewijzigde bestanden:"
+          printf '%s\n' "$files"
+
+          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Alleen documentatie gewijzigd — deploy overgeslagen."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
   meta:
     runs-on: ubuntu-latest
@@ -98,8 +138,8 @@ jobs:
       matrix:
         service: [berichtenuitvraag, berichtenmagazijn]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
         with:
           distribution: temurin
           java-version: '21'
@@ -137,7 +177,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Build + push externe-stubs
         env:
           OWNER: ${{ needs.meta.outputs.owner }}
@@ -150,6 +190,103 @@ jobs:
           docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
+  # Kwaliteitspoort vóór élke ZAD-deploy: geen cluster-capaciteit (en geen review-ruis van een
+  # "geslaagde" preview) verspillen aan een revisie die de tests/kwaliteitsgates niet haalt. De
+  # functionele checks draaien in aparte workflows (Test, detekt, Pin consistency), dus we kunnen
+  # er niet via `needs` aan hangen — vandaar dat we hun check-runs op dezelfde head-SHA pollen.
+  # CodeQL en architecture bewust NIET in de set: CodeQL mag traag of tijdelijk rood zijn (bv.
+  # extractor-lag op een nieuwe Kotlin-versie) zonder de preview te blokkeren, en architecture
+  # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
+  # check-run ('afwezig'), waardoor de gate anders tot de timeout zou blijven wachten.
+  gate:
+    # Niet op PR-close (teardown, geen deploy) en niet op een docs-only PR (niets te deployen).
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: changes
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+    steps:
+      - name: Wacht tot de verplichte checks slagen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # PR: de branch-head (waar de sibling-workflows hun checks aan hangen). Push naar
+          # main: de push-SHA. Bij push is de pull_request-context leeg → valt terug op github.sha.
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Exacte check-namen: Test-workflow → 'test', detekt.yml → 'detekt-gate',
+          # pin-consistency.yml → 'infra-image-pins'.
+          REQUIRED: 'test detekt-gate infra-image-pins'
+          # ~2× de typische `test`-duur (~7 min incl. Testcontainers) als marge voor een trage
+          # runner; fail-closed, dus liever iets ruimer dan een op-zich-groene build blokkeren.
+          TIMEOUT_SECONDS: '900'
+          POLL_SECONDS: '15'
+        run: |
+          set -euo pipefail
+          # REQUIRED komt uit de job-`env` hierboven; shellcheck ziet die bron niet en denkt
+          # dat het een misspelling van de lokale `required`-array is (SC2153).
+          # shellcheck disable=SC2153
+          read -ra required <<< "$REQUIRED"
+          deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+
+          while :; do
+            pending=()
+
+            for name in "${required[@]}"; do
+              # Server-side op naam filteren én alle pagina's mergen: op een drukke PR staan er
+              # (met reruns) makkelijk >100 check-runs op de SHA. Eén ongepagineerde pagina zou
+              # de nieuwste run kunnen missen en stil een oudere conclusie kiezen. Nieuwste =
+              # hoogste `id` (monotoon; `started_at` is null zolang een rerun nog queued is en
+              # zou dan verkeerd vooraan sorteren).
+              if ! entry=$(gh api --paginate \
+                    "repos/$REPO/commits/$SHA/check-runs?check_name=$name&per_page=100" \
+                    --jq '.check_runs[]' | jq -sc 'sort_by(.id) | last // empty'); then
+                echo "::warning::Ophalen van check-runs voor '$name' faalde — retry over ${POLL_SECONDS}s."
+                entry=""
+              fi
+
+              if [ -z "$entry" ]; then
+                pending+=("$name(afwezig)")
+                continue
+              fi
+
+              status=$(jq -r '.status' <<< "$entry")
+
+              if [ "$status" != "completed" ]; then
+                pending+=("$name($status)")
+                continue
+              fi
+
+              conclusion=$(jq -r '.conclusion // ""' <<< "$entry")
+
+              case "$conclusion" in
+                success) ;;
+                skipped|neutral)
+                  # Alleen legitiem als de check bewust is overgeslagen (docs-only PR, via de
+                  # `changes`-gate die bij een ophaal-fout juist tóch draait). Luid loggen zodat
+                  # een onbedoelde overslag auditbaar is i.p.v. stil als 'groen' doortelt.
+                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (verwacht docs-only-overslag)."
+                  ;;
+                *)
+                  echo "::error::Verplichte check '$name' concludeerde '$conclusion' — deploy geblokkeerd."
+                  exit 1
+                  ;;
+              esac
+            done
+
+            if [ "${#pending[@]}" -eq 0 ]; then
+              echo "Alle verplichte checks groen ($REQUIRED) op $SHA — deploy vrijgegeven."
+              exit 0
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timeout na ${TIMEOUT_SECONDS}s — nog niet afgerond: ${pending[*]}"
+              exit 1
+            fi
+
+            echo "Wachten op: ${pending[*]} — opnieuw over ${POLL_SECONDS}s"
+            sleep "$POLL_SECONDS"
+          done
+
   # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
   # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
   # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready staat UIT: de
@@ -159,8 +296,8 @@ jobs:
   # (redis, clickhouse) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -173,7 +310,7 @@ jobs:
     steps:
       - name: Deploy uitvraag-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -190,15 +327,15 @@ jobs:
             ]
 
   deploy-preview-externe-stubs:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       # profiel + notificatie = zelfde image, losse componenten (eigen subdomein per stub).
       - name: Deploy externe-stubs-project
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -213,14 +350,14 @@ jobs:
             ]
 
   deploy-preview-magazijnen:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - name: Deploy magazijnen-project
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -258,7 +395,7 @@ jobs:
             exit 1
           fi
       - name: Cleanup uitvraag-project
-        uses: RijksICTGilde/zad-actions/cleanup@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -280,7 +417,7 @@ jobs:
       packages: write
     steps:
       - name: Cleanup externe-stubs-project
-        uses: RijksICTGilde/zad-actions/cleanup@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -300,7 +437,7 @@ jobs:
       packages: write
     steps:
       - name: Cleanup magazijnen-project
-        uses: RijksICTGilde/zad-actions/cleanup@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -316,7 +453,7 @@ jobs:
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
   deploy-test-uitvraag:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -324,7 +461,7 @@ jobs:
       name: test
     steps:
       - name: Deploy uitvraag-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -338,13 +475,13 @@ jobs:
 
   deploy-test-externe-stubs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - name: Deploy externe-stubs-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -357,13 +494,13 @@ jobs:
 
   deploy-test-magazijnen:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - name: Deploy magazijnen-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@ea7dec7d0df396741cdfb4f393090b170056dd19 # v4
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
