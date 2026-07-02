@@ -70,6 +70,46 @@ env:
   PREVIEW_TASK_TIMEOUT: '600'
 
 jobs:
+  # Docs-only PR's (alleen docs/ of *.md) hoeven niet naar ZAD te deployen. Deze job bepaalt dat
+  # één keer; de kwaliteits-`gate` en de deploy-preview-jobs hangen eraan en worden op een
+  # docs-only PR overgeslagen — 'skipped' telt als succes voor de required checks, dus de merge
+  # blijft mogelijk. Op een push naar main draait alles altijd (run=true).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Detecteer niet-documentatie wijzigingen
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), deploy
+          # dan TÓCH i.p.v. stil overslaan — anders zou een overgeslagen deploy onterecht als
+          # 'skipped' (= succes) doortellen in de required checks.
+          if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
+            echo "::warning::Kon gewijzigde bestanden niet ophalen — deploy draait fail-safe."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Gewijzigde bestanden:"
+          printf '%s\n' "$files"
+
+          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Alleen documentatie gewijzigd — deploy overgeslagen."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
   meta:
     runs-on: ubuntu-latest
@@ -159,8 +199,9 @@ jobs:
   # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
   # check-run ('afwezig'), waardoor de gate anders tot de timeout zou blijven wachten.
   gate:
-    # Niet op PR-close: dat pad is teardown/cleanup, geen deploy.
-    if: github.event_name == 'push' || github.event.action != 'closed'
+    # Niet op PR-close (teardown, geen deploy) en niet op een docs-only PR (niets te deployen).
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: changes
     runs-on: ubuntu-latest
     permissions:
       checks: read
@@ -255,8 +296,8 @@ jobs:
   # (redis, clickhouse) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs, gate]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -286,8 +327,8 @@ jobs:
             ]
 
   deploy-preview-externe-stubs:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs, gate]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -309,8 +350,8 @@ jobs:
             ]
 
   deploy-preview-magazijnen:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    needs: [meta, build, build-externe-stubs, gate]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
