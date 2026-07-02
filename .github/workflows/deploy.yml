@@ -267,10 +267,12 @@ jobs:
               case "$conclusion" in
                 success) ;;
                 skipped|neutral)
-                  # Alleen legitiem als de check bewust is overgeslagen (docs-only PR, via de
-                  # `changes`-gate die bij een ophaal-fout juist tóch draait). Luid loggen zodat
-                  # een onbedoelde overslag auditbaar is i.p.v. stil als 'groen' doortelt.
-                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (verwacht docs-only-overslag)."
+                  # Alleen legitiem als de check bewust is overgeslagen door zijn eigen
+                  # relevantie-filter: de fuzz-`PR` bij een niet-fuzz-relevante wijziging, of een
+                  # paths-gated check zonder rakende bestanden. (Een docs-only PR bereikt deze gate
+                  # niet — dan is de deploy zelf al overgeslagen.) Luid loggen zodat een onbedoelde
+                  # overslag auditbaar is i.p.v. stil als 'groen' doortelt.
+                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (check overgeslagen via eigen relevantie-filter)."
                   ;;
                 *)
                   echo "::error::Verplichte check '$name' concludeerde '$conclusion' — deploy geblokkeerd."
