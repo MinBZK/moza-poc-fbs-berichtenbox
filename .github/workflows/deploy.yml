@@ -175,9 +175,9 @@ jobs:
           # Exacte check-namen: Test-workflow → 'test', detekt.yml → 'detekt-gate',
           # pin-consistency.yml → 'infra-image-pins'.
           REQUIRED: 'test detekt-gate infra-image-pins'
-          # Ruim boven de typische `test`-duur (~7 min incl. Testcontainers) zodat een trage
-          # runner geen op-zich-groene build fail-closed blokkeert.
-          TIMEOUT_SECONDS: '1800'
+          # ~2× de typische `test`-duur (~7 min incl. Testcontainers) als marge voor een trage
+          # runner; fail-closed, dus liever iets ruimer dan een op-zich-groene build blokkeren.
+          TIMEOUT_SECONDS: '900'
           POLL_SECONDS: '15'
         run: |
           set -euo pipefail
@@ -221,8 +221,8 @@ jobs:
                 success) ;;
                 skipped|neutral)
                   # Alleen legitiem als de check bewust is overgeslagen (docs-only PR, via de
-                  # `changes`-gate die fail-safe naar draaien valt). Luid loggen zodat een
-                  # onbedoelde overslag auditbaar is i.p.v. stil als 'groen' doortelt.
+                  # `changes`-gate die bij een ophaal-fout juist tóch draait). Luid loggen zodat
+                  # een onbedoelde overslag auditbaar is i.p.v. stil als 'groen' doortelt.
                   echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (verwacht docs-only-overslag)."
                   ;;
                 *)

@@ -35,10 +35,9 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Fail-safe naar draaien: kan de bestandenlijst niet opgehaald worden (API-hik,
-          # rate-limit), dan de code-checks TÓCH draaien i.p.v. stil overslaan. Een overslaan-
-          # op-fout zou als 'skipped' (= succes) doortellen in de deploy-gate en ongeteste code
-          # laten deployen.
+          # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), draai
+          # de code-checks dan TÓCH i.p.v. ze stil over te slaan. Een overslaan-op-fout zou als
+          # 'skipped' (= succes) doortellen in de deploy-gate en ongeteste code laten deployen.
           if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
             echo "::warning::Kon gewijzigde bestanden niet ophalen — code-checks draaien fail-safe."
             echo "run=true" >> "$GITHUB_OUTPUT"
