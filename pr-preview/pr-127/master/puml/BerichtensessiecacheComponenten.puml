@@ -1,0 +1,151 @@
+@startuml
+set separator none
+title Berichten Uitvraag Systeem - Berichtensessiecache - Components
+
+top to bottom direction
+skinparam ranksep 60
+skinparam nodesep 30
+
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
+}
+
+hide stereotype
+
+skinparam rectangle<<BerichtenUitvraagSysteem.AanmeldService>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.BSNkTransformatie>> {
+  BackgroundColor #b3b3b3
+  FontColor #000000
+  BorderColor #0b4884
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
+  BackgroundColor #2d8a4e
+  FontColor #ffffff
+  BorderColor #1e6b38
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijneigengehost>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.Cache>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnAggregatieBulkhead>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnCircuitBreaker>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Magazijnregister>> {
+  BackgroundColor #6ba3dd
+  FontColor #ffffff
+  BorderColor #2e6295
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<ProfielService>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.Berichtensessiecache>> {
+  BorderColor #2e6295
+  FontColor #2e6295
+  shadowing false
+}
+
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
+rectangle "==Berichtenmagazijn (eigen gehost)\n<size:10>[Software System]</size>\n\nDoor een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie met dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." <<Berichtenmagazijneigengehost>> as Berichtenmagazijneigengehost
+rectangle "==Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." <<BerichtenmagazijnBBOgehost>> as BerichtenmagazijnBBOgehost
+rectangle "==Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nService voor burgers en ondernemers - berichtenbox inzien en berichten beheren" <<BerichtenUitvraagSysteem.BerichtenUitvraagService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService
+rectangle "==BSNk Transformatie\n<size:10>[Container: BSNk container (Logius)]</size>\n\nTransformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" <<BerichtenUitvraagSysteem.BSNkTransformatie>> as BerichtenUitvraagSysteem.BSNkTransformatie
+rectangle "==Aanmeld Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWerkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" <<BerichtenUitvraagSysteem.AanmeldService>> as BerichtenUitvraagSysteem.AanmeldService
+rectangle "==Magazijnregister\n<size:10>[Container: Quarkus / Kotlin — gedeelde library (in-process)]</size>\n\nHoudt per deelnemende organisatie (OIN) bij welk berichtenmagazijn erbij hoort — 1:1, het magazijnId ís de OIN. Nu config-backed; later database-opslag met beheer-interface." <<BerichtenUitvraagSysteem.Magazijnregister>> as BerichtenUitvraagSysteem.Magazijnregister
+
+rectangle "Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin — gedeelde library (in-process)]</size>" <<BerichtenUitvraagSysteem.Berichtensessiecache>> {
+  rectangle "==Sessiecache-facade\n<size:10>[Component: CDI Facade]</size>\n\nDe enige publieke ingang: lijst, zoeken, bericht, status bijwerken, verwijderen, ophalen-stream en aanmeld-write. De implementatie erachter is Kotlin `internal` — compile-afgedwongen onzichtbaar voor consumenten." <<BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade>> as BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade
+  rectangle "==MagazijnResolver\n<size:10>[Component: CDI Bean (internal)]</size>\n\nBepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver
+  rectangle "==PseudoniemService\n<size:10>[Component: CDI Bean (internal)]</size>\n\nTransformeert PP naar EP per magazijn via BSNk" <<BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService>> as BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService
+  rectangle "==BerichtensessiecacheService\n<size:10>[Component: CDI Bean (internal)]</size>\n\nAggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" <<BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService>> as BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService
+  rectangle "==Cache\n<size:10>[Component: Redis / RediSearch (internal)]</size>\n\nAfgeschermd implementatiedetail: berichten met full-text zoekindex en sliding-TTL, gedeeld over pods zodat ophalen én aanmelden dezelfde tijdelijke opslag delen" <<BerichtenUitvraagSysteem.Berichtensessiecache.Cache>> as BerichtenUitvraagSysteem.Berichtensessiecache.Cache
+  rectangle "==MagazijnAggregatieBulkhead\n<size:10>[Component: CDI Bean (internal)]</size>\n\nSemafoor-bulkhead die het aantal gelijktijdige blokkerende magazijn-aggregatie-calls begrenst, zodat één trage leverancier de gedeelde worker-pool niet laat vollopen en overige endpoints responsief blijven" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnAggregatieBulkhead>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnAggregatieBulkhead
+  rectangle "==MagazijnCircuitBreaker\n<size:10>[Component: CDI Bean (internal)]</size>\n\nPer-magazijn circuit breaker: opent na opeenvolgende fouten/timeouts zodat een onbereikbaar magazijn de aggregatie niet blijft ophouden" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnCircuitBreaker>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnCircuitBreaker
+  rectangle "==MagazijnClient\n<size:10>[Component: REST Client (internal)]</size>\n\nREST client naar berichtenmagazijnen (per magazijn opgebouwd via MagazijnClientFactory)" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient
+}
+
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService : "<color:#707070>Gebruikt\n<color:#707070><size:8>[CDI]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver : "<color:#707070>Vraagt op welke magazijnen bevraagd moeten worden\n<color:#707070><size:8>[CDI]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[CDI]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.Cache : "<color:#707070>Leest/schrijft cache\n<color:#707070><size:8>[Redis]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnAggregatieBulkhead : "<color:#707070>Begrenst gelijktijdigheid van aggregatie-calls\n<color:#707070><size:8>[CDI]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnCircuitBreaker : "<color:#707070>Schermt per-magazijn calls af\n<color:#707070><size:8>[CDI]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnCircuitBreaker .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient : "<color:#707070>Roept magazijn aan (als circuit closed)\n<color:#707070><size:8>[CDI]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[BSNk API (lokaal)]</size>"
+BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade : "<color:#707070>Werkt cache bij (aanmeld-write, in-sessie)\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Bepaalt de magazijn-set en endpoints per afzender-OIN\n<color:#707070><size:8>[CDI (in-process)]</size>"
+@enduml
