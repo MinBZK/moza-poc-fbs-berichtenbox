@@ -1,0 +1,525 @@
+# Deploy naar ZAD (Operations Manager) via RijksICTGilde/zad-actions.
+#
+# DRIE losse ZAD-projecten (deployments zijn geïsoleerd; cross-project bereik je via de
+# https-ingress-URLs `<component>-<deployment>-<projectid>.rig.prd1.gn2.quattro.rijksapps.nl`):
+#
+#   uitvraag       (mpfb-8wh)     componenten: redis + clickhouse + uitvraag
+#   externe-stubs  (mpfpsm-lcl)   componenten: profiel + notificatie (WireMock-stubs)
+#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb
+#
+# Redis (sessiecache) en ClickHouse (LDV) draaien per project intern (centrale ZAD-Redis
+# v7 mist RediSearch; ClickHouse niet deelbaar tussen deployments). Interne calls zijn
+# http: redis via redis://…:6379, LDV via http://…:8123 (de %prod-https-eis op het LDV-
+# endpoint staat uit via FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT; rationale + voorwaarden
+# in de KDoc van OutboundTlsValidator.requireHttps).
+#
+# HARDE VOORWAARDE voor plaintext-LDV met echte persoonsgegevens: het ZAD-project levert
+# pod-to-pod transport-encryptie (mesh-mTLS), niet enkel netwerk-isolatie — de BSN in het
+# LDV-dataSubjectId gaat anders onversleuteld over de draad (BIO 13.2.1 / AVG art. 32). De
+# applicatie kan dit niet verifiëren; bevestig het per project in het deployment-runbook
+# vóór je de override aanzet. Zonder die bevestiging: alleen synthetische test-data.
+#
+# App-config staat NIET hier (de deploy-action draagt geen env). Configureer de runtime-env
+# éénmalig per component op de `test`-deployment van elk project in Operations Manager;
+# previews erven via `clone-from: test`. Cross-project-URLs templaten op de ZAD-systeemvar
+# `$DEPLOYMENT_NAME` (door ZAD geïnjecteerd + geëxpandeerd), zodat een preview met ZIJN EIGEN
+# pr-<n>-buren praat — het doel-project-id staat vast in de URL. Bv. op uitvraag:
+#   MAGAZIJN_A_URL=https://magazijna-$DEPLOYMENT_NAME-mpfm-w3h.rig...    (en magazijnb)
+#   PROFIEL_SERVICE_URL=https://profiel-$DEPLOYMENT_NAME-mpfpsm-lcl.rig...
+# En op magazijnen: AANMELD_URL → uitvraag-webhook (POST /api/v1/aanmeldingen),
+# NOTIFICATIE_URL → notificatie-stub (POST /events).
+#
+# Repo-secrets (Settings → Secrets and variables → Actions):
+#   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
+#   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl (externe-stubs)
+#   ZAD_API_KEY_MAGAZIJNEN  — API-key project mpfm-w3h
+#   GH_ADMIN_TOKEN          — PAT met repo-admin (env-cleanup; GITHUB_TOKEN mag dat niet;
+#                             naam zónder `GITHUB_`-prefix — die is gereserveerd)
+
+name: Deploy ZAD
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
+
+# Least-privilege default voor GITHUB_TOKEN: read-only op workflow-niveau; jobs die schrijven
+# (build → packages, cleanup → deployments/packages/pull-requests) declareren dat zelf.
+permissions: read-all
+
+# Eén deploy-run tegelijk per PR; een nieuwe push wacht op de lopende i.p.v. die af te
+# breken (cancel-in-progress: false) — een halverwege afgebroken ZAD-deploy kan een
+# deployment in een inconsistente staat achterlaten.
+concurrency:
+  group: zad-deploy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  PROJECT_UITVRAAG: mpfb-8wh
+  PROJECT_EXTERNE_STUBS: mpfpsm-lcl
+  PROJECT_MAGAZIJNEN: mpfm-w3h
+  # Publieke infra-images (niet door de cleanup verwijderd). Pin in sync met compose.yaml
+  # (zie pin-consistency.yml). ClickHouse draait op het stock-image; geef het genoeg
+  # geheugen via het container-limit (~2–4Gi). Logt naar bestanden in de container, niet
+  # naar stdout (geen env-var verandert dat).
+  REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
+  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.6
+  # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
+  # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
+  # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
+  # ("Task did not complete within 300s"), terwijl de test-deploys (bestaande deployment) in
+  # <100s klaar zijn en de default houden.
+  PREVIEW_TASK_TIMEOUT: '600'
+
+jobs:
+  # Docs-only PR's (alleen docs/ of *.md) hoeven niet naar ZAD te deployen. Deze job bepaalt dat
+  # één keer; de kwaliteits-`gate` en de deploy-preview-jobs hangen eraan en worden op een
+  # docs-only PR overgeslagen — 'skipped' telt als succes voor de required checks, dus de merge
+  # blijft mogelijk. Op een push naar main draait alles altijd (run=true).
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Detecteer niet-documentatie wijzigingen
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), deploy
+          # dan TÓCH i.p.v. stil overslaan — anders zou een overgeslagen deploy onterecht als
+          # 'skipped' (= succes) doortellen in de required checks.
+          if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
+            echo "::warning::Kon gewijzigde bestanden niet ophalen — deploy draait fail-safe."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Gewijzigde bestanden:"
+          printf '%s\n' "$files"
+
+          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Alleen documentatie gewijzigd — deploy overgeslagen."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+      owner: ${{ steps.m.outputs.owner }}
+    steps:
+      - id: m
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "tag=pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+  # Bouw + push de service-images met jib (geen Dockerfile). Niet op PR-close.
+  build:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service: [berichtenuitvraag, berichtenmagazijn]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          # Cache de Maven-dependency-tree tussen runs; elke PR-push bouwt anders de
+          # volledige boom opnieuw (~/.m2 redownload) — onnodig netwerk/energie/CI-tijd.
+          cache: maven
+      - name: Build + push image (jib)
+        # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
+        # Het GHCR-token gaat via de MicroProfile-env-vorm QUARKUS_CONTAINER_IMAGE_PASSWORD
+        # i.p.v. een -D-flag, zodat het secret niet in de proceslijst (ps) of build-output
+        # belandt. Quarkus mapt die env-var op quarkus.container-image.password.
+        env:
+          SERVICE: ${{ matrix.service }}
+          GROUP: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./mvnw -B package -DskipTests \
+            -pl "services/$SERVICE" -am \
+            -Dquarkus.container-image.build=true \
+            -Dquarkus.container-image.push=true \
+            -Dquarkus.container-image.registry="$REGISTRY" \
+            -Dquarkus.container-image.group="$GROUP" \
+            -Dquarkus.container-image.tag="$TAG" \
+            -Dquarkus.container-image.username="$GHCR_USER"
+
+  # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
+  # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
+  build-externe-stubs:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Build + push externe-stubs
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          IMG="$REGISTRY/$OWNER/fbs-externe-stubs:$TAG"
+          docker build -t "$IMG" wiremock/externe-stubs
+          docker push "$IMG"
+
+  # Kwaliteitspoort vóór élke ZAD-deploy: geen cluster-capaciteit (en geen review-ruis van een
+  # "geslaagde" preview) verspillen aan een revisie die de tests/kwaliteitsgates niet haalt. De
+  # functionele checks draaien in aparte workflows (Test, detekt, Pin consistency, ClusterFuzzLite),
+  # dus we kunnen er niet via `needs` aan hangen — vandaar dat we hun check-runs op dezelfde
+  # head-SHA pollen.
+  # De fuzz-check ('PR', cflite_pr.yml) hoort erbij: een nog lopende fuzzer of een gevonden crash
+  # mag niet ingehaald worden door een preview-deploy. Die check bestaat echter ALLEEN op
+  # pull_request-events; op push-naar-main draait cflite_pr niet, dus daar zou 'PR' eeuwig
+  # 'afwezig' zijn en de gate tot de timeout laten falen. Daarom staat 'PR' alleen in de set bij
+  # een pull_request (conditionele REQUIRED hieronder).
+  # CodeQL en architecture bewust NIET in de set: CodeQL mag traag of tijdelijk rood zijn (bv.
+  # extractor-lag op een nieuwe Kotlin-versie) zonder de preview te blokkeren, en architecture
+  # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
+  # check-run ('afwezig'), waardoor de gate anders tot de timeout zou blijven wachten.
+  gate:
+    # Niet op PR-close (teardown, geen deploy) en niet op een docs-only PR (niets te deployen).
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: changes
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+    steps:
+      - name: Wacht tot de verplichte checks slagen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # PR: de branch-head (waar de sibling-workflows hun checks aan hangen). Push naar
+          # main: de push-SHA. Bij push is de pull_request-context leeg → valt terug op github.sha.
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Exacte check-namen: Test-workflow → 'test', detekt.yml → 'detekt-gate',
+          # pin-consistency.yml → 'infra-image-pins', cflite_pr.yml → 'PR' (fuzz, alleen op PR).
+          REQUIRED: ${{ (github.event_name == 'pull_request' && 'test detekt-gate infra-image-pins PR') || 'test detekt-gate infra-image-pins' }}
+          # ~2× de typische `test`-duur (~7 min incl. Testcontainers) als marge voor een trage
+          # runner; fail-closed, dus liever iets ruimer dan een op-zich-groene build blokkeren.
+          TIMEOUT_SECONDS: '900'
+          POLL_SECONDS: '15'
+        run: |
+          set -euo pipefail
+          # REQUIRED komt uit de job-`env` hierboven; shellcheck ziet die bron niet en denkt
+          # dat het een misspelling van de lokale `required`-array is (SC2153).
+          # shellcheck disable=SC2153
+          read -ra required <<< "$REQUIRED"
+          deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+
+          while :; do
+            pending=()
+
+            for name in "${required[@]}"; do
+              # Server-side op naam filteren én alle pagina's mergen: op een drukke PR staan er
+              # (met reruns) makkelijk >100 check-runs op de SHA. Eén ongepagineerde pagina zou
+              # de nieuwste run kunnen missen en stil een oudere conclusie kiezen. Nieuwste =
+              # hoogste `id` (monotoon; `started_at` is null zolang een rerun nog queued is en
+              # zou dan verkeerd vooraan sorteren).
+              if ! entry=$(gh api --paginate \
+                    "repos/$REPO/commits/$SHA/check-runs?check_name=$name&per_page=100" \
+                    --jq '.check_runs[]' | jq -sc 'sort_by(.id) | last // empty'); then
+                echo "::warning::Ophalen van check-runs voor '$name' faalde — retry over ${POLL_SECONDS}s."
+                entry=""
+              fi
+
+              if [ -z "$entry" ]; then
+                pending+=("$name(afwezig)")
+                continue
+              fi
+
+              status=$(jq -r '.status' <<< "$entry")
+
+              if [ "$status" != "completed" ]; then
+                pending+=("$name($status)")
+                continue
+              fi
+
+              conclusion=$(jq -r '.conclusion // ""' <<< "$entry")
+
+              case "$conclusion" in
+                success) ;;
+                skipped|neutral)
+                  # Alleen legitiem als de check bewust is overgeslagen door zijn eigen
+                  # relevantie-filter: de fuzz-`PR` bij een niet-fuzz-relevante wijziging, of een
+                  # paths-gated check zonder rakende bestanden. (Een docs-only PR bereikt deze gate
+                  # niet — dan is de deploy zelf al overgeslagen.) Luid loggen zodat een onbedoelde
+                  # overslag auditbaar is i.p.v. stil als 'groen' doortelt.
+                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (check overgeslagen via eigen relevantie-filter)."
+                  ;;
+                *)
+                  echo "::error::Verplichte check '$name' concludeerde '$conclusion' — deploy geblokkeerd."
+                  exit 1
+                  ;;
+              esac
+            done
+
+            if [ "${#pending[@]}" -eq 0 ]; then
+              echo "Alle verplichte checks groen ($REQUIRED) op $SHA — deploy vrijgegeven."
+              exit 0
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timeout na ${TIMEOUT_SECONDS}s — nog niet afgerond: ${pending[*]}"
+              exit 1
+            fi
+
+            echo "Wachten op: ${pending[*]} — opnieuw over ${POLL_SECONDS}s"
+            sleep "$POLL_SECONDS"
+          done
+
+  # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
+  # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
+  # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready staat UIT: de
+  # zad-action doet geen k8s-readinessprobe maar curlt vanaf de runner ELKE component-URL op
+  # één health-endpoint (input `health-endpoint`, default '/'). De services bieden nu wél
+  # /q/health/ready (smallrye-health), maar deze deployments mengen niet-HTTP-componenten
+  # (redis, clickhouse) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
+  # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
+  deploy-preview-uitvraag:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    # De GitHub-environment (één per PR) hangt aan déze job; de preview-URL komt uit de
+    # uitvraag-deploy (de frontend). De andere projecten dragen geen environment.
+    environment:
+      name: pr-${{ github.event.pull_request.number }}
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Deploy uitvraag-project
+        id: deploy
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          project-id: ${{ env.PROJECT_UITVRAAG }}
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          clone-from: test
+          comment-on-pr: 'true'
+          wait-for-ready: 'false'
+          task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
+          components: |
+            [
+              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
+            ]
+
+  deploy-preview-externe-stubs:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # profiel + notificatie = zelfde image, losse componenten (eigen subdomein per stub).
+      - name: Deploy externe-stubs-project
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+          project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          clone-from: test
+          wait-for-ready: 'false'
+          task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
+          components: |
+            [
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
+            ]
+
+  deploy-preview-magazijnen:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy magazijnen-project
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          clone-from: test
+          wait-for-ready: 'false'
+          task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
+          components: |
+            [
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
+              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+            ]
+
+  # Opruimen bij PR-sluiten: per project een eigen (parallelle) job, elk ruimt zijn eigen
+  # deployment + ÓNZE images op. De GitHub-environment (één per PR) ruimt alleen de
+  # uitvraag-job op; de andere zetten delete-github-env uit.
+  cleanup-preview-uitvraag:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      deployments: write
+      packages: write
+      pull-requests: write
+    steps:
+      # Pre-flight: een ontbrekende GH_ADMIN_TOKEN zou de env-/deployment-cleanup pas
+      # diep in de action laten falen (low-visibility moment bij PR-close). Faal hier luid.
+      - name: Controleer GH_ADMIN_TOKEN aanwezig
+        env:
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$GH_ADMIN_TOKEN" ]; then
+            echo "::error::GH_ADMIN_TOKEN ontbreekt — env-/deployment-cleanup kan niet draaien. Zet de repo-secret (PAT met repo-admin)."
+            exit 1
+          fi
+      - name: Cleanup uitvraag-project
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          project-id: ${{ env.PROJECT_UITVRAAG }}
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          delete-github-env: 'true'
+          delete-github-deployments: 'true'
+          delete-container: 'true'
+          containers: |
+            [
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "${{ needs.meta.outputs.tag }}"}
+            ]
+          github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
+
+  cleanup-preview-externe-stubs:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Cleanup externe-stubs-project
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+          project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          delete-github-env: 'false'
+          delete-container: 'true'
+          containers: |
+            [
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-externe-stubs", "tag": "${{ needs.meta.outputs.tag }}"}
+            ]
+
+  cleanup-preview-magazijnen:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Cleanup magazijnen-project
+        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          delete-github-env: 'false'
+          delete-container: 'true'
+          containers: |
+            [
+              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "${{ needs.meta.outputs.tag }}"}
+            ]
+
+  # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
+  # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
+  deploy-test-uitvraag:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [meta, build, build-externe-stubs, gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment:
+      name: test
+    steps:
+      - name: Deploy uitvraag-project (test)
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          project-id: ${{ env.PROJECT_UITVRAAG }}
+          deployment-name: test
+          components: |
+            [
+              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
+            ]
+
+  deploy-test-externe-stubs:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [meta, build, build-externe-stubs, gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy externe-stubs-project (test)
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+          project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
+          deployment-name: test
+          components: |
+            [
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
+            ]
+
+  deploy-test-magazijnen:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [meta, build, build-externe-stubs, gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy magazijnen-project (test)
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: test
+          components: |
+            [
+              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
+              {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
+              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+            ]

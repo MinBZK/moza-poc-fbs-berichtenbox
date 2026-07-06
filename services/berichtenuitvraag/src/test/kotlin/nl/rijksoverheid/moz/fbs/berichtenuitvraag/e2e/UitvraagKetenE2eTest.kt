@@ -7,13 +7,12 @@ import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.delete as wmDelete
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
 import io.quarkus.test.common.QuarkusTestResource
-import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.WireMockBackendsResource
 import org.hamcrest.CoreMatchers.equalTo
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -29,12 +28,12 @@ import org.junit.jupiter.api.Test
  */
 @QuarkusTest
 @TestProfile(KetenE2eProfile::class)
-@QuarkusTestResource(value = WireMockKetenBackends::class, restrictToAnnotatedClass = true)
+@QuarkusTestResource(value = WireMockBackendsResource::class, restrictToAnnotatedClass = true)
 class UitvraagKetenE2eTest {
 
-    private val profiel get() = WireMockKetenBackends.profiel!!
-    private val magazijnA get() = WireMockKetenBackends.magazijnA!!
-    private val magazijnB get() = WireMockKetenBackends.magazijnB!!
+    private val profiel get() = WireMockBackendsResource.profiel
+    private val magazijnA get() = WireMockBackendsResource.magazijnA
+    private val magazijnB get() = WireMockBackendsResource.magazijnB
 
     @BeforeEach
     fun resetStubs() {
@@ -197,10 +196,10 @@ class UitvraagKetenE2eTest {
 
 }
 
-// magazijnId == afzender-OIN (register-conventie); gedeeld door de testklasse en
-// de WireMock-backends die de register-config op deze OINs zetten.
-private const val OIN_A = "00000001003214345000"
-private const val OIN_B = "00000001823288444000"
+// magazijnId == afzender-OIN (register-conventie). Bron is de gedeelde fixture, zodat
+// de stub-OIN's en de geïnjecteerde register-config gegarandeerd dezelfde waarden zijn.
+private val OIN_A = WireMockBackendsResource.OIN_A
+private val OIN_B = WireMockBackendsResource.OIN_B
 
 /**
  * Echte facade-keten: Redis via Dev Services (Redis Stack — RediSearch is nodig
@@ -212,41 +211,4 @@ class KetenE2eProfile : QuarkusTestProfile {
         "quarkus.redis.devservices.enabled" to "true",
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
     )
-}
-
-/** Profiel-service + twee magazijnen als WireMock; het register bedient zowel de aggregatie als de router. */
-class WireMockKetenBackends : QuarkusTestResourceLifecycleManager {
-
-    companion object {
-        var profiel: WireMockServer? = null
-        var magazijnA: WireMockServer? = null
-        var magazijnB: WireMockServer? = null
-    }
-
-    override fun start(): Map<String, String> {
-        val p = WireMockServer(wireMockConfig().dynamicPort())
-        val a = WireMockServer(wireMockConfig().dynamicPort())
-        val b = WireMockServer(wireMockConfig().dynamicPort())
-        p.start()
-        a.start()
-        b.start()
-        profiel = p
-        magazijnA = a
-        magazijnB = b
-
-        return mapOf(
-            "quarkus.rest-client.profiel-service.url" to p.baseUrl(),
-            "magazijnen.\"$OIN_A\".url" to a.baseUrl(),
-            "magazijnen.\"$OIN_B\".url" to b.baseUrl(),
-        )
-    }
-
-    override fun stop() {
-        profiel?.stop()
-        magazijnA?.stop()
-        magazijnB?.stop()
-        profiel = null
-        magazijnA = null
-        magazijnB = null
-    }
 }

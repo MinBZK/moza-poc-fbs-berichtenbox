@@ -37,7 +37,10 @@ services:
     ports:
       - "8089:8080"
     volumes:
-      - ./wiremock/profiel-service/mappings:/home/wiremock/mappings
+      # Gedeelde mappings met de ZAD externe-stubs-image (profiel + notificatie). WireMock
+      # laadt álle mappings in deze map, dus ook notificatie-events.json (POST /events); lokaal
+      # roept de profielclient die alleen niet aan (de notificatie-stub draait apart op 8084).
+      - ./wiremock/externe-stubs/mappings:/home/wiremock/mappings
     command: ["--verbose"]
 
   # Aanmeld- en Notificatie-stubs voor de Publicatie Stream. Ontvangen CloudEvents
@@ -63,7 +66,7 @@ services:
     command: ["--verbose", "--global-response-templating"]
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.5
+    image: clickhouse/clickhouse-server:26.6
     ports:
       - "8123:8123"
     environment:

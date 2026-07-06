@@ -78,6 +78,23 @@
             <artifactId>logboekdataverwerking-wrapper</artifactId>
         </dependency>
 
+        <!-- Container-image: jib bouwt een OCI-image zonder Dockerfile en zonder
+             Docker-daemon (rechtstreeks naar de registry), reproduceerbaar en als
+             non-root base-layer. Registry/group/credentials komen uit de CI-flags
+             (-Dquarkus.container-image.*), niet uit deze POM. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-container-image-jib</artifactId>
+        </dependency>
+
+        <!-- Health: exposeert readiness (/q/health/ready) + liveness (/q/health/live) zodat
+             het deploy-platform een probe heeft (Haven-eis) en de deploy op echte readiness
+             kan wachten i.p.v. blind door te gaan. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-health</artifactId>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -278,7 +295,13 @@
                             <goal>compile</goal>
                         </goals>
                         <configuration>
-                            <generatedSourcesDirectory>${project.build.directory}/generated-sources/openapi/src/gen/java</generatedSourcesDirectory>
+                            <!-- Compileert alléén de OpenAPI-gegenereerde Java (de Kotlin-plugin doet
+                                 de rest). Vanaf maven-compiler-plugin 3.14 wordt de gegenereerde-sources-
+                                 map niet meer impliciet als compile-source-root toegevoegd, dus wijzen we
+                                 die nu expliciet aan met compileSourceRoots. -->
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.build.directory}/generated-sources/openapi/src/gen/java</compileSourceRoot>
+                            </compileSourceRoots>
                         </configuration>
                     </execution>
                 </executions>

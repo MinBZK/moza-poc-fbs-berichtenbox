@@ -61,8 +61,8 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                 }
                 magazijnDatastore = container "Dataopslag" "Berichtstatus, inhoud en bijlagen (0 berichtverlies)" "PostgreSQL 18 + Hibernate ORM Panache (Flyway-migraties)" "Magazijn Database"
 
-                berichtValidatie = container "Bericht Validatie Service" "Valideert berichten op technische eisen en controleert toestemming via Profiel Service" "Quarkus / Kotlin" "Magazijn Service" {
-                    validatieApi = component "Validatie API" "REST endpoint voor berichtvalidatie" "JAX-RS Resource" "Magazijn Component"
+                berichtValidatie = container "Bericht Validatie Service" "Valideert berichten op technische eisen en controleert toestemming via Profiel Service. In-process CDI binnen het berichtenmagazijn, geen losse REST-service." "Quarkus / Kotlin (in-process CDI)" "Magazijn Service" {
+                    validatieApi = component "Validatie-ingang" "Interne ingang (CDI) voor berichtvalidatie binnen het aanleverproces" "CDI Bean" "Magazijn Component"
                     validatieTechnisch = component "Technische Validatie" "Valideert PDF-type, grootte en aantal bijlagen" "CDI Bean" "Magazijn Component"
                     validatieToestemming = component "Toestemming Controle" "Controleert of de ontvanger toestemming gegeven heeft voor digitale communicatie" "CDI Bean" "Magazijn Component"
 
@@ -79,13 +79,13 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
                 magazijnOphaalBeheerApi -> magazijnDatastore "Leest berichten en bijlagen; schrijft berichtstatus per gebruiker" "SQL/JDBC"
                 magazijnOpslagService -> magazijnDatastore "Schrijft berichten en bijlagen" "SQL/JDBC"
-                magazijnOpslagService -> validatieApi "Stuurt bericht ter validatie" "REST API (intern, mTLS)"
-                magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door" "REST API (intern, mTLS)"
+                magazijnOpslagService -> validatieApi "Stuurt bericht ter validatie" "CDI"
+                magazijnOpslagService -> publicatieStream "Stuurt gevalideerd bericht door" "CDI"
                 publicatieStream -> magazijnDatastore "Leest berichten met status 'te publiceren' en werkt status bij na succesvolle aanmelding" "SQL/JDBC"
 
-                autorisatieService = container "Autorisatie Service" "Toetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie" "Quarkus / Kotlin" "Magazijn Service"
+                autorisatieService = container "Autorisatie Service" "Toetst ophaal- en beheerverzoeken aan het autorisatiebeleid van de deelnemende organisatie. In-process CDI binnen het berichtenmagazijn, geen losse REST-service." "Quarkus / Kotlin (in-process CDI)" "Magazijn Service"
 
-                magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek" "REST API (intern, mTLS)"
+                magazijnOphaalBeheerApi -> autorisatieService "Toetst autorisatie per verzoek" "CDI"
 
                 retentieService = container "Retentie Service" "Geplande hard-delete-job: ruimt soft-deleted berichten op na de retentietermijn en logt de verwijdering naar het LDV-logboek. Cross-pod-veilig via SELECT ... FOR UPDATE SKIP LOCKED." "Quarkus / Kotlin (Scheduler)" "Magazijn Service"
 
@@ -138,12 +138,17 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         }
                     }
 
-                    aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service"
+                    aanmeldService = container "Aanmeld Service" "Werkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" "Quarkus / Kotlin" "Service" {
+                        aanmeldVerwerker = component "Aanmeld Verwerking" "Verwerkt inkomende aanmeldingen en werkt de sessiecache bij (aanmeld-write, in-sessie)" "CDI Bean"
+                        aanmeldDeduplicatie = component "Aanmeld Deduplicatie" "Ontdubbelt inkomende aanmeldingen idempotent (Redis SET NX EX, atomaire write met TTL), zodat herhaalde levering van hetzelfde gepubliceerde bericht de cache niet dubbel bijwerkt" "CDI Bean / Redis"
+
+                        aanmeldVerwerker -> aanmeldDeduplicatie "Controleert op duplicaat vóór cache-update" "CDI"
+                    }
 
                     magazijnregister = container "Magazijnregister" "Houdt per deelnemende organisatie (OIN) bij welk berichtenmagazijn erbij hoort — 1:1, het magazijnId ís de OIN. Nu config-backed; later database-opslag met beheer-interface." "Quarkus / Kotlin — gedeelde library (in-process)" "Interne Module"
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
-                    aanmeldService -> sessiecacheFacade "Werkt cache bij (aanmeld-write, in-sessie)" "CDI (in-process facade)"
+                    aanmeldVerwerker -> sessiecacheFacade "Werkt cache bij (aanmeld-write, in-sessie)" "CDI (in-process facade)"
                     uitvraagOphaalService -> sessiecacheFacade "Haalt berichten op" "CDI (in-process facade)"
                     uitvraagBerichtenlijst -> sessiecacheFacade "Haalt berichtenlijst op" "CDI (in-process facade)"
                     uitvraagBeheerService -> sessiecacheFacade "Werkt berichtstatus bij in cache" "CDI (in-process facade)"
@@ -251,6 +256,11 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         }
 
         component berichtValidatie "BerichtValidatieComponenten" "Componenten binnen de Bericht Validatie Service" {
+            include *?
+            autoLayout
+        }
+
+        component aanmeldService "AanmeldServiceComponenten" "Componenten binnen de Aanmeld Service" {
             include *?
             autoLayout
         }

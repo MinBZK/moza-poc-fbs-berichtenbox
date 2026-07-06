@@ -1,0 +1,44 @@
+# Houdt de pins van de zelf-gedeployde infra-images uniform over alle locaties.
+#
+# De pins staan (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
+# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE/CLICKHOUSE_IMAGE) en
+# de test-devservices-image-names. Dependabot's docker-compose-ecosystem ziet alléén
+# compose.yaml; de workflow-env en de Kotlin-test-strings niet. Een Dependabot-bump
+# zou dus drift veroorzaken. Deze guard maakt zo'n gedeeltelijke bump een harde fout,
+# zodat alle pins samen bewegen (de pins zelf blijven expliciet).
+
+name: Pin consistency
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  infra-image-pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: infra-image-pins moeten overal identiek zijn
+        run: |
+          fail=0
+          for img in redis/redis-stack-server clickhouse/clickhouse-server; do
+            # -I slaat binaire bestanden over (pins staan in tekst), zodat geen stderr-ruis;
+            # stderr verder NIET dempen — een echte grep/xargs-fout moet zichtbaar zijn.
+            mapfile -t pins < <(git ls-files | xargs grep -hoIE "${img}:[A-Za-z0-9._-]+" | sort -u)
+            printf '%s pin(s): %s\n' "$img" "${pins[*]:-<geen>}"
+            if [ "${#pins[@]}" -eq 0 ]; then
+              # Nul matches = image overal hernoemd/verwijderd (of regex matcht niet meer).
+              # Zonder deze tak zou de guard stil groen worden en drift juist niet meer zien.
+              echo "::error::geen pin gevonden voor ${img} — guard kan drift niet meer detecteren (image hernoemd/verwijderd, of pas deze workflow aan)."
+              fail=1
+            elif [ "${#pins[@]}" -gt 1 ]; then
+              echo "::error::${img}-pin niet uniform (${pins[*]}). Sync compose.yaml, .github/workflows/deploy.yml en de test-image-names; Dependabot bumpt alleen compose.yaml."
+              fail=1
+            fi
+          done
+          exit "$fail"
