@@ -295,7 +295,13 @@
                             <goal>compile</goal>
                         </goals>
                         <configuration>
-                            <generatedSourcesDirectory>${project.build.directory}/generated-sources/openapi/src/gen/java</generatedSourcesDirectory>
+                            <!-- Compileert alléén de OpenAPI-gegenereerde Java (de Kotlin-plugin doet
+                                 de rest). Vanaf maven-compiler-plugin 3.14 wordt de gegenereerde-sources-
+                                 map niet meer impliciet als compile-source-root toegevoegd, dus wijzen we
+                                 die nu expliciet aan met compileSourceRoots. -->
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.build.directory}/generated-sources/openapi/src/gen/java</compileSourceRoot>
+                            </compileSourceRoots>
                         </configuration>
                     </execution>
                 </executions>
