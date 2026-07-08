@@ -35,8 +35,8 @@ Uit dezelfde spec, de rol van beide componenten:
 ## Stap 1 — `ca-cfssl` starten met de group-CA uit `fsc/pki/`
 
 Mount de group-CA (`fsc/pki/ca/`) en `fsc/pki/config.json` in de container en start CFSSL als
-HTTP-service op `:8888`. Gebruik dezelfde image-tag als elders in dit project
-(`IMAGE_TAG=v1.43.7`, zie `fsc/deploy/local/.env.example`):
+HTTP-service op `:8888`. Gebruik de projectbrede image-pin `v1.43.7` (zie
+`docs/plans/2026-07-08-magazijn-provider-peer-fsc-design.md`, tabel "Bekende parameters"):
 
 ```bash
 docker run --rm -d --name ca-cfssl \
