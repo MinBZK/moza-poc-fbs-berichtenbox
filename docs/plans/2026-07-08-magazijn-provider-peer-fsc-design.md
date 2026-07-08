@@ -130,18 +130,20 @@ magazijn-a                                   centrale kern (directory)
   `magazijna` **cross-deployment via de ingress-URL** (`https://magazijna-<deployment>-mpfm-w3h.<base-domain>`,
   https/:443) i.p.v. intra-deployment DNS — dit lost het oude "intra-project-DNS-vorm/poort"-punt
   op. De `zad-deploy-peer.yml`-workflow deployt op elke PR-push naar deployment `peer`.
-- **Interne-mTLS-adressen op ZAD (SAN + poort) — vóór de eerste `apply` oplossen.** De
-  manager↔controller↔inway-registratiecalls (`CONTROLLER_REGISTRATION_API_ADDRESS`,
-  `MANAGER_ADDRESS_INTERNAL`, `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS`) lopen over de
-  INTERNAL-PKI en verifiëren de hostname. In `upsert-peer.sh` wijzen ze naar de ZAD-ingress-
-  hostnamen (`mgz{ctl,mgr}-$DEPLOYMENT_NAME-mpfm-w3h.<base-domain>:443`), maar (a) die naam zit
-  níét in de magazijn-a internal-cert-SANs (alleen `*.magazijn-a.fsc-test.local`), en (b) de
-  interne API's luisteren op `:9443`/`:9444`, terwijl alleen de externe/data-poorten (`:8443`)
-  passthrough krijgen. Zonder oplossing falen de registratie-handshakes bij boot (TLS-hostname-
-  mismatch en/of verkeerde poort) → de inway registreert niet en er publiceert geen dienst.
-  Repo A's directory-deploy (alleen dirmgr+dirui) oefent dit pad niet, dus het is onbewezen.
-  Oplossingsrichting: internal-cert-SANs uitbreiden met de ZAD-hostnamen (of een intra-project-
-  DNS-alias op `.fsc-test.local` gebruiken) én de interne poorten correct routeren/exposen.
+- **Interne-mTLS SAN — OPGELOST.** De internal-certs van manager/controller/inway dragen nu de
+  ZAD-wildcard-SAN `*.rig.prd1.gn2.quattro.rijksapps.nl` (naast `*.magazijn-a.fsc-test.local`),
+  zodat hostname-verificatie op de ZAD-ingress-hostnamen slaagt. Bewezen met `verify.sh` +
+  `openssl` (SAN aanwezig). Zelfde aanpak als repo A's directory-cert; dekt ook een latere
+  verhuizing naar de `test`-deployment.
+- **Interne-mTLS poort/routering op ZAD — nog open, verifiëren bij de eerste apply.** De interne
+  FSC-API's luisteren op `:9443`/`:9444`, maar een ZAD-component exposet via zijn `:443`-ingress
+  precies één containerpoort (mgzctl→8080, mgzmgr/mgzinway→8443). Een call naar
+  `mgzctl-peer-mpfm-w3h.<base-domain>:443` raakt dus die éne ingress-poort, niet `:9443`. De
+  registratiecalls (`CONTROLLER_REGISTRATION_API_ADDRESS`, `MANAGER_ADDRESS_INTERNAL`,
+  `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS`) moeten waarschijnlijk over **intra-deployment DNS +
+  de echte interne poorten** lopen i.p.v. de ingress — bevestigen zodra de certs gemount zijn en
+  de pods booten (de mgzinway/mgzctl-logs tonen of de registratie de juiste poort bereikt). Als
+  het intra-deployment DNS wordt, verhuizen die SANs mee naar de intra-DNS-namen.
 - **Echte magazijn-OIN in een publiek repo** — stond al in `application.properties`; akkoord,
   hier expliciet genoteerd.
 - **Cert-portal op ZAD** — repo-A-vervolg; buiten #780.
