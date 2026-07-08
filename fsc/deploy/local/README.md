@@ -146,10 +146,11 @@ De harness mount `fsc/pki/` read-only op `/pki`. Per endpoint (`manager`, `contr
 `<peer>` ∈ {`directory`, `magazijn-a`}. De mesh verifieert de hostname niet (auth op OIN), maar
 houd de paden consistent met `SELF_ADDRESS`/SNI.
 
-> **Let op — `directory`-peer heeft nog geen CSR's in deze repo.** `fsc/pki/peers/` bevat tot nu
-> toe alleen `magazijn-a/{manager,controller,inway,txlog}/csr.json`. Voor `manager-directory` en
-> `directory-ui` mount de compose paden onder `/pki/{out,internal}/directory/directory/...` —
-> die moeten nog worden gegenereerd (eigen `csr.json` onder `fsc/pki/peers/directory/directory/`
-> of hergebruik van repo A's group-CA-materiaal voor de directory-peer). Dit is een gat dat de
-> mens moet dichten vóór stap 1 van het draaiboek slaagt; zie ook de concerns in het bundle-
-> report.
+De directory-peer heeft eigen CSR's onder `fsc/pki/peers/directory/`: `directory/csr.json`
+(gebruikt door `manager-directory` én `directory-ui` via `/pki/{out,internal}/directory/directory/...`)
+en `manager/csr.json` (scaffolding voor een latere ZAD-directory-deploy; de lokale compose wiret
+het niet). Beide dragen de directory-OIN `00000000000000000010`. `issue.sh` negeert ongebruikte
+endpoints, dus de extra `manager`-CSR is onschadelijk.
+
+> **UITGESTELD:** de certs zelf ontbreken tot `fsc/pki/issue.sh` gedraaid is (vereist `cfssl`).
+> Zonder gegenereerde certs faalt stap 1 van het draaiboek — genereer ze eerst.
