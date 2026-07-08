@@ -241,5 +241,20 @@ post "mgzmgr"   "/components" "${MGZMGR_BODY}"
 post "mgzctl"   "/components" "${MGZCTL_BODY}"
 post "mgzinway" "/components" "${MGZINWAY_BODY}"
 
+# Diagnose: bevestig wat er ná de apply daadwerkelijk als deployment `${DEPLOYMENT}` bestaat
+# (een 202 op :upsert-deployment betekent "geaccepteerd", niet per se "zichtbaar als deployment").
+echo "== staat na apply: deployment '${DEPLOYMENT}' =="
+if curl -sS "${hdr[@]}" -o "${resp}" "${API}/deployments"; then
+  if jq -e --arg d "${DEPLOYMENT}" '.deployments[]? | select(.name==$d)' "${resp}" >/dev/null 2>&1; then
+    echo "  gevonden:"
+    jq -r --arg d "${DEPLOYMENT}" '.deployments[]? | select(.name==$d)
+      | "  name=\(.name) status=\(.status // "?") issues=\(.issues // "?") componenten=\([.components[]?.reference] | join(","))"' "${resp}"
+  else
+    echo "  NIET in /deployments — deployment '${DEPLOYMENT}' bestaat (nog) niet ondanks 202." >&2
+    echo "  alle deployments:" >&2
+    jq -r '.deployments[]? | "    - \(.name) [\(.status // "?")]"' "${resp}" >&2 || true
+  fi
+fi
+
 echo "Klaar. Nog handmatig (UI): bijlagen (certs op /etc/fsc/...) + Publicatie op het web modus 2 op mgzmgr."
 echo "Hostnamen: mgzmgr=${MGZMGR_HOST_DISPLAY} mgzctl=${MGZCTL_HOST_DISPLAY} mgzinway=${MGZINWAY_HOST_DISPLAY}"
