@@ -4,11 +4,17 @@
 # deploy/zad/upsert-directory.sh (MinBZK/moza-fsc-testnet) — zelfde validate/plan/apply-vorm, één
 # bron voor CLI + de workflow zad-deploy-peer.yml.
 #
-# Model: PR = eigen deployment `pr-<PR-nummer>`; main -> deployment `test`. `:upsert-deployment`
-# zet per component de {reference,image} en maakt/updatet het deployment; POST /components
-# verrijkt elke component met env_vars/port/services/aliases. Anders dan de directory-upsert
-# ondersteunt dit script GEEN cloneFrom: elke apply herschrijft alle drie de provider-componenten
-# voor de opgegeven deployment.
+# Model: de peer draait in een eigen deployment (default `peer`). `:upsert-deployment` zet per
+# component de {reference,image} en maakt/updatet het deployment; POST /components verrijkt elke
+# component met env_vars/port/services/aliases.
+#
+# BELANGRIJK — cloneFrom is VERPLICHT om een NIEUWE deployment aan te maken: een `:upsert-deployment`
+# zónder cloneFrom geeft wel HTTP 202 maar creëert géén nieuwe deployment (bewezen: de deployment
+# verscheen niet in /deployments). Alle bestaande deployments zijn via clone-from ontstaan. We
+# clonen daarom van `test` (ZAD_PEER_CLONE_FROM), met forceClone=false zodat een re-run een reeds
+# bestaande `peer` NIET terugzet (idempotent; onze mgz-componenten blijven staan). Neveneffect: de
+# eerste clone brengt de app-componenten (clickhouse/magazijna/magazijnb) mee in `peer` — onschadelijk
+# en los te trimmen; de inway-upstream wijst standaard naar de stabiele `test`-magazijna.
 # NIET via de API (UI-only): bijlagen (cert-mount) + "Publicatie op het web" (passthrough-TLS) —
 # zie cert-manifest.md.
 #
@@ -44,6 +50,7 @@ PROJECT="${ZAD_PROJECT:-mpfm-w3h}"
 BASE="${ZAD_BASE:-https://zad.rijksapp.nl}"
 BASE_DOMAIN="${ZAD_BASE_DOMAIN:-rig.prd1.gn2.quattro.rijksapps.nl}"
 PG_SSLMODE="${ZAD_PG_SSLMODE:-disable}"          # managed DB intra-cluster: plaintext (zoals berichtenbox-JDBC)
+CLONE_FROM="${ZAD_PEER_CLONE_FROM:-test}"        # bron-deployment om `peer` van te clonen (verplicht om nieuw aan te maken)
 
 case "${MODE}" in validate|plan|apply) ;; *) echo "mode = validate | plan | apply"; exit 1 ;; esac
 case "${DEPLOYMENT}" in ""|*[!a-z0-9-]*) echo "ongeldige deployment: '${DEPLOYMENT}'"; exit 1 ;; esac
@@ -166,10 +173,11 @@ component_body() {  # $1=name $2=image $3=port $4=env  [$5=services_json=[]]  [$
      + (if $aliases == "" then {} else {aliases:$aliases} end)'
 }
 
-DEPLOY_BODY="$(jq -n --arg d "${DEPLOYMENT}" \
+DEPLOY_BODY="$(jq -n --arg d "${DEPLOYMENT}" --arg cf "${CLONE_FROM}" \
   --arg mgr "${MANAGER_IMAGE}" --arg ctl "${CONTROLLER_IMAGE}" --arg inway "${INWAY_IMAGE}" \
   '{deploymentName:$d, domain_format:"component-deployment-project",
-    components:[{reference:"mgzmgr", image:$mgr}, {reference:"mgzctl", image:$ctl}, {reference:"mgzinway", image:$inway}]}')"
+    components:[{reference:"mgzmgr", image:$mgr}, {reference:"mgzctl", image:$ctl}, {reference:"mgzinway", image:$inway}]}
+   + (if $cf=="" then {} else {cloneFrom:$cf, forceClone:false} end)')"
 
 MGZMGR_BODY="$(component_body mgzmgr "${MANAGER_IMAGE}" 8443 "${MGZMGR_ENV}" '["postgresql-database"]' "${MGZMGR_ALIASES}")"
 MGZCTL_BODY="$(component_body mgzctl "${CONTROLLER_IMAGE}" 8080 "${MGZCTL_ENV}" '["postgresql-database"]' "${MGZCTL_ALIASES}")"
