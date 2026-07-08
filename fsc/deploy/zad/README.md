@@ -42,9 +42,11 @@ README's voor het cert-contract resp. de lokale smokes.
 |-----------|---------|-----|
 | `ZAD_API_KEY` | — (verplicht bij `apply`) | Auth tegen de ZAD v2-API. **Niet** inline zetten (`export`, niet `ZAD_API_KEY=... ./upsert-peer.sh ...` — dat komt in de shell-history). |
 | `ZAD_PROJECT` | `mpfm-w3h` | ZAD-project waarin de peer + `magazijna` draaien. |
+| `ZAD_BASE` | `https://zad.rijksapp.nl` | Basis-URL van de ZAD v2 Operations Manager API. |
 | `ZAD_BASE_DOMAIN` | `rig.prd1.gn2.quattro.rijksapps.nl` | Base-domain voor de per-component mesh-hostnamen. |
 | `ZAD_MANAGER_TAG` | = het `tag`-argument | Losse override voor de manager-wrapper-tag (ghcr), los van de OpenFSC stock-tag voor controller/inway. |
 | `ZAD_DIRECTORY_MANAGER_HOST` | `dirmgr-test-mft-tp9.<base-domain>` | Repo A's directory-manager-host op ZAD — pas aan als de directory op een andere deployment/project draait. |
+| `ZAD_PG_SSLMODE` | `disable` | SSL-mode voor de managed-Postgres-DSN (intra-cluster plaintext, zoals berichtenbox-JDBC). |
 | `ZAD_MAGAZIJNA_UPSTREAM_URL` | `http://magazijna:8080` | Endpoint-URL van de bestaande `magazijna`-app-component; TODO verifieer de echte intra-project-DNS-vorm vóór de eerste publicatie (zie `verify-zad.md`, stap b). |
 
 De workflow leest de ZAD-key uit het secret `ZAD_API_KEY_MAGAZIJNEN` (niet `ZAD_API_KEY` direct —

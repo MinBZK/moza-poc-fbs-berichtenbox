@@ -20,11 +20,10 @@
 # $DEPLOYMENT_NAME (letterlijk, ZAD-substitutievar) wordt gebruikt voor de per-deployment
 # hostnamen van mgzmgr/mgzctl/mgzinway, zodat één (project-brede) component-definitie in elke
 # deployment (test, pr-...) de juiste hostnaam krijgt — zie de MGZ*_HOST-opbouw hieronder.
-# AANNAME (niet geverifieerd — validate/apply zijn UITGESTELD): ZAD substitueert $DEPLOYMENT_NAME
-# zowel in `env_vars` als in `aliases`; component-onderlinge adressen (bv. CONTROLLER_REGISTRATION_
-# API_ADDRESS op mgzmgr) staan daarom in `env_vars`, analoog aan hoe repo A's directory-upsert dat
-# al deed voor de eigen SELF_ADDRESS/DIRECTORY_MANAGER_ADDRESS (die wél in `aliases` staan, omdat
-# ze zowel $DEPLOYMENT_NAME als — voor de DSN — $DATABASE_* nodig hebben).
+# ZAD substitueert $DEPLOYMENT_NAME en $DATABASE_* UITSLUITEND in `aliases`, niet in `env_vars`
+# (zie repo A's upsert-directory.sh). Elke waarde die zo'n substitutievar bevat — ook
+# component-onderlinge adressen zoals CONTROLLER_REGISTRATION_API_ADDRESS op mgzmgr — hoort dus
+# in `aliases`; alleen waarden zonder substitutievar horen in `env_vars`.
 #
 # Usage:
 #   export ZAD_API_KEY=...                          # niet inline (echo't anders)
@@ -87,7 +86,6 @@ MGZMGR_ENV="$(printf '%s\n' \
   "DIRECTORY_PEER_ID=00000000000000000010" \
   "TX_LOG_API_ADDRESS=" \
   "AUTO_SIGN_GRANTS=" \
-  "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST}:443" \
   "LISTEN_ADDRESS_EXTERNAL=0.0.0.0:8443" \
   "LISTEN_ADDRESS_INTERNAL=0.0.0.0:9443" \
   "LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED=0.0.0.0:9444" \
@@ -114,6 +112,7 @@ MGZMGR_ENV="$(printf '%s\n' \
 MGZMGR_ALIASES="$(printf '%s\n' \
   "SELF_ADDRESS=https://${MGZMGR_HOST}:443" \
   "DIRECTORY_MANAGER_ADDRESS=https://${DIRECTORY_MANAGER_HOST}:443" \
+  "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST}:443" \
   "STORAGE_POSTGRES_DSN=postgres://\$DATABASE_SERVER_USER:\$DATABASE_PASSWORD@\$DATABASE_SERVER_HOST:5432/\$DATABASE_DB?sslmode=${PG_SSLMODE}")"
 
 MGZCTL_ENV="$(printf '%s\n' \
@@ -123,7 +122,6 @@ MGZCTL_ENV="$(printf '%s\n' \
   "AUTHN_TYPE=none" \
   "AUTHZ_TYPE=rbac" \
   "CSRF_PROTECTION_ENABLED=false" \
-  "MANAGER_ADDRESS_INTERNAL=https://${MGZMGR_HOST}:443" \
   "LISTEN_ADDRESS_UI=0.0.0.0:8080" \
   "LISTEN_ADDRESS_REGISTRATION_API=0.0.0.0:9443" \
   "LISTEN_ADDRESS_ADMINISTRATION_API=0.0.0.0:9444" \
@@ -132,15 +130,14 @@ MGZCTL_ENV="$(printf '%s\n' \
   "TLS_CERT=/etc/fsc/internal/magazijn-a/controller/cert.pem" \
   "TLS_KEY=/etc/fsc/internal/magazijn-a/controller/key.pem")"
 # mgzctl heeft een eigen managed Postgres (los van mgzmgr's DB) -> eigen DSN-alias.
-MGZCTL_ALIASES="STORAGE_POSTGRES_DSN=postgres://\$DATABASE_SERVER_USER:\$DATABASE_PASSWORD@\$DATABASE_SERVER_HOST:5432/\$DATABASE_DB?sslmode=${PG_SSLMODE}"
+MGZCTL_ALIASES="$(printf '%s\n' \
+  "MANAGER_ADDRESS_INTERNAL=https://${MGZMGR_HOST}:443" \
+  "STORAGE_POSTGRES_DSN=postgres://\$DATABASE_SERVER_USER:\$DATABASE_PASSWORD@\$DATABASE_SERVER_HOST:5432/\$DATABASE_DB?sslmode=${PG_SSLMODE}")"
 
 MGZINWAY_ENV="$(printf '%s\n' \
   "LOG_TYPE=live" "LOG_LEVEL=info" \
   "NAME=magazijn-a-inway" \
   "GROUP_ID=moza-fbs-test" \
-  "SELF_ADDRESS=https://${MGZINWAY_HOST}:443" \
-  "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST}:443" \
-  "MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS=https://${MGZMGR_HOST}:443" \
   "TX_LOG_API_ADDRESS=" \
   "LISTEN_ADDRESS=0.0.0.0:8443" \
   "MONITORING_ADDRESS=0.0.0.0:8081" \
@@ -151,8 +148,12 @@ MGZINWAY_ENV="$(printf '%s\n' \
   "TLS_ROOT_CERT=/etc/fsc/internal/magazijn-a/ca/root.pem" \
   "TLS_CERT=/etc/fsc/internal/magazijn-a/inway/cert.pem" \
   "TLS_KEY=/etc/fsc/internal/magazijn-a/inway/key.pem")"
-# Geen managed DB, geen zelf-adres met $DATABASE_*-substitutie nodig -> geen aliases.
-MGZINWAY_ALIASES=""
+# Geen managed DB, dus geen $DATABASE_*-substitutie nodig; wel drie mesh-adressen met
+# $DEPLOYMENT_NAME -> die horen in aliases (env_vars expandeert geen ZAD-substitutievars).
+MGZINWAY_ALIASES="$(printf '%s\n' \
+  "SELF_ADDRESS=https://${MGZINWAY_HOST}:443" \
+  "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST}:443" \
+  "MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS=https://${MGZMGR_HOST}:443")"
 
 # component-body (AddComponentRequest) via jq -> correcte JSON-escaping.
 component_body() {  # $1=name $2=image $3=port $4=env  [$5=services_json=[]]  [$6=aliases=""]
