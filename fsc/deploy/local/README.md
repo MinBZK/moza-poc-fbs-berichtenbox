@@ -98,20 +98,12 @@ provider-only-harness.
 | `smoke-discover.sh` | `berichtenmagazijn` is vindbaar in de directory-catalogus voor de magazijn-OIN. |
 | `run-smokes.sh` | Draait de drie bovenstaande in volgorde. |
 
-> ### WAARSCHUWING — schema van de directory `services`-tabel niet geverifieerd
->
-> `smoke-discover.sh` bevraagt `services` met kolommen `peer_id`/`name`. Dit schema is
-> **niet** tegen een draaiende directory-DB geverifieerd (geen Docker beschikbaar in deze
-> omgeving) — het is overgenomen naar analogie van `peers.peers` (kolom `id`) uit
-> `smoke-announce.sh`, maar dat is een aanname, geen bevestigd contract. Controleer bij de
-> eerste keer draaien:
->
-> ```bash
-> docker compose -f fsc/deploy/local/docker-compose.yaml exec postgres \
->   psql -U postgres -d fsc_directory -c '\d+ services'
-> ```
->
-> en pas de `SELECT`-query in `smoke-discover.sh` aan als de kolomnamen afwijken.
+`smoke-discover.sh` bevraagt de **mesh-API** van de eigen manager
+(`GET /v1/peers/{dir}/services?peer_id={provider}` op de Internal-API `:9443`, met het
+internal-cert), niet een directory-DB-tabel — gepubliceerde diensten worden via de mesh
+opgevraagd, niet uit een `services`-tabel gelezen. Dit spiegelt repo A's bewezen
+`smoke-publish.sh`. Announce en publish zijn lokaal groen bevonden; discover draait via deze
+mesh-API-methode.
 
 ## Troubleshooting
 
