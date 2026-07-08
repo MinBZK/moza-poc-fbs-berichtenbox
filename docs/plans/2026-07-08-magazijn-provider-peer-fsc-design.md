@@ -123,8 +123,13 @@ magazijn-a                                   centrale kern (directory)
 
 ## Open punten (genoteerd, niet-blokkerend)
 
-- **Intra-project-DNS-vorm** van de `magazijna`-upstream in mpfm-w3h (bare servicenaam vs.
-  koppelteken-vorm) — verifiëren bij de ZAD-upsert (Fase 3).
+- **Peer-topologie op ZAD (clobber-veilig):** de peer draait in een **eigen, vaste deployment
+  `peer`** binnen `mpfm-w3h`, los van de app-deployments (`test`/`pr-<n>`) die `deploy.yml`
+  beheert. Verschillende deployment-namen → geen wederzijds overschrijven van componenten. Eén
+  vaste `peer`-deployment = één aanmelding van de federatie-OIN (singleton). De inway bereikt
+  `magazijna` **cross-deployment via de ingress-URL** (`https://magazijna-<deployment>-mpfm-w3h.<base-domain>`,
+  https/:443) i.p.v. intra-deployment DNS — dit lost het oude "intra-project-DNS-vorm/poort"-punt
+  op. De `zad-deploy-peer.yml`-workflow deployt op elke PR-push naar deployment `peer`.
 - **Interne-mTLS-adressen op ZAD (SAN + poort) — vóór de eerste `apply` oplossen.** De
   manager↔controller↔inway-registratiecalls (`CONTROLLER_REGISTRATION_API_ADDRESS`,
   `MANAGER_ADDRESS_INTERNAL`, `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS`) lopen over de

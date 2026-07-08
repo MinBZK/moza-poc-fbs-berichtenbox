@@ -71,13 +71,15 @@ MGZINWAY_HOST='mgzinway-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
 # directory-host is; override met ZAD_DIRECTORY_MANAGER_HOST als de directory elders draait.
 DIRECTORY_MANAGER_HOST="${ZAD_DIRECTORY_MANAGER_HOST:-dirmgr-test-mft-tp9.${BASE_DOMAIN}}"
 
-# TODO(verifieer intra-project-DNS-vorm van magazijna in mpfm-w3h): bare servicenaam vs.
-# koppelteken-vorm (bv. "magazijna" of "magazijna-<deployment>-mpfm-w3h"). Dit is GEEN inway-
-# env-var (OpenFSC kent geen "upstream" op de inway zelf) maar de endpoint_url die bij de
-# service-publicatie op de mgzctl Administration-API wordt meegegeven — analoog aan
-# fsc/deploy/local/publish-service.sh se STUB_URL, maar dan de bestaande magazijna-app-component
-# intra-project i.p.v. de lokale stub. Zie verify-zad.md, stap (b).
-MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-http://magazijna:8080}"
+# De peer draait in een EIGEN deployment (`peer`, clobber-veilig los van deploy.yml's
+# `test`/`pr-<n>`), dus de inway bereikt de magazijna-app-component cross-deployment via de
+# ZAD-ingress-URL (https, :443 — de ingress mapt naar de app-containerpoort; geen poort in de
+# URL). Default = de stabiele `test`-deployment van de app; override met ZAD_MAGAZIJNA_DEPLOYMENT
+# (bv. een PR-preview `pr-140`) of volledig met ZAD_MAGAZIJNA_UPSTREAM_URL. Dit is GEEN inway-
+# env-var (OpenFSC kent geen "upstream" op de inway) maar de endpoint_url die bij de service-
+# publicatie op de mgzctl Administration-API wordt meegegeven — zie verify-zad.md, stap (b).
+MAGAZIJNA_DEPLOYMENT="${ZAD_MAGAZIJNA_DEPLOYMENT:-test}"
+MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-https://magazijna-${MAGAZIJNA_DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}}"
 
 # --- env-blobs (KEY=value, newline-sep, plain). TLS_*-paden = de bijlage-mounts (UI, ontwerp A). ---
 MGZMGR_ENV="$(printf '%s\n' \
@@ -181,7 +183,7 @@ if [ "${MODE}" = plan ]; then
   echo "### component mgzinway (inway)"; echo "${MGZINWAY_BODY}"
   echo "Hostnamen (deployment '${DEPLOYMENT}'): mgzmgr=${MGZMGR_HOST_DISPLAY} mgzctl=${MGZCTL_HOST_DISPLAY} mgzinway=${MGZINWAY_HOST_DISPLAY}"
   echo "Directory-manager (repo A, extern): ${DIRECTORY_MANAGER_HOST}"
-  echo "Upstream naar de app (TODO verifieer intra-project-DNS-vorm van magazijna): ${MAGAZIJNA_UPSTREAM_URL}"
+  echo "Upstream naar de app (ingress-URL, cross-deployment): ${MAGAZIJNA_UPSTREAM_URL}"
   exit 0
 fi
 

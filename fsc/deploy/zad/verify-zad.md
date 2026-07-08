@@ -42,9 +42,9 @@ create-service + servicePublication-contract-flow, maar tegen de mgzctl Administ
   group-PKI, zie `cert-manifest.md`).
 - **UI**: via de mgzctl-beheer-UI (`LISTEN_ADDRESS_UI`, `AUTHN_TYPE=none`) een dienst aanmaken
   met naam `berichtenmagazijn`, `endpoint_url` = de waarde uit `upsert-peer.sh`'s
-  `MAGAZIJNA_UPSTREAM_URL` (TODO: intra-project-DNS-vorm van `magazijna` in `mpfm-w3h`
-  bevestigen — bare servicenaam vs. koppelteken-vorm, zie de `upsert-peer.sh`-header) en
-  `inway_address` = de geregistreerde mgzinway `SELF_ADDRESS`.
+  `MAGAZIJNA_UPSTREAM_URL` (de ingress-URL van de app cross-deployment, bv.
+  `https://magazijna-test-mpfm-w3h.<base-domain>`) en `inway_address` = de geregistreerde
+  mgzinway `SELF_ADDRESS`.
 
 Verwacht: de contract-respons bevat `content_hash` (manager signt) en de directory (
 `AUTO_SIGN_GRANTS=servicePublication,delegatedServicePublication` op de directory-manager, buiten
