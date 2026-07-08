@@ -26,9 +26,13 @@ README's voor het cert-contract resp. de lokale smokes.
    vereist `cfssl`; zie `fsc/pki/README.md`).
 2. **Bundle** — `fsc/pki/zad-bundle.sh magazijn-a` (UITGESTELD, hierboven van afhankelijk) →
    upload-klare cert-set in `fsc/pki/zad-upload/magazijn-a/`.
-3. **`upsert-peer.sh plan [deployment] [tag]`** (dry-run, wél uitvoerbaar — alleen `jq`, geen
+3. **Deployment `peer` éénmalig handmatig aanmaken** in de Operations Manager-UI (project
+   `mpfm-w3h`, deployment-naam `peer`) — de raw v2-API `:upsert-deployment` maakt géén NIEUWE
+   deployment aan (geeft wel 202 maar het deployment verschijnt niet); een BESTAAND deployment
+   vult dit script wél. Leeg aanmaken volstaat; de workflow zet daarna de componenten + images.
+4. **`upsert-peer.sh plan [deployment] [tag]`** (dry-run, wél uitvoerbaar — alleen `jq`, geen
    netwerk) — toont de deployment- + drie component-bodies zonder te muteren.
-4. **`upsert-peer.sh validate`** (UITGESTELD, vereist `ZAD_API_KEY`) — read-only auth-check tegen
+5. **`upsert-peer.sh validate`** (UITGESTELD, vereist `ZAD_API_KEY`) — read-only auth-check tegen
    de ZAD-API.
 5. **`upsert-peer.sh apply [deployment] [tag]`** (UITGESTELD, vereist `ZAD_API_KEY`) — upsert het
    deployment + de drie componenten, pollt de resulterende tasks.

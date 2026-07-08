@@ -8,13 +8,12 @@
 # component de {reference,image} en maakt/updatet het deployment; POST /components verrijkt elke
 # component met env_vars/port/services/aliases.
 #
-# BELANGRIJK — cloneFrom is VERPLICHT om een NIEUWE deployment aan te maken: een `:upsert-deployment`
-# zónder cloneFrom geeft wel HTTP 202 maar creëert géén nieuwe deployment (bewezen: de deployment
-# verscheen niet in /deployments). Alle bestaande deployments zijn via clone-from ontstaan. We
-# clonen daarom van `test` (ZAD_PEER_CLONE_FROM), met forceClone=false zodat een re-run een reeds
-# bestaande `peer` NIET terugzet (idempotent; onze mgz-componenten blijven staan). Neveneffect: de
-# eerste clone brengt de app-componenten (clickhouse/magazijna/magazijnb) mee in `peer` — onschadelijk
-# en los te trimmen; de inway-upstream wijst standaard naar de stabiele `test`-magazijna.
+# BELANGRIJK — het `peer`-deployment moet ÉÉNMALIG handmatig (leeg) worden aangemaakt in de
+# Operations Manager-UI. Een `:upsert-deployment` zónder cloneFrom geeft wel HTTP 202 maar creëert
+# géén NIEUWE deployment (bewezen: `peer` verscheen niet in /deployments). Een BESTAAND (leeg)
+# deployment wordt door `:upsert-deployment` + `POST /components` wél gevuld/geüpdatet — dat is dit
+# script. cloneFrom is optioneel (ZAD_PEER_CLONE_FROM) maar afgeraden: clonen van bv. `test` sleept
+# de app-images (clickhouse/magazijna/magazijnb) mee in `peer`.
 # NIET via de API (UI-only): bijlagen (cert-mount) + "Publicatie op het web" (passthrough-TLS) —
 # zie cert-manifest.md.
 #
@@ -50,7 +49,7 @@ PROJECT="${ZAD_PROJECT:-mpfm-w3h}"
 BASE="${ZAD_BASE:-https://zad.rijksapp.nl}"
 BASE_DOMAIN="${ZAD_BASE_DOMAIN:-rig.prd1.gn2.quattro.rijksapps.nl}"
 PG_SSLMODE="${ZAD_PG_SSLMODE:-disable}"          # managed DB intra-cluster: plaintext (zoals berichtenbox-JDBC)
-CLONE_FROM="${ZAD_PEER_CLONE_FROM:-test}"        # bron-deployment om `peer` van te clonen (verplicht om nieuw aan te maken)
+CLONE_FROM="${ZAD_PEER_CLONE_FROM:-}"            # leeg = geen clone; `peer` wordt éénmalig handmatig (leeg) aangemaakt
 
 case "${MODE}" in validate|plan|apply) ;; *) echo "mode = validate | plan | apply"; exit 1 ;; esac
 case "${DEPLOYMENT}" in ""|*[!a-z0-9-]*) echo "ongeldige deployment: '${DEPLOYMENT}'"; exit 1 ;; esac
