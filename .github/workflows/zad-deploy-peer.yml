@@ -1,0 +1,103 @@
+# Directe ZAD-API-deploy van de provider-peer magazijn-a (#780) via de v2 Operations Manager
+# API. Roept fsc/deploy/zad/upsert-peer.sh aan (zelfde bron als de CLI). Model op repo A's
+# zad-deploy-directory.yml (MinBZK/moza-fsc-testnet), maar zonder build-job: de drie images
+# (manager-migrate, controller, inway) zijn kant-en-klare pins — deze repo bouwt ze niet zelf.
+#
+# Trigger: push naar main -> deployment `test`; PR (met path-filter) -> preview `pr-<PR-nummer>`.
+# Dekt alleen de deploy-API (deployment + componenten + images + env_vars/aliases). NIET via de
+# API (UI-only): bijlagen (cert-mount), "Publicatie op het web" (passthrough-TLS) — zie
+# fsc/deploy/zad/cert-manifest.md.
+name: zad-deploy-peer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "fsc/deploy/zad/**"
+      - ".github/workflows/zad-deploy-peer.yml"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "fsc/deploy/zad/**"
+      - ".github/workflows/zad-deploy-peer.yml"
+
+permissions: read-all
+
+concurrency:
+  # Eén run per deployment tegelijk: PR -> pr-<n>, push -> test. Deploys niet halverwege killen
+  # (een halve ZAD-deploy laat een inconsistente staat achter).
+  group: zad-deploy-peer-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || 'test' }}
+  cancel-in-progress: false
+
+jobs:
+  # Afgeleide waarden op één plek: deployment-naam + de MODE die uit het event volgt.
+  meta:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      deployment: ${{ steps.m.outputs.deployment }}
+    steps:
+      - id: m
+        env:
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            deployment="pr-${PR}"
+          else
+            deployment="test"
+          fi
+          echo "deployment=${deployment}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Upsert magazijn-a-peer via ZAD v2-API
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          ZAD_PROJECT: ${{ vars.ZAD_PROJECT_ID_MAGAZIJNEN || 'mpfm-w3h' }}
+          MODE: apply
+          DEPLOYMENT: ${{ needs.meta.outputs.deployment }}
+          IMAGE_TAG: v1.43.7
+        run: ./fsc/deploy/zad/upsert-peer.sh "${MODE}" "${DEPLOYMENT}" "${IMAGE_TAG}"
+
+      - name: Preview-hostnamen als PR-comment (upsert)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          DEPLOYMENT: ${{ needs.meta.outputs.deployment }}
+          PROJECT: ${{ vars.ZAD_PROJECT_ID_MAGAZIJNEN || 'mpfm-w3h' }}
+          BASE_DOMAIN: ${{ vars.ZAD_BASE_DOMAIN || 'rig.prd1.gn2.quattro.rijksapps.nl' }}
+        run: |
+          set -euo pipefail
+          marker="<!-- fsc-peer-preview -->"
+          mgr="https://mgzmgr-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
+          ctl="https://mgzctl-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
+          inway="https://mgzinway-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
+          body="${marker}
+          ### FSC magazijn-a-peer-preview \`${DEPLOYMENT}\`
+          - mgzmgr (manager): ${mgr}
+          - mgzctl (controller): ${ctl}
+          - mgzinway (inway): ${inway}
+
+          Bijlagen (certs) en 'Publicatie op het web' zijn UI-only en dus niet automatisch gezet — zie \`fsc/deploy/zad/cert-manifest.md\`."
+          id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+                --jq "map(select(.body | startswith(\"$marker\"))) | .[0].id // empty")
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" >/dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" >/dev/null
+          fi
