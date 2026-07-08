@@ -44,3 +44,10 @@ node_modules/
 
 # Tijdelijke files van import-rewrite-scripts
 *.kt.tmp
+
+# FSC-peer certificaten (privésleutels — nooit committen)
+fsc/pki/ca/
+fsc/pki/out/
+fsc/pki/internal/
+fsc/pki/zad-upload/
+fsc/deploy/local/.env
