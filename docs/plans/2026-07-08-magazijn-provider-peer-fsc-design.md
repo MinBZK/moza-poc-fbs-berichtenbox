@@ -130,11 +130,12 @@ magazijn-a                                   centrale kern (directory)
   `magazijna` **cross-deployment via de ingress-URL** (`https://magazijna-<deployment>-mpfm-w3h.<base-domain>`,
   https/:443) i.p.v. intra-deployment DNS — dit lost het oude "intra-project-DNS-vorm/poort"-punt
   op. De `zad-deploy-peer.yml`-workflow deployt op elke PR-push naar deployment `peer`.
-- **Interne-mTLS SAN — OPGELOST.** De internal-certs van manager/controller/inway dragen nu de
-  ZAD-wildcard-SAN `*.rig.prd1.gn2.quattro.rijksapps.nl` (naast `*.magazijn-a.fsc-test.local`),
-  zodat hostname-verificatie op de ZAD-ingress-hostnamen slaagt. Bewezen met `verify.sh` +
-  `openssl` (SAN aanwezig). Zelfde aanpak als repo A's directory-cert; dekt ook een latere
-  verhuizing naar de `test`-deployment.
+- **Interne-mTLS SAN — OPGELOST (least-privilege).** Elk internal-cert draagt nu zijn **eigen
+  concrete** ZAD-hostnaam (`mgzmgr-peer-mpfm-w3h.<base-domain>` op de manager, `mgzctl-…` op de
+  controller, `mgzinway-…` op de inway) — géén domein-brede wildcard, zodat de certs niet voor het
+  hele gedeelde Rijks-hosting-domein geldig zijn. Bewezen met `verify.sh` + `openssl`. Verhuist de
+  peer later naar de `test`-deployment, dan moeten de `-test-`-hostnamen als SAN toegevoegd worden
+  (her-uitgifte + her-upload).
 - **Interne-mTLS poort/routering op ZAD — nog open, verifiëren bij de eerste apply.** De interne
   FSC-API's luisteren op `:9443`/`:9444`, maar een ZAD-component exposet via zijn `:443`-ingress
   precies één containerpoort (mgzctl→8080, mgzmgr/mgzinway→8443). Een call naar

@@ -5,8 +5,8 @@
     "size": 4096
   },
   "hosts": [
-    "*.rig.prd1.gn2.quattro.rijksapps.nl",
-    "inway.magazijn-a.fsc-test.local"
+    "inway.magazijn-a.fsc-test.local",
+    "mgzinway-peer-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl"
   ],
   "serialnumber": "00000001003214345000",
   "names": [

@@ -5,8 +5,8 @@
     "size": 4096
   },
   "hosts": [
-    "*.rig.prd1.gn2.quattro.rijksapps.nl",
-    "controller.magazijn-a.fsc-test.local"
+    "controller.magazijn-a.fsc-test.local",
+    "mgzctl-peer-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl"
   ],
   "serialnumber": "00000001003214345000",
   "names": [
