@@ -16,7 +16,10 @@ directory-OIN `00000000000000000010`).
 |--------|------|
 | `init-ca.sh` | Genereert de **group** root- + intermediate-CA (`ca.json`/`intermediate.json` → `ca/root.pem`, `ca/intermediate.pem`). Trust-anchor voor het hele testnet. |
 | `issue.sh [-f]` | Voor elke `peers/<peer>/<endpoint>/csr.json`: een **group**-cert (getekend door de group-intermediate) én een **internal**-cert (getekend door een per-peer self-signed internal-CA, automatisch aangemaakt). `-f` forceert her-uitgifte. |
+| `gen-crl.sh` | Genereert een lege CRL getekend door de group-intermediate → `ca/intermediate.crl`. **Vereist vóór `verify.sh`** — die assert dat de CRL leesbaar is. |
 | `verify.sh` | Acceptatie-asserts: ketengeldigheid group- en internal-certs, OIN in het subject, isolatie group↔internal en tussen peers onderling, CRL leesbaar, geen secrets zichtbaar voor git. Exit 0 = groen. |
+| `combine-pem.sh` | Bouwt per group-endpoint één `combined.pem` (cert + key) voor de ZAD "Publicatie op het web"-passthrough-upload (modus 2). Gitignored (bevat de key). |
+| `fix-permissions.sh` | Haalt world read/write van de `*-key.pem`/`key.pem`-bestanden af. |
 | `zad-bundle.sh <peer>` | Verzamelt de upload-klare cert-set van één peer (group-trust-anchor + per-endpoint group/internal cert+key) in `zad-upload/<peer>/` met een `MANIFEST.md` (pod-pad + `TLS_*`-env-var per bestand). |
 | `config.json` | cfssl signing-config: profiel `intermediate` (voor de group-intermediate) en profiel `peer` (voor endpoint-leaves). |
 | `internal-ca.json`, `ca.json`, `intermediate.json` | cfssl CSR-specs voor resp. de per-peer internal-CA, de group-root en de group-intermediate. |
@@ -51,8 +54,9 @@ door de mens uit te voeren:
 ```bash
 cd fsc/pki
 ./init-ca.sh          # 1. group root + intermediate  -> ca/
-./issue.sh             # 2. per endpoint: group- + internal-cert
-./verify.sh             # 3. acceptatie-asserts, exit 0 = groen
+./issue.sh            # 2. per endpoint: group- + internal-cert
+./gen-crl.sh          # 3. lege CRL getekend door de intermediate -> ca/intermediate.crl
+./verify.sh           # 4. acceptatie-asserts (incl. CRL leesbaar), exit 0 = groen
 ```
 
 Controleer daarna dat de OIN in het certificaat zit:
@@ -69,7 +73,9 @@ Zie ook `fsc/pki/certportal-proof.md` voor het (eveneens UITGESTELDE) alternatie
 ## Statische validatie (wél al gedraaid, zonder cfssl/docker)
 
 ```bash
-bash -n fsc/pki/init-ca.sh fsc/pki/issue.sh fsc/pki/verify.sh fsc/pki/zad-bundle.sh
+bash -n fsc/pki/init-ca.sh fsc/pki/issue.sh fsc/pki/gen-crl.sh fsc/pki/verify.sh \
+        fsc/pki/zad-bundle.sh fsc/pki/combine-pem.sh
+sh -n   fsc/pki/fix-permissions.sh
 for f in fsc/pki/peers/magazijn-a/*/csr.json; do
   jq -e '.serialnumber=="00000001003214345000"' "$f" >/dev/null && echo "$f OK"
 done
