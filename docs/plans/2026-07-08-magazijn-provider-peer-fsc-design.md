@@ -125,6 +125,18 @@ magazijn-a                                   centrale kern (directory)
 
 - **Intra-project-DNS-vorm** van de `magazijna`-upstream in mpfm-w3h (bare servicenaam vs.
   koppelteken-vorm) — verifiëren bij de ZAD-upsert (Fase 3).
+- **Interne-mTLS-adressen op ZAD (SAN + poort) — vóór de eerste `apply` oplossen.** De
+  manager↔controller↔inway-registratiecalls (`CONTROLLER_REGISTRATION_API_ADDRESS`,
+  `MANAGER_ADDRESS_INTERNAL`, `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS`) lopen over de
+  INTERNAL-PKI en verifiëren de hostname. In `upsert-peer.sh` wijzen ze naar de ZAD-ingress-
+  hostnamen (`mgz{ctl,mgr}-$DEPLOYMENT_NAME-mpfm-w3h.<base-domain>:443`), maar (a) die naam zit
+  níét in de magazijn-a internal-cert-SANs (alleen `*.magazijn-a.fsc-test.local`), en (b) de
+  interne API's luisteren op `:9443`/`:9444`, terwijl alleen de externe/data-poorten (`:8443`)
+  passthrough krijgen. Zonder oplossing falen de registratie-handshakes bij boot (TLS-hostname-
+  mismatch en/of verkeerde poort) → de inway registreert niet en er publiceert geen dienst.
+  Repo A's directory-deploy (alleen dirmgr+dirui) oefent dit pad niet, dus het is onbewezen.
+  Oplossingsrichting: internal-cert-SANs uitbreiden met de ZAD-hostnamen (of een intra-project-
+  DNS-alias op `.fsc-test.local` gebruiken) én de interne poorten correct routeren/exposen.
 - **Echte magazijn-OIN in een publiek repo** — stond al in `application.properties`; akkoord,
   hier expliciet genoteerd.
 - **Cert-portal op ZAD** — repo-A-vervolg; buiten #780.
