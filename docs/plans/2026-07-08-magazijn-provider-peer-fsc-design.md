@@ -148,12 +148,11 @@ magazijn-a                                   centrale kern (directory)
   hele gedeelde Rijks-hosting-domein geldig zijn. Bewezen met `verify.sh` + `openssl`. Verandert het
   project of de deployment-naam, dan moeten de bijbehorende hostnamen als SAN opnieuw uitgegeven en
   geüpload worden.
-- **ZAD past `env_vars` niet toe, alleen `aliases` — OPGELOST.** Bij de eerste echte apply crashte
-  de manager op `required flag(s) ... not set` voor exact de keys uit de `env_vars`-blob
-  (listen-addresses + alle TLS-paden), terwijl de `aliases`-keys (self-address, DSN, ...) én de
-  migratie-DSN wél aankwamen — migrate en serve delen dezelfde proces-env, dus de env_vars-waarden
-  waren aantoonbaar afwezig in de container. `upsert-peer.sh` spiegelt daarom ALLE component-config
-  in de `aliases`-blob (`MGZ*_ALIASES_FULL`); `env_vars` blijft als plain-subset staan (idempotent).
+- **txlog is verplicht voor een niet-directory manager — toegevoegd.** OpenFSC v1.43.7 faalt hard
+  op `tx-log-api-address is required when the manager does not function as the directory` als
+  `TX_LOG_API_ADDRESS` leeg is. De eerdere aanname (txlog op ZAD leeglaten tot #728) klopt dus niet;
+  er draait nu een vierde component `mgztxlog` (txlog-api-image + eigen managed Postgres, internal-
+  PKI mTLS), en mgzmgr/mgzinway wijzen ernaar. txlog-*hardening* / het echte data-pad blijft #728.
 - **Interne-mTLS poort/routering op ZAD — nog open, verifiëren bij de eerste apply.** De interne
   FSC-API's luisteren op `:9443`/`:9444`, maar een ZAD-component exposet via zijn `:443`-ingress
   precies één containerpoort (mgzctl→8080, mgzmgr/mgzinway→8443). Een call naar

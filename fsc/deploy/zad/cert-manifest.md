@@ -63,6 +63,17 @@ de eigen manager op de internal-PKI) — vandaar geen `out/magazijn-a/controller
 | `internal/magazijn-a/inway/cert.pem` | `internal/magazijn-a/inway/cert.pem` | `TLS_CERT` |
 | `internal/magazijn-a/inway/key.pem` | `internal/magazijn-a/inway/key.pem` | `TLS_KEY` |
 
+## mgztxlog (txlog-api)
+
+txlog spreekt uitsluitend mTLS op de INTERNAL-PKI (geen group-cert — group-agnostische opslag),
+net als in de lokale compose.
+
+| Bijlage-pad (`/etc/fsc/...`) | Bronbestand (`fsc/pki/...`) | Env-var op mgztxlog |
+|-------------------------------|-------------------------------------------|--------------------|
+| `internal/magazijn-a/ca/root.pem` | `internal/magazijn-a/ca/root.pem` | `TLS_ROOT_CERT` |
+| `internal/magazijn-a/txlog/cert.pem` | `internal/magazijn-a/txlog/cert.pem` | `TLS_CERT` |
+| `internal/magazijn-a/txlog/key.pem` | `internal/magazijn-a/txlog/key.pem` | `TLS_KEY` |
+
 ## Na het mounten
 
 Herstart (of laat ZAD herstarten na attachment-wijziging) elk component en controleer de boot-log

@@ -1,7 +1,7 @@
 {
   "CN": "txlog.magazijn-a.fsc-test.local",
   "key": { "algo": "rsa", "size": 4096 },
-  "hosts": ["txlog.magazijn-a.fsc-test.local"],
+  "hosts": ["txlog.magazijn-a.fsc-test.local", "mgztxlog-test-mpfoa-e01.rig.prd1.gn2.quattro.rijksapps.nl"],
   "serialnumber": "00000001003214345000",
   "names": [{ "O": "magazijn-a", "C": "NL" }]
 }

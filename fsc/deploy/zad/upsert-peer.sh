@@ -32,13 +32,7 @@
 # ZAD substitueert $DEPLOYMENT_NAME en $DATABASE_* UITSLUITEND in `aliases`, niet in `env_vars`
 # (zie repo A's upsert-directory.sh). Elke waarde die zo'n substitutievar bevat — ook
 # component-onderlinge adressen zoals CONTROLLER_REGISTRATION_API_ADDRESS op mgzmgr — hoort dus
-# in `aliases`.
-#
-# STERKER NOG: op deze componenten past ZAD de `env_vars`-blob helemaal NIET toe (bewezen: de
-# manager crashte op `required flag(s) ... not set` voor exact de env_vars-keys, terwijl de
-# aliases-keys wél aankwamen). Daarom wordt vlak vóór de component-body ALLE config (ENV + de
-# substitutie-aliases) in de aliases-blob samengevoegd — zie MGZ*_ALIASES_FULL. De losse *_ENV-
-# blokken hieronder blijven de plain (substitutie-vrije) waarden; die worden in aliases gespiegeld.
+# in `aliases`; alleen waarden zonder substitutievar horen in `env_vars`.
 #
 # Usage:
 #   export ZAD_API_KEY=...                          # niet inline (echo't anders)
@@ -71,17 +65,20 @@ case "${MANAGER_TAG}" in ""|*[!A-Za-z0-9._-]*) echo "ongeldige ZAD_MANAGER_TAG: 
 MANAGER_IMAGE="ghcr.io/minbzk/moza-fsc-testnet/manager-migrate:${MANAGER_TAG}"
 CONTROLLER_IMAGE="docker.io/federatedserviceconnectivity/controller:${IMAGE_TAG}"
 INWAY_IMAGE="docker.io/federatedserviceconnectivity/inway:${IMAGE_TAG}"
+TXLOG_IMAGE="docker.io/federatedserviceconnectivity/txlog-api:${IMAGE_TAG}"
 
 # Display-hostnamen (déze deployment, voor de mens-leesbare plan-/apply-output).
 MGZMGR_HOST_DISPLAY="mgzmgr-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 MGZCTL_HOST_DISPLAY="mgzctl-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 MGZINWAY_HOST_DISPLAY="mgzinway-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
+MGZTXLOG_HOST_DISPLAY="mgztxlog-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 
 # Deployment-agnostische hostnamen voor in de component-bodies: ZAD vult $DEPLOYMENT_NAME per
 # deployment in (test, pr-...) -> hoort in env_vars/aliases, niet in bash opgelost.
 MGZMGR_HOST='mgzmgr-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
 MGZCTL_HOST='mgzctl-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
 MGZINWAY_HOST='mgzinway-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
+MGZTXLOG_HOST='mgztxlog-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
 
 # Repo A's directory-deployment op ZAD (project mft-tp9, deployment "test" — zie upsert-directory.sh
 # se defaults). TODO(verifieer bij de echte apply): bevestig dat dit nog steeds de actieve
@@ -105,7 +102,6 @@ MGZMGR_ENV="$(printf '%s\n' \
   "LOG_TYPE=live" "LOG_LEVEL=info" "AUDITLOG_TYPE=stdout" \
   "GROUP_ID=moza-fbs-test" \
   "DIRECTORY_PEER_ID=00000000000000000010" \
-  "TX_LOG_API_ADDRESS=" \
   "AUTO_SIGN_GRANTS=" \
   "LISTEN_ADDRESS_EXTERNAL=0.0.0.0:8443" \
   "LISTEN_ADDRESS_INTERNAL=0.0.0.0:9443" \
@@ -134,6 +130,7 @@ MGZMGR_ALIASES="$(printf '%s\n' \
   "SELF_ADDRESS=https://${MGZMGR_HOST}:443" \
   "DIRECTORY_MANAGER_ADDRESS=https://${DIRECTORY_MANAGER_HOST}:443" \
   "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST}:443" \
+  "TX_LOG_API_ADDRESS=https://${MGZTXLOG_HOST}:443" \
   "STORAGE_POSTGRES_DSN=postgres://\$DATABASE_SERVER_USER:\$DATABASE_PASSWORD@\$DATABASE_SERVER_HOST:5432/\$DATABASE_DB?sslmode=${PG_SSLMODE}")"
 
 MGZCTL_ENV="$(printf '%s\n' \
@@ -159,7 +156,6 @@ MGZINWAY_ENV="$(printf '%s\n' \
   "LOG_TYPE=live" "LOG_LEVEL=info" \
   "NAME=magazijn-a-inway" \
   "GROUP_ID=moza-fbs-test" \
-  "TX_LOG_API_ADDRESS=" \
   "LISTEN_ADDRESS=0.0.0.0:8443" \
   "MONITORING_ADDRESS=0.0.0.0:8081" \
   "DISABLE_CRL_CHECKS=true" \
@@ -174,7 +170,22 @@ MGZINWAY_ENV="$(printf '%s\n' \
 MGZINWAY_ALIASES="$(printf '%s\n' \
   "SELF_ADDRESS=https://${MGZINWAY_HOST}:443" \
   "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST}:443" \
-  "MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS=https://${MGZMGR_HOST}:443")"
+  "MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS=https://${MGZMGR_HOST}:443" \
+  "TX_LOG_API_ADDRESS=https://${MGZTXLOG_HOST}:443")"
+
+# txlog-api (mirror van fsc/deploy/local): eigen managed Postgres, mTLS op de INTERNAL-PKI (geen
+# group-cert, geen GROUP_ID — group-agnostische opslag). De manager/inway loggen hier transacties;
+# OpenFSC eist een niet-lege TX_LOG_API_ADDRESS voor een niet-directory manager. txlog-hardening /
+# het echte data-pad is #728; dit is de minimale draaiende endpoint zodat de manager boot.
+MGZTXLOG_ENV="$(printf '%s\n' \
+  "LOG_TYPE=live" "LOG_LEVEL=info" \
+  "LISTEN_ADDRESS=0.0.0.0:8443" \
+  "MONITORING_ADDRESS=0.0.0.0:8081" \
+  "TLS_ROOT_CERT=/etc/fsc/internal/magazijn-a/ca/root.pem" \
+  "TLS_CERT=/etc/fsc/internal/magazijn-a/txlog/cert.pem" \
+  "TLS_KEY=/etc/fsc/internal/magazijn-a/txlog/key.pem")"
+MGZTXLOG_ALIASES="$(printf '%s\n' \
+  "STORAGE_POSTGRES_DSN=postgres://\$DATABASE_SERVER_USER:\$DATABASE_PASSWORD@\$DATABASE_SERVER_HOST:5432/\$DATABASE_DB?sslmode=${PG_SSLMODE}")"
 
 # component-body (AddComponentRequest) via jq -> correcte JSON-escaping.
 component_body() {  # $1=name $2=image $3=port $4=env  [$5=services_json=[]]  [$6=aliases=""]
@@ -187,24 +198,15 @@ component_body() {  # $1=name $2=image $3=port $4=env  [$5=services_json=[]]  [$
 
 DEPLOY_BODY="$(jq -n --arg d "${DEPLOYMENT}" --arg cf "${CLONE_FROM}" \
   --arg mgr "${MANAGER_IMAGE}" --arg ctl "${CONTROLLER_IMAGE}" --arg inway "${INWAY_IMAGE}" \
+  --arg txlog "${TXLOG_IMAGE}" \
   '{deploymentName:$d, domain_format:"component-deployment-project",
-    components:[{reference:"mgzmgr", image:$mgr}, {reference:"mgzctl", image:$ctl}, {reference:"mgzinway", image:$inway}]}
+    components:[{reference:"mgzmgr", image:$mgr}, {reference:"mgzctl", image:$ctl}, {reference:"mgzinway", image:$inway}, {reference:"mgztxlog", image:$txlog}]}
    + (if $cf=="" then {} else {cloneFrom:$cf, forceClone:false} end)')"
 
-# ZAD past op deze componenten wél de `aliases`-blob toe, maar NIET de `env_vars`-blob: de manager
-# crashte met `required flag(s) ... not set` voor exact de env_vars-keys (listen-addresses + alle
-# TLS-paden), terwijl de aliases-keys (self-address, DSN, ...) én de migratie-DSN wél aankwamen —
-# migrate en serve delen dezelfde proces-env, dus de env_vars-waarden waren simpelweg afwezig.
-# Daarom ALLE config in aliases spiegelen. De plain ENV-helft heeft geen $-substitutievars en gaat
-# verbatim mee; de *_ALIASES-helft bevat de $DEPLOYMENT_NAME/$DATABASE_*-waarden die ZAD expandeert.
-# env_vars houden we als plain-subset (idempotent; mocht ZAD 'm elders tóch toepassen).
-MGZMGR_ALIASES_FULL="$(printf '%s\n%s' "${MGZMGR_ENV}" "${MGZMGR_ALIASES}")"
-MGZCTL_ALIASES_FULL="$(printf '%s\n%s' "${MGZCTL_ENV}" "${MGZCTL_ALIASES}")"
-MGZINWAY_ALIASES_FULL="$(printf '%s\n%s' "${MGZINWAY_ENV}" "${MGZINWAY_ALIASES}")"
-
-MGZMGR_BODY="$(component_body mgzmgr "${MANAGER_IMAGE}" 8443 "${MGZMGR_ENV}" '["postgresql-database"]' "${MGZMGR_ALIASES_FULL}")"
-MGZCTL_BODY="$(component_body mgzctl "${CONTROLLER_IMAGE}" 8080 "${MGZCTL_ENV}" '["postgresql-database"]' "${MGZCTL_ALIASES_FULL}")"
-MGZINWAY_BODY="$(component_body mgzinway "${INWAY_IMAGE}" 8443 "${MGZINWAY_ENV}" '[]' "${MGZINWAY_ALIASES_FULL}")"
+MGZMGR_BODY="$(component_body mgzmgr "${MANAGER_IMAGE}" 8443 "${MGZMGR_ENV}" '["postgresql-database"]' "${MGZMGR_ALIASES}")"
+MGZCTL_BODY="$(component_body mgzctl "${CONTROLLER_IMAGE}" 8080 "${MGZCTL_ENV}" '["postgresql-database"]' "${MGZCTL_ALIASES}")"
+MGZINWAY_BODY="$(component_body mgzinway "${INWAY_IMAGE}" 8443 "${MGZINWAY_ENV}" '[]' "${MGZINWAY_ALIASES}")"
+MGZTXLOG_BODY="$(component_body mgztxlog "${TXLOG_IMAGE}" 8443 "${MGZTXLOG_ENV}" '["postgresql-database"]' "${MGZTXLOG_ALIASES}")"
 
 # ---- plan: toon alleen ----
 if [ "${MODE}" = plan ]; then
@@ -212,7 +214,8 @@ if [ "${MODE}" = plan ]; then
   echo "### component mgzmgr (manager + managed Postgres)"; echo "${MGZMGR_BODY}"
   echo "### component mgzctl (controller + managed Postgres)"; echo "${MGZCTL_BODY}"
   echo "### component mgzinway (inway)"; echo "${MGZINWAY_BODY}"
-  echo "Hostnamen (deployment '${DEPLOYMENT}'): mgzmgr=${MGZMGR_HOST_DISPLAY} mgzctl=${MGZCTL_HOST_DISPLAY} mgzinway=${MGZINWAY_HOST_DISPLAY}"
+  echo "### component mgztxlog (txlog-api + managed Postgres)"; echo "${MGZTXLOG_BODY}"
+  echo "Hostnamen (deployment '${DEPLOYMENT}'): mgzmgr=${MGZMGR_HOST_DISPLAY} mgzctl=${MGZCTL_HOST_DISPLAY} mgzinway=${MGZINWAY_HOST_DISPLAY} mgztxlog=${MGZTXLOG_HOST_DISPLAY}"
   echo "Directory-manager (repo A, extern): ${DIRECTORY_MANAGER_HOST}"
   echo "Upstream naar de app (ingress-URL, cross-deployment): ${MAGAZIJNA_UPSTREAM_URL}"
   exit 0
@@ -271,6 +274,7 @@ echo "== componenten aanmaken =="
 post "mgzmgr"   "/components" "${MGZMGR_BODY}"
 post "mgzctl"   "/components" "${MGZCTL_BODY}"
 post "mgzinway" "/components" "${MGZINWAY_BODY}"
+post "mgztxlog" "/components" "${MGZTXLOG_BODY}"
 
 # Diagnose: bevestig wat er ná de apply daadwerkelijk als deployment `${DEPLOYMENT}` bestaat
 # (een 202 op :upsert-deployment betekent "geaccepteerd", niet per se "zichtbaar als deployment").
@@ -288,4 +292,4 @@ if curl -sS "${hdr[@]}" -o "${resp}" "${API}/deployments"; then
 fi
 
 echo "Klaar. Nog handmatig (UI): bijlagen (certs op /etc/fsc/...) + Publicatie op het web modus 2 op mgzmgr."
-echo "Hostnamen: mgzmgr=${MGZMGR_HOST_DISPLAY} mgzctl=${MGZCTL_HOST_DISPLAY} mgzinway=${MGZINWAY_HOST_DISPLAY}"
+echo "Hostnamen: mgzmgr=${MGZMGR_HOST_DISPLAY} mgzctl=${MGZCTL_HOST_DISPLAY} mgzinway=${MGZINWAY_HOST_DISPLAY} mgztxlog=${MGZTXLOG_HOST_DISPLAY}"
