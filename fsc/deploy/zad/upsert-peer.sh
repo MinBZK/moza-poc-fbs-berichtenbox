@@ -32,7 +32,13 @@
 # ZAD substitueert $DEPLOYMENT_NAME en $DATABASE_* UITSLUITEND in `aliases`, niet in `env_vars`
 # (zie repo A's upsert-directory.sh). Elke waarde die zo'n substitutievar bevat — ook
 # component-onderlinge adressen zoals CONTROLLER_REGISTRATION_API_ADDRESS op mgzmgr — hoort dus
-# in `aliases`; alleen waarden zonder substitutievar horen in `env_vars`.
+# in `aliases`.
+#
+# STERKER NOG: op deze componenten past ZAD de `env_vars`-blob helemaal NIET toe (bewezen: de
+# manager crashte op `required flag(s) ... not set` voor exact de env_vars-keys, terwijl de
+# aliases-keys wél aankwamen). Daarom wordt vlak vóór de component-body ALLE config (ENV + de
+# substitutie-aliases) in de aliases-blob samengevoegd — zie MGZ*_ALIASES_FULL. De losse *_ENV-
+# blokken hieronder blijven de plain (substitutie-vrije) waarden; die worden in aliases gespiegeld.
 #
 # Usage:
 #   export ZAD_API_KEY=...                          # niet inline (echo't anders)
@@ -185,9 +191,20 @@ DEPLOY_BODY="$(jq -n --arg d "${DEPLOYMENT}" --arg cf "${CLONE_FROM}" \
     components:[{reference:"mgzmgr", image:$mgr}, {reference:"mgzctl", image:$ctl}, {reference:"mgzinway", image:$inway}]}
    + (if $cf=="" then {} else {cloneFrom:$cf, forceClone:false} end)')"
 
-MGZMGR_BODY="$(component_body mgzmgr "${MANAGER_IMAGE}" 8443 "${MGZMGR_ENV}" '["postgresql-database"]' "${MGZMGR_ALIASES}")"
-MGZCTL_BODY="$(component_body mgzctl "${CONTROLLER_IMAGE}" 8080 "${MGZCTL_ENV}" '["postgresql-database"]' "${MGZCTL_ALIASES}")"
-MGZINWAY_BODY="$(component_body mgzinway "${INWAY_IMAGE}" 8443 "${MGZINWAY_ENV}" '[]' "${MGZINWAY_ALIASES}")"
+# ZAD past op deze componenten wél de `aliases`-blob toe, maar NIET de `env_vars`-blob: de manager
+# crashte met `required flag(s) ... not set` voor exact de env_vars-keys (listen-addresses + alle
+# TLS-paden), terwijl de aliases-keys (self-address, DSN, ...) én de migratie-DSN wél aankwamen —
+# migrate en serve delen dezelfde proces-env, dus de env_vars-waarden waren simpelweg afwezig.
+# Daarom ALLE config in aliases spiegelen. De plain ENV-helft heeft geen $-substitutievars en gaat
+# verbatim mee; de *_ALIASES-helft bevat de $DEPLOYMENT_NAME/$DATABASE_*-waarden die ZAD expandeert.
+# env_vars houden we als plain-subset (idempotent; mocht ZAD 'm elders tóch toepassen).
+MGZMGR_ALIASES_FULL="$(printf '%s\n%s' "${MGZMGR_ENV}" "${MGZMGR_ALIASES}")"
+MGZCTL_ALIASES_FULL="$(printf '%s\n%s' "${MGZCTL_ENV}" "${MGZCTL_ALIASES}")"
+MGZINWAY_ALIASES_FULL="$(printf '%s\n%s' "${MGZINWAY_ENV}" "${MGZINWAY_ALIASES}")"
+
+MGZMGR_BODY="$(component_body mgzmgr "${MANAGER_IMAGE}" 8443 "${MGZMGR_ENV}" '["postgresql-database"]' "${MGZMGR_ALIASES_FULL}")"
+MGZCTL_BODY="$(component_body mgzctl "${CONTROLLER_IMAGE}" 8080 "${MGZCTL_ENV}" '["postgresql-database"]' "${MGZCTL_ALIASES_FULL}")"
+MGZINWAY_BODY="$(component_body mgzinway "${INWAY_IMAGE}" 8443 "${MGZINWAY_ENV}" '[]' "${MGZINWAY_ALIASES_FULL}")"
 
 # ---- plan: toon alleen ----
 if [ "${MODE}" = plan ]; then
