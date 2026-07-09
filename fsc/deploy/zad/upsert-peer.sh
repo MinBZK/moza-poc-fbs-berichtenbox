@@ -269,11 +269,18 @@ if [ "${MODE}" = validate ]; then echo "validate OK (read-only, niets gemuteerd)
 echo "== upsert deployment '${DEPLOYMENT}' =="
 post "deployment" "/:upsert-deployment" "${DEPLOY_BODY}"
 
-echo "== componenten aanmaken =="
+echo "== componenten aanmaken/bijwerken =="
 post "mgzmgr"   "/components" "${MGZMGR_BODY}"
 post "mgzctl"   "/components" "${MGZCTL_BODY}"
 post "mgzinway" "/components" "${MGZINWAY_BODY}"
 post "mgztxlog" "/components" "${MGZTXLOG_BODY}"
+
+# De EERSTE :upsert-deployment (hierboven) rolt de pods uit MET de config van de vórige run — de
+# POST /components hierna zet de nieuwe env pas ná die rollout. Doe daarom NOG één :upsert-deployment
+# zodat de pods opnieuw uitrollen met de zojuist gezette component-config (anders loopt de env één
+# deploy achter). Zo hoeven bestaande componenten NIET verwijderd te worden (cert-attachments blijven).
+echo "== deployment opnieuw uitrollen met verse component-config =="
+post "deployment (re-roll)" "/:upsert-deployment" "${DEPLOY_BODY}"
 
 # Diagnose: bevestig wat er ná de apply daadwerkelijk als deployment `${DEPLOYMENT}` bestaat
 # (een 202 op :upsert-deployment betekent "geaccepteerd", niet per se "zichtbaar als deployment").

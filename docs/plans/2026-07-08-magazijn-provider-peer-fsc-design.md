@@ -153,14 +153,15 @@ magazijn-a                                   centrale kern (directory)
   `TX_LOG_API_ADDRESS` leeg is. De eerdere aanname (txlog op ZAD leeglaten tot #728) klopt dus niet;
   er draait nu een vierde component `mgztxlog` (txlog-api-image + eigen managed Postgres, internal-
   PKI mTLS), en mgzmgr/mgzinway wijzen ernaar. txlog-*hardening* / het echte data-pad blijft #728.
-- **ZAD past component-config alleen bij CREATIE toe, niet bij re-POST — OPGELOST in de aanpak.**
-  Een `TX_LOG_API_ADDRESS` die pas in een tweede deploy aan de aliases werd toegevoegd bereikte de
-  al-bestaande manager niet (bleef `tx-log-api-address not set`), terwijl config die er bij aanmaak
-  in zat wél werkte. Gevolg: (1) om de config van een bestaande component te wijzigen moet die eerst
-  in de UI verwijderd worden zodat de volgende apply 'm opnieuw aanmaakt; (2) omdat de deployment
-  vast is (`test`/`mpfoa-e01`) gebruiken we ZAD's `$DEPLOYMENT_NAME`-substitutie niet meer — bash
-  lost alle inter-component-hostnamen concreet op en zet ze in `env_vars`; alleen de managed-Postgres-
-  DSN (`$DATABASE_*`) blijft in `aliases`.
+- **Component-config liep één deploy achter — OPGELOST met een re-roll.** Onze apply deed éérst
+  `:upsert-deployment` (rolt de pods uit) en pas dáárna `POST /components` (zet env/aliases). Elke
+  run rolde dus met de config van de vórige run; een `TX_LOG_API_ADDRESS` die in de tweede deploy
+  werd gezet bereikte de manager pas een deploy later (bleef `tx-log-api-address not set`). Fix: ná
+  de component-POSTs nóg één `:upsert-deployment`, zodat de rollout met de verse config draait —
+  géén component-verwijdering nodig, dus de cert-attachments (UI-only per component) blijven staan.
+  Daarnaast: omdat de deployment vast is (`test`/`mpfoa-e01`) gebruiken we ZAD's `$DEPLOYMENT_NAME`-
+  substitutie niet meer — bash lost alle inter-component-hostnamen concreet op in `env_vars`; alleen
+  de managed-Postgres-DSN (`$DATABASE_*`) blijft in `aliases`.
 - **Interne-mTLS poort/routering op ZAD — nog open, verifiëren bij de eerste apply.** De interne
   FSC-API's luisteren op `:9443`/`:9444`, maar een ZAD-component exposet via zijn `:443`-ingress
   precies één containerpoort (mgzctl→8080, mgzmgr/mgzinway→8443). Een call naar
