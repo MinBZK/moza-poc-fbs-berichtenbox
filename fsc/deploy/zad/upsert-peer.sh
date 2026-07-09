@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Zet de provider-peer magazijn-a (manager+controller+inway) op ZAD via de v2 Operations Manager
-# API, naast de bestaande app-component `magazijna` in project mpfm-w3h. Gebaseerd op repo A's
-# deploy/zad/upsert-directory.sh (MinBZK/moza-fsc-testnet) — zelfde validate/plan/apply-vorm, één
-# bron voor CLI + de workflow zad-deploy-peer.yml.
+# API in een EIGEN ZAD-project `mpfoa-e01`. De `magazijna`-app draait apart in `mpfm-w3h`; de inway
+# bereikt die cross-project via de ingress-URL (ZAD_MAGAZIJNA_PROJECT/-UPSTREAM_URL). Gebaseerd op
+# repo A's deploy/zad/upsert-directory.sh (MinBZK/moza-fsc-testnet) — zelfde validate/plan/apply-
+# vorm, één bron voor CLI + de workflow zad-deploy-peer.yml.
 #
-# Model: de peer draait in een eigen deployment (default `peer`). `:upsert-deployment` zet per
-# component de {reference,image} en maakt/updatet het deployment; POST /components verrijkt elke
-# component met env_vars/port/services/aliases.
+# Eigen project = eigen ZAD-API-key: ZAD_API_KEY hoort bij `mpfoa-e01`, NIET de magazijnen-key.
 #
-# BELANGRIJK — het `peer`-deployment moet ÉÉNMALIG handmatig (leeg) worden aangemaakt in de
-# Operations Manager-UI. Een `:upsert-deployment` zónder cloneFrom geeft wel HTTP 202 maar creëert
-# géén NIEUWE deployment (bewezen: `peer` verscheen niet in /deployments). Een BESTAAND (leeg)
-# deployment wordt door `:upsert-deployment` + `POST /components` wél gevuld/geüpdatet — dat is dit
-# script. cloneFrom is optioneel (ZAD_PEER_CLONE_FROM) maar afgeraden: clonen van bv. `test` sleept
-# de app-images (clickhouse/magazijna/magazijnb) mee in `peer`.
+# Model: de peer draait in de deployment `test` van het eigen project. Doordat het een eigen project
+# is, is er geen app-deployment om te overschrijven (project-isolatie i.p.v. deployment-isolatie).
+# `:upsert-deployment` zet per component de {reference,image} en updatet het deployment;
+# POST /components verrijkt elke component met env_vars/port/services/aliases.
+#
+# BELANGRIJK — `:upsert-deployment` maakt géén NIEUW deployment aan (geeft wel HTTP 202, maar het
+# deployment verschijnt niet in /deployments); het UPDATET alleen een bestaand deployment. `test` is
+# doorgaans het default-deployment van een nieuw ZAD-project en bestaat dus al — dit script vult het.
+# Bestaat het (nog) niet, maak het dan éénmalig handmatig (leeg) aan in de Operations Manager-UI.
+# cloneFrom is optioneel (ZAD_PEER_CLONE_FROM) maar afgeraden: clonen van bv. de app sleept de
+# app-images (clickhouse/magazijna/magazijnb) mee.
 # NIET via de API (UI-only): bijlagen (cert-mount) + "Publicatie op het web" (passthrough-TLS) —
 # zie cert-manifest.md.
 #
@@ -35,21 +39,22 @@
 #   ./fsc/deploy/zad/upsert-peer.sh validate                       # read-only auth-check
 #   ./fsc/deploy/zad/upsert-peer.sh plan   [deployment] [tag]       # toont bodies, muteert niet
 #   ./fsc/deploy/zad/upsert-peer.sh apply  [deployment] [tag]       # muteert + pollt tasks
-# Env: ZAD_API_KEY (verplicht bij apply), ZAD_PROJECT (mpfm-w3h), ZAD_BASE (zad.rijksapp.nl),
-#      ZAD_BASE_DOMAIN (rig.prd1...), ZAD_MANAGER_TAG (ghcr manager-tag, default = tag),
-#      ZAD_DIRECTORY_MANAGER_HOST (repo A's directory-manager-host op ZAD), ZAD_PG_SSLMODE (disable),
-#      ZAD_MAGAZIJNA_UPSTREAM_URL (endpoint_url van de app-component, zie TODO bij mgzinway).
+# Env: ZAD_API_KEY (verplicht bij apply; key van project mpfoa-e01), ZAD_PROJECT (mpfoa-e01),
+#      ZAD_BASE (zad.rijksapp.nl), ZAD_BASE_DOMAIN (rig.prd1...), ZAD_MANAGER_TAG (ghcr manager-tag,
+#      default = tag), ZAD_DIRECTORY_MANAGER_HOST (repo A's directory-manager-host op ZAD),
+#      ZAD_PG_SSLMODE (disable), ZAD_MAGAZIJNA_PROJECT (mpfm-w3h, waar de app draait),
+#      ZAD_MAGAZIJNA_UPSTREAM_URL (endpoint_url van de app-component, cross-project ingress-URL).
 set -euo pipefail
 
 MODE="${1:?usage: upsert-peer.sh <validate|plan|apply> [deployment=test] [tag=v1.43.7]}"
 DEPLOYMENT="${2:-test}"
 IMAGE_TAG="${3:-v1.43.7}"                        # OpenFSC stock-tag (controller/inway; default voor de manager-wrapper)
 MANAGER_TAG="${ZAD_MANAGER_TAG:-${IMAGE_TAG}}"   # manager-migrate (ghcr) kan een eigen tag hebben
-PROJECT="${ZAD_PROJECT:-mpfm-w3h}"
+PROJECT="${ZAD_PROJECT:-mpfoa-e01}"
 BASE="${ZAD_BASE:-https://zad.rijksapp.nl}"
 BASE_DOMAIN="${ZAD_BASE_DOMAIN:-rig.prd1.gn2.quattro.rijksapps.nl}"
 PG_SSLMODE="${ZAD_PG_SSLMODE:-disable}"          # managed DB intra-cluster: plaintext (zoals berichtenbox-JDBC)
-CLONE_FROM="${ZAD_PEER_CLONE_FROM:-}"            # leeg = geen clone; `peer` wordt éénmalig handmatig (leeg) aangemaakt
+CLONE_FROM="${ZAD_PEER_CLONE_FROM:-}"            # leeg = geen clone; `test` bestaat doorgaans al als project-default
 
 case "${MODE}" in validate|plan|apply) ;; *) echo "mode = validate | plan | apply"; exit 1 ;; esac
 case "${DEPLOYMENT}" in ""|*[!a-z0-9-]*) echo "ongeldige deployment: '${DEPLOYMENT}'"; exit 1 ;; esac
@@ -77,15 +82,17 @@ MGZINWAY_HOST='mgzinway-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
 # directory-host is; override met ZAD_DIRECTORY_MANAGER_HOST als de directory elders draait.
 DIRECTORY_MANAGER_HOST="${ZAD_DIRECTORY_MANAGER_HOST:-dirmgr-test-mft-tp9.${BASE_DOMAIN}}"
 
-# De peer draait in een EIGEN deployment (`peer`, clobber-veilig los van deploy.yml's
-# `test`/`pr-<n>`), dus de inway bereikt de magazijna-app-component cross-deployment via de
-# ZAD-ingress-URL (https, :443 — de ingress mapt naar de app-containerpoort; geen poort in de
-# URL). Default = de stabiele `test`-deployment van de app; override met ZAD_MAGAZIJNA_DEPLOYMENT
-# (bv. een PR-preview `pr-140`) of volledig met ZAD_MAGAZIJNA_UPSTREAM_URL. Dit is GEEN inway-
-# env-var (OpenFSC kent geen "upstream" op de inway) maar de endpoint_url die bij de service-
-# publicatie op de mgzctl Administration-API wordt meegegeven — zie verify-zad.md, stap (b).
+# De peer draait in een EIGEN project (`mpfoa-e01`); de magazijna-app draait in `mpfm-w3h`. De inway
+# bereikt de app dus CROSS-PROJECT via de ZAD-ingress-URL (https, :443 — de ingress mapt naar de
+# app-containerpoort; geen poort in de URL). De upstream-URL is daarom afgeleid van het APP-project
+# (ZAD_MAGAZIJNA_PROJECT, NIET het peer-PROJECT) + de app-deployment. Default-app-deployment =
+# `test`; override met ZAD_MAGAZIJNA_DEPLOYMENT (bv. een PR-preview `pr-140`) of volledig met
+# ZAD_MAGAZIJNA_UPSTREAM_URL. Dit is GEEN inway-env-var (OpenFSC kent geen "upstream" op de inway)
+# maar de endpoint_url die bij de service-publicatie op de mgzctl Administration-API wordt
+# meegegeven — zie verify-zad.md, stap (b).
+MAGAZIJNA_PROJECT="${ZAD_MAGAZIJNA_PROJECT:-mpfm-w3h}"
 MAGAZIJNA_DEPLOYMENT="${ZAD_MAGAZIJNA_DEPLOYMENT:-test}"
-MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-https://magazijna-${MAGAZIJNA_DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}}"
+MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-https://magazijna-${MAGAZIJNA_DEPLOYMENT}-${MAGAZIJNA_PROJECT}.${BASE_DOMAIN}}"
 
 # --- env-blobs (KEY=value, newline-sep, plain). TLS_*-paden = de bijlage-mounts (UI, ontwerp A). ---
 MGZMGR_ENV="$(printf '%s\n' \

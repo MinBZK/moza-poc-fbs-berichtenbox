@@ -15,8 +15,12 @@ services) maar **geen bijlagen** — net als repo A's directory-deploy
 
 ## Volgorde
 
-1. `fsc/pki/issue.sh` (UITGESTELD, vereist `cfssl`) — genereert `fsc/pki/out/magazijn-a/*` en
-   `fsc/pki/internal/magazijn-a/*`.
+0. **Group-CA plaatsen (NIET `init-ca.sh`).** Voor de échte directory moet de group-leaf ketenen
+   naar fsc-testnet's group-root. Zet fsc-testnet's `ca/root.pem` + `ca/intermediate.pem` (+ keys)
+   in `fsc/pki/ca/` — draai `init-ca.sh` **niet** (dat maakt een verse, vreemde CA). De
+   INTERNAL-CA blijft wél lokaal/self-signed (die maakt `issue.sh` per-peer aan).
+1. `fsc/pki/issue.sh` (UITGESTELD, vereist `cfssl`) — genereert `fsc/pki/out/magazijn-a/*` (group,
+   getekend door fsc-testnet's intermediate) en `fsc/pki/internal/magazijn-a/*` (internal).
 2. `fsc/pki/zad-bundle.sh magazijn-a` (UITGESTELD, hierboven van afhankelijk) — verzamelt de
    upload-klare set in `fsc/pki/zad-upload/magazijn-a/` met een eigen `MANIFEST.md`
    (bestand → pod-pad → `TLS_*`-env-var, zie dat script voor de exacte `env_for()`-mapping).

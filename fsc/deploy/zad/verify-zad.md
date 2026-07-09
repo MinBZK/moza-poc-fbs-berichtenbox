@@ -9,7 +9,7 @@
 ## Volgorde
 
 1. `upsert-peer.sh apply` gedraaid (UITGESTELD) → deployment + drie componenten bestaan in
-   project `mpfm-w3h`.
+   project `mpfoa-e01`.
 2. Cert-attachments gemount (UITGESTELD, zie `cert-manifest.md`) + "Publicatie op het web"
    (passthrough-TLS, modus 2) op mgzmgr/mgzinway ingesteld in de ZAD-UI.
 3. Componenten herstart en boot-logs foutloos (zie `cert-manifest.md`, laatste sectie).
@@ -26,7 +26,7 @@ curl -sS --cert <group-cert> --key <group-key> --cacert <group-root> \
 ```
 
 Verwacht: één entry met `id: "00000001003214345000"` en een `manager_address` die eindigt op
-`:443` en het mgzmgr-hostpatroon (`mgzmgr-<deployment>-mpfm-w3h.<base-domain>`) bevat.
+`:443` en het mgzmgr-hostpatroon (`mgzmgr-<deployment>-mpfoa-e01.<base-domain>`) bevat.
 
 Alternatief (UI): log in op de directory-UI (repo A's `dirui`-component) en zoek de peer op OIN.
 
@@ -37,7 +37,7 @@ create-service + servicePublication-contract-flow, maar tegen de mgzctl Administ
 `:443` (mesh) i.p.v. de lokale toolbox-container op de internal-PKI. Twee routes:
 
 - **Script**: kopieer `publish-service.sh` se logica, vervang `$CONTROLLER`/`$MANAGER` door de
-  ZAD mesh-hosts (`https://mgzctl-<deployment>-mpfm-w3h.<base-domain>:443` resp. mgzmgr) en het
+  ZAD mesh-hosts (`https://mgzctl-<deployment>-mpfoa-e01.<base-domain>:443` resp. mgzmgr) en het
   cert/key/CA door de group-cert-attachments (niet de internal-cert — de mesh-call loopt over de
   group-PKI, zie `cert-manifest.md`).
 - **UI**: via de mgzctl-beheer-UI (`LISTEN_ADDRESS_UI`, `AUTHN_TYPE=none`) een dienst aanmaken

@@ -53,11 +53,20 @@ door de mens uit te voeren:
 
 ```bash
 cd fsc/pki
-./init-ca.sh          # 1. group root + intermediate  -> ca/
+./init-ca.sh          # 1. group root + intermediate  -> ca/   (ALLEEN lokale proof, zie hieronder)
 ./issue.sh            # 2. per endpoint: group- + internal-cert
 ./gen-crl.sh          # 3. lege CRL getekend door de intermediate -> ca/intermediate.crl
 ./verify.sh           # 4. acceptatie-asserts (incl. CRL leesbaar), exit 0 = groen
 ```
+
+> **Lokale proof vs. echte directory — de group-CA verschilt.**
+> - **Lokale compose-proof** (`fsc/deploy/local/`): geïsoleerde mesh, dus `init-ca.sh` genereert
+>   een eigen group root+intermediate. Prima — alle deelnemers vertrouwen dezelfde lokale root.
+> - **ZAD, aangesloten op de fsc-testnet-directory** (`fsc/deploy/zad/`): de group-leaf van
+>   magazijn-a moet ketenen naar **fsc-testnet's** group-root (anders vertrouwt de directory de
+>   peer niet). Draai `init-ca.sh` dan **niet**; zet fsc-testnet's `ca/root.pem` +
+>   `ca/intermediate.pem` (+ keys) in `fsc/pki/ca/` en draai alleen `issue.sh` (stap 2-4). De
+>   INTERNAL-CA blijft hoe dan ook lokaal/self-signed per-peer.
 
 Controleer daarna dat de OIN in het certificaat zit:
 

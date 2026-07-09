@@ -1,5 +1,12 @@
 **Status:** Concept
 
+> **Amendement (na uitvoering):** de peer draait niet langer co-located in `mpfm-w3h`, maar in een
+> **eigen ZAD-project `mpfoa-e01`** (project-isolatie; eigen API-key `ZAD_API_KEY_FSCORGA`). De
+> `magazijna`-app blijft in `mpfm-w3h` en wordt cross-project via de ingress-URL bereikt. De
+> group-CA wordt niet met `init-ca.sh` vers gegenereerd maar uit fsc-testnet (repo A) gekopieerd
+> naar `fsc/pki/ca/`. Verwijzingen naar `mpfm-w3h` als peer-project hieronder zijn daarmee
+> achterhaald; zie het ontwerp-document (dezelfde datum) voor de actuele beslissingen.
+
 # Magazijn-provider-peer op de FSC-federatie — Implementatieplan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development

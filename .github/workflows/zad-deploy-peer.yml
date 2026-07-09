@@ -3,12 +3,12 @@
 # zad-deploy-directory.yml (MinBZK/moza-fsc-testnet), maar zonder build-job: de drie images
 # (manager-migrate, controller, inway) zijn kant-en-klare pins — deze repo bouwt ze niet zelf.
 #
-# CLOBBER-VEILIG: de peer draait in een EIGEN, vaste deployment `peer`. deploy.yml (de app) raakt
-# alleen `test`/`pr-<n>` aan; verschillende deployment-namen -> ze kunnen elkaars componenten niet
-# overschrijven. Eén vaste `peer`-deployment betekent ook één aanmelding van de federatie-OIN
-# (singleton) — geen dubbele-OIN-botsing, ook al deployt dit op elke PR-push.
+# CLOBBER-VEILIG via PROJECT-ISOLATIE: de peer draait in een EIGEN ZAD-project `mpfoa-e01`, los van
+# het app-project `mpfm-w3h` dat deploy.yml beheert. Er is dus geen app-deployment om te
+# overschrijven. Binnen mpfoa-e01 draait de peer in de deployment `test` -> één aanmelding van
+# de federatie-OIN (singleton), geen dubbele-OIN-botsing, ook al deployt dit op elke PR-push.
 #
-# Trigger: elke push naar main én elke PR-synchronisatie -> deployment `peer`. (Wil je smaller:
+# Trigger: elke push naar main én elke PR-synchronisatie -> deployment `test`. (Wil je smaller:
 # voeg een `paths:`-filter toe op fsc/** + deze workflow.)
 #
 # Dekt alleen de deploy-API (deployment + componenten + images + env_vars/aliases). NIET via de
@@ -38,9 +38,11 @@ jobs:
       contents: read
       pull-requests: write
     env:
-      DEPLOYMENT: peer
-      PROJECT: ${{ vars.ZAD_PROJECT_ID_MAGAZIJNEN || 'mpfm-w3h' }}
+      DEPLOYMENT: test
+      PROJECT: ${{ vars.ZAD_PROJECT_ID_MPFOA || 'mpfoa-e01' }}
       BASE_DOMAIN: ${{ vars.ZAD_BASE_DOMAIN || 'rig.prd1.gn2.quattro.rijksapps.nl' }}
+      # De app draait in een ANDER project (mpfm-w3h); de inway-upstream wijst er cross-project heen.
+      MAGAZIJNA_PROJECT: ${{ vars.ZAD_PROJECT_ID_MAGAZIJNEN || 'mpfm-w3h' }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -49,8 +51,10 @@ jobs:
 
       - name: Upsert magazijn-a-peer via ZAD v2-API
         env:
-          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          # Eigen project mpfoa-e01 => eigen API-key (NIET de magazijnen-key).
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_FSCORGA }}
           ZAD_PROJECT: ${{ env.PROJECT }}
+          ZAD_MAGAZIJNA_PROJECT: ${{ env.MAGAZIJNA_PROJECT }}
           IMAGE_TAG: v1.43.7
         run: ./fsc/deploy/zad/upsert-peer.sh apply "${DEPLOYMENT}" "${IMAGE_TAG}"
 

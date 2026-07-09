@@ -38,6 +38,14 @@ en tonen de portal-flow **lokaal** aan (ca-cfssl + ca-certportal, cert voor de m
 is de AL functioneel gedekt zonder te blokkeren op een portal-op-ZAD; dat portal-op-ZAD is een
 repo-A-vervolg, geen onderdeel van #780.
 
+**Group-CA-herkomst (besloten):** voor de aansluiting op de échte fsc-testnet-directory moet
+magazijn-a's group-leaf ketenen naar **fsc-testnet's** group-root — niet naar een lokaal verse CA.
+Gekozen route: het group-CA-materiaal van repo A (`ca/root.pem` + `ca/intermediate.pem` + keys)
+lokaal in `fsc/pki/ca/` plaatsen en **`init-ca.sh` overslaan**; daarna alleen `issue.sh` draaien.
+De per-peer INTERNAL-CA blijft lokaal/self-signed. (`init-ca.sh` blijft de juiste keuze voor de
+geïsoleerde lokale compose-proof.) Van de directory zelf zijn géén per-peer client-certs of
+private keys nodig — trust loopt volledig via de gedeelde group-PKI.
+
 ## Scope
 
 **In scope:** de provider-peer voor **magazijn-a** (echte OIN `00000001003214345000`).
@@ -54,8 +62,9 @@ uitbreiding), txlog-hardening/e2e-verantwoording (#728), en het echte data-pad d
 | Peer-naam | `magazijn-a` | conventie repo B (geen `example-*`) |
 | Group ID | `moza-fbs-test` | repo A directory-deploy |
 | Directory-OIN | `00000000000000000010` | repo A directory-deploy |
-| ZAD-project (co-located) | `magazijnen` / `mpfm-w3h` | repo B `deploy.yml` |
-| App-component (inway-upstream) | `magazijna` | repo B `deploy.yml` |
+| ZAD-project peer | `mpfoa-e01` (eigen project) | dit ontwerp (was co-located `mpfm-w3h`) |
+| ZAD-project app | `magazijnen` / `mpfm-w3h` | repo B `deploy.yml` |
+| App-component (inway-upstream) | `magazijna` (cross-project via ingress-URL) | repo B `deploy.yml` |
 | Dienst-naam in de directory | `berichtenmagazijn` | dit ontwerp |
 | FSC-images (pin) | `v1.43.7` (manager/inway/controller/directory-ui) | repo A |
 | manager-wrapper-image | `ghcr.io/minbzk/moza-fsc-testnet/manager-migrate:<tag>` | repo A |
@@ -63,8 +72,9 @@ uitbreiding), txlog-hardening/e2e-verantwoording (#728), en het echte data-pad d
 ## Architectuur
 
 Gespiegeld op repo A's `example-provider`. Per peer een eigen set FSC-componenten; de
-magazijn-peer draait **in hetzelfde ZAD-project als de magazijn-app** (mpfm-w3h) zodat de inway
-de app via intra-project-DNS bereikt.
+magazijn-peer draait **in een eigen ZAD-project `mpfoa-e01`** (project-isolatie). De
+`magazijna`-app draait apart in `mpfm-w3h`; de inway bereikt die **cross-project via de
+ingress-URL** (https, :443), niet via intra-project-DNS.
 
 ### Componenten van de provider-peer
 
@@ -110,36 +120,38 @@ magazijn-a                                   centrale kern (directory)
 1. **Lokale compose-proof** (mirror example-provider, echte OIN + dienst `berichtenmagazijn`):
    `smoke-announce.sh` + een discover-check groen. Bewijst AC-3 en AC-4 lokaal.
 2. **ZAD** — nieuw `upsert-peer.sh` (er is nog géén peer-ZAD-deploy in repo A) + cert-attachments,
-   componenten in mpfm-w3h, inway → `magazijna`. Bewijst alle vier AC's op de echte directory.
+   componenten in `mpfoa-e01`, inway → `magazijna` (cross-project). Bewijst alle vier AC's op de echte directory.
 
 ## Acceptatiecriteria (uit #780) → dekking
 
 | AC | Gedekt door |
 |----|-------------|
-| Magazijn-peer (echte OIN) draait naast de app: manager + inway + controller + DB (ZAD, project-isolatie) | Fase 2 (ZAD-upsert in mpfm-w3h) |
+| Magazijn-peer (echte OIN) draait naast de app: manager + inway + controller + DB (ZAD, project-isolatie) | Fase 2 (ZAD-upsert in `mpfoa-e01`) |
 | Peer verkrijgt group-cert via het cert-portal van repo A | Cert-portal lokaal aangetoond + bewezen `issue.sh`+attachment-pad (zie bevinding) |
 | Peer meldt zich aan bij de directory (announce) | `smoke-announce.sh` (lokaal + ZAD) |
 | `berichtenmagazijn` gepubliceerd + vindbaar in de directory | `publish-service.sh` + discover-check (lokaal + ZAD) |
 
 ## Open punten (genoteerd, niet-blokkerend)
 
-- **Peer-topologie op ZAD (clobber-veilig):** de peer draait in een **eigen, vaste deployment
-  `peer`** binnen `mpfm-w3h`, los van de app-deployments (`test`/`pr-<n>`) die `deploy.yml`
-  beheert. Verschillende deployment-namen → geen wederzijds overschrijven van componenten. Eén
-  vaste `peer`-deployment = één aanmelding van de federatie-OIN (singleton). De inway bereikt
-  `magazijna` **cross-deployment via de ingress-URL** (`https://magazijna-<deployment>-mpfm-w3h.<base-domain>`,
-  https/:443) i.p.v. intra-deployment DNS — dit lost het oude "intra-project-DNS-vorm/poort"-punt
-  op. De `zad-deploy-peer.yml`-workflow deployt op elke PR-push naar deployment `peer`.
+- **Peer-topologie op ZAD (clobber-veilig via project-isolatie):** de peer draait in een **eigen
+  ZAD-project `mpfoa-e01`**, los van het app-project `mpfm-w3h` dat `deploy.yml` beheert. Er is dus
+  geen app-deployment om te overschrijven. Binnen `mpfoa-e01` draait de peer in de deployment
+  `test` = één aanmelding van de federatie-OIN (singleton). De inway bereikt `magazijna`
+  **cross-project via de ingress-URL** (`https://magazijna-<app-deployment>-mpfm-w3h.<base-domain>`,
+  https/:443). Eigen project betekent ook een **eigen ZAD-API-key** (`ZAD_API_KEY_FSCORGA`). De
+  raw v2-API maakt geen nieuwe deployments; `test` is doorgaans het project-default en bestaat al
+  (anders eenmalig leeg in de UI aanmaken). De `zad-deploy-peer.yml`-workflow deployt op elke
+  PR-push naar `mpfoa-e01`/`test`.
 - **Interne-mTLS SAN — OPGELOST (least-privilege).** Elk internal-cert draagt nu zijn **eigen
-  concrete** ZAD-hostnaam (`mgzmgr-peer-mpfm-w3h.<base-domain>` op de manager, `mgzctl-…` op de
+  concrete** ZAD-hostnaam (`mgzmgr-test-mpfoa-e01.<base-domain>` op de manager, `mgzctl-…` op de
   controller, `mgzinway-…` op de inway) — géén domein-brede wildcard, zodat de certs niet voor het
-  hele gedeelde Rijks-hosting-domein geldig zijn. Bewezen met `verify.sh` + `openssl`. Verhuist de
-  peer later naar de `test`-deployment, dan moeten de `-test-`-hostnamen als SAN toegevoegd worden
-  (her-uitgifte + her-upload).
+  hele gedeelde Rijks-hosting-domein geldig zijn. Bewezen met `verify.sh` + `openssl`. Verandert het
+  project of de deployment-naam, dan moeten de bijbehorende hostnamen als SAN opnieuw uitgegeven en
+  geüpload worden.
 - **Interne-mTLS poort/routering op ZAD — nog open, verifiëren bij de eerste apply.** De interne
   FSC-API's luisteren op `:9443`/`:9444`, maar een ZAD-component exposet via zijn `:443`-ingress
   precies één containerpoort (mgzctl→8080, mgzmgr/mgzinway→8443). Een call naar
-  `mgzctl-peer-mpfm-w3h.<base-domain>:443` raakt dus die éne ingress-poort, niet `:9443`. De
+  `mgzctl-test-mpfoa-e01.<base-domain>:443` raakt dus die éne ingress-poort, niet `:9443`. De
   registratiecalls (`CONTROLLER_REGISTRATION_API_ADDRESS`, `MANAGER_ADDRESS_INTERNAL`,
   `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS`) moeten waarschijnlijk over **intra-deployment DNS +
   de echte interne poorten** lopen i.p.v. de ingress — bevestigen zodra de certs gemount zijn en
