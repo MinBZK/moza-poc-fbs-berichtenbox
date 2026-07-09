@@ -21,18 +21,20 @@
 # NIET via de API (UI-only): bijlagen (cert-mount) + "Publicatie op het web" (passthrough-TLS) —
 # zie cert-manifest.md.
 #
-# DB: elke component met een eigen managed Postgres (mgzmgr, mgzctl) krijgt zijn STORAGE_POSTGRES_DSN
-# via ZAD-substitutievars ($DATABASE_*), in de `aliases`-body — die vars zijn pas bij deploy-tijd
-# bekend en kunnen dus niet in bash worden opgelost. txlog is in deze bundel bewust NIET meegenomen
-# (TX_LOG_API_ADDRESS staat leeg op mgzmgr/mgzinway — txlog-hardening is later werk).
+# DB: elke component met een eigen managed Postgres (mgzmgr, mgzctl, mgztxlog) krijgt zijn
+# STORAGE_POSTGRES_DSN via ZAD-substitutievars ($DATABASE_*), in de `aliases`-body — die vars zijn
+# pas bij deploy-tijd bekend en kunnen dus niet in bash worden opgelost. Dat is het ENIGE dat in
+# aliases hoeft.
 #
-# $DEPLOYMENT_NAME (letterlijk, ZAD-substitutievar) wordt gebruikt voor de per-deployment
-# hostnamen van mgzmgr/mgzctl/mgzinway, zodat één (project-brede) component-definitie in elke
-# deployment (test, pr-...) de juiste hostnaam krijgt — zie de MGZ*_HOST-opbouw hieronder.
-# ZAD substitueert $DEPLOYMENT_NAME en $DATABASE_* UITSLUITEND in `aliases`, niet in `env_vars`
-# (zie repo A's upsert-directory.sh). Elke waarde die zo'n substitutievar bevat — ook
-# component-onderlinge adressen zoals CONTROLLER_REGISTRATION_API_ADDRESS op mgzmgr — hoort dus
-# in `aliases`; alleen waarden zonder substitutievar horen in `env_vars`.
+# BELANGRIJK — ZAD past component-config (env_vars/aliases) alleen bij COMPONENT-CREATIE toe, niet
+# bij een re-POST op een bestaande component (bewezen: een tx-log-adres dat pas in een tweede deploy
+# aan de aliases werd toegevoegd bereikte de al-bestaande manager niet). Wijzig je de config van een
+# bestaande component, verwijder 'm dan eerst in de UI zodat de volgende apply 'm opnieuw aanmaakt.
+#
+# De deployment is VAST (test/mpfoa-e01), dus we hebben ZAD's $DEPLOYMENT_NAME-substitutie niet
+# nodig: bash lost alle inter-component-hostnamen concreet op (MGZ*_HOST_DISPLAY) en zet ze in
+# `env_vars`. Zo leunen de adressen niet op aliases-substitutie. Alleen de DSN ($DATABASE_*) blijft
+# in `aliases`.
 #
 # Usage:
 #   export ZAD_API_KEY=...                          # niet inline (echo't anders)
@@ -67,18 +69,14 @@ CONTROLLER_IMAGE="docker.io/federatedserviceconnectivity/controller:${IMAGE_TAG}
 INWAY_IMAGE="docker.io/federatedserviceconnectivity/inway:${IMAGE_TAG}"
 TXLOG_IMAGE="docker.io/federatedserviceconnectivity/txlog-api:${IMAGE_TAG}"
 
-# Display-hostnamen (déze deployment, voor de mens-leesbare plan-/apply-output).
+# Concrete hostnamen voor déze (vaste) deployment — zowel voor de plan-/apply-output als, direct,
+# voor de inter-component-adressen in de env_vars-blobs. Geen $DEPLOYMENT_NAME-substitutie: de
+# deployment is vast (test/mpfoa-e01), dus bash lost de hostnaam op en we leunen niet op ZAD's
+# aliases-substitutie (die alleen bij component-creatie wordt toegepast, niet bij een re-POST).
 MGZMGR_HOST_DISPLAY="mgzmgr-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 MGZCTL_HOST_DISPLAY="mgzctl-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 MGZINWAY_HOST_DISPLAY="mgzinway-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 MGZTXLOG_HOST_DISPLAY="mgztxlog-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
-
-# Deployment-agnostische hostnamen voor in de component-bodies: ZAD vult $DEPLOYMENT_NAME per
-# deployment in (test, pr-...) -> hoort in env_vars/aliases, niet in bash opgelost.
-MGZMGR_HOST='mgzmgr-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
-MGZCTL_HOST='mgzctl-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
-MGZINWAY_HOST='mgzinway-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
-MGZTXLOG_HOST='mgztxlog-$DEPLOYMENT_NAME-'"${PROJECT}.${BASE_DOMAIN}"
 
 # Repo A's directory-deployment op ZAD (project mft-tp9, deployment "test" — zie upsert-directory.sh
 # se defaults). TODO(verifieer bij de echte apply): bevestig dat dit nog steeds de actieve
@@ -120,17 +118,18 @@ MGZMGR_ENV="$(printf '%s\n' \
   "TLS_KEY=/etc/fsc/internal/magazijn-a/manager/key.pem" \
   "TLS_INTERNAL_UNAUTHENTICATED_ROOT_CERT=/etc/fsc/internal/magazijn-a/ca/root.pem" \
   "TLS_INTERNAL_UNAUTHENTICATED_CERT=/etc/fsc/internal/magazijn-a/manager/cert.pem" \
-  "TLS_INTERNAL_UNAUTHENTICATED_KEY=/etc/fsc/internal/magazijn-a/manager/key.pem")"
-
-# Aliases = env-vars met ZAD-substitutievars ($DEPLOYMENT_NAME voor de eigen hostnaam, $DATABASE_*
-# voor de managed Postgres). \$ houdt ze letterlijk (ZAD vult ze per deployment in, niet de shell).
-# :443 = de mesh-poort (ingress SNI-passthrough -> pod :8443); OpenFSC eist een expliciete poort in
-# het manager-adres (zie upsert-directory.sh), dus niet weglaten.
-MGZMGR_ALIASES="$(printf '%s\n' \
-  "SELF_ADDRESS=https://${MGZMGR_HOST}:443" \
+  "TLS_INTERNAL_UNAUTHENTICATED_KEY=/etc/fsc/internal/magazijn-a/manager/key.pem" \
+  "SELF_ADDRESS=https://${MGZMGR_HOST_DISPLAY}:443" \
   "DIRECTORY_MANAGER_ADDRESS=https://${DIRECTORY_MANAGER_HOST}:443" \
-  "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST}:443" \
-  "TX_LOG_API_ADDRESS=https://${MGZTXLOG_HOST}:443" \
+  "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST_DISPLAY}:443" \
+  "TX_LOG_API_ADDRESS=https://${MGZTXLOG_HOST_DISPLAY}:443")"
+
+# Aliases = ALLEEN wat een ZAD-substitutievar ($DATABASE_*) nodig heeft: de managed-Postgres-DSN,
+# want die creds zijn pas bij deploy-tijd bekend. \$ houdt ze letterlijk (ZAD vult ze in, niet de
+# shell). De inter-component-adressen staan hierboven concreet in env_vars — geen $DEPLOYMENT_NAME
+# nodig want de deployment is vast, en zo hoeven ze niet op ZAD's aliases-substitutie te leunen.
+# :443 = de mesh-poort (ingress SNI-passthrough -> pod :8443); OpenFSC eist een expliciete poort.
+MGZMGR_ALIASES="$(printf '%s\n' \
   "STORAGE_POSTGRES_DSN=postgres://\$DATABASE_SERVER_USER:\$DATABASE_PASSWORD@\$DATABASE_SERVER_HOST:5432/\$DATABASE_DB?sslmode=${PG_SSLMODE}")"
 
 MGZCTL_ENV="$(printf '%s\n' \
@@ -146,10 +145,10 @@ MGZCTL_ENV="$(printf '%s\n' \
   "MONITORING_ADDRESS=0.0.0.0:8081" \
   "TLS_ROOT_CERT=/etc/fsc/internal/magazijn-a/ca/root.pem" \
   "TLS_CERT=/etc/fsc/internal/magazijn-a/controller/cert.pem" \
-  "TLS_KEY=/etc/fsc/internal/magazijn-a/controller/key.pem")"
+  "TLS_KEY=/etc/fsc/internal/magazijn-a/controller/key.pem" \
+  "MANAGER_ADDRESS_INTERNAL=https://${MGZMGR_HOST_DISPLAY}:443")"
 # mgzctl heeft een eigen managed Postgres (los van mgzmgr's DB) -> eigen DSN-alias.
 MGZCTL_ALIASES="$(printf '%s\n' \
-  "MANAGER_ADDRESS_INTERNAL=https://${MGZMGR_HOST}:443" \
   "STORAGE_POSTGRES_DSN=postgres://\$DATABASE_SERVER_USER:\$DATABASE_PASSWORD@\$DATABASE_SERVER_HOST:5432/\$DATABASE_DB?sslmode=${PG_SSLMODE}")"
 
 MGZINWAY_ENV="$(printf '%s\n' \
@@ -164,14 +163,14 @@ MGZINWAY_ENV="$(printf '%s\n' \
   "TLS_GROUP_KEY=/etc/fsc/out/magazijn-a/inway/key.pem" \
   "TLS_ROOT_CERT=/etc/fsc/internal/magazijn-a/ca/root.pem" \
   "TLS_CERT=/etc/fsc/internal/magazijn-a/inway/cert.pem" \
-  "TLS_KEY=/etc/fsc/internal/magazijn-a/inway/key.pem")"
-# Geen managed DB, dus geen $DATABASE_*-substitutie nodig; wel drie mesh-adressen met
-# $DEPLOYMENT_NAME -> die horen in aliases (env_vars expandeert geen ZAD-substitutievars).
-MGZINWAY_ALIASES="$(printf '%s\n' \
-  "SELF_ADDRESS=https://${MGZINWAY_HOST}:443" \
-  "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST}:443" \
-  "MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS=https://${MGZMGR_HOST}:443" \
-  "TX_LOG_API_ADDRESS=https://${MGZTXLOG_HOST}:443")"
+  "TLS_KEY=/etc/fsc/internal/magazijn-a/inway/key.pem" \
+  "SELF_ADDRESS=https://${MGZINWAY_HOST_DISPLAY}:443" \
+  "CONTROLLER_REGISTRATION_API_ADDRESS=https://${MGZCTL_HOST_DISPLAY}:443" \
+  "MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS=https://${MGZMGR_HOST_DISPLAY}:443" \
+  "TX_LOG_API_ADDRESS=https://${MGZTXLOG_HOST_DISPLAY}:443")"
+# Geen managed DB en geen $DATABASE_*-substitutie -> geen aliases nodig (alle adressen staan
+# concreet in env_vars hierboven).
+MGZINWAY_ALIASES=""
 
 # txlog-api (mirror van fsc/deploy/local): eigen managed Postgres, mTLS op de INTERNAL-PKI (geen
 # group-cert, geen GROUP_ID — group-agnostische opslag). De manager/inway loggen hier transacties;
