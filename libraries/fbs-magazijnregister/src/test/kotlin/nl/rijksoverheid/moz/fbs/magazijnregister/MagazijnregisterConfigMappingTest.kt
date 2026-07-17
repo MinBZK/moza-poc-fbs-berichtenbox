@@ -54,8 +54,44 @@ class MagazijnregisterConfigMappingTest {
         assertTrue(mapping.inschrijvingen()[oinA]!!.grantHash().isEmpty)
     }
 
+    /**
+     * Pint het gedrag van `magazijnen."<OIN>".grantHash=${MAGAZIJN_A_GRANT_HASH:}` in
+     * productie-config wanneer de env-var niet gezet is: SmallRye's expressie-expansie
+     * levert dan een lege string, en die wordt door de `Optional<String>`-binding als
+     * afwezig behandeld (`Optional.empty()`), niet als een aanwezige lege waarde. Deze
+     * asymmetrie is boot-kritisch — [ConfigMagazijnregister] faalt fail-fast op een
+     * *aanwezige* blanco grantHash, dus een stille wijziging in SmallRye's expansie- of
+     * Optional-binding-gedrag zou de boot breken in elke omgeving waar deze env-var
+     * niet gezet is.
+     */
+    @Test
+    fun `onbeantwoorde expressie met lege default levert Optional-empty op, geen aanwezige lege waarde`() {
+        val mapping = mappingMetExpressieExpansie(
+            "magazijnen.\"$oinA\".url" to "http://localhost:8081",
+            "magazijnen.\"$oinA\".grantHash" to "\${MAGAZIJN_A_GRANT_HASH:}",
+        )
+
+        assertTrue(
+            mapping.inschrijvingen()[oinA]!!.grantHash().isEmpty,
+            "een onbeantwoorde expressie met lege default hoort op Optional.empty() te binden, niet op een aanwezige lege string",
+        )
+    }
+
     private fun mapping(vararg properties: Pair<String, String>): MagazijnregisterConfig =
         SmallRyeConfigBuilder()
+            .withMapping(MagazijnregisterConfig::class.java)
+            .withSources(PropertiesConfigSource(mapOf(*properties), "test", 100))
+            .build()
+            .getConfigMapping(MagazijnregisterConfig::class.java)
+
+    /**
+     * Zoals [mapping], maar mét `addDefaultInterceptors()` — nodig om SmallRye's
+     * `${...}`-expressie-expansie te activeren, zodat deze test de echte
+     * expansiestap doorloopt in plaats van de rauwe `${...}`-string te binden.
+     */
+    private fun mappingMetExpressieExpansie(vararg properties: Pair<String, String>): MagazijnregisterConfig =
+        SmallRyeConfigBuilder()
+            .addDefaultInterceptors()
             .withMapping(MagazijnregisterConfig::class.java)
             .withSources(PropertiesConfigSource(mapOf(*properties), "test", 100))
             .build()

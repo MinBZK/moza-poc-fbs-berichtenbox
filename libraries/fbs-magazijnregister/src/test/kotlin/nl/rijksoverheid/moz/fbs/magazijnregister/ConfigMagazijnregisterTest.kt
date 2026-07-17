@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.magazijnregister
 
 import io.quarkus.runtime.StartupEvent
+import io.smallrye.config.PropertiesConfigSource
+import io.smallrye.config.SmallRyeConfigBuilder
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -170,6 +172,37 @@ class ConfigMagazijnregisterTest {
         }
 
         assertTrue(ex.message!!.contains("magazijnen.\"$oinA\".grantHash"))
+    }
+
+    /**
+     * Boot-regressietest voor `magazijnen."<OIN>".grantHash=${MAGAZIJN_A_GRANT_HASH:}`
+     * (de vorm in productie-config) met de env-var ongezet: SmallRye expandeert dat naar
+     * een lege string die op `Optional.empty()` bindt, dus [ConfigMagazijnregister] mag
+     * hier niet fail-fast falen — het handgebouwde mock-object in [inschrijving] hierboven
+     * omzeilt SmallRye's expressie-expansie en kan dit gedrag niet aantonen; deze test
+     * gaat via een echte `SmallRyeConfigBuilder`-binding om de volledige keten te dekken.
+     */
+    @Test
+    fun `onbeantwoorde grantHash-expressie met lege default boot niet fail-fast`() {
+        val config = SmallRyeConfigBuilder()
+            .addDefaultInterceptors() // activeert SmallRye's `${...}`-expressie-expansie
+            .withMapping(MagazijnregisterConfig::class.java)
+            .withSources(
+                PropertiesConfigSource(
+                    mapOf(
+                        "magazijnen.\"$oinA\".url" to "http://localhost:8081",
+                        "magazijnen.\"$oinA\".grantHash" to "\${MAGAZIJN_A_GRANT_HASH:}",
+                    ),
+                    "test",
+                    100,
+                ),
+            )
+            .build()
+            .getConfigMapping(MagazijnregisterConfig::class.java)
+
+        val register = assertDoesNotThrow { ConfigMagazijnregister(config, "test").apply { init() } }
+
+        assertNull(register.voorOin(Oin(oinA))!!.grantHash)
     }
 
     private fun register(profiel: String, vararg entries: Pair<String, MagazijnregisterConfig.Inschrijving>): Magazijnregister {
