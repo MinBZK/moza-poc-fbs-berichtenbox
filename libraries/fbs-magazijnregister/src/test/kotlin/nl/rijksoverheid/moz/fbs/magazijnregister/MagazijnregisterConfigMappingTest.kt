@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 
 /**
  * Roundtrip-test van de `@ConfigMapping`-binding zelf: borgt dat de
- * properties-notatie `magazijnen."<OIN>".{url,naam}` daadwerkelijk op de
+ * properties-notatie `magazijnen."<OIN>".{url,naam,grantHash}` daadwerkelijk op de
  * map-onder-prefix landt (en niet stilletjes op een andere structuur na een
  * refactor van de mapping-interface).
  */
