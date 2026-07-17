@@ -166,6 +166,62 @@ transitieve libraries, niet uit onze code of config):
   — initialisatie-volgorde van de JBoss LogManager in de test-bootstrap; cosmetisch,
   geen effect op test- of runtime-gedrag.
 
+## ZAD deploy & GitOps (debug)
+
+ZAD draait op **Argo CD GitOps**: de bron van waarheid is Git, niet de cluster of de
+Operations-Manager-API. Argo-Applications hebben `selfHeal: true` + `prune: true`, dus
+een directe `kubectl`- of live-OM-wijziging aan een draaiende deployment wordt
+teruggedraaid naar wat in Git staat. Reactiveren/schalen moet dus via OM (dat commit
+naar de Git-repo die Argo volgt), niet handmatig in de cluster of in de gerenderde repo.
+
+**Projecten (project-id = OM-project, ook in `.github/workflows/deploy.yml`-env):**
+`berichtenuitvraag` = `mpfb-8wh`, `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`.
+Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
+
+**Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
+
+| Repo / pad | Wat |
+|------------|-----|
+| `rig-cluster-projects` → `projects/<project-id>.yaml` | OM-projectspec: componenten, resources (auto-tune-history), aliassen (cross-project-URL's op `$DEPLOYMENT_NAME`), SOPS-versleutelde env. `redis`/`clickhouse` pinnen hier hun `image:`; app-componenten krijgen hun tag uit de deploy. |
+| `argo-applications` → `odcn-production/<project-id>/` | Eén `*-<deployment>-argocd-application.yaml` per deployment. Toont `spec.source.repoURL`/`path`/`targetRevision` + `syncPolicy` (bevestigt `selfHeal`/`prune`). |
+| `rig-cluster-application-test` → `odcn-production/<project-id>/<deployment>/` | **Gerenderde k8s-manifests die Argo daadwerkelijk synct.** Hier staat de échte image-tag én `replicas` per component (bv. `test/uitvraag-deployment.yaml`). Dit is de grond-waarheid bij elk pull-/schaal-probleem. |
+
+**OM-API** (per-project `X-API-Key`, secrets `ZAD_API_KEY_UITVRAAG`/`_MAGAZIJNEN`/`_PROFIEL`):
+basis `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api`, spec op `/openapi.json`.
+Handig (v2, read-only tenzij anders): `GET /projects/{p}/deployments` (lijst),
+`GET …/deployments/{d}` (detail incl. component-images), `PUT …/deployments/{d}/image`
+(zet image per component), `POST …/deployments/{d}/:refresh` (reconcile — **reactiveert
+géén uitgeschakeld component**).
+
+**Valkuilen bij debuggen (geleerd uit een ImagePullBackOff-melding):**
+- De UI-melding **"uitgeschakeld: image ontbreekt"** + logs **"No resources found in
+  namespace"** = `replicas: 0` in het gerenderde `*-deployment.yaml`. Er draait niets;
+  het is een schaal-/enable-probleem, geen image-probleem.
+- De **"Technische details"-ImagePullBackOff kan een bevroren, verouderd event zijn**
+  (bv. een oude `:main`-tag) terwijl de gesyncte manifest allang een geldige tag heeft.
+  **Verifieer altijd eerst de tag/`replicas` in het gerenderde `*-deployment.yaml`** vóór
+  je de UI-fouttekst gelooft.
+- De workflow pusht tags `main-<sha7>` (push→main) en `pr-<n>` (PR) — **nooit** een kale
+  `:main`. Zie de `meta`-job in `deploy.yml`. Een deployment die `:main` verwacht, is
+  handmatig/verouderd geconfigureerd.
+- De ghcr-images (`ghcr.io/minbzk/fbs-*`) zijn **public**; ZAD trekt ze via de
+  pull-through-mirror `rcr.rijksapps.nl/ghcr-rig/minbzk/*`. Een 404 op een bestaande,
+  publieke tag wijst op de mirror/registry-config aan ZAD-zijde, niet op onze push.
+- `:refresh`/UI-"herverwerken"/`gh run rerun`/`PUT …/image` reconcilen wel, maar
+  **reactiveren een door OM uitgeschakeld component NIET** (ze verhogen `replicas` niet).
+  Een disabled/replicas-0-deployment zit in een deadlock: replicas 0 → geen pod → geen
+  verse pull → controller herverifieert de image nooit → blijft uit. **De enige werkende
+  fix = deployment HERSCHEPPEN via de API:** `DELETE /api/v2/projects/{p}/{d}` (let op:
+  korte pad, zónder `/deployments/`) → `POST /api/v2/projects/{p}/:upsert-deployment`
+  (body: `deploymentName` + `components:[{reference,image}]`). Upsert-na-delete = create
+  → start **enabled**, synct gezond, trekt de geldige tag prima. Env overleeft (staat in
+  de project-spec, niet in de deployment). Dit is precies wat onze zad-actions **cleanup**
+  (delete) + **deploy** (upsert) doen; de workflow verwijdert `test` nooit, dus doe het
+  met de hand tegen de baseline. **DESTRUCTIEF:** `DELETE` draait Argo `prune`+`Delete`
+  en, voor projecten met de `postgresql-database`-service (bv. magazijnen `mpfm-w3h`),
+  `database_cleanup` → DB-data weg. Projecten zónder DB (uitvraag `mpfb-8wh`: enkel
+  redis/clickhouse, ephemeral) verliezen niets. Geverifieerd 2026-07-02.
+
 ## Belangrijke bestanden
 
 | Pad                                    | Beschrijving                                                    |
