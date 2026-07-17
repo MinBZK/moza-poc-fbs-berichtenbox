@@ -121,6 +121,57 @@ class ConfigMagazijnregisterTest {
         assertDoesNotThrow { register("prod", oinA to inschrijving("https://magazijn.intern:8443", "Magazijn")) }
     }
 
+    @Test
+    fun `grantHash is null zonder configwaarde`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", null))
+
+        assertNull(register.voorOin(Oin(oinA))!!.grantHash)
+    }
+
+    @Test
+    fun `grantHash wordt doorgegeven vanuit config`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "abc123"))
+
+        assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
+    }
+
+    @Test
+    fun `meerdere magazijnen waarvan er een grantHash heeft en een niet`() {
+        val register = register(
+            "test",
+            oinA to inschrijving("http://localhost:8081", null, grantHash = "abc123"),
+            oinB to inschrijving("http://localhost:8082", null),
+        )
+
+        assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
+        assertNull(register.voorOin(Oin(oinB))!!.grantHash)
+    }
+
+    @Test
+    fun `grantHash wordt getrimd`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "  abc123  "))
+
+        assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
+    }
+
+    @Test
+    fun `lege grantHash faalt fail-fast met de config-key in de melding`() {
+        val ex = assertThrows<IllegalStateException> {
+            register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = ""))
+        }
+
+        assertTrue(ex.message!!.contains("magazijnen.\"$oinA\".grantHash"))
+    }
+
+    @Test
+    fun `whitespace-only grantHash faalt fail-fast met de config-key in de melding`() {
+        val ex = assertThrows<IllegalStateException> {
+            register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "   "))
+        }
+
+        assertTrue(ex.message!!.contains("magazijnen.\"$oinA\".grantHash"))
+    }
+
     private fun register(profiel: String, vararg entries: Pair<String, MagazijnregisterConfig.Inschrijving>): Magazijnregister {
         val config = object : MagazijnregisterConfig {
             override fun inschrijvingen(): Map<String, MagazijnregisterConfig.Inschrijving> = mapOf(*entries)
@@ -129,9 +180,10 @@ class ConfigMagazijnregisterTest {
         return ConfigMagazijnregister(config, profiel).apply { init() }
     }
 
-    private fun inschrijving(url: String, naam: String?): MagazijnregisterConfig.Inschrijving =
+    private fun inschrijving(url: String, naam: String?, grantHash: String? = null): MagazijnregisterConfig.Inschrijving =
         object : MagazijnregisterConfig.Inschrijving {
             override fun url(): String = url
             override fun naam(): Optional<String> = Optional.ofNullable(naam)
+            override fun grantHash(): Optional<String> = Optional.ofNullable(grantHash)
         }
 }

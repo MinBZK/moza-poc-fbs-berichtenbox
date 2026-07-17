@@ -21,10 +21,12 @@ data class Magazijninschrijving(
     val oin: Oin,
     val url: URI,
     val naam: String?,
+    val grantHash: String? = null,
 ) {
     init {
         require(url.scheme == "http" || url.scheme == "https") { "magazijn-URL moet http(s) zijn, was: '$url'" }
         require(url.host != null) { "magazijn-URL moet een host bevatten, was: '$url'" }
+        require(grantHash == null || grantHash.isNotBlank()) { "grantHash mag niet leeg of alleen whitespace zijn" }
     }
 }
 

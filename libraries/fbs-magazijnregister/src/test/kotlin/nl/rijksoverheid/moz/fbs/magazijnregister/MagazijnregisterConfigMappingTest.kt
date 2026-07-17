@@ -37,6 +37,23 @@ class MagazijnregisterConfigMappingTest {
         assertTrue(mapping.inschrijvingen()[oinA]!!.naam().isEmpty)
     }
 
+    @Test
+    fun `grantHash bindt op de map onder de magazijnen-prefix`() {
+        val mapping = mapping(
+            "magazijnen.\"$oinA\".url" to "http://localhost:8081",
+            "magazijnen.\"$oinA\".grantHash" to "abc123",
+        )
+
+        assertEquals("abc123", mapping.inschrijvingen()[oinA]!!.grantHash().get())
+    }
+
+    @Test
+    fun `grantHash is optioneel in de properties-notatie`() {
+        val mapping = mapping("magazijnen.\"$oinA\".url" to "http://localhost:8081")
+
+        assertTrue(mapping.inschrijvingen()[oinA]!!.grantHash().isEmpty)
+    }
+
     private fun mapping(vararg properties: Pair<String, String>): MagazijnregisterConfig =
         SmallRyeConfigBuilder()
             .withMapping(MagazijnregisterConfig::class.java)
