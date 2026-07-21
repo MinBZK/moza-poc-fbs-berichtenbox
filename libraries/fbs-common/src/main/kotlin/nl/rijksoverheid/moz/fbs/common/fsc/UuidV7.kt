@@ -20,7 +20,13 @@ object UuidV7 {
     private const val RAND_A_MASK_12_BIT = 0x0FFF
     private const val RAND_B_MASK_62_BIT = 0x3FFFFFFFFFFFFFFFL
 
-    fun generate(epochMilli: Long = System.currentTimeMillis(), rnd: Random = SecureRandom()): UUID {
+    // Eén gedeelde instantie in plaats van een nieuwe per call: elke uitgaande magazijn- én
+    // Profiel-call genereert een transaction-id, en het opzetten van een SecureRandom kost
+    // een seeding-ronde. SecureRandom is thread-safe, dus delen is veilig bij gelijktijdige
+    // calls.
+    private val gedeeldeSecureRandom = SecureRandom()
+
+    fun generate(epochMilli: Long = System.currentTimeMillis(), rnd: Random = gedeeldeSecureRandom): UUID {
         val tijdstip = (epochMilli and TIJDSTIP_MASK_48_BIT) shl 16
         val randA = (rnd.nextInt() and RAND_A_MASK_12_BIT).toLong()
         val mostSigBits = tijdstip or (VERSION_7 shl 12) or randA
