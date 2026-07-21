@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -159,6 +160,26 @@ class ProfielMagazijnResolverIntegrationTest {
         assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
         }
+    }
+
+    @Test
+    fun `zonder grant-hash draagt de Profiel-call geen FSC-outway-headers`() {
+        wireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+                aResponse()
+                    .withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"voorkeuren":[]}""")
+            )
+        )
+
+        resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
+
+        wireMock.verify(
+            getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+                .withoutHeader("Fsc-Grant-Hash")
+                .withoutHeader("Fsc-Transaction-Id")
+        )
     }
 }
 

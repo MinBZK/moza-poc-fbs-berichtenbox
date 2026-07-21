@@ -8,7 +8,9 @@ import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.MediaType
+import nl.rijksoverheid.moz.fbs.common.fsc.ProfielFscOutwayHeadersFilter
 import org.eclipse.microprofile.faulttolerance.Retry
+import org.eclipse.microprofile.rest.client.annotation.RegisterProvider
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 import java.net.UnknownHostException
 
@@ -24,8 +26,13 @@ import java.net.UnknownHostException
  * DTO's zijn een minimale subset van de upstream-schema's; `@JsonIgnoreProperties`
  * negeert velden die we niet gebruiken (createdAt, lastUpdated, contactgegevens, etc.)
  * zodat upstream-veldtoevoegingen onze deserialisatie niet breken.
+ *
+ * Registratie hier en niet per service via `quarkus.rest-client.profiel-service.providers`:
+ * beide consumers delen deze interface, dus één plek voorkomt dat de registratie tussen
+ * services uit elkaar loopt. De filter is een no-op zolang er geen grant-hash geconfigureerd is.
  */
 @RegisterRestClient(configKey = "profiel-service")
+@RegisterProvider(ProfielFscOutwayHeadersFilter::class)
 interface ProfielServiceClient {
 
     /**
