@@ -246,6 +246,7 @@ géén uitgeschakeld component**).
 | `CLICKHOUSE_USERNAME`   | `ldv`   | ClickHouse gebruikersnaam (Logboek Dataverwerkingen)                                                              |
 | `CLICKHOUSE_PASSWORD`   | `ldv`   | ClickHouse wachtwoord                                                                                             |
 | `MAGAZIJN_A_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor magazijn-a; leeg = geen `Fsc-Grant-Hash`-header, magazijn wordt dan direct/zonder outway aangeroepen |
+| `PROFIEL_SERVICE_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor de Profiel-service; leeg = geen `Fsc-Grant-Hash`-header, de Profiel-service wordt dan direct/zonder outway aangeroepen |
 
 ## Plannen
 
