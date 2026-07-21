@@ -110,6 +110,80 @@ services:
       timeout: 3s
       retries: 5
 
+  # Demo-stack: alleen actief met `--profile demo`. Zonder profiel start compose de infra
+  # en draai je de services met `quarkus:dev` (hot reload behouden; in een container kost
+  # elke codewijziging een image-build). QUARKUS_PROFILE=dev is bewust: OutboundTlsValidator
+  # staat plaintext http alleen toe in dev en test, en de stubs spreken geen https.
+  #
+  # Images bouwen met jib (geen Dockerfile):
+  #   ./mvnw clean package -DskipTests \
+  #     -pl services/berichtenmagazijn,services/berichtenuitvraag -am \
+  #     -Dquarkus.container-image.build=true \
+  #     -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo
+  #
+  # QUARKUS_HTTP_HOST staat expliciet op 0.0.0.0: in NORMAL launch mode is dat al de
+  # default, maar Quarkus bindt in dev *mode* op localhost. Bij de combinatie "profiel
+  # dev, launch mode normal" sluit dit die twijfel uit — bindt de service op localhost,
+  # dan is de gepubliceerde poort dood.
+  berichtenmagazijn-a:
+    image: fbs-demo/fbs-berichtenmagazijn:demo
+    profiles: [demo]
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres-a:
+        condition: service_healthy
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      DB_JDBC_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
+      MAGAZIJN_OIN: "00000001003214345000"
+      AANMELD_URL: http://aanmeld-stub:8080/events
+      NOTIFICATIE_URL: http://notificatie-stub:8080/events
+      PROFIEL_SERVICE_URL: http://profiel-service:8080
+      LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+
+  # Beide magazijn-containers luisteren intern op 8090; alleen de gepubliceerde poort
+  # verschilt. MAGAZIJN_B_URL wijst daarom naar berichtenmagazijn-b:8090, niet naar 8091.
+  berichtenmagazijn-b:
+    image: fbs-demo/fbs-berichtenmagazijn:demo
+    profiles: [demo]
+    ports:
+      - "8091:8090"
+    depends_on:
+      postgres-b:
+        condition: service_healthy
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      DB_JDBC_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
+      MAGAZIJN_OIN: "00000001823288444000"
+      AANMELD_URL: http://aanmeld-stub:8080/events
+      NOTIFICATIE_URL: http://notificatie-stub:8080/events
+      PROFIEL_SERVICE_URL: http://profiel-service:8080
+      LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+
+  berichtenuitvraag:
+    image: fbs-demo/fbs-berichtenuitvraag:demo
+    profiles: [demo]
+    ports:
+      - "8086:8086"
+    depends_on:
+      redis:
+        condition: service_healthy
+      berichtenmagazijn-a:
+        condition: service_started
+      berichtenmagazijn-b:
+        condition: service_started
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      REDIS_HOSTS: redis://redis:6379
+      MAGAZIJN_A_URL: http://berichtenmagazijn-a:8090
+      MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
+      PROFIEL_SERVICE_URL: http://profiel-service:8080
+      LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+
 volumes:
   postgres-data-a:
   postgres-data-b:

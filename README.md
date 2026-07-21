@@ -59,6 +59,34 @@ De vroegere losse berichtensessiecache-service is opgegaan in `berichtenuitvraag
 als in-process library (`libraries/fbs-berichtensessiecache`) met Redis als
 gedeelde backing store.
 
+## Demo-stack (alles in containers)
+
+Voor demonstraties draait de volledige keten in containers, zodat opstarten één commando
+is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
+
+```bash
+./mvnw clean package -DskipTests \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag -am \
+  -Dquarkus.container-image.build=true \
+  -Dquarkus.container-image.group=fbs-demo \
+  -Dquarkus.container-image.tag=demo
+```
+
+Start daarna de stack en controleer de keten:
+
+```bash
+docker compose --profile demo up -d   # alles in containers
+./demo/smoke.sh                       # rookproef: aanleveren + ophalen
+```
+
+Zónder `--profile demo` start compose alleen de infrastructuur (Redis, Postgres, WireMock,
+ClickHouse). Gebruik die modus tijdens het ontwikkelen en draai de services met
+`quarkus:dev` zoals hierboven — in een container kost elke codewijziging een image-build.
+
+De poorten zijn in beide modi gelijk (8090, 8091, 8086), dus de Bruno-collectie en de
+omgeving `lokaal` werken ongewijzigd. Draai niet beide modi tegelijk: dat geeft een
+poortconflict.
+
 ### Tests draaien
 
 ```bash
