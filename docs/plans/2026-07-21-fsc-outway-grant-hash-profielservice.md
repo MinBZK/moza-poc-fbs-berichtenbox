@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Profiel-service via de FSC-outway — `Fsc-Grant-Hash`-header (#730)
 
