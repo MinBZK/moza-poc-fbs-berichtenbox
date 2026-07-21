@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.mockk
 import jakarta.ws.rs.client.ClientRequestContext
 import jakarta.ws.rs.core.MultivaluedHashMap
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -15,6 +16,21 @@ import java.net.URI
 import java.util.UUID
 
 class ProfielFscOutwayHeadersFilterTest {
+
+    // Vangnet naast de expliciete clear in elke ConfigProvider-test: een falende assertion
+    // mag de property nooit laten leken naar andere tests in deze module.
+    @AfterEach
+    fun clearGrantHashSystemProperty() {
+        System.clearProperty(ProfielFscOutwayHeadersFilter.CONFIG_KEY)
+    }
+
+    private fun mockContext(headers: MultivaluedHashMap<String, Any>): ClientRequestContext {
+        val ctx = mockk<ClientRequestContext>()
+        every { ctx.headers } returns headers
+        every { ctx.uri } returns URI.create("https://outway.voorbeeld.test/api/profielservice/v1/BSN/999993653")
+
+        return ctx
+    }
 
     private fun runFilter(grantHash: String?): MultivaluedHashMap<String, Any> {
         val ctx = mockk<ClientRequestContext>()
@@ -87,5 +103,38 @@ class ProfielFscOutwayHeadersFilterTest {
         // Pin de sleutel: application.properties van beide services hangt eraan, en een
         // hernoeming zou de filter stil uitschakelen in plaats van te falen.
         assertEquals("profiel-service.grant-hash", ProfielFscOutwayHeadersFilter.CONFIG_KEY)
+    }
+
+    /**
+     * Dekt de no-arg constructor, het daadwerkelijke integratiepunt dat de rest-client-runtime
+     * via `@RegisterProvider` instantieert: die kan geen constructor-argument leveren, dus deze
+     * vorm leest de grant-hash via de echte `ConfigProvider` in plaats van via de test-lambda.
+     */
+    @Test
+    fun `zonder geconfigureerde system property zet de no-arg constructor geen FSC-headers`() {
+        System.clearProperty(ProfielFscOutwayHeadersFilter.CONFIG_KEY)
+
+        val headers = MultivaluedHashMap<String, Any>()
+
+        ProfielFscOutwayHeadersFilter().filter(mockContext(headers))
+
+        assertFalse(headers.containsKey(FscOutwayHeaders.GRANT_HASH_HEADER))
+        assertFalse(headers.containsKey(FscOutwayHeaders.TRANSACTION_ID_HEADER))
+    }
+
+    @Test
+    fun `met geconfigureerde system property leest de no-arg constructor de grant-hash via ConfigProvider`() {
+        System.setProperty(ProfielFscOutwayHeadersFilter.CONFIG_KEY, "profiel-hash-config-provider")
+
+        val headers = MultivaluedHashMap<String, Any>()
+
+        ProfielFscOutwayHeadersFilter().filter(mockContext(headers))
+
+        assertEquals(listOf("profiel-hash-config-provider"), headers[FscOutwayHeaders.GRANT_HASH_HEADER])
+
+        val uuid = UUID.fromString(headers.getFirst(FscOutwayHeaders.TRANSACTION_ID_HEADER) as String)
+
+        assertEquals(7, uuid.version())
+        assertEquals(2, uuid.variant())
     }
 }
