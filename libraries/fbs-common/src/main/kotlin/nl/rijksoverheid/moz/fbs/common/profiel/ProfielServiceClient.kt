@@ -26,8 +26,7 @@ import java.net.UnknownHostException
  * DTO's zijn een minimale subset van de upstream-schema's; `@JsonIgnoreProperties`
  * negeert velden die we niet gebruiken (createdAt, lastUpdated, contactgegevens, etc.)
  * zodat upstream-veldtoevoegingen onze deserialisatie niet breken.
- */
-/**
+ *
  * Registratie hier en niet per service via `quarkus.rest-client.profiel-service.providers`:
  * beide consumers delen deze interface, dus één plek voorkomt dat de registratie tussen
  * services uit elkaar loopt. De filter is een no-op zolang er geen grant-hash geconfigureerd is.
