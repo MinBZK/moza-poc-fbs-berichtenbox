@@ -122,9 +122,12 @@ keten dus al.
 Herkenbare afzenders (Belastingdienst, KVK, RVO, UWV) en een gespreid
 `publicatietijdstip`, zodat sorteren en filteren in de UI betekenis hebben.
 
-**Vaste bericht-ID's** in de dataset. Dat maakt demo's herhaalbaar en reduceert het
-ontdubbelingsscenario tot één knop. Gevolg: twee keer vullen zonder legen levert
-terecht ontdubbeling op.
+**Geen vaste bericht-ID's.** `BerichtAanleverenRequest` vereist `[afzender, ontvanger,
+onderwerp, inhoud]` en accepteert géén `berichtId`: het magazijn kent de UUID zelf toe.
+Herhaalbaarheid komt daarom uit vaste *inhoud*, niet uit vaste ID's. Twee keer vullen
+zonder legen geeft dus dubbele berichten met verschillende ID's — dat is geen
+ontdubbeling maar dubbele data, en daarom is legen vóór vullen verplicht in het
+bedieningspaneel.
 
 ### Random berichten — dezelfde weg, met generator
 
@@ -192,8 +195,15 @@ vlag, en een half afgemaakte markering is duurder dan zijn demowaarde.
 | 10 | Notificatieservice weg | Toxiproxy `disable` |
 | 11 | Uitvraagsysteem eruit | Toxiproxy `disable` op aanmeld-stub |
 | 12 | Redis weg | Toxiproxy `disable` |
-| 13 | Ontdubbeling | Bestaat al (`aanmeld.deduplicatie.*`) — nogmaals aanleveren |
+| 13 | Ontdubbeling | Bestaat al — dezelfde CloudEvent (zelfde `id`) nogmaals naar de aanmeld-webhook |
 | 14 | Load/stress | k6, aparte fase |
+
+**Ontdubbeling (scenario 13) zit op de webhook, niet op het aanleveren.**
+`AanmeldDeduplicatie.eerstgezien(eventId)` markeert verwerkte CloudEvents op hun `id`
+in een eigen Redis-keyspace, los van de `Sessiecache`-facade. De demo is dus: stuur
+tweemaal dezelfde CloudEvent naar `POST /api/v1/aanmeldingen` op de uitvraag en toon
+dat er één bericht ontstaat. Tweemaal hetzelfde bericht *aanleveren* bij het magazijn
+levert géén ontdubbeling op — dat geeft twee berichten met verschillende ID's.
 
 Elf van de veertien zijn dezelfde bouwsteen: één knop die één toxic aan- of uitzet.
 Na de eerste is elke volgende een configuratieregel.
@@ -306,7 +316,7 @@ overkoepelende ontwerp, niet het uitvoeringsplan van fase 0.
 | Fase | Verificatie |
 |---|---|
 | 0 | `docker compose --profile demo up -d`; bestaande Bruno-collectie draait groen tegen de containers. `./mvnw clean test` blijft groen (bewijst dat `%test`/`%prod` ongemoeid zijn) |
-| 1 | Legen → lijst is leeg; vullen → 40 berichten; nogmaals vullen → ontdubbeling zichtbaar |
+| 1 | Legen → lijst is leeg; vullen → 40 berichten; nogmaals vullen zonder legen → 80 berichten (bewijst dat het magazijn eigen ID's toekent en dat legen verplicht is) |
 | 2 | Handmatige doorloop van alle 8 Berichtenbox-functies in de UI |
 | 3 | Per knop: gedrag in de UI komt overeen met het scenario; circuit breaker-logs bevestigen het foutpad |
 | 4 | Cache-verloop zichtbaar via zowel de knop als het aflopen van de korte TTL |
