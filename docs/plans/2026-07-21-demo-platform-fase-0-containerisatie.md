@@ -1,4 +1,21 @@
-**Status:** Concept
+**Status:** Deels uitgevoerd — verificatie openstaand
+
+> **Uitvoerstatus 2026-07-21.** Alle codewijzigingen zijn gemaakt (commits `750e09c`,
+> `77931e5`, `f434bc7`). De ontwikkelomgeving had **geen container-runtime** (Docker
+> afwezig; podman faalt op `cannot clone: Operation not permitted`), waardoor de
+> verificatiestappen niet konden draaien.
+>
+> **Wel uitgevoerd:** `mvn package -DskipTests` inclusief Quarkus-augmentatie voor beide
+> services (groen, geen nieuwe waarschuwingen); `fbs-common` 189 tests en
+> `fbs-magazijnregister` 17 tests groen; compose-YAML parst en de drie app-containers
+> zitten uitsluitend in het `demo`-profiel; `bash -n demo/smoke.sh` groen; de diff raakt
+> aantoonbaar geen `%test`- of `%prod`-regel.
+>
+> **Nog te doen op een machine mét Docker** — dit is de resterende definition of done:
+> `./mvnw clean test` (beide services), `./mvnw quarkus:dev` zonder env-vars, de
+> jib-image-build, `docker compose --profile demo up -d`, `./demo/smoke.sh` en de
+> Bruno-collectie. Reken erop dat `smoke.sh` bijgesteld moet worden: dat script is nog
+> nooit uitgevoerd.
 
 # Demo-platform fase 0 — containerisatie — implementatieplan
 
