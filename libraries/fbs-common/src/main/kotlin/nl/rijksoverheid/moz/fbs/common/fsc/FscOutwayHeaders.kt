@@ -27,10 +27,13 @@ object FscOutwayHeaders {
         requestContext.headers.putSingle(TRANSACTION_ID_HEADER, transactionId.toString())
 
         // Zonder deze transaction-id in de app-log is een call niet terug te vinden in de
-        // outway-/inway-logs, die 'm ongewijzigd doorgeven.
+        // outway-/inway-logs, die 'm ongewijzigd doorgeven. Log alleen de host, nooit het
+        // volledige URI: sommige callers (Profiel-service) dragen een BSN in het pad, en
+        // deze regel logt bij DEBUG — dus een pad of query hier zou dat BSN naar de
+        // applicatielog schrijven. De host identificeert de outway afdoende.
         log.debugf(
             "FSC-outway-call naar %s: Fsc-Transaction-Id=%s",
-            requestContext.uri,
+            requestContext.uri.host,
             transactionId,
         )
     }
