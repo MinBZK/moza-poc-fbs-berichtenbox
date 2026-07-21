@@ -23,7 +23,7 @@ de compose-stack. **De bestaande services krijgen geen demo-logica in hun gedrag
 | UI-laag | Wegwerp demo-UI; geen NL Design System, geen productiekwaliteit |
 | Aanleiding | Demo aan PO/stakeholders — happy flow eerst, degradatie daarna |
 | Omgeving | Lokaal (docker compose), niet ZAD |
-| Magazijnen | 2 echt (bestaand) + 15 lichtgewicht stubs in één WireMock-container |
+| Magazijnen | 2 echt (bestaand) + een **variabel** aantal lichtgewicht stubs in één WireMock-container |
 | Bediening | Klikbaar bedieningspaneel, bediend door de ontwikkelaar |
 | Kwaliteitsgates | `demo-console` valt buiten de 90%-JaCoCo-gate |
 
@@ -209,10 +209,31 @@ worden gebouwd, omdat ze verschillende dingen bewijzen:
 - **Korte TTL in de demo-stack** (90 seconden, via env-var) — echte sliding expiry,
   inclusief verlenging bij elke read.
 
+### Het aantal stub-magazijnen is variabel
+
+Het aantal ligt niet vast. Er is één harde beperking: `ConfigMagazijnregister` valideert
+het register **fail-fast bij boot**, dus een magazijn toevoegen vraagt een herstart. Het
+aantal is daarmee op twee niveaus instelbaar:
+
+| Niveau | Wat | Wanneer |
+|---|---|---|
+| **Ingericht aantal** | `DEMO_MAGAZIJN_STUBS=<n>` genereert n register-entries en n WireMock-stubs | Bij opstarten van de stack |
+| **Actief aantal** | Bedieningspaneel zet stubs aan/uit via de WireMock-admin-API | Tijdens de demo, direct |
+
+Praktische werkwijze: richt het ingerichte aantal ruim in (bijvoorbeeld 25) en varieer
+tijdens de demo het *actieve* aantal. Zo schuif je live van "2 magazijnen" naar "27
+magazijnen" zonder herstart.
+
+Dat vraagt dat register-entries en stub-mappings **gegenereerd** worden uit één getal,
+niet handmatig uitgeschreven. De demo-console genereert ze bij het opstarten; er staat
+dus geen lijst van 25 magazijnen in `application.properties` of in de compose-stack.
+De OIN's worden afgeleid uit een vast patroon met geldige elfproef, zodat ze door
+`Magazijnregister` geaccepteerd worden.
+
 ### Storingen op stub-magazijnen: WireMock, niet Toxiproxy
 
 De stub-magazijnen delen één WireMock-container met pad-gebaseerde routering
-(`/m01` … `/m15`). Ze delen dus één TCP-endpoint, en **Toxiproxy kan daar niet per
+(`/m01`, `/m02`, …). Ze delen dus één TCP-endpoint, en **Toxiproxy kan daar niet per
 magazijn schakelen** — een toxic raakt alle stubs tegelijk.
 
 WireMock kan dat wél, per stub en tijdens runtime via de admin-API:
@@ -258,7 +279,7 @@ mijlpaal is fase 2.
 | 3 | Toxiproxy voor alle afhankelijkheden; knoppen traagheid, magazijn uit, bijlage onbereikbaar | middel | Ondernemer-flows 2, 4, 7 en scenario 3 op de twee echte magazijnen (het weinig-versus-veel-plaatje volgt in fase 6) |
 | 4 | Sessie en cache: nieuwe berichten tijdens sessie, cache laten verlopen, korte TTL | klein | **Ondernemer-lijst compleet** (alle 7 flows) |
 | 5 | Technische verantwoording: profiel/notificatie/aanmeld/Redis uit, foutieve aanlevering, ontdubbeling | middel | 6 van 7 technische punten |
-| 6 | Veel magazijnen: één WireMock met 15 pad-gebaseerde magazijnen, schuifje weinig/veel | middel | Scenario 3 volledig |
+| 6 | Veel magazijnen: één WireMock met een variabel aantal pad-gebaseerde magazijnen (gegenereerd uit `DEMO_MAGAZIJN_STUBS`), schuifje voor het actieve aantal | middel | Scenario 3 volledig |
 | 7 | Uitgesteld werk: rode vlag door de keten; k6-loadtest | groot | Twee losse brokken, onafhankelijk van elkaar |
 
 Fase 0 gaat bewust eerst: alles daarna leunt erop en het is de goedkoopste fase. Loopt
@@ -290,5 +311,5 @@ overkoepelende ontwerp, niet het uitvoeringsplan van fase 0.
 | 3 | Per knop: gedrag in de UI komt overeen met het scenario; circuit breaker-logs bevestigen het foutpad |
 | 4 | Cache-verloop zichtbaar via zowel de knop als het aflopen van de korte TTL |
 | 5 | Per uitgeschakelde afhankelijkheid: de UI degradeert zoals ontworpen, geen 500 zonder correlation-id |
-| 6 | 1 van 17 uit versus 9 van 17 uit geeft zichtbaar verschillende gebruikerservaring |
+| 6 | Aantal instelbaar bij opstarten (test met minstens 2, 10 en 25 stubs); tijdens de demo geeft "1 van de N uit" een zichtbaar andere gebruikerservaring dan "meer dan de helft uit" |
 | 7 | Vlag: unit- + integratietests per laag, coveragegate blijft gehaald. k6: rapport met latency-percentielen |
