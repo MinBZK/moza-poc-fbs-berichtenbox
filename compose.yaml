@@ -183,6 +183,9 @@ services:
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       PROFIEL_SERVICE_URL: http://profiel-service:8080
       LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+      # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig;
+      # origins staan onder %dev in application.properties. Alleen in het demo-profiel.
+      QUARKUS_HTTP_CORS_ENABLED: "true"
 
   # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
   # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
