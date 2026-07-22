@@ -1,16 +1,18 @@
-**Status:** Alle taken uitgevoerd — browser-runtime-verificatie (Docker) openstaand
+**Status:** Uitgevoerd — ophalen+lijst geverifieerd; detail/bijlage/markeren openstaand
 
-> **Lokaal geverifieerd (zonder Docker):** dev-CORS via Quarkus-augmentatie op
-> berichtenuitvraag (BUILD SUCCESS), diff raakt geen `%test`/`%prod`; `berichtenbox.js`
-> komt door `node --check`; demo-console bouwt en de resources (`berichtenbox.html/js/css`)
-> zitten in de jar; detekt schoon (geen nieuwe Kotlin).
+> **CORS-correctie tijdens verificatie.** De schakelaar heet `quarkus.http.cors.enabled`
+> (runtime), niet `quarkus.http.cors` (die negeert Quarkus 3.x). Gezet als `%dev` in
+> `application.properties` + `QUARKUS_HTTP_CORS_ENABLED` in het compose demo-profiel; geen
+> build-flag. Niet-gezette `origins` = same-origin-only, dus prod blijft CORS-loos.
+> Geverifieerd tegen de Quarkus security-cors guide.
 >
-> **Nog te doen op een machine mét Docker** (de browser-flow — hier niet te draaien):
-> images bouwen (`-Dquarkus.jib.platforms=linux/arm64` op Apple Silicon),
-> `docker compose --profile demo up -d`, dan op <http://localhost:8095/berichtenbox.html>
-> per persona: ophalen → lijst → detail → bijlage-download → gelezen/ongelezen. Plus de
-> foutpaden (409 vóór ophalen, lege postbus) en `./mvnw clean test -pl services/berichtenuitvraag -am`.
-> Het scherpste punt blijft de **KVK-persona** door de keten.
+> **Door de gebruiker geverifieerd (Docker):** CORS-preflight slaagt; **alle drie de
+> personas — inclusief de KVK-persona — halen op en tonen hun berichtenlijst.** Daarmee
+> is ook het fase-1-risico (getypeerde KVK-ontvanger door de keten) gesloten.
+>
+> **Nog te bevestigen:** detailweergave, bijlage-download (vereist eerst een bericht mét
+> PDF-bijlage) en gelezen/ongelezen markeren; plus de foutpaden (409 vóór ophalen, lege
+> postbus).
 
 # Demo-platform fase 2a — Berichtenbox-UI (lezen) — implementatieplan
 
