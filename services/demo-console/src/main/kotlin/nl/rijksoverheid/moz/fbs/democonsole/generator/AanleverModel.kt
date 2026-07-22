@@ -3,6 +3,9 @@ package nl.rijksoverheid.moz.fbs.democonsole.generator
 /** Ontvanger zoals het aanlevercontract het verwacht: getypeerd identificatienummer. */
 data class OntvangerDto(val type: String, val waarde: String)
 
+/** Bijlage voor de aanlever-request. `inhoud` is Base64; `mimeType` moet application/pdf zijn. */
+data class BijlageDto(val naam: String, val mimeType: String, val inhoud: String)
+
 /**
  * Body voor `POST /api/v1/berichten` op het magazijn. `afzender` is een kale OIN-string
  * (20 cijfers); alleen `ontvanger` is getypeerd. Velden matchen BerichtAanleverenRequest.
@@ -13,6 +16,7 @@ data class AanleverVerzoek(
     val onderwerp: String,
     val inhoud: String,
     val publicatietijdstip: String,
+    val bijlagen: List<BijlageDto>? = null,
 )
 
 /** Eén aanlever-opdracht: het verzoek plus het magazijn (OIN) waar het naartoe moet. */
