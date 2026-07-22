@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Berichtenbox (demo)</title>
+  <link rel="stylesheet" href="berichtenbox.css">
+</head>
+<body>
+  <header>
+    <h1>Berichtenbox</h1>
+    <div class="persona">
+      <label>Ingelogd als
+        <select id="persona">
+          <option value="BSN:999993653">J. Pietersen (ZZP)</option>
+          <option value="BSN:123456782">Bakkerij De Vroege Vogel</option>
+          <option value="KVK:12345678">Garage Van Dijk B.V.</option>
+        </select>
+      </label>
+      <button id="ophalen">Ophalen</button>
+      <a href="index.html">&rarr; bedieningspaneel</a>
+    </div>
+  </header>
+
+  <section id="voortgang" class="voortgang" hidden></section>
+
+  <main>
+    <ul id="lijst" class="lijst"></ul>
+    <p id="lijst-leeg" class="melding" hidden></p>
+    <article id="detail" class="detail" hidden></article>
+  </main>
+
+  <script src="berichtenbox.js"></script>
+</body>
+</html>
