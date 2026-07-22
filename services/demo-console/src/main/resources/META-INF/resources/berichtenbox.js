@@ -268,11 +268,44 @@ function detailKop(bericht) {
     (bericht.afzender ? 'Van: ' + bericht.afzender + ' — ' : '') +
     new Date(bericht.publicatietijdstip).toLocaleString('nl-NL');
 
+  const knop = document.createElement('button');
+
+  const isGelezen = bericht.status === 'gelezen';
+
+  knop.textContent = isGelezen ? 'Markeer ongelezen' : 'Markeer gelezen';
+  knop.addEventListener('click', () => markeer(bericht.berichtId, isGelezen ? 'ongelezen' : 'gelezen'));
+
   const frag = document.createDocumentFragment();
 
-  frag.append(h2, afz);
+  frag.append(h2, afz, knop);
 
   return frag;
+}
+
+// PATCH vereist ?magazijnId= (uit de lijst bewaard) en content-type merge-patch+json.
+async function markeer(berichtId, status) {
+  const magazijnId = magazijnVan(berichtId);
+
+  if (!magazijnId) {
+    alert('Geen magazijnId bekend — haal eerst de lijst op.');
+
+    return;
+  }
+
+  const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/merge-patch+json' },
+    body: JSON.stringify({ status }),
+  });
+
+  if (!respons.ok) {
+    alert(`Markeren mislukt (HTTP ${respons.status}).`);
+
+    return;
+  }
+
+  await toonDetail(berichtId);
+  await laadLijst();
 }
 
 function detailInhoud(bericht) {
