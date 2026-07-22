@@ -1,4 +1,14 @@
-**Status:** Concept
+**Status:** Alle taken uitgevoerd — browser-runtime-verificatie (Docker) openstaand
+
+> **Lokaal geverifieerd:** `berichtenbox.js` door `node --check` na elke taak; demo-console
+> bouwt met de resources in de jar; 11 generator-tests groen (geen nieuwe Kotlin, detekt
+> onveranderd). Taak 3 en 4 in één commit (wegwerp-`verwijder`-stub overgeslagen).
+>
+> **Nog te doen (Docker):** rebuild + herstart, dan per persona: zijbalk (Postvak IN +
+> mappen + Archief met tellingen), sorteren (4 opties, geen nieuwe `/berichten`-call),
+> ongelezen-filter, verplaatsen naar (nieuwe/bestaande) map, archiveren, verwijderen met
+> bevestiging. Let op het te bevestigen punt: dat `PATCH map`/`DELETE` meteen in
+> `GET /berichten` doorkomen (bij `PATCH status` werkte dat in 2a).
 
 # Demo-platform fase 2b — Berichtenbox-UI (beheer) — implementatieplan
 
