@@ -1,4 +1,16 @@
-**Status:** Concept
+**Status:** Alle taken uitgevoerd — browser-runtime-verificatie (Docker) openstaand
+
+> **Lokaal geverifieerd (zonder Docker):** dev-CORS via Quarkus-augmentatie op
+> berichtenuitvraag (BUILD SUCCESS), diff raakt geen `%test`/`%prod`; `berichtenbox.js`
+> komt door `node --check`; demo-console bouwt en de resources (`berichtenbox.html/js/css`)
+> zitten in de jar; detekt schoon (geen nieuwe Kotlin).
+>
+> **Nog te doen op een machine mét Docker** (de browser-flow — hier niet te draaien):
+> images bouwen (`-Dquarkus.jib.platforms=linux/arm64` op Apple Silicon),
+> `docker compose --profile demo up -d`, dan op <http://localhost:8095/berichtenbox.html>
+> per persona: ophalen → lijst → detail → bijlage-download → gelezen/ongelezen. Plus de
+> foutpaden (409 vóór ophalen, lege postbus) en `./mvnw clean test -pl services/berichtenuitvraag -am`.
+> Het scherpste punt blijft de **KVK-persona** door de keten.
 
 # Demo-platform fase 2a — Berichtenbox-UI (lezen) — implementatieplan
 
