@@ -1,4 +1,18 @@
-**Status:** Concept
+**Status:** In uitvoering — taak 1 en 2 uitgevoerd en lokaal geverifieerd
+
+> **Correctie tijdens uitvoering (taak 1).** Het plan liet demo-console van `fbs-common`
+> afhangen voor `Bsn`/`Rsin`. Dat brak de Quarkus-boot: `fbs-common` bevat JAX-RS-filters
+> (`LogboekContextDefaultFilter`) die de LDV-wrapper vereisen, en Arc probeert die te
+> bedraden. Opgelost door de `fbs-common`-dependency weg te laten en de elfproef-validatie
+> te inlinen in `generator/Identificatiecheck.kt` — een wegwerp-console hoort de
+> productie-JAX-RS-stack niet te erven. De generator-taak (2) gebruikt die lokale check
+> i.p.v. `Bsn`/`Kvk`/`Rsin`.
+>
+> Ook: `quarkus-junit5` is verplaatst naar `quarkus-junit` (relocation-warning) — de
+> module gebruikt `quarkus-junit`.
+>
+> **Lokaal geverifieerd:** module bouwt, augmentatie slaagt, 11 generator-unittests groen,
+> geen nieuwe waarschuwingen. Taak 3–5 vragen Docker.
 
 # Demo-platform fase 1 — demo-console — implementatieplan
 
