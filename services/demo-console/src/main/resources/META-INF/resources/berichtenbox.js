@@ -216,7 +216,77 @@ el('persona').addEventListener('change', () => {
   toonLeeg('Persona gewijzigd — klik op Ophalen.');
 });
 
-// toonDetail wordt in taak 3 ingevuld; placeholder zodat de lijst niet crasht.
-function toonDetail(berichtId) {
-  console.log('detail volgt in taak 3', berichtId);
+async function toonDetail(berichtId) {
+  const respons = await api('/berichten/' + berichtId);
+
+  if (!respons.ok) {
+    alert(`Bericht laden mislukt (HTTP ${respons.status}).`);
+
+    return;
+  }
+
+  const bericht = await respons.json();
+  const detail = el('detail');
+
+  detail.innerHTML = '';
+  detail.append(detailKop(bericht), detailInhoud(bericht), renderBijlagen(bericht));
+  toon(detail, true);
+}
+
+function detailKop(bericht) {
+  const h2 = document.createElement('h2');
+
+  h2.textContent = bericht.onderwerp;
+
+  const afz = document.createElement('p');
+
+  afz.className = 'meta';
+  afz.textContent =
+    (bericht.afzender ? 'Van: ' + bericht.afzender + ' — ' : '') +
+    new Date(bericht.publicatietijdstip).toLocaleString('nl-NL');
+
+  const frag = document.createDocumentFragment();
+
+  frag.append(h2, afz);
+
+  return frag;
+}
+
+function detailInhoud(bericht) {
+  const p = document.createElement('p');
+
+  p.className = 'inhoud';
+  p.textContent = bericht.inhoud || '(geen inhoud)';
+
+  return p;
+}
+
+// Bijlagen: alleen bijlageId + naam zijn gevuld; de download-actie komt in taak 4.
+function renderBijlagen(bericht) {
+  const div = document.createElement('div');
+
+  div.className = 'bijlagen';
+
+  const bijlagen = bericht.bijlagen || [];
+
+  if (bijlagen.length === 0) return div;
+
+  const kop = document.createElement('strong');
+
+  kop.textContent = 'Bijlagen: ';
+  div.appendChild(kop);
+
+  bijlagen.forEach((bijlage) => {
+    const knop = document.createElement('a');
+
+    knop.href = '#';
+    knop.textContent = bijlage.naam;
+    knop.addEventListener('click', (gebeurtenis) => {
+      gebeurtenis.preventDefault();
+      console.log('download volgt in taak 4', bericht.berichtId, bijlage.bijlageId);
+    });
+    div.appendChild(knop);
+  });
+
+  return div;
 }
