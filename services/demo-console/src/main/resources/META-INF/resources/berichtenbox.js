@@ -216,6 +216,29 @@ el('persona').addEventListener('change', () => {
   toonLeeg('Persona gewijzigd — klik op Ophalen.');
 });
 
+// Download via fetch (geen <a href>: dat stuurt de X-Ontvanger-header niet mee). De
+// respons is binair; we maken er een blob-URL van en triggeren de download programmatisch.
+async function downloadBijlage(berichtId, bijlageId, naam) {
+  const respons = await api(`/berichten/${berichtId}/bijlagen/${bijlageId}`);
+
+  if (!respons.ok) {
+    alert(`Bijlage downloaden mislukt (HTTP ${respons.status}).`);
+
+    return;
+  }
+
+  const blob = await respons.blob();
+  const url = URL.createObjectURL(blob);
+  const anker = document.createElement('a');
+
+  anker.href = url;
+  anker.download = naam;
+  document.body.appendChild(anker);
+  anker.click();
+  anker.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function toonDetail(berichtId) {
   const respons = await api('/berichten/' + berichtId);
 
@@ -283,7 +306,7 @@ function renderBijlagen(bericht) {
     knop.textContent = bijlage.naam;
     knop.addEventListener('click', (gebeurtenis) => {
       gebeurtenis.preventDefault();
-      console.log('download volgt in taak 4', bericht.berichtId, bijlage.bijlageId);
+      downloadBijlage(bericht.berichtId, bijlage.bijlageId, bijlage.naam);
     });
     div.appendChild(knop);
   });
