@@ -41,6 +41,9 @@ services:
       # laadt álle mappings in deze map, dus ook notificatie-events.json (POST /events); lokaal
       # roept de profielclient die alleen niet aan (de notificatie-stub draait apart op 8084).
       - ./wiremock/externe-stubs/mappings:/home/wiremock/mappings
+      # Demo-only persona-voorkeuren, als subdir (WireMock laadt recursief). Apart gehouden
+      # zodat de elfproef-geldige persona-BSN's níet in het publieke externe-stubs-image komen.
+      - ./wiremock/demo-profiel/mappings:/home/wiremock/mappings/demo-profiel
     command: ["--verbose"]
 
   # Aanmeld- en Notificatie-stubs voor de Publicatie Stream. Ontvangen CloudEvents

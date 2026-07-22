@@ -5,6 +5,14 @@ const BASIS = 'http://localhost:8086/api/v1';
 // magazijnId per bericht onthouden — PATCH/DELETE (taak 4/5) vereisen ?magazijnId=.
 const magazijnPerBericht = new Map();
 
+// magazijnId (== afzender-OIN) → organisatienaam, gevuld uit de ophaal-events, zodat de UI
+// "RVO"/"Belastingdienst" toont i.p.v. de kale OIN.
+const magazijnNamen = new Map();
+
+function afzenderNaam(bericht) {
+  return magazijnNamen.get(bericht.magazijnId) || bericht.afzender || bericht.magazijnId;
+}
+
 const el = (id) => document.getElementById(id);
 
 function huidigeOntvanger() {
@@ -92,6 +100,10 @@ async function ophalen() {
 
 // Werkt de voortgangsregels bij; geeft true terug bij een terminaal event.
 function verwerkOphaalEvent(gebeurtenis, regels) {
+  if (gebeurtenis.magazijnId && gebeurtenis.naam) {
+    magazijnNamen.set(gebeurtenis.magazijnId, gebeurtenis.naam);
+  }
+
   switch (gebeurtenis.event) {
     case 'magazijn-bevraging-gestart':
       regels.push(`${gebeurtenis.naam || gebeurtenis.magazijnId}: bevragen…`);
@@ -175,7 +187,15 @@ function lijstItem(bericht) {
 
   const titel = document.createElement('span');
 
-  titel.textContent = bericht.onderwerp;
+  const afzender = document.createElement('span');
+
+  afzender.className = 'afzender';
+  afzender.textContent = afzenderNaam(bericht);
+
+  const onderwerp = document.createElement('span');
+
+  onderwerp.textContent = bericht.onderwerp;
+  titel.append(afzender, onderwerp);
 
   const meta = document.createElement('span');
 
@@ -264,9 +284,7 @@ function detailKop(bericht) {
   const afz = document.createElement('p');
 
   afz.className = 'meta';
-  afz.textContent =
-    (bericht.afzender ? 'Van: ' + bericht.afzender + ' — ' : '') +
-    new Date(bericht.publicatietijdstip).toLocaleString('nl-NL');
+  afz.textContent = 'Van: ' + afzenderNaam(bericht) + ' — ' + new Date(bericht.publicatietijdstip).toLocaleString('nl-NL');
 
   const knop = document.createElement('button');
 

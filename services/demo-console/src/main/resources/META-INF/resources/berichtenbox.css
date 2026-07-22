@@ -8,8 +8,10 @@ select, button { font-size: 1rem; padding: 0.4rem 0.6rem; }
 main { padding: 1.5rem; max-width: 50rem; }
 .voortgang { padding: 0.75rem 1.5rem; background: #f4f4f4; font-family: monospace; white-space: pre-wrap; }
 .lijst { list-style: none; padding: 0; margin: 0; }
-.lijst li { border-bottom: 1px solid #ddd; padding: 0.75rem 0.5rem; cursor: pointer; display: flex; gap: 0.5rem; }
+.lijst li { border-bottom: 1px solid #ddd; padding: 0.75rem 0.5rem; cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; }
+.lijst li > span:first-child { display: flex; flex-direction: column; }
 .lijst li:hover { background: #f0f6ff; }
+.lijst .afzender { font-size: 0.8rem; color: #555; }
 .lijst .ongelezen { font-weight: 700; }
 .lijst .meta { color: #555; font-size: 0.85rem; margin-left: auto; white-space: nowrap; }
 .melding { color: #555; }
