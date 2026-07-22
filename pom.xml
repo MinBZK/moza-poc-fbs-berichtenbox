@@ -18,6 +18,7 @@
         <module>libraries/fbs-berichtensessiecache</module>
         <module>services/berichtenmagazijn</module>
         <module>services/berichtenuitvraag</module>
+        <module>services/demo-console</module>
     </modules>
 
     <properties>
