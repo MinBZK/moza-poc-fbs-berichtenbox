@@ -72,6 +72,11 @@ is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
   -Dquarkus.container-image.tag=demo
 ```
 
+> **Apple Silicon / ARM:** jib bouwt standaard `linux/amd64` (de ZAD-cluster is amd64).
+> Op een ARM-host draaien die images onder emulatie — voeg
+> `-Dquarkus.jib.platforms=linux/arm64` toe voor native images. Deze flag hoort op de
+> commandoregel en niet in de config, anders wordt ook de CI-/ZAD-build arm64.
+
 Start daarna de stack en controleer de keten:
 
 ```bash
