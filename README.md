@@ -69,8 +69,17 @@ is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
   -pl services/berichtenmagazijn,services/berichtenuitvraag,services/demo-console -am \
   -Dquarkus.container-image.build=true \
   -Dquarkus.container-image.group=fbs-demo \
-  -Dquarkus.container-image.tag=demo
+  -Dquarkus.container-image.tag=demo \
+  -Dquarkus.http.cors=true
 ```
+
+> **`-Dquarkus.http.cors=true` is nodig, en hoort op de commandoregel.** De Berichtenbox-UI
+> (:8095) roept de uitvraag-API (:8086) cross-origin aan. `quarkus.http.cors` is een
+> *build-time*-schakelaar: de CORS-handler moet bij het bouwen worden ingebakken. Bewust
+> níet in de config: zonder gezette `origins` staat Quarkus álle origins toe, en dat mag
+> nooit in een productie-image. De CI-/ZAD-build geeft deze flag niet mee, dus die images
+> blijven CORS-loos; de toegestane origin (`http://localhost:8095`) staat onder `%dev` en
+> geldt alleen in de demo-stack.
 
 > **Apple Silicon / ARM:** jib bouwt standaard `linux/amd64` (de ZAD-cluster is amd64).
 > Op een ARM-host draaien die images onder emulatie — voeg
