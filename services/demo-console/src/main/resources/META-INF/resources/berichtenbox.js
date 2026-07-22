@@ -345,6 +345,16 @@ el('persona').addEventListener('change', () => {
   toonLeeg('Persona gewijzigd — klik op Ophalen.');
 });
 
+el('sorteer').addEventListener('change', (gebeurtenis) => {
+  sortering = gebeurtenis.target.value;
+  herteken();
+});
+
+el('alleen-ongelezen').addEventListener('change', (gebeurtenis) => {
+  alleenOngelezen = gebeurtenis.target.checked;
+  herteken();
+});
+
 // Download via fetch (geen <a href>: dat stuurt de X-Ontvanger-header niet mee). De
 // respons is binair; we maken er een blob-URL van en triggeren de download programmatisch.
 async function downloadBijlage(berichtId, bijlageId, naam) {
