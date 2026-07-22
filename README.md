@@ -66,7 +66,7 @@ is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
 
 ```bash
 ./mvnw clean package -DskipTests \
-  -pl services/berichtenmagazijn,services/berichtenuitvraag -am \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag,services/demo-console -am \
   -Dquarkus.container-image.build=true \
   -Dquarkus.container-image.group=fbs-demo \
   -Dquarkus.container-image.tag=demo
@@ -86,6 +86,9 @@ ClickHouse). Gebruik die modus tijdens het ontwikkelen en draai de services met
 De poorten zijn in beide modi gelijk (8090, 8091, 8086), dus de Bruno-collectie en de
 omgeving `lokaal` werken ongewijzigd. Draai niet beide modi tegelijk: dat geeft een
 poortconflict.
+
+De demo-console draait op <http://localhost:8095> — een kaal paneel om de magazijnen te
+legen, de basisdataset te laden en random berichten op te voeren.
 
 ### Tests draaien
 

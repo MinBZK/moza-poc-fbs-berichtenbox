@@ -184,6 +184,26 @@ services:
       PROFIEL_SERVICE_URL: http://profiel-service:8080
       LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
 
+  # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
+  # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
+  demo-console:
+    image: fbs-demo/fbs-demo-console:demo
+    profiles: [demo]
+    ports:
+      - "8095:8095"
+    depends_on:
+      berichtenmagazijn-a:
+        condition: service_started
+      berichtenmagazijn-b:
+        condition: service_started
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      MAGAZIJN_A_URL: http://berichtenmagazijn-a:8090
+      MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
+      MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
+      MAGAZIJN_B_DB_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
+
 volumes:
   postgres-data-a:
   postgres-data-b:

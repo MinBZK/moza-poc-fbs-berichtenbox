@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FBS Demo-console</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+    button { font-size: 1rem; padding: 0.5rem 1rem; margin: 0.25rem 0; cursor: pointer; }
+    input { font-size: 1rem; padding: 0.4rem; width: 5rem; }
+    fieldset { margin: 1rem 0; }
+    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>FBS Demo-console</h1>
+  <p>Wegwerp-bediening voor de demo-stack. Leeg vóór je opnieuw vult.</p>
+
+  <fieldset>
+    <legend>Beheer</legend>
+    <button onclick="post('/api/demo/legen', true)">Magazijnen legen</button>
+    <button onclick="get('/api/demo/status')">Status (aantal berichten)</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Vullen</legend>
+    <button onclick="post('/api/demo/basisvulling')">Basisvulling laden</button>
+    <br>
+    <label>Random berichten: <input id="aantal" type="number" value="10" min="1" max="500"></label>
+    <button onclick="post('/api/demo/random?aantal=' + document.getElementById('aantal').value)">Opvoeren</button>
+  </fieldset>
+
+  <h2>Resultaat</h2>
+  <pre id="uit">—</pre>
+
+  <script>
+    const uit = document.getElementById('uit');
+
+    async function post(pad, bevestig) {
+      if (bevestig && !confirm('Zeker weten? Dit verwijdert alle berichten uit beide magazijnen.')) return;
+
+      toon('Bezig…');
+      try {
+        const r = await fetch(pad, { method: 'POST' });
+        toon(JSON.stringify(await r.json(), null, 2));
+      } catch (e) {
+        toon('Fout: ' + e);
+      }
+    }
+
+    async function get(pad) {
+      toon('Bezig…');
+      try {
+        const r = await fetch(pad);
+        toon(JSON.stringify(await r.json(), null, 2));
+      } catch (e) {
+        toon('Fout: ' + e);
+      }
+    }
+
+    function toon(tekst) { uit.textContent = tekst; }
+  </script>
+</body>
+</html>
