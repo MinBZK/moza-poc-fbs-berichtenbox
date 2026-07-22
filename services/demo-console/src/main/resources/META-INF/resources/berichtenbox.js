@@ -13,6 +13,22 @@ function afzenderNaam(bericht) {
   return magazijnNamen.get(bericht.magazijnId) || bericht.afzender || bericht.magazijnId;
 }
 
+// Laatst geladen lijst — bron voor client-side sorteren/filteren zonder nieuwe server-call.
+let alleBerichten = [];
+// Actieve map: null = Postvak IN, 'Archief' = archief, anders een mapnaam.
+let actieveMap = null;
+let sortering = 'datum-nieuw';
+let alleenOngelezen = false;
+
+// Absente map telt als Postvak IN (null).
+function mapVan(bericht) {
+  return bericht.map || null;
+}
+
+function mapNamen() {
+  return [...new Set(alleBerichten.map(mapVan).filter((m) => m !== null))];
+}
+
 const el = (id) => document.getElementById(id);
 
 function huidigeOntvanger() {
@@ -143,6 +159,7 @@ async function laadLijst() {
   const respons = await api('/berichten');
 
   if (respons.status === 409) {
+    alleBerichten = [];
     toonLeeg('Nog niet opgehaald — klik op Ophalen.');
 
     return;
@@ -156,28 +173,120 @@ async function laadLijst() {
 
   const lijst = await respons.json();
 
-  renderLijst(lijst.berichten || []);
+  alleBerichten = lijst.berichten || [];
+  magazijnPerBericht.clear();
+  alleBerichten.forEach((bericht) => magazijnPerBericht.set(bericht.berichtId, bericht.magazijnId));
+  herteken();
 }
 
-function renderLijst(berichten) {
+// Her-rendert zijbalk + lijst uit de in-memory array (na laden, sorteren, filteren of actie).
+function herteken() {
+  if (actieveMap !== null && actieveMap !== 'Archief' && !mapNamen().includes(actieveMap)) {
+    actieveMap = null;
+  }
+
+  renderMappen();
+  tekenLijst(zichtbareBerichten());
+}
+
+function zichtbareBerichten() {
+  let lijst = alleBerichten.filter((bericht) => mapVan(bericht) === actieveMap);
+
+  if (alleenOngelezen) {
+    lijst = lijst.filter((bericht) => bericht.status !== 'gelezen');
+  }
+
+  return sorteer(lijst);
+}
+
+function sorteer(lijst) {
+  const kopie = [...lijst];
+
+  switch (sortering) {
+    case 'datum-oud':
+      return kopie.sort((a, b) => a.publicatietijdstip.localeCompare(b.publicatietijdstip));
+
+    case 'onderwerp':
+      return kopie.sort((a, b) => a.onderwerp.localeCompare(b.onderwerp, 'nl'));
+
+    case 'afzender':
+      return kopie.sort((a, b) => afzenderNaam(a).localeCompare(afzenderNaam(b), 'nl'));
+
+    default:
+      return kopie.sort((a, b) => b.publicatietijdstip.localeCompare(a.publicatietijdstip));
+  }
+}
+
+function tekenLijst(berichten) {
   const ul = el('lijst');
 
   toon(el('detail'), false);
   ul.innerHTML = '';
-  magazijnPerBericht.clear();
 
   if (berichten.length === 0) {
-    toonLeeg('Geen berichten.');
+    toonLeeg('Geen berichten in deze map.');
 
     return;
   }
 
   toon(el('lijst-leeg'), false);
+  berichten.forEach((bericht) => ul.appendChild(lijstItem(bericht)));
+}
 
-  berichten.forEach((bericht) => {
-    magazijnPerBericht.set(bericht.berichtId, bericht.magazijnId);
-    ul.appendChild(lijstItem(bericht));
+function renderMappen() {
+  const tellingen = new Map();
+  let postvakIn = 0;
+  let archief = 0;
+
+  alleBerichten.forEach((bericht) => {
+    const map = mapVan(bericht);
+
+    if (map === null) {
+      postvakIn += 1;
+    } else if (map === 'Archief') {
+      archief += 1;
+    } else {
+      tellingen.set(map, (tellingen.get(map) || 0) + 1);
+    }
   });
+
+  const nav = el('mappen');
+
+  nav.innerHTML = '';
+  nav.appendChild(mapKnop('Postvak IN', null, postvakIn));
+
+  [...tellingen.keys()].sort((a, b) => a.localeCompare(b, 'nl')).forEach((naam) => {
+    nav.appendChild(mapKnop(naam, naam, tellingen.get(naam)));
+  });
+
+  if (archief > 0) {
+    nav.appendChild(mapKnop('Archief', 'Archief', archief));
+  }
+}
+
+function mapKnop(label, mapWaarde, telling) {
+  const knop = document.createElement('button');
+
+  if (mapWaarde === actieveMap) knop.classList.add('actief');
+
+  const naam = document.createElement('span');
+
+  naam.textContent = label;
+
+  const badge = document.createElement('span');
+
+  badge.className = 'telling';
+  badge.textContent = telling > 0 ? String(telling) : '';
+
+  knop.append(naam, badge);
+  knop.addEventListener('click', () => kiesMap(mapWaarde));
+
+  return knop;
+}
+
+function kiesMap(mapWaarde) {
+  actieveMap = mapWaarde;
+  herteken();
 }
 
 function lijstItem(bericht) {

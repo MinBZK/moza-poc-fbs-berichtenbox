@@ -5,7 +5,17 @@ header h1 { margin: 0 0 0.5rem; font-size: 1.4rem; }
 .persona { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .persona a { color: #a6c8ff; margin-left: auto; }
 select, button { font-size: 1rem; padding: 0.4rem 0.6rem; }
-main { padding: 1.5rem; max-width: 50rem; }
+main { padding: 1.5rem; max-width: 60rem; }
+.werkblad { display: flex; gap: 1.5rem; align-items: flex-start; }
+.mappen { flex: 0 0 12rem; }
+.mappen button { display: flex; justify-content: space-between; width: 100%; border: none;
+  background: none; text-align: left; padding: 0.5rem; cursor: pointer; font-size: 0.95rem; border-radius: 4px; }
+.mappen button:hover { background: #f0f6ff; }
+.mappen button.actief { background: #154273; color: #fff; }
+.mappen .telling { color: inherit; opacity: 0.7; }
+.inhoud { flex: 1 1 auto; min-width: 0; }
+.werkbalk { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.demo-label { color: #777; font-size: 0.8rem; font-style: italic; margin-left: auto; }
 .voortgang { padding: 0.75rem 1.5rem; background: #f4f4f4; font-family: monospace; white-space: pre-wrap; }
 .lijst { list-style: none; padding: 0; margin: 0; }
 .lijst li { border-bottom: 1px solid #ddd; padding: 0.75rem 0.5rem; cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; }
