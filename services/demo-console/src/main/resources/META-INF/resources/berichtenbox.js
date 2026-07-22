@@ -391,7 +391,7 @@ async function toonDetail(berichtId) {
   const detail = el('detail');
 
   detail.innerHTML = '';
-  detail.append(detailKop(bericht), detailInhoud(bericht), renderBijlagen(bericht));
+  detail.append(detailKop(bericht), detailInhoud(bericht), renderBijlagen(bericht), detailActies(bericht));
   toon(detail, true);
 }
 
@@ -445,6 +445,62 @@ async function markeer(berichtId, status) {
   await laadLijst();
 }
 
+// PATCH {map}. Merge-patch kan `map` niet wissen (null = niet wijzigen), dus verplaatsen
+// gaat alleen náár een map/Archief, niet terug naar Postvak IN.
+async function schrijfMap(berichtId, map) {
+  const magazijnId = magazijnVan(berichtId);
+
+  const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/merge-patch+json' },
+    body: JSON.stringify({ map }),
+  });
+
+  if (!respons.ok) {
+    alert(`Verplaatsen mislukt (HTTP ${respons.status}).`);
+
+    return;
+  }
+
+  await laadLijst();
+}
+
+function verplaats(berichtId, huidigeMap) {
+  const bestaande = mapNamen().filter((m) => m !== 'Archief');
+  const suggestie = huidigeMap && huidigeMap !== 'Archief' ? huidigeMap : '';
+
+  const naam = prompt(
+    'Naar welke map verplaatsen?' + (bestaande.length ? '\nBestaand: ' + bestaande.join(', ') : ''),
+    suggestie,
+  );
+
+  if (naam && naam.trim()) {
+    schrijfMap(berichtId, naam.trim());
+  }
+}
+
+function archiveer(berichtId) {
+  schrijfMap(berichtId, 'Archief');
+}
+
+async function verwijder(berichtId) {
+  if (!confirm('Dit bericht definitief verwijderen?')) return;
+
+  const magazijnId = magazijnVan(berichtId);
+
+  const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
+    method: 'DELETE',
+  });
+
+  if (!respons.ok) {
+    alert(`Verwijderen mislukt (HTTP ${respons.status}).`);
+
+    return;
+  }
+
+  await laadLijst();
+}
+
 function detailInhoud(bericht) {
   const p = document.createElement('p');
 
@@ -480,6 +536,31 @@ function renderBijlagen(bericht) {
     });
     div.appendChild(knop);
   });
+
+  return div;
+}
+
+function detailActies(bericht) {
+  const div = document.createElement('div');
+
+  div.className = 'acties';
+
+  const verplaatsKnop = document.createElement('button');
+
+  verplaatsKnop.textContent = 'Verplaats naar map…';
+  verplaatsKnop.addEventListener('click', () => verplaats(bericht.berichtId, mapVan(bericht)));
+
+  const archiefKnop = document.createElement('button');
+
+  archiefKnop.textContent = 'Archiveer';
+  archiefKnop.addEventListener('click', () => archiveer(bericht.berichtId));
+
+  const verwijderKnop = document.createElement('button');
+
+  verwijderKnop.textContent = 'Verwijder';
+  verwijderKnop.addEventListener('click', () => verwijder(bericht.berichtId));
+
+  div.append(verplaatsKnop, archiefKnop, verwijderKnop);
 
   return div;
 }
