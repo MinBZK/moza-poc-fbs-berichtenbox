@@ -1,4 +1,4 @@
-**Status:** Alle taken uitgevoerd — runtime-verificatie (Docker) openstaand
+**Status:** Uitgevoerd — volledig geverifieerd (incl. Docker-runtime, door de gebruiker)
 
 > **Correcties tijdens uitvoering.**
 > - **Geen `fbs-common` (taak 1).** Die library bevat JAX-RS-filters
