@@ -1,4 +1,11 @@
-**Status:** Concept
+**Status:** Uitgevoerd — runtime-verificatie (Docker) openstaand
+
+> **Lokaal geverifieerd:** 11 generator-unittests groen (afzender==magazijn-OIN, opt-in
+> klopt, fail-fast op onbekende OIN/lege lijst), detekt schoon, `node --check` op de JS,
+> demo-stubs + dataset valide JSON, uitvraag-augmentatie groen, compose parst met de extra
+> profiel-mount. **Nog te doen (Docker):** rebuild + `docker compose --profile demo up -d
+> --force-recreate`, dan per persona ophalen — Pietersen 2 magazijnen (RVO+Belastingdienst),
+> Bakkerij alleen RVO, Garage alleen Belastingdienst; basisvulling `geslaagd == aangeboden`.
 
 # Demo-platform — realistisch afzender-/magazijnmodel — ontwerp
 
