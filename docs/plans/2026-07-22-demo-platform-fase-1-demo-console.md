@@ -1,18 +1,26 @@
-**Status:** In uitvoering — taak 1 en 2 uitgevoerd en lokaal geverifieerd
+**Status:** Alle taken uitgevoerd — runtime-verificatie (Docker) openstaand
 
-> **Correctie tijdens uitvoering (taak 1).** Het plan liet demo-console van `fbs-common`
-> afhangen voor `Bsn`/`Rsin`. Dat brak de Quarkus-boot: `fbs-common` bevat JAX-RS-filters
-> (`LogboekContextDefaultFilter`) die de LDV-wrapper vereisen, en Arc probeert die te
-> bedraden. Opgelost door de `fbs-common`-dependency weg te laten en de elfproef-validatie
-> te inlinen in `generator/Identificatiecheck.kt` — een wegwerp-console hoort de
-> productie-JAX-RS-stack niet te erven. De generator-taak (2) gebruikt die lokale check
-> i.p.v. `Bsn`/`Kvk`/`Rsin`.
+> **Correcties tijdens uitvoering.**
+> - **Geen `fbs-common` (taak 1).** Die library bevat JAX-RS-filters
+>   (`LogboekContextDefaultFilter`) die de LDV-wrapper vereisen; Arc brak daarop bij boot.
+>   Opgelost door `fbs-common` weg te laten en de elfproef-validatie te inlinen in
+>   `generator/Identificatiecheck.kt`. Een wegwerp-console erft de productie-JAX-RS-stack niet.
+> - **`@ConfigMapping` i.p.v. `@ConfigProperty Map` (taak 3).** Het plan-risico bleek reëel;
+>   ik nam meteen de robuuste route (`aanlever/MagazijnenConfig.kt`), zoals fbs-magazijnregister.
+> - **`quarkus-junit5` → `quarkus-junit`** (relocation-warning weggewerkt).
+> - **Taak 3 en 4 in één commit** — ze delen `DemoResource`, splitsen zou een niet-bouwbare
+>   commit geven.
 >
-> Ook: `quarkus-junit5` is verplaatst naar `quarkus-junit` (relocation-warning) — de
-> module gebruikt `quarkus-junit`.
+> **Lokaal geverifieerd (zonder Docker):** de module bouwt, Quarkus-augmentatie wiret alle
+> CDI-beans, `@ConfigMapping` en beide `@DataSource`-injecties correct, 11 generator-unittests
+> groen, compose-YAML gevalideerd, geen nieuwe waarschuwingen.
 >
-> **Lokaal geverifieerd:** module bouwt, augmentatie slaagt, 11 generator-unittests groen,
-> geen nieuwe waarschuwingen. Taak 3–5 vragen Docker.
+> **Nog te doen op een machine mét Docker** (runtime-gedrag): jib-images bouwen incl.
+> demo-console, `docker compose --profile demo up -d`, dan via het paneel op :8095
+> legen → basisvulling → status → random. Verwacht `geslaagd == aangeboden`. Controleer
+> specifiek dat de **KVK-persona** (`X-Ontvanger: KVK:12345678`) door de uitvraag-keten komt;
+> zo niet, vervang die persona door een geldige BSN in `GeneratorProducer` én `basis.json`.
+> Sluit af met `./mvnw clean verify -pl services/demo-console -am` (detekt-schoon).
 
 # Demo-platform fase 1 — demo-console — implementatieplan
 
