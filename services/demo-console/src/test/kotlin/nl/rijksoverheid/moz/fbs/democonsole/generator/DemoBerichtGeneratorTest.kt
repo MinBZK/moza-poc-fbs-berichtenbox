@@ -15,8 +15,16 @@ class DemoBerichtGeneratorTest {
     private val belastingdienst = "00000001823288444000"
 
     private val organisaties = mapOf(
-        rvo to Organisatie(rvo, "RVO", listOf("Subsidie", "Beschikking")),
-        belastingdienst to Organisatie(belastingdienst, "Belastingdienst", listOf("Aanslag", "Teruggaaf")),
+        rvo to Organisatie(
+            rvo,
+            "RVO",
+            listOf(Sjabloon("Subsidie", "Uw subsidie is toegekend."), Sjabloon("Beschikking", "De beschikking is klaar.")),
+        ),
+        belastingdienst to Organisatie(
+            belastingdienst,
+            "Belastingdienst",
+            listOf(Sjabloon("Aanslag", "Uw aanslag staat klaar."), Sjabloon("Teruggaaf", "U ontvangt een teruggaaf.")),
+        ),
     )
 
     private val personas = listOf(
@@ -69,8 +77,10 @@ class DemoBerichtGeneratorTest {
 
         assertTrue(opdrachten.all { it.verzoek.onderwerp.length in 1..255 })
         assertTrue(
-            opdrachten.all { it.verzoek.onderwerp in organisaties.getValue(it.magazijnOin).onderwerpen },
-            "onderwerp moet uit de onderwerpenlijst van de afzendende organisatie komen",
+            opdrachten.all { opdracht ->
+                organisaties.getValue(opdracht.magazijnOin).sjablonen.any { it.onderwerp == opdracht.verzoek.onderwerp }
+            },
+            "onderwerp moet uit een sjabloon van de afzendende organisatie komen",
         )
     }
 

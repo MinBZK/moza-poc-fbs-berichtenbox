@@ -8,8 +8,8 @@
         "waarde": "999993653"
       },
       "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-01-05T08:00:00Z"
+      "inhoud": "Beste J. Pietersen,\n\nWe hebben uw aanvraag voor de SDE++-subsidie ontvangen. U hoort binnen acht weken of de subsidie wordt toegekend. U hoeft nu niets te doen.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-03T07:45:00Z"
     }
   },
   {
@@ -20,9 +20,9 @@
         "type": "BSN",
         "waarde": "999993653"
       },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-01-05T08:00:00Z"
+      "onderwerp": "Voorlopige aanslag 2026",
+      "inhoud": "Beste J. Pietersen,\n\nUw voorlopige aanslag inkomstenbelasting 2026 staat klaar. Het te betalen bedrag en de termijnen vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-03T09:12:00Z"
     }
   },
   {
@@ -33,9 +33,61 @@
         "type": "BSN",
         "waarde": "123456782"
       },
+      "onderwerp": "Beschikking SDE++",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nUw aanvraag voor de SDE++-subsidie is toegekend. De beschikking met de uitbetalingsvoorwaarden vindt u in de bijlage.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-03T11:30:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "12345678"
+      },
+      "onderwerp": "Definitieve aanslag 2025",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDe definitieve aanslag over 2025 is vastgesteld. Er is een verschil met uw voorlopige aanslag; de toelichting vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-03T13:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
       "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-01-05T08:00:00Z"
+      "inhoud": "Beste J. Pietersen,\n\nIn het kader van de gecombineerde opgave voeren wij een controle uit op uw mestboekhouding. Houd uw administratie van de afgelopen twee jaar beschikbaar.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-09T15:48:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Herinnering aangifte omzetbelasting",
+      "inhoud": "Beste J. Pietersen,\n\nU heeft de aangifte omzetbelasting over het tweede kwartaal nog niet ingediend. Dien deze uiterlijk 31 juli in om een boete te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-09T18:20:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "123456782"
+      },
+      "onderwerp": "Eenmalige verlenging eHerkenning",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nUw eHerkenningsmiddel verloopt over vier weken. Verleng het tijdig om toegang tot Mijn RVO te behouden.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-09T08:30:00Z"
     }
   },
   {
@@ -47,8 +99,60 @@
         "waarde": "12345678"
       },
       "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-01-05T08:00:00Z"
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nU ontvangt een teruggaaf inkomstenbelasting. Het bedrag wordt binnen zes weken op uw bekende rekeningnummer bijgeschreven.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-09T10:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Gecombineerde opgave verwerkt",
+      "inhoud": "Beste J. Pietersen,\n\nUw gecombineerde opgave is verwerkt. Controleer in Mijn RVO of alle percelen correct zijn geregistreerd.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-16T14:22:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Betalingsherinnering",
+      "inhoud": "Beste J. Pietersen,\n\nWij hebben uw betaling voor de openstaande aanslag nog niet ontvangen. Betaal het bedrag vóór de vervaldatum om invorderingskosten te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-16T16:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "123456782"
+      },
+      "onderwerp": "Uitnodiging webinar verduurzaming",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nOp 12 september organiseren wij een webinar over het verduurzamen van uw bedrijf. Aanmelden kan kosteloos via Mijn RVO.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-16T07:45:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "12345678"
+      },
+      "onderwerp": "Wijziging rekeningnummer bevestigd",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nHet rekeningnummer waarop u teruggaven ontvangt is gewijzigd. Heeft u dit niet zelf gedaan? Neem dan direct contact met ons op.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-16T09:12:00Z"
     }
   },
   {
@@ -60,8 +164,8 @@
         "waarde": "999993653"
       },
       "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-01-15T08:00:00Z"
+      "inhoud": "Beste J. Pietersen,\n\nWe hebben uw aanvraag voor de SDE++-subsidie ontvangen. U hoort binnen acht weken of de subsidie wordt toegekend. U hoeft nu niets te doen.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-23T11:30:00Z"
     }
   },
   {
@@ -72,9 +176,9 @@
         "type": "BSN",
         "waarde": "999993653"
       },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-01-15T08:00:00Z"
+      "onderwerp": "Voorlopige aanslag 2026",
+      "inhoud": "Beste J. Pietersen,\n\nUw voorlopige aanslag inkomstenbelasting 2026 staat klaar. Het te betalen bedrag en de termijnen vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-23T13:05:00Z"
     }
   },
   {
@@ -85,9 +189,61 @@
         "type": "BSN",
         "waarde": "123456782"
       },
+      "onderwerp": "Beschikking SDE++",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nUw aanvraag voor de SDE++-subsidie is toegekend. De beschikking met de uitbetalingsvoorwaarden vindt u in de bijlage.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-23T15:48:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "12345678"
+      },
+      "onderwerp": "Definitieve aanslag 2025",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDe definitieve aanslag over 2025 is vastgesteld. Er is een verschil met uw voorlopige aanslag; de toelichting vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-23T18:20:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
       "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-01-15T08:00:00Z"
+      "inhoud": "Beste J. Pietersen,\n\nIn het kader van de gecombineerde opgave voeren wij een controle uit op uw mestboekhouding. Houd uw administratie van de afgelopen twee jaar beschikbaar.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-28T08:30:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Herinnering aangifte omzetbelasting",
+      "inhoud": "Beste J. Pietersen,\n\nU heeft de aangifte omzetbelasting over het tweede kwartaal nog niet ingediend. Dien deze uiterlijk 31 juli in om een boete te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-28T10:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "123456782"
+      },
+      "onderwerp": "Eenmalige verlenging eHerkenning",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nUw eHerkenningsmiddel verloopt over vier weken. Verleng het tijdig om toegang tot Mijn RVO te behouden.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-28T14:22:00Z"
     }
   },
   {
@@ -99,8 +255,60 @@
         "waarde": "12345678"
       },
       "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-01-15T08:00:00Z"
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nU ontvangt een teruggaaf inkomstenbelasting. Het bedrag wordt binnen zes weken op uw bekende rekeningnummer bijgeschreven.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-28T16:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Gecombineerde opgave verwerkt",
+      "inhoud": "Beste J. Pietersen,\n\nUw gecombineerde opgave is verwerkt. Controleer in Mijn RVO of alle percelen correct zijn geregistreerd.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-03T07:45:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Betalingsherinnering",
+      "inhoud": "Beste J. Pietersen,\n\nWij hebben uw betaling voor de openstaande aanslag nog niet ontvangen. Betaal het bedrag vóór de vervaldatum om invorderingskosten te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-03T09:12:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "123456782"
+      },
+      "onderwerp": "Uitnodiging webinar verduurzaming",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nOp 12 september organiseren wij een webinar over het verduurzamen van uw bedrijf. Aanmelden kan kosteloos via Mijn RVO.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-03T11:30:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "12345678"
+      },
+      "onderwerp": "Wijziging rekeningnummer bevestigd",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nHet rekeningnummer waarop u teruggaven ontvangt is gewijzigd. Heeft u dit niet zelf gedaan? Neem dan direct contact met ons op.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-03T13:05:00Z"
     }
   },
   {
@@ -112,8 +320,8 @@
         "waarde": "999993653"
       },
       "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-01-25T08:00:00Z"
+      "inhoud": "Beste J. Pietersen,\n\nWe hebben uw aanvraag voor de SDE++-subsidie ontvangen. U hoort binnen acht weken of de subsidie wordt toegekend. U hoeft nu niets te doen.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-09T15:48:00Z"
     }
   },
   {
@@ -124,9 +332,9 @@
         "type": "BSN",
         "waarde": "999993653"
       },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-01-25T08:00:00Z"
+      "onderwerp": "Voorlopige aanslag 2026",
+      "inhoud": "Beste J. Pietersen,\n\nUw voorlopige aanslag inkomstenbelasting 2026 staat klaar. Het te betalen bedrag en de termijnen vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-09T18:20:00Z"
     }
   },
   {
@@ -137,9 +345,61 @@
         "type": "BSN",
         "waarde": "123456782"
       },
+      "onderwerp": "Beschikking SDE++",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nUw aanvraag voor de SDE++-subsidie is toegekend. De beschikking met de uitbetalingsvoorwaarden vindt u in de bijlage.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-09T08:30:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "12345678"
+      },
+      "onderwerp": "Definitieve aanslag 2025",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDe definitieve aanslag over 2025 is vastgesteld. Er is een verschil met uw voorlopige aanslag; de toelichting vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-09T10:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
       "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-01-25T08:00:00Z"
+      "inhoud": "Beste J. Pietersen,\n\nIn het kader van de gecombineerde opgave voeren wij een controle uit op uw mestboekhouding. Houd uw administratie van de afgelopen twee jaar beschikbaar.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-16T14:22:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Herinnering aangifte omzetbelasting",
+      "inhoud": "Beste J. Pietersen,\n\nU heeft de aangifte omzetbelasting over het tweede kwartaal nog niet ingediend. Dien deze uiterlijk 31 juli in om een boete te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-16T16:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "123456782"
+      },
+      "onderwerp": "Eenmalige verlenging eHerkenning",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nUw eHerkenningsmiddel verloopt over vier weken. Verleng het tijdig om toegang tot Mijn RVO te behouden.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-16T07:45:00Z"
     }
   },
   {
@@ -151,8 +411,60 @@
         "waarde": "12345678"
       },
       "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-01-25T08:00:00Z"
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nU ontvangt een teruggaaf inkomstenbelasting. Het bedrag wordt binnen zes weken op uw bekende rekeningnummer bijgeschreven.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-16T09:12:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Gecombineerde opgave verwerkt",
+      "inhoud": "Beste J. Pietersen,\n\nUw gecombineerde opgave is verwerkt. Controleer in Mijn RVO of alle percelen correct zijn geregistreerd.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-23T11:30:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "999993653"
+      },
+      "onderwerp": "Betalingsherinnering",
+      "inhoud": "Beste J. Pietersen,\n\nWij hebben uw betaling voor de openstaande aanslag nog niet ontvangen. Betaal het bedrag vóór de vervaldatum om invorderingskosten te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-23T13:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001003214345000",
+    "verzoek": {
+      "afzender": "00000001003214345000",
+      "ontvanger": {
+        "type": "BSN",
+        "waarde": "123456782"
+      },
+      "onderwerp": "Uitnodiging webinar verduurzaming",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nOp 12 september organiseren wij een webinar over het verduurzamen van uw bedrijf. Aanmelden kan kosteloos via Mijn RVO.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-23T15:48:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "12345678"
+      },
+      "onderwerp": "Wijziging rekeningnummer bevestigd",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nHet rekeningnummer waarop u teruggaven ontvangt is gewijzigd. Heeft u dit niet zelf gedaan? Neem dan direct contact met ons op.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-23T18:20:00Z"
     }
   },
   {
@@ -164,8 +476,8 @@
         "waarde": "999993653"
       },
       "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-02-05T08:00:00Z"
+      "inhoud": "Beste J. Pietersen,\n\nWe hebben uw aanvraag voor de SDE++-subsidie ontvangen. U hoort binnen acht weken of de subsidie wordt toegekend. U hoeft nu niets te doen.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-28T08:30:00Z"
     }
   },
   {
@@ -176,9 +488,9 @@
         "type": "BSN",
         "waarde": "999993653"
       },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-02-05T08:00:00Z"
+      "onderwerp": "Voorlopige aanslag 2026",
+      "inhoud": "Beste J. Pietersen,\n\nUw voorlopige aanslag inkomstenbelasting 2026 staat klaar. Het te betalen bedrag en de termijnen vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-28T10:05:00Z"
     }
   },
   {
@@ -189,9 +501,9 @@
         "type": "BSN",
         "waarde": "123456782"
       },
-      "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-02-05T08:00:00Z"
+      "onderwerp": "Beschikking SDE++",
+      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nUw aanvraag voor de SDE++-subsidie is toegekend. De beschikking met de uitbetalingsvoorwaarden vindt u in de bijlage.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-28T14:22:00Z"
     }
   },
   {
@@ -201,322 +513,10 @@
       "ontvanger": {
         "type": "KVK",
         "waarde": "12345678"
-      },
-      "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-02-05T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-02-15T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
       },
       "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-02-15T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "123456782"
-      },
-      "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-02-15T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "KVK",
-        "waarde": "12345678"
-      },
-      "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-02-15T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-02-25T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-02-25T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "123456782"
-      },
-      "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-02-25T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "KVK",
-        "waarde": "12345678"
-      },
-      "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-02-25T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-03-05T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-03-05T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "123456782"
-      },
-      "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-03-05T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "KVK",
-        "waarde": "12345678"
-      },
-      "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-03-05T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-03-15T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-03-15T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "123456782"
-      },
-      "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-03-15T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "KVK",
-        "waarde": "12345678"
-      },
-      "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-03-15T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-03-25T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-03-25T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "123456782"
-      },
-      "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-03-25T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "KVK",
-        "waarde": "12345678"
-      },
-      "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-03-25T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Subsidieaanvraag ontvangen",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-04-05T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "999993653"
-      },
-      "onderwerp": "Definitieve aanslag 2025",
-      "inhoud": "Beste J. Pietersen,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-04-05T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001003214345000",
-    "verzoek": {
-      "afzender": "00000001003214345000",
-      "ontvanger": {
-        "type": "BSN",
-        "waarde": "123456782"
-      },
-      "onderwerp": "Controle mestboekhouding",
-      "inhoud": "Beste Bakkerij De Vroege Vogel,\n\nDit is een demo-bericht van RVO. Er is geen actie vereist.\n\nMet vriendelijke groet,\nRVO",
-      "publicatietijdstip": "2026-04-05T08:00:00Z"
-    }
-  },
-  {
-    "magazijnOin": "00000001823288444000",
-    "verzoek": {
-      "afzender": "00000001823288444000",
-      "ontvanger": {
-        "type": "KVK",
-        "waarde": "12345678"
-      },
-      "onderwerp": "Teruggaaf inkomstenbelasting",
-      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDit is een demo-bericht van Belastingdienst. Er is geen actie vereist.\n\nMet vriendelijke groet,\nBelastingdienst",
-      "publicatietijdstip": "2026-04-05T08:00:00Z"
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nDe definitieve aanslag over 2025 is vastgesteld. Er is een verschil met uw voorlopige aanslag; de toelichting vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-28T16:40:00Z"
     }
   }
 ]

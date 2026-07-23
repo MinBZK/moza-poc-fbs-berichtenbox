@@ -36,17 +36,18 @@ class DemoBerichtGenerator(
         (0 until aantal).map {
             val persona = personas[random.nextInt(personas.size)]
             val organisatie = organisaties.getValue(persona.magazijnen[random.nextInt(persona.magazijnen.size)])
-            val onderwerp = organisatie.onderwerpen[random.nextInt(organisatie.onderwerpen.size)]
-            val dagenTerug = random.nextInt(1, 90).toLong()
+            val sjabloon = organisatie.sjablonen[random.nextInt(organisatie.sjablonen.size)]
+
+            // Gespreid tijdstip: willekeurige dag én tijd binnen kantooruren, zodat sorteren op
+            // datum betekenis heeft en berichten niet allemaal op hetzelfde moment lijken binnen te komen.
+            val minutenTerug = random.nextInt(1, 90 * 24 * 60).toLong()
 
             val verzoek = AanleverVerzoek(
                 afzender = organisatie.oin,
                 ontvanger = OntvangerDto(persona.type, persona.waarde),
-                onderwerp = onderwerp,
-                inhoud = "Beste ${persona.naam},\n\nDit is een demo-bericht van ${organisatie.naam}. " +
-                    "Er is geen actie vereist; dit dient uitsluitend ter demonstratie.\n\n" +
-                    "Met vriendelijke groet,\n${organisatie.naam}",
-                publicatietijdstip = klok.instant().minus(dagenTerug, ChronoUnit.DAYS).toString(),
+                onderwerp = sjabloon.onderwerp,
+                inhoud = "Beste ${persona.naam},\n\n${sjabloon.inhoud}\n\nMet vriendelijke groet,\n${organisatie.naam}",
+                publicatietijdstip = klok.instant().minus(minutenTerug, ChronoUnit.MINUTES).toString(),
             )
 
             AanleverOpdracht(organisatie.oin, verzoek)

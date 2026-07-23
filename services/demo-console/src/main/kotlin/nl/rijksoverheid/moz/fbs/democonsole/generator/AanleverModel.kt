@@ -22,11 +22,14 @@ data class AanleverVerzoek(
 /** Eén aanlever-opdracht: het verzoek plus het magazijn (OIN) waar het naartoe moet. */
 data class AanleverOpdracht(val magazijnOin: String, val verzoek: AanleverVerzoek)
 
+/** Realistisch bericht-sjabloon: een onderwerp met bijpassende inhoud. */
+data class Sjabloon(val onderwerp: String, val inhoud: String)
+
 /**
  * Verzendende organisatie: één per magazijn (1:1 OIN↔magazijn). `oin` is tegelijk de
- * afzender-OIN én het magazijnId; `onderwerpen` levert realistische onderwerpregels.
+ * afzender-OIN én het magazijnId; `sjablonen` levert realistische onderwerp+inhoud-paren.
  */
-data class Organisatie(val oin: String, val naam: String, val onderwerpen: List<String>)
+data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sjabloon>)
 
 /**
  * Vaste demo-ontvanger. `type` is BSN/KVK/RSIN; `waarde` het (geldige) nummer. `magazijnen`
