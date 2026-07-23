@@ -1,4 +1,14 @@
-**Status:** Concept
+**Status:** Alle taken uitgevoerd — Docker-runtime-verificatie openstaand
+
+> **Lokaal geverifieerd:** compose valide (demo-console → redis, uitvraag `BERICHTENSESSIECACHE_TTL=PT2M`);
+> `SessieServiceTest` 2/2 groen (KEYS-patroon + DEL van treffers, en 0 bij lege keyspace — de
+> MockK-vararg-matcher werkte); augmentatie wiret de Redis-client; detekt schoon; het paneel
+> zit in de jar.
+>
+> **Nog te doen (Docker):** images rebuilden (incl. demo-console), `docker compose --profile demo up -d`,
+> dan: persona Ophalen → **Cache verlopen** → `GET /berichten` 409 → Ophalen herstelt; zoeken/
+> filteren werkt nog (index intact); en na ~2 min inactiviteit verloopt de sessie vanzelf. Plus
+> `./mvnw clean verify -pl services/demo-console -am`.
 
 # Demo-platform fase 4 — sessie & cache — implementatieplan
 
