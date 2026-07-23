@@ -19,8 +19,12 @@ data class AanleverVerzoek(
     val bijlagen: List<BijlageDto>? = null,
 )
 
-/** Eén aanlever-opdracht: het verzoek plus het magazijn (OIN) waar het naartoe moet. */
-data class AanleverOpdracht(val magazijnOin: String, val verzoek: AanleverVerzoek)
+/**
+ * Eén aanlever-opdracht: het verzoek plus het magazijn (OIN) waar het naartoe moet. `gelezen`
+ * is een demo-vlag (niet onderdeel van de aanlever-body): is die true, dan zet de console het
+ * bericht ná aanlevering op gelezen, zodat de basisvulling een realistische lees-mix toont.
+ */
+data class AanleverOpdracht(val magazijnOin: String, val verzoek: AanleverVerzoek, val gelezen: Boolean = false)
 
 /** Realistisch bericht-sjabloon: een onderwerp met bijpassende inhoud. */
 data class Sjabloon(val onderwerp: String, val inhoud: String)

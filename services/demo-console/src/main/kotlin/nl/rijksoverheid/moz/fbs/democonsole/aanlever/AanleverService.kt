@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
+import nl.rijksoverheid.moz.fbs.democonsole.generator.OntvangerDto
 import java.net.URI
 import java.util.logging.Logger
 
@@ -33,17 +34,34 @@ class AanleverService(config: MagazijnenConfig) {
                 return@forEach
             }
 
-            client.leverAan(opdracht.verzoek).use { response ->
-                if (response.status == 201) {
-                    geslaagd++
-                } else {
-                    log.warning(
-                        "aanleveren gaf HTTP ${response.status} voor ontvanger ${opdracht.verzoek.ontvanger.waarde}",
-                    )
-                }
-            }
+            if (leverEnMarkeer(opdracht, client)) geslaagd++
         }
 
         return geslaagd
+    }
+
+    private fun leverEnMarkeer(opdracht: AanleverOpdracht, client: MagazijnAanleverClient): Boolean =
+        client.leverAan(opdracht.verzoek).use { response ->
+            if (response.status != 201) {
+                log.warning("aanleveren gaf HTTP ${response.status} voor ontvanger ${opdracht.verzoek.ontvanger.waarde}")
+
+                return@use false
+            }
+
+            if (opdracht.gelezen) {
+                markeerGelezen(client, response.readEntity(AanleverRespons::class.java).berichtId, opdracht.verzoek.ontvanger)
+            }
+
+            true
+        }
+
+    private fun markeerGelezen(client: MagazijnAanleverClient, berichtId: String, ontvanger: OntvangerDto) {
+        val header = "${ontvanger.type}:${ontvanger.waarde}"
+
+        client.markeer(berichtId, header, StatusPatch(gelezen = true)).use { response ->
+            if (response.status != 200) {
+                log.warning("markeren-gelezen gaf HTTP ${response.status} voor bericht $berichtId")
+            }
+        }
     }
 }

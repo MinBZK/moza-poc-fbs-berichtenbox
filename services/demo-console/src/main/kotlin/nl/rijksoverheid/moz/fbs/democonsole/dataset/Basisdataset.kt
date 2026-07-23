@@ -19,9 +19,12 @@ class Basisdataset(private val mapper: ObjectMapper) {
 
         val opdrachten: List<AanleverOpdracht> = stroom.use { mapper.readValue(it) }
 
-        // Elk derde bericht een PDF-bijlage geven, zodat de download in de UI te tonen is.
+        // Wat variatie in de beginsituatie: elk derde bericht een PDF-bijlage (voor de
+        // download-demo), en elk vierde alvast op gelezen (voor een realistische lees-mix).
         return opdrachten.mapIndexed { index, opdracht ->
-            if (index % 3 == 0) opdracht.metBijlage(DemoBijlage.bij(bestandsnaam(opdracht.verzoek.onderwerp))) else opdracht
+            val metBijlage = if (index % 3 == 0) opdracht.metBijlage(DemoBijlage.bij(bestandsnaam(opdracht.verzoek.onderwerp))) else opdracht
+
+            if (index % 4 == 1) metBijlage.copy(gelezen = true) else metBijlage
         }
     }
 
