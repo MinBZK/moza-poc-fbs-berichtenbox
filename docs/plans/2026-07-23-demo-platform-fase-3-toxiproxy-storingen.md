@@ -1,4 +1,14 @@
-**Status:** Concept
+**Status:** Alle taken uitgevoerd — Docker-runtime-verificatie openstaand
+
+> **Lokaal geverifieerd:** `proxies.json` en compose valide (toxiproxy-service, uitvraag door
+> Toxiproxy, demo-console admin-URL); `StoringServiceTest` 4/4 groen (traag/uit/reset/fout via
+> MockK); augmentatie wiret de Toxiproxy-rest-client; detekt schoon; het paneel zit in de jar.
+>
+> **Nog te doen (Docker):** images rebuilden (incl. demo-console, `-Dquarkus.jib.platforms=linux/arm64`
+> op Apple Silicon), `docker compose --profile demo up -d`, dan per knop de degradatie:
+> `curl :8474/proxies` toont de 4 proxies; magazijn traag → ophaal ~6 s later; magazijn uit →
+> FOUT-magazijn + partial list + gefaalde bijlage-download; reset herstelt. Plus
+> `./mvnw clean verify -pl services/demo-console -am`.
 
 # Demo-platform fase 3 — Toxiproxy + storingsscenario's — implementatieplan
 
