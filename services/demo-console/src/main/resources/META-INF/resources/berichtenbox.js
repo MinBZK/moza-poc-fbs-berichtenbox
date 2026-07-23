@@ -225,16 +225,18 @@ function herteken() {
 }
 
 function renderPaginering(totaal, maxPagina) {
-  const balk = el('paginering');
+  // Balk altijd tonen bij een niet-lege map, zodat de telling van de huidige map meebeweegt
+  // bij wisselen/filteren. Vorige/volgende alleen bij meerdere pagina's.
+  toon(el('paginering'), totaal > 0);
 
-  if (totaal <= PAGINA_GROOTTE) {
-    toon(balk, false);
+  const meerdere = totaal > PAGINA_GROOTTE;
 
-    return;
-  }
+  el('pagina-info').textContent = meerdere
+    ? `Pagina ${huidigePagina + 1} van ${maxPagina + 1} · ${totaal} berichten`
+    : `${totaal} bericht${totaal === 1 ? '' : 'en'}`;
 
-  toon(balk, true);
-  el('pagina-info').textContent = `Pagina ${huidigePagina + 1} van ${maxPagina + 1} · ${totaal} berichten`;
+  el('vorige-pagina').hidden = !meerdere;
+  el('volgende-pagina').hidden = !meerdere;
   el('vorige-pagina').disabled = huidigePagina === 0;
   el('volgende-pagina').disabled = huidigePagina >= maxPagina;
 }
