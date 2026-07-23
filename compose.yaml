@@ -170,6 +170,17 @@ services:
       PROFIEL_SERVICE_URL: http://profiel-service:8080
       LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
 
+  # Netwerk-storingssimulator tussen de uitvraag en zijn afhankelijkheden. Proxies vast uit
+  # /proxies.json; de demo-console voegt runtime toxics toe via de admin-API (:8474).
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    profiles: [demo]
+    ports:
+      - "8474:8474"
+    volumes:
+      - ./toxiproxy/proxies.json:/proxies.json:ro
+    command: ["-host=0.0.0.0", "-config=/proxies.json"]
+
   berichtenuitvraag:
     image: fbs-demo/fbs-berichtenuitvraag:demo
     profiles: [demo]
@@ -182,13 +193,16 @@ services:
         condition: service_started
       berichtenmagazijn-b:
         condition: service_started
+      toxiproxy:
+        condition: service_started
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
-      REDIS_HOSTS: redis://redis:6379
-      MAGAZIJN_A_URL: http://berichtenmagazijn-a:8090
-      MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
-      PROFIEL_SERVICE_URL: http://profiel-service:8080
+      # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf).
+      REDIS_HOSTS: redis://toxiproxy:16379
+      MAGAZIJN_A_URL: http://toxiproxy:18090
+      MAGAZIJN_B_URL: http://toxiproxy:18091
+      PROFIEL_SERVICE_URL: http://toxiproxy:18089
       LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
       # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig;
       # origins staan onder %dev in application.properties. Alleen in het demo-profiel.
@@ -206,9 +220,12 @@ services:
         condition: service_started
       berichtenmagazijn-b:
         condition: service_started
+      toxiproxy:
+        condition: service_started
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
+      TOXIPROXY_ADMIN_URL: http://toxiproxy:8474
       MAGAZIJN_A_URL: http://berichtenmagazijn-a:8090
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn

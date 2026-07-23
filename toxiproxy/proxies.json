@@ -1,0 +1,6 @@
+[
+  { "name": "magazijn-a", "listen": "0.0.0.0:18090", "upstream": "berichtenmagazijn-a:8090", "enabled": true },
+  { "name": "magazijn-b", "listen": "0.0.0.0:18091", "upstream": "berichtenmagazijn-b:8090", "enabled": true },
+  { "name": "redis",      "listen": "0.0.0.0:16379", "upstream": "redis:6379",              "enabled": true },
+  { "name": "profiel",    "listen": "0.0.0.0:18089", "upstream": "profiel-service:8080",     "enabled": true }
+]
