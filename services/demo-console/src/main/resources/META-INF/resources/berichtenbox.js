@@ -155,25 +155,48 @@ function verwerkOphaalEvent(gebeurtenis, regels) {
   return false;
 }
 
+// Volgende-pagina-pad uit de HAL-links (_links.next); null als dit de laatste pagina is.
+// De href is server-absoluut (/api/v1/berichten?pagina=…); api() zet BASIS (…/api/v1) er weer
+// vóór, dus we strippen die prefix.
+function volgendePad(lijst) {
+  const href = lijst._links && lijst._links.next && lijst._links.next.href;
+
+  return href ? href.replace(/^.*\/api\/v1/, '') : null;
+}
+
 async function laadLijst() {
-  const respons = await api('/berichten');
+  const verzameld = [];
+  let pad = '/berichten';
+  let paginas = 0;
 
-  if (respons.status === 409) {
-    alleBerichten = [];
-    toonLeeg('Nog niet opgehaald — klik op Ophalen.');
+  while (pad && paginas < 100) {
+    const respons = await api(pad);
 
-    return;
+    if (respons.status === 409) {
+      alleBerichten = [];
+      toonLeeg('Nog niet opgehaald — klik op Ophalen.');
+
+      return;
+    }
+
+    if (!respons.ok) {
+      if (verzameld.length === 0) {
+        toonLeeg(`Lijst laden mislukt (HTTP ${respons.status}).`, true);
+
+        return;
+      }
+
+      break;
+    }
+
+    const lijst = await respons.json();
+
+    verzameld.push(...(lijst.berichten || []));
+    pad = volgendePad(lijst);
+    paginas += 1;
   }
 
-  if (!respons.ok) {
-    toonLeeg(`Lijst laden mislukt (HTTP ${respons.status}).`, true);
-
-    return;
-  }
-
-  const lijst = await respons.json();
-
-  alleBerichten = lijst.berichten || [];
+  alleBerichten = verzameld;
   magazijnPerBericht.clear();
   alleBerichten.forEach((bericht) => magazijnPerBericht.set(bericht.berichtId, bericht.magazijnId));
   herteken();
