@@ -19,6 +19,9 @@ let alleBerichten = [];
 let actieveMap = null;
 let sortering = 'datum-nieuw';
 let alleenOngelezen = false;
+let huidigePagina = 0;
+
+const PAGINA_GROOTTE = 20;
 
 // Absente map telt als Postvak IN (null).
 function mapVan(bericht) {
@@ -209,7 +212,31 @@ function herteken() {
   }
 
   renderMappen();
-  tekenLijst(zichtbareBerichten());
+
+  const zichtbaar = zichtbareBerichten();
+  const maxPagina = Math.max(0, Math.ceil(zichtbaar.length / PAGINA_GROOTTE) - 1);
+
+  if (huidigePagina > maxPagina) huidigePagina = maxPagina;
+
+  const start = huidigePagina * PAGINA_GROOTTE;
+
+  tekenLijst(zichtbaar.slice(start, start + PAGINA_GROOTTE));
+  renderPaginering(zichtbaar.length, maxPagina);
+}
+
+function renderPaginering(totaal, maxPagina) {
+  const balk = el('paginering');
+
+  if (totaal <= PAGINA_GROOTTE) {
+    toon(balk, false);
+
+    return;
+  }
+
+  toon(balk, true);
+  el('pagina-info').textContent = `Pagina ${huidigePagina + 1} van ${maxPagina + 1} · ${totaal} berichten`;
+  el('vorige-pagina').disabled = huidigePagina === 0;
+  el('volgende-pagina').disabled = huidigePagina >= maxPagina;
 }
 
 function zichtbareBerichten() {
@@ -309,6 +336,7 @@ function mapKnop(label, mapWaarde, telling) {
 
 function kiesMap(mapWaarde) {
   actieveMap = mapWaarde;
+  huidigePagina = 0;
   herteken();
 }
 
@@ -346,6 +374,7 @@ function toonLeeg(tekst, fout) {
   const p = el('lijst-leeg');
 
   el('lijst').innerHTML = '';
+  toon(el('paginering'), false);
   toon(el('detail'), false);
   toon(p, true);
   p.textContent = tekst;
@@ -372,11 +401,25 @@ el('persona').addEventListener('change', () => {
 
 el('sorteer').addEventListener('change', (gebeurtenis) => {
   sortering = gebeurtenis.target.value;
+  huidigePagina = 0;
   herteken();
 });
 
 el('alleen-ongelezen').addEventListener('change', (gebeurtenis) => {
   alleenOngelezen = gebeurtenis.target.checked;
+  huidigePagina = 0;
+  herteken();
+});
+
+el('vorige-pagina').addEventListener('click', () => {
+  if (huidigePagina > 0) {
+    huidigePagina -= 1;
+    herteken();
+  }
+});
+
+el('volgende-pagina').addEventListener('click', () => {
+  huidigePagina += 1;
   herteken();
 });
 
