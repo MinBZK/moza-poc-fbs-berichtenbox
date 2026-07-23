@@ -207,6 +207,9 @@ services:
       # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig;
       # origins staan onder %dev in application.properties. Alleen in het demo-profiel.
       QUARKUS_HTTP_CORS_ENABLED: "true"
+      # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
+      # prod houdt PT12H. De property heeft geen min-validatie.
+      BERICHTENSESSIECACHE_TTL: PT2M
 
   # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
   # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
@@ -222,10 +225,14 @@ services:
         condition: service_started
       toxiproxy:
         condition: service_started
+      redis:
+        condition: service_healthy
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
       TOXIPROXY_ADMIN_URL: http://toxiproxy:8474
+      # Direct op Redis (niet via Toxiproxy) voor de cache-verval-knop.
+      REDIS_HOSTS: redis://redis:6379
       MAGAZIJN_A_URL: http://berichtenmagazijn-a:8090
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
