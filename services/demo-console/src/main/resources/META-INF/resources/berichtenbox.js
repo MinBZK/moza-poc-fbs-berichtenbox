@@ -314,7 +314,7 @@ function lijstItem(bericht) {
     (bericht.aantalBijlagen > 0 ? ` 📎${bericht.aantalBijlagen}` : '');
 
   li.append(titel, meta);
-  li.addEventListener('click', () => toonDetail(bericht.berichtId));
+  li.addEventListener('click', () => openBericht(bericht));
 
   return li;
 }
@@ -441,8 +441,20 @@ async function markeer(berichtId, status) {
     return;
   }
 
-  await toonDetail(berichtId);
+  // Eerst de lijst verversen (verbergt het detail), dan het detail opnieuw tonen — zo blijft
+  // het geopende bericht zichtbaar met de bijgewerkte status.
   await laadLijst();
+  await toonDetail(berichtId);
+}
+
+// Een bericht openen markeert het als gelezen (alleen hier, niet bij elke her-render van het
+// detail, zodat de "markeer ongelezen"-knop blijft werken).
+function openBericht(bericht) {
+  if (bericht.status !== 'gelezen') {
+    markeer(bericht.berichtId, 'gelezen');
+  } else {
+    toonDetail(bericht.berichtId);
+  }
 }
 
 // PATCH {map}. Merge-patch kan `map` niet wissen (null = niet wijzigen), dus verplaatsen
