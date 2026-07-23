@@ -31,6 +31,17 @@
     <button onclick="post('/api/demo/random?aantal=' + document.getElementById('aantal').value)">Opvoeren</button>
   </fieldset>
 
+  <fieldset>
+    <legend>Storingen (fase 3)</legend>
+    <button onclick="post('/api/demo/storing/magazijn/a/traag')">Magazijn A (RVO) traag</button>
+    <button onclick="post('/api/demo/storing/magazijn/a/uit')">Magazijn A (RVO) uit</button>
+    <br>
+    <button onclick="post('/api/demo/storing/magazijn/b/traag')">Magazijn B (Belastingdienst) traag</button>
+    <button onclick="post('/api/demo/storing/magazijn/b/uit')">Magazijn B (Belastingdienst) uit</button>
+    <br>
+    <button onclick="post('/api/demo/storing/reset')">Alles normaal (reset)</button>
+  </fieldset>
+
   <h2>Resultaat</h2>
   <pre id="uit">—</pre>
 
