@@ -363,6 +363,8 @@ async function leesProblem(respons) {
 }
 
 el('ophalen').addEventListener('click', ophalen);
+// Alleen de lijst (cache) verversen, zonder _ophalen — toont live in de cache opgevoerde berichten.
+el('vernieuw').addEventListener('click', laadLijst);
 el('persona').addEventListener('change', () => {
   toon(el('voortgang'), false);
   toonLeeg('Persona gewijzigd — klik op Ophalen.');
