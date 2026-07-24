@@ -13,7 +13,7 @@ import org.eclipse.microprofile.rest.client.inject.RestClient
 @ApplicationScoped
 class VeelMagazijnenService(
     @param:RestClient private val wiremock: WireMockAdminClient,
-    @param:ConfigProperty(name = "demo.veel-magazijnen.aantal") private val aantal: Int,
+    @param:ConfigProperty(name = "veel-magazijnen.aantal") private val aantal: Int,
 ) {
 
     fun zetActief(k: Int): Map<String, Int> {
