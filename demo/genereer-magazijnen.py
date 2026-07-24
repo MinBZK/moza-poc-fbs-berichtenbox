@@ -38,6 +38,12 @@ def bericht(i: int) -> dict:
         "onderwerp": f"Demo-magazijn {i} — mededeling",
         "inhoud": f"Demo-bericht uit demo-magazijn {i} (OIN {o}).",
         "publicatietijdstip": f"2026-07-{(i % 27) + 1:02d}T09:00:00Z",
+        # Expliciet meesturen: MagazijnBericht heeft deze velden als non-null met een Kotlin-default,
+        # maar Jackson past die default niet toe bij een afwezig veld — dan gaat er null naar de
+        # constructor en faalt de deserialisatie. De echte magazijnen sturen ze altijd mee.
+        "aantalBijlagen": 0,
+        "bijlagen": [],
+        "status": {"gelezen": False},
     }
 
 
