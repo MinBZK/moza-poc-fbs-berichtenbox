@@ -17,7 +17,7 @@ class VeelMagazijnenResource(private val service: VeelMagazijnenService) {
         try {
             service.zetActief(k)
         } catch (fout: IllegalArgumentException) {
-            throw BadRequestException(fout.message)
+            throw BadRequestException(fout.message, fout)
         }
 
     @POST
