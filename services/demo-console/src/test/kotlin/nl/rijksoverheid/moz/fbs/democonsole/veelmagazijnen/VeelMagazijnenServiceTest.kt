@@ -23,14 +23,13 @@ class VeelMagazijnenServiceTest {
 
         // Elke stub krijgt eerst een DELETE (idempotent), ongeacht actief/inactief.
         verify(exactly = 5) { wiremock.verwijderOverlay(any()) }
-        // 4..5 op storing → verse 503-overlay met de Host-matcher van dat magazijn.
+        // 4..5 op storing → verse 503-overlay op het pad-prefix van dat magazijn.
         verify {
             wiremock.voegOverlayToe(
                 match {
                     it.id == VeelMagazijnenService.overlayId(4) &&
                         it.response.status == 503 &&
-                        it.request.urlPath == VeelMagazijnenService.STUB_PAD &&
-                        it.request.headers["Host"]?.matches == VeelMagazijnenService.hostPatroon(4)
+                        it.request.urlPath == VeelMagazijnenService.stubPad(4)
                 },
             )
         }

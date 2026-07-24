@@ -29,13 +29,16 @@ De uitvraag ontdekt en bevraagt magazijnen zo:
    status `OK | TIMEOUT | FOUT`; een traag/uitgevallen magazijn faalt alleen z'n eigen substream
    (partial). Dat is precies scenario 3.
 
-Eén WireMock-container serveert n stubs via **Host-gebaseerde** routering. (Oorspronkelijk ontwerp:
-pad-gebaseerd met `baseUri(.../mNN)`. Bij de runtime-verificatie bleek de uitvraag-rest-client het
-base-URL-subpad te laten vallen — elke magazijn-call gaat naar `/api/v1/berichten`, ongeacht het
-register-pad. Het enige per-stub-onderscheid dat de client meestuurt is de **hostnaam**.) Elke stub
-krijgt daarom een eigen docker-netwerk-alias (`mNN`, alle wijzend naar dezelfde container); het
-register gebruikt `http://mNN:8080` en WireMock matcht op de `Host`-header (`mNN(:8080)?`) + het vaste
-pad `/api/v1/berichten`. Het aantal aliassen in `compose.yaml` (`m01..m50`) begrenst n op 50.
+Eén WireMock-container serveert n stubs via **pad-gebaseerde** routering: het register gebruikt
+`http://magazijn-stubs:8080/mNN`, de client bindt `@Path("/api/v1")` relatief en **behoudt het
+base-URL-subpad** → `GET /mNN/api/v1/berichten`. WireMock matcht op `urlPath: /mNN/api/v1/berichten`.
+Geen docker-aliassen nodig; geen harde bovengrens op n.
+
+(Tijdens de runtime-verificatie leek pad-routing te falen — alle stubs gaven MALFORMED — en is er
+tijdelijk op Host-header-routing met docker-aliassen overgestapt. De MALFORMED bleek echter een
+ontbrekend `bijlagen`-veld in de stub-respons, níet het pad: een handmatige test bevestigde dat
+`GET /mNN/api/v1/berichten` de client wél degelijk verlaat. Na de `bijlagen`-fix is pad-routing
+hersteld en zijn de aliassen verwijderd.)
 
 ## Ontwerpkeuzes (vastgesteld in overleg)
 

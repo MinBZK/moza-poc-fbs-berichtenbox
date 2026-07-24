@@ -3,11 +3,10 @@
 register-regels voor de uitvraag, de profiel-stub voor persona Grootbedrijf, en n
 WireMock-mappings. Schrijft naar demo/generated/ (staat in .gitignore).
 
-Routering per stub gaat via de HOSTNAAM (docker-netwerk-alias mNN → dezelfde WireMock-
-container), NIET via een pad-prefix: de uitvraag-rest-client bouwt de client met
-baseUri(.../mNN) maar laat dat subpad vallen en roept elk magazijn op /api/v1/berichten
-aan. Het enige per-stub-onderscheid dat de client meestuurt is de Host-header — daar matcht
-WireMock op. n is daarom begrensd op het aantal aliassen in compose.yaml (m01..m50).
+Routering per stub gaat via het PAD-prefix `/mNN`: de uitvraag-rest-client bouwt de client
+met baseUri(http://magazijn-stubs:8080/mNN) en behoudt dat subpad, dus hij roept
+`GET /mNN/api/v1/berichten` aan. WireMock matcht daarop. Eén container, n pad-gebaseerde
+stubs — geen docker-aliassen nodig.
 
 Draai dit VÓÓR `docker compose --profile demo up`:  DEMO_MAGAZIJN_STUBS=12 python3 demo/genereer-magazijnen.py
 """
@@ -17,7 +16,6 @@ import sys
 from pathlib import Path
 
 KVK_GROOTBEDRIJF = "90000001"
-MAX_STUBS = 50  # aantal docker-netwerk-aliassen (m01..m50) in compose.yaml
 BASIS = Path(__file__).resolve().parent / "generated"
 
 
@@ -25,8 +23,8 @@ def oin(i: int) -> str:
     return f"0000000900000000{i:04d}"
 
 
-def host(i: int) -> str:
-    return f"m{i:02d}"
+def pad(i: int) -> str:
+    return f"/m{i:02d}"
 
 
 def bericht(i: int) -> dict:
@@ -52,12 +50,9 @@ def mapping(i: int) -> dict:
         "priority": 5,
         "request": {
             "method": "GET",
-            "urlPath": "/api/v1/berichten",
-            # Per-stub-routering op de Host-header (mNN), want het pad is voor alle stubs gelijk.
-            "headers": {
-                "Host": {"matches": f"{host(i)}(:8080)?"},
-                "X-Ontvanger": {"matches": ".+"},
-            },
+            # Per-stub-routering op het pad-prefix /mNN (het subpad blijft in de client behouden).
+            "urlPath": f"{pad(i)}/api/v1/berichten",
+            "headers": {"X-Ontvanger": {"matches": ".+"}},
         },
         "response": {
             "status": 200,
@@ -91,9 +86,6 @@ def main() -> None:
     if n < 1:
         raise SystemExit(f"n moet >= 1 zijn, was {n}")
 
-    if n > MAX_STUBS:
-        raise SystemExit(f"n ({n}) > {MAX_STUBS}: verhoog de aliassen (m01..) in compose.yaml eerst")
-
     mappings_dir = BASIS / "magazijn-stubs-mappings"
     profiel_dir = BASIS / "profiel"
     mappings_dir.mkdir(parents=True, exist_ok=True)
@@ -107,7 +99,7 @@ def main() -> None:
 
     for i in range(1, n + 1):
         (mappings_dir / f"m{i:02d}.json").write_text(json.dumps(mapping(i), indent=2))
-        regels.append(f'magazijnen."{oin(i)}".url=http://{host(i)}:8080')
+        regels.append(f'magazijnen."{oin(i)}".url=http://magazijn-stubs:8080{pad(i)}')
         regels.append(f'magazijnen."{oin(i)}".naam=Demo-magazijn {i}')
 
     (BASIS / "magazijnen-stubs.properties").write_text("\n".join(regels) + "\n")

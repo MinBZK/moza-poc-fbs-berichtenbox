@@ -1,9 +1,10 @@
 **Status:** Uitgevoerd — Docker-runtime geverifieerd (Grootbedrijf → n magazijnen, k-schuif werkt)
 
 > **Runtime-verificatie legde vijf zaken bloot die het oorspronkelijke plan niet voorzag; alle gefixt:**
-> 1. **Pad-routering werkt niet** — de uitvraag-rest-client laat het base-URL-subpad (`/mNN`) vallen;
->    elke call gaat naar `/api/v1/berichten`. Opgelost met **Host-gebaseerde** routering: docker-netwerk-
->    aliassen `mNN` + WireMock-match op de `Host`-header. Begrenst n op 50 (aliassen in compose).
+> 1. **Deserialisatie faalde op alle stubs (MALFORMED)** — aanvankelijk aangezien voor pad-dropping en
+>    tijdelijk omzeild met Host-routing + docker-aliassen. Werkelijke oorzaak: het ontbrekende
+>    `bijlagen`-veld (punt 3). Na die fix bleek **pad-routing gewoon te werken** (de client behoudt het
+>    base-URL-subpad `/mNN`); Host-routing en de aliassen zijn weer verwijderd — pad-routing, geen n-cap.
 > 2. **Bulkhead sheddet** — `magazijn-bulkhead.max-concurrent=20` weigert bij n>20 direct (OVERBELAST).
 >    In het demo-profiel via env op 60.
 > 3. **Jackson past Kotlin-defaults niet toe** — een afwezig `bijlagen`-veld → null → deserialisatie faalt

@@ -9,11 +9,8 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 
-/** WireMock header/veld-matcher, bv. `{"matches": "m07(:8080)?"}`. */
-data class WireMockMatcher(val matches: String)
-
-/** Request-matcher: vast pad plus per-stub Host-header (routering gaat via de hostnaam, niet het pad). */
-data class WireMockRequest(val method: String, val urlPath: String, val headers: Map<String, WireMockMatcher>)
+/** Request-matcher: het pad-prefix /mNN onderscheidt de stub (routering gaat via het pad). */
+data class WireMockRequest(val method: String, val urlPath: String)
 
 data class WireMockResponse(val status: Int)
 
