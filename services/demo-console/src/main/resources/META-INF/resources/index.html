@@ -53,6 +53,10 @@
     <p><small>Herstellen: gebruik "Alles normaal (reset)" hierboven.</small></p>
     <br>
     <button onclick="post('/api/demo/foutieve-aanlevering')">Foutieve aanlevering (scenario 8)</button>
+    <br>
+    <label>Ontdubbeling voor BSN: <input id="ontdubbelBsn" type="text" value="999993653" style="width:8rem"></label>
+    <button onclick="post('/api/demo/ontdubbeling?bsn=' + document.getElementById('ontdubbelBsn').value)">Ontdubbeling (scenario 13)</button>
+    <p><small>Let op: laat de persona eerst <em>Ophalen</em> (actieve sessie), anders verschijnt er niets.</small></p>
   </fieldset>
 
   <h2>Resultaat</h2>

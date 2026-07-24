@@ -245,6 +245,8 @@ services:
       TOXIPROXY_ADMIN_URL: http://toxiproxy:8474
       # Direct op Redis (niet via Toxiproxy) voor de cache-verval-knop.
       REDIS_HOSTS: redis://redis:6379
+      # Uitvraag-aanmeld-webhook voor de ontdubbeling-knop (fase 5).
+      UITVRAAG_URL: http://berichtenuitvraag:8086
       MAGAZIJN_A_URL: http://berichtenmagazijn-a:8090
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
