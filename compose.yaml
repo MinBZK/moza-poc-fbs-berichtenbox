@@ -44,6 +44,8 @@ services:
       # Demo-only persona-voorkeuren, als subdir (WireMock laadt recursief). Apart gehouden
       # zodat de elfproef-geldige persona-BSN's níet in het publieke externe-stubs-image komen.
       - ./wiremock/demo-profiel/mappings:/home/wiremock/mappings/demo-profiel
+      # Gegenereerde Grootbedrijf-persona-stub (fase 6). WireMock laadt recursief.
+      - ./demo/generated/profiel:/home/wiremock/mappings/demo-profiel-generated
     command: ["--verbose"]
 
   # Aanmeld- en Notificatie-stubs voor de Publicatie Stream. Ontvangen CloudEvents
@@ -193,6 +195,18 @@ services:
       - ./toxiproxy/proxies.json:/proxies.json:ro
     command: ["-host=0.0.0.0", "-config=/proxies.json"]
 
+  # Lichtgewicht stub-magazijnen voor 'veel magazijnen' (fase 6). Eén WireMock, n pad-gebaseerde
+  # magazijnen (/mNN) uit demo/generated/ — draai eerst demo/genereer-magazijnen.py. De demo-console
+  # zet stubs live op storing via de admin-API (:8092/__admin/mappings).
+  magazijn-stubs:
+    image: wiremock/wiremock:3.13.2
+    profiles: [demo]
+    ports:
+      - "8092:8080"
+    volumes:
+      - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings
+    command: ["--verbose"]
+
   berichtenuitvraag:
     image: fbs-demo/fbs-berichtenuitvraag:demo
     profiles: [demo]
@@ -222,6 +236,11 @@ services:
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
       BERICHTENSESSIECACHE_TTL: PT2M
+      # Extra register-entries voor de stub-magazijnen (fase 6), gegenereerd in demo/generated/.
+      # SmallRye leest dit absolute pad als additionele config-bron en merge't het bij de baked A/B.
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-stubs.properties
+    volumes:
+      - ./demo/generated/magazijnen-stubs.properties:/demo-config/magazijnen-stubs.properties:ro
 
   # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
   # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
@@ -251,6 +270,9 @@ services:
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
+      MAGAZIJN_STUBS_ADMIN_URL: http://magazijn-stubs:8080
+      # Moet gelijk zijn aan het n waarmee demo/genereer-magazijnen.py draaide.
+      DEMO_MAGAZIJN_STUBS: "12"
 
 volumes:
   postgres-data-a:
