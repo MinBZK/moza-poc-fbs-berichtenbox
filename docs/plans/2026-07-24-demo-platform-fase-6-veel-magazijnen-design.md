@@ -29,9 +29,13 @@ De uitvraag ontdekt en bevraagt magazijnen zo:
    status `OK | TIMEOUT | FOUT`; een traag/uitgevallen magazijn faalt alleen z'n eigen substream
    (partial). Dat is precies scenario 3.
 
-Eén WireMock-container kan n stubs serveren via pad-gebaseerde routering: `baseUri` mag een
-subpad hebben (`http://magazijn-stubs:8080/m01`), de client bindt `@Path("/api/v1")` relatief →
-`GET http://magazijn-stubs:8080/m01/api/v1/berichten`.
+Eén WireMock-container serveert n stubs via **Host-gebaseerde** routering. (Oorspronkelijk ontwerp:
+pad-gebaseerd met `baseUri(.../mNN)`. Bij de runtime-verificatie bleek de uitvraag-rest-client het
+base-URL-subpad te laten vallen — elke magazijn-call gaat naar `/api/v1/berichten`, ongeacht het
+register-pad. Het enige per-stub-onderscheid dat de client meestuurt is de **hostnaam**.) Elke stub
+krijgt daarom een eigen docker-netwerk-alias (`mNN`, alle wijzend naar dezelfde container); het
+register gebruikt `http://mNN:8080` en WireMock matcht op de `Host`-header (`mNN(:8080)?`) + het vaste
+pad `/api/v1/berichten`. Het aantal aliassen in `compose.yaml` (`m01..m50`) begrenst n op 50.
 
 ## Ontwerpkeuzes (vastgesteld in overleg)
 

@@ -43,7 +43,9 @@ class VeelMagazijnenService(
     }
 
     private fun plaatsStoring(i: Int) {
-        val stub = WireMockStub(overlayId(i), STORING_PRIORITEIT, WireMockRequest("GET", stubPad(i)), WireMockResponse(503))
+        // Routering per stub op de Host-header (mNN); het pad is voor alle stubs gelijk.
+        val request = WireMockRequest("GET", STUB_PAD, mapOf("Host" to WireMockMatcher(hostPatroon(i))))
+        val stub = WireMockStub(overlayId(i), STORING_PRIORITEIT, request, WireMockResponse(503))
 
         controleer(wiremock.zetOverlay(overlayId(i), stub), "storing zetten op magazijn $i")
     }
@@ -58,8 +60,11 @@ class VeelMagazijnenService(
 
         const val STORING_PRIORITEIT = 1
 
+        const val STUB_PAD = "/api/v1/berichten"
+
         fun overlayId(i: Int): String = "11111111-0000-0000-0000-%012d".format(i)
 
-        fun stubPad(i: Int): String = "/m%02d/api/v1/berichten".format(i)
+        // Matcht de Host-header die de uitvraag stuurt: `mNN` of `mNN:8080`.
+        fun hostPatroon(i: Int): String = "m%02d(:8080)?".format(i)
     }
 }

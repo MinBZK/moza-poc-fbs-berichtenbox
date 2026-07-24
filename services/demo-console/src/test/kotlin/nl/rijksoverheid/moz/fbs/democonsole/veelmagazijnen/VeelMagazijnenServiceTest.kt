@@ -24,11 +24,15 @@ class VeelMagazijnenServiceTest {
         // 1..3 actief → overlay verwijderd
         verify { wiremock.verwijderOverlay(VeelMagazijnenService.overlayId(1)) }
         verify { wiremock.verwijderOverlay(VeelMagazijnenService.overlayId(3)) }
-        // 4..5 op storing → 503-overlay op het juiste pad
+        // 4..5 op storing → 503-overlay die op de Host-header van magazijn 4 matcht
         verify {
             wiremock.zetOverlay(
                 VeelMagazijnenService.overlayId(4),
-                match { it.response.status == 503 && it.request.urlPathPattern == VeelMagazijnenService.stubPad(4) },
+                match {
+                    it.response.status == 503 &&
+                        it.request.urlPath == VeelMagazijnenService.STUB_PAD &&
+                        it.request.headers["Host"]?.matches == VeelMagazijnenService.hostPatroon(4)
+                },
             )
         }
         verify { wiremock.zetOverlay(VeelMagazijnenService.overlayId(5), any()) }
