@@ -155,7 +155,7 @@ volgen in fase 7.
 | 2 | Trager dan normaal (>5 s) | *Magazijn A/B traag* → Ophalen; magazijn meldt pas na ~6 s "voltooid" |
 | 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: *Magazijn A/B uit*. Veel: persona Grootbedrijf → *Actief aantal* op bv. 2 → Ophalen → n−2 FOUT + partiële lijst |
 | 4 | Enkele magazijnen antwoorden laat | *Magazijn A traag* terwijl B normaal → Ophalen |
-| 5 | Nieuwe berichten tijdens de sessie | Persona ophaalt → *Random opvoeren* → **Vernieuw** toont de nieuwe berichten |
+| 5 | Nieuwe berichten tijdens de sessie | Persona haalt op → *Random opvoeren* → **Vernieuw** toont de nieuwe berichten |
 | 6 | Cache-tijd verloopt | *Cache verlopen* (knop), of ~2 min niets doen (demo-TTL is `PT2M`) → volgende actie geeft 409 |
 | 7 | Bijlage wordt niet opgehaald | *Magazijn A uit* → open een RVO-bericht (uit de cache) → bijlage-download faalt |
 | 8 | Foutieve aanlevering | *Foutieve aanlevering* → 400 RFC 9457 problem+json in het paneel |
