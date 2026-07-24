@@ -1,4 +1,16 @@
-**Status:** Concept
+**Status:** Alle taken uitgevoerd — Docker-runtime-verificatie openstaand
+
+> **Lokaal geverifieerd:** `genereer-magazijnen.py` produceert consistente files (register-OIN's ==
+> profiel-scopes == mapping-afzenders, 20-cijferig); `demo/generated/` is gitignored; demo-console 32
+> tests groen incl. `VeelMagazijnenServiceTest` 5/5; augmentatie wiret de `magazijnstubs`-client;
+> compose valide met `magazijn-stubs`-service, uitvraag-config-mount, profiel-mount en demo-console-env;
+> detekt schoon (na fix van `SwallowedException` in de resource).
+>
+> **Nog te doen (Docker):** `DEMO_MAGAZIJN_STUBS=12 python3 demo/genereer-magazijnen.py` →
+> `docker compose --profile demo up -d` (images incl. demo-console rebuilden, `-Dquarkus.jib.platforms=linux/arm64`
+> op Apple Silicon). Dan de "Definition of done": login als Grootbedrijf → Ophalen toont n; "actief=2" →
+> n−2 FOUT + partieel; reset → alles OK; test n=2/10/25. **Bevestig de `SMALLRYE_CONFIG_LOCATIONS`-mount**
+> (enige onzekere plek; fallback in Risico's).
 
 # Demo-platform fase 6 — veel magazijnen — implementatieplan
 
