@@ -44,3 +44,6 @@ node_modules/
 
 # Tijdelijke files van import-rewrite-scripts
 *.kt.tmp
+
+# Gegenereerde demo-artefacten (fase 6 — veel magazijnen). Regenereren met demo/genereer-magazijnen.py.
+demo/generated/

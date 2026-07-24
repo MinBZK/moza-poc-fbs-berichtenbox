@@ -59,6 +59,50 @@ De vroegere losse berichtensessiecache-service is opgegaan in `berichtenuitvraag
 als in-process library (`libraries/fbs-berichtensessiecache`) met Redis als
 gedeelde backing store.
 
+## Demo-stack (alles in containers)
+
+> **Volledige runbook** — opzet, persona's, alle bedieningsknoppen, de 14 scenario's stap voor stap
+> en de valkuilen: [`docs/demo-runbook.md`](docs/demo-runbook.md).
+
+Voor demonstraties draait de volledige keten in containers, zodat opstarten één commando
+is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
+
+```bash
+./mvnw clean package -DskipTests \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag,services/demo-console -am \
+  -Dquarkus.container-image.build=true \
+  -Dquarkus.container-image.group=fbs-demo \
+  -Dquarkus.container-image.tag=demo
+```
+
+> **CORS voor de Berichtenbox-UI** is een runtime-property (`quarkus.http.cors.enabled`),
+> gezet onder `%dev` in `berichtenuitvraag` én als env-var in het demo-profiel van
+> `compose.yaml`. Prod/ZAD (profiel prod) krijgt geen enabled, dus die images blijven
+> CORS-loos. Geen build-flag nodig.
+
+> **Apple Silicon / ARM:** jib bouwt standaard `linux/amd64` (de ZAD-cluster is amd64).
+> Op een ARM-host draaien die images onder emulatie — voeg
+> `-Dquarkus.jib.platforms=linux/arm64` toe voor native images. Deze flag hoort op de
+> commandoregel en niet in de config, anders wordt ook de CI-/ZAD-build arm64.
+
+Start daarna de stack en controleer de keten:
+
+```bash
+docker compose --profile demo up -d   # alles in containers
+./demo/smoke.sh                       # rookproef: aanleveren + ophalen
+```
+
+Zónder `--profile demo` start compose alleen de infrastructuur (Redis, Postgres, WireMock,
+ClickHouse). Gebruik die modus tijdens het ontwikkelen en draai de services met
+`quarkus:dev` zoals hierboven — in een container kost elke codewijziging een image-build.
+
+De poorten zijn in beide modi gelijk (8090, 8091, 8086), dus de Bruno-collectie en de
+omgeving `lokaal` werken ongewijzigd. Draai niet beide modi tegelijk: dat geeft een
+poortconflict.
+
+De demo-console draait op <http://localhost:8095> — een kaal paneel om de magazijnen te
+legen, de basisdataset te laden en random berichten op te voeren.
+
 ### Tests draaien
 
 ```bash
