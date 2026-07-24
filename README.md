@@ -61,6 +61,9 @@ gedeelde backing store.
 
 ## Demo-stack (alles in containers)
 
+> **Volledige runbook** — opzet, persona's, alle bedieningsknoppen, de 14 scenario's stap voor stap
+> en de valkuilen: [`docs/demo-runbook.md`](docs/demo-runbook.md).
+
 Voor demonstraties draait de volledige keten in containers, zodat opstarten één commando
 is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
 
