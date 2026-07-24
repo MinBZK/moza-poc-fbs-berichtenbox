@@ -43,6 +43,16 @@
     <button onclick="post('/api/demo/storing/reset')">Alles normaal (reset)</button>
   </fieldset>
 
+  <fieldset>
+    <legend>Technische scenario's (fase 5)</legend>
+    <button onclick="post('/api/demo/storing/redis/uit')">Redis uit (scenario 12)</button>
+    <button onclick="post('/api/demo/storing/profiel/uit')">Profielservice uit (scenario 9)</button>
+    <br>
+    <button onclick="post('/api/demo/storing/notificatie/uit')">Notificatie uit (scenario 10)</button>
+    <button onclick="post('/api/demo/storing/aanmeld/uit')">Uitvraag/aanmeld uit (scenario 11)</button>
+    <p><small>Herstellen: gebruik "Alles normaal (reset)" hierboven.</small></p>
+  </fieldset>
+
   <h2>Resultaat</h2>
   <pre id="uit">—</pre>
 
