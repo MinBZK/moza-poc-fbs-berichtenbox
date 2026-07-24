@@ -1,4 +1,14 @@
-**Status:** Concept
+**Status:** Alle taken uitgevoerd — Docker-runtime-verificatie openstaand
+
+> **Lokaal geverifieerd:** `proxies.json` (6 proxies) en compose valide (magazijn a/b downstreams door
+> Toxiproxy, poll-tuning, demo-console `UITVRAAG_URL`); demo-console 27 tests groen incl.
+> `StoringResourceTest` (allowlist), `FoutieveAanleverServiceTest` (payload), `OntdubbelingServiceTest`
+> (zelfde id); augmentatie wiret de `uitvraag`-rest-client + de dubbele client-`@POST`; detekt schoon.
+>
+> **Nog te doen (Docker):** images rebuilden (incl. demo-console, `-Dquarkus.jib.platforms=linux/arm64`
+> op Apple Silicon), `docker compose --profile demo up -d`, dan de scenario's uit "Definition of done":
+> redis/profiel/notificatie/aanmeld uit + herstel, foutieve aanlevering (400), ontdubbeling (1 bericht na
+> Ophalen). Let op de env-override van `..._DOWNSTREAMS_AANMELD_MAX_POGINGEN` (best-effort; zie Risico's).
 
 # Demo-platform fase 5 — technische verantwoording — implementatieplan
 
