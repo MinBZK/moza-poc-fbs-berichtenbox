@@ -271,8 +271,9 @@ services:
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
       MAGAZIJN_STUBS_ADMIN_URL: http://magazijn-stubs:8080
-      # Moet gelijk zijn aan het n waarmee demo/genereer-magazijnen.py draaide.
-      DEMO_MAGAZIJN_STUBS: "12"
+      # Eén bron van waarheid voor n: compose leest het uit je shell (default 12). Gebruik dezelfde
+      # export voor het script:  export DEMO_MAGAZIJN_STUBS=40 && python3 demo/genereer-magazijnen.py
+      DEMO_MAGAZIJN_STUBS: "${DEMO_MAGAZIJN_STUBS:-12}"
 
 volumes:
   postgres-data-a:
