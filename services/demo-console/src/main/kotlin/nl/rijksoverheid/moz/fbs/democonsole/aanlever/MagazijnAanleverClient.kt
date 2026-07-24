@@ -27,6 +27,14 @@ interface MagazijnAanleverClient {
     @Consumes(MediaType.APPLICATION_JSON)
     fun leverAan(verzoek: AanleverVerzoek): Response
 
+    // Rauwe JSON-body zodat de demo-console volledig ongeldige payloads kan sturen (scenario
+    // 'foutieve aanlevering'); de getypeerde leverAan kan niet elke ongeldigheid uitdrukken.
+    // Twee @POST op hetzelfde interface-@Path mag voor een rest-client: elke methode is een losse
+    // invocatie, geen server-routering.
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    fun leverRuwAan(payload: String): Response
+
     // Zet de leesstatus rechtstreeks op het magazijn (geen sessiecache nodig). X-Ontvanger is
     // TYPE:WAARDE; body is merge-patch met een boolean `gelezen`.
     @PATCH
