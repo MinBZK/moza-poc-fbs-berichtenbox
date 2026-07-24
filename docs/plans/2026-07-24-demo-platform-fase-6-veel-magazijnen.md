@@ -1,16 +1,19 @@
-**Status:** Alle taken uitgevoerd — Docker-runtime-verificatie openstaand
+**Status:** Uitgevoerd — Docker-runtime geverifieerd (Grootbedrijf → n magazijnen, k-schuif werkt)
 
-> **Lokaal geverifieerd:** `genereer-magazijnen.py` produceert consistente files (register-OIN's ==
-> profiel-scopes == mapping-afzenders, 20-cijferig); `demo/generated/` is gitignored; demo-console 32
-> tests groen incl. `VeelMagazijnenServiceTest` 5/5; augmentatie wiret de `magazijnstubs`-client;
-> compose valide met `magazijn-stubs`-service, uitvraag-config-mount, profiel-mount en demo-console-env;
-> detekt schoon (na fix van `SwallowedException` in de resource).
+> **Runtime-verificatie legde vijf zaken bloot die het oorspronkelijke plan niet voorzag; alle gefixt:**
+> 1. **Pad-routering werkt niet** — de uitvraag-rest-client laat het base-URL-subpad (`/mNN`) vallen;
+>    elke call gaat naar `/api/v1/berichten`. Opgelost met **Host-gebaseerde** routering: docker-netwerk-
+>    aliassen `mNN` + WireMock-match op de `Host`-header. Begrenst n op 50 (aliassen in compose).
+> 2. **Bulkhead sheddet** — `magazijn-bulkhead.max-concurrent=20` weigert bij n>20 direct (OVERBELAST).
+>    In het demo-profiel via env op 60.
+> 3. **Jackson past Kotlin-defaults niet toe** — een afwezig `bijlagen`-veld → null → deserialisatie faalt
+>    (MALFORMED). Stub-berichten sturen `bijlagen`/`aantalBijlagen`/`status` nu expliciet mee.
+> 4. **`microprofile.rest.client.disable.default.mapper=true`** — de default-mapper gooide op elke 4xx/5xx
+>    (ook bij `Response`-methodes); de idempotente DELETE-op-404 van de k-schuif crashte daardoor.
+> 5. **503-overlay via POST** i.p.v. PUT (WireMock's PUT is update-only → 404 op nieuwe id).
 >
-> **Nog te doen (Docker):** `DEMO_MAGAZIJN_STUBS=12 python3 demo/genereer-magazijnen.py` →
-> `docker compose --profile demo up -d` (images incl. demo-console rebuilden, `-Dquarkus.jib.platforms=linux/arm64`
-> op Apple Silicon). Dan de "Definition of done": login als Grootbedrijf → Ophalen toont n; "actief=2" →
-> n−2 FOUT + partieel; reset → alles OK; test n=2/10/25. **Bevestig de `SMALLRYE_CONFIG_LOCATIONS`-mount**
-> (enige onzekere plek; fallback in Risico's).
+> Config-property `veel-magazijnen.aantal` uit de `demo`-prefix gehaald (SRCFG00050) en `DEMO_MAGAZIJN_STUBS`
+> uit de shell laten lezen (één bron voor script + console). De `SMALLRYE_CONFIG_LOCATIONS`-mount werkt.
 
 # Demo-platform fase 6 — veel magazijnen — implementatieplan
 
