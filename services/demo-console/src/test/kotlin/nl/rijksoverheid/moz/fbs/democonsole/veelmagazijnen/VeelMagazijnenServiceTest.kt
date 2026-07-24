@@ -17,36 +17,36 @@ class VeelMagazijnenServiceTest {
     @Test
     fun `zetActief laat 1 tot k actief en zet k+1 tot n op storing`() {
         every { wiremock.verwijderOverlay(any()) } returns respons(200)
-        every { wiremock.zetOverlay(any(), any()) } returns respons(201)
+        every { wiremock.voegOverlayToe(any()) } returns respons(201)
 
         service.zetActief(3)
 
-        // 1..3 actief → overlay verwijderd
-        verify { wiremock.verwijderOverlay(VeelMagazijnenService.overlayId(1)) }
-        verify { wiremock.verwijderOverlay(VeelMagazijnenService.overlayId(3)) }
-        // 4..5 op storing → 503-overlay die op de Host-header van magazijn 4 matcht
+        // Elke stub krijgt eerst een DELETE (idempotent), ongeacht actief/inactief.
+        verify(exactly = 5) { wiremock.verwijderOverlay(any()) }
+        // 4..5 op storing → verse 503-overlay met de Host-matcher van dat magazijn.
         verify {
-            wiremock.zetOverlay(
-                VeelMagazijnenService.overlayId(4),
+            wiremock.voegOverlayToe(
                 match {
-                    it.response.status == 503 &&
+                    it.id == VeelMagazijnenService.overlayId(4) &&
+                        it.response.status == 503 &&
                         it.request.urlPath == VeelMagazijnenService.STUB_PAD &&
                         it.request.headers["Host"]?.matches == VeelMagazijnenService.hostPatroon(4)
                 },
             )
         }
-        verify { wiremock.zetOverlay(VeelMagazijnenService.overlayId(5), any()) }
-        verify(exactly = 0) { wiremock.zetOverlay(VeelMagazijnenService.overlayId(3), any()) }
+        verify { wiremock.voegOverlayToe(match { it.id == VeelMagazijnenService.overlayId(5) }) }
+        verify(exactly = 2) { wiremock.voegOverlayToe(any()) }
+        verify(exactly = 0) { wiremock.voegOverlayToe(match { it.id == VeelMagazijnenService.overlayId(3) }) }
     }
 
     @Test
     fun `zetActief 0 zet alles op storing`() {
-        every { wiremock.zetOverlay(any(), any()) } returns respons(201)
+        every { wiremock.verwijderOverlay(any()) } returns respons(200)
+        every { wiremock.voegOverlayToe(any()) } returns respons(201)
 
         service.zetActief(0)
 
-        verify(exactly = 5) { wiremock.zetOverlay(any(), any()) }
-        verify(exactly = 0) { wiremock.verwijderOverlay(any()) }
+        verify(exactly = 5) { wiremock.voegOverlayToe(any()) }
     }
 
     @Test
@@ -56,7 +56,7 @@ class VeelMagazijnenServiceTest {
         service.zetActief(5)
 
         verify(exactly = 5) { wiremock.verwijderOverlay(any()) }
-        verify(exactly = 0) { wiremock.zetOverlay(any(), any()) }
+        verify(exactly = 0) { wiremock.voegOverlayToe(any()) }
     }
 
     @Test

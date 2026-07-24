@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.democonsole.veelmagazijnen
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.POST
-import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.core.MediaType
@@ -27,18 +26,18 @@ data class WireMockStub(
 )
 
 /**
- * Client voor de WireMock-admin-API van de stub-magazijnen. `zetOverlay` plaatst per stub een
- * 503-mapping met vaste id (upsert via PUT); `verwijderOverlay` haalt hem weg; `herlaad` reset naar
- * de mappings van schijf (alles weer actief).
+ * Client voor de WireMock-admin-API van de stub-magazijnen. `voegOverlayToe` maakt per stub een
+ * 503-mapping aan (POST met een vaste id in de body — WireMock's PUT is update-only en geeft 404 op
+ * een nog-niet-bestaande id); `verwijderOverlay` haalt hem weg op die id; `herlaad` reset naar de
+ * mappings van schijf (alles weer actief).
  */
 @Path("/__admin/mappings")
 @RegisterRestClient(configKey = "magazijnstubs")
 interface WireMockAdminClient {
 
-    @PUT
-    @Path("/{id}")
+    @POST
     @Consumes(MediaType.APPLICATION_JSON)
-    fun zetOverlay(@PathParam("id") id: String, stub: WireMockStub): Response
+    fun voegOverlayToe(stub: WireMockStub): Response
 
     @DELETE
     @Path("/{id}")

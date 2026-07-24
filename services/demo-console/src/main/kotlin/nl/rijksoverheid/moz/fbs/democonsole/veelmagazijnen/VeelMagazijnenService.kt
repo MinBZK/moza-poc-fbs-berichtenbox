@@ -21,11 +21,12 @@ class VeelMagazijnenService(
 
         for (i in 1..aantal) {
 
-            if (i <= k) {
-                verwijderStoring(i)
-            } else {
-                plaatsStoring(i)
-            }
+            // Altijd eerst een eventuele bestaande overlay weghalen (idempotent; 404 = er was er
+            // geen). Daarna krijgt alleen een inactief magazijn (i > k) een verse 503-overlay. Zo is
+            // herhaald schuiven veilig: geen dubbele overlays, geen POST-op-bestaande-id-conflict.
+            verwijderStoring(i)
+
+            if (i > k) plaatsStoring(i)
         }
 
         return mapOf("actief" to k, "totaal" to aantal)
@@ -47,7 +48,7 @@ class VeelMagazijnenService(
         val request = WireMockRequest("GET", STUB_PAD, mapOf("Host" to WireMockMatcher(hostPatroon(i))))
         val stub = WireMockStub(overlayId(i), STORING_PRIORITEIT, request, WireMockResponse(503))
 
-        controleer(wiremock.zetOverlay(overlayId(i), stub), "storing zetten op magazijn $i")
+        controleer(wiremock.voegOverlayToe(stub), "storing zetten op magazijn $i")
     }
 
     private fun controleer(response: Response, actie: String) {
