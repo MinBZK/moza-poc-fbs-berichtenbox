@@ -62,6 +62,19 @@ def mapping(i: int) -> dict:
     }
 
 
+def beheer_mappings() -> list:
+    """Gedeelde PATCH/DELETE-mappings voor álle stubs: markeren (leesstatus) en verwijderen vanuit de
+    Berichtenbox gaan via de uitvraag naar het magazijn. De uitvraag-client-methodes zijn void — hij
+    leest de respons niet, alleen de status — dus een 2xx volstaat en voorkomt een 404 op de stubs.
+    De uitvraag werkt z'n eigen sessiecache bij, dus de wijziging blijft in de UI zichtbaar."""
+    pad_regex = r"/m[0-9]+/api/v1/berichten/[^/]+"
+
+    return [
+        ("_patch.json", {"priority": 5, "request": {"method": "PATCH", "urlPathPattern": pad_regex}, "response": {"status": 200}}),
+        ("_delete.json", {"priority": 5, "request": {"method": "DELETE", "urlPathPattern": pad_regex}, "response": {"status": 204}}),
+    ]
+
+
 def profiel(n: int) -> dict:
     scopes = [{"partij": {"identificatieType": "OIN", "identificatieNummer": oin(i)}} for i in range(1, n + 1)]
     return {
@@ -101,6 +114,9 @@ def main() -> None:
         (mappings_dir / f"m{i:02d}.json").write_text(json.dumps(mapping(i), indent=2))
         regels.append(f'magazijnen."{oin(i)}".url=http://magazijn-stubs:8080{pad(i)}')
         regels.append(f'magazijnen."{oin(i)}".naam=Demo-magazijn {i}')
+
+    for naam, inhoud in beheer_mappings():
+        (mappings_dir / naam).write_text(json.dumps(inhoud, indent=2))
 
     (BASIS / "magazijnen-stubs.properties").write_text("\n".join(regels) + "\n")
     (profiel_dir / "grootbedrijf-kvk.json").write_text(json.dumps(profiel(n), indent=2))
