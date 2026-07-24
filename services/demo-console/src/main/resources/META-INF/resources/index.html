@@ -59,6 +59,15 @@
     <p><small>Let op: laat de persona eerst <em>Ophalen</em> (actieve sessie), anders verschijnt er niets.</small></p>
   </fieldset>
 
+  <fieldset>
+    <legend>Veel magazijnen (fase 6)</legend>
+    <p><small>Persona <em>Grootbedrijf B.V.</em> in de Berichtenbox haalt op bij alle stub-magazijnen.
+      Het ingerichte aantal n ligt vast bij genereren/opstarten (<code>DEMO_MAGAZIJN_STUBS</code>).</small></p>
+    <label>Actief aantal: <input id="actiefAantal" type="number" value="2" min="0"></label>
+    <button onclick="post('/api/demo/veel-magazijnen/actief/' + document.getElementById('actiefAantal').value)">Zet actief</button>
+    <button onclick="post('/api/demo/veel-magazijnen/reset')">Alle magazijnen aan (reset)</button>
+  </fieldset>
+
   <h2>Resultaat</h2>
   <pre id="uit">—</pre>
 
