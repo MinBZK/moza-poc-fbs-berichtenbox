@@ -35,8 +35,8 @@ def bericht(i: int) -> dict:
         "berichtId": f"00000000-0000-0000-0000-{i:012d}",
         "afzender": o,
         "ontvanger": {"type": "KVK", "waarde": KVK_GROOTBEDRIJF},
-        "onderwerp": f"Stub-magazijn {i} — mededeling",
-        "inhoud": f"Demo-bericht uit stub-magazijn {i} (OIN {o}).",
+        "onderwerp": f"Demo-magazijn {i} — mededeling",
+        "inhoud": f"Demo-bericht uit demo-magazijn {i} (OIN {o}).",
         "publicatietijdstip": f"2026-07-{(i % 27) + 1:02d}T09:00:00Z",
     }
 
@@ -102,7 +102,7 @@ def main() -> None:
     for i in range(1, n + 1):
         (mappings_dir / f"m{i:02d}.json").write_text(json.dumps(mapping(i), indent=2))
         regels.append(f'magazijnen."{oin(i)}".url=http://{host(i)}:8080')
-        regels.append(f'magazijnen."{oin(i)}".naam=Stub-magazijn {i}')
+        regels.append(f'magazijnen."{oin(i)}".naam=Demo-magazijn {i}')
 
     (BASIS / "magazijnen-stubs.properties").write_text("\n".join(regels) + "\n")
     (profiel_dir / "grootbedrijf-kvk.json").write_text(json.dumps(profiel(n), indent=2))
