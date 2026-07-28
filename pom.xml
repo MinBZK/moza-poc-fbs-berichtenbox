@@ -23,8 +23,8 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
-        <kotlin.version>2.3.21</kotlin.version>
-        <quarkus.platform.version>3.37.1</quarkus.platform.version>
+        <kotlin.version>2.4.0</kotlin.version>
+        <quarkus.platform.version>3.37.3</quarkus.platform.version>
         <openapi-generator.version>7.23.0</openapi-generator.version>
         <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
         <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert
@@ -39,7 +39,7 @@
         <logboekdataverwerking-wrapper.version>1.2.1-SNAPSHOT</logboekdataverwerking-wrapper.version>
         <mockk.version>1.14.11</mockk.version>
         <jazzer-api.version>0.30.0</jazzer-api.version>
-        <wiremock.version>3.13.0</wiremock.version>
+        <wiremock.version>3.13.2</wiremock.version>
         <openapi-request-validator.version>3.0.0</openapi-request-validator.version>
         <json-schema-validator.version>2.0.1</json-schema-validator.version>
         <awaitility.version>4.3.0</awaitility.version>
