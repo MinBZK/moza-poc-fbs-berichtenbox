@@ -2,7 +2,6 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.InternalServerErrorException
-import jakarta.ws.rs.Path
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.MediaType
@@ -10,7 +9,6 @@ import jakarta.ws.rs.core.UriInfo
 import org.jboss.logging.Logger
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.OphaalApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
@@ -22,12 +20,15 @@ import java.util.UUID
  * Resource voor de Ophaal-API. Implementeert de gegenereerde [OphaalApi]
  * interface en mapt domeinobjecten naar de API-modellen via [BerichtDtoMapper].
  *
+ * Bewust géén eigen `@Path`: de paden komen uit [OphaalApi], de `/api/v1`-prefix
+ * uit `quarkus.rest.path`. Een class-`@Path` hier zou botsen met de pad-verdeling
+ * die de generator zelf over class- en methode-niveau maakt.
+ *
  * Voor `getBijlage` wordt het werkelijke MIME-type van de bijlage in de
  * `Content-Type` response-header gezet via [BijlageContentTypeFilter]; de
  * resource zet het MIME-type op een request-attribute zodat het filter het
  * vlak voor het schrijven van de body kan toepassen.
  */
-@Path(ApiInfo.BASE_PATH + "/berichten")
 @ApplicationScoped
 class OphaalResource(
     private val ophaalService: BerichtOphaalService,
