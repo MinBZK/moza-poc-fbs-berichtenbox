@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeadersFilter
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
@@ -56,11 +57,14 @@ internal class MagazijnClientFactory(
     // `protected open` zodat unit-tests een subclass kunnen maken die niet de Quarkus-CDI
     // REST-client-builder triggert (die buiten @QuarkusTest ArC-context faalt).
     protected open fun createClient(inschrijving: Magazijninschrijving): MagazijnClient {
-        return QuarkusRestClientBuilder.newBuilder()
+        val builder = QuarkusRestClientBuilder.newBuilder()
             .baseUri(inschrijving.url)
             .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
             .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
-            .build(MagazijnClient::class.java)
+
+        fscFilterVoor(inschrijving)?.let { builder.register(it) }
+
+        return builder.build(MagazijnClient::class.java)
     }
 
     companion object {
@@ -69,5 +73,12 @@ internal class MagazijnClientFactory(
         // kan afwijken van de waarde die deze factory daadwerkelijk op de socket toepast.
         const val READ_TIMEOUT_MS_PROPERTY = "magazijn-client.read-timeout-ms"
         const val READ_TIMEOUT_MS_DEFAULT = "12000"
+
+        // Losgetrokken van createClient() zodat de registratie-beslissing unit-testbaar is
+        // zonder de Quarkus-REST-client-builder (die buiten @QuarkusTest ArC-context faalt).
+        // Niet elk magazijn draait al achter een FSC-outway; grantHash blijft optioneel
+        // totdat de volledige federatie is overgestapt.
+        internal fun fscFilterVoor(inschrijving: Magazijninschrijving): FscOutwayHeadersFilter? =
+            inschrijving.grantHash?.let { FscOutwayHeadersFilter(it) }
     }
 }

@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeadersFilter
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
@@ -46,11 +47,14 @@ class MagazijnRouter(
             // LinkageError) moeten omhoog propageren naar het JVM-vangnet, niet als
             // upstream-storing gemaskeerd worden.
             try {
-                RestClientBuilder.newBuilder()
+                val builder = RestClientBuilder.newBuilder()
                     .baseUri(inschrijving.url)
                     .connectTimeout(config.connectTimeout().toMillis(), TimeUnit.MILLISECONDS)
                     .readTimeout(config.readTimeout().toMillis(), TimeUnit.MILLISECONDS)
-                    .build(MagazijnClient::class.java)
+
+                fscFilterVoor(inschrijving)?.let { builder.register(it) }
+
+                builder.build(MagazijnClient::class.java)
             } catch (e: Exception) {
                 log.errorf(e, "Magazijn-routering: kon REST-client niet bouwen voor magazijnId=%s url=%s", id, inschrijving.url)
 
@@ -84,7 +88,14 @@ class MagazijnRouter(
         }
     }
 
-    private companion object {
+    companion object {
         private val log: Logger = Logger.getLogger(MagazijnRouter::class.java)
+
+        // Losgetrokken van forMagazijn() zodat de registratie-beslissing unit-testbaar is
+        // zonder de RestClientBuilder (die buiten CDI-context een proxy-klasse genereert).
+        // Niet elk magazijn draait al achter een FSC-outway; grantHash blijft optioneel
+        // totdat de volledige federatie is overgestapt.
+        internal fun fscFilterVoor(inschrijving: Magazijninschrijving): FscOutwayHeadersFilter? =
+            inschrijving.grantHash?.let { FscOutwayHeadersFilter(it) }
     }
 }
