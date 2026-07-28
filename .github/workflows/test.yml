@@ -58,6 +58,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
+    # Vangnet tegen een hangende test: een request tegen een niet-bestaande route
+    # wordt met 405/404 beantwoord zónder de request-body te lezen, waarna een
+    # test die megabytes uploadt blijft schrijven tot GitHub de job na 6 uur kapt.
+    # 30 min is ruim boven de reguliere looptijd (~8 min).
+    timeout-minutes: 30
     # pull-requests: write voor de coverage-PR-comment (madrapps/jacoco-report).
     permissions:
       contents: read
