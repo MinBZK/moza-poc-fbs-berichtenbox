@@ -4,7 +4,6 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.context.Context as OtelContext
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.Path
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.UriInfo
@@ -12,7 +11,6 @@ import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.AanleverApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
@@ -29,6 +27,10 @@ import org.jboss.logging.Logger
 /**
  * REST-resource voor de Aanlever API.
  *
+ * **Geen eigen `@Path`**: de paden komen uit de gegenereerde [AanleverApi], de
+ * `/api/v1`-prefix uit `quarkus.rest.path`. Een class-`@Path` hier zou botsen met
+ * de pad-verdeling die de generator zelf over class- en methode-niveau maakt.
+ *
  * **Geen `@Logboek`-annotatie**: die interceptor zet `processingActivityId` op een
  * hardcoded annotation-value, wat config-driven URI's onmogelijk maakt. Daarom zelf
  * span-management (zoals [nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimVerwerker]),
@@ -42,7 +44,6 @@ import org.jboss.logging.Logger
  * clusterrand (mTLS PKIoverheid / OAuth, edge-gateway), dus de upstream is vertrouwd
  * en de inzage-entry voor LDV ligt daar — niet bij dit endpoint.
  */
-@Path(ApiInfo.BASE_PATH + "/berichten")
 @ApplicationScoped
 class AanleverResource(
     private val opslagService: BerichtOpslagService,
@@ -129,7 +130,6 @@ class AanleverResource(
 
     private fun naarBerichtResponse(bericht: Bericht): BerichtResponse {
         val selfHref = uriInfo.baseUriBuilder
-            .path(ApiInfo.BASE_PATH)
             .path("berichten")
             .path(bericht.berichtId.toString())
             .build().toString()

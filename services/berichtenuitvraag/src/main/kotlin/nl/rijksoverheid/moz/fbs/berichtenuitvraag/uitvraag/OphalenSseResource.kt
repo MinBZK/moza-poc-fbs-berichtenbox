@@ -17,7 +17,6 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
-import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
@@ -37,7 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * (AVG art. 30) en vóór die write moet de input integriteit hebben — anders
  * raakt een willekeurige header-waarde de LDV-audittrail.
  */
-@Path(ApiInfo.BASE_PATH + "/berichten/_ophalen")
+@Path("/berichten/_ophalen")
 @ApplicationScoped
 class OphalenSseResource(
     private val sessiecache: Sessiecache,
