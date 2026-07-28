@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
 import io.quarkus.test.common.QuarkusTestResource
@@ -192,6 +193,26 @@ class ProfielServiceClientWireMockTest {
         // hierboven is de echte assert: als de client-implementatie spaties of
         // path-segmenten zou veranderen, kwam er hier een 404 terug en zou de call
         // met NotFoundException falen.
+    }
+
+    @Test
+    fun `zonder grant-hash draagt de Profiel-call geen FSC-outway-headers`() {
+        wireMock.stubFor(
+            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+                aResponse()
+                    .withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"voorkeuren":[]}""")
+            )
+        )
+
+        client.getPartij("BSN", "999993653")
+
+        wireMock.verify(
+            getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+                .withoutHeader("Fsc-Grant-Hash")
+                .withoutHeader("Fsc-Transaction-Id")
+        )
     }
 }
 
