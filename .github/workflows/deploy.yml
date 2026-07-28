@@ -64,6 +64,13 @@ env:
   # (zie pin-consistency.yml). ClickHouse draait op het stock-image; geef het genoeg
   # geheugen via het container-limit (~2–4Gi). Logt naar bestanden in de container, niet
   # naar stdout (geen env-var verandert dat).
+  #
+  # Redis draait op ZAD zónder persistence: zet op de redis-component de runtime-env
+  # `REDIS_ARGS=--save "" --appendonly no` (in Operations Manager, net als de overige
+  # runtime-env hierboven). Het restricted SecurityContext (willekeurige non-root UID)
+  # mag niet in de image-datadir `/data` schrijven, dus RDB-snapshots falen met
+  # "Permission denied". Kan uit: de sessiecache is ephemeral en rekent nergens op
+  # persistence (idempotente RediSearch-bootstrap, TTL-entries, crash-safe vangnet-lock).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
   CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.6
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
