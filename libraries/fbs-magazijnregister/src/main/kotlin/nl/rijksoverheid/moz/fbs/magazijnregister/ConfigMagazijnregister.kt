@@ -9,9 +9,10 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.net.URI
+import java.util.Optional
 
 /**
- * Config-backed [Magazijnregister]: leest `magazijnen."<OIN>".{url,naam}` en
+ * Config-backed [Magazijnregister]: leest `magazijnen."<OIN>".{url,naam,grantHash}` en
  * valideert fail-fast bij opstart — een ongeldige OIN-key, ongeldige of
  * niet-versleutelde URL of een leeg register hoort de boot te blokkeren,
  * niet pas een runtime-fout bij het eerste verkeer te veroorzaken.
@@ -44,7 +45,12 @@ internal class ConfigMagazijnregister(
                 )
             }
 
-            oin to Magazijninschrijving(oin = oin, url = parseUrl(oin, entry.url()), naam = entry.naam().orElse(null))
+            oin to Magazijninschrijving(
+                oin = oin,
+                url = parseUrl(oin, entry.url()),
+                naam = entry.naam().orElse(null),
+                grantHash = parseGrantHash(oin, entry.grantHash()),
+            )
         }
     }
 
@@ -87,5 +93,21 @@ internal class ConfigMagazijnregister(
         OutboundTlsValidator.requireHttps(profile = profile, endpoint = url, configKey = configKey)
 
         return uri
+    }
+
+    /**
+     * Getrimd doorgeven i.p.v. rauw: een grantHash met omringende whitespace
+     * (kopieerfout in de env-var) zou anders stilzwijgend een andere header-
+     * waarde opleveren dan bedoeld, in plaats van fail-fast te falen of exact
+     * te matchen.
+     */
+    private fun parseGrantHash(oin: Oin, grantHash: Optional<String>): String? {
+        val ruw = grantHash.orElse(null) ?: return null
+        val configKey = "magazijnen.\"${oin.waarde}\".grantHash"
+        val getrimd = ruw.trim()
+
+        check(getrimd.isNotBlank()) { "$configKey mag niet leeg of alleen whitespace zijn, was: '$ruw'" }
+
+        return getrimd
     }
 }
