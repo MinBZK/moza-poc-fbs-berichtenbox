@@ -1,12 +1,10 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.beheer
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.Path
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.BeheerApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
@@ -21,8 +19,11 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch as B
  * gegenereerde [BeheerApi] interface en delegeert mutaties aan
  * [BerichtBeheerService]; de response-bodies worden via [BerichtDtoMapper]
  * uniform met de Ophaal-API gemapt.
+ *
+ * Bewust géén eigen `@Path`: de paden komen uit [BeheerApi], de `/api/v1`-prefix
+ * uit `quarkus.rest.path`. Een class-`@Path` hier zou botsen met de pad-verdeling
+ * die de generator zelf over class- en methode-niveau maakt.
  */
-@Path(ApiInfo.BASE_PATH + "/berichten/{berichtId}")
 @ApplicationScoped
 class BeheerResource(
     private val beheerService: BerichtBeheerService,
