@@ -41,7 +41,15 @@
         <jazzer-api.version>0.30.0</jazzer-api.version>
         <wiremock.version>3.13.2</wiremock.version>
         <openapi-request-validator.version>3.0.0</openapi-request-validator.version>
-        <json-schema-validator.version>3.0.6</json-schema-validator.version>
+        <!-- Gepind op 2.0.1: openapi-request-validator 3.0.0 is gecompileerd tegen
+             json-schema-validator 2.0.1. Zonder deze pin wint WireMock's nabijere
+             transitieve 1.5.9 via nearest-wins (compleet andere API, geen SchemaRegistry)
+             en breekt de validator; een major-bump naar 3.x wijzigt de publieke API
+             (o.a. SchemaRegistry.getSchema-signatuur) → NoSuchMethodError in de
+             contracttests. De pin hier in dependencyManagement overschrijft het transitieve
+             conflict voor alle modules; een losse dependency per service is niet nodig.
+             Niet bumpen zolang openapi-request-validator hierop staat. -->
+        <json-schema-validator.version>2.0.1</json-schema-validator.version>
         <awaitility.version>4.3.0</awaitility.version>
     </properties>
 
