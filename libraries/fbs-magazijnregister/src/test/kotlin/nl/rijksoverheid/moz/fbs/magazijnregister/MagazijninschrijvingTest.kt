@@ -40,4 +40,32 @@ class MagazijninschrijvingTest {
 
         assertTrue(ex.message!!.contains("host"))
     }
+
+    @Test
+    fun `grantHash is optioneel en niet-blanco waarden zijn construeerbaar`() {
+        assertDoesNotThrow {
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = null)
+        }
+        assertDoesNotThrow {
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = "abc123")
+        }
+    }
+
+    @Test
+    fun `lege grantHash is niet construeerbaar`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = "")
+        }
+
+        assertTrue(ex.message!!.contains("grantHash"))
+    }
+
+    @Test
+    fun `whitespace-only grantHash is niet construeerbaar`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = "   ")
+        }
+
+        assertTrue(ex.message!!.contains("grantHash"))
+    }
 }
