@@ -72,7 +72,7 @@ env:
   # "Permission denied". Kan uit: de sessiecache is ephemeral en rekent nergens op
   # persistence (idempotente RediSearch-bootstrap, TTL-entries, crash-safe vangnet-lock).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
-  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.6
+  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.7
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
