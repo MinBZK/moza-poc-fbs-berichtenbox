@@ -13,6 +13,8 @@ updates:
       # openapi-request-validator 3.0.0 is gecompileerd tegen json-schema-validator
       # 2.0.1; networknt 3.x breekt de publieke API (NoSuchMethodError in de
       # contracttests). Blokkeer major-bumps tot openapi-request-validator meebeweegt.
+      # Un-pin zodra de upstream-migratie naar networknt 3.x is gereleased — volg:
+      # https://github.com/atlassian/openapi-request-validator/pull/24
       - dependency-name: "com.networknt:json-schema-validator"
         update-types: ["version-update:semver-major"]
   - package-ecosystem: "docker-compose"
