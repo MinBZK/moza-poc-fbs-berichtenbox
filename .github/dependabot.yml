@@ -8,7 +8,36 @@ updates:
   - package-ecosystem: "maven"
     directory: "/"
     schedule:
-      interval: "daily"
+      # Wekelijks i.p.v. dagelijks: bij `daily` force-pusht Dependabot een open groep-PR bij
+      # elke
+      # nieuwe upstream-release, en elke force-push is een volle CI-ronde (test + detekt + drie
+      # preview-deploys). Niet langer dan wekelijks: een maandbatch levert één PR op die te
+      # groot is
+      # om nog te reviewen. Beveiliging hangt hier niet aan: "Dependabot security updates"
+      # staat op de
+      # repo aan, dus een advisory levert direct een fix-PR op, los van dit interval.
+      interval: "weekly"
+    groups:
+      # Quarkus apart: een platform-bump raakt tientallen artefacten in één keer en verdient
+      # een
+      # eigen PR met eigen testrun.
+      quarkus:
+        patterns:
+          - "io.quarkus*"
+          - "quarkus.platform*"
+      # Alle overige minor/patch-bumps in één PR. Majors vallen hier expres buiten en komen dus
+      # als
+      # losse PR — die hebben individuele aandacht nodig (zie de networknt-ignore hieronder
+      # voor waarom).
+      maven-minor-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "io.quarkus*"
+          - "quarkus.platform*"
+        update-types:
+          - "minor"
+          - "patch"
     ignore:
       # openapi-request-validator 3.0.0 is gecompileerd tegen json-schema-validator
       # 2.0.1; networknt 3.x breekt de publieke API (NoSuchMethodError in de
@@ -20,11 +49,19 @@ updates:
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    groups:
+      # Eén PR voor de compose-images (postgres, clickhouse, stubs): losse PR's per image
+      # leverden
+      # bumps op die los gemerged werden terwijl de pins in deploy.yml er synchroon mee moeten
+      # blijven.
+      docker-compose:
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
     groups:
       # codeql-action publiceert init/autobuild/analyze/upload-sarif als losse
       # sub-actions onder één versie. Ze MOETEN samen bewegen: een enkele
