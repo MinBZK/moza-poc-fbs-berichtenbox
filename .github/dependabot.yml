@@ -3,11 +3,14 @@
 # Please see the documentation for all configuration options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
-# Version-updates lopen wekelijks. Dependabot security updates staan aan en komen
-# los van dit schema binnen zodra er een advisory verschijnt; een dagelijkse
-# version-update-ronde voegt daar niets aan toe behalve review-ruis.
+# Cadans per ecosystem hangt af van de vraag of Dependabot security updates het
+# betreffende ecosystem dekken: alleen dán is een dagelijkse version-update-ronde
+# overbodige review-ruis. Zie de motivatie per blok hieronder.
 version: 2
 updates:
+  # Wekelijks: security updates staan aan voor dit repo en dekken Maven, dus een
+  # advisory landt hier hoe dan ook meteen — los van dit schema. Het merendeel van
+  # de version-update-ruis komt uit dit blok.
   - package-ecosystem: "maven"
     directory: "/"
     schedule:
@@ -20,14 +23,20 @@ updates:
       # https://github.com/atlassian/openapi-request-validator/pull/24
       - dependency-name: "com.networknt:json-schema-validator"
         update-types: ["version-update:semver-major"]
+  # Dagelijks: Dependabot genereert geen alerts voor container-images, dus voor de
+  # images uit compose.yaml (die via pin-consistency.yml ook de ZAD-runtime-pins
+  # sturen) is deze version-update-ronde het enige signaal dat er een nieuwe versie is.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "daily"
+  # Dagelijks: alerts komen er alleen voor semver-referenties, en alle `uses:` in dit
+  # repo zijn op commit-SHA gepind (supply-chain-eis). Ook hier is de version-update
+  # dus het enige kanaal; de groepering hieronder houdt het bij hooguit twee PR's.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "daily"
     groups:
       # codeql-action publiceert init/autobuild/analyze/upload-sarif als losse
       # sub-actions onder één versie. Ze MOETEN samen bewegen: een enkele
