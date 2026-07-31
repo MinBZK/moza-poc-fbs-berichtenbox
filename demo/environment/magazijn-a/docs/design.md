@@ -2,6 +2,14 @@
 
 # Ontwerp — Magazijn-provider-peer aansluiten op de FSC-federatie (#780)
 
+> **LET OP — dit ontwerp is bijgewerkt.** De onderstaande hoofdtekst beschrijft het
+> *oorspronkelijke* ontwerp: een eigen ZAD-project (`mpfoa-e2w`), project-isolatie, en de
+> `zad-deploy-peer.yml`-workflow. Dat model is sinds de migratie naar
+> `demo/environment/magazijn-a/` **niet meer actueel** — zie de sectie "Addendum
+> 2026-07-31" onderaan dit document voor de huidige situatie (co-locatie in `mpfm-w3h`,
+> `magazijna-fsc*`-componentnamen, `deploy-test-magazijnen` i.p.v. een losse workflow).
+> Lees de hoofdtekst als historische context, niet als de huidige stand van zaken.
+
 > Toespitsing van **Spec B** (`moza-fsc-testnet:docs/superpowers/specs/2026-06-29-fbs-peers-onboarding-design.md`)
 > op het provider-deel, verhuisd naar repo B (`moza-poc-fbs-berichtenbox`). Verwant:
 > [Spec A](https://github.com/MinBZK/moza-fsc-testnet) (generieke infra), epic
@@ -150,6 +158,15 @@ magazijn-a                                   centrale kern (directory)
   SAN's zijn concrete namen), zodat de certs niet voor het hele gedeelde Rijks-hosting-domein geldig
   zijn. Bewezen met `verify.sh` + `openssl`. Verandert het project of de deployment-naam, dan moeten
   de bijbehorende publieke én Service-DNS-hostnamen als SAN opnieuw uitgegeven en geüpload worden.
+  **Uitzondering:** deze "géén wildcard"-claim geldt niet voor
+  `pki/peers/directory/directory/csr.json` — die draagt wél een domein-brede wildcard-SAN
+  (`*.rig.prd1.gn2.quattro.rijksapps.nl`), ongewijzigd overgenomen uit de lokale-harness
+  directory-stub van de bronrepo. `pki/issue.sh` itereert onvoorwaardelijk over ALLE
+  `peers/*/*/csr.json`, dus bij een echte ZAD-run (het gedocumenteerde pad: fsc-testnet's
+  échte `ca/root.pem` + `ca/intermediate.pem` in `pki/ca/` zetten, `init-ca.sh` overslaan,
+  `issue.sh` draaien) tekent de échte group-CA óók deze wildcard-cert. Dat is een risico dat
+  vóór een echte ZAD-run moet worden geadresseerd (bv. `peers/directory/` uitsluiten van die
+  `issue.sh`-aanroep, of de SAN versmallen).
 - **txlog is verplicht voor een niet-directory manager — toegevoegd.** OpenFSC v1.43.7 faalt hard
   op `tx-log-api-address is required when the manager does not function as the directory` als
   `TX_LOG_API_ADDRESS` leeg is. De eerdere aanname (txlog op ZAD leeglaten tot #728) klopt dus niet;
@@ -182,7 +199,7 @@ magazijn-a                                   centrale kern (directory)
   blijft betrouwbaar voor images/refs. Componenten NIET verwijderen om env te wijzigen — dan raak je
   de cert-attachments (UI-only per component) kwijt.
 - **Interne-mTLS poort/routering op ZAD — OPGELOST (2026-07-13), zie
-  [`zad-fsc-mesh-blocker.md`](zad-fsc-mesh-blocker.md).** Was van 2026-07-10 t/m 2026-07-13
+  zad-fsc-mesh-blocker.md (bron-repo moza-fsc-org-a/docs/, niet meeverhuisd).** Was van 2026-07-10 t/m 2026-07-13
   geblokkeerd: een ZAD-component publiceerde **precies één** inbound-poort, dus de interne FSC-API's
   op `:9443`/`:9444` hadden geen ClusterIP-Service en waren cluster-intern onbereikbaar (`x509:
   certificate signed by unknown authority` omdat het interne verkeer noodgedwongen over de

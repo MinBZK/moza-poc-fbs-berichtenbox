@@ -15,6 +15,29 @@ resp. de lokale smokes.
 > daarvan fsc-testnet's `ca/root.pem` + `ca/intermediate.pem` (+ keys) in `pki/ca/` en draai
 > alleen `issue.sh`. Zie `pki/README.md`.
 
+## Waarschuwing — PR-preview clone-risico
+
+`deploy-preview-magazijnen` in `.github/workflows/deploy.yml` deployt PR-previews van het
+gedeelde project `mpfm-w3h` met `clone-from: test`. De `components:`-lijst van die job bevat
+bewust géén van de vijf FSC-peer-componenten (`magazijna-fscmgr`, `magazijna-fscctl`,
+`magazijna-fscinway`, `magazijna-fsctxlog`, `magazijna-fscpg`) — maar het is **niet
+geverifieerd** of `clone-from` van zad-actions alléén de componenten uit de eigen
+`components:`-lijst kloont, of *alle* componenten van de bron-deployment (`test`), inclusief
+componenten die niet in die lijst staan.
+
+Als het laatste het geval is, krijgt **elke PR-preview** ongewild 5 extra pods: clones zonder
+de UI-only cert-attachments van de peer (die kloont de v2-API niet mee), dus crashloopen ze
+direct. Worst-case meldt de peer-manager in zo'n preview zich met dezelfde federatie-OIN
+(`00000000000000100000`) opnieuw aan bij de gedeelde fsc-testnet-directory — een tweede
+manager die dezelfde peer-identiteit claimt.
+
+Deze peer is bedoeld als **`test`-only singleton**. **Voordat `upsert-peer.sh apply` ooit voor
+het eerst gedraaid wordt**, moet een mens eerst bij RijksICTGilde/zad-actions bevestigen of
+`clone-from: test` componenten kloont die niet in de eigen `components:`-lijst staan. Zo ja:
+mitigeer dat vóór de componenten in `test` gemaakt worden (bv. de peer-componenten expliciet
+uit de clone-scope sluiten, of — als dat niet kan — de consequentie bewust accepteren en hier
+documenteren) vóórdat de componentcreatie in `test` gemerged wordt.
+
 ## Inhoud
 
 | Bestand | Rol |
@@ -43,6 +66,13 @@ resp. de lokale smokes.
 7. **UI-mount** (zie `cert-manifest.md`) — cert-attachments + "Publicatie op het web"
    (passthrough-TLS) zijn UI-only; de v2-API dekt dit niet.
 8. **`verify-zad.md`** — announce, dienst-publicatie, discover.
+9. **`MAGAZIJN_OIN` handmatig ombouwen (vóór/bij live-gang).** `berichtenmagazijn` leest zijn
+   eigen OIN via de env-var `MAGAZIJN_OIN` (geen default, fail-fast) — gezet in de
+   projectspec van `mpfm-w3h` in `rig-cluster-projects` (buiten deze repo, dus niet door
+   deze migratie zelf aangepast). Een mens moet die var expliciet naar de nieuwe OIN
+   `00000000000000100000` zetten, anders publiceert `berichtenmagazijn` nog onder de OUDE
+   identiteit terwijl de peer-componenten al onder de nieuwe OIN announcen — een mismatch
+   tussen de dienstverlener en de FSC-peer die haar aanmeldt.
 
 ## Env-vars
 

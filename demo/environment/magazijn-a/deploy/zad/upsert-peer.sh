@@ -133,16 +133,12 @@ MGZPG_SVC="${DEPLOYMENT}-magazijna-fscpg"                  # self-hosted Postgre
 # directory-host is; override met ZAD_DIRECTORY_MANAGER_HOST als de directory elders draait.
 DIRECTORY_MANAGER_HOST="${ZAD_DIRECTORY_MANAGER_HOST:-dirmgr-test-mft-tp9.${BASE_DOMAIN}}"
 
-# De peer draait in een EIGEN project (`mpfm-w3h`); de magazijna-app draait in `mpfm-w3h`. De inway
-# bereikt de app dus CROSS-PROJECT via de ZAD-ingress-URL (https, :443 — de ingress mapt naar de
-# app-containerpoort; geen poort in de URL). De upstream-URL is daarom afgeleid van het APP-project
-# (ZAD_MAGAZIJNA_PROJECT, NIET het peer-PROJECT) + de app-deployment. Default-app-deployment =
-# `test`; override met ZAD_MAGAZIJNA_DEPLOYMENT (bv. een PR-preview `pr-140`) of volledig met
-# ZAD_MAGAZIJNA_UPSTREAM_URL. Dit is GEEN inway-env-var (OpenFSC kent geen "upstream" op de inway)
-# maar de endpoint_url die bij de service-publicatie op de magazijna-fscctl Administration-API wordt
-# meegegeven — zie verify-zad.md, stap (b).
-# Peer en app-component `magazijna` zitten sinds de co-locatie in HETZELFDE project +
-# dezelfde deployment (geen aparte project-indirectie meer nodig).
+# Peer en app-component `magazijna` zitten sinds de co-locatie in HETZELFDE project (`mpfm-w3h`)
+# + dezelfde deployment (`${PROJECT}`/`${DEPLOYMENT}`, geen aparte project-indirectie meer nodig).
+# De upstream-URL wordt dus afgeleid van diezelfde `PROJECT`/`DEPLOYMENT`-vars als de peer zelf; een
+# volledige override kan nog steeds via ZAD_MAGAZIJNA_UPSTREAM_URL. Dit is GEEN inway-env-var
+# (OpenFSC kent geen "upstream" op de inway) maar de endpoint_url die bij de service-publicatie op
+# de magazijna-fscctl Administration-API wordt meegegeven — zie verify-zad.md, stap (b).
 MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-https://magazijna-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}}"
 
 # --- env-blobs (KEY=value, newline-sep, plain). TLS_*-paden = de bijlage-mounts (UI, ontwerp A). ---

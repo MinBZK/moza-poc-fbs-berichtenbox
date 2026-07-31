@@ -19,7 +19,7 @@ het cert-contract).
 
 ## Draaiboek
 
-Alle commando's vanuit de **repo-root**.
+Alle commando's vanuit de **peer-root** (`demo/environment/magazijn-a/`).
 
 ```bash
 # 1. Genereer de PKI voor magazijn-a (zie pki/README.md).
