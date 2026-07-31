@@ -1,4 +1,4 @@
--- Init-script voor de self-hosted Postgres (component `mgzpg`) van de magazijn-a-peer op ZAD.
+-- Init-script voor de self-hosted Postgres (component `magazijna-fscpg`) van de magazijn-a-peer op ZAD.
 --
 -- Waarom self-hosted i.p.v. ZAD's managed Postgres: die laat ons de init/schema's niet naar eigen
 -- inzicht inrichten. Deze Postgres beheren we volledig; dit script draait ÉÉNMALIG bij een lege
