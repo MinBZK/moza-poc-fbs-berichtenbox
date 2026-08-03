@@ -77,8 +77,12 @@ env:
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
   # ("Task did not complete within 300s"), terwijl de test-deploys (bestaande deployment) in
-  # <100s klaar zijn en de default houden.
-  PREVIEW_TASK_TIMEOUT: '600'
+  # <100s klaar zijn en de default houden. Gelijkgetrokken met de gate-timeout (900s) zodat
+  # er één marge-getal in deze workflow rondgaat.
+  # Let op: dit is de wachttijd van de runner op de OM-task. De melding "timed out waiting for
+  # application to be created" komt daarentegen van OM zelf (Argo-Application-wait) en wordt
+  # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
+  PREVIEW_TASK_TIMEOUT: '900'
 
 jobs:
   # Docs-only PR's (alleen docs/ of *.md) hoeven niet naar ZAD te deployen. Deze job bepaalt dat
