@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Zet de provider-peer magazijn-a (manager+controller+inway+txlog+DB) op ZAD via de v2
 # Operations Manager API, CO-LOCATED in het bestaande project `mpfm-w3h` (samen met de
-# `magazijna`/`magazijnb`/clickhouse-componenten die deploy.yml beheert). Gebaseerd op
-# repo A's deploy/zad/upsert-directory.sh (MinBZK/moza-fsc-testnet) — zelfde
+# `magazijna`/`magazijnb`/clickhouse-componenten die deploy.yml beheert), maar in een
+# EIGEN deployment `fsc-magazijna` — niet in `test`. Reden: PR-previews klonen met
+# `clone-from: test`, en een gekloonde peer zou zich met dezelfde federatie-OIN opnieuw
+# aanmelden bij de gedeelde directory. Wat niet in `test` staat, kan niet meegekloond
+# worden. De app zelf blijft in `test`; de inway bereikt haar cross-deployment via de
+# ingress-URL (ZAD_MAGAZIJNA_DEPLOYMENT). Gebaseerd op repo A's
+# deploy/zad/upsert-directory.sh (MinBZK/moza-fsc-testnet) — zelfde
 # validate/plan/apply-vorm.
 #
 # Gedeeld project = gedeelde ZAD-API-key: ZAD_API_KEY is de bestaande
@@ -11,16 +16,17 @@
 #
 # BELANGRIJK — dit script beheert alleen de EENMALIGE creatie + env/ports/certs van de
 # FSC-peer-componenten. De DOORLOPENDE image-tag-updates (elke push naar main) lopen via
-# de bestaande `deploy-test-magazijnen`-job in .github/workflows/deploy.yml, die de vijf
-# `magazijna-fsc*`-componenten toevoegt aan zijn bestaande component-lijst (naast
-# `magazijna`/`magazijnb`/clickhouse). Dit script is dus een LOKAAL/HANDMATIG
-# plan/validate/apply-hulpmiddel voor de bootstrap en voor debugging — niet meer de
-# CI-apply-stap (die rol had het script in de oude project-isolatie-opzet via
-# zad-deploy-peer.yml, welke workflow is vervallen).
+# de `deploy-test-magazijnen`-job in .github/workflows/deploy.yml, die de vijf
+# `magazijna-fsc*`-componenten in een APARTE stap tegen deployment `fsc-magazijna`
+# bijwerkt (de `test`-stap doet alleen `magazijna`/`magazijnb`/clickhouse). Dit script is
+# dus een LOKAAL/HANDMATIG plan/validate/apply-hulpmiddel voor de bootstrap en voor
+# debugging — niet meer de CI-apply-stap (die rol had het script in de oude
+# project-isolatie-opzet via zad-deploy-peer.yml, welke workflow is vervallen).
 #
 # `:upsert-deployment` maakt géén NIEUW deployment aan (geeft wel HTTP 202, maar het
 # deployment verschijnt niet in /deployments); het UPDATET alleen een bestaand
-# deployment. `test` bestaat al (deploy.yml beheert 'm al voor magazijna/magazijnb).
+# deployment. `fsc-magazijna` moet dus éénmalig leeg in de ZAD-UI aangemaakt worden
+# vóór de eerste apply.
 # NIET via de API (UI-only): bijlagen (cert-mount) + "Publicatie op het web"
 # (passthrough-TLS) — zie cert-manifest.md.
 #
@@ -37,7 +43,7 @@
 # bestaande component, verwijder 'm dan eerst in de UI zodat de volgende apply 'm
 # opnieuw aanmaakt.
 #
-# De deployment is VAST (test/mpfm-w3h), dus we hebben ZAD's $DEPLOYMENT_NAME-
+# De deployment is VAST (fsc-magazijna/mpfm-w3h), dus we hebben ZAD's $DEPLOYMENT_NAME-
 # substitutie niet nodig: bash lost alle inter-component-hostnamen concreet op
 # (*_HOST_DISPLAY) en zet ze in `env_vars`.
 #
@@ -53,8 +59,8 @@
 #      ZAD_PG_SSLMODE (disable).
 set -euo pipefail
 
-MODE="${1:?usage: upsert-peer.sh <validate|plan|apply> [deployment=test] [tag=v2.5.2]}"
-DEPLOYMENT="${2:-${ZAD_DEPLOYMENT:-test}}"       # arg wint; anders ZAD_DEPLOYMENT (spoort met pki/gen-csr.sh)
+MODE="${1:?usage: upsert-peer.sh <validate|plan|apply> [deployment=fsc-magazijna] [tag=v2.5.2]}"
+DEPLOYMENT="${2:-${ZAD_DEPLOYMENT:-fsc-magazijna}}"  # arg wint; anders ZAD_DEPLOYMENT (spoort met pki/gen-csr.sh)
 IMAGE_TAG="${3:-v2.5.2}"                        # OpenFSC-versie: inway stock-image + default-tag voor de migrate-wrappers
 MANAGER_TAG="${ZAD_MANAGER_TAG:-${IMAGE_TAG}}"       # migrate-wrappers (ghcr) mogen een eigen tag hebben
 CONTROLLER_TAG="${ZAD_CONTROLLER_TAG:-${IMAGE_TAG}}"
@@ -63,7 +69,7 @@ PROJECT="${ZAD_PROJECT:-mpfm-w3h}"
 BASE="${ZAD_BASE:-https://zad.rijksapp.nl}"
 BASE_DOMAIN="${ZAD_BASE_DOMAIN:-rig.prd1.gn2.quattro.rijksapps.nl}"
 PG_SSLMODE="${ZAD_PG_SSLMODE:-disable}"          # managed DB intra-cluster: plaintext (zoals berichtenbox-JDBC)
-CLONE_FROM="${ZAD_PEER_CLONE_FROM:-}"            # leeg = geen clone; `test` bestaat doorgaans al als project-default
+CLONE_FROM="${ZAD_PEER_CLONE_FROM:-}"            # leeg = geen clone; klonen van `test` zou de app-componenten meenemen
 
 # --- Self-hosted Postgres (component magazijna-fscpg) ---------------------------------------------------------
 # ZAD's managed Postgres laat ons het schema/init niet inrichten (geen init-scripts, geen CREATE
@@ -107,7 +113,7 @@ POSTGRES_IMAGE="${ZAD_POSTGRES_IMAGE:-docker.io/library/postgres:17}"   # self-h
 
 # Concrete hostnamen voor déze (vaste) deployment — zowel voor de plan-/apply-output als, direct,
 # voor de inter-component-adressen in de env_vars-blobs. Geen $DEPLOYMENT_NAME-substitutie: de
-# deployment is vast (test/mpfm-w3h), dus bash lost de hostnaam op en we leunen niet op ZAD's
+# deployment is vast (fsc-magazijna/mpfm-w3h), dus bash lost de hostnaam op en we leunen niet op ZAD's
 # aliases-substitutie (die alleen bij component-creatie wordt toegepast, niet bij een re-POST).
 MGZMGR_HOST_DISPLAY="magazijna-fscmgr-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 MGZCTL_HOST_DISPLAY="magazijna-fscctl-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
@@ -116,7 +122,7 @@ MGZTXLOG_HOST_DISPLAY="magazijna-fsctxlog-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN
 
 # Cluster-INTERNE Service-DNS (sinds de ZAD-multi-poort-fix, 2026-07-13). Elke component exposet nu
 # ál zijn `ports.inbound` als ClusterIP-Service-poort; de Service heet `<deployment>-<component>` en
-# is intern bereikbaar als `<deployment>-<component>:<poort>` (bv. `test-magazijna-fscmgr:9443`). De interne
+# is intern bereikbaar als `<deployment>-<component>:<poort>` (bv. `fsc-magazijna-magazijna-fscmgr:9443`). De interne
 # FSC-edges (controller↔manager, inway→manager/controller, →txlog) lopen hierover — NIET meer over de
 # publieke `:443`-ingress, waardoor ze op de interne-PKI-poort met de juiste CA landen (dat lost de
 # eerdere `x509: certificate signed by unknown authority` op). Alleen de EXTERNE mesh (SELF_ADDRESS,
@@ -133,13 +139,14 @@ MGZPG_SVC="${DEPLOYMENT}-magazijna-fscpg"                  # self-hosted Postgre
 # directory-host is; override met ZAD_DIRECTORY_MANAGER_HOST als de directory elders draait.
 DIRECTORY_MANAGER_HOST="${ZAD_DIRECTORY_MANAGER_HOST:-dirmgr-test-mft-tp9.${BASE_DOMAIN}}"
 
-# Peer en app-component `magazijna` zitten sinds de co-locatie in HETZELFDE project (`mpfm-w3h`)
-# + dezelfde deployment (`${PROJECT}`/`${DEPLOYMENT}`, geen aparte project-indirectie meer nodig).
-# De upstream-URL wordt dus afgeleid van diezelfde `PROJECT`/`DEPLOYMENT`-vars als de peer zelf; een
-# volledige override kan nog steeds via ZAD_MAGAZIJNA_UPSTREAM_URL. Dit is GEEN inway-env-var
+# Peer en app-component `magazijna` delen het project (`mpfm-w3h`) maar NIET de deployment: de app
+# draait in `test` (door deploy.yml beheerd, bron van de PR-preview-clones), de peer in
+# `fsc-magazijna`. De upstream-URL wijst dus naar de APP-deployment, niet naar `${DEPLOYMENT}`;
+# een volledige override kan via ZAD_MAGAZIJNA_UPSTREAM_URL. Dit is GEEN inway-env-var
 # (OpenFSC kent geen "upstream" op de inway) maar de endpoint_url die bij de service-publicatie op
 # de magazijna-fscctl Administration-API wordt meegegeven — zie verify-zad.md, stap (b).
-MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-https://magazijna-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}}"
+MAGAZIJNA_DEPLOYMENT="${ZAD_MAGAZIJNA_DEPLOYMENT:-test}"
+MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-https://magazijna-${MAGAZIJNA_DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}}"
 
 # --- env-blobs (KEY=value, newline-sep, plain). TLS_*-paden = de bijlage-mounts (UI, ontwerp A). ---
 MGZMGR_ENV="$(printf '%s\n' \

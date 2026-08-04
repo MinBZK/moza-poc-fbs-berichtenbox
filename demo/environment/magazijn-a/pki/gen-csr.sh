@@ -22,7 +22,7 @@ BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 # --- ZAD-topologie (DEZELFDE env-vars + defaults als deploy/zad/upsert-peer.sh) ---------------------
 PROJECT="${ZAD_PROJECT:-mpfm-w3h}"
-DEPLOYMENT="${ZAD_DEPLOYMENT:-test}"                       # upsert-peer.sh neemt dit als arg (default test)
+DEPLOYMENT="${ZAD_DEPLOYMENT:-fsc-magazijna}"              # upsert-peer.sh neemt dit als arg (zelfde default)
 BASE_DOMAIN="${ZAD_BASE_DOMAIN:-rig.prd1.gn2.quattro.rijksapps.nl}"
 NAMESPACE="${ZAD_NAMESPACE:-rig-prd-${PROJECT}}"          # OpenShift-namespace = rig-prd-<project>
 CLUSTER_DOMAIN="${ZAD_CLUSTER_DOMAIN:-svc.cluster.local}"

@@ -3,9 +3,10 @@
 ZAD-rollout van de FSC-provider-peer `magazijn-a` (manager `magazijna-fscmgr`, controller
 `magazijna-fscctl`, inway `magazijna-fscinway`, txlog `magazijna-fsctxlog`, self-hosted Postgres
 `magazijna-fscpg`), **CO-LOCATED in het bestaande ZAD-project `mpfm-w3h`** — hetzelfde project als
-de `magazijna`/`magazijnb`/clickhouse-componenten die `deploy.yml` beheert. Peer en app delen dus
-zowel project als deployment (`test`); de `magazijna-fsc*`-componentnamen bestaan om botsingen met
-de app-componenten in dat gedeelde project te voorkomen. Bouwt voort op `pki/` (certs) en
+de `magazijna`/`magazijnb`/clickhouse-componenten die `deploy.yml` beheert. Peer en app delen het
+project, maar **niet de deployment**: de app draait in `test` (en per PR in `pr-<n>`), de peer in
+zijn eigen deployment **`fsc-magazijna`**. De `magazijna-fsc*`-componentnamen bestaan om botsingen
+met de app-componenten in dat gedeelde project te voorkomen. Bouwt voort op `pki/` (certs) en
 `deploy/local/` (lokale compose-proof van dezelfde peer); zie die README's voor het cert-contract
 resp. de lokale smokes.
 
@@ -15,28 +16,25 @@ resp. de lokale smokes.
 > daarvan fsc-testnet's `ca/root.pem` + `ca/intermediate.pem` (+ keys) in `pki/ca/` en draai
 > alleen `issue.sh`. Zie `pki/README.md`.
 
-## Waarschuwing — PR-preview clone-risico
+## Waarom een eigen deployment `fsc-magazijna`
 
 `deploy-preview-magazijnen` in `.github/workflows/deploy.yml` deployt PR-previews van het
-gedeelde project `mpfm-w3h` met `clone-from: test`. De `components:`-lijst van die job bevat
-bewust géén van de vijf FSC-peer-componenten (`magazijna-fscmgr`, `magazijna-fscctl`,
-`magazijna-fscinway`, `magazijna-fsctxlog`, `magazijna-fscpg`) — maar het is **niet
-geverifieerd** of `clone-from` van zad-actions alléén de componenten uit de eigen
-`components:`-lijst kloont, of *alle* componenten van de bron-deployment (`test`), inclusief
-componenten die niet in die lijst staan.
+gedeelde project `mpfm-w3h` met `clone-from: test`. Of `clone-from` alléén de componenten uit de
+eigen `components:`-lijst kloont of *alle* componenten van de bron-deployment, is bij
+RijksICTGilde/zad-actions niet bevestigd. Bij het laatste zou elke PR-preview 5 extra pods
+krijgen: clones zonder de UI-only cert-attachments (die kloont de v2-API niet mee), dus direct
+crashloopend — en worst-case meldt de gekloonde peer-manager zich met dezelfde federatie-OIN
+(`00000000000000100000`) opnieuw aan bij de gedeelde fsc-testnet-directory, een tweede manager
+die dezelfde peer-identiteit claimt.
 
-Als het laatste het geval is, krijgt **elke PR-preview** ongewild 5 extra pods: clones zonder
-de UI-only cert-attachments van de peer (die kloont de v2-API niet mee), dus crashloopen ze
-direct. Worst-case meldt de peer-manager in zo'n preview zich met dezelfde federatie-OIN
-(`00000000000000100000`) opnieuw aan bij de gedeelde fsc-testnet-directory — een tweede
-manager die dezelfde peer-identiteit claimt.
+De peer staat daarom in een eigen deployment `fsc-magazijna`: **wat niet in `test` staat, kan
+niet uit `test` gekloond worden**, ongeacht hoe `clone-from` zich gedraagt. De peer blijft een
+singleton (één deployment, één aanmelding van de federatie-OIN); previews van de app draaien
+zonder peer. `fsc-magazijna` is zelf nooit een kloon-bron.
 
-Deze peer is bedoeld als **`test`-only singleton**. **Voordat `upsert-peer.sh apply` ooit voor
-het eerst gedraaid wordt**, moet een mens eerst bij RijksICTGilde/zad-actions bevestigen of
-`clone-from: test` componenten kloont die niet in de eigen `components:`-lijst staan. Zo ja:
-mitigeer dat vóór de componenten in `test` gemaakt worden (bv. de peer-componenten expliciet
-uit de clone-scope sluiten, of — als dat niet kan — de consequentie bewust accepteren en hier
-documenteren) vóórdat de componentcreatie in `test` gemerged wordt.
+De app-component `magazijna` blijft in `test`. De inway bereikt haar cross-deployment via de
+ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
+`MAGAZIJNA_UPSTREAM_URL` in `upsert-peer.sh`.
 
 ## Inhoud
 
@@ -45,7 +43,7 @@ documenteren) vóórdat de componentcreatie in `test` gemerged wordt.
 | `upsert-peer.sh` | `validate`/`plan`/`apply` tegen de ZAD v2 Operations Manager API — lokaal/handmatig hulpmiddel voor de eenmalige component-creatie (env/ports/certs) en voor debugging. |
 | `cert-manifest.md` | Runbook: welk cert-bestand op welk `/etc/fsc/...`-pad, per component (UI-only bijlagen). |
 | `verify-zad.md` | Runbook: announce/publiceren/discover ná een geslaagde apply, + de acceptatiecriteria. |
-| `../../../../../.github/workflows/deploy.yml` (root) | `deploy-test-magazijnen`-job: de DOORLOPENDE image-tag-updates (elke push naar main) van de `magazijna-fsc*`-componenten, naast `magazijna`/`magazijnb`/clickhouse — niet de eenmalige creatie (die doet `upsert-peer.sh`). |
+| `../../../../../.github/workflows/deploy.yml` (root) | `deploy-test-magazijnen`-job: de DOORLOPENDE image-tag-updates (elke push naar main). Twee stappen — `magazijna`/`magazijnb`/clickhouse op deployment `test`, de vijf `magazijna-fsc*`-componenten op `fsc-magazijna`. Niet de eenmalige creatie (die doet `upsert-peer.sh`). |
 
 ## Volgorde
 
@@ -53,10 +51,10 @@ documenteren) vóórdat de componentcreatie in `test` gemerged wordt.
    (vereist `cfssl`; zie `pki/README.md`).
 2. **Bundle** — `pki/zad-bundle.sh magazijn-a` (hangt af van stap 1) →
    upload-klare cert-set in `pki/zad-upload/magazijn-a/`.
-3. **Deployment `test` bestaat al** in het gedeelde project `mpfm-w3h` — `deploy.yml` beheert het
-   al voor `magazijna`/`magazijnb`/clickhouse. De raw v2-API `:upsert-deployment` maakt sowieso géén
+3. **Deployment `fsc-magazijna` éénmalig leeg aanmaken in de ZAD-UI** (project `mpfm-w3h`), **zonder
+   clone-from** — anders komen de app-componenten mee. De raw v2-API `:upsert-deployment` maakt géén
    NIEUWE deployment aan (geeft wel 202 maar het deployment verschijnt niet in `/deployments`); het
-   UPDATET alleen een bestaand deployment — hier dus geen punt van zorg.
+   UPDATET alleen een bestaand deployment. Zonder deze stap doet `apply` dus niets zichtbaars.
 4. **`upsert-peer.sh plan [deployment] [tag]`** (dry-run, wél uitvoerbaar — alleen `jq`, geen
    netwerk) — toont de deployment- + drie component-bodies zonder te muteren.
 5. **`upsert-peer.sh validate`** (vereist `ZAD_API_KEY`) — read-only auth-check tegen
@@ -80,7 +78,7 @@ documenteren) vóórdat de componentcreatie in `test` gemerged wordt.
 |-----------|---------|-----|
 | `ZAD_API_KEY` | — (verplicht bij `apply`) | Auth tegen de ZAD v2-API; de bestaande **`ZAD_API_KEY_MAGAZIJNEN`** (key van het gedeelde project `mpfm-w3h`) — géén aparte peer-key meer nodig. **Niet** inline zetten (`export`, niet `ZAD_API_KEY=... ./upsert-peer.sh ...` — dat komt in de shell-history). |
 | `ZAD_PROJECT` | `mpfm-w3h` | Gedeeld ZAD-project van peer + app (`magazijna`/`magazijnb`/clickhouse). Bepaalt óók de namespace (`rig-prd-<project>`) in de cert-SAN's — `pki/gen-csr.sh` leest dezelfde var, dus een projectwissel is env-var-only (her-uitgeven + opnieuw uploaden). |
-| `ZAD_DEPLOYMENT` | `test` | Default voor het `[deployment]`-argument (het CLI-arg wint). Gedeeld met `pki/gen-csr.sh` zodat cert-SAN's en deploy-adressen sporen; sinds de co-locatie ook de deployment van de `magazijna`-app zelf (geen aparte app-deployment meer). |
+| `ZAD_DEPLOYMENT` | `fsc-magazijna` | Default voor het `[deployment]`-argument (het CLI-arg wint) — de eigen, preview-loze peer-deployment. Gedeeld met `pki/gen-csr.sh` zodat cert-SAN's en deploy-adressen sporen; een deployment-wissel vraagt dus om her-uitgeven + opnieuw uploaden van de certs. |
 | `ZAD_BASE` | `https://zad.rijksapp.nl` | Basis-URL van de ZAD v2 Operations Manager API. |
 | `ZAD_BASE_DOMAIN` | `rig.prd1.gn2.quattro.rijksapps.nl` | Base-domain voor de per-component mesh-hostnamen. |
 | `ZAD_MANAGER_TAG` / `ZAD_CONTROLLER_TAG` / `ZAD_TXLOG_TAG` | = het `tag`-argument | Losse tag-override per migrate-wrapper (ghcr `{manager,controller,txlog}-migrate`), los van de OpenFSC stock-tag voor de inway. |
@@ -92,7 +90,8 @@ documenteren) vóórdat de componentcreatie in `test` gemerged wordt.
 | `ZAD_MGR_SCHEMA` / `ZAD_TXLOG_SCHEMA` | `manager` / `txlog` | `search_path`-schema voor de migratie-teller van manager resp. txlog (isolatie). Moeten sporen met `postgres-init.sql` (dat die twee aanmaakt). Leeg = geen search_path. |
 | `ZAD_CTL_SCHEMA` | _(leeg)_ | De controller draait **zonder** search_path — die maakt z'n eigen `controller`-schema aan; mét search_path loopt migratie #1 dirty vast. Alleen zetten als je weet wat je doet. |
 | `ZAD_POSTGRES_IMAGE` | `docker.io/library/postgres:17` | Image voor de `magazijna-fscpg`-component. |
-| `ZAD_MAGAZIJNA_UPSTREAM_URL` | `https://magazijna-<deployment>-<project>.<base-domain>` | Volledige override van de endpoint-URL naar de `magazijna`-app; standaard afgeleid uit de eigen `ZAD_DEPLOYMENT`/`ZAD_PROJECT` (peer en app delen sinds de co-locatie dezelfde deployment + project, dus geen aparte app-indirectie meer). |
+| `ZAD_MAGAZIJNA_DEPLOYMENT` | `test` | Deployment waarin de `magazijna`-app draait. Staat los van `ZAD_DEPLOYMENT` (de peer-deployment) — de peer praat cross-deployment via de ingress-URL. |
+| `ZAD_MAGAZIJNA_UPSTREAM_URL` | `https://magazijna-<magazijna-deployment>-<project>.<base-domain>` | Volledige override van de endpoint-URL naar de `magazijna`-app; standaard afgeleid uit `ZAD_MAGAZIJNA_DEPLOYMENT`/`ZAD_PROJECT`. |
 
 `deploy.yml`'s `deploy-test-magazijnen`-job gebruikt voor zijn image-tag-updates het bestaande
 secret `ZAD_API_KEY_MAGAZIJNEN` — dezelfde key als voor `magazijna`/`magazijnb`/clickhouse, geen

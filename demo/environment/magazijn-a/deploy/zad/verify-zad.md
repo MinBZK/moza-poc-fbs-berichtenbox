@@ -12,7 +12,7 @@
    (passthrough-TLS, modus 2) op magazijna-fscmgr/magazijna-fscinway ingesteld in de ZAD-UI.
 3. Componenten herstart en boot-logs foutloos (zie `cert-manifest.md`, laatste sectie) — in het
    bijzonder GEEN `x509: certificate signed by unknown authority` meer op de controller: die
-   bereikt de manager nu intern op `test-magazijna-fscmgr:9443` (interne-PKI) i.p.v. de `:443`-group-ingress.
+   bereikt de manager nu intern op `fsc-magazijna-magazijna-fscmgr:9443` (interne-PKI) i.p.v. de `:443`-group-ingress.
 
 ## (a) Announce — magazijn-OIN vindbaar in de directory
 
@@ -34,7 +34,7 @@ Alternatief (UI): log in op de directory-UI (repo A's `dirui`-component) en zoek
 
 Sinds de multi-poort-fix (2026-07-13) loopt dit weer via de **normale** interne flow: de controller
 maakt de dienst + het servicePublication-contract aan en laat de manager het ondertekenen over de
-interne-PKI op `test-magazijna-fscmgr:9443` — geen mesh-omweg meer nodig.
+interne-PKI op `fsc-magazijna-magazijna-fscmgr:9443` — geen mesh-omweg meer nodig.
 
 - **UI (aanbevolen — werkt nu end-to-end)**: via de extern gepubliceerde magazijna-fscctl-beheer-UI
   (`LISTEN_ADDRESS_UI`, extern op `https://magazijna-fscctl-<deployment>-mpfm-w3h.<base-domain>:443`,
@@ -45,7 +45,7 @@ interne-PKI op `test-magazijna-fscmgr:9443` — geen mesh-omweg meer nodig.
   contract ondertekent.
 - **Script (alleen vanuit de cluster)**: `deploy/local/publish-service.sh` POST naar de magazijna-fscctl
   Administration-API (`:9444`) en de manager-internal (`:9443`) — beide zijn nu cluster-interne
-  Services (`test-magazijna-fscctl:9444`, `test-magazijna-fscmgr:9443`) met de **internal-PKI**, dus dit kan alleen
+  Services (`fsc-magazijna-magazijna-fscctl:9444`, `fsc-magazijna-magazijna-fscmgr:9443`) met de **internal-PKI**, dus dit kan alleen
   vanuit een pod/job binnen namespace `rig-prd-mpfm-w3h` draaien (niet vanaf een externe host; die
   poorten hebben geen ingress). Buiten de cluster is de UI-route de enige.
 

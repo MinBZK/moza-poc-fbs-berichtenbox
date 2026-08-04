@@ -141,19 +141,22 @@ magazijn-a                                   centrale kern (directory)
 
 ## Open punten (genoteerd, niet-blokkerend)
 
-- **Peer-topologie op ZAD (clobber-veilig via project-isolatie):** de peer draait in een **eigen
-  ZAD-project `mpfm-w3h`**, los van het app-project `mpfm-w3h` dat `deploy.yml` beheert. Er is dus
-  geen app-deployment om te overschrijven. Binnen `mpfm-w3h` draait de peer in de deployment
-  `test` = één aanmelding van de federatie-OIN (singleton). De inway bereikt `magazijna`
-  **cross-project via de ingress-URL** (`https://magazijna-<app-deployment>-mpfm-w3h.<base-domain>`,
-  https/:443). Eigen project betekent ook een **eigen ZAD-API-key** (`ZAD_API_KEY_FSCORGA`). De
-  raw v2-API maakt geen nieuwe deployments; `test` is doorgaans het project-default en bestaat al
-  (anders eenmalig leeg in de UI aanmaken). De `zad-deploy-peer.yml`-workflow deployt op elke
-  PR-push naar `mpfm-w3h`/`test`.
+- **Peer-topologie op ZAD (clone-veilig via deployment-isolatie):** de peer deelt het project
+  `mpfm-w3h` met de app, maar draait in een **eigen deployment `fsc-magazijna`** — niet in `test`.
+  PR-previews klonen met `clone-from: test`, en of `clone-from` ook componenten buiten de eigen
+  `components:`-lijst meeneemt is bij zad-actions niet bevestigd; wat niet in `test` staat kan
+  hoe dan ook niet meegekloond worden. Zo blijft de peer een singleton: één deployment, één
+  aanmelding van de federatie-OIN, geen tweede manager die dezelfde identiteit claimt. De inway
+  bereikt `magazijna` (deployment `test`) **cross-deployment via de ingress-URL**
+  (`https://magazijna-test-mpfm-w3h.<base-domain>`, https/:443; override via
+  `ZAD_MAGAZIJNA_DEPLOYMENT`). Gedeeld project = gedeelde API-key `ZAD_API_KEY_MAGAZIJNEN`. De raw
+  v2-API maakt geen nieuwe deployments, dus `fsc-magazijna` moet eenmalig leeg in de UI aangemaakt
+  worden (zonder clone-from). `deploy.yml` werkt de peer-images bij in een aparte stap tegen die
+  deployment.
 - **Interne-mTLS SAN — OPGELOST (least-privilege).** Elk internal-cert draagt nu zijn **eigen
-  concrete** hostnamen: de publieke ZAD-hostnaam (`magazijna-fscmgr-test-mpfm-w3h.<base-domain>` op de
+  concrete** hostnamen: de publieke ZAD-hostnaam (`magazijna-fscmgr-fsc-magazijna-mpfm-w3h.<base-domain>` op de
   manager, `magazijna-fscctl-…`, `magazijna-fscinway-…`, `magazijna-fsctxlog-…`) **plus** — sinds de multi-poort-fix — de
-  cluster-interne Service-DNS (`test-magazijna-fscmgr` + `test-magazijna-fscmgr.rig-prd-mpfm-w3h.svc.cluster.local`),
+  cluster-interne Service-DNS (`fsc-magazijna-magazijna-fscmgr` + `fsc-magazijna-magazijna-fscmgr.rig-prd-mpfm-w3h.svc.cluster.local`),
   waarnaar het interne mTLS-verkeer sinds 2026-07-13 verbindt. Géén domein-brede wildcard (alle
   SAN's zijn concrete namen), zodat de certs niet voor het hele gedeelde Rijks-hosting-domein geldig
   zijn. Bewezen met `verify.sh` + `openssl`. Verandert het project of de deployment-naam, dan moeten
@@ -206,7 +209,7 @@ magazijn-a                                   centrale kern (directory)
   `:443`-group-ingress liep). Het RIG/ZAD-team heeft de **multi-poort-fix** uitgerold: een component
   exposet nu **alle** poorten uit `ports.inbound` als Service-poort (`AddComponentRequest.ports`,
   array; `ports[0]` blijft de ingress). Elke poort krijgt een Service `<deployment>-<component>`,
-  intern bereikbaar als `test-magazijna-fscmgr:9443` enz. Onze deploy is daarop aangepast: de interne edges
+  intern bereikbaar als `fsc-magazijna-magazijna-fscmgr:9443` enz. Onze deploy is daarop aangepast: de interne edges
   (controller→manager:9443, manager/inway→controller:9443, inway→manager:9444, →txlog:8443) wijzen
   nu naar die cluster-Service-DNS i.p.v. `:443`, de internal-certs dragen `test-<comp>` (+ svc-FQDN)
   als SAN, en `upsert-peer.sh` zendt per component de `ports`-array (magazijna-fscmgr `8443,9443,9444`; magazijna-fscctl

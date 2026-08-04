@@ -22,7 +22,7 @@ services) maar **geen bijlagen** — net als repo A's directory-deploy
    **Let op (multi-poort-fix, 2026-07-13):** de internal-cert-SAN's bevatten nu ook de
    cluster-interne Service-DNS (`test-<comp>` + `test-<comp>.rig-prd-mpfm-w3h.svc.cluster.local`),
    waarnaar het interne mTLS-verkeer verbindt. Draaide je `issue.sh` vóór deze wijziging, geef de
-   certs dan opnieuw uit met `issue.sh -f` (anders faalt de hostnaamverificatie op `test-magazijna-fscmgr:9443`
+   certs dan opnieuw uit met `issue.sh -f` (anders faalt de hostnaamverificatie op `fsc-magazijna-magazijna-fscmgr:9443`
    enz.) en upload de verse set opnieuw.
 2. `pki/zad-bundle.sh magazijn-a` (hangt af van stap 1) — verzamelt de
    upload-klare set in `pki/zad-upload/magazijn-a/` met een eigen `MANIFEST.md`
@@ -116,12 +116,12 @@ migratiestap meer; `upsert-peer.sh` zet de wrapper-images (`{manager,controller,
 door meerdere replica's die om de migratie-lock vochten). De wrapper herstelt dit niet zelf. Schoon de
 migratie-state van dát component op en herstart 'm zodat de wrapper vers migreert — voor de controller
 bleek: `DROP SCHEMA controller CASCADE` + de magazijna-fscctl-component herstarten (schaal desnoods tijdelijk naar
-1 replica). Los draaien kan ook, tegen `test-magazijna-fscpg` met de component-DSN (controller **zonder**,
+1 replica). Los draaien kan ook, tegen `fsc-magazijna-magazijna-fscpg` met de component-DSN (controller **zonder**,
 manager/txlog **mét** hun `search_path`):
 
 ```sh
-/usr/local/bin/controller migrate up --postgres-dsn "postgres://<user>:<pass>@test-magazijna-fscpg:5432/fsc?sslmode=disable"
-/usr/local/bin/txlog-api  migrate up --postgres-dsn "postgres://<user>:<pass>@test-magazijna-fscpg:5432/fsc?sslmode=disable&search_path=txlog"
+/usr/local/bin/controller migrate up --postgres-dsn "postgres://<user>:<pass>@fsc-magazijna-magazijna-fscpg:5432/fsc?sslmode=disable"
+/usr/local/bin/txlog-api  migrate up --postgres-dsn "postgres://<user>:<pass>@fsc-magazijna-magazijna-fscpg:5432/fsc?sslmode=disable&search_path=txlog"
 ```
 
 ## Na het mounten
