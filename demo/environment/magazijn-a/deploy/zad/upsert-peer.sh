@@ -53,9 +53,9 @@
 #      ZAD_PG_SSLMODE (disable).
 set -euo pipefail
 
-MODE="${1:?usage: upsert-peer.sh <validate|plan|apply> [deployment=test] [tag=v1.43.7]}"
+MODE="${1:?usage: upsert-peer.sh <validate|plan|apply> [deployment=test] [tag=v2.5.2]}"
 DEPLOYMENT="${2:-${ZAD_DEPLOYMENT:-test}}"       # arg wint; anders ZAD_DEPLOYMENT (spoort met pki/gen-csr.sh)
-IMAGE_TAG="${3:-v1.43.7}"                        # OpenFSC-versie: inway stock-image + default-tag voor de migrate-wrappers
+IMAGE_TAG="${3:-v2.5.2}"                        # OpenFSC-versie: inway stock-image + default-tag voor de migrate-wrappers
 MANAGER_TAG="${ZAD_MANAGER_TAG:-${IMAGE_TAG}}"       # migrate-wrappers (ghcr) mogen een eigen tag hebben
 CONTROLLER_TAG="${ZAD_CONTROLLER_TAG:-${IMAGE_TAG}}"
 TXLOG_TAG="${ZAD_TXLOG_TAG:-${IMAGE_TAG}}"
@@ -99,10 +99,10 @@ case "${TXLOG_TAG}" in ""|*[!A-Za-z0-9._-]*) echo "ongeldige ZAD_TXLOG_TAG: '${T
 # wrappers staan naast manager-migrate in dezelfde ghcr-repo. Wijkt een pad af, override dan het hele
 # image met ZAD_MANAGER_IMAGE / ZAD_CONTROLLER_IMAGE / ZAD_TXLOG_IMAGE. De inway heeft geen DB en dus
 # geen migratie -> stock-image.
-MANAGER_IMAGE="${ZAD_MANAGER_IMAGE:-ghcr.io/minbzk/moza-fsc-testnet/manager-migrate:${MANAGER_TAG}}"
-CONTROLLER_IMAGE="${ZAD_CONTROLLER_IMAGE:-ghcr.io/minbzk/moza-fsc-testnet/controller-migrate:${CONTROLLER_TAG}}"
+MANAGER_IMAGE="${ZAD_MANAGER_IMAGE:-ghcr.io/minbzk/moza-fsc-testnet-manager-migrate:${MANAGER_TAG}}"
+CONTROLLER_IMAGE="${ZAD_CONTROLLER_IMAGE:-ghcr.io/minbzk/moza-fsc-testnet-controller-migrate:${CONTROLLER_TAG}}"
 INWAY_IMAGE="docker.io/federatedserviceconnectivity/inway:${IMAGE_TAG}"
-TXLOG_IMAGE="${ZAD_TXLOG_IMAGE:-ghcr.io/minbzk/moza-fsc-testnet/txlog-migrate:${TXLOG_TAG}}"
+TXLOG_IMAGE="${ZAD_TXLOG_IMAGE:-ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:${TXLOG_TAG}}"
 POSTGRES_IMAGE="${ZAD_POSTGRES_IMAGE:-docker.io/library/postgres:17}"   # self-hosted DB (spiegelt deploy/local)
 
 # Concrete hostnamen voor déze (vaste) deployment — zowel voor de plan-/apply-output als, direct,

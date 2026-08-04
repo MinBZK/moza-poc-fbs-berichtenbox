@@ -33,7 +33,7 @@ Uit dezelfde spec, de rol van beide componenten:
 ## Stap 1 — `ca-cfssl` starten met de group-CA uit `pki/`
 
 Mount de group-CA (`pki/ca/`) en `pki/config.json` in de container en start CFSSL als
-HTTP-service op `:8888`. Gebruik de projectbrede image-pin `v1.43.7` (zie
+HTTP-service op `:8888`. Gebruik de projectbrede image-pin `v2.5.2` (zie
 `docs/plans/2026-07-08-magazijn-provider-peer-fsc-design.md`, tabel "Bekende parameters"):
 
 ```bash
@@ -41,7 +41,7 @@ docker run --rm -d --name ca-cfssl \
   -p 8888:8888 \
   -v "$(pwd)/pki/ca:/ca:ro" \
   -v "$(pwd)/pki/config.json:/config.json:ro" \
-  open-fsc-ca-cfssl-unsafe:v1.43.7 \
+  open-fsc-ca-cfssl-unsafe:v2.5.2 \
   serve -ca /ca/intermediate.pem -ca-key /ca/intermediate-key.pem -config /config.json -address 0.0.0.0
 ```
 
@@ -51,7 +51,7 @@ docker run --rm -d --name ca-cfssl \
 docker run --rm -d --name ca-certportal \
   -p 8443:8443 \
   --link ca-cfssl \
-  open-fsc-ca-certportal:v1.43.7 \
+  open-fsc-ca-certportal:v2.5.2 \
   --ca-host ca-cfssl --ca-port 8888
 ```
 

@@ -536,8 +536,8 @@ jobs:
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijna-fscpg", "image": "docker.io/library/postgres:17"},
-              {"name": "magazijna-fscmgr", "image": "ghcr.io/minbzk/moza-fsc-testnet/manager-migrate:v1.43.7"},
-              {"name": "magazijna-fscctl", "image": "ghcr.io/minbzk/moza-fsc-testnet/controller-migrate:v1.43.7"},
-              {"name": "magazijna-fscinway", "image": "docker.io/federatedserviceconnectivity/inway:v1.43.7"},
-              {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet/txlog-migrate:v1.43.7"}
+              {"name": "magazijna-fscmgr", "image": "ghcr.io/minbzk/moza-fsc-testnet-manager-migrate:v2.5.2"},
+              {"name": "magazijna-fscctl", "image": "ghcr.io/minbzk/moza-fsc-testnet-controller-migrate:v2.5.2"},
+              {"name": "magazijna-fscinway", "image": "docker.io/federatedserviceconnectivity/inway:v2.5.2"},
+              {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"}
             ]

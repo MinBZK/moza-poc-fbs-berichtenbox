@@ -74,8 +74,8 @@ uitbreiding), txlog-hardening/e2e-verantwoording (#728), en het echte data-pad d
 | ZAD-project app | `magazijnen` / `mpfm-w3h` | repo B `deploy.yml` |
 | App-component (inway-upstream) | `magazijna` (cross-project via ingress-URL) | repo B `deploy.yml` |
 | Dienst-naam in de directory | `berichtenmagazijn` | dit ontwerp |
-| FSC-images (pin) | `v1.43.7` (manager/inway/controller/directory-ui) | repo A |
-| migrate-wrapper-images | `ghcr.io/minbzk/moza-fsc-testnet/{manager,controller,txlog}-migrate:<tag>` | repo A |
+| FSC-images (pin) | `v2.5.2` (manager/inway/controller/directory-ui) | repo A |
+| migrate-wrapper-images | `ghcr.io/minbzk/moza-fsc-testnet-{manager,controller,txlog}-migrate:<tag>` | repo A |
 
 ## Architectuur
 
