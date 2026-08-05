@@ -9,6 +9,7 @@ import jakarta.annotation.PreDestroy
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Instance
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
+import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.io.IOException
 import java.net.InetAddress
@@ -41,6 +42,7 @@ class DownstreamClient(
     private val config: PublicatieConfig,
     private val objectMapper: ObjectMapper,
     private val openTelemetryInstance: Instance<OpenTelemetry>,
+    @param:ConfigProperty(name = "quarkus.profile") private val profiel: String,
 ) {
 
     private val log = Logger.getLogger(DownstreamClient::class.java)
@@ -173,6 +175,12 @@ class DownstreamClient(
         val host = parsed.host?.lowercase()
             ?: return DownstreamResultaat.ConfiguratieFout("URL mist host-component")
 
+        // In dev/test mag http naar niet-loopback hosts (container-DNS, stubs) en vervalt de
+        // SSRF-blocklist — consistent met OutboundTlsValidator, dat http in dev/test ook
+        // toestaat. Buiten dev/test blijven TLS-buiten-loopback (BIO 13.2.1) en de
+        // SSRF-blocklist (OWASP) onverkort gelden.
+        if (profiel in PROFIELEN_ZONDER_TLS_EIS) return null
+
         // Exact-loopback-whitelist: geen wildcard-subdomeinen of overige 127.x.x.x
         // (DNS-trucs kunnen die naar willekeurige hosts wijzen). IPv6 met brackets
         // omdat `URI.getHost()` die zo teruggeeft.
@@ -265,6 +273,9 @@ class DownstreamClient(
     }
 
     companion object {
+        /** Profielen waarin http naar niet-loopback en de SSRF-blocklist vervallen (lokale demo/tests). */
+        private val PROFIELEN_ZONDER_TLS_EIS = setOf("dev", "test")
+
         /**
          * Laat alleen W3C `traceparent` door; `tracestate` (vendor-routing/sampling)
          * wordt gefilterd zodat interne details niet cross-organisatie lekken.

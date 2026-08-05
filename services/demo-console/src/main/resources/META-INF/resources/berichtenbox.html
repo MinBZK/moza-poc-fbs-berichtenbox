@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Berichtenbox (demo)</title>
+  <link rel="stylesheet" href="berichtenbox.css">
+</head>
+<body>
+  <header>
+    <h1>Berichtenbox</h1>
+    <div class="persona">
+      <label>Ingelogd als
+        <select id="persona">
+          <option value="BSN:999993653">J. Pietersen (ZZP)</option>
+          <option value="BSN:123456782">Bakkerij De Vroege Vogel</option>
+          <option value="KVK:12345678">Garage Van Dijk B.V.</option>
+          <option value="KVK:90000001">Grootbedrijf B.V. (veel magazijnen)</option>
+        </select>
+      </label>
+      <button id="ophalen">Ophalen</button>
+      <button id="vernieuw" title="Roept alleen /berichten aan (leest de cache), zonder opnieuw op te halen — toont berichten die live in de cache zijn opgevoerd">Vernieuw</button>
+      <a href="index.html">&rarr; bedieningspaneel</a>
+    </div>
+  </header>
+
+  <section id="voortgang" class="voortgang" hidden></section>
+
+  <main class="werkblad">
+    <nav id="mappen" class="mappen"></nav>
+    <section class="inhoud">
+      <div class="werkbalk">
+        <label>Sorteer
+          <select id="sorteer">
+            <option value="datum-nieuw">Datum (nieuw → oud)</option>
+            <option value="datum-oud">Datum (oud → nieuw)</option>
+            <option value="onderwerp">Onderwerp A–Z</option>
+            <option value="afzender">Afzender A–Z</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="alleen-ongelezen"> alleen ongelezen</label>
+        <span class="demo-label">demo — sorteren/filteren gebeurt in de browser</span>
+      </div>
+      <ul id="lijst" class="lijst"></ul>
+      <div id="paginering" class="paginering" hidden>
+        <button id="vorige-pagina">‹ Vorige</button>
+        <span id="pagina-info"></span>
+        <button id="volgende-pagina">Volgende ›</button>
+      </div>
+      <p id="lijst-leeg" class="melding" hidden></p>
+      <article id="detail" class="detail" hidden></article>
+    </section>
+  </main>
+
+  <script src="berichtenbox.js"></script>
+</body>
+</html>
