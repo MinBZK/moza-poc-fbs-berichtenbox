@@ -29,6 +29,20 @@
 # En op magazijnen: AANMELD_URL → uitvraag-webhook (POST /api/v1/aanmeldingen),
 # NOTIFICATIE_URL → notificatie-stub (POST /events).
 #
+# GESTAPELDE PR'S (base != main) deployen niet — zie het `branches`-filter hieronder. Hun
+# wijzigingen belanden alsnog in een preview zodra ze de PR bereiken die wél op main mikt: die
+# krijgt dan een `synchronize` en rolt zijn eigen pr-<n> opnieuw uit. Wat zo'n PR aan controles
+# houdt: test, detekt-gate en infra-image-pins (die workflows filteren niet op de doelbranch).
+# CodeQL en de fuzz-check draaien er NIET — codeql.yml en cflite_pr.yml filteren nog wel op main,
+# dus die dekking komt pas bij de PR naar main. Een gestapelde PR is dus inhoudelijk getoetst,
+# maar niet security-gescand; weeg dat mee bij het reviewen ervan.
+#
+# BEKENDE BEPERKING: wordt een PR ná een preview-deploy handmatig weggericht van main, dan valt
+# hij buiten dit filter en ruimt het sluiten zijn pr-<n>-deployments en ghcr-tags niet meer op.
+# Handmatig opruimen (of de base terugzetten vóór het sluiten). De omgekeerde beweging —
+# GitHub's automatische retarget náár main bij het mergen van de parent — is veilig: de checks
+# zijn dan afwezig i.p.v. groen, en `strict: true` op main dwingt sowieso een verse run af.
+#
 # Repo-secrets (Settings → Secrets and variables → Actions):
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
 #   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl (externe-stubs)
@@ -39,7 +53,19 @@
 name: Deploy ZAD
 
 on:
+  # `branches` filtert op de DOELbranch: alleen PR's naar main bouwen en deployen. Een gestapelde
+  # PR (base = een feature-branch) draait deze workflow dus helemaal niet — geen build, geen
+  # preview, en daarmee ook niets te gaten. Bewust hier en niet als `if:` per job: een job die via
+  # `if:` overslaat rapporteert `skipped`, en dat telt als succes voor branch protection. De drie
+  # `deploy-preview-*` zijn required contexts op main, dus zouden gestapelde PR's groene vinkjes
+  # verzamelen voor deploys die nooit gedraaid hebben. GitHub herricht een gestapelde PR
+  # automatisch naar main zodra de parent merget, zónder nieuw event — die stale vinkjes zouden
+  # dan blijven staan. Zonder run zijn de checks afwezig, wat de merge wél blokkeert.
+  #
+  # Let op de bewuste asymmetrie met test.yml/detekt.yml: die hebben juist géén branch-filter,
+  # want een gestapelde PR verdient wél inhoudelijke toetsing. Alleen de deploy valt weg.
   pull_request:
+    branches: [main]
     types: [opened, synchronize, reopened, closed]
   push:
     branches: [main]

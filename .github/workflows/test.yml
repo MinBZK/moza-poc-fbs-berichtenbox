@@ -3,8 +3,12 @@ name: Test
 on:
   push:
     branches: [main]
+  # Géén branch-filter op pull_request: die filtert op de DOELbranch, waardoor een gestapelde
+  # PR (base = een feature-branch i.p.v. main) helemaal geen tests zou draaien. Zo'n PR wordt op
+  # eigen merites gereviewd en gemerged; zonder tests komt breuk pas aan het licht op de PR naar
+  # main, vermengd met de wijzigingen van de rest van de stapel. deploy.yml filtert juist wél op
+  # de doelbranch — die deployt niet vanaf een feature-branch. Die asymmetrie is opzet.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions: read-all
