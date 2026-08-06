@@ -164,9 +164,10 @@ init-schema's), `logius-fscmgr`, `logius-fscctl`, `logius-fscoutway`, `logius-fs
 `logius-fsctxlog`. Cert-attachments + "Publicatie op het web" (passthrough) zijn UI-only (zie
 `deploy/zad/cert-manifest.md`). Oorspronkelijk draaide de CI via een losse
 `zad-deploy-peer.yml`-workflow (PR → alleen `plan`, `main` → `apply`); die is vervallen. Doorlopende
-image-tag-updates gaan lopen via een stap tegen `fsc-logius` in de bestaande
-`deploy-test-uitvraag`-job (`.github/workflows/deploy.yml`); die job bevat op dit moment nog geen
-stap voor deze peer (zie Open punten).
+image-tag-updates lopen via de stap "Deploy uitvraag-project (fsc-logius — FSC-peer)" tegen
+`fsc-logius` in de bestaande `deploy-test-uitvraag`-job (`.github/workflows/deploy.yml`); die stap
+doet alleen tag-updates, de eenmalige componentcreatie (env/ports) blijft handmatig via
+`upsert-peer.sh` (zie Open punten).
 
 **Self-hosted Postgres met geïsoleerde migratie-tellers** (exact als org-a): manager + txlog
 isoleren hun `schema_migrations`-teller via een eigen `search_path`-schema (`manager`/`txlog`,
@@ -193,8 +194,10 @@ Deze punten gelden 1:1 (zelfde v2-API, zelfde OpenFSC-images):
 
 - **ZAD-project** is `mpfb-8wh` (deployment `fsc-logius`) — ingebakken als default in
   `upsert-peer.sh` en `pki/gen-csr.sh` (override via `ZAD_PROJECT`/`ZAD_DEPLOYMENT`). De
-  **API-key-secret** `ZAD_API_KEY_UITVRAAG` + `ZAD_PG_PASSWORD` worden nog gezet; er is nog géén
-  CI-stap die `apply` voor deze peer draait (zie addendum). PR-`plan` werkt zonder.
+  **API-key-secret** `ZAD_API_KEY_UITVRAAG` + `ZAD_PG_PASSWORD` worden nog gezet. De
+  `deploy-test-uitvraag`-CI-stap doet tag-updates op `fsc-logius`; de eenmalige component-creatie
+  (env/ports, cert-attachments) blijft handmatig via `upsert-peer.sh apply` (zie addendum).
+  PR-`plan` werkt zonder.
 - **Discover + data-pad** — vervolg (op ZAD, tegen echte directory + magazijn-a).
 - **Contract (ServiceConnectionGrant)** — vervolg (via de manager-API of de controller-UI).
 - **outway-env-namen** — verifiëren tegen de `federatedserviceconnectivity/outway`-image bij de
