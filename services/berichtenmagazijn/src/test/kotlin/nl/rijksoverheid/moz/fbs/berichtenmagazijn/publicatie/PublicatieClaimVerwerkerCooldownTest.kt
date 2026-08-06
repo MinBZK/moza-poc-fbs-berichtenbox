@@ -123,7 +123,8 @@ class PublicatieClaimVerwerkerCooldownTest {
         every { config.downstreams() } returns emptyMap()
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
             DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
         justRun { claimer.markeerMislukt(any(), any(), any()) }
