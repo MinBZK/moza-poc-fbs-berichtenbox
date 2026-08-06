@@ -67,7 +67,7 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
 9. **`MAGAZIJN_OIN` handmatig ombouwen (vóór/bij live-gang).** `berichtenmagazijn` leest zijn
    eigen OIN via de env-var `MAGAZIJN_OIN` (geen default, fail-fast) — gezet in de
    projectspec van `mpfm-w3h` in `rig-cluster-projects` (buiten deze repo, dus niet door
-   deze migratie zelf aangepast). Een mens moet die var expliciet naar de nieuwe OIN
+   deze migratie zelf aangepast). De operator moet die var expliciet naar de nieuwe OIN
    `00000000000000100000` zetten, anders publiceert `berichtenmagazijn` nog onder de OUDE
    identiteit terwijl de peer-componenten al onder de nieuwe OIN announcen — een mismatch
    tussen de dienstverlener en de FSC-peer die haar aanmeldt.

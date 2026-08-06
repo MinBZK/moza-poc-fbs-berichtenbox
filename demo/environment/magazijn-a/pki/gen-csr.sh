@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Copyright © MOZa FSC Testnet — Licensed under the EUPL
 # Materialiseert de per-endpoint csr.json's van de ZAD-peer `magazijn-a`
 # (pki/peers/magazijn-a/<endpoint>/csr.json) uit de ZAD-topologie-env-vars, zodat een PROJECT- of
 # DEPLOYMENT-wissel géén handmatige csr-edits meer vraagt: zet ZAD_PROJECT (evt. ZAD_DEPLOYMENT/

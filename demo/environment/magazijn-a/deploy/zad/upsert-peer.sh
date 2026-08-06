@@ -1,62 +1,32 @@
 #!/usr/bin/env bash
-# Zet de provider-peer magazijn-a (manager+controller+inway+txlog+DB) op ZAD via de v2
-# Operations Manager API, CO-LOCATED in het bestaande project `mpfm-w3h` (samen met de
-# `magazijna`/`magazijnb`/clickhouse-componenten die deploy.yml beheert), maar in een
-# EIGEN deployment `fsc-magazijna` — niet in `test`. Reden: PR-previews klonen met
-# `clone-from: test`, en een gekloonde peer zou zich met dezelfde federatie-OIN opnieuw
-# aanmelden bij de gedeelde directory. Wat niet in `test` staat, kan niet meegekloond
-# worden. De app zelf blijft in `test`; de inway bereikt haar cross-deployment via de
-# ingress-URL (ZAD_MAGAZIJNA_DEPLOYMENT). Gebaseerd op repo A's
-# deploy/zad/upsert-directory.sh (MinBZK/moza-fsc-testnet) — zelfde
-# validate/plan/apply-vorm.
+# Zet de provider-peer magazijn-a (manager+controller+inway+txlog+Postgres) op ZAD via
+# de v2 Operations Manager API. Lokaal/handmatig hulpmiddel voor de EENMALIGE
+# componentcreatie (env/ports) en voor debugging; de doorlopende image-tag-updates lopen
+# via de `deploy-test-magazijnen`-job in .github/workflows/deploy.yml.
 #
-# Gedeeld project = gedeelde ZAD-API-key: ZAD_API_KEY is de bestaande
-# ZAD_API_KEY_MAGAZIJNEN (project mpfm-w3h) — GEEN eigen key meer nodig (was
-# ZAD_API_KEY_FSCORGA in de oude project-isolatie-opzet).
+# README.md naast dit script beschrijft de achtergrond: waarom de peer een eigen
+# deployment `fsc-magazijna` heeft (clone-veiligheid), de uitvoervolgorde (certs →
+# deployment handmatig aanmaken → plan/validate/apply → UI-only cert-attachments), de
+# self-hosted Postgres-opzet en alle ZAD_*-env-vars met hun defaults. Vorm overgenomen
+# van repo A's deploy/zad/upsert-directory.sh (MinBZK/moza-fsc-testnet).
 #
-# BELANGRIJK — dit script beheert alleen de EENMALIGE creatie + env/ports/certs van de
-# FSC-peer-componenten. De DOORLOPENDE image-tag-updates (elke push naar main) lopen via
-# de `deploy-test-magazijnen`-job in .github/workflows/deploy.yml, die de vijf
-# `magazijna-fsc*`-componenten in een APARTE stap tegen deployment `fsc-magazijna`
-# bijwerkt (de `test`-stap doet alleen `magazijna`/`magazijnb`/clickhouse). Dit script is
-# dus een LOKAAL/HANDMATIG plan/validate/apply-hulpmiddel voor de bootstrap en voor
-# debugging — niet meer de CI-apply-stap (die rol had het script in de oude
-# project-isolatie-opzet via zad-deploy-peer.yml, welke workflow is vervallen).
+# Twee valkuilen die het gedrag van dít script bepalen:
+# - ZAD past component-config (env_vars/aliases) alleen bij COMPONENT-CREATIE toe, niet
+#   bij een re-POST op een bestaande component. Config wijzigen betekent de component
+#   eerst in de UI verwijderen en opnieuw applyen — de cert-attachments raak je daarmee
+#   kwijt en moeten opnieuw gemount worden.
+# - `:upsert-deployment` maakt géén NIEUW deployment aan (geeft wel HTTP 202, maar het
+#   deployment verschijnt niet in /deployments); `fsc-magazijna` moet dus éénmalig leeg
+#   in de UI bestaan, anders doet apply niets zichtbaars.
 #
-# `:upsert-deployment` maakt géén NIEUW deployment aan (geeft wel HTTP 202, maar het
-# deployment verschijnt niet in /deployments); het UPDATET alleen een bestaand
-# deployment. `fsc-magazijna` moet dus éénmalig leeg in de ZAD-UI aangemaakt worden
-# vóór de eerste apply.
-# NIET via de API (UI-only): bijlagen (cert-mount) + "Publicatie op het web"
-# (passthrough-TLS) — zie cert-manifest.md.
-#
-# DB: eigen postgres-component `magazijna-fscpg` (self-hosted) i.p.v. ZAD's managed
-# Postgres — die laat ons de init/schema's niet inrichten. De drie DB-componenten
-# krijgen een CONCRETE STORAGE_POSTGRES_DSN naar `magazijna-fscpg:5432` (in env_vars,
-# geen ZAD $DATABASE_*-substitutie); manager/txlog met een eigen `search_path`-schema,
-# de controller ZONDER (die beheert z'n eigen `controller`-schema). Het wachtwoord komt
-# uit ZAD_PG_PASSWORD (verplicht bij apply, niet gecommit). Zie postgres-init.sql voor
-# de search_path-schema's (manager/txlog).
-#
-# BELANGRIJK — ZAD past component-config (env_vars/aliases) alleen bij COMPONENT-CREATIE
-# toe, niet bij een re-POST op een bestaande component. Wijzig je de config van een
-# bestaande component, verwijder 'm dan eerst in de UI zodat de volgende apply 'm
-# opnieuw aanmaakt.
-#
-# De deployment is VAST (fsc-magazijna/mpfm-w3h), dus we hebben ZAD's $DEPLOYMENT_NAME-
-# substitutie niet nodig: bash lost alle inter-component-hostnamen concreet op
-# (*_HOST_DISPLAY) en zet ze in `env_vars`.
+# De deployment is vast, dus ZAD's $DEPLOYMENT_NAME-substitutie is niet nodig: bash lost
+# alle inter-component-hostnamen concreet op (*_HOST_DISPLAY) en zet ze in `env_vars`.
 #
 # Usage:
-#   export ZAD_API_KEY=...                                       # niet inline (echo't anders)
+#   export ZAD_API_KEY=... ZAD_PG_PASSWORD=...                    # niet inline (komt anders in de shell-history)
 #   ./deploy/zad/upsert-peer.sh validate                          # read-only auth-check
 #   ./deploy/zad/upsert-peer.sh plan   [deployment] [tag]         # toont bodies, muteert niet
 #   ./deploy/zad/upsert-peer.sh apply  [deployment] [tag]         # muteert + pollt tasks
-# Env: ZAD_API_KEY (verplicht bij apply; key van project mpfm-w3h — ZAD_API_KEY_MAGAZIJNEN),
-#      ZAD_PROJECT (mpfm-w3h), ZAD_BASE (zad.rijksapp.nl), ZAD_BASE_DOMAIN (rig.prd1...),
-#      ZAD_MANAGER_TAG (ghcr manager-tag, default = tag),
-#      ZAD_DIRECTORY_MANAGER_HOST (repo A's directory-manager-host op ZAD),
-#      ZAD_PG_SSLMODE (disable).
 set -euo pipefail
 
 MODE="${1:?usage: upsert-peer.sh <validate|plan|apply> [deployment=fsc-magazijna] [tag=v2.5.2]}"

@@ -1,6 +1,6 @@
 # Verificatie ná apply — magazijn-a-peer op ZAD
 
-> Draaiboek: wat een mens ná een geslaagde `upsert-peer.sh apply` + cert-attachments (zie
+> Draaiboek: wat de operator ná een geslaagde `upsert-peer.sh apply` + cert-attachments (zie
 > `cert-manifest.md`) nog controleert.
 
 ## Volgorde
@@ -66,4 +66,4 @@ catalogus staan.
 - [ ] Peer meldt zich aan bij de directory (announce)
 - [ ] `berichtenmagazijn` gepubliceerd + vindbaar in de directory
 
-Elk vinkje vereist een mens met ZAD-toegang, gegenereerde certs en een draaiende peer.
+Elk vinkje vereist een operator met ZAD-toegang, gegenereerde certs en een draaiende peer.

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Copyright © MOZa FSC Testnet — Licensed under the EUPL
 # Genereert root + intermediate test-CA (#722). NIET voor productie.
 set -euo pipefail
 
