@@ -253,6 +253,32 @@ class OutboundTlsValidatorTest {
         assertDoesNotThrow { OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url") }
     }
 
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv?ssl=true&sslmode=disable",
+            "jdbc:postgresql://db:5432/ldv?sslmode=disable&ssl=true",
+            "jdbc:postgresql://db:5432/ldv?sslmode=&ssl=true",
+            "jdbc:postgresql://db:5432/ldv?sslmode=onzin",
+        ],
+    )
+    fun `sslmode bepaalt exclusief zodra aanwezig, ssl doet er dan niet toe`(url: String) {
+        // pgJDBC (SslMode.of(Properties)) raadpleegt ssl alleen als sslmode ontbreekt.
+        // Een aanwezige sslmode — ook leeg of onbekend — wint dus altijd van ssl=true,
+        // ongeacht de volgorde in de querystring.
+        val ex = assertThrows<IllegalArgumentException> {
+            OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url")
+        }
+        assertTrue(ex.message!!.contains("BIO 13.2.1"), "foutmelding moet naar BIO 13.2.1 verwijzen")
+    }
+
+    @Test
+    fun `een onveilige ssl-waarde doet er niet toe als sslmode wel garandeert`() {
+        assertDoesNotThrow {
+            OutboundTlsValidator.requireJdbcTls("prod", "jdbc:postgresql://db:5432/ldv?ssl=false&sslmode=require", "ldv.url")
+        }
+    }
+
     /** Vangt de WARNING-records die [block] op de validator-logger produceert. */
     private fun warnRecords(block: () -> Unit): List<LogRecord> {
         val records = mutableListOf<LogRecord>()
