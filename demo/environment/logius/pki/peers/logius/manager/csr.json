@@ -1,0 +1,21 @@
+{
+  "CN": "manager.logius.fsc-test.local",
+  "key": {
+    "algo": "rsa",
+    "size": 4096
+  },
+  "hosts": [
+    "logius.fsc-test.local",
+    "manager.logius.fsc-test.local",
+    "logius-fscmgr-fsc-logius-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl",
+    "fsc-logius-logius-fscmgr",
+    "fsc-logius-logius-fscmgr.rig-prd-mpfb-8wh.svc.cluster.local"
+  ],
+  "serialnumber": "00000000000000001000",
+  "names": [
+    {
+      "O": "logius",
+      "C": "NL"
+    }
+  ]
+}
