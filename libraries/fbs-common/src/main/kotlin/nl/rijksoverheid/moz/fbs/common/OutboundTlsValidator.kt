@@ -91,7 +91,7 @@ object OutboundTlsValidator {
 
         // pgJDBC zet de querystring sequentieel in een Properties-object: bij een dubbele
         // sleutel wint het laatste voorkomen. `associate` volgt dezelfde last-wins-regel
-        // (een latere entry overschrijft een eerdere bij hetzelfde keys), dus de guard
+        // (een latere entry overschrijft een eerdere bij hetzelfde key), dus de guard
         // beoordeelt precies de waarde waarmee de driver ook daadwerkelijk verbindt —
         // anders zou `sslmode=require&sslmode=disable` hier ten onrechte als veilig gelden.
         val effectieveParameters = url.substringAfter('?', "")
@@ -100,10 +100,16 @@ object OutboundTlsValidator {
                 parameter.substringBefore('=').lowercase() to parameter.substringAfter('=', "")
             }
 
-        val isVersleuteld = when {
-            effectieveParameters["ssl"].equals("true", ignoreCase = true) -> true
-            (effectieveParameters["sslmode"] ?: "").lowercase() in SSLMODES_MET_GARANTIE -> true
-            else -> false
+        // SslMode.of(Properties) in pgJDBC laat sslmode exclusief de modus bepalen zodra
+        // de property gezet is; ssl wordt alleen geraadpleegd als sslmode ontbreekt. Een
+        // aanwezige maar lege of onbekende sslmode-waarde valt dus niet terug op ssl —
+        // fail-closed, want de driver kiest in dat geval ook niet stilzwijgend voor ssl.
+        val sslmode = effectieveParameters["sslmode"]
+
+        val isVersleuteld = if (sslmode != null) {
+            sslmode.lowercase() in SSLMODES_MET_GARANTIE
+        } else {
+            effectieveParameters["ssl"].equals("true", ignoreCase = true)
         }
 
         if (unsafeAllowPlaintext && !isVersleuteld) {
