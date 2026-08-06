@@ -75,7 +75,8 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
             gevangenFout.set(arg<String>(1))
             gevangenVolgendePoging.set(arg<Instant?>(2))
         }
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         verwerker.verwerkEenClaim()
 

@@ -5,6 +5,7 @@ import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.context.Context
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
+import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
@@ -73,82 +74,103 @@ class PublicatieClaimVerwerker(
         return true
     }
 
+    /**
+     * De logregel gaat eruit vóór de levering. Faalt het schrijven, dan gooit
+     * [ProcessingHandler.enforceWriteAcknowledgement], rolt deze `REQUIRES_NEW`-transactie
+     * en blijft de claim openstaan — er is dan niets geleverd, dus de retry is veilig.
+     * Andersom zou een rollback ná een geslaagde levering een dubbele levering opleveren.
+     *
+     * De logregel legt daarmee de voorgenomen verstrekking vast, niet de uitkomst: de
+     * LDV-schrijfactie loopt over een eigen JDBC-verbinding met een eigen commit, dus een
+     * rollback haalt hem niet meer weg. De uitkomst van de levering blijft in de
+     * claim-status en het applicatielog.
+     */
     private fun verwerkClaim(claim: PublicatieClaim) {
-        val span = processingHandler.startSpan(
-            "publicatie-${claim.doel}",
-            Context.current(),
-        )
-        // LogboekContext wordt vóór verwerking opgebouwd zodat de `finally`-tak
-        // hem altijd aan de span kan toevoegen — zelfs als verwerking faalt of
-        // het bericht ontbreekt. Default-status `OK`; wordt naar `ERROR` gezet
-        // bij fout-paden hieronder.
-        val ldvContext = LogboekContext().apply {
-            processingActivityId = config.verwerkingsregisterPubliceren()
-            status = StatusCode.OK
+        val bericht = berichten.findByBerichtId(claim.berichtId)
+
+        if (bericht == null) {
+            verwerkOntbrekendBericht(claim)
+            return
         }
-        try {
-            val bericht = berichten.findByBerichtId(claim.berichtId)
 
-            if (bericht == null) {
-                verwerkOntbrekendBericht(claim, ldvContext, span)
-                return
-            }
+        val downstreamConfig = config.downstreams()[claim.doel.key]
 
-            val downstreamConfig = config.downstreams()[claim.doel.key]
+        legVerstrekkingVast(claim, bericht, downstreamConfig)
 
-            zetLdvEnSpanAttributen(claim, bericht, downstreamConfig, ldvContext, span)
+        val nu = clock.instant()
+        val event = cloudEventBuilder.bouw(bericht, claim.doel, nu)
 
-            val nu = clock.instant()
-            val event = cloudEventBuilder.bouw(bericht, claim.doel, nu)
-
-            when (val resultaat = downstreamClient.lever(claim.doel, event)) {
-                is DownstreamResultaat.Geslaagd -> verwerkGeslaagd(claim, nu, ldvContext, span)
-                is DownstreamResultaat.Mislukt ->
-                    verwerkMislukt(claim, resultaat, nu, downstreamConfig, ldvContext, span)
-            }
-        } finally {
-            // LDV-koppeling mag de commit nooit terugrollen (→ duplicate send). Smal vangen
-            // op `IllegalArgumentException` (config-fout uit ProcessingHandler); andere
-            // exceptions vliegen door zodat REQUIRES_NEW rolt en de bug zichtbaar wordt.
-            // Genest try/finally zodat `span.end()` altijd draait (anders span-leak).
-            try {
-                try {
-                    processingHandler.addLogboekContextToSpan(span, ldvContext)
-                } catch (ex: IllegalArgumentException) {
-                    log.errorf(
-                        ex,
-                        "LDV-context koppelen aan span faalde (config); transactie wordt niet teruggerold (claimId=%d doel=%s)",
-                        claim.claimId, claim.doel,
-                    )
-                }
-            } finally {
-                span.end()
-            }
+        when (val resultaat = downstreamClient.lever(claim.doel, event)) {
+            is DownstreamResultaat.Geslaagd -> verwerkGeslaagd(claim, nu)
+            is DownstreamResultaat.Mislukt -> verwerkMislukt(claim, resultaat, nu, downstreamConfig)
         }
     }
 
     /**
-     * Bericht weg tussen plan en verwerking. Een hard-delete neemt via
-     * CASCADE op bericht_db_id ook de delivery-rij mee, dus die orphan-claim
-     * is onbereikbaar. Het live pad hierheen is soft-delete: findByBerichtId
-     * filtert verwijderdOp IS NULL, terwijl de delivery-rij blijft bestaan.
-     * dataSubject = berichtId (ontvanger ontbreekt) zodat het LDV-record
-     * auditbaar blijft zonder lege subject-velden.
+     * Schrijft de logregel voor deze verstrekking en wacht op bevestiging. Status blijft
+     * `UNSET`: het logboek registreert dat de gegevens verstrekt gaan worden, niet of de
+     * downstream ze aannam.
      */
-    private fun verwerkOntbrekendBericht(
+    private fun legVerstrekkingVast(
         claim: PublicatieClaim,
-        ldvContext: LogboekContext,
-        span: Span,
+        bericht: Bericht,
+        downstreamConfig: PublicatieConfig.Downstream?,
     ) {
-        ldvContext.dataSubjectId = claim.berichtId.toString()
-        ldvContext.dataSubjectType = "BERICHT_ID_ONLY"
+        // De recorder is thread-gebonden; deze bean doet zijn eigen span-beheer op de
+        // scheduler-thread, dus een fout van een eerdere claim moet er eerst af.
+        LogboekWriteFailureRecorder.clear()
+
+        val span = processingHandler.startSpan("publicatie-${claim.doel}", Context.current())
+        val ldvContext = LogboekContext().apply {
+            processingActivityId = config.verwerkingsregisterPubliceren()
+        }
+
+        zetLdvEnSpanAttributen(claim, bericht, downstreamConfig, ldvContext, span)
+
+        try {
+            processingHandler.addLogboekContextToSpan(span, ldvContext)
+        } finally {
+            span.end()
+        }
+
+        processingHandler.enforceWriteAcknowledgement()
+    }
+
+    /**
+     * Bericht weg tussen plan en verwerking. Een hard-delete neemt via CASCADE op
+     * bericht_db_id ook de delivery-rij mee, dus die orphan-claim is onbereikbaar. Het
+     * live pad hierheen is soft-delete: findByBerichtId filtert verwijderdOp IS NULL,
+     * terwijl de delivery-rij blijft bestaan. dataSubject = berichtId (ontvanger
+     * ontbreekt) zodat het LDV-record auditbaar blijft zonder lege subject-velden.
+     *
+     * Hier wordt niets verstrekt, dus de logregel gaat ná de statusmutatie de deur uit;
+     * fail-closed kan hier zonder risico op een dubbele levering.
+     */
+    private fun verwerkOntbrekendBericht(claim: PublicatieClaim) {
+        LogboekWriteFailureRecorder.clear()
+
+        val span = processingHandler.startSpan("publicatie-${claim.doel}", Context.current())
+        val ldvContext = LogboekContext().apply {
+            processingActivityId = config.verwerkingsregisterPubliceren()
+            dataSubjectId = claim.berichtId.toString()
+            dataSubjectType = "BERICHT_ID_ONLY"
+            status = StatusCode.ERROR
+        }
+
         log.warnf(
             "Bericht ontbreekt voor claim claimId=%d berichtId=%s; markeer MISLUKT",
             claim.claimId, claim.berichtId,
         )
         claimer.markeerMislukt(claim.claimId, "Bericht niet gevonden", volgendePoging = null)
-        ldvContext.status = StatusCode.ERROR
         span.setStatus(StatusCode.ERROR, "Bericht niet gevonden")
+
+        try {
+            processingHandler.addLogboekContextToSpan(span, ldvContext)
+        } finally {
+            span.end()
+        }
+
+        processingHandler.enforceWriteAcknowledgement()
     }
 
     /**
@@ -185,12 +207,7 @@ class PublicatieClaimVerwerker(
         span.setAttribute("publicatie.bericht_id", claim.berichtId.toString())
     }
 
-    private fun verwerkGeslaagd(
-        claim: PublicatieClaim,
-        nu: Instant,
-        ldvContext: LogboekContext,
-        span: Span,
-    ) {
+    private fun verwerkGeslaagd(claim: PublicatieClaim, nu: Instant) {
         try {
             claimer.markeerGeslaagd(claim.claimId, nu)
         } catch (ex: IllegalStateException) {
@@ -201,8 +218,6 @@ class PublicatieClaimVerwerker(
                 "Duplicate-send venster: HTTP 2xx ontvangen maar markeerGeslaagd faalde; berichtId=%s doel=%s",
                 claim.berichtId, claim.doel,
             )
-            ldvContext.status = StatusCode.ERROR
-            span.setStatus(StatusCode.ERROR, "Duplicate-send venster")
             throw ex
         }
 
@@ -217,8 +232,6 @@ class PublicatieClaimVerwerker(
         resultaat: DownstreamResultaat.Mislukt,
         nu: Instant,
         downstreamConfig: PublicatieConfig.Downstream?,
-        ldvContext: LogboekContext,
-        span: Span,
     ) {
         // Geen downstreamConfig (config-drift) → null volgendePoging → terminal
         // MISLUKT; dat klopt, een onbekend doel is een non-herstelbare config-fout.
@@ -237,7 +250,6 @@ class PublicatieClaimVerwerker(
         val gesaneerdeReden = FoutBeschrijving.saneer(resultaat.reden)
 
         claimer.markeerMislukt(claim.claimId, gesaneerdeReden, volgendePoging)
-        ldvContext.status = StatusCode.ERROR
 
         if (volgendePoging == null) {
             log.errorf(
@@ -245,14 +257,12 @@ class PublicatieClaimVerwerker(
                 claim.berichtId, claim.doel, claim.pogingen + 1,
                 resultaat::class.simpleName, gesaneerdeReden,
             )
-            span.setStatus(StatusCode.ERROR, "MISLUKT na ${claim.pogingen + 1} pogingen")
         } else {
             log.warnf(
                 "Bericht-publicatie mislukt; retry gepland: berichtId=%s doel=%s pogingen=%d volgendePoging=%s categorie=%s reden=%s",
                 claim.berichtId, claim.doel, claim.pogingen + 1, volgendePoging,
                 resultaat::class.simpleName, gesaneerdeReden,
             )
-            span.setStatus(StatusCode.ERROR, "Retry gepland")
         }
     }
 
