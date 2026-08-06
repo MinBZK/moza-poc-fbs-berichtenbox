@@ -1,0 +1,379 @@
+# Lokale FSC-harness: directory + peer logius (manager/outway/inway/controller/txlog)
+# + SNI-router. Bewijst announce zonder productie-infra. Zie README.md voor het cert-contract
+# en de boot-stappen (vereist Docker + gegenereerde certs via `pki/issue.sh`).
+x-manager-image: &manager-image docker.io/federatedserviceconnectivity/manager:${IMAGE_TAG:-v2.5.2}
+x-manager-common-env: &manager-common-env
+  LOG_TYPE: local
+  LOG_LEVEL: debug
+  GROUP_ID: moza-fbs-test
+  DIRECTORY_PEER_ID: "00000000000000000010"
+  DIRECTORY_MANAGER_ADDRESS: https://directory.fsc-test.local:443
+  AUDITLOG_TYPE: stdout
+  DISABLE_CRL_CHECKS: "true"            # lokaal geen CRL-distributiepunt (zie README)
+  TLS_GROUP_ROOT_CERT: /pki/ca/root.pem
+
+# Gedeelde txlog-api-env (image `txlog-api`; eigen DB per peer). txlog spreekt mTLS op de
+# INTERNAL PKI (niet de group): outway/manager presenteren hun internal-cert; txlog trust de
+# per-peer internal-CA. Geen GROUP_ID (group-agnostische opslag).
+x-txlog-common-env: &txlog-common-env
+  LOG_TYPE: local
+  LOG_LEVEL: debug
+  LISTEN_ADDRESS: 0.0.0.0:9443
+  MONITORING_ADDRESS: 0.0.0.0:8081
+  # Zowel de losse POSTGRES_*-vars als de samengestelde STORAGE_POSTGRES_DSN zetten (de chart doet
+  # beide) — zo migreert/serveert txlog ongeacht welke vorm het image leest. DATABASE + DSN per peer.
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  PGSSLMODE: disable
+  PGCONNECT_TIMEOUT: "10"
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      start_period: 20s     # faal-checks tellen niet mee tijdens boot
+      interval: 10s         # steady-state niet eeuwig op 3s pollen
+      timeout: 3s
+      retries: 5
+
+  router:
+    image: haproxy:2.9
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      default:
+        aliases:
+          - directory.fsc-test.local
+          - logius.fsc-test.local
+          - inway.logius.fsc-test.local
+    depends_on:
+      manager-directory:
+        condition: service_started
+
+  manager-directory:
+    # ZAD-artefact: wrapper-image (migrate->serve in de entrypoint). Repo A bouwt dit lokaal uit
+    # een build-context die in deze repo niet bestaat; hier daarom het kant-en-klare ghcr-image.
+    image: ghcr.io/minbzk/moza-fsc-testnet-manager-migrate:${IMAGE_TAG:-v2.5.2}
+    restart: on-failure   # migreert bij boot; herstart bij transiënte DB-race (parity met siblings)
+    # Draai als de host-UID/GID zodat de pod de 0600-privékeys leest (matching owner)
+    # i.p.v. ze open te zetten. HOST_UID/HOST_GID uit .env (zie README, stap 3).
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      <<: *manager-common-env
+      SELF_ADDRESS: https://directory.fsc-test.local:443
+      TX_LOG_API_ADDRESS: ""                 # directory-mode: geen txlog
+      AUTO_SIGN_GRANTS: servicePublication,delegatedServicePublication
+      LISTEN_ADDRESS_EXTERNAL: 0.0.0.0:8443
+      LISTEN_ADDRESS_INTERNAL: 0.0.0.0:9443
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 0.0.0.0:9444
+      MONITORING_ADDRESS: 0.0.0.0:8080
+      STORAGE_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/fsc_directory?sslmode=disable
+      TLS_GROUP_CERT: &dir-grp /pki/out/directory/directory/cert.pem
+      TLS_GROUP_KEY: &dir-grp-key /pki/out/directory/directory/key.pem
+      TLS_GROUP_TOKEN_CERT: *dir-grp
+      TLS_GROUP_TOKEN_KEY: *dir-grp-key
+      TLS_GROUP_CONTRACT_CERT: *dir-grp
+      TLS_GROUP_CONTRACT_KEY: *dir-grp-key
+      TLS_ROOT_CERT: &dir-introot /pki/internal/directory/ca/root.pem
+      TLS_CERT: &dir-int /pki/internal/directory/directory/cert.pem
+      TLS_KEY: &dir-int-key /pki/internal/directory/directory/key.pem
+      TLS_INTERNAL_UNAUTHENTICATED_ROOT_CERT: *dir-introot
+      TLS_INTERNAL_UNAUTHENTICATED_CERT: *dir-int
+      TLS_INTERNAL_UNAUTHENTICATED_KEY: *dir-int-key
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  migrate-logius:
+    image: *manager-image
+    command:
+      - /usr/local/bin/manager
+      - migrate
+      - up
+      - --postgres-dsn
+      - postgres://postgres:postgres@postgres:5432/fsc_logius?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  manager-logius:
+    image: *manager-image
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # host-UID -> leest 0600-keys (zie manager-directory)
+    command:
+      - /usr/local/bin/manager
+      - serve
+    environment:
+      <<: *manager-common-env
+      SELF_ADDRESS: https://logius.fsc-test.local:443
+      # De manager bevraagt bij token-uitgifte de eigen controller naar de dienst
+      # (/v1/groups/{group}/services/{service}); zonder dit adres faalt /token met "unsupported
+      # protocol scheme". Registratie-API :9443, manager presenteert zijn internal-cert.
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:9443
+      # Echte txlog-api (INTERNAL-PKI mTLS). De manager frontet txlog voor tx-log-queries.
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:9443
+      LISTEN_ADDRESS_EXTERNAL: 0.0.0.0:8443
+      LISTEN_ADDRESS_INTERNAL: 0.0.0.0:9443
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 0.0.0.0:9444
+      MONITORING_ADDRESS: 0.0.0.0:8080
+      STORAGE_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/fsc_logius?sslmode=disable
+      TLS_GROUP_CERT: &logius-grp /pki/out/logius/manager/cert.pem
+      TLS_GROUP_KEY: &logius-grp-key /pki/out/logius/manager/key.pem
+      TLS_GROUP_TOKEN_CERT: *logius-grp
+      TLS_GROUP_TOKEN_KEY: *logius-grp-key
+      TLS_GROUP_CONTRACT_CERT: *logius-grp
+      TLS_GROUP_CONTRACT_KEY: *logius-grp-key
+      TLS_ROOT_CERT: &logius-introot /pki/internal/logius/ca/root.pem
+      TLS_CERT: &logius-int /pki/internal/logius/manager/cert.pem
+      TLS_KEY: &logius-int-key /pki/internal/logius/manager/key.pem
+      TLS_INTERNAL_UNAUTHENTICATED_ROOT_CERT: *logius-introot
+      TLS_INTERNAL_UNAUTHENTICATED_CERT: *logius-int
+      TLS_INTERNAL_UNAUTHENTICATED_KEY: *logius-int-key
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    networks:
+      default:
+        # Alias = de internal-cert-hostnaam, zodat de controller TLS naar :9443 valideert.
+        aliases:
+          - manager.logius.fsc-test.local
+    depends_on:
+      migrate-logius:
+        condition: service_completed_successfully
+      manager-directory:
+        condition: service_started
+
+  outway-logius:
+    image: docker.io/federatedserviceconnectivity/outway:${IMAGE_TAG:-v2.5.2}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # host-UID -> leest 0600-keys
+    restart: on-failure                            # boot-race met de eigen manager
+    command:
+      - /usr/local/bin/outway
+      - serve
+    environment:
+      LOG_TYPE: local
+      LOG_LEVEL: debug
+      GROUP_ID: moza-fbs-test
+      NAME: logius-outway
+      SELF_ADDRESS: https://outway.logius.fsc-test.local:443
+      LISTEN_ADDRESS: 0.0.0.0:8443
+      MONITORING_ADDRESS: 0.0.0.0:8081
+      DISABLE_CRL_CHECKS: "true"
+      # De outway registreert zich bij de controller en praat met de manager op de authenticated
+      # interne poort (:9443). fsc-outway serve eist beide (manager-internal-address +
+      # controller-registration-api-address), net als de inway aan providerkant.
+      MANAGER_INTERNAL_ADDRESS: https://manager.logius.fsc-test.local:9443
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:9443
+      # Echte txlog-api (INTERNAL-PKI mTLS): bij egress logt de outway de transactie (direction: out).
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:9443
+      TLS_ROOT_CERT: /pki/internal/logius/ca/root.pem
+      TLS_CERT: /pki/internal/logius/outway/cert.pem
+      TLS_KEY: /pki/internal/logius/outway/key.pem
+      TLS_GROUP_ROOT_CERT: /pki/ca/root.pem
+      TLS_GROUP_CERT: /pki/out/logius/outway/cert.pem
+      TLS_GROUP_KEY: /pki/out/logius/outway/key.pem
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    networks:
+      default:
+        # Alias = de internal-cert-hostnaam; géén :443-router-route (de outway is client, geen ingress).
+        aliases:
+          - outway.logius.fsc-test.local
+    depends_on:
+      manager-logius:
+        condition: service_started
+      controller-logius:
+        condition: service_started
+      txlog-logius:
+        condition: service_started
+
+  inway-logius:
+    image: docker.io/federatedserviceconnectivity/inway:${IMAGE_TAG:-v2.5.2}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # host-UID -> leest 0600-keys
+    restart: on-failure                            # boot-race met controller/manager
+    command:
+      - /usr/local/bin/inway
+      - serve
+    environment:
+      LOG_TYPE: local
+      LOG_LEVEL: debug
+      GROUP_ID: moza-fbs-test
+      # geregistreerde inway-naam; SELF_ADDRESS wordt als inway_address doorgegeven bij CreateService
+      NAME: logius-inway
+      SELF_ADDRESS: https://inway.logius.fsc-test.local:443
+      LISTEN_ADDRESS: 0.0.0.0:8443
+      MONITORING_ADDRESS: 0.0.0.0:8081
+      DISABLE_CRL_CHECKS: "true"
+      # Registreert zich bij de controller via TLS op de controller-internal-cert:
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:9443
+      # Eigen manager, internal-UNAUTHENTICATED poort (:9444) — bewust anders dan de outway,
+      # die de authenticated :9443 gebruikt. Conform magazijn-a's bewezen inway-config.
+      MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS: https://manager.logius.fsc-test.local:9444
+      # Echte txlog-api (INTERNAL-PKI mTLS). Bij een inkomende data-call logt de inway hier de
+      # transactie (direction: in) met dezelfde Fsc-Transaction-Id als de outway.
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:9443
+      TLS_ROOT_CERT: /pki/internal/logius/ca/root.pem
+      TLS_CERT: /pki/internal/logius/inway/cert.pem
+      TLS_KEY: /pki/internal/logius/inway/key.pem
+      TLS_GROUP_ROOT_CERT: /pki/ca/root.pem
+      TLS_GROUP_CERT: /pki/out/logius/inway/cert.pem
+      TLS_GROUP_KEY: /pki/out/logius/inway/key.pem
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    # NB: géén network-alias inway.logius.fsc-test.local hier — die hoort op de router
+    # (:443-SNI-passthrough, zie hierboven bij `router`). De router-backend bereikt deze
+    # container via de compose-servicenaam `inway-logius:8443`.
+    depends_on:
+      controller-logius:
+        condition: service_started
+      manager-logius:
+        condition: service_started
+      txlog-logius:
+        condition: service_started
+
+  toolbox:
+    # Curl-client BINNEN het netwerk voor gerichte mTLS-diagnose (niet gebruikt door de announce-only-proof).
+    # Draait als host-UID zodat het de 0600-internal-key leest.
+    image: docker.io/curlimages/curl:8.11.1
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    depends_on:
+      manager-logius:
+        condition: service_started
+      controller-logius:
+        condition: service_started
+
+  directory-ui:
+    image: docker.io/federatedserviceconnectivity/directory-ui:${IMAGE_TAG:-v2.5.2}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # host-UID -> leest 0600-group-key
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      LOG_TYPE: local
+      LOG_LEVEL: info
+      LISTEN_ADDRESS: 0.0.0.0:8080
+      MONITORING_ADDRESS: 0.0.0.0:8081
+      # Externe directory-manager via de SNI-router op :443.
+      DIRECTORY_MANAGER_ADDRESS: https://directory.fsc-test.local:443
+      BASE_URL_PATH: /
+      TLS_GROUP_ROOT_CERT: /pki/ca/root.pem
+      TLS_GROUP_CERT: /pki/out/logius/manager/cert.pem   # lezer-peer-identiteit
+      TLS_GROUP_KEY: /pki/out/logius/manager/key.pem
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    depends_on:
+      manager-directory:
+        condition: service_started
+      router:
+        condition: service_started
+
+  migrate-controller-logius:
+    image: docker.io/federatedserviceconnectivity/controller:${IMAGE_TAG:-v2.5.2}
+    command:
+      - /usr/local/bin/controller
+      - migrate
+      - up
+      - --postgres-dsn
+      - postgres://postgres:postgres@postgres:5432/fsc_controller_logius?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  controller-logius:
+    image: docker.io/federatedserviceconnectivity/controller:${IMAGE_TAG:-v2.5.2}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # host-UID -> leest 0600-internal-key
+    restart: on-failure                           # herstart bij transiënte boot-fout (DB/manager nog niet klaar)
+    ports:
+      - "127.0.0.1:8091:8080"
+    environment:
+      LOG_TYPE: local
+      LOG_LEVEL: info
+      LISTEN_ADDRESS_UI: 0.0.0.0:8080
+      LISTEN_ADDRESS_REGISTRATION_API: 0.0.0.0:9443
+      LISTEN_ADDRESS_ADMINISTRATION_API: 0.0.0.0:9444
+      MONITORING_ADDRESS: 0.0.0.0:8081
+      MANAGER_ADDRESS_INTERNAL: https://manager.logius.fsc-test.local:9443   # = internal-cert-SAN
+      GROUP_ID: moza-fbs-test
+      DIRECTORY_PEER_ID: "00000000000000000010"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DATABASE: fsc_controller_logius
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGSSLMODE: disable
+      STORAGE_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/fsc_controller_logius?sslmode=disable
+      # Lokaal ZONDER login (AUTHN_TYPE=none — een door OpenFSC ondersteunde modus). De
+      # controller-management (dienst publiceren, grant->sign->accept) werkt zonder loginscherm;
+      # OIDC is enkel de auth-laag ervoor en buiten scope van deze harness (geen afnemer-login hier).
+      AUTHN_TYPE: none
+      AUTHZ_TYPE: rbac
+      CSRF_PROTECTION_ENABLED: "false"
+      AUDITLOG_TYPE: stdout
+      TLS_ROOT_CERT: /pki/internal/logius/ca/root.pem
+      TLS_CERT: /pki/internal/logius/controller/cert.pem
+      TLS_KEY: /pki/internal/logius/controller/key.pem
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    networks:
+      default:
+        aliases:
+          - controller.logius.fsc-test.local
+    depends_on:
+      migrate-controller-logius:
+        condition: service_completed_successfully
+      manager-logius:
+        condition: service_started
+
+  # ---- transaction-log API (per peer) ----------------------------------------------------------
+  migrate-txlog-logius:
+    image: docker.io/federatedserviceconnectivity/txlog-api:${IMAGE_TAG:-v2.5.2}
+    # `migrate up` leest de DSN ALLEEN uit --postgres-dsn (niet uit env, anders dan serve) — net als
+    # de manager/controller-migrates. Zonder de vlag verbindt migrate met een default en hangt 't.
+    command: [/usr/local/bin/txlog-api, migrate, up, --postgres-dsn,
+              "postgres://postgres:postgres@postgres:5432/fsc_txlog_logius?sslmode=disable"]
+    environment:
+      <<: *txlog-common-env
+      POSTGRES_DATABASE: fsc_txlog_logius
+      STORAGE_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/fsc_txlog_logius?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  txlog-logius:
+    image: docker.io/federatedserviceconnectivity/txlog-api:${IMAGE_TAG:-v2.5.2}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # host-UID -> leest de 0600-internal-key
+    command: [/usr/local/bin/txlog-api, serve]
+    restart: on-failure                            # boot-race met postgres/migrate
+    environment:
+      <<: *txlog-common-env
+      POSTGRES_DATABASE: fsc_txlog_logius
+      STORAGE_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/fsc_txlog_logius?sslmode=disable
+      TLS_ROOT_CERT: /pki/internal/logius/ca/root.pem
+      TLS_CERT: /pki/internal/logius/txlog/cert.pem
+      TLS_KEY: /pki/internal/logius/txlog/key.pem
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    networks:
+      default:
+        aliases:
+          - txlog.logius.fsc-test.local
+    depends_on:
+      migrate-txlog-logius:
+        condition: service_completed_successfully
+
+networks:
+  default:
+    driver: bridge
