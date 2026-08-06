@@ -67,6 +67,16 @@
             <artifactId>logboekdataverwerking-wrapper</artifactId>
         </dependency>
 
+        <!-- LDV opent zijn eigen JDBC-verbinding naar het logboek; de wrapper markeert
+             beide drivers als optional zodat een consumer alleen die van zijn gekozen
+             backend meeneemt. Bewust de kale driver en niet quarkus-jdbc-postgresql:
+             die extensie verwacht een geconfigureerde datasource, en deze service heeft
+             er geen. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+
         <!-- Container-image: jib bouwt een OCI-image zonder Dockerfile en zonder
              Docker-daemon (rechtstreeks naar de registry), reproduceerbaar en als
              non-root base-layer. Registry/group/credentials komen uit de CI-flags
