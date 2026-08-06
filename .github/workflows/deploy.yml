@@ -5,7 +5,11 @@
 #
 #   uitvraag       (mpfb-8wh)     componenten: redis + clickhouse + uitvraag
 #   externe-stubs  (mpfpsm-lcl)   componenten: profiel + notificatie (WireMock-stubs)
-#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb
+#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb in de
+#                                 deployments `test`/`pr-<n>`, plus magazijna-fsc{pg,mgr,
+#                                 ctl,inway,txlog} (FSC-provider-peer) in de EIGEN,
+#                                 preview-loze deployment `fsc-magazijna` — zie
+#                                 demo/environment/magazijn-a/
 #
 # Redis (sessiecache) en ClickHouse (LDV) draaien per project intern (centrale ZAD-Redis
 # v7 mist RediSearch; ClickHouse niet deelbaar tussen deployments). Interne calls zijn
@@ -559,4 +563,25 @@ jobs:
               {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+            ]
+
+      # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in
+      # `test`. Previews klonen met `clone-from: test`; een gekloonde peer zou zich met dezelfde
+      # federatie-OIN opnieuw aanmelden bij de gedeelde directory (en zonder de UI-only
+      # cert-attachments direct crashloopen). Wat niet in `test` staat, kan niet meegekloond worden.
+      # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
+      # demo/environment/magazijn-a/deploy/zad/upsert-peer.sh.
+      - name: Deploy magazijnen-project (fsc-magazijna — FSC-peer)
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: fsc-magazijna
+          components: |
+            [
+              {"name": "magazijna-fscpg", "image": "docker.io/library/postgres:17"},
+              {"name": "magazijna-fscmgr", "image": "ghcr.io/minbzk/moza-fsc-testnet-manager-migrate:v2.5.2"},
+              {"name": "magazijna-fscctl", "image": "ghcr.io/minbzk/moza-fsc-testnet-controller-migrate:v2.5.2"},
+              {"name": "magazijna-fscinway", "image": "docker.io/federatedserviceconnectivity/inway:v2.5.2"},
+              {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"}
             ]
