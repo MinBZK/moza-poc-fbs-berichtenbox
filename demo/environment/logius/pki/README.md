@@ -40,7 +40,8 @@ losse ketens, zodat de manager zowel extern (mesh, group-trust) als intern
 ## Peer `logius`
 
 - Peer-OIN = Peer ID = `serialnumber` in elke `csr.json`: `00000000000000001000`.
-- `names[].O`: `logius`.
+- `names[].O`: `Logius` — de naam waaronder de peer in de directory verschijnt, als eigennaam met
+  hoofdletter. De mapnaam, DNS-namen en ZAD-componenten blijven `logius` (identifiers, lowercase).
 - Endpoints: `manager`, `outway`, `inway`, `controller`, `txlog`. De outway is de afnemende kant
   (roept `berichtenmagazijn` bij `magazijn-a` aan), de inway de aanbiedende (nog zonder
   gepubliceerde dienst). Elke csr draagt naast de lokale naam (`<endpoint>.logius.fsc-test.local`)

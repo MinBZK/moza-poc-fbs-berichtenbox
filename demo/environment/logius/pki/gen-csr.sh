@@ -31,6 +31,10 @@ case "${DEPLOYMENT}" in ""|*[!a-z0-9-]*) echo "ongeldig ZAD_DEPLOYMENT: '${DEPLO
 
 # --- Peer-identiteit (statisch) --------------------------------------------------------------------
 PEER="logius"
+# subject.organization = de naam waaronder de peer in de directory en bij andere peers verschijnt;
+# als eigennaam met hoofdletter. PEER blijft lowercase: dat is de identifier voor paden, DNS-namen
+# en ZAD-componenten, waar hoofdletters niet toegestaan zijn.
+ORG="Logius"
 OIN="00000000000000001000"                                # = subject.serialNumber = Peer ID
 # endpoint:component-korte-naam (de ZAD-component + Service heet `<deployment>-<short>`). Volgorde
 # bepaalt de uitvoer-volgorde; spiegelt de LOG*_SVC-namen in upsert-peer.sh.
@@ -53,7 +57,7 @@ for spec in "${ENDPOINTS[@]}"; do
   hosts_json="$(printf '%s\n' "${hosts[@]}" | jq -R . | jq -s .)"
   out="${BASE_DIR}/peers/${PEER}/${endpoint}/csr.json"
   mkdir -p "$(dirname "${out}")"
-  jq -n --arg cn "${endpoint}.${PEER}.fsc-test.local" --arg sn "${OIN}" --arg o "${PEER}" \
+  jq -n --arg cn "${endpoint}.${PEER}.fsc-test.local" --arg sn "${OIN}" --arg o "${ORG}" \
         --argjson hosts "${hosts_json}" \
     '{CN:$cn, key:{algo:"rsa", size:4096}, hosts:$hosts, serialnumber:$sn, names:[{O:$o, C:"NL"}]}' \
     > "${out}"

@@ -32,7 +32,7 @@ gemodelleerd); deze repo bevat **uitsluitend FSC-infra** (PKI + deploy), niet de
 
 | Parameter | Waarde | Herkomst |
 |-----------|--------|----------|
-| Peer-naam (`subject.O`) | `logius` | dit ontwerp |
+| Peer-naam (`subject.O`) | `Logius` (identifier in paden/DNS/ZAD: `logius`) | dit ontwerp |
 | Peer-OIN = Peer ID (`subject.serialNumber`) | `00000000000000001000` | gereserveerde test-consumer-OIN, repo A (`example-consumer`) |
 | Group ID | `moza-fbs-test` | repo A directory-deploy |
 | Directory-OIN | `00000000000000000010` | repo A directory-deploy |
