@@ -127,7 +127,8 @@ find demo/environment/logius -type d | sort
 grep -n "logius" demo/environment/README.md
 ```
 
-Verwacht: negen mappen; één tabelrij met OIN `00000000000000001000` en `fsc-logius`.
+Verwacht: 16 mappen (`find -type d` telt ook de tussenliggende mappen, niet alleen de tien
+`mkdir`-doelen); één tabelrij met OIN `00000000000000001000` en `fsc-logius`.
 
 - [ ] **Stap 5: Commit**
 
@@ -188,16 +189,17 @@ Werk ook de header-comment bij: `de per-endpoint csr.json's van de ZAD-peer 'log
 
 - [ ] **Stap 3: Genereer de CSR-templates**
 
-`gen-csr.sh` is jq-only en heeft géén cfssl of netwerk nodig.
+`gen-csr.sh` is jq-only en heeft géén cfssl of netwerk nodig. Het script kent geen vlaggen
+(alle positionele argumenten worden genegeerd) — draai het kaal.
 
 ```bash
-cd demo/environment/logius/pki && ./gen-csr.sh -f && cd -
+cd demo/environment/logius/pki && ./gen-csr.sh && cd -
 ```
 
 - [ ] **Stap 4: Verifieer de gegenereerde CSR's**
 
 ```bash
-jq -r '.CN, .names[0].serialNumber, (.hosts | join(" "))' \
+jq -r '.CN, .serialnumber, (.hosts | join(" "))' \
   demo/environment/logius/pki/peers/logius/manager/csr.json
 ls demo/environment/logius/pki/peers/logius/
 ```

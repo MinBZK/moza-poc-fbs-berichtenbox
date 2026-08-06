@@ -12,9 +12,9 @@ OIDC-login-voorziening — control-plane-only voor deze ene peer. Bouwt voort op
 ## Benodigdheden
 
 - **Docker** + `docker compose` (v2).
-- Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh` en
-  `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs faalt elke
-  container die `/pki` mount bij boot (ontbrekend bestand).
+- Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
+  `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
+  faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
 
 ## Draaiboek
 
@@ -25,6 +25,7 @@ Alle commando's vanuit de **peer-root** (`demo/environment/logius/`).
 cd pki
 ./init-ca.sh
 ./issue.sh
+./gen-crl.sh
 ./verify.sh          # verwacht: "== ALLE ASSERTS GROEN =="
 cd -
 
@@ -119,8 +120,9 @@ docker compose -f deploy/local/docker-compose.yaml logs inway-logius | tail -30
   `deploy/local/.env` matchen niet met de eigenaar van de keys. Zet ze met
   `printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env` en
   `docker compose -f deploy/local/docker-compose.yaml up -d --force-recreate`.
-- **Poort bezet** (443, 8081, 8091) → stop de conflicterende dienst of pas de `ports`/`bind`
-  in `docker-compose.yaml` / `haproxy.cfg` aan.
+- **Poort bezet** (8081, 8091) → stop de conflicterende dienst of pas de `ports`/`bind`
+  in `docker-compose.yaml` / `haproxy.cfg` aan. De router publiceert geen host-poort
+  (SNI-passthrough intern op het compose-netwerk), dus `443` kan hier niet conflicteren.
 - **Smoke faalt** → `docker compose -f deploy/local/docker-compose.yaml logs
   manager-directory manager-logius controller-logius` voor de mesh-logs.
 - **`migrate-*` hangt / `database "…" does not exist`** → `postgres-init.sql` draait alleen bij
@@ -144,7 +146,8 @@ De harness mount `pki/` read-only op `/pki`. Per endpoint (`manager`, `controlle
 houd de paden consistent met `SELF_ADDRESS`/SNI.
 
 De directory-peer heeft eigen CSR's onder `pki/peers/directory/`: `directory/csr.json`
-(gebruikt door `manager-directory` én `directory-ui` via `/pki/{out,internal}/directory/directory/...`)
+(gebruikt door `manager-directory` via `/pki/{out,internal}/directory/directory/...`; `directory-ui`
+gebruikt in plaats daarvan de group-cert van `logius/manager` als lezer-identiteit)
 en `manager/csr.json` (scaffolding voor een latere ZAD-directory-deploy; de lokale compose wiret
 het niet). Beide dragen de directory-OIN `00000000000000000010`. `issue.sh` negeert ongebruikte
 endpoints, dus de extra `manager`-CSR is onschadelijk.

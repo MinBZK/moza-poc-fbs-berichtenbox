@@ -13,9 +13,9 @@ het cert-contract).
 ## Benodigdheden
 
 - **Docker** + `docker compose` (v2).
-- Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh` en
-  `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs faalt elke
-  container die `/pki` mount bij boot (ontbrekend bestand).
+- Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
+  `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
+  faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
 
 ## Draaiboek
 
@@ -26,6 +26,7 @@ Alle commando's vanuit de **peer-root** (`demo/environment/magazijn-a/`).
 cd pki
 ./init-ca.sh
 ./issue.sh
+./gen-crl.sh
 ./verify.sh          # verwacht: "== ALLE ASSERTS GROEN =="
 cd -
 
@@ -134,7 +135,8 @@ De harness mount `pki/` read-only op `/pki`. Per endpoint (`manager`, `controlle
 houd de paden consistent met `SELF_ADDRESS`/SNI.
 
 De directory-peer heeft eigen CSR's onder `pki/peers/directory/`: `directory/csr.json`
-(gebruikt door `manager-directory` én `directory-ui` via `/pki/{out,internal}/directory/directory/...`)
+(gebruikt door `manager-directory` via `/pki/{out,internal}/directory/directory/...`; `directory-ui`
+gebruikt in plaats daarvan de group-cert van `magazijn-a/manager` als lezer-identiteit)
 en `manager/csr.json` (scaffolding voor een latere ZAD-directory-deploy; de lokale compose wiret
 het niet). Beide dragen de directory-OIN `00000000000000000010`. `issue.sh` negeert ongebruikte
 endpoints, dus de extra `manager`-CSR is onschadelijk.

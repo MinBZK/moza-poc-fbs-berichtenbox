@@ -373,12 +373,12 @@ echo "== upsert deployment '${DEPLOYMENT}' =="
 post "deployment" "/:upsert-deployment" "${DEPLOY_BODY}"
 
 echo "== componenten aanmaken/bijwerken =="
-post "logius-fscpg"    "/components" "${LOGPG_BODY}"      # DB eerst; de FSC-componenten retryen tot hij up is
-post "logius-fscmgr"   "/components" "${LOGMGR_BODY}"
-post "logius-fscctl"   "/components" "${LOGCTL_BODY}"
-post "logius-fscoutway"   "/components" "${LOGOUTWAY_BODY}"
-post "logius-fscinway"    "/components" "${LOGINWAY_BODY}"
-post "logius-fsctxlog" "/components" "${LOGTXLOG_BODY}"
+post "logius-fscpg"     "/components" "${LOGPG_BODY}"      # DB eerst; de FSC-componenten retryen tot hij up is
+post "logius-fscmgr"    "/components" "${LOGMGR_BODY}"
+post "logius-fscctl"    "/components" "${LOGCTL_BODY}"
+post "logius-fscoutway" "/components" "${LOGOUTWAY_BODY}"
+post "logius-fscinway"  "/components" "${LOGINWAY_BODY}"
+post "logius-fsctxlog"  "/components" "${LOGTXLOG_BODY}"
 
 # De EERSTE :upsert-deployment (hierboven) rolt de pods uit MET de config van de vórige run — de
 # POST /components hierna zet de nieuwe env pas ná die rollout. Doe daarom NOG één :upsert-deployment

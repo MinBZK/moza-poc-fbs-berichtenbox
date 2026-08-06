@@ -49,6 +49,11 @@ data-pad (`logius-fscoutway → inway → berichtenmagazijn`) bewijs je op ZAD t
 draaiende magazijn-a-peer (`demo/environment/magazijn-a/`). Dat vereist een geaccepteerd
 afnemer-contract (ServiceConnectionGrant) — nog niet onderdeel van dit ontwerp.
 
+`berichtenuitvraag`'s `MAGAZIJN_A_URL` wijst dan naar `https://fsc-logius-logius-fscoutway:8443`
+(cluster-interne Service-DNS, zie `LISTEN_ADDRESS`/poort in `upsert-peer.sh`): peer en app delen
+het project `mpfb-8wh` en dus de namespace, en de ingress-URL-variant vervalt omdat de outway
+bewust niet op het web gepubliceerd is (zie stap 2 hierboven).
+
 ### Nog niet bewijsbaar: het inbound data-pad
 
 `logius-fscinway` draait, maar biedt nog geen dienst aan — er is geen `CreateService` gedaan. Zodra de

@@ -9,7 +9,7 @@ directorystructuur-beslissing.
 ## Lokaal draaien
 
 ```bash
-cd pki && ./init-ca.sh && ./issue.sh && ./verify.sh && cd -
+cd pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh && cd -
 cp deploy/local/.env.example deploy/local/.env
 printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env
 docker compose -f deploy/local/docker-compose.yaml up -d

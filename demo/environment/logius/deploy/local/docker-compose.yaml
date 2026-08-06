@@ -29,6 +29,12 @@ x-txlog-common-env: &txlog-common-env
   PGSSLMODE: disable
   PGCONNECT_TIMEOUT: "10"
 
+# Expliciete projectnaam: zonder deze leidt Compose v2 'local' af van de mapnaam van dit
+# bestand, identiek aan magazijn-a's harness. Beide harnessen delen vijf servicenamen
+# (postgres, router, manager-directory, toolbox, directory-ui); zonder unieke naam adopteert
+# de tweede `up -d` het bestaande project en hercreëert die containers met de andere config.
+name: fsc-logius
+
 services:
   postgres:
     image: postgres:17

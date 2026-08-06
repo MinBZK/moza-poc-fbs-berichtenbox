@@ -8,7 +8,7 @@
 set -euo pipefail
 
 BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-PEER="${1:?usage: zad-bundle.sh <peer> (bv. directory)}"
+PEER="${1:?usage: zad-bundle.sh <peer> (bv. logius)}"
 OUT="${BASE_DIR}/zad-upload/${PEER}"
 MANIFEST="${OUT}/MANIFEST.md"
 
