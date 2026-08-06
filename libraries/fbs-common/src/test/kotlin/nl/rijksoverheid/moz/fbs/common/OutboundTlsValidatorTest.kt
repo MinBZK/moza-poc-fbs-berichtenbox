@@ -185,6 +185,74 @@ class OutboundTlsValidatorTest {
         }
     }
 
+    @Test
+    fun `de onveilige override logt luid met het stabiele alert-token voor JDBC`() {
+        // Zelfde borging als requireHttps: zonder deze WARNING (met het greppable token)
+        // blijft de ops-alertregel stil bij een bewust onveilig JDBC-endpoint.
+        val warnings = warnRecords {
+            OutboundTlsValidator.requireJdbcTls(
+                "prod",
+                "jdbc:postgresql://db:5432/ldv",
+                "ldv.url",
+                unsafeAllowPlaintext = true,
+            )
+        }
+
+        val warning = warnings.singleOrNull()
+
+        assertNotNull(warning, "plaintext-override MOET precies één WARNING loggen")
+        assertTrue(warning!!.message.contains(OutboundTlsValidator.TLS_DISABLED_ALERT_TOKEN), "log moet het alert-token bevatten")
+        assertTrue(warning.message.contains("ldv.url"), "log moet de config-key noemen voor diagnose")
+    }
+
+    @Test
+    fun `de onveilige override is in dev een no-op zonder waarschuwing voor JDBC`() {
+        // dev/test keren terug vóór de flag wordt geraadpleegd: geen throw én geen WARNING.
+        val warnings = warnRecords {
+            OutboundTlsValidator.requireJdbcTls(
+                "dev",
+                "jdbc:postgresql://localhost:5432/ldv",
+                "ldv.url",
+                unsafeAllowPlaintext = true,
+            )
+        }
+
+        assertTrue(warnings.isEmpty(), "in dev mag de override niets loggen")
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv?sslmode=require&sslmode=disable",
+            "jdbc:postgresql://db:5432/ldv?ssl=true&ssl=false",
+        ],
+    )
+    fun `bij een dubbele sleutel geldt het laatste voorkomen, ook als dat onveilig is`(url: String) {
+        // pgJDBC zet de querystring sequentieel in een Properties-object: het laatste
+        // voorkomen van een sleutel wint. De guard moet dus hetzelfde beoordelen als
+        // waarmee de driver daadwerkelijk verbindt, niet "veilig als er ergens een veilige
+        // waarde staat" — anders keurt hij een verbinding goed die in werkelijkheid
+        // plaintext is.
+        val ex = assertThrows<IllegalArgumentException> {
+            OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url")
+        }
+        assertTrue(ex.message!!.contains("BIO 13.2.1"), "foutmelding moet naar BIO 13.2.1 verwijzen")
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv?sslmode=disable&sslmode=require",
+            "jdbc:postgresql://db:5432/ldv?ssl=false&ssl=true",
+            "jdbc:postgresql://db:5432/ldv?user=x&sslmode=disable&sslmode=require",
+        ],
+    )
+    fun `bij een dubbele sleutel geldt het laatste voorkomen, ook als dat veilig is`(url: String) {
+        // De derde waarde combineert de dubbele sleutel met een onverwante parameter
+        // (`user`), zodat alleen `ssl`/`sslmode` meetellen voor de beslissing.
+        assertDoesNotThrow { OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url") }
+    }
+
     /** Vangt de WARNING-records die [block] op de validator-logger produceert. */
     private fun warnRecords(block: () -> Unit): List<LogRecord> {
         val records = mutableListOf<LogRecord>()
