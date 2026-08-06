@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
@@ -127,6 +129,59 @@ class OutboundTlsValidatorTest {
         // Een lege waarde is geen https, maar de bewuste override onderdrukt de eis ook hier.
         assertDoesNotThrow {
             OutboundTlsValidator.requireHttps("prod", "", key, unsafeAllowPlaintext = true)
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv?ssl=true",
+            "jdbc:postgresql://db:5432/ldv?sslmode=require",
+            "jdbc:postgresql://db:5432/ldv?sslmode=verify-ca",
+            "jdbc:postgresql://db:5432/ldv?sslmode=verify-full",
+            "jdbc:postgresql://db:5432/ldv?user=x&sslmode=require&y=1",
+        ],
+    )
+    fun `prod accepteert een JDBC-URL die daadwerkelijk versleutelt`(url: String) {
+        assertDoesNotThrow { OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url") }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv",
+            "jdbc:postgresql://db:5432/ldv?sslmode=disable",
+            "jdbc:postgresql://db:5432/ldv?sslmode=allow",
+            "jdbc:postgresql://db:5432/ldv?sslmode=prefer",
+            "jdbc:postgresql://db:5432/ldv?ssl=false",
+            "",
+        ],
+    )
+    fun `prod weigert een JDBC-URL zonder gegarandeerde versleuteling`(url: String) {
+        val ex = assertThrows<IllegalArgumentException> {
+            OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url")
+        }
+        assertTrue(ex.message!!.contains("BIO 13.2.1"), "foutmelding moet naar BIO 13.2.1 verwijzen")
+        assertTrue(ex.message!!.contains("ldv.url"), "foutmelding moet de configkey noemen")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["dev", "test"])
+    fun `dev en test laten een plaintext JDBC-URL toe`(profiel: String) {
+        assertDoesNotThrow {
+            OutboundTlsValidator.requireJdbcTls(profiel, "jdbc:postgresql://localhost:5432/ldv", "ldv.url")
+        }
+    }
+
+    @Test
+    fun `de onveilige override laat plaintext JDBC toe in prod`() {
+        assertDoesNotThrow {
+            OutboundTlsValidator.requireJdbcTls(
+                "prod",
+                "jdbc:postgresql://db:5432/ldv",
+                "ldv.url",
+                unsafeAllowPlaintext = true,
+            )
         }
     }
 
