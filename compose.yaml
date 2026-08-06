@@ -1,6 +1,6 @@
 services:
   redis:
-    image: redis/redis-stack-server:7.4.0-v3
+    image: docker.io/redis/redis-stack-server:7.4.0-v3
     ports:
       - "6379:6379"
     healthcheck:
@@ -10,7 +10,7 @@ services:
       retries: 5
 
   magazijn-a:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8081:8080"
     volumes:
@@ -19,7 +19,7 @@ services:
     command: ["--verbose", "--global-response-templating"]
 
   magazijn-b:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8082:8080"
     volumes:
@@ -33,7 +33,7 @@ services:
   # test-OIN 00000001003214345000; voor 403-rookproef is er een mapping op BSN
   # 111222333 die een partij zonder voorkeuren teruggeeft.
   profiel-service:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8089:8080"
     volumes:
@@ -55,7 +55,7 @@ services:
   # de poller claims herproberen en stapelen de WARN/ERROR-logs zich op.
   # Tests gebruiken een embedded JDK HttpServer en hebben deze containers niet nodig.
   aanmeld-stub:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8083:8080"
     volumes:
@@ -63,7 +63,7 @@ services:
     command: ["--verbose", "--global-response-templating"]
 
   notificatie-stub:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8084:8080"
     volumes:
@@ -71,7 +71,7 @@ services:
     command: ["--verbose", "--global-response-templating"]
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.6
+    image: docker.io/clickhouse/clickhouse-server:26.6
     ports:
       - "8123:8123"
     environment:
@@ -80,7 +80,7 @@ services:
       CLICKHOUSE_DB: ldv_logging
 
   postgres-a:
-    image: postgres:18
+    image: docker.io/library/postgres:18
     ports:
       - "5432:5432"
     environment:
@@ -100,7 +100,7 @@ services:
       retries: 5
 
   postgres-b:
-    image: postgres:18
+    image: docker.io/library/postgres:18
     ports:
       - "5433:5432"
     environment:
@@ -199,7 +199,7 @@ services:
   # magazijnen (/mNN) uit demo/generated/ — draai eerst demo/genereer-magazijnen.py. De demo-console
   # zet stubs live op storing via de admin-API (:8092/__admin/mappings).
   magazijn-stubs:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     profiles: [demo]
     ports:
       - "8092:8080"

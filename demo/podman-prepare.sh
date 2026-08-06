@@ -10,16 +10,16 @@ MODUS="${1:-bridge}"
 WORTEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN="$WORTEL/demo/generated"
 
+case "$MODUS" in
+    bridge|hostnet) ;;
+    *) echo "Onbekende modus '$MODUS'; kies 'bridge' of 'hostnet'." >&2; exit 1 ;;
+esac
+
 python3 "$WORTEL/demo/genereer-magazijnen.py"
 
 if [ "$MODUS" = "bridge" ]; then
     echo "Klaar (bridge): container-DNS-namen ongewijzigd."
     exit 0
-fi
-
-if [ "$MODUS" != "hostnet" ]; then
-    echo "Onbekende modus '$MODUS'; kies 'bridge' of 'hostnet'." >&2
-    exit 1
 fi
 
 # In één gedeelde netns bestaan de container-DNS-namen niet; alles loopt over 127.0.0.1 met de
@@ -34,5 +34,16 @@ sed -e 's|"berichtenmagazijn-a:8090"|"127.0.0.1:8090"|' \
     -e 's|"notificatie-stub:8080"|"127.0.0.1:8084"|' \
     -e 's|"berichtenuitvraag:8086"|"127.0.0.1:8086"|' \
     "$WORTEL/toxiproxy/proxies.json" > "$GEN/proxies-host.json"
+
+if grep -q 'magazijn-stubs:8080' "$GEN/magazijnen-stubs.properties"; then
+    echo "FOUT: register bevat nog container-DNS-namen; pas de sed-regel in dit script aan." >&2
+    exit 1
+fi
+
+if grep -o '"upstream": *"[^"]*"' "$GEN/proxies-host.json" | grep -qv '127\.0\.0\.1'; then
+    echo "FOUT: niet alle toxiproxy-upstreams wijzen naar 127.0.0.1; vul de sed-regels aan." >&2
+    grep -o '"upstream": *"[^"]*"' "$GEN/proxies-host.json" | grep -v '127\.0\.0\.1' >&2
+    exit 1
+fi
 
 echo "Klaar (hostnet): register en toxiproxy-upstreams omgeschreven naar 127.0.0.1."

@@ -33,6 +33,8 @@ if [ -z "${DOCKER_HOST:-}" ]; then
         mkdir -p "$(dirname "$SOCK")"
         podman system service --time=0 "unix://$SOCK" >/dev/null 2>&1 &
         for _ in $(seq 1 20); do [ -S "$SOCK" ] && break; sleep 0.5; done
+
+        [ -S "$SOCK" ] || { echo "podman system service kwam niet omhoog ($SOCK)" >&2; exit 1; }
     fi
 
     export DOCKER_HOST="unix://$SOCK"
@@ -125,11 +127,14 @@ else
     "${C[@]}" up -d redis postgres-a postgres-b clickhouse profiel-service magazijn-a magazijn-b \
         aanmeld-stub notificatie-stub magazijn-stubs toxiproxy
 
-    P=moza-poc-fbs-berichtenbox
-    wacht_op "redis"      podman exec "${P}-redis-1" redis-cli ping
-    wacht_op "postgres-a" podman exec "${P}-postgres-a-1" pg_isready -U berichtenmagazijn -d berichtenmagazijn
-    wacht_op "postgres-b" podman exec "${P}-postgres-b-1" pg_isready -U berichtenmagazijn -d berichtenmagazijn -p 5433
-    wacht_op "toxiproxy"  curl -sf --max-time 3 http://127.0.0.1:8474/proxies
+    wacht_op "redis"      "${C[@]}" exec -T redis      redis-cli ping
+    wacht_op "postgres-a" "${C[@]}" exec -T postgres-a pg_isready -U berichtenmagazijn -d berichtenmagazijn
+    wacht_op "postgres-b" "${C[@]}" exec -T postgres-b pg_isready -U berichtenmagazijn -d berichtenmagazijn -p 5433
+
+    # Niet alleen of de admin-API leeft: met een niet-geladen proxies.json start Toxiproxy
+    # gezond op met NUL proxies, geeft `GET /proxies` een lege `{}` met status 200, en is de
+    # hele keten dood terwijl elke probe groen is.
+    wacht_op "toxiproxy"  bash -c 'curl -sf --max-time 3 http://127.0.0.1:8474/proxies | grep -q magazijn-a'
 
     "${C[@]}" up -d berichtenmagazijn-a berichtenmagazijn-b berichtenuitvraag demo-console
 fi

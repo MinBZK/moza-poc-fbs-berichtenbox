@@ -1,11 +1,16 @@
 # Zelfstandige demo-stack voor rootless podman in een dev-container. Vervangt compose.yaml
-# (niet: een override erop) — gebruik `-f compose.podman.yaml`, zonder compose.yaml.
+# (niet: een override erop) — gebruik `-f compose.podman-hostnet.yaml`, zonder compose.yaml.
 #
 # Waarom een aparte file: netavark kan hier geen bridge-netwerk opzetten (`/proc/sys` is
 # read-only in de buitenste container → "failed to set autoconf sysctl"), en aardvark-dns
 # ontbreekt, dus container-DNS-namen resolven sowieso niet. Alle containers delen daarom de
 # netns van de dev-container (`network_mode: host`) en praten over 127.0.0.1 met vaste,
-# unieke poorten. Functioneel identiek aan compose.yaml; alleen de adressering verschilt.
+# unieke poorten. Zelfde services en env als compose.yaml; adressering, healthchecks en de
+# `profiles: [demo]`-gating verschillen — een kale `up -d` start hier dus álles.
+#
+# LET OP bij image-bumps: dit bestand staat los van compose.yaml en dependabot ziet het niet.
+# De `infra-image-pins`-guard eist één uniforme pin per image over de hele repo, dus een bump
+# in compose.yaml moet hier in dezelfde commit mee. De guard maakt dat luid, niet stil.
 #
 # Poortverdeling binnen de gedeelde netns:
 #   6379 redis · 5432/5433 postgres a/b · 8081/8082 wiremock magazijn a/b (dev-stubs)
@@ -175,7 +180,7 @@ services:
       LDV_CLICKHOUSE_ENDPOINT: http://127.0.0.1:8123
       QUARKUS_HTTP_CORS_ENABLED: "true"
       # De UI wordt vanaf de container-host geopend, dus die origin moet mee in de allowlist.
-      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-127.0.0.1}:8095"
+      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095"
       BERICHTENSESSIECACHE_TTL: PT2M
       SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-stubs.properties
       BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "60"

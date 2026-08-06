@@ -3,67 +3,51 @@
 #
 #   docker-compose -f compose.yaml -f compose.podman.yaml --profile demo up -d
 #
-# Drie verschillen met Docker, allemaal naamgeving of adressering:
+# Twee verschillen met Docker:
 #
-#  1. Volledig gekwalificeerde image-namen. Docker vult impliciet `docker.io/` aan; podman doet
-#     dat alleen als de host `unqualified-search-registries` heeft ingesteld, en faalt anders
-#     non-interactief op short-name-resolutie.
-#  2. `localhost/`-prefix op de zelf gebouwde images. Jib laadt ze onder `localhost/...`; podman
+#  1. `localhost/`-prefix op de zelf gebouwde images. Jib laadt ze onder `localhost/...`; podman
 #     zoekt een kale `fbs-demo/...` op een registry i.p.v. lokaal.
-#  3. CORS-origin voor de Berichtenbox-UI. Wordt de stack niet op `localhost` geopend maar op een
+#  2. CORS-origin voor de Berichtenbox-UI. Wordt de stack niet op `localhost` geopend maar op een
 #     VM- of container-IP, dan moet die origin in de allowlist van de uitvraag staan. Zet
 #     `DEMO_HOST` op het adres waarop je de demo benadert.
+#
+# De basis-images staan volledig gekwalificeerd in compose.yaml zelf (`docker.io/...`). Docker
+# vult die prefix impliciet aan, podman alleen met `unqualified-search-registries` — en faalt
+# anders non-interactief. Ze hier nog eens overschrijven zou de pins verdubbelen, en de
+# `infra-image-pins`-guard eist één uniforme pin per image over de hele repo.
 #
 # SELinux (Fedora/RHEL, enforcing): de bind-mounts krijgen hier `:z` zodat de containers de
 # gemounte mappings mogen lezen. Zonder label krijg je "permission denied" op de WireMock-mappings.
 services:
-  redis:
-    image: docker.io/redis/redis-stack-server:7.4.0-v3
-
   magazijn-a:
-    image: docker.io/wiremock/wiremock:3.13.2
     volumes:
       - ./wiremock/magazijn-a/mappings:/home/wiremock/mappings:z
       - ./wiremock/magazijn-a/__files:/home/wiremock/__files:z
 
   magazijn-b:
-    image: docker.io/wiremock/wiremock:3.13.2
     volumes:
       - ./wiremock/magazijn-b/mappings:/home/wiremock/mappings:z
       - ./wiremock/magazijn-b/__files:/home/wiremock/__files:z
 
   profiel-service:
-    image: docker.io/wiremock/wiremock:3.13.2
     volumes:
       - ./wiremock/externe-stubs/mappings:/home/wiremock/mappings:z
       - ./wiremock/demo-profiel/mappings:/home/wiremock/mappings/demo-profiel:z
       - ./demo/generated/profiel:/home/wiremock/mappings/demo-profiel-generated:z
 
   aanmeld-stub:
-    image: docker.io/wiremock/wiremock:3.13.2
     volumes:
       - ./wiremock/aanmeld-stub/mappings:/home/wiremock/mappings:z
 
   notificatie-stub:
-    image: docker.io/wiremock/wiremock:3.13.2
     volumes:
       - ./wiremock/notificatie-stub/mappings:/home/wiremock/mappings:z
-
-  clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:26.6
-
-  postgres-a:
-    image: docker.io/library/postgres:18
-
-  postgres-b:
-    image: docker.io/library/postgres:18
 
   toxiproxy:
     volumes:
       - ./toxiproxy/proxies.json:/proxies.json:ro,z
 
   magazijn-stubs:
-    image: docker.io/wiremock/wiremock:3.13.2
     volumes:
       - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings:z
 
