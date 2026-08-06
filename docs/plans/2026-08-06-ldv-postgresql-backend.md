@@ -121,9 +121,11 @@ blijft de fout bovendien op de pooled thread staan tot een volgend request hem o
 
 ### 3. `addLogboekContextToSpan` heeft een derde parameter
 
-`propagatingException` (default `null`). Op de foutpaden van beide handmatige sites
-doorgeven: anders overschrijft een optimistische `OK` uit de context de ERROR-status,
-en missen de per-betrokkene child-logregels hun `exception.*`-attributen.
+`propagatingException` (default `null`). Op het foutpad van `AanleverResource` doorgeven:
+anders overschrijft een optimistische `OK` uit de context de ERROR-status, en missen de
+per-betrokkene child-logregels hun `exception.*`-attributen. Op het publicatiepad speelt
+dit niet meer — daar sluit de span vóór de levering, dus er propageert op dat moment nog
+geen exception.
 
 ## Publicatiepad: logregel vóór de levering
 
