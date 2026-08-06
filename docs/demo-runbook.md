@@ -55,6 +55,31 @@ Openen na start:
 
 Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-volumes te wissen).
 
+### Podman in plaats van Docker
+
+```bash
+demo/podman-up.sh                        # kiest zelf de werkbare netwerkmodus
+DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-allowlist
+```
+
+Het script zoekt de podman-API-socket (start hem zo nodig), kiest `docker-compose`,
+`docker compose` of `podman-compose`, genereert de stub-artefacten en wacht tot alles gezond is.
+
+Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
+
+| Modus | Wanneer | Bestand |
+|---|---|---|
+| `bridge` | normale podman: Linux rootless, of podman machine op macOS/Windows | `compose.podman.yaml` (override op `compose.yaml`) |
+| `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (zelfstandig) |
+
+Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. In `hostnet` delen alle containers één
+netwerknamespace en luisteren ze op vaste poorten op `127.0.0.1` — handig als vangnet, maar
+ongeschikt op macOS (zonder published ports komt er niets door naar de host) en op een werkplek
+waar al een Postgres of Redis op de standaardpoorten draait.
+
+Afsluiten: `docker-compose -f compose.yaml -f compose.podman.yaml --profile demo down`
+(in `hostnet`: `-f compose.podman-hostnet.yaml`).
+
 ---
 
 ## 4. "Veel magazijnen" voorbereiden (alleen voor fase 6)

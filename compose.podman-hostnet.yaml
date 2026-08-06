@@ -1,0 +1,217 @@
+# Zelfstandige demo-stack voor rootless podman in een dev-container. Vervangt compose.yaml
+# (niet: een override erop) — gebruik `-f compose.podman-hostnet.yaml`, zonder compose.yaml.
+#
+# Waarom een aparte file: netavark kan hier geen bridge-netwerk opzetten (`/proc/sys` is
+# read-only in de buitenste container → "failed to set autoconf sysctl"), en aardvark-dns
+# ontbreekt, dus container-DNS-namen resolven sowieso niet. Alle containers delen daarom de
+# netns van de dev-container (`network_mode: host`) en praten over 127.0.0.1 met vaste,
+# unieke poorten. Zelfde services en env als compose.yaml; adressering, healthchecks en de
+# `profiles: [demo]`-gating verschillen — een kale `up -d` start hier dus álles.
+#
+# LET OP bij image-bumps: dit bestand staat los van compose.yaml en dependabot ziet het niet.
+# De `infra-image-pins`-guard eist één uniforme pin per image over de hele repo, dus een bump
+# in compose.yaml moet hier in dezelfde commit mee. De guard maakt dat luid, niet stil.
+#
+# Poortverdeling binnen de gedeelde netns:
+#   6379 redis · 5432/5433 postgres a/b · 8081/8082 wiremock magazijn a/b (dev-stubs)
+#   8083 aanmeld · 8084 notificatie · 8089 profiel · 8092 magazijn-stubs · 8123 clickhouse
+#   8090/8091 berichtenmagazijn a/b · 8086 uitvraag · 8095 demo-console
+#   8474 toxiproxy-admin · 16379/18084/18086/18089/18090/18091 toxiproxy-proxies
+#
+# Geen healthchecks: podman voert die uit via systemd-timers, en systemd draait hier niet —
+# een healthcheck blijft dan eeuwig 'starting' en `condition: service_healthy` loopt vast.
+# Daarom start demo/podman-up.sh eerst de infra, wacht actief op Postgres/Redis, en start
+# daarna pas de services.
+#
+# Vooraf: demo/genereer-magazijnen.py draaien én de gegenereerde artefacten omschrijven naar
+# 127.0.0.1 (zie demo/podman-prepare.sh).
+services:
+  redis:
+    image: docker.io/redis/redis-stack-server:7.4.0-v3
+    network_mode: host
+
+  magazijn-a:
+    image: docker.io/wiremock/wiremock:3.13.2
+    network_mode: host
+    volumes:
+      - ./wiremock/magazijn-a/mappings:/home/wiremock/mappings
+      - ./wiremock/magazijn-a/__files:/home/wiremock/__files
+    command: ["--port", "8081", "--verbose", "--global-response-templating"]
+
+  magazijn-b:
+    image: docker.io/wiremock/wiremock:3.13.2
+    network_mode: host
+    volumes:
+      - ./wiremock/magazijn-b/mappings:/home/wiremock/mappings
+      - ./wiremock/magazijn-b/__files:/home/wiremock/__files
+    command: ["--port", "8082", "--verbose", "--global-response-templating"]
+
+  profiel-service:
+    image: docker.io/wiremock/wiremock:3.13.2
+    network_mode: host
+    volumes:
+      - ./wiremock/externe-stubs/mappings:/home/wiremock/mappings
+      - ./wiremock/demo-profiel/mappings:/home/wiremock/mappings/demo-profiel
+      - ./demo/generated/profiel:/home/wiremock/mappings/demo-profiel-generated
+    command: ["--port", "8089", "--verbose"]
+
+  aanmeld-stub:
+    image: docker.io/wiremock/wiremock:3.13.2
+    network_mode: host
+    volumes:
+      - ./wiremock/aanmeld-stub/mappings:/home/wiremock/mappings
+    command: ["--port", "8083", "--verbose", "--global-response-templating"]
+
+  notificatie-stub:
+    image: docker.io/wiremock/wiremock:3.13.2
+    network_mode: host
+    volumes:
+      - ./wiremock/notificatie-stub/mappings:/home/wiremock/mappings
+    command: ["--port", "8084", "--verbose", "--global-response-templating"]
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:26.6
+    network_mode: host
+    environment:
+      CLICKHOUSE_USER: ldv
+      CLICKHOUSE_PASSWORD: ldv
+      CLICKHOUSE_DB: ldv_logging
+
+  postgres-a:
+    image: docker.io/library/postgres:18
+    network_mode: host
+    environment:
+      POSTGRES_USER: berichtenmagazijn
+      POSTGRES_PASSWORD: berichtenmagazijn
+      POSTGRES_DB: berichtenmagazijn
+    volumes:
+      - postgres-data-a:/var/lib/postgresql
+
+  # PGPORT verplaatst zowel de server als pg_isready naar 5433; in een gedeelde netns kan
+  # de tweede Postgres niet óók op 5432 luisteren.
+  postgres-b:
+    image: docker.io/library/postgres:18
+    network_mode: host
+    environment:
+      POSTGRES_USER: berichtenmagazijn
+      POSTGRES_PASSWORD: berichtenmagazijn
+      POSTGRES_DB: berichtenmagazijn
+      PGPORT: "5433"
+    volumes:
+      - postgres-data-b:/var/lib/postgresql
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    network_mode: host
+    volumes:
+      - ./demo/generated/proxies-host.json:/proxies.json:ro
+    command: ["-host=0.0.0.0", "-config=/proxies.json"]
+
+  magazijn-stubs:
+    image: docker.io/wiremock/wiremock:3.13.2
+    network_mode: host
+    volumes:
+      - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings
+    command: ["--port", "8092", "--verbose"]
+
+  berichtenmagazijn-a:
+    image: localhost/fbs-demo/fbs-berichtenmagazijn:demo
+    network_mode: host
+    depends_on:
+      postgres-a:
+        condition: service_started
+      toxiproxy:
+        condition: service_started
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      QUARKUS_HTTP_PORT: "8090"
+      DB_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
+      MAGAZIJN_OIN: "00000001003214345000"
+      AANMELD_URL: http://127.0.0.1:18086/api/v1/aanmeldingen
+      NOTIFICATIE_URL: http://127.0.0.1:18084/events
+      PROFIEL_SERVICE_URL: http://127.0.0.1:8089
+      LDV_CLICKHOUSE_ENDPOINT: http://127.0.0.1:8123
+      MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
+      MAGAZIJN_PUBLICATIE_DOWNSTREAMS_AANMELD_MAX_POGINGEN: "50"
+      MAGAZIJN_PUBLICATIE_DOWNSTREAMS_NOTIFICATIE_MAX_POGINGEN: "50"
+
+  berichtenmagazijn-b:
+    image: localhost/fbs-demo/fbs-berichtenmagazijn:demo
+    network_mode: host
+    depends_on:
+      postgres-b:
+        condition: service_started
+      toxiproxy:
+        condition: service_started
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      QUARKUS_HTTP_PORT: "8091"
+      DB_JDBC_URL: jdbc:postgresql://127.0.0.1:5433/berichtenmagazijn
+      MAGAZIJN_OIN: "00000001823288444000"
+      AANMELD_URL: http://127.0.0.1:18086/api/v1/aanmeldingen
+      NOTIFICATIE_URL: http://127.0.0.1:18084/events
+      PROFIEL_SERVICE_URL: http://127.0.0.1:8089
+      LDV_CLICKHOUSE_ENDPOINT: http://127.0.0.1:8123
+      MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
+      MAGAZIJN_PUBLICATIE_DOWNSTREAMS_AANMELD_MAX_POGINGEN: "50"
+      MAGAZIJN_PUBLICATIE_DOWNSTREAMS_NOTIFICATIE_MAX_POGINGEN: "50"
+
+  berichtenuitvraag:
+    image: localhost/fbs-demo/fbs-berichtenuitvraag:demo
+    network_mode: host
+    depends_on:
+      redis:
+        condition: service_started
+      berichtenmagazijn-a:
+        condition: service_started
+      berichtenmagazijn-b:
+        condition: service_started
+      toxiproxy:
+        condition: service_started
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      REDIS_HOSTS: redis://127.0.0.1:16379
+      MAGAZIJN_A_URL: http://127.0.0.1:18090
+      MAGAZIJN_B_URL: http://127.0.0.1:18091
+      PROFIEL_SERVICE_URL: http://127.0.0.1:18089
+      LDV_CLICKHOUSE_ENDPOINT: http://127.0.0.1:8123
+      QUARKUS_HTTP_CORS_ENABLED: "true"
+      # De UI wordt vanaf de container-host geopend, dus die origin moet mee in de allowlist.
+      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095"
+      BERICHTENSESSIECACHE_TTL: PT2M
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-stubs.properties
+      BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "60"
+    volumes:
+      - ./demo/generated/magazijnen-stubs.properties:/demo-config/magazijnen-stubs.properties:ro
+
+  demo-console:
+    image: localhost/fbs-demo/fbs-demo-console:demo
+    network_mode: host
+    depends_on:
+      berichtenmagazijn-a:
+        condition: service_started
+      berichtenmagazijn-b:
+        condition: service_started
+      toxiproxy:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      TOXIPROXY_ADMIN_URL: http://127.0.0.1:8474
+      REDIS_HOSTS: redis://127.0.0.1:6379
+      UITVRAAG_URL: http://127.0.0.1:8086
+      MAGAZIJN_A_URL: http://127.0.0.1:8090
+      MAGAZIJN_B_URL: http://127.0.0.1:8091
+      MAGAZIJN_A_DB_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
+      MAGAZIJN_B_DB_URL: jdbc:postgresql://127.0.0.1:5433/berichtenmagazijn
+      MAGAZIJN_STUBS_ADMIN_URL: http://127.0.0.1:8092
+      DEMO_MAGAZIJN_STUBS: "${DEMO_MAGAZIJN_STUBS:-12}"
+
+volumes:
+  postgres-data-a:
+  postgres-data-b:

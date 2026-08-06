@@ -1,6 +1,9 @@
 'use strict';
 
-const BASIS = 'http://localhost:8086/api/v1';
+// Host uit de browser-locatie i.p.v. hardgecodeerd localhost: de demo-stack is ook bereikbaar
+// vanaf een andere machine (bv. een container-host die op het bridge-IP kijkt). De uitvraag
+// publiceert altijd op 8086, dus alleen de host varieert.
+const BASIS = `http://${window.location.hostname}:8086/api/v1`;
 
 // magazijnId per bericht onthouden — PATCH/DELETE (taak 4/5) vereisen ?magazijnId=.
 const magazijnPerBericht = new Map();
