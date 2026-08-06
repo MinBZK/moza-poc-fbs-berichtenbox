@@ -49,10 +49,11 @@ De OIN staat in **lockstep** met elke `pki/peers/logius/<endpoint>/csr.json`.
 - **GEEN fork** van de FSC-software. Dit is een **deploy- en configuratie-repo** die
   [OpenFSC](https://gitlab.com/rinis-oss/fsc/open-fsc) (EUPL-1.2, RINIS) consumeert via haar
   container-images (`manager`, `outway`, `inway`, `controller`, `txlog-api`, gepind op `v2.5.2`).
-- **WEL**: onze test-PKI, peer-configuratie, ZAD-deploy (`upsert-peer.sh` + workflow), runbooks.
+- **WEL**: onze test-PKI, peer-configuratie, ZAD-deploy (`upsert-peer.sh`; CI-koppeling volgt, zie
+  Open punten), runbooks.
 - **Migratie-wrappers:** ZAD ondersteunt geen init-containers/args → de migratie zit in het image
   zelf. manager/controller/txlog draaien elk een wrapper-image
-  `ghcr.io/minbzk/moza-fsc-testnet/{manager,controller,txlog}-migrate` (`migrate up && serve`); de
+  `ghcr.io/minbzk/moza-fsc-testnet-{manager,controller,txlog}-migrate` (`migrate up && serve`); de
   outway en de inway hebben geen DB en gebruiken het stock-image.
 
 ## Scope
@@ -74,8 +75,10 @@ CI-workflow, docs.
 ## Architectuur
 
 Gespiegeld op de provider-peer in `moza-fsc-org-a`. Per peer een eigen set FSC-componenten; de
-peer draait in een **eigen ZAD-project** (project-isolatie). De uitvraag-app draait apart
-en bereikt de outway intra-project.
+peer draait sinds de migratie naar `demo/environment/logius/` **co-located** in het gedeelde
+ZAD-project `mpfb-8wh` (het project van de `uitvraag`-app, deployment `test`), in zijn **eigen
+deployment** `fsc-logius` (deployment-isolatie). Oorspronkelijk, in de losse repo, had de peer een
+**eigen ZAD-project** (project-isolatie) — zie addendum.
 
 ### Componenten van de peer
 
@@ -143,7 +146,7 @@ Zelfstandige harness (mirror van org-a's `deploy/local`, single-peer): directory
 - de peer **boot** (alle componenten `Up`, geen restart-loop);
 - **announce** — `smoke-announce.sh` pollt de directory-DB tot de consumer-OIN met `manager_address`
   op `:443` in `peers.peers` staat;
-- de **controller-UI** is bereikbaar (host-poort `8090`).
+- de **controller-UI** is bereikbaar (host-poort `8091`; oorspronkelijk `8090`, zie addendum).
 
 Bewust *geen* lokale discover-smoke: deze compose heeft geen provider die `berichtenmagazijn`
 publiceert (ook al draait sinds de inway-uitbreiding wél een eigen inway mee), dus lokaal
@@ -154,11 +157,16 @@ discoveren is betekenisloos. Discover bewijzen we tegen de échte directory op Z
 
 ### Fase 2 — ZAD
 
-`upsert-peer.sh` (`validate`/`plan`/`apply`) tegen de ZAD v2 Operations Manager API, in een **eigen
-ZAD-project**. Componenten `logius-fscpg` (self-hosted Postgres + init-schema's), `logius-fscmgr`, `logius-fscctl`,
-`logius-fscoutway`, `logius-fscinway`, `logius-fsctxlog`. Cert-attachments + "Publicatie op het web" (passthrough) zijn UI-only (zie
-`deploy/zad/cert-manifest.md`). CI (`zad-deploy-peer.yml`): PR → alleen `plan` (geen secrets),
-`main` → `apply`.
+`upsert-peer.sh` (`validate`/`plan`/`apply`) tegen de ZAD v2 Operations Manager API, sinds de
+migratie **co-located** in het gedeelde project `mpfb-8wh` (deployment `fsc-logius`; oorspronkelijk
+een eigen ZAD-project, zie Architectuur). Componenten `logius-fscpg` (self-hosted Postgres +
+init-schema's), `logius-fscmgr`, `logius-fscctl`, `logius-fscoutway`, `logius-fscinway`,
+`logius-fsctxlog`. Cert-attachments + "Publicatie op het web" (passthrough) zijn UI-only (zie
+`deploy/zad/cert-manifest.md`). Oorspronkelijk draaide de CI via een losse
+`zad-deploy-peer.yml`-workflow (PR → alleen `plan`, `main` → `apply`); die is vervallen. Doorlopende
+image-tag-updates gaan lopen via een stap tegen `fsc-logius` in de bestaande
+`deploy-test-uitvraag`-job (`.github/workflows/deploy.yml`); die job bevat op dit moment nog geen
+stap voor deze peer (zie Open punten).
 
 **Self-hosted Postgres met geïsoleerde migratie-tellers** (exact als org-a): manager + txlog
 isoleren hun `schema_migrations`-teller via een eigen `search_path`-schema (`manager`/`txlog`,
