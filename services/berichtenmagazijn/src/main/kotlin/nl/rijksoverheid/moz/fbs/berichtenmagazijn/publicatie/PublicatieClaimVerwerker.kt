@@ -109,25 +109,25 @@ class PublicatieClaimVerwerker(
     /**
      * Schrijft de logregel voor deze verstrekking en wacht op bevestiging. Status blijft
      * `UNSET`: het logboek registreert dat de gegevens verstrekt gaan worden, niet of de
-     * downstream ze aannam.
+     * downstream ze aannam. Uitzondering: een onbekend doel (config-drift) krijgt hier al
+     * `ERROR`, want dan staat de onmogelijkheid al vast vóór er een downstream-call is.
      */
     private fun legVerstrekkingVast(
         claim: PublicatieClaim,
         bericht: Bericht,
         downstreamConfig: PublicatieConfig.Downstream?,
     ) {
-        // De recorder is thread-gebonden; deze bean doet zijn eigen span-beheer op de
-        // scheduler-thread, dus een fout van een eerdere claim moet er eerst af.
+        // Recorder is thread-gebonden; leeg 'm voor dit span-beheer begint.
         LogboekWriteFailureRecorder.clear()
 
         val span = processingHandler.startSpan("publicatie-${claim.doel}", Context.current())
-        val ldvContext = LogboekContext().apply {
-            processingActivityId = config.verwerkingsregisterPubliceren()
-        }
-
-        zetLdvEnSpanAttributen(claim, bericht, downstreamConfig, ldvContext, span)
 
         try {
+            val ldvContext = LogboekContext().apply {
+                processingActivityId = config.verwerkingsregisterPubliceren()
+            }
+
+            zetLdvEnSpanAttributen(claim, bericht, downstreamConfig, ldvContext, span)
             processingHandler.addLogboekContextToSpan(span, ldvContext)
         } finally {
             span.end()
@@ -147,24 +147,25 @@ class PublicatieClaimVerwerker(
      * fail-closed kan hier zonder risico op een dubbele levering.
      */
     private fun verwerkOntbrekendBericht(claim: PublicatieClaim) {
+        // Zelfde reden als in legVerstrekkingVast: recorder is thread-gebonden.
         LogboekWriteFailureRecorder.clear()
 
         val span = processingHandler.startSpan("publicatie-${claim.doel}", Context.current())
-        val ldvContext = LogboekContext().apply {
-            processingActivityId = config.verwerkingsregisterPubliceren()
-            dataSubjectId = claim.berichtId.toString()
-            dataSubjectType = "BERICHT_ID_ONLY"
-            status = StatusCode.ERROR
-        }
-
-        log.warnf(
-            "Bericht ontbreekt voor claim claimId=%d berichtId=%s; markeer MISLUKT",
-            claim.claimId, claim.berichtId,
-        )
-        claimer.markeerMislukt(claim.claimId, "Bericht niet gevonden", volgendePoging = null)
-        span.setStatus(StatusCode.ERROR, "Bericht niet gevonden")
 
         try {
+            val ldvContext = LogboekContext().apply {
+                processingActivityId = config.verwerkingsregisterPubliceren()
+                dataSubjectId = claim.berichtId.toString()
+                dataSubjectType = "BERICHT_ID_ONLY"
+                status = StatusCode.ERROR
+            }
+
+            log.warnf(
+                "Bericht ontbreekt voor claim claimId=%d berichtId=%s; markeer MISLUKT",
+                claim.claimId, claim.berichtId,
+            )
+            claimer.markeerMislukt(claim.claimId, "Bericht niet gevonden", volgendePoging = null)
+            span.setStatus(StatusCode.ERROR, "Bericht niet gevonden")
             processingHandler.addLogboekContextToSpan(span, ldvContext)
         } finally {
             span.end()
@@ -184,14 +185,22 @@ class PublicatieClaimVerwerker(
         ldvContext: LogboekContext,
         span: Span,
     ) {
-        if (downstreamConfig == null && onbekendDoelWarnLimiter.magEmitten(claim.doel)) {
-            // Config-drift: doel staat in outbox-rij maar niet meer in config →
-            // eindeloze retry tegen `<onbekend>`-URL. Warn (gedempt door
-            // onbekendDoelWarnLimiter) zodat ops het lek dicht vóór de pogingen op zijn.
-            log.warnf(
-                "Doel '%s' niet (meer) in config.downstreams — claim wordt MISLUKT-gemarkeerd via DownstreamClient (claimId=%d)",
-                claim.doel.key, claim.claimId,
-            )
+        if (downstreamConfig == null) {
+            // Bij een onbekend doel staat de onmogelijkheid van deze verstrekking al vast
+            // op schrijfmoment — anders dan bij een gewone verstrekking, waarvan de
+            // uitkomst nog open is totdat de downstream-call is gedaan. De logregel mag
+            // dan niet op UNSET (= geen fout) blijven staan.
+            ldvContext.status = StatusCode.ERROR
+
+            if (onbekendDoelWarnLimiter.magEmitten(claim.doel)) {
+                // Config-drift: doel staat in outbox-rij maar niet meer in config →
+                // eindeloze retry tegen `<onbekend>`-URL. Warn (gedempt door
+                // onbekendDoelWarnLimiter) zodat ops het lek dicht vóór de pogingen op zijn.
+                log.warnf(
+                    "Doel '%s' niet (meer) in config.downstreams — claim wordt MISLUKT-gemarkeerd via DownstreamClient (claimId=%d)",
+                    claim.doel.key, claim.claimId,
+                )
+            }
         }
 
         val downstreamUrl = downstreamConfig?.url()?.let { url ->
