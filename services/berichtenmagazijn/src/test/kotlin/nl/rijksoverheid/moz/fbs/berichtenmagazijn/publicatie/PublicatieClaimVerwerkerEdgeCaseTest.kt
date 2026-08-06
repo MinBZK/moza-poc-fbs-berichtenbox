@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import io.mockk.Called
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
@@ -7,6 +8,7 @@ import io.mockk.slot
 import io.mockk.verify
 import io.mockk.verifyOrder
 import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.StatusCode
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
@@ -120,11 +122,11 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
 
     @Test
     fun `doel-niet-in-config zet onbekend als foreign_operation_processor en markeert MISLUKT`() {
-        // M5 test-gap: dekt de warn-tak en het `<onbekend>`-fallback-pad
-        // wanneer config.downstreams() de doel-key niet meer bevat (config-drift
-        // of removal-migratie). PublicatieClaimVerwerker zet `<onbekend>` als
-        // span-attribute en DownstreamClient retourneert ConfiguratieFout
-        // (non-herstelbaar) → markeerMislukt met null volgendePoging.
+        // Dekt de warn-tak en het `<onbekend>`-fallback-pad wanneer config.downstreams()
+        // de doel-key niet meer bevat (config-drift of removal-migratie).
+        // PublicatieClaimVerwerker zet `<onbekend>` als span-attribute en DownstreamClient
+        // retourneert ConfiguratieFout (non-herstelbaar) → markeerMislukt met null
+        // volgendePoging.
         every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim)
         every { berichten.findByBerichtId(claim.berichtId) } returns bericht
         every { processingHandler.startSpan(any<String>(), any()) } returns span
@@ -147,6 +149,29 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         assertEquals("<onbekend>", processorAttribuut.captured)
         // ConfiguratieFout is non-herstelbaar → MISLUKT met volgendePoging=null.
         verify { claimer.markeerMislukt(claim.claimId, any(), null) }
+    }
+
+    @Test
+    fun `doel-niet-in-config zet ERROR-status op de LDV-context`() {
+        // Bij een onbekend doel staat de onmogelijkheid van de verstrekking al vast op
+        // schrijfmoment; de logregel mag dan niet op UNSET (= geen fout) blijven staan.
+        every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim)
+        every { berichten.findByBerichtId(claim.berichtId) } returns bericht
+        every { processingHandler.startSpan(any<String>(), any()) } returns span
+        every { config.downstreams() } returns emptyMap()
+        every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
+        every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { downstreamClient.lever(claim.doel, event) } returns
+            DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
+        justRun { claimer.markeerMislukt(any(), any(), any()) }
+
+        val ldvContextSlot = slot<LogboekContext>()
+        justRun { processingHandler.addLogboekContextToSpan(span, capture(ldvContextSlot), any()) }
+
+        verwerker.verwerkEenClaim()
+
+        assertEquals(StatusCode.ERROR, ldvContextSlot.captured.status)
     }
 
     @Test
@@ -206,7 +231,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
 
         assertThrows<LogboekWriteException> { verwerker.verwerkEenClaim() }
 
-        verify(exactly = 0) { downstreamClient.lever(claim.doel, event) }
+        verify { downstreamClient wasNot Called }
         verify(exactly = 0) { claimer.markeerGeslaagd(any(), any()) }
     }
 
@@ -222,6 +247,6 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         assertThrows<IllegalStateException> { verwerker.verwerkEenClaim() }
 
         verify { span.end() }
-        verify(exactly = 0) { downstreamClient.lever(claim.doel, event) }
+        verify { downstreamClient wasNot Called }
     }
 }
