@@ -19,8 +19,8 @@ docker compose -f deploy/local/docker-compose.yaml down -v
 
 ## ZAD
 
-Draait co-located met de `magazijna`/`magazijnb`-app in project `mpfm-w3h`, deployment
-`test`. `.github/workflows/deploy.yml` beheert alleen de image-tags (bestaande
-`deploy-test-magazijnen`-job); eerste creatie van de componenten + hun env/ports/certs
-is een eenmalige handmatige stap — zie `deploy/zad/README.md`, `cert-manifest.md` en
-`verify-zad.md`.
+Draait co-located in project `mpfm-w3h`, in de eigen deployment `fsc-magazijna` (de
+`magazijna`/`magazijnb`-app zelf draait in deployment `test`). `.github/workflows/deploy.yml`
+beheert alleen de image-tags (bestaande `deploy-test-magazijnen`-job); eerste creatie van
+de componenten + hun env/ports/certs is een eenmalige handmatige stap — zie
+`deploy/zad/README.md`, `cert-manifest.md` en `verify-zad.md`.

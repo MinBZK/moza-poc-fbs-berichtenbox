@@ -3,9 +3,11 @@
 # Manager API, CO-LOCATED in het bestaande ZAD-project `mpfb-8wh` — hetzelfde project als de
 # `uitvraag`-componenten die `deploy.yml` beheert. Peer en app delen het project, maar niet de
 # deployment: de app draait in `test` (en per PR in `pr-<n>`), de peer in zijn eigen deployment
-# `fsc-logius`. Gebaseerd op magazijn-a's deploy/zad/upsert-peer.sh (dezelfde co-locatie-vorm),
-# zelf gemodelleerd naar repo A's deploy/zad/upsert-directory.sh (MinBZK/moza-fsc-testnet) —
-# zelfde validate/plan/apply-vorm. De doorlopende image-tag-updates lopen via de
+# `fsc-logius`. De code komt uit de bronrepo moza-fsc-testconsumer's eigen
+# deploy/zad/upsert-peer.sh (de enige bronpeer met zowel outway als inway); alleen de
+# co-locatie-vorm (gedeeld project, eigen deployment) is overgenomen van magazijn-a's
+# deploy/zad/upsert-peer.sh, zelf gemodelleerd naar repo A's deploy/zad/upsert-directory.sh
+# (MinBZK/moza-fsc-testnet) — zelfde validate/plan/apply-vorm. De doorlopende image-tag-updates lopen via de
 # `deploy-test-uitvraag`-job in .github/workflows/deploy.yml; dit script is het lokale/handmatige
 # hulpmiddel voor de EENMALIGE componentcreatie (env/ports) en voor debugging.
 #
@@ -196,7 +198,7 @@ LOGCTL_ALIASES=""
 
 # outway (egress-proxy): registreert zich bij de controller en praat met de manager op de
 # AUTHENTICATED interne poort (:9443) — `fsc-outway serve` eist beide (manager-internal-address +
-# controller-registration-api-address), zie e7300c5. Bewust anders dan de inway hieronder, die de
+# controller-registration-api-address). Bewust anders dan de inway hieronder, die de
 # internal-UNAUTHENTICATED poort (:9444) gebruikt. Geen upstream: de outway is de afnemende kant.
 LOGOUTWAY_ENV="$(printf '%s\n' \
   "LOG_TYPE=live" "LOG_LEVEL=info" \
@@ -221,7 +223,7 @@ LOGOUTWAY_ALIASES=""
 
 # inway (ingress-proxy): de tegenhanger van logius-fscoutway. Registreert zich bij de controller en leest
 # z'n service-/contract-config bij de manager op de internal-UNAUTHENTICATED poort (:9444) —
-# dit is bewust een andere edge dan de outway (die gebruikt de authenticated :9443, zie e7300c5);
+# dit is bewust een andere edge dan de outway (die gebruikt de authenticated :9443);
 # conform de bewezen provider-config van magazijn-a. Kent GEEN upstream-env: de upstream-URL is
 # de endpoint_url bij service-publicatie op de logius-fscctl Administration-API (nog niet ingericht).
 LOGINWAY_ENV="$(printf '%s\n' \

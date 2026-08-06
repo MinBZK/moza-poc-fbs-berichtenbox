@@ -46,8 +46,8 @@ Alternatief (UI): log in op de directory-UI (repo A's `dirui`-component) en zoek
 
 Buiten scope van deze levering: `berichtenmagazijn` discoveren in de catalogus en het echte
 data-pad (`logius-fscoutway → inway → berichtenmagazijn`) bewijs je op ZAD tegen de échte directory + de
-draaiende magazijn-a-peer (`moza-fsc-org-a`). Dat vereist een geaccepteerd afnemer-contract
-(ServiceConnectionGrant) — nog niet onderdeel van dit ontwerp.
+draaiende magazijn-a-peer (`demo/environment/magazijn-a/`). Dat vereist een geaccepteerd
+afnemer-contract (ServiceConnectionGrant) — nog niet onderdeel van dit ontwerp.
 
 ### Nog niet bewijsbaar: het inbound data-pad
 

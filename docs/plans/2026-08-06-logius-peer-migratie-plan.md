@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Implementatieplan — FSC-peer `logius` naar `demo/environment/logius/`
 
