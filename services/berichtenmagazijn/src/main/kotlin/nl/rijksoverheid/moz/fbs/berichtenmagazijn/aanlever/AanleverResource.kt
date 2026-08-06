@@ -8,6 +8,7 @@ import jakarta.ws.rs.Path
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.UriInfo
+import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
@@ -21,7 +22,6 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
-import org.jboss.logging.Logger
 
 /**
  * REST-resource voor de Aanlever API.
@@ -29,7 +29,9 @@ import org.jboss.logging.Logger
  * **Geen `@Logboek`-annotatie**: die interceptor zet `processingActivityId` op een
  * hardcoded annotation-value, wat config-driven URI's onmogelijk maakt. Daarom zelf
  * span-management (zoals [nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimVerwerker]),
- * met de processingActivityId-bron op één plek (config).
+ * met de processingActivityId-bron op één plek (config) — en daarmee ook zelf de
+ * schrijffout-recorder legen en de acknowledgement afdwingen, werk dat de interceptor
+ * normaliter voor zijn rekening neemt.
  *
  * **Inbound W3C `traceparent` wordt als parent geadopteerd** ([OtelContext.current]):
  * de keten loopt door zodat een aanlever-request cross-organisatie traceerbaar
@@ -48,9 +50,12 @@ class AanleverResource(
     @param:Context private val httpHeaders: HttpHeaders,
 ) : AanleverApi {
 
-    private val log = Logger.getLogger(AanleverResource::class.java)
-
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
+        // De recorder is thread-gebonden en deze resource doet zijn eigen span-beheer:
+        // zonder legen kan een schrijffout van een eerder request op deze pooled thread
+        // dit request laten falen.
+        LogboekWriteFailureRecorder.clear()
+
         // Span en LDV-context binnen try zodat een latere config-throw geen
         // span-leak veroorzaakt; finally end()'t altijd.
         var pendingFailure: Throwable? = null
@@ -128,28 +133,15 @@ class AanleverResource(
             )
         }
 
-        // Genest try/finally: outer borgt `span.end()` (anders span-leak), inner vangt
-        // enkel de IAE die ProcessingHandler op config-fout gooit. Andere exceptions
-        // vliegen door naar de exception-mapper.
         try {
-            try {
-                processingHandler.addLogboekContextToSpan(span, logboekContext)
-            } catch (ex: IllegalArgumentException) {
-                // Eigen errorId als tweede correlatie-handvat naast die van de
-                // ProblemExceptionMapper; pendingFailure-message blijft uit het log
-                // (categorie + cause-type volstaan, geen niet-numerieke PII).
-                val ldvErrorId = java.util.UUID.randomUUID()
-                log.errorf(
-                    ex,
-                    "LDV-context koppelen aan span faalde voor aanleveren-bericht " +
-                        "(ldvErrorId=%s); oorspronkelijke fout-categorie=%s cause=%s",
-                    ldvErrorId,
-                    pendingFailure?.javaClass?.simpleName ?: "geen",
-                    pendingFailure?.cause?.javaClass?.simpleName ?: "geen",
-                )
-            }
+            processingHandler.addLogboekContextToSpan(span, logboekContext, pendingFailure)
         } finally {
             span.end()
         }
+
+        // Fail-closed: een aanlevering die niet in het logboek kwam, telt niet als
+        // uitgevoerd. Propageert er al een functionele fout, dan mag een schrijffout die
+        // niet maskeren — die fout moet de aanleverende partij bereiken.
+        processingHandler.enforceWriteAcknowledgement(throwOnFailure = pendingFailure == null)
     }
 }

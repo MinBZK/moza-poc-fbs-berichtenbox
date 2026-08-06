@@ -12,6 +12,7 @@ import jakarta.ws.rs.core.MultivaluedHashMap
 import jakarta.ws.rs.core.UriBuilder
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
@@ -21,20 +22,18 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.net.URI
 import java.time.Instant
 import java.util.UUID
 
 /**
- * Borgt twee defensieve paden in [AanleverResource] die in Round 5 als test-gap
- * werden geflagd:
- *  1. **LDV-fout swallow**: `addLogboekContextToSpan` gooit (bv. lege URI) →
- *     mag de response (HTTP 201) NIET breken. Anders zou een config-fout in
- *     LDV elke aanlever-call laten falen met 500.
+ * Borgt twee eigenschappen van [AanleverResource]:
+ *  1. **Fail-closed acknowledgement**: de resource dwingt af dat de LDV-schrijfactie
+ *     is gelukt (`enforceWriteAcknowledgement`) vóórdat een aanlevering als geslaagd
+ *     geldt — een verwerking die niet in het logboek kwam, telt niet als uitgevoerd.
  *  2. **dataSubjectType correlatie-parity**: na succes-pad moet het
  *     `dpl.core.data_subject_id_type`-veld de concrete type-naam (BSN/RSIN/KVK)
  *     bevatten — niet de relationele rol "ontvanger". Anders correleert
@@ -77,6 +76,16 @@ class AanleverResourceLdvSwallowTest {
         inhoud = "Inhoud"
     }
 
+    private fun geldigeRequest() = BerichtAanleverenRequest().apply {
+        afzender = "00000001003214345000"
+        ontvanger = IdentificatienummerDto().apply {
+            type = IdentificatienummerDto.TypeEnum.BSN
+            waarde = "999993653"
+        }
+        onderwerp = "Test"
+        inhoud = "Inhoud"
+    }
+
     private val gevalideerdBericht = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = Oin("00000001003214345000"),
@@ -103,27 +112,57 @@ class AanleverResourceLdvSwallowTest {
     }
 
     @Test
-    fun `addLogboekContextToSpan-fout breekt response NIET`() {
+    fun `LDV-schrijffout laat het aanleveren falen in plaats van 201 te geven`() {
+        // Fail-closed: een verwerking die niet in het logboek kwam, mag niet als
+        // geslaagd worden gerapporteerd (LDV-acknowledgement-eis).
         stubBaseline()
-        // Simuleer config-fout in LDV-stack: niet-URI processingActivityId
-        // → ProcessingHandler.addLogboekContextToSpan gooit IllegalArgumentException.
-        // `any()`-matchers voor argumenten omdat de mutable LogboekContext anders
-        // mockk's eq()-vergelijking faalt zodra de resource velden erop zet.
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
         every {
-            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>())
-        } throws IllegalArgumentException("processingActivityId moet absolute URI zijn")
+            processingHandler.enforceWriteAcknowledgement(true)
+        } throws LogboekWriteException("Logregel kon niet in het Logboek worden opgeslagen")
 
-        val response = resource.leverBerichtAan(request)
+        assertThrows<LogboekWriteException> { resource.leverBerichtAan(geldigeRequest()) }
 
-        assertNotNull(response, "response moet 201-payload zijn ondanks LDV-fout")
-        assertEquals(gevalideerdBericht.berichtId, response.berichtId)
         verify { span.end() }
+    }
+
+    @Test
+    fun `op het foutpad mag de acknowledgement de domeinfout niet maskeren`() {
+        // Er propageert al een functionele fout; die moet de gebruiker bereiken, niet
+        // een LDV-fout die er overheen komt.
+        stubBaseline()
+        every { opslagService.slaBerichtOp(any(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalStateException("opslag stuk")
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(false) }
+
+        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(geldigeRequest()) }
+
+        assertEquals("opslag stuk", ex.message)
+        verify { processingHandler.enforceWriteAcknowledgement(false) }
+        verify { span.end() }
+    }
+
+    @Test
+    fun `de propagerende fout gaat mee naar de LDV-context`() {
+        // Zonder dit overschrijft een optimistische OK uit de context de ERROR-status
+        // en missen per-betrokkene child-logregels hun exception-attributen.
+        stubBaseline()
+        val domeinfout = IllegalStateException("opslag stuk")
+        every { opslagService.slaBerichtOp(any(), any(), any(), any(), any(), any(), any()) } throws domeinfout
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<IllegalStateException> { resource.leverBerichtAan(geldigeRequest()) }
+
+        verify { processingHandler.addLogboekContextToSpan(span, any<LogboekContext>(), domeinfout) }
     }
 
     @Test
     fun `dataSubjectType krijgt concrete type BSN in plaats van relationele rol`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         resource.leverBerichtAan(request)
 
@@ -134,30 +173,10 @@ class AanleverResourceLdvSwallowTest {
     }
 
     @Test
-    fun `IllegalStateException uit ProcessingHandler propageert WEL als 500 en span end() draait alsnog`() {
-        stubBaseline()
-        // Niet-LDV-config-fout (hier IllegalStateException simuleert lib-bug
-        // of kapotte CDI-proxy) MAG niet stilletjes worden geslikt — anders
-        // verbergt het echte programmeerfouten.
-        every {
-            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>())
-        } throws IllegalStateException("Span al ge-end()'d")
-
-        // De resource catcht enkel IllegalArgumentException; IllegalStateException
-        // moet doorvliegen.
-        assertThrows(IllegalStateException::class.java) {
-            resource.leverBerichtAan(request)
-        }
-        // Borgt H1-Round-6: span.end() in eigen finally draait OOK als
-        // addLogboekContextToSpan een niet-IAE doorgooit. Zonder eigen finally
-        // zou een refactor de span lekken naar OTel-exporter.
-        verify { span.end() }
-    }
-
-    @Test
     fun `traceparent-processor met CRLF wordt gesaneerd (geen log-injection)`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
         every { httpHeaders.getHeaderString("traceparent-processor") } returns
@@ -180,7 +199,8 @@ class AanleverResourceLdvSwallowTest {
     @Test
     fun `traceparent-processor met PII-cijferreeks wordt geredact`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
         every { httpHeaders.getHeaderString("traceparent-processor") } returns
@@ -203,7 +223,8 @@ class AanleverResourceLdvSwallowTest {
     @Test
     fun `gewone traceparent-processor wordt ongeschonden doorgelaten`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
         every { httpHeaders.getHeaderString("traceparent-processor") } returns
@@ -223,7 +244,8 @@ class AanleverResourceLdvSwallowTest {
     @Test
     fun `inbound traceparent wordt als parent geadopteerd`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         // Upstream is vertrouwd (auth aan de clusterrand): de span continueert de
         // inbound trace-context i.p.v. een nieuwe root te forceren.
         every { httpHeaders.getHeaderString("traceparent") } returns
