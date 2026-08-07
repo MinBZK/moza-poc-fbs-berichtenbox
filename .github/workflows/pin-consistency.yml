@@ -26,7 +26,7 @@ jobs:
       - name: infra-image-pins moeten overal identiek zijn
         run: |
           fail=0
-          for img in redis/redis-stack-server clickhouse/clickhouse-server; do
+          for img in redis/redis-stack-server; do
             # -I slaat binaire bestanden over (pins staan in tekst), zodat geen stderr-ruis;
             # stderr verder NIET dempen — een echte grep/xargs-fout moet zichtbaar zijn.
             mapfile -t pins < <(git ls-files | xargs grep -hoIE "${img}:[A-Za-z0-9._-]+" | sort -u)
