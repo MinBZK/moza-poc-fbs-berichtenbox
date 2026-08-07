@@ -179,16 +179,17 @@ Een HTTP-fout van de Profiel-service kwam al als `ClientWebApplicationException`
 `skipOn` en telde nooit mee. Een Profiel-*storing* — connection refused, reset,
 read-timeout — surfacet als `jakarta.ws.rs.ProcessingException`, staat niet in `skipOn`,
 en opende het circuit dus wél. Zonder compensatie zou een dode Profiel-service elke
-aanlever-request ~15 s laten hangen (`connect-timeout` 2 s + `read-timeout` 5 s ×
-`@Retry(maxRetries = 2)`), met worker-threads die vollopen, in plaats van na 20 requests
-direct 503'en.
+aanlever-request tot ~21 s laten hangen (per poging 2 s `connect-timeout` + 5 s
+`read-timeout`, drie pogingen met 200 ms backoff ertussen), met worker-threads die
+vollopen, in plaats van na 20 requests direct 503'en.
 
 `valideerAanlevering` heeft daarom een eigen `@CircuitBreaker` met dezelfde drempels.
 Twee upstreams die los van elkaar uitvallen, krijgen zo elk hun eigen circuit. In
 `skipOn`: `DomainValidationException`, `ToestemmingGeweigerdException` en
-`WebApplicationException` — client-fouten, policy-besluiten en deterministische
-upstream-antwoorden. Wat overblijft is de transportstoring, en dat is precies wat
-afgeknepen moet worden. `ValidatieCircuitBreakerTest` legt beide kanten vast.
+`WebApplicationException` — client-fouten, policy-besluiten en elk HTTP-antwoord van de
+upstream (ook een 5xx komt meteen terug en geeft dus geen latency-amplificatie). Wat
+overblijft is `ProcessingException`: connection refused, reset, read-timeout, DNS-fout en
+malformed response. `ValidatieCircuitBreakerTest` legt beide kanten vast.
 
 ## Fail-closed-guard
 
