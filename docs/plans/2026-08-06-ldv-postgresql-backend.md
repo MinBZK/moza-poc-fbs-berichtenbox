@@ -65,7 +65,10 @@ over een tabel die geen entity heeft.
 
 Het ClickHouse-blok blijft staan zodat `LDV_DBMS=clickhouse` werkt. De wrapper valideert
 bij start alleen de properties van de gekozen backend, dus het ongebruikte blok mag leeg
-blijven. `%dev` en `%test` houden lokale defaults; `%prod` krijgt ze niet — een
+blijven. `LdvEndpointValidator` injecteert beide endpoint-keys wél onvoorwaardelijk en
+doet dat als `Optional`: SmallRye behandelt een lege waarde als afwezig, zodat een gewone
+`String`-injectie zou falen (SRCFG00014) zodra `LDV_CLICKHOUSE_ENDPOINT` van een
+PostgreSQL-deployment verdwijnt. `%dev` en `%test` houden lokale defaults; `%prod` krijgt ze niet — een
 ontbrekende env-var moet een startup-fout geven, niet een stille default.
 
 ### Waar de spans landen
@@ -146,6 +149,35 @@ op het punt stond te gebeuren. We leggen dat vast als één logregel per poging 
 de database en het applicatielog. Een mislukte levering laat dus een logregel achter voor
 een verstrekking die niet plaatsvond, en elke retry voegt er één toe. Dat is de prijs voor
 "nooit een verstrekking zonder logregel"; over-rapporteren is hier het veiligere uiterste.
+
+## Aanleverpad: logregel vóór de opslag
+
+Hetzelfde argument als op het publicatiepad, met een ander gevolg. `leverBerichtAan` is
+zelf niet transactioneel en `slaBerichtOp` is dat wél, dus bericht én outbox-leveringen
+committen zodra die methode terugkeert. Wordt de logregel daarná geschreven en faalt dat,
+dan staat het bericht er al, levert de poller het af, krijgt de aanleveraar een 500 en
+levert die opnieuw aan — met een nieuw `berichtId`, dus een nieuwe deterministische
+CloudEvent-id waarop downstream-dedup op `(source, id)` niet aanslaat.
+
+Daarom is `BerichtOpslagService` gesplitst in `valideerAanlevering` (bouwt en valideert,
+raakt de database niet) en `slaBerichtOp` (persisteert). De resource schrijft en bevestigt
+de logregel daartussen. De AVG-context krijgt zijn `dataSubjectId`/`dataSubjectType` uit
+het gevalideerde domeinobject, niet uit de rauwe request.
+
+Net als bij publiceren legt de logregel daarmee het voornemen vast, niet de uitkomst: een
+opslagfout ná dat punt laat een logregel achter voor een aanlevering die niet plaatsvond
+(TODO(#924)).
+
+## Fail-closed-guard
+
+`span-processor` en `write-failure-policy` zijn gewone config-properties, en een env-var
+(ordinal 300) wint van `application.properties` (250). `batch` exporteert op een
+achtergrondthread terwijl de schrijffout-recorder een `ThreadLocal` is — de request-thread
+consumeert dan altijd `null` — en `fail-open` slikt de fout al in de exporter. Beide
+schakelen fail-closed stil uit. `LdvFailClosedValidator` (fbs-common, `StartupEvent`) eist
+daarom buiten `dev`/`test` `simple` + `fail-closed`, in dezelfde vorm als
+`LdvEndpointValidator`: bean voor de config-binding, `companion object` voor de
+beslissing.
 
 ## TLS-guard
 
