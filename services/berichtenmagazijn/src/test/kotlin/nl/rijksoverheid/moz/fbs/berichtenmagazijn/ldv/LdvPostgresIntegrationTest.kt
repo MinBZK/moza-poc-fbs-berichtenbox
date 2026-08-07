@@ -73,6 +73,10 @@ class LdvPostgresIntegrationTest {
                 """.trimIndent(),
             ).executeQuery().use { rijen ->
                 assertTrue(rijen.next(), "er moet een logregel voor aanleveren-bericht zijn")
+                // UNSET, niet ERROR: de logregel gaat vóór de opslag de deur uit en legt
+                // dus het voornemen vast, niet de uitkomst. ERROR is voorbehouden aan een
+                // verwerking waarvan op schrijfmoment al vaststaat dat ze niet doorgaat.
+                assertEquals("UNSET", rijen.getString("status"))
                 assertEquals("BSN", rijen.getString("subject_type"))
                 assertTrue(
                     rijen.getString("activiteit").startsWith("http"),
