@@ -218,10 +218,12 @@ géén uitgeschakeld component**).
   de project-spec, niet in de deployment). Dit is precies wat onze zad-actions **cleanup**
   (delete) + **deploy** (upsert) doen; de workflow verwijdert `test` nooit, dus doe het
   met de hand tegen de baseline. **DESTRUCTIEF:** `DELETE` draait Argo `prune`+`Delete`
-  en, voor projecten met de `postgresql-database`-service (magazijnen `mpfm-w3h`, en
-  sinds de LDV-PostgreSQL-migratie ook uitvraag `mpfb-8wh`), `database_cleanup` →
-  DB-data weg. Projecten zónder DB (externe-stubs `mpfpsm-lcl`: enkel wiremock-stubs,
-  ephemeral) verliezen niets. Geverifieerd 2026-07-02.
+  en, voor projecten met de `postgresql-database`-service, `database_cleanup` →
+  DB-data weg — geverifieerd 2026-07-02 voor magazijnen `mpfm-w3h`. Hetzelfde geldt
+  voor uitvraag `mpfb-8wh` zodra de LDV-PostgreSQL-migratie die service daar aan het
+  `uitvraag`-component koppelt (handmatige OM-stap ná het mergen van deze PR — nog
+  niet apart geverifieerd). Projecten zónder DB (externe-stubs `mpfpsm-lcl`: enkel
+  wiremock-stubs, ephemeral) verliezen niets.
 
 ## Belangrijke bestanden
 
