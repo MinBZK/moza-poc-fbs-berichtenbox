@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import io.mockk.verifyOrder
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
@@ -124,6 +125,24 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
         verwerker.verwerkEenClaim()
 
         assertEquals(StatusCode.ERROR, ldvContextSlot.captured.status)
+    }
+
+    @Test
+    fun `bericht weg = de acknowledgement draait ook als de logregel-opbouw faalt`() {
+        // Zelfde invariant als op het verstrekkingspad: de thread-gebonden recorder moet
+        // op elke uitgang geconsumeerd worden, met throwOnFailure=false zodat de
+        // propagerende fout niet gemaskeerd wordt.
+        stubOntbrekendBericht()
+        justRun { claimer.markeerMislukt(any(), any(), any()) }
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
+        } throws IllegalStateException("ldv stuk")
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<IllegalStateException> { verwerker.verwerkEenClaim() }
+
+        verify { span.end() }
+        verify { processingHandler.enforceWriteAcknowledgement(false) }
     }
 
     @Test

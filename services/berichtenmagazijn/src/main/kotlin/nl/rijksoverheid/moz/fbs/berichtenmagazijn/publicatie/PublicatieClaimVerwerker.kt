@@ -120,6 +120,7 @@ class PublicatieClaimVerwerker(
         // Recorder is thread-gebonden; leeg 'm voor dit span-beheer begint.
         LogboekWriteFailureRecorder.clear()
 
+        var pendingFailure: Throwable? = null
         val span = processingHandler.startSpan("publicatie-${claim.doel}", Context.current())
 
         try {
@@ -129,11 +130,12 @@ class PublicatieClaimVerwerker(
 
             zetLdvEnSpanAttributen(claim, bericht, downstreamConfig, ldvContext, span)
             processingHandler.addLogboekContextToSpan(span, ldvContext)
+        } catch (ex: Exception) {
+            pendingFailure = ex
+            throw ex
         } finally {
-            span.end()
+            eindigSpanEnBevestig(span, pendingFailure)
         }
-
-        processingHandler.enforceWriteAcknowledgement()
     }
 
     /**
@@ -150,6 +152,7 @@ class PublicatieClaimVerwerker(
         // Zelfde reden als in legVerstrekkingVast: recorder is thread-gebonden.
         LogboekWriteFailureRecorder.clear()
 
+        var pendingFailure: Throwable? = null
         val span = processingHandler.startSpan("publicatie-${claim.doel}", Context.current())
 
         try {
@@ -165,13 +168,32 @@ class PublicatieClaimVerwerker(
                 claim.claimId, claim.berichtId,
             )
             claimer.markeerMislukt(claim.claimId, "Bericht niet gevonden", volgendePoging = null)
-            span.setStatus(StatusCode.ERROR, "Bericht niet gevonden")
+            // Als attribuut, niet als status-description: de wrapper zet daarna
+            // setStatus(status) zonder description en gooit die tekst dus weg.
+            span.setAttribute("publicatie.fout", "bericht-niet-gevonden")
             processingHandler.addLogboekContextToSpan(span, ldvContext)
+        } catch (ex: Exception) {
+            pendingFailure = ex
+            throw ex
         } finally {
-            span.end()
+            eindigSpanEnBevestig(span, pendingFailure)
         }
+    }
 
-        processingHandler.enforceWriteAcknowledgement()
+    /**
+     * Sluit de span en consumeert de schrijffout-recorder. Hoort in het `finally` van elk
+     * hand-gerold span-blok: anders blijft een schrijffout op de thread staan zodra er
+     * binnen het blok iets misgaat, en erft een volgende verwerking op dezelfde thread 'm.
+     *
+     * [pendingFailure] bepaalt of een schrijffout mag gooien — een propagerende
+     * functionele fout mag niet gemaskeerd worden door een LDV-fout er overheen.
+     */
+    private fun eindigSpanEnBevestig(span: Span, pendingFailure: Throwable?) {
+        try {
+            span.end()
+        } finally {
+            processingHandler.enforceWriteAcknowledgement(throwOnFailure = pendingFailure == null)
+        }
     }
 
     /**
