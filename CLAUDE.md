@@ -221,9 +221,9 @@ géén uitgeschakeld component**).
   en, voor projecten met de `postgresql-database`-service, `database_cleanup` →
   DB-data weg — geverifieerd 2026-07-02 voor magazijnen `mpfm-w3h`. Hetzelfde geldt
   voor uitvraag `mpfb-8wh` zodra de LDV-PostgreSQL-migratie die service daar aan het
-  `uitvraag`-component koppelt (handmatige OM-stap ná het mergen van deze PR — nog
-  niet apart geverifieerd). Projecten zónder DB (externe-stubs `mpfpsm-lcl`: enkel
-  wiremock-stubs, ephemeral) verliezen niets.
+  `uitvraag`-component koppelt (handmatige OM-stap — voor uitvraag niet apart
+  geverifieerd). Projecten zónder DB (externe-stubs `mpfpsm-lcl`: enkel wiremock-stubs,
+  ephemeral) verliezen niets.
 
 ## Belangrijke bestanden
 
