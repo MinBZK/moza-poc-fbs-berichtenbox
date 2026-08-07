@@ -41,7 +41,40 @@ class BerichtOpslagService(
      *
      * Gooit [DomainValidationException] (→ 400) bij een ongeldig identificatienummer of
      * bijlage-MIME-type, en [ToestemmingGeweigerdException] (→ 403) zonder abonnement.
+     *
+     * **Eigen circuit, want hier ligt een tweede afhankelijkheidsgrens.** De
+     * abonnementscontrole belt de Profiel-service; die call zit bewust buiten de
+     * JTA-transactie van [slaBerichtOp] (anders houdt een trage upstream een
+     * database-transactie open) en dus ook buiten diens circuit. Zonder eigen breaker
+     * blokkeert een dode Profiel-service elke aanlever-request tot de client-timeouts
+     * en `@Retry` op `ProfielServiceClient.getPartij` op zijn: ~15s per request, met
+     * worker-threads die vollopen. Met breaker vallen aanleveringen na de drempel
+     * direct om in een 503 (load shedding) tot de upstream weer antwoordt.
+     *
+     * skipOn — wat níét meetelt:
+     *  - [DomainValidationException], [ToestemmingGeweigerdException]: client-fouten en
+     *    policy-besluiten. Een aanleveraar die honderden ontvangers zonder abonnement
+     *    aanbiedt, mag het circuit niet openen voor iedereen.
+     *  - `WebApplicationException`: een 4xx/5xx van de Profiel-service is een
+     *    deterministisch antwoord (Quarkus REST Reactive verpakt élke HTTP-fout als
+     *    `ClientWebApplicationException`), geen transportstoring.
+     *
+     * Wat wél meetelt is dus in de praktijk `jakarta.ws.rs.ProcessingException`: het
+     * JAX-RS-type voor connection refused, reset en read-timeout — precies de gevallen
+     * waarin doorbellen zinloos is. Onverwachte fouten tellen ook mee; die wijzen op een
+     * programmeerfout en mogen niet stil doorlopen.
      */
+    @CircuitBreaker(
+        requestVolumeThreshold = 20,
+        failureRatio = 0.5,
+        delay = 5_000L,
+        successThreshold = 2,
+        skipOn = [
+            DomainValidationException::class,
+            ToestemmingGeweigerdException::class,
+            WebApplicationException::class,
+        ],
+    )
     fun valideerAanlevering(
         afzender: String,
         ontvangerType: IdentificatienummerType,
@@ -72,9 +105,10 @@ class BerichtOpslagService(
 
     // Circuit-breaker-thresholds; tunebaar per omgeving.
     //
-    // Het circuit beschermt de magazijn-database. De abonnementscontrole bij de
-    // Profiel-service draait in valideerAanlevering en dus buiten dit circuit; die
-    // REST-client heeft zijn eigen `@Retry` op transient I/O.
+    // Dit circuit beschermt de magazijn-database. De Profiel-service heeft een eigen
+    // circuit op valideerAanlevering: twee upstreams die los van elkaar kunnen uitvallen,
+    // dus ook los van elkaar afgeknepen moeten worden. Zelfde drempels, zodat er maar één
+    // getal te onthouden valt.
     //
     // skipOn — fouten die níét meetellen voor het circuit:
     //  - DomainValidationException, ToestemmingGeweigerdException: client-fouten en
