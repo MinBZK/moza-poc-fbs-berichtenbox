@@ -124,7 +124,21 @@ docker compose -f deploy/local/docker-compose.yaml logs inway-logius | tail -30
   in `docker-compose.yaml` / `haproxy.cfg` aan. De router publiceert geen host-poort
   (SNI-passthrough intern op het compose-netwerk), dus `443` kan hier niet conflicteren.
 - **Smoke faalt** → `docker compose -f deploy/local/docker-compose.yaml logs
-  manager-directory manager-logius controller-logius` voor de mesh-logs.
+  manager-directory manager-logius controller-logius` voor de mesh-logs. Blijft de announce-smoke
+  hangen op "nog niet aangemeld" terwijl de managers gezond loggen, controleer dan éérst
+  `docker compose ps -a | grep router`: de `*.fsc-test.local`-namen zijn aliassen van de ROUTER,
+  dus zonder router vertrekt geen enkele announce en zie je in de managerlogs geen fout.
+- **Podman i.p.v. Docker** → de harness draait op beide, mits:
+  - Gebruik `docker compose` of `podman compose` (zónder streepje). `podman-compose` (mét
+    streepje) is een losse herimplementatie die `depends_on: condition:` en netwerk-`aliases:`
+    niet volledig dekt — de managers starten dan vóór hun migraties en de peers vinden elkaar
+    niet op hun `*.fsc-test.local`-naam.
+  - De `router` heeft `sysctls: net.ipv4.ip_unprivileged_port_start=0` nodig: het haproxy-image
+    draait als non-root en podman zet die sysctl, anders dan Docker Desktop, niet op 0 → `bind
+    :443` faalt met `Permission denied`.
+  - `haproxy.cfg` gebruikt `parse-resolv-conf` in plaats van een vast nameserver-adres: Docker's
+    embedded DNS zit op `127.0.0.11`, podman's aardvark-dns op de netwerk-gateway. Met een hard
+    adres logt de router `<NOSRV>` en zijn alle backends onbereikbaar.
 - **`migrate-*` hangt / `database "…" does not exist`** → `postgres-init.sql` draait alleen bij
   een **vers** volume. Bestaat er al een postgres-volume van een eerdere run? Maak de ontbrekende
   DB eenmalig aan (`... exec -T postgres psql -U postgres -c "CREATE DATABASE <naam>;"`) of

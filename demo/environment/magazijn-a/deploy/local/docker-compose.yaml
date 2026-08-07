@@ -53,6 +53,12 @@ services:
 
   router:
     image: haproxy:2.9
+    # Het haproxy-image draait als non-root; podman zet, anders dan Docker Desktop,
+    # net.ipv4.ip_unprivileged_port_start niet op 0 → `bind :443` faalt met Permission denied en
+    # de router exit, waarna geen enkele `*.fsc-test.local`-naam meer resolvet. Per-container
+    # zetten is runtime-agnostisch: onder Docker is deze regel onschadelijk.
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
     volumes:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     networks:
@@ -80,6 +86,13 @@ services:
       <<: *manager-common-env
       SELF_ADDRESS: https://directory.fsc-test.local:443
       TX_LOG_API_ADDRESS: ""                 # directory-mode: geen txlog
+      # Sinds OpenFSC v2.0.0 is --controller-registration-api-address verplicht; zonder deze regel
+      # weigert de manager te starten ("required flag(s) ... not set"). De directory draait geen
+      # controller en heeft er ook geen nodig: de manager belt die API alleen vanuit /token, voor een
+      # dienst die déze peer publiceerde — en de directory publiceert niets. Bewust een
+      # niet-resolvende hostnaam: gaat die aanname ooit niet op, dan faalt het luid op DNS in plaats
+      # van stil naar een verkeerde controller te praten.
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.directory.invalid:9443
       AUTO_SIGN_GRANTS: servicePublication,delegatedServicePublication
       LISTEN_ADDRESS_EXTERNAL: 0.0.0.0:8443
       LISTEN_ADDRESS_INTERNAL: 0.0.0.0:9443
