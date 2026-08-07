@@ -18,8 +18,10 @@ direct opvalt; enkele hebben geen default en laten de service falen-te-starten
 | `magazijn.publicatie.verwerkingsregister-publiceren` | `application.properties` | AVG art. 30-register-URI voor publicatie-activiteit; wordt aan elke LDV-context gekoppeld | Bean Validation `@URL` + `@NotBlank` |
 | `magazijn.publicatie.verwerkingsregister-aanleveren` | `application.properties` | AVG art. 30-register-URI voor aanlever-activiteit | Bean Validation `@URL` + `@NotBlank` |
 | `magazijn.publicatie.downstreams.<key>.url` | `application.properties` | Eén entry per downstream (Aanmeld, Notificatie, ...). Service faalt-te-starten zonder ≥1 downstream | `PublicatieOutbox.valideerStartConfiguratie` |
-| `LDV_CLICKHOUSE_ENDPOINT` | env var | TLS-endpoint van centrale LDV-ClickHouse; `https://`-only conform BIO 13.2.1 | Geen default in `%prod` — env var ontbreekt = startup-fout |
-| `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD` | env var | LDV-credentials; geen prod-defaults | Idem |
+| `LDV_DBMS` | env var | Backend voor het logboek: `postgresql` (default) of `clickhouse` | Onbekende waarde = startup-fout |
+| `LDV_POSTGRES_URL` | env var | JDBC-URL van het logboek; buiten dev/test verplicht `ssl=true` of `sslmode=require`/`verify-ca`/`verify-full` conform BIO 13.2.1 | Geen default in `%prod` — env var ontbreekt = startup-fout |
+| `LDV_POSTGRES_USERNAME`, `LDV_POSTGRES_PASSWORD` | env var | LDV-credentials; geen prod-defaults | Idem |
+| `LDV_CLICKHOUSE_ENDPOINT`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD` | env var | Alleen nodig bij `LDV_DBMS=clickhouse`; endpoint is dan `https://`-only | Ontbreekt = startup-fout zodra die backend gekozen is |
 | `quarkus.datasource.jdbc.url`, `quarkus.datasource.username`, `quarkus.datasource.password` | env var | Postgres-connectie | Quarkus datasource-init faalt zonder |
 
 ## Tuning-properties (defaults zijn safe maar context-afhankelijk)
