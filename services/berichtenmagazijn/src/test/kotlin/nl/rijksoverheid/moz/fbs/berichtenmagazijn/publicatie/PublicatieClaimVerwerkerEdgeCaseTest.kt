@@ -243,10 +243,15 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         every {
             processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
         } throws IllegalStateException("ldv stuk")
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         assertThrows<IllegalStateException> { verwerker.verwerkEenClaim() }
 
         verify { span.end() }
         verify { downstreamClient wasNot Called }
+        // De recorder is thread-gebonden: zonder consumptie op déze uitgang erft de
+        // volgende claim op dezelfde thread de schrijffout. `false` omdat er al een fout
+        // propageert die niet gemaskeerd mag worden.
+        verify { processingHandler.enforceWriteAcknowledgement(false) }
     }
 }
