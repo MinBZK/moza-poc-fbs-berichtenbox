@@ -80,25 +80,25 @@ jobs:
       # category. De hashFiles-guard slaat upload over als een module geen rapport opleverde.
       - name: Upload SARIF — fbs-common
         if: ${{ always() && hashFiles('libraries/fbs-common/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: libraries/fbs-common/target/detekt.sarif
           category: detekt-fbs-common
       - name: Upload SARIF — fbs-berichtensessiecache
         if: ${{ always() && hashFiles('libraries/fbs-berichtensessiecache/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: libraries/fbs-berichtensessiecache/target/detekt.sarif
           category: detekt-fbs-berichtensessiecache
       - name: Upload SARIF — berichtenmagazijn
         if: ${{ always() && hashFiles('services/berichtenmagazijn/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: services/berichtenmagazijn/target/detekt.sarif
           category: detekt-berichtenmagazijn
       - name: Upload SARIF — berichtenuitvraag
         if: ${{ always() && hashFiles('services/berichtenuitvraag/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: services/berichtenuitvraag/target/detekt.sarif
           category: detekt-berichtenuitvraag
