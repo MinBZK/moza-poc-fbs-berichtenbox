@@ -17,6 +17,14 @@ package nl.rijksoverheid.moz.fbs.common
  * gaat alleen de klassenaam mee. Dat is geen informatieverlies voor diagnose: het
  * volledige foutbeeld staat in de applicatielog, die via `trace_id`/`span_id` aan de
  * logregel te koppelen is.
+ *
+ * **Gevolg voor alerting:** `exception.type` op de child-span is hierdoor altijd
+ * `nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting`; het echte type staat in
+ * `exception.message`. Een alert- of dashboardregel die op `exception.type`
+ * discrimineert, moet naar `exception.message` verhuizen. De alternatieve vorm — het
+ * echte type behouden en de message saneren — bestaat niet: een `Throwable` draagt zijn
+ * type in zijn klasse, dus die is alleen te behouden door het originele exemplaar door
+ * te geven, mét message.
  */
 class LdvFoutSamenvatting private constructor(
     /** Volledig gekwalificeerde klassenaam van de oorspronkelijke fout. */

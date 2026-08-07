@@ -27,8 +27,8 @@ import java.util.UUID
 /**
  * End-to-end integratietests voor [HardDeleteService.run] met een echte Postgres-container
  * (Dev Services / Testcontainers). [HardDeleteLdvLogger] wordt gemockt via
- * [QuarkusMock.installMockForType] zodat geen ClickHouse-verbinding nodig is en calls
- * geverifieerd kunnen worden.
+ * [QuarkusMock.installMockForType] zodat de calls geverifieerd kunnen worden zonder dat
+ * er een logboek nodig is.
  *
  * De retentiedrempel is P7Y (≈ 2557 dagen). Berichten worden aangemaakt met offsets van
  * -3000 dagen zodat beide drempels zeker gehaald worden.
