@@ -24,9 +24,13 @@ import org.jboss.logging.Logger
  *
  * Volgorde: MIME-typen eerst (lokaal, gratis), pas daarna de externe call. Bij een
  * 404 van de profiel-service: de ontvanger heeft geen profiel → geen toestemming
- * (fail-closed). Andere HTTP-fouten propageren — `ToestemmingGeweigerdException`
- * staat in `skipOn` zodat de circuit breaker daar niet door opent, maar échte
- * infrastructuurfouten openen 'm wél.
+ * (fail-closed). Andere HTTP-fouten propageren.
+ *
+ * Deze service draait binnen `BerichtOpslagService.valideerAanlevering`, dat een eigen
+ * circuit breaker heeft. Wat daar meetelt is een transportstoring
+ * (`ProcessingException`: connection refused/reset/read-timeout); een
+ * `ToestemmingGeweigerdException` en elk HTTP-antwoord van de profiel-service staan in
+ * `skipOn` en openen het circuit dus niet.
  */
 @ApplicationScoped
 class BerichtValidatieService(
@@ -61,10 +65,12 @@ class BerichtValidatieService(
         } catch (ex: WebApplicationException) {
             // Quarkus REST Reactive werpt `ClientWebApplicationException` voor élke
             // 4xx — niet de typespecifieke `NotFoundException`. We filteren expliciet
-            // op statuscode 404 en behandelen dat als fail-closed; andere 4xx (400
-            // op invalide path, 401/403 op auth-misser) propageren wél zodat het
-            // circuit breaker ze meetelt. 5xx en netwerk-fouten zijn geen
-            // `WebApplicationException` en passeren deze catch sowieso.
+            // op statuscode 404 en behandelen dat als fail-closed; elke andere status
+            // (400 op invalide path, 401/403 op auth-misser, 5xx) propageert wél, zodat de
+            // aanleveraar een fout ziet in plaats van een stille afwijzing. Ze tellen
+            // niet mee voor het circuit: een HTTP-antwoord betekent dat de upstream
+            // leeft. Netwerk-fouten zijn geen `WebApplicationException`, passeren deze
+            // catch en openen het circuit wél.
             //
             // PII-veilig: de doorgegooide WAE belandt bij ProblemExceptionMapper, die de
             // 4xx-detail saneert — de upstream-URL (met BSN/RSIN/KVK in het pad) komt niet in

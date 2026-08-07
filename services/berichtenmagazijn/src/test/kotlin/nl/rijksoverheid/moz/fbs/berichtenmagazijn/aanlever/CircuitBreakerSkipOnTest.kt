@@ -21,12 +21,19 @@ import org.junit.jupiter.api.Test
 import java.sql.SQLException
 
 /**
- * Verifieert dat exceptions in `skipOn` (client-fouten) het circuit NIET openen.
- * `requestVolumeThreshold=20, failureRatio=0.5` zou na 10 failures in 20 requests
- * openen als de exception WEL als failure telde; met skipOn moet het gesloten blijven.
+ * Verifieert dat exceptions in `skipOn` het circuit van `slaBerichtOp` NIET openen, en
+ * dat de aanleveraar in plaats daarvan de mapper-status ziet (400/409/403).
+ * `requestVolumeThreshold=20, failureRatio=0.5` zou na 10 failures in 20 requests openen
+ * als de exception WEL als failure telde; met skipOn moet het gesloten blijven.
  *
- * Mockt de repository zodat de echte `@CircuitBreaker`-interceptor actief blijft
- * tijdens de test — dat is precies het gedrag dat we willen verifiëren.
+ * De eerste twee tests mocken de repository, zodat de fout uit de persistentielaag komt
+ * en de `@CircuitBreaker`-interceptor op `slaBerichtOp` er echt langs moet. De derde test
+ * gaat over `ToestemmingGeweigerdException`, die sinds de splitsing van
+ * [BerichtOpslagService] in `valideerAanlevering` ontstaat — vóór `slaBerichtOp`, en dus
+ * op een ánder circuit. Die test bewijst hier dus het HTTP-gedrag (30× 403, geen 503);
+ * het bewijs dat dat circuit door zo'n weigering niet opengaat staat in
+ * [ValidatieCircuitBreakerTest], samen met de tegenhanger die aantoont dat een
+ * Profiel-storing het wél opent.
  */
 @QuarkusTest
 class CircuitBreakerSkipOnTest {
