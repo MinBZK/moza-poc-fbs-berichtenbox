@@ -7,10 +7,9 @@ import io.quarkus.test.junit.QuarkusMock
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper
-import java.time.Instant
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.matchesRegex
@@ -43,15 +42,7 @@ class UncaughtException500ContractTest {
             publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
             clock = java.time.Clock.systemUTC(),
         ) {
-            override fun slaBerichtOp(
-                afzender: String,
-                ontvangerType: IdentificatienummerType,
-                ontvangerWaarde: String,
-                onderwerp: String,
-                inhoud: String,
-                publicatietijdstip: Instant?,
-                bijlagen: List<BijlageInvoer>,
-            ): Nothing = throw IOException("ClickHouse onbereikbaar: connection refused at /1.2.3.4:8123 stacktrace at nl.example.Foo.bar(Foo.kt:42)")
+            override fun slaBerichtOp(bericht: Bericht, bijlagen: List<BijlageInvoer>): Nothing = throw IOException("ClickHouse onbereikbaar: connection refused at /1.2.3.4:8123 stacktrace at nl.example.Foo.bar(Foo.kt:42)")
         }
         QuarkusMock.installMockForType(failingService, BerichtOpslagService::class.java)
     }

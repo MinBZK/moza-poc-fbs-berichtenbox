@@ -7,14 +7,13 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.mockk.mockk
 import io.restassured.http.ContentType
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import org.hamcrest.Matchers.`is`
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.sql.SQLException
-import java.time.Instant
 
 /**
  * Contracttest: 409 Problem-response wanneer de DB een unique-key-violation meldt
@@ -38,15 +37,7 @@ class DbConstraintViolation409ContractTest {
             publicatieOutbox = mockk<PublicatieOutbox>(relaxed = true),
             clock = java.time.Clock.systemUTC(),
         ) {
-            override fun slaBerichtOp(
-                afzender: String,
-                ontvangerType: IdentificatienummerType,
-                ontvangerWaarde: String,
-                onderwerp: String,
-                inhoud: String,
-                publicatietijdstip: Instant?,
-                bijlagen: List<BijlageInvoer>,
-            ): Nothing = throw HibernateConstraintViolationException(
+            override fun slaBerichtOp(bericht: Bericht, bijlagen: List<BijlageInvoer>): Nothing = throw HibernateConstraintViolationException(
                 "unique violation",
                 SQLException("duplicate key", "23505"),
                 "uq_bericht_idempotency",
