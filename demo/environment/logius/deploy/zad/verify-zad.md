@@ -1,6 +1,6 @@
 # Verificatie ná apply — logius-peer op ZAD
 
-> Draaiboek: wat een mens ná een geslaagde `upsert-peer.sh apply` + cert-attachments (zie
+> Draaiboek: wat de operator ná een geslaagde `upsert-peer.sh apply` + cert-attachments (zie
 > `cert-manifest.md`) nog controleert.
 
 ## Volgorde
@@ -74,4 +74,4 @@ upstream bekend is, komt daar bij:
 - [ ] `logius-fscinway` draait en registreert zich bij `logius-fscctl` (zie hierboven, punt a0)
 - [ ] Discover + contract + inbound data-pad: vervolgwerk (zie hierboven), niet in deze afvinklijst
 
-Elk vinkje vereist een mens met ZAD-toegang, gegenereerde certs en een draaiende peer.
+Elk vinkje vereist een operator met ZAD-toegang, gegenereerde certs en een draaiende peer.

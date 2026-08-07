@@ -1,6 +1,6 @@
 # Cert-attachments op ZAD — peer logius
 
-> Draaiboek voor de mens: de cert-attachments mounten. Uit te voeren ná `pki/issue.sh` (zie
+> Draaiboek voor de operator: de cert-attachments mounten. Uit te voeren ná `pki/issue.sh` (zie
 > `pki/README.md`) en rond `upsert-peer.sh apply`.
 
 ## Waarom UI-only

@@ -1,63 +1,35 @@
 #!/usr/bin/env bash
 # Zet de peer logius (postgres+manager+controller+outway+inway+txlog) op ZAD via de v2 Operations
-# Manager API, CO-LOCATED in het bestaande ZAD-project `mpfb-8wh` — hetzelfde project als de
-# `uitvraag`-componenten die `deploy.yml` beheert. Peer en app delen het project, maar niet de
-# deployment: de app draait in `test` (en per PR in `pr-<n>`), de peer in zijn eigen deployment
-# `fsc-logius`. De code komt uit de bronrepo moza-fsc-testconsumer's eigen
-# deploy/zad/upsert-peer.sh (de enige bronpeer met zowel outway als inway); alleen de
-# co-locatie-vorm (gedeeld project, eigen deployment) is overgenomen van magazijn-a's
-# deploy/zad/upsert-peer.sh, zelf gemodelleerd naar repo A's deploy/zad/upsert-directory.sh
-# (MinBZK/moza-fsc-testnet) — zelfde validate/plan/apply-vorm. De doorlopende image-tag-updates lopen via de
-# `deploy-test-uitvraag`-job in .github/workflows/deploy.yml; dit script is het lokale/handmatige
-# hulpmiddel voor de EENMALIGE componentcreatie (env/ports) en voor debugging.
+# Manager API. Lokaal/handmatig hulpmiddel voor de EENMALIGE componentcreatie (env/ports) en voor
+# debugging; de doorlopende image-tag-updates lopen via de `deploy-test-uitvraag`-job in
+# .github/workflows/deploy.yml.
 #
-# Gedeeld project = gedeelde ZAD-API-key: ZAD_API_KEY is de key van het gedeelde project
-# `mpfb-8wh` (secret ZAD_API_KEY_UITVRAAG), geen aparte peer-key.
+# README.md naast dit script beschrijft de achtergrond: waarom de peer een eigen deployment
+# `fsc-logius` heeft binnen het gedeelde project `mpfb-8wh` (clone-veiligheid), de uitvoervolgorde
+# (certs -> deployment handmatig aanmaken -> plan/validate/apply -> UI-only cert-attachments), de
+# self-hosted Postgres-opzet en alle ZAD_*-env-vars met hun defaults. De code komt uit de bronrepo
+# moza-fsc-testconsumer (de enige bronpeer met zowel outway als inway); alleen de co-locatie-vorm is
+# overgenomen van magazijn-a.
 #
-# Model: de peer is bidirectioneel — de outway neemt af, de inway biedt aan. Er is nog géén
-# gepubliceerde dienst — geen CreateService, geen upstream-URL-logica — omdat de upstream nog niet
-# bekend is; de inway staat er technisch wel klaar voor.
-# `:upsert-deployment` zet per component de {reference,image} en updatet het deployment;
-# POST /components verrijkt elke component met env_vars/ports/services/aliases.
+# Twee valkuilen die het gedrag van dit script bepalen:
+# - ZAD past component-config (env_vars/aliases) alleen bij COMPONENT-CREATIE toe, niet bij een
+#   re-POST op een bestaande component. Config wijzigen betekent de component eerst in de UI
+#   verwijderen en opnieuw applyen — de cert-attachments raak je daarmee kwijt en moeten opnieuw
+#   gemount worden.
+# - `:upsert-deployment` maakt géén NIEUW deployment aan (geeft wel HTTP 202, maar het deployment
+#   verschijnt niet in /deployments); `fsc-logius` moet dus éénmalig leeg in de UI bestaan, anders
+#   doet apply niets zichtbaars. Anders dan bij een eigen project is er hier geen
+#   project-default-deployment om op te leunen.
 #
-# BELANGRIJK — `:upsert-deployment` maakt géén NIEUW deployment aan (geeft wel HTTP 202, maar het
-# deployment verschijnt niet in /deployments); het UPDATET alleen een bestaand deployment. Anders
-# dan bij een eigen project heeft `fsc-logius` hier geen project-default-deployment om op te
-# leunen — de deployment moet dus éénmalig leeg in de Operations Manager-UI aangemaakt worden vóór
-# de eerste apply, anders doet apply niets zichtbaars.
-# cloneFrom is optioneel (ZAD_PEER_CLONE_FROM) maar afgeraden: klonen van `test` zou de
-# `uitvraag`-app-componenten meenemen.
-# NIET via de API (UI-only): bijlagen (cert-mount) + "Publicatie op het web" (passthrough-TLS) —
-# zie cert-manifest.md.
-#
-# DB: net als bij de provider-peer draaien we een EIGEN postgres-component `logius-fscpg` (self-hosted)
-# i.p.v. ZAD's managed Postgres — die laat ons de init/schema's niet inrichten. logius-fscmgr/logius-fscctl/logius-fsctxlog
-# krijgen een CONCRETE STORAGE_POSTGRES_DSN naar `logius-fscpg:5432` (in env_vars, geen ZAD $DATABASE_*-
-# substitutie meer, dus aliases zijn leeg); manager/txlog met een eigen `search_path`-schema, de
-# controller ZONDER (die beheert z'n eigen `controller`-schema). Het wachtwoord komt uit
-# ZAD_PG_PASSWORD (verplicht bij apply, niet gecommit). Zie postgres-init.sql voor de
-# search_path-schema's (manager/txlog).
-#
-# BELANGRIJK — ZAD past component-config (env_vars/aliases) alleen bij COMPONENT-CREATIE toe, niet
-# bij een re-POST op een bestaande component (bewezen bij de provider-peer: een tx-log-adres dat pas
-# in een tweede deploy aan de aliases werd toegevoegd bereikte de al-bestaande manager niet). Wijzig
-# je de config van een bestaande component, verwijder 'm dan eerst in de UI zodat de volgende apply
-# 'm opnieuw aanmaakt.
-#
-# De deployment is VAST (fsc-logius/mpfb-8wh), dus we hebben ZAD's $DEPLOYMENT_NAME-substitutie niet
-# nodig: bash lost alle inter-component-hostnamen concreet op (LOG*_HOST_DISPLAY) en zet ze in
-# `env_vars`. Zo leunen de adressen niet op aliases-substitutie. Door de self-hosted logius-fscpg-Postgres
-# is óók de DB-DSN concreet (STORAGE_POSTGRES_DSN in env_vars), dus de aliases zijn leeg.
+# De deployment is vast, dus ZAD's $DEPLOYMENT_NAME-substitutie is niet nodig: bash lost alle
+# inter-component-hostnamen concreet op (LOG*_HOST_DISPLAY) en zet ze in `env_vars`. Door de
+# self-hosted Postgres is ook de DB-DSN concreet, dus de aliases zijn leeg.
 #
 # Usage:
 #   export ZAD_API_KEY=... ZAD_PG_PASSWORD=...                    # niet inline (komt anders in de shell-history)
 #   ./deploy/zad/upsert-peer.sh validate                          # read-only auth-check
 #   ./deploy/zad/upsert-peer.sh plan   [deployment] [tag]         # toont bodies, muteert niet
 #   ./deploy/zad/upsert-peer.sh apply  [deployment] [tag]         # muteert + pollt tasks
-# Env: ZAD_API_KEY (verplicht bij apply; de gedeelde project-key ZAD_API_KEY_UITVRAAG), ZAD_PROJECT
-#      (mpfb-8wh), ZAD_BASE (zad.rijksapp.nl), ZAD_BASE_DOMAIN (rig.prd1...), ZAD_MANAGER_TAG (ghcr
-#      manager-tag, default = tag), ZAD_DIRECTORY_MANAGER_HOST (repo A's directory-manager-host op
-#      ZAD), ZAD_PG_SSLMODE (disable).
 set -euo pipefail
 
 MODE="${1:?usage: upsert-peer.sh <validate|plan|apply> [deployment=fsc-logius] [tag=v2.5.2]}"

@@ -2,28 +2,30 @@
 
 # Ontwerp — FSC peer `logius` aansluiten op de FSC-federatie (#781)
 
-> Oorspronkelijk de consumer-tegenhanger van de provider-peer in
-> [`moza-fsc-org-a`](https://github.com/MinBZK/moza-fsc-org-a) (#780), sinds de inway-uitbreiding
-> (2026-07-20) bidirectioneel. Sluit aan op dezelfde testfederatie van
+> De uitvraag-kant van de FSC-federatie: een bidirectionele peer naast de provider-peer in
+> [`demo/environment/magazijn-a/`](../../magazijn-a/) (#780), aangesloten op de testfederatie van
 > [`moza-fsc-testnet`](https://github.com/MinBZK/moza-fsc-testnet) (repo A — directory + group-CA).
-> Verwant: epic #737. Vervolg (buiten dit ontwerp): het omleiden van `berichtenuitvraag` via de
-> outway, het afnemer-contract en het echte data-pad + txlog-hardening.
+> Verwant: epic #737. Uitvoerings- en directorybesluiten staan in
+> `docs/plans/2026-08-06-logius-peer-migratie-design.md` en `-plan.md`. Vervolg (buiten dit
+> ontwerp): het omleiden van `berichtenuitvraag` via de outway, het afnemer-contract en het echte
+> data-pad + txlog-hardening.
 
 ## Aanleiding
 
 `moza-fsc-testnet` (repo A) levert de generieke FSC-infra: de **directory** (group-anker), de
-group-config/CA en een neutrale `example-consumer`-peer als kopieer-template. `moza-fsc-org-a`
-(repo provider) zet de **aanbiedende** kant neer: magazijn-a publiceert `berichtenmagazijn`.
+group-config/CA en een neutrale `example-consumer`-peer als kopieer-template. De provider-peer in
+`demo/environment/magazijn-a/` zet de **aanbiedende** kant neer: magazijn-a publiceert
+`berichtenmagazijn`.
 
-Deze repo zet oorspronkelijk de **afnemende** kant neer: een **peer** (`logius`) die
-zich als afnemer op de federatie aansluit, zodat het uitvraag-systeem (`berichtenuitvraag`) via een
-lokale **outway** de dienst `berichtenmagazijn` bij magazijn-a aanroept. Sinds de inway-uitbreiding
-(2026-07-20) is de peer **bidirectioneel**: naast de outway (afname) draait er nu ook een **inway**
-(aanbod). De peer bestaat uit de OpenFSC-componenten **manager + outway + inway + controller +
+Deze peer (`logius`) zet de **uitvraag-kant** neer en is **bidirectioneel**: via een lokale
+**outway** roept het uitvraag-systeem (`berichtenuitvraag`) de dienst `berichtenmagazijn` bij
+magazijn-a aan, en via een **inway** kan de peer zelf diensten aanbieden (nog geen gepubliceerde
+dienst). De peer bestaat uit de OpenFSC-componenten **manager + outway + inway + controller +
 txlog** met een eigen self-hosted Postgres, co-located met de achterliggende uitvraag-app.
 
-Gemodelleerd naar de provider-peer in `moza-fsc-org-a` (die op repo A's `example-provider` is
-gemodelleerd); deze repo bevat **uitsluitend FSC-infra** (PKI + deploy), niet de uitvraag-applicatie.
+Gemodelleerd naar de provider-peer in `demo/environment/magazijn-a/` (die op repo A's
+`example-provider` is gemodelleerd). Deze map bevat **uitsluitend FSC-infra** (PKI + deploy), niet
+de uitvraag-applicatie zelf — die staat in `services/berichtenuitvraag/`.
 
 > **Niet voor productie.** Test-PKI en test-federatie (`moza-fbs-test`). Sleutels/certs horen
 > **niet** in git — zie `.gitignore`.
@@ -59,8 +61,8 @@ De OIN staat in **lockstep** met elke `pki/peers/logius/<endpoint>/csr.json`.
 ## Scope
 
 **In scope:** de peer voor `logius` (OIN `00000000000000001000`), volledige pariteit
-met de provider-repo: PKI-laag, lokale compose-proof (announce), ZAD-deploy + cert-runbooks,
-CI-workflow, docs.
+met de provider-peer: PKI-laag, lokale compose-proof (announce), ZAD-deploy + cert-runbooks,
+de CI-stap voor tag-updates, docs.
 
 **Buiten scope (vervolg):**
 
@@ -74,11 +76,11 @@ CI-workflow, docs.
 
 ## Architectuur
 
-Gespiegeld op de provider-peer in `moza-fsc-org-a`. Per peer een eigen set FSC-componenten; de
-peer draait sinds de migratie naar `demo/environment/logius/` **co-located** in het gedeelde
-ZAD-project `mpfb-8wh` (het project van de `uitvraag`-app, deployment `test`), in zijn **eigen
-deployment** `fsc-logius` (deployment-isolatie). Oorspronkelijk, in de losse repo, had de peer een
-**eigen ZAD-project** (project-isolatie) — zie addendum.
+Gespiegeld op de provider-peer in `demo/environment/magazijn-a/`. Per peer een eigen set
+FSC-componenten; de peer draait **co-located** in het gedeelde ZAD-project `mpfb-8wh` (het project
+van de `uitvraag`-app, deployment `test`), in zijn **eigen deployment** `fsc-logius`. Die
+deployment-isolatie is bewust: PR-previews klonen `test`, en een meegekloonde peer zou zich met
+dezelfde federatie-OIN opnieuw bij de directory aanmelden.
 
 ### Componenten van de peer
 
@@ -93,11 +95,10 @@ deployment** `fsc-logius` (deployment-isolatie). Oorspronkelijk, in de losse rep
 
 **Verschillen t.o.v. de provider-peer (magazijn-a):**
 
-- **outway én inway.** De peer was aanvankelijk consumer-only (alleen egress). Sinds de
-  inway-uitbreiding (2026-07-20) is hij bidirectioneel: `logius-fscoutway` neemt af, `logius-fscinway` biedt aan.
-  Beide registreren zich bij de controller en hebben elk een GROUP-cert; alleen de inway heeft
-  daarnaast een inbound SNI-route. Verschil met magazijn-a blijft: er is nog géén gepubliceerde
-  dienst (`CreateService` volgt zodra de upstream bekend is).
+- **outway én inway.** Waar magazijn-a alleen aanbiedt, is deze peer bidirectioneel:
+  `logius-fscoutway` neemt af, `logius-fscinway` biedt aan. Beide registreren zich bij de
+  controller en hebben elk een GROUP-cert; alleen de inway heeft daarnaast een inbound SNI-route.
+  Er is nog géén gepubliceerde dienst (`CreateService` volgt zodra de upstream bekend is).
 - **manager zonder `AUTO_SIGN_GRANTS`.** Er is nog géén gepubliceerde dienst (zie boven); er is dus
   niets auto te signen. Auto-sign van servicePublication is een directory-eigenschap.
 - **controller in beheer-rol.** Aan de provider-kant (magazijn-a) maakt de controller de dienst aan
@@ -116,9 +117,9 @@ Elk endpoint (`manager`/`outway`/`inway`/`controller`/`txlog`) krijgt twee keten
 - **INTERNAL** (per-peer self-signed CA) → `TLS_CERT/KEY` (+ `TLS_INTERNAL_UNAUTHENTICATED_*`),
   voor de mTLS tussen manager ↔ controller ↔ outway ↔ inway ↔ txlog.
 
-De PKI-scripts (`gen-csr.sh`/`issue.sh`/`verify.sh`/`gen-crl.sh`/`zad-bundle.sh`) zijn 1:1 uit
-`moza-fsc-org-a`/repo A; alleen de peer-identiteit (naam `logius`, OIN, endpoint-lijst
-`manager/outway/inway/controller/txlog`) in `gen-csr.sh` wijkt af.
+De PKI-scripts (`gen-csr.sh`/`issue.sh`/`verify.sh`/`gen-crl.sh`/`zad-bundle.sh`) zijn 1:1 gelijk
+aan die van `magazijn-a` (zelf uit repo A); alleen de peer-identiteit (naam `logius`, OIN,
+endpoint-lijst `manager/outway/inway/controller/txlog`) in `gen-csr.sh` wijkt af.
 
 ### Onboarding-flow
 
@@ -140,13 +141,14 @@ Discover (`berichtenmagazijn` vindbaar) en het contract/data-pad volgen op ZAD (
 
 ### Fase 1 — Lokale compose-proof (*announce-only*, A1)
 
-Zelfstandige harness (mirror van org-a's `deploy/local`, single-peer): directory + peer
+Zelfstandige harness (mirror van magazijn-a's `deploy/local`, single-peer): directory + peer
 (manager + outway + inway + controller + txlog + postgres) + SNI-router + directory-ui. Bewijst:
 
 - de peer **boot** (alle componenten `Up`, geen restart-loop);
 - **announce** — `smoke-announce.sh` pollt de directory-DB tot de consumer-OIN met `manager_address`
   op `:443` in `peers.peers` staat;
-- de **controller-UI** is bereikbaar (host-poort `8091`; oorspronkelijk `8090`, zie addendum).
+- de **controller-UI** is bereikbaar (host-poort `8091`; magazijn-a's harness bindt `8090`, zodat
+  beide naast elkaar kunnen draaien).
 
 Bewust *geen* lokale discover-smoke: deze compose heeft geen provider die `berichtenmagazijn`
 publiceert (ook al draait sinds de inway-uitbreiding wél een eigen inway mee), dus lokaal
@@ -157,26 +159,23 @@ discoveren is betekenisloos. Discover bewijzen we tegen de échte directory op Z
 
 ### Fase 2 — ZAD
 
-`upsert-peer.sh` (`validate`/`plan`/`apply`) tegen de ZAD v2 Operations Manager API, sinds de
-migratie **co-located** in het gedeelde project `mpfb-8wh` (deployment `fsc-logius`; oorspronkelijk
-een eigen ZAD-project, zie Architectuur). Componenten `logius-fscpg` (self-hosted Postgres +
-init-schema's), `logius-fscmgr`, `logius-fscctl`, `logius-fscoutway`, `logius-fscinway`,
+`upsert-peer.sh` (`validate`/`plan`/`apply`) tegen de ZAD v2 Operations Manager API, co-located in
+het gedeelde project `mpfb-8wh` (deployment `fsc-logius`). Componenten `logius-fscpg` (self-hosted
+Postgres + init-schema's), `logius-fscmgr`, `logius-fscctl`, `logius-fscoutway`, `logius-fscinway`,
 `logius-fsctxlog`. Cert-attachments + "Publicatie op het web" (passthrough) zijn UI-only (zie
-`deploy/zad/cert-manifest.md`). Oorspronkelijk draaide de CI via een losse
-`zad-deploy-peer.yml`-workflow (PR → alleen `plan`, `main` → `apply`); die is vervallen. Doorlopende
-image-tag-updates lopen via de stap "Deploy uitvraag-project (fsc-logius — FSC-peer)" tegen
-`fsc-logius` in de bestaande `deploy-test-uitvraag`-job (`.github/workflows/deploy.yml`); die stap
-doet alleen tag-updates, de eenmalige componentcreatie (env/ports) blijft handmatig via
-`upsert-peer.sh` (zie Open punten).
+`deploy/zad/cert-manifest.md`). Doorlopende image-tag-updates lopen via de stap "Deploy
+uitvraag-project (fsc-logius — FSC-peer)" in de bestaande `deploy-test-uitvraag`-job
+(`.github/workflows/deploy.yml`); die stap doet alleen tag-updates, de eenmalige componentcreatie
+(env/ports) blijft handmatig via `upsert-peer.sh`.
 
-**Self-hosted Postgres met geïsoleerde migratie-tellers** (exact als org-a): manager + txlog
+**Self-hosted Postgres met geïsoleerde migratie-tellers** (gelijk aan magazijn-a): manager + txlog
 isoleren hun `schema_migrations`-teller via een eigen `search_path`-schema (`manager`/`txlog`,
 aangemaakt door `deploy/zad/postgres-init.sql`); de controller draait **zonder** search_path (maakt
 z'n eigen `controller`-schema, teller in `public`).
 
-## ZAD — hard geleerde lessen (overgenomen uit `moza-fsc-org-a`)
+## ZAD — hard geleerde lessen (gedeeld met `magazijn-a`)
 
-Deze punten gelden 1:1 (zelfde v2-API, zelfde OpenFSC-images):
+Deze punten gelden voor beide peers 1:1 (zelfde v2-API, zelfde OpenFSC-images):
 
 - **Component-env wordt alleen bij CREATIE toegepast** — runtime-env wijzig je in de UI; de workflow
   is betrouwbaar voor images/refs. Component niet verwijderen om env te wijzigen (kost de
@@ -192,38 +191,13 @@ Deze punten gelden 1:1 (zelfde v2-API, zelfde OpenFSC-images):
 
 ## Open punten (genoteerd, niet-blokkerend)
 
-- **ZAD-project** is `mpfb-8wh` (deployment `fsc-logius`) — ingebakken als default in
-  `upsert-peer.sh` en `pki/gen-csr.sh` (override via `ZAD_PROJECT`/`ZAD_DEPLOYMENT`). De
-  **API-key-secret** `ZAD_API_KEY_UITVRAAG` + `ZAD_PG_PASSWORD` worden nog gezet. De
-  `deploy-test-uitvraag`-CI-stap doet tag-updates op `fsc-logius`; de eenmalige component-creatie
-  (env/ports, cert-attachments) blijft handmatig via `upsert-peer.sh apply` (zie addendum).
-  PR-`plan` werkt zonder.
+- **Secrets nog te zetten** — de API-key `ZAD_API_KEY_UITVRAAG` (de gedeelde project-key van
+  `mpfb-8wh`) en `ZAD_PG_PASSWORD` moeten aanwezig zijn vóór de eerste `upsert-peer.sh apply`;
+  `plan` werkt zonder. Project en deployment zitten als default in `upsert-peer.sh` en
+  `pki/gen-csr.sh` (override via `ZAD_PROJECT`/`ZAD_DEPLOYMENT`).
 - **Discover + data-pad** — vervolg (op ZAD, tegen echte directory + magazijn-a).
 - **Contract (ServiceConnectionGrant)** — vervolg (via de manager-API of de controller-UI).
 - **outway-env-namen** — verifiëren tegen de `federatedserviceconnectivity/outway`-image bij de
-  eerste host-run (`outway serve --help` / OpenFSC `helm/charts`-outway-values); cert-paden en
-  hostnamen liggen vast.
-- ~~**inway-env-namen**~~ — **afgehandeld 2026-07-20**: de lokale host-run bevestigt dat
-  `fsc-inway serve` v2.5.2 gezond boot met `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS` (`:9444`).
-  Het geaccepteerde risico dat v2.5.2 tóch de authenticated `:9443` zou eisen, is daarmee van
-  tafel. De operator-check in `deploy/local/README.md` blijft nuttig als regressiesignaal.
-
-## Addendum 2026-08-06 — migratie naar demo/environment + co-locatie
-
-Dit ontwerp is geschreven in de losse repo `moza-fsc-testconsumer`. Bij de migratie naar
-`demo/environment/logius/` zijn de volgende punten gewijzigd:
-
-- **Peer-identiteit:** `uitvraag-org` → `logius`, OIN `00000000000000000020` →
-  `00000000000000001000`.
-- **ZAD:** eigen project `mpfuc-84g`/deployment `test` → project `mpfb-8wh` (gedeeld met de
-  `uitvraag`-app) in de eigen, preview-loze deployment `fsc-logius`. Componentnamen kregen de
-  prefix `logius-fsc*`. API-key: `ZAD_API_KEY_UITVRAAG`.
-- **OpenFSC:** `v1.43.7` → `v2.5.2` (de testfederatie handhaaft de FSC-versie als group rule).
-- **Migratie-wrappers:** de lokale build-context `deploy/zad/manager-migrate/` is vervallen;
-  manager, controller en txlog draaien de ghcr-wrappers uit `moza-fsc-testnet`.
-- **CI:** `zad-deploy-peer.yml` is vervallen; tag-updates lopen via de `deploy-test-uitvraag`-job
-  in `.github/workflows/deploy.yml`.
-- **Lokale harness:** host-poorten `8080`/`8090` → `8081`/`8091`, zodat de harness naast die van
-  `magazijn-a` kan draaien.
-
-Rationale: `../../../docs/plans/2026-08-06-logius-peer-migratie-design.md`.
+  eerste run op ZAD (`outway serve --help` / OpenFSC `helm/charts`-outway-values); cert-paden en
+  hostnamen liggen vast. Voor de inway is dit al bevestigd: `fsc-inway serve` v2.5.2 boot gezond
+  met `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS` (`:9444`).
