@@ -5,7 +5,11 @@
 #
 #   uitvraag       (mpfb-8wh)     componenten: redis + clickhouse + uitvraag
 #   externe-stubs  (mpfpsm-lcl)   componenten: profiel + notificatie (WireMock-stubs)
-#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb
+#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb in de
+#                                 deployments `test`/`pr-<n>`, plus magazijna-fsc{pg,mgr,
+#                                 ctl,inway,txlog} (FSC-provider-peer) in de EIGEN,
+#                                 preview-loze deployment `fsc-magazijna` — zie
+#                                 demo/environment/magazijn-a/
 #
 # Redis (sessiecache) en ClickHouse (LDV) draaien per project intern (centrale ZAD-Redis
 # v7 mist RediSearch; ClickHouse niet deelbaar tussen deployments). Interne calls zijn
@@ -77,8 +81,12 @@ env:
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
   # ("Task did not complete within 300s"), terwijl de test-deploys (bestaande deployment) in
-  # <100s klaar zijn en de default houden.
-  PREVIEW_TASK_TIMEOUT: '600'
+  # <100s klaar zijn en de default houden. Gelijkgetrokken met de gate-timeout (900s) zodat
+  # er één marge-getal in deze workflow rondgaat.
+  # Let op: dit is de wachttijd van de runner op de OM-task. De melding "timed out waiting for
+  # application to be created" komt daarentegen van OM zelf (Argo-Application-wait) en wordt
+  # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
+  PREVIEW_TASK_TIMEOUT: '900'
 
 jobs:
   # Docs-only PR's (alleen docs/ of *.md) hoeven niet naar ZAD te deployen. Deze job bepaalt dat
@@ -150,7 +158,7 @@ jobs:
         service: [berichtenuitvraag, berichtenmagazijn]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
@@ -529,4 +537,25 @@ jobs:
               {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+            ]
+
+      # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in
+      # `test`. Previews klonen met `clone-from: test`; een gekloonde peer zou zich met dezelfde
+      # federatie-OIN opnieuw aanmelden bij de gedeelde directory (en zonder de UI-only
+      # cert-attachments direct crashloopen). Wat niet in `test` staat, kan niet meegekloond worden.
+      # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
+      # demo/environment/magazijn-a/deploy/zad/upsert-peer.sh.
+      - name: Deploy magazijnen-project (fsc-magazijna — FSC-peer)
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: fsc-magazijna
+          components: |
+            [
+              {"name": "magazijna-fscpg", "image": "docker.io/library/postgres:17"},
+              {"name": "magazijna-fscmgr", "image": "ghcr.io/minbzk/moza-fsc-testnet-manager-migrate:v2.5.2"},
+              {"name": "magazijna-fscctl", "image": "ghcr.io/minbzk/moza-fsc-testnet-controller-migrate:v2.5.2"},
+              {"name": "magazijna-fscinway", "image": "docker.io/federatedserviceconnectivity/inway:v2.5.2"},
+              {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"}
             ]

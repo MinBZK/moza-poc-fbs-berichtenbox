@@ -1,0 +1,20 @@
+{
+  "CN": "inway.magazijn-a.fsc-test.local",
+  "key": {
+    "algo": "rsa",
+    "size": 4096
+  },
+  "hosts": [
+    "inway.magazijn-a.fsc-test.local",
+    "magazijna-fscinway-fsc-magazijna-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl",
+    "fsc-magazijna-magazijna-fscinway",
+    "fsc-magazijna-magazijna-fscinway.rig-prd-mpfm-w3h.svc.cluster.local"
+  ],
+  "serialnumber": "00000000000000100000",
+  "names": [
+    {
+      "O": "magazijn-a",
+      "C": "NL"
+    }
+  ]
+}

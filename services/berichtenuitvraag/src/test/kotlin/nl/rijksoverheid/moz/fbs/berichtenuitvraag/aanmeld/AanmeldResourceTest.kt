@@ -35,7 +35,11 @@ class AanmeldResourceTest {
     )
 
     private val cloudEventsJson = "application/cloudevents+json"
-    private val afzender = "00000001003214345000"
+
+    // Moet de Magazijn-A-sleutel uit het `%test`-magazijnregister zijn: het aanmeld-pad
+    // resolvet de afzender-OIN via AfzenderMagazijnIndex en weigert een onbekende bron
+    // met 400 nog vóór de idempotentie-claim.
+    private val afzender = "00000000000000100000"
 
     @Inject
     lateinit var sessiecache: MockSessiecache
