@@ -5,6 +5,7 @@ import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import io.mockk.verifyOrder
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.context.Context
 import jakarta.ws.rs.core.HttpHeaders
@@ -18,10 +19,10 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenReq
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -30,19 +31,22 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Borgt twee eigenschappen van [AanleverResource]:
- *  1. **Fail-closed acknowledgement**: de resource dwingt af dat de LDV-schrijfactie
- *     is gelukt (`enforceWriteAcknowledgement`) vóórdat een aanlevering als geslaagd
- *     geldt — een verwerking die niet in het logboek kwam, telt niet als uitgevoerd.
- *  2. **dataSubjectType correlatie-parity**: na succes-pad moet het
- *     `dpl.core.data_subject_id_type`-veld de concrete type-naam (BSN/RSIN/KVK)
- *     bevatten — niet de relationele rol "ontvanger". Anders correleert
- *     LDV-record met dat van [PublicatieClaimVerwerker] niet meer.
+ * Borgt het logboek-gedrag van [AanleverResource]:
+ *  1. **Logregel vóór opslag**: de LDV-schrijfactie wordt bevestigd vóórdat het bericht
+ *     wordt opgeslagen. Een aanlevering die niet in het logboek kwam, laat dus geen
+ *     bericht en geen publicatie-levering achter — anders zou een retry met een nieuw
+ *     `berichtId` een duplicaat opleveren waar downstream-dedup niet op aanslaat.
+ *  2. **Geen persoonsgegevens in de foutattributen**: de wrapper zet `exception.message`
+ *     op dezelfde child-spans die `dpl.core.data_subject_id` dragen; alleen het type van
+ *     een fout mag daarheen.
+ *  3. **dataSubjectType correlatie-parity**: het `dpl.core.data_subject_id_type`-veld
+ *     bevat de concrete type-naam (BSN/RSIN/KVK), niet de relationele rol "ontvanger".
+ *     Anders correleert het LDV-record niet met dat van [PublicatieClaimVerwerker].
  *
  * Geen `@QuarkusTest` nodig — we instantiëren de resource direct met mocks
  * (analoog aan [BerichtOpslagServiceTest]); CDI/proxy-laag is niet onder test.
  */
-class AanleverResourceLdvSwallowTest {
+class AanleverResourceLdvTest {
 
     private val opslagService = mockk<BerichtOpslagService>()
     private val logboekContext = LogboekContext()
@@ -76,16 +80,6 @@ class AanleverResourceLdvSwallowTest {
         inhoud = "Inhoud"
     }
 
-    private fun geldigeRequest() = BerichtAanleverenRequest().apply {
-        afzender = "00000001003214345000"
-        ontvanger = IdentificatienummerDto().apply {
-            type = IdentificatienummerDto.TypeEnum.BSN
-            waarde = "999993653"
-        }
-        onderwerp = "Test"
-        inhoud = "Inhoud"
-    }
-
     private val gevalideerdBericht = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = Oin("00000001003214345000"),
@@ -100,7 +94,7 @@ class AanleverResourceLdvSwallowTest {
         every { processingHandler.startSpan("aanleveren-bericht", any()) } returns span
         every { publicatieConfig.verwerkingsregisterAanleveren() } returns "https://register.example.com/aanleveren"
         every {
-            opslagService.slaBerichtOp(
+            opslagService.valideerAanlevering(
                 afzender = any(),
                 ontvangerType = any(),
                 ontvangerWaarde = any(),
@@ -109,21 +103,54 @@ class AanleverResourceLdvSwallowTest {
                 publicatietijdstip = any(),
             )
         } returns gevalideerdBericht
+        justRun { opslagService.slaBerichtOp(any(), any()) }
     }
 
     @Test
-    fun `LDV-schrijffout laat het aanleveren falen in plaats van 201 te geven`() {
-        // Fail-closed: een verwerking die niet in het logboek kwam, mag niet als
-        // geslaagd worden gerapporteerd (LDV-acknowledgement-eis).
+    fun `de logregel is bevestigd voordat het bericht wordt opgeslagen`() {
+        stubBaseline()
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        resource.leverBerichtAan(request)
+
+        verifyOrder {
+            processingHandler.addLogboekContextToSpan(span, any<LogboekContext>(), any())
+            span.end()
+            processingHandler.enforceWriteAcknowledgement(true)
+            opslagService.slaBerichtOp(gevalideerdBericht, any())
+        }
+    }
+
+    @Test
+    fun `een LDV-schrijffout laat het aanleveren falen zonder iets op te slaan`() {
+        // Fail-closed: zou het bericht er al staan, dan levert de poller het af terwijl de
+        // aanleveraar een 500 krijgt en opnieuw aanlevert — met een nieuw berichtId, dus
+        // een nieuwe CloudEvent-id waarop downstream-dedup niet aanslaat.
         stubBaseline()
         justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
         every {
             processingHandler.enforceWriteAcknowledgement(true)
         } throws LogboekWriteException("Logregel kon niet in het Logboek worden opgeslagen")
 
-        assertThrows<LogboekWriteException> { resource.leverBerichtAan(geldigeRequest()) }
+        assertThrows<LogboekWriteException> { resource.leverBerichtAan(request) }
 
         verify { span.end() }
+        verify(exactly = 0) { opslagService.slaBerichtOp(any(), any()) }
+    }
+
+    @Test
+    fun `een fout uit addLogboekContextToSpan verhindert de opslag`() {
+        stubBaseline()
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
+        } throws IllegalStateException("ldv stuk")
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+
+        verify { span.end() }
+        verify(exactly = 0) { opslagService.slaBerichtOp(any(), any()) }
     }
 
     @Test
@@ -131,12 +158,12 @@ class AanleverResourceLdvSwallowTest {
         // Er propageert al een functionele fout; die moet de gebruiker bereiken, niet
         // een LDV-fout die er overheen komt.
         stubBaseline()
-        every { opslagService.slaBerichtOp(any(), any(), any(), any(), any(), any(), any()) } throws
+        every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
             IllegalStateException("opslag stuk")
         justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
         justRun { processingHandler.enforceWriteAcknowledgement(false) }
 
-        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(geldigeRequest()) }
+        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
 
         assertEquals("opslag stuk", ex.message)
         verify { processingHandler.enforceWriteAcknowledgement(false) }
@@ -144,18 +171,56 @@ class AanleverResourceLdvSwallowTest {
     }
 
     @Test
-    fun `de propagerende fout gaat mee naar de LDV-context`() {
-        // Zonder dit overschrijft een optimistische OK uit de context de ERROR-status
-        // en missen per-betrokkene child-logregels hun exception-attributen.
+    fun `op het foutpad mag ook addLogboekContextToSpan de domeinfout niet maskeren`() {
+        // Deze code draait vanuit finally: gooien zou de domeinfout vervangen, waarna de
+        // aanleveraar de échte reden van de afwijzing niet meer ziet.
         stubBaseline()
-        val domeinfout = IllegalStateException("opslag stuk")
-        every { opslagService.slaBerichtOp(any(), any(), any(), any(), any(), any(), any()) } throws domeinfout
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalStateException("ontvanger onbekend")
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
+        } throws IllegalArgumentException("ldv stuk")
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
-        assertThrows<IllegalStateException> { resource.leverBerichtAan(geldigeRequest()) }
+        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
 
-        verify { processingHandler.addLogboekContextToSpan(span, any<LogboekContext>(), domeinfout) }
+        assertEquals("ontvanger onbekend", ex.message)
+        assertTrue(
+            ex.suppressed.any { it is IllegalArgumentException },
+            "de LDV-fout moet als suppressed meereizen — anders verdwijnt hij spoorloos",
+        )
+        verify { span.end() }
+    }
+
+    @Test
+    fun `de propagerende fout gaat als type mee naar de LDV-context, zonder message`() {
+        // Zonder een fout mee te geven overschrijft een optimistische OK uit de context de
+        // ERROR-status en missen de per-betrokkene child-logregels hun exception-attributen.
+        // De message blijft achter: die rijen dragen dpl.core.data_subject_id en gaan bij
+        // een inzageverzoek naar buiten.
+        stubBaseline()
+        val gevoeligeFout = IllegalStateException(
+            "ERROR: null value violates not-null constraint\n" +
+                "  Detail: Failing row contains (1, 999993653, Beste heer, uw uitkering is gewijzigd).",
+        )
+        every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
+            gevoeligeFout
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        val foutSlot = slot<Throwable>()
+        justRun {
+            processingHandler.addLogboekContextToSpan(span, any<LogboekContext>(), capture(foutSlot))
+        }
+
+        assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+
+        val doorgegeven = foutSlot.captured.message.orEmpty()
+        assertFalse(doorgegeven.contains("999993653"), "BSN mag niet in het exception-attribuut — was: $doorgegeven")
+        assertFalse(doorgegeven.contains("uitkering"), "berichtinhoud mag niet in het exception-attribuut")
+        assertTrue(
+            doorgegeven.contains("IllegalStateException"),
+            "het type moet bruikbaar blijven voor diagnose — was: $doorgegeven",
+        )
     }
 
     @Test

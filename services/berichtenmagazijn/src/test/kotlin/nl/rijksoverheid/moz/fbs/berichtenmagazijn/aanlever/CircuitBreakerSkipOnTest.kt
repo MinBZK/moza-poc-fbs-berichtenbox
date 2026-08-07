@@ -93,9 +93,10 @@ class CircuitBreakerSkipOnTest {
 
     @Test
     fun `ToestemmingGeweigerdException opent circuit niet`() {
-        // ToestemmingGeweigerdException wordt vóór de repository gegooid door
-        // BerichtValidatieService — niet via de repo-mock maar via de Profiel-
-        // Service-mock: een lege PartijResponse (geen voorkeur) leidt tot weigering.
+        // ToestemmingGeweigerdException komt uit BerichtValidatieService, die in
+        // valideerAanlevering draait — buiten de methode met de breaker. Niet via de
+        // repo-mock dus, maar via de Profiel-Service-mock: een lege PartijResponse
+        // (geen voorkeur) leidt tot weigering.
         (profielClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
             PartijResponse(voorkeuren = emptyList())
         }

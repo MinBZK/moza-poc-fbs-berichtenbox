@@ -33,18 +33,60 @@ class BerichtOpslagService(
 
     private val log = Logger.getLogger(BerichtOpslagService::class.java)
 
+    /**
+     * Bouwt het domeinobject en valideert het, zonder iets op te slaan. Gescheiden van
+     * [slaBerichtOp] zodat de aanroeper de logregel voor deze aanlevering kan schrijven
+     * én bevestigen tussen de validatie en de opslag in: een aanlevering die niet in het
+     * logboek kwam, mag geen bericht (en dus ook geen publicatie-levering) achterlaten.
+     *
+     * Gooit [DomainValidationException] (→ 400) bij een ongeldig identificatienummer of
+     * bijlage-MIME-type, en [ToestemmingGeweigerdException] (→ 403) zonder abonnement.
+     */
+    fun valideerAanlevering(
+        afzender: String,
+        ontvangerType: IdentificatienummerType,
+        ontvangerWaarde: String,
+        onderwerp: String,
+        inhoud: String,
+        publicatietijdstip: Instant? = null,
+        bijlagen: List<BijlageInvoer> = emptyList(),
+    ): Bericht {
+        val tijdstipOntvangst = clock.instant()
+        val bericht = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = Oin(afzender),
+            ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
+            onderwerp = onderwerp,
+            inhoud = inhoud,
+            tijdstipOntvangst = tijdstipOntvangst,
+            // Zonder meegestuurd publicatietijdstip = direct publiceren. Hergebruik
+            // tijdstipOntvangst zodat bericht en outbox-rij dezelfde T0 delen.
+            publicatietijdstip = publicatietijdstip ?: tijdstipOntvangst,
+        )
+
+        // MIME-typen en toestemming (issue #541).
+        validatieService.valideer(bericht, bijlagen)
+
+        return bericht
+    }
+
     // Circuit-breaker-thresholds; tunebaar per omgeving.
+    //
+    // Het circuit beschermt de magazijn-database. De abonnementscontrole bij de
+    // Profiel-service draait in valideerAanlevering en dus buiten dit circuit; die
+    // REST-client heeft zijn eigen `@Retry` op transient I/O.
     //
     // skipOn — fouten die níét meetellen voor het circuit:
     //  - DomainValidationException, ToestemmingGeweigerdException: client-fouten en
-    //    policy-besluiten; zeggen niets over de gezondheid van de infrastructuur.
+    //    policy-besluiten; zeggen niets over de gezondheid van de infrastructuur. Ze
+    //    ontstaan normaliter vóór deze methode, maar één misconfigureerde aanleveraar
+    //    mag het circuit ook niet openen als de persistentielaag ze alsnog gooit.
     //  - HibernateConstraintViolationException: unique-key (409) én NOT NULL/FK/CHECK
     //    (500) duiden op data/schema, niet op een onbereikbare DB.
     //  - WebApplicationException: vangt zowel JAX-RS-mapper-fouten als de Quarkus
     //    REST Reactive `ClientWebApplicationException` (extends WebApplicationException
     //    direct, niet via ClientErrorException). Een 4xx/5xx van een upstream zegt
-    //    niets over de magazijn-DB-gezondheid waar deze CB primair tegen beschermt;
-    //    de REST-client heeft zijn eigen `@Retry` op transient I/O.
+    //    niets over de magazijn-DB-gezondheid waar deze CB primair tegen beschermt.
     //
     // Niet in skipOn: `jakarta.validation.ConstraintViolationException` — Bean Validation
     // vuurt vóór de resource-methode en bereikt deze service niet. Generieke
@@ -63,41 +105,14 @@ class BerichtOpslagService(
         ],
     )
     @Transactional
-    fun slaBerichtOp(
-        afzender: String,
-        ontvangerType: IdentificatienummerType,
-        ontvangerWaarde: String,
-        onderwerp: String,
-        inhoud: String,
-        publicatietijdstip: Instant? = null,
-        bijlagen: List<BijlageInvoer> = emptyList(),
-    ): Bericht {
-        val tijdstipOntvangst = clock.instant()
-        val berichtId = UUID.randomUUID()
-        val bericht = Bericht(
-            berichtId = berichtId,
-            afzender = Oin(afzender),
-            ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
-            onderwerp = onderwerp,
-            inhoud = inhoud,
-            tijdstipOntvangst = tijdstipOntvangst,
-            // Zonder meegestuurd publicatietijdstip = direct publiceren. Hergebruik
-            // tijdstipOntvangst zodat bericht en outbox-rij dezelfde T0 delen.
-            publicatietijdstip = publicatietijdstip ?: tijdstipOntvangst,
-        )
-
-        // Validatie vóór persistentie: MIME-typen en toestemming (issue #541).
-        // Gooit DomainValidationException (→ 400) of ToestemmingGeweigerdException (→ 403),
-        // beide in skipOn van de circuit breaker hierboven.
-        validatieService.valideer(bericht, bijlagen)
-
+    fun slaBerichtOp(bericht: Bericht, bijlagen: List<BijlageInvoer> = emptyList()) {
         try {
             repository.save(bericht)
             bijlagen.forEach { nieuw ->
                 bijlageRepository.save(
                     Bijlage(
                         bijlageId = UUID.randomUUID(),
-                        berichtId = berichtId,
+                        berichtId = bericht.berichtId,
                         naam = nieuw.naam,
                         mimeType = nieuw.mimeType,
                         content = nieuw.content,
@@ -148,7 +163,6 @@ class BerichtOpslagService(
             bericht.ontvanger.type,
             bijlagen.size,
         )
-        return bericht
     }
 }
 
