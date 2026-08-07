@@ -168,6 +168,28 @@ Net als bij publiceren legt de logregel daarmee het voornemen vast, niet de uitk
 opslagfout ná dat punt laat een logregel achter voor een aanlevering die niet plaatsvond
 (TODO(#924)).
 
+### Gevolg: de fault-tolerance-grens verschuift mee
+
+De splitsing haalt `validatieService.valideer(...)` — inclusief de REST-call naar de
+Profiel-service — uit de methode met de `@CircuitBreaker`. Dat is precies de bedoeling
+voor de transactie (een trage upstream mag geen JTA-transactie openhouden), maar het
+neemt ook de load shedding weg die er ongemerkt bij zat.
+
+Een HTTP-fout van de Profiel-service kwam al als `ClientWebApplicationException` in
+`skipOn` en telde nooit mee. Een Profiel-*storing* — connection refused, reset,
+read-timeout — surfacet als `jakarta.ws.rs.ProcessingException`, staat niet in `skipOn`,
+en opende het circuit dus wél. Zonder compensatie zou een dode Profiel-service elke
+aanlever-request ~15 s laten hangen (`connect-timeout` 2 s + `read-timeout` 5 s ×
+`@Retry(maxRetries = 2)`), met worker-threads die vollopen, in plaats van na 20 requests
+direct 503'en.
+
+`valideerAanlevering` heeft daarom een eigen `@CircuitBreaker` met dezelfde drempels.
+Twee upstreams die los van elkaar uitvallen, krijgen zo elk hun eigen circuit. In
+`skipOn`: `DomainValidationException`, `ToestemmingGeweigerdException` en
+`WebApplicationException` — client-fouten, policy-besluiten en deterministische
+upstream-antwoorden. Wat overblijft is de transportstoring, en dat is precies wat
+afgeknepen moet worden. `ValidatieCircuitBreakerTest` legt beide kanten vast.
+
 ## Fail-closed-guard
 
 `span-processor` en `write-failure-policy` zijn gewone config-properties, en een env-var
