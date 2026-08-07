@@ -47,22 +47,29 @@ class BerichtOpslagService(
      * JTA-transactie van [slaBerichtOp] (anders houdt een trage upstream een
      * database-transactie open) en dus ook buiten diens circuit. Zonder eigen breaker
      * blokkeert een dode Profiel-service elke aanlever-request tot de client-timeouts
-     * en `@Retry` op `ProfielServiceClient.getPartij` op zijn: ~15s per request, met
-     * worker-threads die vollopen. Met breaker vallen aanleveringen na de drempel
-     * direct om in een 503 (load shedding) tot de upstream weer antwoordt.
+     * en `@Retry` op `ProfielServiceClient.getPartij` op zijn: per poging 2 s
+     * connect-timeout plus 5 s read-timeout, drie pogingen met 200 ms backoff ertussen,
+     * dus tot ~21 s per request met worker-threads die vollopen. Met breaker vallen
+     * aanleveringen na de drempel direct om in een 503 (load shedding) tot de upstream
+     * weer antwoordt.
      *
      * skipOn — wat níét meetelt:
      *  - [DomainValidationException], [ToestemmingGeweigerdException]: client-fouten en
      *    policy-besluiten. Een aanleveraar die honderden ontvangers zonder abonnement
      *    aanbiedt, mag het circuit niet openen voor iedereen.
-     *  - `WebApplicationException`: een 4xx/5xx van de Profiel-service is een
-     *    deterministisch antwoord (Quarkus REST Reactive verpakt élke HTTP-fout als
-     *    `ClientWebApplicationException`), geen transportstoring.
+     *  - `WebApplicationException`: elke HTTP-fout van de Profiel-service, want Quarkus
+     *    REST Reactive verpakt ze allemaal als `ClientWebApplicationException`. Ook een
+     *    5xx komt meteen terug, dus hij geeft geen latency-amplificatie — en dát is wat
+     *    de breaker hier moet wegnemen. Een 5xx is daarmee geen gezond antwoord, maar
+     *    wel een goedkoop antwoord.
      *
-     * Wat wél meetelt is dus in de praktijk `jakarta.ws.rs.ProcessingException`: het
-     * JAX-RS-type voor connection refused, reset en read-timeout — precies de gevallen
-     * waarin doorbellen zinloos is. Onverwachte fouten tellen ook mee; die wijzen op een
-     * programmeerfout en mogen niet stil doorlopen.
+     * Wat wél meetelt is `jakarta.ws.rs.ProcessingException`, het JAX-RS-type voor alles
+     * waar geen bruikbaar HTTP-antwoord uit kwam: connection refused, reset,
+     * read-timeout, een DNS-fout (`UnknownHostException`) en ook een malformed response
+     * (met `JsonProcessingException` als cause). Die laatste twee zijn geen
+     * netwerkstoring maar wel een upstream waar doorbellen niets oplost, dus afknijpen is
+     * ook daar het juiste gedrag. Onverwachte fouten tellen eveneens mee; die wijzen op
+     * een programmeerfout en mogen niet stil doorlopen.
      */
     @CircuitBreaker(
         requestVolumeThreshold = 20,
