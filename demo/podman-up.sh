@@ -6,7 +6,9 @@
 #   hostnet  — vangnet voor omgevingen zonder bruikbaar bridge-netwerk, bijvoorbeeld podman-in-een-
 #              container: `/proc/sys` is daar read-only (netavark kan geen bridge opzetten) en
 #              aardvark-dns ontbreekt vaak, dus container-DNS resolvet niet. Alle containers delen
-#              dan de netns van de aanroeper en praten over 127.0.0.1.
+#              dan de netns van de aanroeper en praten over 127.0.0.1. Deze modus stapelt een derde
+#              overlay met `!reset`-velden en vereist daarmee een compose die de Compose-spec van
+#              2024 of later kent (docker compose v2.24+); podman-compose kent `!reset` niet.
 #
 # Gebruik:
 #   demo/podman-up.sh                 # modus automatisch bepalen
@@ -119,7 +121,8 @@ if [ "$MODUS" = "bridge" ]; then
 else
     echo "[2/3] infra starten (hostnet)"
 
-    C=("${COMPOSE_BIN[@]}" -f compose.podman-hostnet.yaml)
+    C=("${COMPOSE_BIN[@]}" -f compose.yaml -f compose.podman.yaml -f compose.podman-hostnet.yaml
+       --profile demo)
 
     # Geen healthchecks in deze variant: podman draait die via systemd-timers, en juist in de
     # omgevingen die hostnet nodig hebben ontbreekt systemd — een healthcheck blijft dan eeuwig

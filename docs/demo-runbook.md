@@ -69,16 +69,18 @@ Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als na
 
 | Modus | Wanneer | Bestand |
 |---|---|---|
-| `bridge` | normale podman: Linux rootless, of podman machine op macOS/Windows | `compose.podman.yaml` (override op `compose.yaml`) |
-| `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (zelfstandig) |
+| `bridge` | normale podman: Linux rootless, of podman machine op macOS/Windows | `compose.podman.yaml` (overlay op `compose.yaml`) |
+| `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (derde overlay, bovenop de twee andere) |
 
 Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. In `hostnet` delen alle containers één
 netwerknamespace en luisteren ze op vaste poorten op `127.0.0.1` — handig als vangnet, maar
 ongeschikt op macOS (zonder published ports komt er niets door naar de host) en op een werkplek
-waar al een Postgres of Redis op de standaardpoorten draait.
+waar al een Postgres of Redis op de standaardpoorten draait. De overlay haalt de gepubliceerde
+poorten en de healthchecks met `!reset` weg; dat vereist een compose die de Compose-spec van 2024
+of later kent (`docker compose` v2.24+), niet `podman-compose`.
 
 Afsluiten: `docker-compose -f compose.yaml -f compose.podman.yaml --profile demo down`
-(in `hostnet`: `-f compose.podman-hostnet.yaml`).
+(in `hostnet`: met `-f compose.podman-hostnet.yaml` erachteraan).
 
 ---
 
