@@ -1,0 +1,1 @@
+Wegwerp: niet-documentatie-bestand zodat de code-checks op een gestapelde PR echt draaien.
