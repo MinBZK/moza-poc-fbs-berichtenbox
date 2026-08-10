@@ -296,7 +296,8 @@ jobs:
   # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
   # check-run ('afwezig'), waardoor de gate anders tot de timeout zou blijven wachten.
   gate:
-    # Niet op PR-close (teardown, geen deploy) en niet op een docs-only PR (niets te deployen).
+    # Niet op PR-close (teardown, geen deploy) en niet wanneer `changes` de keten heeft
+    # uitgesloten (docs-only of bot-PR) — dan valt er niets te bewaken.
     if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
     needs: changes
     runs-on: ubuntu-latest

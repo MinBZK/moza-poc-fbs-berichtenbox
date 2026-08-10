@@ -155,7 +155,11 @@ winnen, ook niet met een digest.
   docker-gebouwde externe-stubs gebruiken dezelfde output. Geen van beide bouwpaden kent de
   tagvorm.
 - **Geen weesversies.** Elke gepushte PR-versie houdt een unieke tag en valt onder de prefix
-  die de cleanup opruimt.
+  die de cleanup opruimt. Dat het verwijderen zelf werkt met de `GITHUB_TOKEN` blijkt uit de
+  huidige toestand van ghcr: van alle gesloten PR's van menselijke indieners ná #104 staat er
+  geen enkele `pr-<n>`-tag meer, terwijl die van openstaande PR's er wel staan. De tags die
+  achterbleven (`pr-143`, `pr-165`, `pr-167`, …) horen zonder uitzondering bij bot-PR's, die de
+  cleanup-action overslaat.
 - **Actions SHA-gepind.** Er komt geen nieuwe action bij; `cleanup-preview-images` draait op
   `gh`/`jq` van de runner.
 - **`pin-consistency.yml`.** Bewaakt alleen `redis/redis-stack-server` en
