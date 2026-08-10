@@ -413,7 +413,7 @@ jobs:
     steps:
       - name: Deploy uitvraag-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -438,7 +438,7 @@ jobs:
     steps:
       # profiel + notificatie = zelfde image, losse componenten (eigen subdomein per stub).
       - name: Deploy externe-stubs-project
-        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -460,7 +460,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy magazijnen-project
-        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -498,7 +498,7 @@ jobs:
             exit 1
           fi
       - name: Cleanup uitvraag-project
-        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -513,7 +513,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup externe-stubs-project
-        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -526,7 +526,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup magazijnen-project
-        uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -610,7 +610,7 @@ jobs:
       name: test
     steps:
       - name: Deploy uitvraag-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -630,7 +630,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy externe-stubs-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -649,7 +649,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy magazijnen-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -668,7 +668,7 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/magazijn-a/deploy/zad/upsert-peer.sh.
       - name: Deploy magazijnen-project (fsc-magazijna — FSC-peer)
-        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
