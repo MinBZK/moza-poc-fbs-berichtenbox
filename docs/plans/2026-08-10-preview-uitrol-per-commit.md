@@ -114,17 +114,27 @@ image-tags uniek per commit moeten zijn.
 
 ## Verificatie
 
-Een groene CI-run is hier geen bewijs — dat was juist het probleem. Aangetoond op de PR van
-deze wijziging zelf:
+Een groene CI-run is hier geen bewijs — dat was juist het probleem. Aangetoond op PR #172 zelf,
+met `magazijna` in project `mpfm-w3h`.
 
-1. Eerste commit → preview uitgerold.
-2. Tweede, triviale commit gepusht.
-3. In `RijksICTGilde/rig-cluster-application-test` heeft
-   `odcn-production/<project-id>/pr-<n>/<component>-deployment.yaml` ná die tweede push een
-   nieuwe commit met een gewijzigde `image:`-regel.
-4. Het draaiende component vertoont het gedrag van de tweede commit.
+De tweede commit zette tijdelijk een `%prod`-only responseheader `X-Preview-Verificatie:
+commit-2` op berichtenmagazijn; die is in de commit erna weer verwijderd. Alleen `%prod`, zodat
+tests en dev-mode er niets van merkten.
 
-Zie de verificatiesectie in de PR-beschrijving voor de uitkomst.
+1. Ná commit 1 (`6e8616f`): manifest
+   `odcn-production/mpfm-w3h/pr-172/magazijna-deployment.yaml` op commit `b016a5a`
+   (08:24:07Z), `image: …/fbs-berichtenmagazijn:pr-172-6e8616f`. Preview bereikbaar, header
+   afwezig.
+2. Ná commit 2 (`95f59fb`): nieuwe manifest-commit `7e69327` (08:37:10Z) met
+   `image: …/fbs-berichtenmagazijn:pr-172-95f59fb` — de regel die bij PR #168 drie dagen
+   onveranderd bleef.
+3. Argo rolde uit: `curl` op de preview gaf `x-preview-verificatie: commit-2`. Het draaiende
+   component vertoonde dus het gedrag van de tweede commit.
+
+De opruimkant is drooggetest tegen de echte ghcr-data: het filter van
+`cleanup-preview-images` (`tags | any(startswith("pr-172-"))`) selecteerde beide versies
+(`pr-172-6e8616f` én `pr-172-95f59fb`), niet alleen de laatste. De prefix `pr-17-` selecteert
+ze niet — het afsluitende koppelteken doet zijn werk.
 
 ## Openstaand
 
