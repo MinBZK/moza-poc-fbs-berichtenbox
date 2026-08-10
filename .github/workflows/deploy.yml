@@ -184,7 +184,7 @@ jobs:
   # per commit.
   #
   # Elke build krijgt zo zijn eigen tag; `cleanup-preview-images` ruimt ze bij PR-sluiten
-  # allemaal op (op prefix, niet op één exacte tag).
+  # allemaal op — op prefix, plus de kale `pr-<n>` van vóór deze wijziging.
   meta:
     runs-on: ubuntu-latest
     outputs:
@@ -217,9 +217,10 @@ jobs:
           fi
           echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-  # Bouw + push de service-images met jib (geen Dockerfile). Niet op PR-close en niet op een
-  # docs-only PR: die deployt toch niet, dus twee volledige Maven/jib-builds + push zouden
-  # alleen rekentijd, netwerk en een ghcr-versie kosten die nooit een pod bereikt.
+  # Bouw + push de service-images met jib (geen Dockerfile). Niet op PR-close, en niet wanneer
+  # `changes` de keten heeft uitgesloten: zo'n revisie deployt toch niet, dus twee volledige
+  # Maven/jib-builds + push kosten dan alleen rekentijd, netwerk en een ghcr-versie die nooit
+  # een pod bereikt.
   build:
     if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
     needs: [meta, changes]
