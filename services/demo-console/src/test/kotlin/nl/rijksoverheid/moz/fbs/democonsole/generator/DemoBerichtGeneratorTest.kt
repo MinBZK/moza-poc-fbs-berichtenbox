@@ -11,7 +11,7 @@ import kotlin.random.Random
 
 class DemoBerichtGeneratorTest {
 
-    private val rvo = "00000001003214345000"
+    private val rvo = "00000000000000100000"
     private val belastingdienst = "00000001823288444000"
 
     private val organisaties = mapOf(

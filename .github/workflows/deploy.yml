@@ -5,7 +5,11 @@
 #
 #   uitvraag       (mpfb-8wh)     componenten: redis + clickhouse + uitvraag
 #   externe-stubs  (mpfpsm-lcl)   componenten: profiel + notificatie (WireMock-stubs)
-#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb
+#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb in de
+#                                 deployments `test`/`pr-<n>`, plus magazijna-fsc{pg,mgr,
+#                                 ctl,inway,txlog} (FSC-provider-peer) in de EIGEN,
+#                                 preview-loze deployment `fsc-magazijna` — zie
+#                                 demo/environment/magazijn-a/
 #
 # Redis (sessiecache) en ClickHouse (LDV) draaien per project intern (centrale ZAD-Redis
 # v7 mist RediSearch; ClickHouse niet deelbaar tussen deployments). Interne calls zijn
@@ -29,6 +33,20 @@
 # En op magazijnen: AANMELD_URL → uitvraag-webhook (POST /api/v1/aanmeldingen),
 # NOTIFICATIE_URL → notificatie-stub (POST /events).
 #
+# GESTAPELDE PR'S (base != main) deployen niet — zie het `branches`-filter hieronder. Hun
+# wijzigingen belanden alsnog in een preview zodra ze de PR bereiken die wél op main mikt: die
+# krijgt dan een `synchronize` en rolt zijn eigen pr-<n> opnieuw uit. Wat zo'n PR aan controles
+# houdt: test, detekt-gate en infra-image-pins (die workflows filteren niet op de doelbranch).
+# CodeQL en de fuzz-check draaien er NIET — codeql.yml en cflite_pr.yml filteren nog wel op main,
+# dus die dekking komt pas bij de PR naar main. Een gestapelde PR is dus inhoudelijk getoetst,
+# maar niet security-gescand; weeg dat mee bij het reviewen ervan.
+#
+# BEKENDE BEPERKING: wordt een PR ná een preview-deploy handmatig weggericht van main, dan valt
+# hij buiten dit filter en ruimt het sluiten zijn pr-<n>-deployments en ghcr-tags niet meer op.
+# Handmatig opruimen (of de base terugzetten vóór het sluiten). De omgekeerde beweging —
+# GitHub's automatische retarget náár main bij het mergen van de parent — is veilig: de checks
+# zijn dan afwezig i.p.v. groen, en `strict: true` op main dwingt sowieso een verse run af.
+#
 # Repo-secrets (Settings → Secrets and variables → Actions):
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
 #   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl (externe-stubs)
@@ -39,7 +57,19 @@
 name: Deploy ZAD
 
 on:
+  # `branches` filtert op de DOELbranch: alleen PR's naar main bouwen en deployen. Een gestapelde
+  # PR (base = een feature-branch) draait deze workflow dus helemaal niet — geen build, geen
+  # preview, en daarmee ook niets te gaten. Bewust hier en niet als `if:` per job: een job die via
+  # `if:` overslaat rapporteert `skipped`, en dat telt als succes voor branch protection. De drie
+  # `deploy-preview-*` zijn required contexts op main, dus zouden gestapelde PR's groene vinkjes
+  # verzamelen voor deploys die nooit gedraaid hebben. GitHub herricht een gestapelde PR
+  # automatisch naar main zodra de parent merget, zónder nieuw event — die stale vinkjes zouden
+  # dan blijven staan. Zonder run zijn de checks afwezig, wat de merge wél blokkeert.
+  #
+  # Let op de bewuste asymmetrie met test.yml/detekt.yml: die hebben juist géén branch-filter,
+  # want een gestapelde PR verdient wél inhoudelijke toetsing. Alleen de deploy valt weg.
   pull_request:
+    branches: [main]
     types: [opened, synchronize, reopened, closed]
   push:
     branches: [main]
@@ -64,14 +94,25 @@ env:
   # (zie pin-consistency.yml). ClickHouse draait op het stock-image; geef het genoeg
   # geheugen via het container-limit (~2–4Gi). Logt naar bestanden in de container, niet
   # naar stdout (geen env-var verandert dat).
+  #
+  # Redis draait op ZAD zónder persistence: zet op de redis-component de runtime-env
+  # `REDIS_ARGS=--save "" --appendonly no` (in Operations Manager, net als de overige
+  # runtime-env hierboven). Het restricted SecurityContext (willekeurige non-root UID)
+  # mag niet in de image-datadir `/data` schrijven, dus RDB-snapshots falen met
+  # "Permission denied". Kan uit: de sessiecache is ephemeral en rekent nergens op
+  # persistence (idempotente RediSearch-bootstrap, TTL-entries, crash-safe vangnet-lock).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
-  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.6
+  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.7
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
   # ("Task did not complete within 300s"), terwijl de test-deploys (bestaande deployment) in
-  # <100s klaar zijn en de default houden.
-  PREVIEW_TASK_TIMEOUT: '600'
+  # <100s klaar zijn en de default houden. Gelijkgetrokken met de gate-timeout (900s) zodat
+  # er één marge-getal in deze workflow rondgaat.
+  # Let op: dit is de wachttijd van de runner op de OM-task. De melding "timed out waiting for
+  # application to be created" komt daarentegen van OM zelf (Argo-Application-wait) en wordt
+  # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
+  PREVIEW_TASK_TIMEOUT: '900'
 
 jobs:
   # Docs-only PR's (alleen docs/ of *.md) hoeven niet naar ZAD te deployen. Deze job bepaalt dat
@@ -142,8 +183,8 @@ jobs:
       matrix:
         service: [berichtenuitvraag, berichtenmagazijn]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
@@ -181,7 +222,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build + push externe-stubs
         env:
           OWNER: ${{ needs.meta.outputs.owner }}
@@ -522,4 +563,25 @@ jobs:
               {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+            ]
+
+      # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in
+      # `test`. Previews klonen met `clone-from: test`; een gekloonde peer zou zich met dezelfde
+      # federatie-OIN opnieuw aanmelden bij de gedeelde directory (en zonder de UI-only
+      # cert-attachments direct crashloopen). Wat niet in `test` staat, kan niet meegekloond worden.
+      # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
+      # demo/environment/magazijn-a/deploy/zad/upsert-peer.sh.
+      - name: Deploy magazijnen-project (fsc-magazijna — FSC-peer)
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
+          deployment-name: fsc-magazijna
+          components: |
+            [
+              {"name": "magazijna-fscpg", "image": "docker.io/library/postgres:17"},
+              {"name": "magazijna-fscmgr", "image": "ghcr.io/minbzk/moza-fsc-testnet-manager-migrate:v2.5.2"},
+              {"name": "magazijna-fscctl", "image": "ghcr.io/minbzk/moza-fsc-testnet-controller-migrate:v2.5.2"},
+              {"name": "magazijna-fscinway", "image": "docker.io/federatedserviceconnectivity/inway:v2.5.2"},
+              {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"}
             ]

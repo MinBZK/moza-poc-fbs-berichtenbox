@@ -29,7 +29,7 @@ class OntdubbelingServiceTest {
         assertEquals(resultaat.eventId, event["id"].asText())
         assertEquals("nl.rijksoverheid.fbs.bericht.gepubliceerd", event["type"].asText())
         assertEquals("1.0", event["specversion"].asText())
-        assertEquals("00000001003214345000", event["data"]["afzender"].asText())
+        assertEquals("00000000000000100000", event["data"]["afzender"].asText())
         assertEquals("999993653", event["data"]["ontvanger"]["waarde"].asText())
         assertEquals(202, resultaat.eersteStatus)
         assertEquals(202, resultaat.tweedeStatus)

@@ -47,3 +47,9 @@ node_modules/
 
 # Gegenereerde demo-artefacten (fase 6 — veel magazijnen). Regenereren met demo/genereer-magazijnen.py.
 demo/generated/
+
+# FSC-peer certificaten (privésleutels — NOOIT committen)
+demo/environment/*/pki/ca/
+demo/environment/*/pki/out/
+demo/environment/*/pki/internal/
+demo/environment/*/pki/zad-upload/

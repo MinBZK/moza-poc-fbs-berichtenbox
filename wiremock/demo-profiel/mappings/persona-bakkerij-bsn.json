@@ -16,7 +16,7 @@
           "voorkeurType": "OntvangViaBerichtenbox",
           "waarde": "true",
           "scopes": [
-            { "partij": { "identificatieType": "OIN", "identificatieNummer": "00000001003214345000" } }
+            { "partij": { "identificatieType": "OIN", "identificatieNummer": "00000000000000100000" } }
           ]
         }
       ],

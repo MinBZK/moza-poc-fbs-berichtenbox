@@ -29,7 +29,7 @@ class GeneratorProducer {
 
     private companion object {
 
-        const val RVO = "00000001003214345000"
+        const val RVO = "00000000000000100000"
         const val BELASTINGDIENST = "00000001823288444000"
 
         val RVO_SJABLONEN = listOf(

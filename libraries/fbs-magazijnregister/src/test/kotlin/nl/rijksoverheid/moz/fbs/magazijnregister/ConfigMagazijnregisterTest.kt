@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.magazijnregister
 
 import io.quarkus.runtime.StartupEvent
+import io.smallrye.config.PropertiesConfigSource
+import io.smallrye.config.SmallRyeConfigBuilder
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -121,6 +123,88 @@ class ConfigMagazijnregisterTest {
         assertDoesNotThrow { register("prod", oinA to inschrijving("https://magazijn.intern:8443", "Magazijn")) }
     }
 
+    @Test
+    fun `grantHash is null zonder configwaarde`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", null))
+
+        assertNull(register.voorOin(Oin(oinA))!!.grantHash)
+    }
+
+    @Test
+    fun `grantHash wordt doorgegeven vanuit config`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "abc123"))
+
+        assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
+    }
+
+    @Test
+    fun `meerdere magazijnen waarvan er een grantHash heeft en een niet`() {
+        val register = register(
+            "test",
+            oinA to inschrijving("http://localhost:8081", null, grantHash = "abc123"),
+            oinB to inschrijving("http://localhost:8082", null),
+        )
+
+        assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
+        assertNull(register.voorOin(Oin(oinB))!!.grantHash)
+    }
+
+    @Test
+    fun `grantHash wordt getrimd`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "  abc123  "))
+
+        assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
+    }
+
+    @Test
+    fun `lege grantHash faalt fail-fast met de config-key in de melding`() {
+        val ex = assertThrows<IllegalStateException> {
+            register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = ""))
+        }
+
+        assertTrue(ex.message!!.contains("magazijnen.\"$oinA\".grantHash"))
+    }
+
+    @Test
+    fun `whitespace-only grantHash faalt fail-fast met de config-key in de melding`() {
+        val ex = assertThrows<IllegalStateException> {
+            register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "   "))
+        }
+
+        assertTrue(ex.message!!.contains("magazijnen.\"$oinA\".grantHash"))
+    }
+
+    /**
+     * Boot-regressietest voor `magazijnen."<OIN>".grantHash=${MAGAZIJN_A_GRANT_HASH:}`
+     * (de vorm in productie-config) met de env-var ongezet: SmallRye expandeert dat naar
+     * een lege string die op `Optional.empty()` bindt, dus [ConfigMagazijnregister] mag
+     * hier niet fail-fast falen — het handgebouwde mock-object in [inschrijving] hierboven
+     * omzeilt SmallRye's expressie-expansie en kan dit gedrag niet aantonen; deze test
+     * gaat via een echte `SmallRyeConfigBuilder`-binding om de volledige keten te dekken.
+     */
+    @Test
+    fun `onbeantwoorde grantHash-expressie met lege default boot niet fail-fast`() {
+        val config = SmallRyeConfigBuilder()
+            .addDefaultInterceptors() // activeert SmallRye's `${...}`-expressie-expansie
+            .withMapping(MagazijnregisterConfig::class.java)
+            .withSources(
+                PropertiesConfigSource(
+                    mapOf(
+                        "magazijnen.\"$oinA\".url" to "http://localhost:8081",
+                        "magazijnen.\"$oinA\".grantHash" to "\${MAGAZIJN_A_GRANT_HASH:}",
+                    ),
+                    "test",
+                    100,
+                ),
+            )
+            .build()
+            .getConfigMapping(MagazijnregisterConfig::class.java)
+
+        val register = assertDoesNotThrow { ConfigMagazijnregister(config, "test").apply { init() } }
+
+        assertNull(register.voorOin(Oin(oinA))!!.grantHash)
+    }
+
     private fun register(profiel: String, vararg entries: Pair<String, MagazijnregisterConfig.Inschrijving>): Magazijnregister {
         val config = object : MagazijnregisterConfig {
             override fun inschrijvingen(): Map<String, MagazijnregisterConfig.Inschrijving> = mapOf(*entries)
@@ -129,9 +213,10 @@ class ConfigMagazijnregisterTest {
         return ConfigMagazijnregister(config, profiel).apply { init() }
     }
 
-    private fun inschrijving(url: String, naam: String?): MagazijnregisterConfig.Inschrijving =
+    private fun inschrijving(url: String, naam: String?, grantHash: String? = null): MagazijnregisterConfig.Inschrijving =
         object : MagazijnregisterConfig.Inschrijving {
             override fun url(): String = url
             override fun naam(): Optional<String> = Optional.ofNullable(naam)
+            override fun grantHash(): Optional<String> = Optional.ofNullable(grantHash)
         }
 }
