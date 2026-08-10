@@ -179,6 +179,14 @@ Uitgevoerd op PR #174 en de wegwerp-PR #175 (10 augustus 2026).
    staat.
 4. **Geen dubbele runs.** Op de branch van #174 draaiden alleen `Deploy ZAD` en `CodeQL`. `Test`,
    `detekt`, `Pin consistency` en `ClusterFuzzLite PR fuzzing` startten niet zelfstandig.
+5. **Gestapelde PR's blijven getoetst zonder te deployen.** Wegwerp-PR #177 (base = de
+   feature-branch) draaide `Test` (job `test`, 444 s, geslaagd), `detekt` en `Pin consistency`
+   zelfstandig; `Deploy ZAD` en `ClusterFuzzLite PR fuzzing` startten niet.
+6. **PR-close doet geen toetswerk meer dan nodig.** De close van #175 (run 31390338566) sloeg alle
+   vier de `checks-*`-jobs en de `gate` over en draaide alleen de drie cleanup-jobs.
+7. **De rechten kloppen door de aanroep heen.** De JaCoCo-coverage-comment (`pull-requests: write`
+   via de caller-job), de ZAD-preview-comment en de detekt-SARIF-upload (`security-events: write`)
+   werkten alle drie op #174.
 
 Bij de eerste run op #174 faalde `deploy-preview-magazijnen` op
 `timed out waiting for application to be created`. Dat is de bekende Argo-Application-wait aan
