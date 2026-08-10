@@ -159,9 +159,11 @@ dán branch protection omzetten, dán mergen. Andersom blokkeert de oude context
 
 Uitgevoerd op PR #174 en de wegwerp-PR #175 (10 augustus 2026).
 
-1. **Besparing gemeten.** `gate` duurde 4 s in beide runs op #174 (31387630765, 31388950061),
-   tegenover 461 s gemiddeld over 51 runs ervoor: **99,1% minder runnertijd**, geprojecteerd
-   ~388 min per week. Het aantal API-verzoeken van de gate gaat van ~120 per run naar 0.
+1. **Besparing gemeten.** Over de vijf runs met de nieuwe workflow (vier op #174, één op #175)
+   duurde `gate` 2–4 s, gemiddeld 3,4 s — tegenover 461 s gemiddeld over 51 runs ervoor:
+   **99,3% minder runnertijd**, geprojecteerd ~389 min per week. Het aantal API-verzoeken van de
+   gate gaat van ~120 per run naar 0. Ter controle draaide in hetzelfde tijdvak een run van een
+   andere branch (31389684161) nog op de oude, gepollde gate uit main: 526 s.
    Doorlooptijd van run-start tot de eerste preview-deploy: 475 s en 655 s ná, tegenover
    gemiddeld 735 s (spreiding 434–936 s, n=38) ervóór — binnen de bestaande spreiding, dus geen
    verlenging. Die doorlooptijd wordt bepaald door de traagste check (`test` 420 s, fuzz 526 s),
