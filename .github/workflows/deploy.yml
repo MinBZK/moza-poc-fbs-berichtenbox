@@ -49,6 +49,12 @@
 # GitHub's automatische retarget náár main bij het mergen van de parent — is veilig: de checks
 # zijn dan afwezig i.p.v. groen, en `strict: true` op main dwingt sowieso een verse run af.
 #
+# TIMEOUT-MINUTES OP ELKE JOB: GitHub's default is 360 minuten. Een job die hangt (netwerkstall,
+# vastgelopen Testcontainer, een herintroduceerde wachtlus) houdt dan zes uur een runner bezet
+# voordat iemand het merkt. De waarden hieronder staan op ~3× de waargenomen maximumduur, dus ruim
+# genoeg voor een trage runner maar kort genoeg om verspilling te begrenzen. Jobs die een andere
+# workflow aanroepen kunnen de sleutel niet dragen; die staat daar in de aangeroepen workflow.
+#
 # Repo-secrets (Settings → Secrets and variables → Actions):
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
 #   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl (externe-stubs)
@@ -128,6 +134,7 @@ jobs:
   # blijft mogelijk. Op een push naar main draait alles altijd (run=true).
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
     steps:
@@ -165,6 +172,7 @@ jobs:
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
   meta:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       tag: ${{ steps.m.outputs.tag }}
       owner: ${{ steps.m.outputs.owner }}
@@ -183,6 +191,7 @@ jobs:
     if: github.event_name == 'push' || github.event.action != 'closed'
     needs: meta
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Een opvolgende push maakt deze build achterhaald: afbreken scheelt runnertijd én voorkomt dat
     # twee runs van dezelfde PR om beurten dezelfde image-tag overschrijven, waarna de deploy een
     # oudere image zou kunnen trekken. Per matrix-service een eigen groep, anders blokkeren de twee
@@ -232,6 +241,7 @@ jobs:
     if: github.event_name == 'push' || github.event.action != 'closed'
     needs: meta
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     concurrency:
       group: build-externe-stubs-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -317,6 +327,7 @@ jobs:
           || (github.event.action != 'closed' && needs.changes.outputs.run == 'true'))
     needs: [changes, checks-test, checks-detekt, checks-pins, checks-fuzz]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Beoordeel de verplichte checks
         env:
@@ -373,6 +384,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Eén ZAD-taak tegelijk op deze deployment; een nieuwe push wacht op de lopende i.p.v. die af
     # te breken — een halverwege afgebroken ZAD-deploy laat de deployment in een inconsistente
     # staat achter. De cleanup-job voor hetzelfde project + dezelfde PR deelt deze groep, zodat een
@@ -411,6 +423,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: zad-externe-stubs-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -437,6 +450,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: zad-magazijnen-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -466,6 +480,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     needs: meta
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Zelfde groep als de deploy-job van dit project + deze PR: opruimen mag een lopende deploy
     # niet onder handen wegtrekken.
     concurrency:
@@ -505,6 +520,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     needs: meta
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     concurrency:
       group: zad-externe-stubs-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -528,6 +544,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     needs: meta
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     concurrency:
       group: zad-magazijnen-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -553,6 +570,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Eén ZAD-taak tegelijk op de `test`-deployment van dit project; twee snel opeenvolgende merges
     # naar main mogen elkaars deploy niet halverwege afbreken.
     concurrency:
@@ -580,6 +598,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: zad-externe-stubs-test
       cancel-in-progress: false
@@ -602,6 +621,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Dekt ook de tweede stap (deployment `fsc-magazijna`) — die hoort bij hetzelfde project.
     concurrency:
       group: zad-magazijnen-test

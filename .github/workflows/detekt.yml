@@ -27,12 +27,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De detekt-gate is
-  # hieraan gegate, maar de workflow blijft triggeren zodat de required status check
-  # `detekt-gate` ook bij een docs-only PR gerapporteerd wordt: een via `if` overgeslagen
-  # job telt als 'skipped' = succes voor branch protection.
+  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De detekt-gate is hieraan
+  # gegate, maar de workflow zelf draait wél door — zo wordt de required status check ook bij een
+  # docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes voor
+  # branch protection.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
     steps:
@@ -73,6 +74,7 @@ jobs:
     # GitHub Advanced Security post (SARIF tool.name "detekt"). Required status check.
     name: detekt-gate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write

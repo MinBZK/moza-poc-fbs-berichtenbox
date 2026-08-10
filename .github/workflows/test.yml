@@ -28,12 +28,13 @@ concurrency:
 
 jobs:
   # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De zware test-job is
-  # hieraan gegate, maar de workflow blijft triggeren zodat de required status check `test`
-  # ook bij een docs-only PR gerapporteerd wordt: een via `if` overgeslagen job telt als
-  # 'skipped' = succes voor branch protection. Een workflow-niveau paths-filter zou de check
-  # juist nooit rapporteren en de PR eeuwig blokkeren.
+  # hieraan gegate, maar de workflow zelf draait wél door — zo wordt de required status check ook
+  # bij een docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes
+  # voor branch protection. Een workflow-niveau paths-filter zou de check juist nooit rapporteren
+  # en de PR eeuwig blokkeren.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
     steps:
@@ -71,6 +72,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # pull-requests: write voor de coverage-PR-comment (madrapps/jacoco-report).
     permissions:
       contents: read
