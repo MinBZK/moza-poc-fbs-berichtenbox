@@ -99,24 +99,44 @@ relevant geweest als 1 én 2 waren afgevallen.
   halverwege afgebroken ZAD-deploy), terwijl de toetsende jobs hun eigen
   `cancel-in-progress: true` uit de aangeroepen workflow houden.
 
+- `timeout-minutes` op elke job. GitHub's default is 360 minuten; een hangende job houdt zo lang
+  een runner bezet voordat iemand ingrijpt — dezelfde soort verspilling als de wachtlus, alleen
+  zeldzamer. De waarden staan op ~3× de waargenomen maximumduur. Jobs die een andere workflow
+  aanroepen kunnen de sleutel niet dragen; die staat daar in de aangeroepen workflow.
+
 ### `test.yml`, `detekt.yml`, `pin-consistency.yml`, `cflite_pr.yml`
 
 - `workflow_call:` toegevoegd.
 - `pull_request` beperkt tot `branches-ignore: [main]` (test, detekt, pins). `cflite_pr.yml`
   verliest zijn `pull_request`-trigger volledig: fuzzing draaide al alleen voor PR's naar main.
 - `push: branches: [main]` verwijderd waar `deploy.yml` die dekking nu levert.
+- De workflow-brede `permissions: read-all` van `test.yml` en `detekt.yml` teruggebracht tot
+  `contents: read` + `pull-requests: read`. Een aangeroepen workflow mag niet méér rechten hebben
+  dan de caller-job toekent, en die kent alleen toe wat de jobs echt nodig hebben.
+- `timeout-minutes` per job.
 
 ## Bewust niet gedaan
 
 - **De vier `changes`-jobs samenvoegen.** `deploy.yml`, `test.yml`, `detekt.yml` en `cflite_pr.yml`
   detecteren elk zelf of er iets buiten documentatie is gewijzigd: ~211 jobs per week van ~4 s
   (~14 min) plus evenzoveel API-calls. Dedupliceren vergt een optionele `workflow_call`-input plus
-  `always()`-conditie in elke aangeroepen workflow, omdat ze óók standalone moeten draaien voor
-  gestapelde PR's. Die conditielogica is precies waar CI stil kapot gaat. De verhouding
-  (14 min tegenover de 392 min die deze PR wegneemt) rechtvaardigt dat risico niet.
-- **`build` achter de gate zetten.** Zou ~170 s runnertijd besparen bij een falende testrun, maar
-  kost 83 s extra wachttijd op élke geslaagde run. Tests falen zelden genoeg om die ruil te maken.
+  extra conditielogica in elke aangeroepen workflow, omdat ze óók standalone moeten draaien voor
+  gestapelde PR's. Bij het uitwerken kwam een concreet gat boven: laat je `checks-test` van
+  `changes` afhangen, dan wordt bij een falende `changes`-job de hele testjob overgeslagen — en
+  `skipped` telt door als succes voor branch protection, dus ongeteste code zou merge-baar worden.
+  Sluitbaar met een `!cancelled()`-guard plus "sla alleen over bij een expliciete `false`", maar
+  dat zijn drie samenwerkende condities over drie bestanden voor 14 minuten per week. Niet waard
+  tegenover de 388 minuten die deze PR wegneemt.
+- **`build` achter de gate zetten.** Zou ~190 s runnertijd besparen op de 12% runs waarin een
+  check faalt (6 van 51 in de meetweek), maar kost 83 s extra wachttijd op élke geslaagde run.
+  Netto slechter.
+- **`build` laten afhangen van `changes`.** Op een docs-only PR bouwt en pusht de keten nu drie
+  images die nooit uitgerold worden. Fix lijkt triviaal, maar de cleanup bij PR-close probeert dan
+  een tag te verwijderen die niet bestaat, en of `zad-actions/cleanup` daarop faalt is niet
+  geverifieerd. In de meetweek kwam het geval niet voor (0 docs-only PR's). Doorgeschoven.
 - **De per-commit image-tag (#171/#172)** is niet aangeraakt.
+
+Deze posten staan met meetgegevens en de gevonden valkuilen in #176.
 
 ## Handmatige stap bij de merge
 
@@ -137,8 +157,30 @@ dán branch protection omzetten, dán mergen. Andersom blokkeert de oude context
 
 ## Verificatie
 
-1. **Besparing gemeten** — dezelfde meting vóór en ná over een vergelijkbaar aantal runs.
-2. **De poort werkt nog** — een revisie met een falende verplichte check deployt niet.
-3. **De merge-route werkt nog** — alle required contexts verschijnen op de head-SHA; een docs-only
-   PR haalt een merge-bare staat.
-4. **Geen dubbele runs** — de tests draaien één keer per revisie.
+Uitgevoerd op PR #174 en de wegwerp-PR #175 (10 augustus 2026).
+
+1. **Besparing gemeten.** `gate` duurde 4 s in beide runs op #174 (31387630765, 31388950061),
+   tegenover 461 s gemiddeld over 51 runs ervoor: **99,1% minder runnertijd**, geprojecteerd
+   ~388 min per week. Het aantal API-verzoeken van de gate gaat van ~120 per run naar 0.
+   Doorlooptijd van run-start tot de eerste preview-deploy: 475 s en 655 s ná, tegenover
+   gemiddeld 735 s (spreiding 434–936 s, n=38) ervóór — binnen de bestaande spreiding, dus geen
+   verlenging. Die doorlooptijd wordt bepaald door de traagste check (`test` 420 s, fuzz 526 s),
+   niet door de poort.
+2. **De poort werkt nog.** Wegwerp-PR #175 forceerde detekt-bevindingen. Run 31387899696:
+   `checks-detekt / detekt-gate` faalde, `gate` faalde na 3 s met
+   `Verplichte check 'detekt-gate' eindigde als 'failure' — deploy geblokkeerd`, en alle zes
+   deploy-jobs bleven `skipped`. Er is niets uitgerold.
+3. **De merge-route werkt nog.** Run 31388950061 laat alle vier de nieuwe contexts op de head-SHA
+   verschijnen (`checks-test / test`, `checks-detekt / detekt-gate`,
+   `checks-pins / infra-image-pins`, `checks-fuzz / PR`), naast de ongewijzigde
+   `deploy-preview-*` en `Analyze (kotlin)`. Voor de docs-only route is op #175 een run gedraaid
+   waarin elke `changes`-job `run=false` rapporteerde (31388993368): alle vier de contexts
+   verschenen als `skipped`, de deploy-jobs sloegen over en de run eindigde groen — merge-bare
+   staat.
+4. **Geen dubbele runs.** Op de branch van #174 draaiden alleen `Deploy ZAD` en `CodeQL`. `Test`,
+   `detekt`, `Pin consistency` en `ClusterFuzzLite PR fuzzing` startten niet zelfstandig.
+
+Bij de eerste run op #174 faalde `deploy-preview-magazijnen` op
+`timed out waiting for application to be created`. Dat is de bekende Argo-Application-wait aan
+ZAD-zijde die in de kop van `deploy.yml` staat beschreven; de tweede run deployde hetzelfde
+project zonder wijziging succesvol.
