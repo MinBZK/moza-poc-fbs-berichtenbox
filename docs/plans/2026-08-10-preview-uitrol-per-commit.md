@@ -136,6 +136,15 @@ build/push) zonder enige afnemer. Met de unieke tags weegt het bovendien zwaarde
 elke overbodige build laat nu een eigen ghcr-versie achter in plaats van een tag te verplaatsen.
 De jobs hangen nu aan dezelfde filter als de rest.
 
+Tweede vondst, uit dezelfde review: **we bouwden drie images per bot-PR die nooit gedeployd
+worden.** `zad-actions/deploy` weigert PR's van bots (`skip-bot-prs`, default `true`) — in de
+log van de Dependabot-PR #167 staat letterlijk `Skipping: PR author 'dependabot[bot]' is a bot`.
+Onze build-jobs kenden die regel niet en pushten er wél images voor. De cleanup-action slaat
+bot-PR's óók over, dus die images bleven staan: `pr-143` en `pr-167` staan er vandaag nog,
+terwijl beide PR's op 2026-08-07 gesloten zijn. Per Dependabot-PR kostte dat twee Maven/jib-
+builds plus een docker-build, en een permanente ghcr-versie. De `changes`-job zet `run=false`
+voor bot-PR's, waarmee ook de `gate` (die minutenlang op checks polt) vervalt.
+
 Blijft staan als bewuste afweging: elke commit vernieuwt de tag van alle app-componenten, dus
 rollen ze alle mee. Zie "Openstaand" — zonder reproduceerbare build valt daar niets aan te
 winnen, ook niet met een digest.
@@ -192,6 +201,11 @@ pull-through-mirror.
 Wie de granulariteit écht wil, moet eerst de build reproduceerbaar maken (build-timestamps
 pinnen, `SOURCE_DATE_EPOCH`). Dat is een eigen traject; pas daarna wordt een digest-deploy
 zinvol.
+
+**Achtergebleven bot-PR-images.** De images van eerdere Dependabot-PR's (`pr-143`, `pr-167` en
+soortgenoten) zijn al gepusht en worden door geen enkele cleanup meer opgehaald: die PR's zijn
+gesloten en hun cleanup-run heeft ze overgeslagen. Ze zijn wél getagd en dus herkenbaar; een
+eenmalige opruimactie kan, maar verwijdert onherstelbaar en hoort niet in deze wijziging.
 
 De ~157 bestaande ongetagde ghcr-versies van `fbs-berichtenmagazijn` (en de overeenkomstige
 van de andere twee packages) blijven staan: ze zijn niet aan een PR toe te wijzen. Ze
