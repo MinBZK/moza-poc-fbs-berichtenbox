@@ -14,7 +14,8 @@
 
 ## Globale randvoorwaarden
 
-- Wrapper-versie: `2.0.0-SNAPSHOT` (uit `central-portal-snapshots`, staat al in `pom.xml`).
+- Wrapper-versie: `1.0.0` (Maven Central). Tijdens de uitvoering nog `2.0.0-SNAPSHOT`;
+  de release bleek byte-identiek, dus de bump was een versiewissel zonder codegevolgen.
 - Tabelnaam in beide services: `logboek_dataverwerkingen`.
 - Default backend: `postgresql`; `LDV_DBMS=clickhouse` blijft een werkend pad.
 - `logboekdataverwerking.span-processor=simple` en `write-failure-policy=fail-closed`.
@@ -69,7 +70,7 @@
 In `pom.xml`:
 
 ```xml
-<logboekdataverwerking-wrapper.version>2.0.0-SNAPSHOT</logboekdataverwerking-wrapper.version>
+<logboekdataverwerking-wrapper.version>1.0.0</logboekdataverwerking-wrapper.version>
 ```
 
 - [ ] **Stap 2: Declareer de PostgreSQL-driver in berichtenuitvraag**

@@ -30,10 +30,14 @@ raken onze code direct; die staan hieronder bij "Gedragswijzigingen uit 2.0.0".
 
 ## Afhankelijkheden
 
-`logboekdataverwerking-wrapper` van `1.2.1-SNAPSHOT` naar `2.0.0-SNAPSHOT` in de parent-POM.
-Er is geen release-tag; snapshots komen zoals nu uit Central Portal Snapshots.
+`logboekdataverwerking-wrapper` van `1.2.1-SNAPSHOT` naar `1.0.0` in de parent-POM. Het
+werk begon op `2.0.0-SNAPSHOT`, maar tijdens de uitvoering verscheen de eerste publieke
+release op Maven Central. Die is byte-identiek aan de snapshot — dezelfde klassen,
+signaturen en dependencies, alleen hernummerd — dus de overstap raakt geen code. Daarmee
+kon ook de `central-portal-snapshots`-repository uit de POM: geen enkele module hangt nog
+aan een externe snapshot, wat de build reproduceerbaar maakt.
 
-In 2.0.0 zijn beide JDBC-drivers `optional` en komen ze niet meer transitief mee. De
+In deze versie zijn beide JDBC-drivers `optional` en komen ze niet meer transitief mee. De
 consumer declareert de driver van de backend die hij kiest:
 
 - `berichtenmagazijn` heeft `quarkus-jdbc-postgresql` al — geen wijziging.
