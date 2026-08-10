@@ -70,6 +70,15 @@ Bestaat niet. `:refresh` reconcilet zonder revisiewijziging, en een deployment h
 (`DELETE` + `:upsert-deployment`) draait op projecten met de `postgresql-database`-service een
 `database_cleanup` — dat vernietigt data en is geen routine-oplossing.
 
+### Stand aan ZAD-zijde
+
+Het ZAD-team beschouwt het uitblijven van een rollout bij een ongewijzigde image-referentie als
+een fout aan hun kant en werkt aan een oplossing (gemeld 2026-08-10). Dat verandert deze
+wijziging niet en maakt hem ook niet tijdelijk: een unieke tag per commit is het patroon dat
+`zad-actions/deploy` in al zijn eigen voorbeelden hanteert (`:${{ github.sha }}`), het levert
+herleidbaarheid op van draaiende pod naar commit, en het is de voorwaarde waaronder de
+image-cleanup compleet kan zijn. Er valt na hun fix dus niets terug te draaien.
+
 ### Conclusie
 
 Richting 2. Richting 1 lost het bevriezen even goed op, maar laat het opruimprobleem staan en
