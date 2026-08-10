@@ -28,6 +28,9 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          # WEGWERP: simuleer een docs-only PR.
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          exit 0
           files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
           echo "Gewijzigde bestanden:"
           printf '%s\n' "$files"
