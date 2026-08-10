@@ -184,16 +184,28 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ "$EVENT" = "pull_request" ]; then
-            echo "tag=pr-${PR}-${HEAD_SHA::7}" >> "$GITHUB_OUTPUT"
+            tag="pr-${PR}-${HEAD_SHA::7}"
+
+            # Een herdraai bouwt uit refs/pull/<n>/merge, dus met de main van dát moment. Is main
+            # inmiddels verder, dan levert dezelfde head-sha andere inhoud op en zou de tag
+            # verschuiven — precies de bevriezing die deze tagvorm moet voorkomen. Vanaf poging 2
+            # dus een eigen tag. Poging 1 (het normale geval) blijft kaal en leesbaar.
+            if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]; then
+              tag="${tag}-r${GITHUB_RUN_ATTEMPT}"
+            fi
+
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
           else
             echo "tag=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
           echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-  # Bouw + push de service-images met jib (geen Dockerfile). Niet op PR-close.
+  # Bouw + push de service-images met jib (geen Dockerfile). Niet op PR-close en niet op een
+  # docs-only PR: die deployt toch niet, dus twee volledige Maven/jib-builds + push zouden
+  # alleen rekentijd, netwerk en een ghcr-versie kosten die nooit een pod bereikt.
   build:
-    if: github.event_name == 'push' || github.event.action != 'closed'
-    needs: meta
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: [meta, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -234,8 +246,8 @@ jobs:
   # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
   # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
   build-externe-stubs:
-    if: github.event_name == 'push' || github.event.action != 'closed'
-    needs: meta
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: [meta, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -528,6 +540,11 @@ jobs:
           set -euo pipefail
           fail=0
 
+          # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
+          # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
+          # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
+          # de `build`-matrix en `build-externe-stubs`; een vergeten package laat weesversies
+          # achter.
           for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."

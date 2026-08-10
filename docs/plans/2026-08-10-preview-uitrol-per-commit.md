@@ -100,6 +100,13 @@ mee op.
   sha die in de PR-tijdlijn staat, niet de efemere merge-commit uit `GITHUB_SHA`. De
   interpolaties gaan via `env:` (defense-in-depth injectie), zoals de rest van de workflow.
   De `main`-tak blijft `main-<sha7>`.
+- `meta`: bij een herdraai (`GITHUB_RUN_ATTEMPT > 1`) krijgt de tag een `-r<n>`-achtervoegsel.
+  Een herdraai bouwt uit `refs/pull/<n>/merge` met de main van dát moment; is main inmiddels
+  verder, dan levert dezelfde head-sha andere inhoud onder dezelfde tag op — de bevriezing die
+  deze tagvorm juist moet uitsluiten, plus een ongetagde weesversie. Poging 1, het normale
+  geval, houdt de kale leesbare tag.
+- `build` en `build-externe-stubs` slaan een docs-only PR over (`needs: changes`), net als de
+  `gate` en de deploys dat al deden.
 - `cleanup-preview-*`: `delete-container: 'false'`; de `containers`-lijst en de daarvoor
   benodigde `packages: write` + `needs: meta` zijn weg.
 - Nieuw: `cleanup-preview-images` ruimt bij PR-sluiten alle ghcr-versies op waarvan minstens
@@ -114,6 +121,24 @@ niet voordoet.
 
 `CLAUDE.md`: de tag-conventie in "ZAD deploy & GitOps (debug)" bijgewerkt, plus de reden dat
 image-tags uniek per commit moeten zijn.
+
+## Digitale verspilling
+
+Een review met de duurzaamheidsbril (NeRDS 13, green coding) leverde één harde vondst op, met
+bewijs uit deze PR zelf. De `build`-jobs hingen niet aan de `changes`-filter, terwijl de `gate`
+en de deploys dat wel deden. Een docs-only commit bouwde dus twee volledige Maven/jib-images
+plus de WireMock-image en pushte die naar ghcr, waarna er niets mee gebeurde: de commits
+`3e2866c` en `941933a` van deze PR raakten alleen `docs/plans/*.md` en hebben desondanks
+`pr-172-3e2866c` en `pr-172-941933a` in beide service-packages staan.
+
+Dat kostte per docs-commit een volledige buildcyclus (Maven-augmentatie, jib-push, docker
+build/push) zonder enige afnemer. Met de unieke tags weegt het bovendien zwaarder dan voorheen:
+elke overbodige build laat nu een eigen ghcr-versie achter in plaats van een tag te verplaatsen.
+De jobs hangen nu aan dezelfde filter als de rest.
+
+Blijft staan als bewuste afweging: elke commit vernieuwt de tag van alle app-componenten, dus
+rollen ze alle mee. Zie "Openstaand" — zonder reproduceerbare build valt daar niets aan te
+winnen, ook niet met een digest.
 
 ## Randvoorwaarden getoetst
 
@@ -154,12 +179,19 @@ ze niet — het afsluitende koppelteken doet zijn werk.
 ## Openstaand
 
 **Per-component granulariteit.** Elke commit vernieuwt nu de tag van alle app-componenten, dus
-rollen ze alle vijf mee terwijl er vaak één service wijzigde. Het alternatief dat dat wél
-scheidt: de unieke tag blijven pushen (voor toewijsbaarheid en opruimen) maar op digest
-deployen. Een ongewijzigd component houdt dan dezelfde digest — jib bouwt reproduceerbaar — en
-rolt niet mee; ghcr hangt de nieuwe tag simpelweg aan dezelfde versie. Vergt één stap die na de
-push de digest ophaalt, plus de vaststelling dat OM en de pull-through-mirror een
-`@sha256:`-referentie aankunnen. Alleen oppakken als de overbodige rollouts merkbaar hinderen.
+rollen ze alle mee terwijl er vaak één service wijzigde.
+
+Deployen op digest lost dat níét op, ondanks wat je zou verwachten. Gemeten op de vijf builds
+van deze PR: `berichtenuitvraag` werd geen byte gewijzigd en commit `3fb1f96` draaide de
+voorgaande commit exact terug, en tóch heeft elke build een eigen digest (magazijn:
+`341796cb…`, `bbba6900…`, `5fc3d971…`, `93715c51…`, `ed7804c5…`). Onze jib-build is dus niet
+reproduceerbaar: de digest volgt de build, niet de inhoud. Een digest-deploy zou hetzelfde
+rolgedrag geven als de unieke tag, plus een resolve-stap en een onbewezen aanname over OM en de
+pull-through-mirror.
+
+Wie de granulariteit écht wil, moet eerst de build reproduceerbaar maken (build-timestamps
+pinnen, `SOURCE_DATE_EPOCH`). Dat is een eigen traject; pas daarna wordt een digest-deploy
+zinvol.
 
 De ~157 bestaande ongetagde ghcr-versies van `fbs-berichtenmagazijn` (en de overeenkomstige
 van de andere twee packages) blijven staan: ze zijn niet aan een PR toe te wijzen. Ze
