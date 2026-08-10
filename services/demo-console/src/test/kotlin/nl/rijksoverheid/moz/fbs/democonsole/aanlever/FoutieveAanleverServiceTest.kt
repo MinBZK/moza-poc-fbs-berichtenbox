@@ -14,7 +14,7 @@ class FoutieveAanleverServiceTest {
         val json = mapper.readTree(FoutieveAanleverService.ongeldigePayload())
 
         // Verplichte velden zijn aanwezig en geldig, zodat alleen de BSN de 400 uitlokt.
-        assertEquals("00000001003214345000", json["afzender"].asText())
+        assertEquals("00000000000000100000", json["afzender"].asText())
         assertEquals("BSN", json["ontvanger"]["type"].asText())
         assertEquals("111111111", json["ontvanger"]["waarde"].asText())
         assertTrue(json["onderwerp"].asText().isNotBlank())

@@ -61,6 +61,6 @@ class OntdubbelingService(
     private companion object {
 
         // RVO — magazijn A; moet een geconfigureerd magazijn zijn, anders weigert de uitvraag met 400.
-        const val AFZENDER_OIN = "00000001003214345000"
+        const val AFZENDER_OIN = "00000000000000100000"
     }
 }

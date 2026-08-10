@@ -70,7 +70,7 @@ services:
     command: ["--port", "8084", "--verbose", "--global-response-templating"]
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:26.6
+    image: docker.io/clickhouse/clickhouse-server:26.7
     network_mode: host
     environment:
       CLICKHOUSE_USER: ldv
@@ -127,7 +127,7 @@ services:
       QUARKUS_HTTP_HOST: 0.0.0.0
       QUARKUS_HTTP_PORT: "8090"
       DB_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
-      MAGAZIJN_OIN: "00000001003214345000"
+      MAGAZIJN_OIN: "00000000000000100000"
       AANMELD_URL: http://127.0.0.1:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://127.0.0.1:18084/events
       PROFIEL_SERVICE_URL: http://127.0.0.1:8089

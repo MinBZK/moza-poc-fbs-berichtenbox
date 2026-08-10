@@ -3,8 +3,12 @@ name: Test
 on:
   push:
     branches: [main]
+  # Géén branch-filter op pull_request: die filtert op de DOELbranch, waardoor een gestapelde
+  # PR (base = een feature-branch i.p.v. main) helemaal geen tests zou draaien. Zo'n PR wordt op
+  # eigen merites gereviewd en gemerged; zonder tests komt breuk pas aan het licht op de PR naar
+  # main, vermengd met de wijzigingen van de rest van de stapel. deploy.yml filtert juist wél op
+  # de doelbranch — die deployt niet vanaf een feature-branch. Die asymmetrie is opzet.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions: read-all
@@ -66,8 +70,8 @@ jobs:
     # Geen `services:` block nodig — alle tests draaien in de `test` Maven-phase
     # (JaCoCo coverage-check incluis), dus `mvnw test` op root volstaat.
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: 21

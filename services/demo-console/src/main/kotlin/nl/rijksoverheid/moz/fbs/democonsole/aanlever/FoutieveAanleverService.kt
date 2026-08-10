@@ -31,7 +31,7 @@ class FoutieveAanleverService(config: MagazijnenConfig) {
         fun ongeldigePayload(): String =
             """
             {
-              "afzender": "00000001003214345000",
+              "afzender": "00000000000000100000",
               "ontvanger": { "type": "BSN", "waarde": "111111111" },
               "onderwerp": "Demo: foutieve aanlevering",
               "inhoud": "Deze aanlevering hoort te falen op de elfproef-validatie van de ontvanger-BSN."
@@ -39,7 +39,7 @@ class FoutieveAanleverService(config: MagazijnenConfig) {
             """.trimIndent()
 
         private fun magazijnAUrl(config: MagazijnenConfig): String =
-            config.magazijnen()["00000001003214345000"]?.url()
-                ?: error("geen URL geconfigureerd voor magazijn A (00000001003214345000)")
+            config.magazijnen()["00000000000000100000"]?.url()
+                ?: error("geen URL geconfigureerd voor magazijn A (00000000000000100000)")
     }
 }

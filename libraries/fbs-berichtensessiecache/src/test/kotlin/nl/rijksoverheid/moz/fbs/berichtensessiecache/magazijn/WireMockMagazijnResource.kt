@@ -12,6 +12,10 @@ class WireMockMagazijnResource : QuarkusTestResourceLifecycleManager {
         const val OIN_A = "00000001003214345000"
         const val OIN_B = "00000001823288444000"
 
+        // Alleen magazijn-a krijgt een grantHash: dekt beide fscFilterVoor-takken
+        // (met/zonder outway-headers) via de echte, door CDI gebouwde client.
+        const val GRANT_HASH_A = "fsc-test-grant-hash-a"
+
         var serverA: WireMockServer? = null
         var serverB: WireMockServer? = null
     }
@@ -27,6 +31,7 @@ class WireMockMagazijnResource : QuarkusTestResourceLifecycleManager {
         return mapOf(
             "magazijnen.\"$OIN_A\".url" to a.baseUrl(),
             "magazijnen.\"$OIN_A\".naam" to "WireMock Magazijn A",
+            "magazijnen.\"$OIN_A\".grantHash" to GRANT_HASH_A,
             "magazijnen.\"$OIN_B\".url" to b.baseUrl(),
             "magazijnen.\"$OIN_B\".naam" to "WireMock Magazijn B",
         )

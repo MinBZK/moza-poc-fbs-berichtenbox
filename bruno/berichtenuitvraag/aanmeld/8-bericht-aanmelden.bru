@@ -18,7 +18,7 @@ headers {
 body:json {
   {
     "id": "evt-{{berichtId}}",
-    "source": "urn:nld:oin:00000001003214345000:systeem:fbs-magazijn",
+    "source": "urn:nld:oin:{{magazijnId}}:systeem:fbs-magazijn",
     "specversion": "1.0",
     "type": "nl.rijksoverheid.fbs.bericht.gepubliceerd",
     "subject": "{{berichtId}}",
@@ -27,7 +27,7 @@ body:json {
     "dataschema": "https://schemas.fbs.rijksoverheid.nl/bericht-gepubliceerd/v1",
     "data": {
       "berichtId": "{{berichtId}}",
-      "afzender": "00000001003214345000",
+      "afzender": "{{magazijnId}}",
       "ontvanger": { "type": "BSN", "waarde": "999990019" },
       "onderwerp": "Nieuw bericht via aanmelding",
       "inhoud": "Dit bericht is via de CloudEvents-webhook in de sessiecache geschreven.",

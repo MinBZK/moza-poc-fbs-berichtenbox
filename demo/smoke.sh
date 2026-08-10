@@ -14,7 +14,7 @@ ONTVANGER="BSN:$BSN"
 # Afzender-OIN vast op het test-OIN: de profiel-stub geeft daarvoor een actieve
 # OntvangViaBerichtenbox-voorkeur. Wijk hier niet van af zonder de mapping in
 # wiremock/externe-stubs/mappings/ mee te veranderen, anders volgt een 403.
-AFZENDER_OIN="${AFZENDER_OIN:-00000001003214345000}"
+AFZENDER_OIN="${AFZENDER_OIN:-00000000000000100000}"
 
 echo "1/3 health"
 for url in "$MAGAZIJN_A" "$UITVRAAG"; do
