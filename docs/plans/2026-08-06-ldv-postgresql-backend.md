@@ -1,6 +1,10 @@
 # PostgreSQL als LDV-backend (issue #736)
 
-**Status:** Concept
+**Status:** Uitgevoerd
+
+> **Over de versienummers.** Dit ontwerp is geschreven tegen `2.0.0-SNAPSHOT`. Tijdens de
+> uitvoering verscheen dezelfde code als `1.0.0` op Maven Central; overal waar hieronder
+> "2.0.0" staat, gaat het om die inmiddels gereleasede versie.
 
 ## Context
 
@@ -32,8 +36,9 @@ raken onze code direct; die staan hieronder bij "Gedragswijzigingen uit 2.0.0".
 
 `logboekdataverwerking-wrapper` van `1.2.1-SNAPSHOT` naar `1.0.0` in de parent-POM. Het
 werk begon op `2.0.0-SNAPSHOT`, maar tijdens de uitvoering verscheen de eerste publieke
-release op Maven Central. Die is byte-identiek aan de snapshot — dezelfde klassen,
-signaturen en dependencies, alleen hernummerd — dus de overstap raakt geen code. Daarmee
+release op Maven Central. Alle klassen daarin zijn byte-identiek aan die van de snapshot en
+de gedeclareerde dependencies zijn gelijk; alleen de jar-metadata verschilt (versienummer,
+build-JDK, javadoc-plugin). De overstap raakt dus geen code. Daarmee
 kon ook de `central-portal-snapshots`-repository uit de POM: geen enkele module hangt nog
 aan een externe snapshot, wat de build reproduceerbaar maakt.
 
@@ -110,13 +115,38 @@ organisatie gescheiden hoort te zijn. Daarom draagt de tabelnaam in `%prod` een 
 %prod.logboekdataverwerking.postgresql.table=${DB_SCHEMA}.logboek_dataverwerkingen
 ```
 
-Flyway maakt het schema aan bij het opstarten, ruim vóór het eerste export-moment. De
-wrapper valideert de tabelnaam niet en interpoleert hem in beide statements, dus een
-prefix werkt voor de DDL en de insert; `LdvSchemaGekwalificeerdTest` borgt dat.
+De wrapper interpoleert de tabelnaam rauw in beide statements, dus een prefix werkt voor de
+DDL en de insert. Wat hij wél doet: `TableNames.requireValid` weigert bij constructie alles
+buiten `^[a-zA-Z_][a-zA-Z0-9_.]*$`. Een `DB_SCHEMA` met een koppelteken — bijvoorbeeld
+afgeleid van een deploymentnaam als `pr-168` — komt daar niet doorheen. Die guard zit in een
+externe library; valt hij ooit weg, dan verdwijnt de enige bescherming tegen een onbruikbare
+naam in de SQL.
+
+Fout gaat dat pas laat op: de wrapper bouwt zijn repository in een `@ApplicationScoped`-bean
+met `@PostConstruct` en zonder `@Startup`, dus lazy. Een onbruikbare naam laat de service
+groen opstarten en door de health checks komen, waarna élk verzoek een 500 geeft — een deploy
+die er geslaagd uitziet terwijl er niets werkt. `LdvTabelnaamValidator` in `fbs-common` haalt
+dat naar voren: die eist bij het opstarten een niet-lege naam in de vorm `tabel` of
+`schema.tabel`, met kleine letters. Kleine letters omdat de naam ongequote de SQL in gaat en
+PostgreSQL hem dan vouwt; een schema dat gequote mét hoofdletters is aangemaakt, wordt daarna
+niet gevonden.
+
+`LdvTabelnaamConfigTest` borgt dat de configuratie van de service ook werkelijk een prefix
+oplevert, en `LdvSchemaGekwalificeerdTest` dat de prefix vervolgens werkt — die laatste laat
+het schema door Flyway aanmaken, net als in productie, zodat de ordening schema-vóór-export
+zelf getest wordt.
 
 Berichtenuitvraag laat de naam ongekwalificeerd: die service kent geen `DB_SCHEMA` (geen
 Flyway, geen JPA) en is het enige app-component in zijn project, dus daar valt niets te
-scheiden.
+scheiden. Die redenering vervalt zodra `mpfb-8wh` een tweede component krijgt dat naar
+dezelfde LDV-database schrijft.
+
+**De scheiding is organisatorisch, niet afgedwongen.** Beide magazijnen gebruiken dezelfde
+DB-user, en die heeft rechten op beide schema's. Magazijn-a kán dus
+`SELECT * FROM magazijnb.logboek_dataverwerkingen` doen en daarmee de `dataSubjectId`-waarden
+(BSN) van de betrokkenen van een andere organisatie lezen. Wat deze maatregel oplost is het
+per ongeluk vermengen van logboeken; toegangscontrole vergt een eigen DB-rol per component of
+een aparte database. Zie TODO(#928).
 
 ## Gedragswijzigingen uit 2.0.0
 
@@ -300,10 +330,22 @@ als lokale infra noemen).
   gevuld, `name`, en de `attributes`-jsonb met `dpl.core.processing_activity_id` en
   `dpl.core.data_subject_id_type`. Dekt `ensureSchema`, de echte insert en het
   fail-closed-pad end-to-end.
+- `LdvTabelnaamConfigTest`: leest de echte `application.properties` met profiel `prod` en
+  controleert dat de tabelnaam het schema van de organisatie draagt. Zonder deze test dekt
+  niets de configregel zelf — `LdvSchemaGekwalificeerdTest` zet de naam in zijn TestProfile
+  en blijft groen als de `%prod`-regel wegvalt. Geen `@QuarkusTest`, want die draait in
+  profiel `test` en evalueert de regel dus nooit.
 - `LdvSchemaGekwalificeerdTest`: dezelfde aanlevering, maar met een schema-prefix in de
-  tabelnaam. Controleert dat de logregel in dát schema belandt en dat er geen tabel in het
-  default-schema ontstaat. Het schema komt uit een Dev-Services-init-script, want de
-  exporter maakt zijn tabel al bij constructie aan — een `@BeforeEach` zou te laat zijn.
+  tabelnaam. Meet als verschil hoeveel logregels erbij komen — twee aanleveringen, twee
+  regels in het eigen schema en nul erbij in het default-schema — zodat de test niet afhangt
+  van de volgorde waarin testklassen een gedeelde container gebruiken. Het schema komt van
+  Flyway, net als in productie.
+- `LdvOntbrekendSchemaTest`: legt vast dat een tabelnaam naar een niet-bestaand schema de
+  service niet tegenhoudt bij het opstarten, maar élk verzoek op een 500 laat lopen. Dat is
+  de reden dat `LdvTabelnaamValidator` de vórm van de naam al bij boot controleert.
+- `LdvTabelnaamValidatorTest`: de grenzen van die guard — leeg, leidende punt (het gevolg van
+  een niet-ingevulde `DB_SCHEMA`), koppeltekens, hoofdletters, meerdere punten — plus de
+  gevallen waarin hij zich juist stil houdt (dev, test, ClickHouse-backend).
 - `logboekdataverwerking.enabled=false` blijft de default in alle testresources. Fail-closed
   breed aanzetten zou de hele suite van een draaiende LDV-database afhankelijk maken.
 
@@ -333,3 +375,9 @@ Bij een mislukte export wordt de logregel niet opnieuw aangeboden — geen enkel
 OpenTelemetry-spanprocessor doet dat, ongeacht de backend. Fail-closed maakt het verlies
 zichtbaar (de verwerking faalt), maar herstelt niets. Een outbox voor logregels is een
 apart vervolgtraject; dit ontwerp voert het niet in.
+
+De schema-scheiding is niet afgedwongen: dezelfde DB-user heeft rechten op beide schema's
+(#928).
+
+De tabel van vóór deze wijziging blijft staan, met de logregels van beide magazijnen door
+elkaar. Op previews verdwijnt die met de deployment; op `test` niet (#929).

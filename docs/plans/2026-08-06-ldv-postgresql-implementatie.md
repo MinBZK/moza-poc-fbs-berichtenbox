@@ -2,7 +2,7 @@
 
 > **Voor agentische uitvoerders:** VEREISTE SUB-SKILL: gebruik superpowers:subagent-driven-development (aanbevolen) of superpowers:executing-plans om dit plan taak voor taak uit te voeren. Stappen gebruiken checkbox-syntax (`- [ ]`) voor voortgang.
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 **Doel:** Het Logboek Dataverwerkingen schrijft naar PostgreSQL in plaats van ClickHouse, met de gedragswijzigingen die de sprong van wrapper 1.2.1 naar 2.0.0 meebrengt.
 
@@ -14,8 +14,9 @@
 
 ## Globale randvoorwaarden
 
-- Wrapper-versie: `1.0.0` (Maven Central). Tijdens de uitvoering nog `2.0.0-SNAPSHOT`;
-  de release bleek byte-identiek, dus de bump was een versiewissel zonder codegevolgen.
+- Wrapper-versie: `1.0.0` (Maven Central). Tijdens de uitvoering nog `2.0.0-SNAPSHOT`; de
+  klassen in de release bleken byte-identiek en de dependencies gelijk, dus de bump was een
+  versiewissel zonder codegevolgen. Waar hieronder "2.0.0" staat, gaat het om die versie.
 - Tabelnaam in beide services: `logboek_dataverwerkingen`.
 - Default backend: `postgresql`; `LDV_DBMS=clickhouse` blijft een werkend pad.
 - `logboekdataverwerking.span-processor=simple` en `write-failure-policy=fail-closed`.
