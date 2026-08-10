@@ -75,9 +75,9 @@ ontbrekende env-var moet een startup-fout geven, niet een stille default.
 
 | Service | Lokaal | ZAD |
 |---|---|---|
-| magazijn-a | `postgres-a`, database `berichtenmagazijn` | platformdatabase van component `magazijna` |
-| magazijn-b | `postgres-b`, database `berichtenmagazijn` | platformdatabase van component `magazijnb` |
-| uitvraag | nieuwe container `postgres-uitvraag`, database `ldv_logging` | platformdatabase van component `uitvraag` |
+| magazijn-a | `postgres-a`, database `berichtenmagazijn` | platformdatabase van `mpfm-w3h`, schema `magazijna` |
+| magazijn-b | `postgres-b`, database `berichtenmagazijn` | platformdatabase van `mpfm-w3h`, schema `magazijnb` |
+| uitvraag | nieuwe container `postgres-uitvraag`, database `ldv_logging` | platformdatabase van `mpfb-8wh` |
 
 Op ZAD komen de waarden uit de variabelen die het platform aan een component met de
 service `postgresql-database` meegeeft:
@@ -87,6 +87,32 @@ LDV_POSTGRES_URL: jdbc:postgresql://$DATABASE_SERVER_HOST:5432/$DATABASE_DB
 LDV_POSTGRES_USERNAME: $DATABASE_SERVER_USER
 LDV_POSTGRES_PASSWORD: $DATABASE_PASSWORD
 ```
+
+### Schema-scheiding tussen magazijnen
+
+ZAD levert die database **per deployment, niet per component**: `magazijna` en `magazijnb`
+mounten allebei hetzelfde `<deployment>-database`-secret, dus ze delen host, database én
+DB-user. Alleen `DB_SCHEMA` — uit een secret dat wél per component wordt gerenderd —
+scheidt ze, en het zet het search_path niet: de datasource geeft het door als
+`currentSchema`, waardoor de app-tabellen in `magazijna` respectievelijk `magazijnb`
+terechtkomen terwijl de DB-user zelf een deployment-breed default-schema heeft.
+
+De wrapper voert zijn `CREATE TABLE IF NOT EXISTS` en `INSERT` ongekwalificeerd uit en de
+LDV-URL zet geen `currentSchema`. Zonder maatregel landt het logboek dus in dat gedeelde
+default-schema en schrijven beide magazijnen in één tabel — terwijl het logboek per
+organisatie gescheiden hoort te zijn. Daarom draagt de tabelnaam in `%prod` een prefix:
+
+```properties
+%prod.logboekdataverwerking.postgresql.table=${DB_SCHEMA}.logboek_dataverwerkingen
+```
+
+Flyway maakt het schema aan bij het opstarten, ruim vóór het eerste export-moment. De
+wrapper valideert de tabelnaam niet en interpoleert hem in beide statements, dus een
+prefix werkt voor de DDL en de insert; `LdvSchemaGekwalificeerdTest` borgt dat.
+
+Berichtenuitvraag laat de naam ongekwalificeerd: die service kent geen `DB_SCHEMA` (geen
+Flyway, geen JPA) en is het enige app-component in zijn project, dus daar valt niets te
+scheiden.
 
 ## Gedragswijzigingen uit 2.0.0
 
@@ -270,6 +296,10 @@ als lokale infra noemen).
   gevuld, `name`, en de `attributes`-jsonb met `dpl.core.processing_activity_id` en
   `dpl.core.data_subject_id_type`. Dekt `ensureSchema`, de echte insert en het
   fail-closed-pad end-to-end.
+- `LdvSchemaGekwalificeerdTest`: dezelfde aanlevering, maar met een schema-prefix in de
+  tabelnaam. Controleert dat de logregel in dát schema belandt en dat er geen tabel in het
+  default-schema ontstaat. Het schema komt uit een Dev-Services-init-script, want de
+  exporter maakt zijn tabel al bij constructie aan — een `@BeforeEach` zou te laat zijn.
 - `logboekdataverwerking.enabled=false` blijft de default in alle testresources. Fail-closed
   breed aanzetten zou de hele suite van een draaiende LDV-database afhankelijk maken.
 
@@ -283,6 +313,15 @@ als lokale infra noemen).
 - Demo-stack starten volgens `docs/demo-runbook.md` en één scenario doorlopen.
 - Na deploy: op een preview-deployment controleren dat beide services starten en dat de
   tabel in de platformdatabase wordt aangemaakt.
+
+Uitgevoerd op preview `pr-168`: een aanlevering bij magazijn-a én magazijn-b gaf 201 en de
+aanmeld-webhook op uitvraag gaf 202. Onder fail-closed betekent elk van die statuscodes een
+bevestigde logregel. De 202 is voor uitvraag de maatgevende: de interceptor roept
+`enforceWriteAcknowledgement(throwOnFailure = throwable == null)`, dus alleen een geslaagde
+aanroep laat een mislukte schrijfactie doorwerken naar de statuscode.
+
+Diezelfde controle bracht de schema-scheiding aan het licht: de logregels van beide
+magazijnen stonden in één tabel in het deployment-brede default-schema.
 
 ## Openstaand
 
