@@ -1,17 +1,26 @@
 name: Test
 
 on:
-  push:
-    branches: [main]
-  # Géén branch-filter op pull_request: die filtert op de DOELbranch, waardoor een gestapelde
-  # PR (base = een feature-branch i.p.v. main) helemaal geen tests zou draaien. Zo'n PR wordt op
-  # eigen merites gereviewd en gemerged; zonder tests komt breuk pas aan het licht op de PR naar
-  # main, vermengd met de wijzigingen van de rest van de stapel. deploy.yml filtert juist wél op
-  # de doelbranch — die deployt niet vanaf een feature-branch. Die asymmetrie is opzet.
+  # deploy.yml roept deze workflow aan voor PR's naar main en voor pushes naar main. Daar hangt
+  # de deploy er met `needs:` aan, in plaats van in een eigen job op de check-run te pollen —
+  # een pollende job houdt een runner bezet zonder werk te doen.
+  workflow_call:
+  # Het complement van deploy.yml's `branches: [main]`, dat op de DOELbranch filtert. Een
+  # gestapelde PR (base = een feature-branch) draait deploy.yml niet en heeft deze workflow dus
+  # zelfstandig nodig: zo'n PR wordt op eigen merites gereviewd en gemerged, en zonder tests komt
+  # breuk pas aan het licht op de PR naar main, vermengd met de rest van de stapel. Voor een PR
+  # naar main roept deploy.yml deze workflow aan; zonder dit filter zouden de tests dan twee keer
+  # draaien. De asymmetrie — wel toetsen, niet deployen — is opzet.
   pull_request:
+    branches-ignore: [main]
   workflow_dispatch:
 
-permissions: read-all
+# Geen `read-all`: als aangeroepen workflow mag dit nooit meer zijn dan de caller-job toekent, en
+# die kent alleen toe wat hier daadwerkelijk nodig is. De `changes`-job leest de bestandenlijst van
+# de PR; de `test`-job verhoogt zelf naar pull-requests: write voor de coverage-comment.
+permissions:
+  contents: read
+  pull-requests: read
 
 concurrency:
   group: test-${{ github.ref }}

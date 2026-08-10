@@ -10,10 +10,16 @@
 name: Pin consistency
 
 on:
+  # deploy.yml roept deze workflow aan voor PR's naar main en voor pushes naar main. Daar hangt
+  # de deploy er met `needs:` aan, in plaats van in een eigen job op de check-run te pollen —
+  # een pollende job houdt een runner bezet zonder werk te doen.
+  workflow_call:
+  # Complement van deploy.yml's `branches: [main]`: een gestapelde PR draait deploy.yml niet en
+  # heeft deze guard dus zelfstandig nodig. Zonder dit filter zou hij op een PR naar main twee
+  # keer draaien.
   pull_request:
+    branches-ignore: [main]
     types: [opened, synchronize, reopened]
-  push:
-    branches: [main]
 
 permissions:
   contents: read
