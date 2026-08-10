@@ -72,12 +72,18 @@ Bestaat niet. `:refresh` reconcilet zonder revisiewijziging, en een deployment h
 
 ### Stand aan ZAD-zijde
 
-Het ZAD-team beschouwt het uitblijven van een rollout bij een ongewijzigde image-referentie als
-een fout aan hun kant en werkt aan een oplossing (gemeld 2026-08-10). Dat verandert deze
-wijziging niet en maakt hem ook niet tijdelijk: een unieke tag per commit is het patroon dat
-`zad-actions/deploy` in al zijn eigen voorbeelden hanteert (`:${{ github.sha }}`), het levert
-herleidbaarheid op van draaiende pod naar commit, en het is de voorwaarde waaronder de
-image-cleanup compleet kan zijn. Er valt na hun fix dus niets terug te draaien.
+Niet uitrollen bij een ongewijzigde image-referentie is aan ZAD-zijde opzet, geen fout
+(bevestigd door het ZAD-team, 2026-08-10): bij een deployment met tien componenten mag één
+gewijzigde image niet alle tien vervangen. De oplossing moet daar dus binnen passen, niet
+omheen — en dat doet een per-commit wijzigende referentie ook: ZAD rolt uit omdat de referentie
+écht anders is.
+
+Wel de keerzijde benoemen: een tag die de commit-sha draagt wijzigt voor álle componenten bij
+elke commit, ook als alleen `berichtenuitvraag` veranderde. Op deze drie projecten (vijf
+app-pods, plus redis/clickhouse die hun eigen vaste pin houden) is dat goedkoop, maar het is
+precies de granulariteit die ZAD bewaakt. Wie die wil behouden, deployt op digest en pusht
+daarnaast de unieke tag voor de opruimkant: een ongewijzigd component levert dan dezelfde
+digest en rolt niet, een gewijzigd component wel. Zie "Openstaand".
 
 ### Conclusie
 
@@ -146,6 +152,14 @@ De opruimkant is drooggetest tegen de echte ghcr-data: het filter van
 ze niet — het afsluitende koppelteken doet zijn werk.
 
 ## Openstaand
+
+**Per-component granulariteit.** Elke commit vernieuwt nu de tag van alle app-componenten, dus
+rollen ze alle vijf mee terwijl er vaak één service wijzigde. Het alternatief dat dat wél
+scheidt: de unieke tag blijven pushen (voor toewijsbaarheid en opruimen) maar op digest
+deployen. Een ongewijzigd component houdt dan dezelfde digest — jib bouwt reproduceerbaar — en
+rolt niet mee; ghcr hangt de nieuwe tag simpelweg aan dezelfde versie. Vergt één stap die na de
+push de digest ophaalt, plus de vaststelling dat OM en de pull-through-mirror een
+`@sha256:`-referentie aankunnen. Alleen oppakken als de overbodige rollouts merkbaar hinderen.
 
 De ~157 bestaande ongetagde ghcr-versies van `fbs-berichtenmagazijn` (en de overeenkomstige
 van de andere twee packages) blijven staan: ze zijn niet aan een PR toe te wijzen. Ze
