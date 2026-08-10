@@ -155,6 +155,13 @@ Ongewijzigd: `Analyze (kotlin)`, `deploy-preview-uitvraag`, `deploy-preview-exte
 Volgorde: eerst de PR groen laten worden (de nieuwe contexts verschijnen dan op de head-SHA),
 dán branch protection omzetten, dán mergen. Andersom blokkeert de oude contextnaam de merge.
 
+De nieuwe namen bestaan alléén op branches die deze wijziging bevatten; open PR's die nog op de
+workflows van `main` draaien produceren de oude. Er is dus geen moment waarop beide sets bestaan —
+wie de knop omzet, blokkeert tijdelijk de andere groep. Omdat `strict: true` die PR's na de merge
+sowieso tot rebasen dwingt, is het extra ongemak vooral timing: houd het venster tussen omzetten
+en mergen kort en meld het. De volledige afweging met de drie routes staat in de beschrijving van
+#174.
+
 ## Verificatie
 
 Uitgevoerd op PR #174 en de wegwerp-PR #175 (10 augustus 2026).
