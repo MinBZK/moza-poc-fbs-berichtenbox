@@ -147,7 +147,9 @@ jobs:
           fi
 
           if [ "$PR_AUTHOR_TYPE" = "Bot" ]; then
-            echo "PR van een bot — zad-actions deployt die niet, dus bouwen we ook niet."
+            # Luid loggen: een overgeslagen deploy laat de required checks 'skipped' (= succes)
+            # rapporteren, dus een onterechte overslag moet in de run-samenvatting zichtbaar zijn.
+            echo "::notice::PR van een bot — zad-actions deployt die niet, dus bouwen we ook niet."
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -552,6 +554,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ORG: ${{ needs.meta.outputs.owner }}
           PREFIX: pr-${{ github.event.pull_request.number }}-
+          # Overgangsgeval: PR's die al liepen vóór de unieke tags bestonden, hebben nog een
+          # kale `pr-<n>`-versie in ghcr staan. Die valt niet onder de prefix, dus expliciet
+          # meenemen — anders blijft hij achter zodra zo'n PR sluit.
+          LEGACY_TAG: pr-${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           fail=0
@@ -569,11 +575,11 @@ jobs:
             fi
 
             # --paginate levert per pagina een eigen array; jq verwerkt ze als losse inputs.
-            ids=$(printf '%s' "$versions" | jq -r --arg p "$PREFIX" \
-              '.[] | select(.metadata.container.tags | any(startswith($p))) | .id')
+            ids=$(printf '%s' "$versions" | jq -r --arg p "$PREFIX" --arg legacy "$LEGACY_TAG" \
+              '.[] | select(.metadata.container.tags | any(startswith($p) or . == $legacy)) | .id')
 
             if [ -z "$ids" ]; then
-              echo "$pkg: geen versies met tag-prefix $PREFIX."
+              echo "$pkg: geen versies met tag $LEGACY_TAG of prefix $PREFIX."
               continue
             fi
 

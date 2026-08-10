@@ -110,7 +110,9 @@ mee op.
 - `cleanup-preview-*`: `delete-container: 'false'`; de `containers`-lijst en de daarvoor
   benodigde `packages: write` + `needs: meta` zijn weg.
 - Nieuw: `cleanup-preview-images` ruimt bij PR-sluiten alle ghcr-versies op waarvan minstens
-  één tag begint met `pr-<n>-`. Het afsluitende koppelteken is essentieel: zonder dat zou het
+  één tag begint met `pr-<n>-`, plus de kale `pr-<n>`-tag. Die laatste is het overgangsgeval:
+  PR's die al liepen toen de tag nog vast was (#150, #163, #166, #168, #170 op het moment van
+  schrijven) hebben zo'n versie staan, en die valt niet onder de prefix. Het afsluitende koppelteken is essentieel: zonder dat zou het
   sluiten van PR 16 de images van PR 168 meenemen. De job faalt zichtbaar (rood) als een
   verwijdering mislukt, zodat een groeiende ghcr-berg niet ongemerkt ontstaat.
 
