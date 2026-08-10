@@ -23,12 +23,17 @@ class LdvTabelnaamValidatorTest {
         assertDoesNotThrow { LdvTabelnaamValidator.validate("prod", "postgresql", tabel) }
     }
 
+    /**
+     * Een niet-gezette `DB_SCHEMA` maakt de expressie onexpandeerbaar; de property komt dan
+     * als afwezig binnen en bereikt deze functie als lege string.
+     */
     @ParameterizedTest
     @ValueSource(strings = ["", " ", "   "])
     fun `lege tabelnaam faalt fail-fast buiten dev en test`(tabel: String) {
         val ex = assertThrows<IllegalArgumentException> {
             LdvTabelnaamValidator.validate("prod", "postgresql", tabel)
         }
+
         assertTrue(
             ex.message!!.contains(LdvTabelnaamValidator.TABEL_KEY),
             "foutmelding moet de property noemen die aangepast moet worden",
@@ -36,14 +41,16 @@ class LdvTabelnaamValidatorTest {
     }
 
     /**
-     * Het scenario waarvoor deze guard bestaat: een niet-ingevulde `DB_SCHEMA` laat een
-     * leidende punt achter. De waarde telt als aanwezig, maar verwijst nergens naar.
+     * De andere manier waarop `DB_SCHEMA` misgaat: wél gezet, maar leeg. De expansie slaagt
+     * en laat een leidende punt achter — een waarde die als aanwezig telt maar nergens naar
+     * verwijst.
      */
     @Test
-    fun `niet-ingevulde schema-prefix laat een leidende punt achter en faalt`() {
+    fun `leeg gezette schema-prefix laat een leidende punt achter en faalt`() {
         val ex = assertThrows<IllegalArgumentException> {
             LdvTabelnaamValidator.validate("prod", "postgresql", ".logboek_dataverwerkingen")
         }
+
         assertTrue(ex.message!!.contains(".logboek_dataverwerkingen"), "foutmelding moet de waarde tonen")
     }
 
@@ -88,6 +95,30 @@ class LdvTabelnaamValidatorTest {
     fun `alle schrijfwijzen van de postgresql-backend worden gecontroleerd`(dbms: String) {
         assertThrows<IllegalArgumentException> {
             LdvTabelnaamValidator.validate("prod", dbms, "")
+        }
+    }
+
+    /**
+     * Een onbekende backend mag niet stil overgeslagen worden: dan zou de tabelnaam
+     * ongecontroleerd blijven terwijl er wél een backend gekozen is.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["mysql", "", "pgsql"])
+    fun `onbekende backend faalt in plaats van de controle over te slaan`(dbms: String) {
+        assertThrows<IllegalArgumentException> {
+            LdvTabelnaamValidator.validate("prod", dbms, "logboek_dataverwerkingen")
+        }
+    }
+
+    /**
+     * Alles buiten dev en test geldt als productie-achtig, net als bij de twee andere
+     * LDV-guards — ook een profielnaam die vandaag nergens gebruikt wordt.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["staging", "acceptatie", "onbekend"])
+    fun `overige profielen worden als productie behandeld`(profile: String) {
+        assertThrows<IllegalArgumentException> {
+            LdvTabelnaamValidator.validate(profile, "postgresql", "")
         }
     }
 }

@@ -50,8 +50,11 @@ class LdvEndpointValidator(
      * enum-constante zodat er maar één beslissing over de backend te nemen valt — een
      * losse keuze per aspect kan uiteenlopen, waardoor een gekozen backend met de
      * waarde van de ándere gecontroleerd wordt.
+     *
+     * Om diezelfde reden leest [LdvTabelnaamValidator] de backend hiervandaan: een tweede
+     * lijst met aliassen zou bij een nieuwe alias stil uiteen kunnen lopen met deze.
      */
-    private enum class Backend {
+    internal enum class Backend {
         CLICKHOUSE {
             override fun endpointUit(clickhouseEndpoint: String, postgresqlUrl: String) = clickhouseEndpoint
 

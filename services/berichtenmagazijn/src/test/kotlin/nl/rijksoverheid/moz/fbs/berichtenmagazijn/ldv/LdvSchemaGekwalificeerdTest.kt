@@ -20,9 +20,10 @@ import org.junit.jupiter.api.Test
  * van alle organisaties door elkaar staan.
  *
  * Het schema komt hier van Flyway, net als in productie (`%prod.quarkus.flyway.schemas`).
- * Dat test meteen de ordening waar het echt op aankomt: het schema moet bestaan vóórdat de
- * wrapper zijn tabel aanmaakt. `public` blijft als eerste schema de plek waar de migraties
- * en `flyway_schema_history` landen.
+ * Dat test de ordening waar het echt op aankomt: het schema moet bestaan vóórdat de wrapper
+ * zijn tabel aanmaakt. De indeling wijkt wel af — in productie landen de migraties zelf óók
+ * in het magazijnschema, hier blijft `public` het eerste schema en dus de plek voor de
+ * migraties en `flyway_schema_history`.
  *
  * Dat de configuratie van de service zélf een prefix oplevert, borgt [LdvTabelnaamConfigTest];
  * deze test toont aan dat de prefix vervolgens ook werkt.
@@ -49,9 +50,10 @@ class LdvSchemaGekwalificeerdTest {
     }
 
     /**
-     * Alles wordt als verschil gemeten. De Dev-Services-container kan met andere
-     * testklassen gedeeld worden, dus absolute tellingen zouden afhangen van de volgorde
-     * waarin JUnit de klassen draait.
+     * Alles wordt als verschil gemeten in plaats van absoluut. Een eigen TestProfile levert
+     * vandaag een verse database op, maar die afspraak is nergens vastgelegd; zodra een
+     * database hergebruikt wordt, zeggen absolute tellingen niets meer over wat déze test
+     * heeft veroorzaakt.
      */
     @Test
     fun `elke logregel landt in het schema uit de tabelnaam en nergens anders`() {
@@ -102,10 +104,7 @@ class LdvSchemaGekwalificeerdTest {
         // synchroon op de request-thread en fail-closed maakt er anders een 500 van.
     }
 
-    /**
-     * Telt de logregels van het aanleverpad, of 0 als de tabel nog niet bestaat. Elke
-     * telling krijgt een eigen connectie, zodat ze de commits van de applicatie zien.
-     */
+    /** Telt de logregels van het aanleverpad, of 0 als de tabel nog niet bestaat. */
     private fun aantalLogregels(tabel: String): Int = dataSource.connection.use { connectie ->
         if (!bestaat(connectie, tabel)) return 0
 

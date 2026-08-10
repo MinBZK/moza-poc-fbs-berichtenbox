@@ -5,6 +5,9 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
+import jakarta.inject.Inject
+import javax.sql.DataSource
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
@@ -26,6 +29,9 @@ import org.junit.jupiter.api.Test
 @TestProfile(LdvOntbrekendSchemaTest.OntbrekendSchemaProfile::class)
 class LdvOntbrekendSchemaTest {
 
+    @Inject
+    lateinit var dataSource: DataSource
+
     class OntbrekendSchemaProfile : QuarkusTestProfile {
         override fun getConfigOverrides(): Map<String, String> = mapOf(
             "logboekdataverwerking.enabled" to "true",
@@ -42,6 +48,9 @@ class LdvOntbrekendSchemaTest {
 
     @Test
     fun `een aanlevering faalt zichtbaar als het logboekschema ontbreekt`() {
+        val onderwerp = "Aanlevering zonder logboekschema"
+        val berichtenVooraf = aantalBerichten()
+
         given()
             .contentType(ContentType.JSON)
             .body(
@@ -49,7 +58,7 @@ class LdvOntbrekendSchemaTest {
                 {
                   "afzender": "00000001003214345000",
                   "ontvanger": { "type": "BSN", "waarde": "999993653" },
-                  "onderwerp": "Aanlevering zonder logboekschema",
+                  "onderwerp": "$onderwerp",
                   "inhoud": "Inhoud",
                   "publicatietijdstip": "2026-08-06T10:00:00Z"
                 }
@@ -59,5 +68,23 @@ class LdvOntbrekendSchemaTest {
             .then()
             // Geen 201: zonder logregel telt de verwerking niet als uitgevoerd.
             .statusCode(500)
+
+        // Dit is de eigenlijke fail-closed-eis. Zonder deze controle zou de test ook slagen
+        // bij een 500 uit een heel andere hoek, terwijl het bericht wél was opgeslagen.
+        assertEquals(
+            berichtenVooraf,
+            aantalBerichten(),
+            "een aanlevering die niet in het logboek kwam, mag geen bericht achterlaten",
+        )
+    }
+
+    private fun aantalBerichten(): Int = dataSource.connection.use { connectie ->
+        connectie.prepareStatement("SELECT count(*) AS aantal FROM berichten").use { telling ->
+            telling.executeQuery().use { rijen ->
+                rijen.next()
+
+                rijen.getInt("aantal")
+            }
+        }
     }
 }

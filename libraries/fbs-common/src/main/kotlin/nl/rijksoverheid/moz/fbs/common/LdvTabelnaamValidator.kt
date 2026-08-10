@@ -15,10 +15,14 @@ import java.util.Optional
  * de health checks, en faalt vervolgens élk request met een 500 — fail-closed doet dan
  * precies wat het moet, maar een deploy ziet er geslaagd uit terwijl er niets werkt.
  *
- * Waar de naam vandaan komt: waar meerdere organisaties één database delen, draagt hij een
- * schema-prefix uit `DB_SCHEMA`, zodat elk logboek in het schema van zijn eigen organisatie
- * staat. Een lege of vergeten `DB_SCHEMA` levert dan `.logboek_dataverwerkingen` op — een
- * waarde die als "aanwezig" telt maar nergens naar verwijst.
+ * Waar meerdere organisaties één database delen, draagt de naam een schema-prefix uit
+ * `DB_SCHEMA`, zodat elk logboek in het schema van zijn eigen organisatie staat. Die
+ * omgevingsvariabele kan op twee manieren misgaan, en beide eindigen hier:
+ *
+ * - **Niet gezet.** De expressie is dan niet te expanderen en de property komt als
+ *   afwezig binnen — vandaar de `Optional` en de eis dat de naam niet leeg is.
+ * - **Leeg gezet.** De expansie slaagt en laat `.logboek_dataverwerkingen` achter: een
+ *   waarde die als aanwezig telt maar nergens naar verwijst.
  *
  * Twee eisen bovenop niet-leeg:
  * - **Vorm.** De wrapper accepteert alleen `^[a-zA-Z_][a-zA-Z0-9_.]*$` en gooit anders bij
@@ -29,14 +33,23 @@ import java.util.Optional
  *   wrapper daarna niet vindt. Kleine letters eisen haalt die dubbelzinnigheid weg.
  *
  * In `dev` en `test` blijft de naam vrij: daar draait geen echte betrokkene-data en zijn
- * afwijkende namen juist nodig om het gedrag te kunnen testen.
+ * afwijkende namen juist nodig om het gedrag te kunnen testen. Alle overige profielen
+ * gelden als productie-achtig, net als bij [LdvEndpointValidator] en
+ * [LdvFailClosedValidator]. De prefix zelf staat alleen onder `%prod`, samen met de rest
+ * van de datasource-configuratie — zonder die configuratie start de service sowieso niet,
+ * dus een ander profiel komt in de praktijk niet zo ver.
+ *
+ * De guard kijkt niet naar `logboekdataverwerking.enabled`: een deployment met het logboek
+ * uit moet even goed een sluitende configuratie hebben, zodat het aanzetten ervan geen
+ * verrassing oplevert. Dat volgt de lijn van de twee andere LDV-guards.
  */
 @ApplicationScoped
 class LdvTabelnaamValidator(
     @param:ConfigProperty(name = LdvEndpointValidator.DBMS_KEY, defaultValue = "clickhouse")
     private val dbms: String,
     // Optional om dezelfde reden als in LdvEndpointValidator: de ongebruikte backend hoeft
-    // geen waarde te hebben en mag de start niet blokkeren.
+    // geen waarde te hebben en mag de start niet blokkeren. Een niet-gezette DB_SCHEMA komt
+    // hier ook als afwezig binnen.
     @param:ConfigProperty(name = TABEL_KEY) private val tabel: Optional<String>,
     @param:ConfigProperty(name = "quarkus.profile") private val profile: String,
 ) {
@@ -59,8 +72,9 @@ class LdvTabelnaamValidator(
         fun validate(profile: String, dbms: String, tabel: String) {
             if (profile in PROFIELEN_ZONDER_EIS) return
 
-            // Alleen de PostgreSQL-backend gebruikt deze key; op ClickHouse zegt hij niets.
-            if (dbms.lowercase() !in setOf("postgresql", "postgres")) return
+            // Backend uit LdvEndpointValidator zodat beide guards dezelfde aliassen kennen en
+            // een onbekende waarde hier net zo hard faalt als daar.
+            if (LdvEndpointValidator.Backend.van(dbms) != LdvEndpointValidator.Backend.POSTGRESQL) return
 
             require(tabel.isNotBlank()) {
                 "$TABEL_KEY is leeg in profiel '$profile'. Staat er een schema-prefix uit een " +

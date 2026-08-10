@@ -55,6 +55,7 @@ class LdvTabelnaamConfigTest {
             tabelnaam,
             "zonder schema-prefix schrijven alle magazijnen in dezelfde logboektabel",
         )
+
         assertDoesNotThrow("de guard moet de eigen productiewaarde accepteren") {
             LdvTabelnaamValidator.validate("prod", "postgresql", tabelnaam)
         }
