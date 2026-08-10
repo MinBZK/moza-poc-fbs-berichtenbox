@@ -156,6 +156,18 @@ jobs:
           fi
 
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
+  #
+  # De PR-tag draagt de head-sha en is dus UNIEK per commit — dat is de kern van de
+  # preview-uitrol, geen cosmetica. De deploy zet de image-referentie in het door Operations
+  # Manager gerenderde k8s-manifest, en Argo CD rolt alleen uit bij een verschil in dát
+  # manifest. Met een vaste tag `pr-<n>` blijft het manifest bij elke volgende commit
+  # byte-identiek: de deploy-check wordt groen terwijl de pod op de image-laag van de eerste
+  # build blijft draaien. `imagePullPolicy: Always` vangt dat niet af — dat werkt pas bij een
+  # herstart, en die komt niet vanzelf. Op main speelde het niet: `main-<sha7>` wijzigt al
+  # per commit.
+  #
+  # Elke build krijgt zo zijn eigen tag; `cleanup-preview-images` ruimt ze bij PR-sluiten
+  # allemaal op (op prefix, niet op één exacte tag).
   meta:
     runs-on: ubuntu-latest
     outputs:
@@ -163,9 +175,16 @@ jobs:
       owner: ${{ steps.m.outputs.owner }}
     steps:
       - id: m
+        # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
+        env:
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.number }}
+          # Op een pull_request-event is GITHUB_SHA de (efemere) merge-commit; de head-sha is
+          # wat in de PR-tijdlijn staat en waar een reviewer op kan matchen.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "tag=pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "pull_request" ]; then
+            echo "tag=pr-${PR}-${HEAD_SHA::7}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
@@ -425,16 +444,16 @@ jobs:
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
 
-  # Opruimen bij PR-sluiten: per project een eigen (parallelle) job, elk ruimt zijn eigen
-  # deployment + ÓNZE images op. De GitHub-environment (één per PR) ruimt alleen de
-  # uitvraag-job op; de andere zetten delete-github-env uit.
+  # Opruimen bij PR-sluiten: per project een eigen (parallelle) job die zijn eigen deployment
+  # opruimt. De GitHub-environment (één per PR) ruimt alleen de uitvraag-job op; de andere
+  # zetten delete-github-env uit. De images gaan in één aparte job (cleanup-preview-images):
+  # de `delete-container`-stap van zad-actions verwijdert precies één exacte tag per package,
+  # en een PR heeft er sinds de unieke tags één per commit.
   cleanup-preview-uitvraag:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    needs: meta
     runs-on: ubuntu-latest
     permissions:
       deployments: write
-      packages: write
       pull-requests: write
     steps:
       # Pre-flight: een ontbrekende GH_ADMIN_TOKEN zou de env-/deployment-cleanup pas
@@ -455,19 +474,12 @@ jobs:
           deployment-name: pr-${{ github.event.pull_request.number }}
           delete-github-env: 'true'
           delete-github-deployments: 'true'
-          delete-container: 'true'
-          containers: |
-            [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "${{ needs.meta.outputs.tag }}"}
-            ]
+          delete-container: 'false'
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
   cleanup-preview-externe-stubs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    needs: meta
     runs-on: ubuntu-latest
-    permissions:
-      packages: write
     steps:
       - name: Cleanup externe-stubs-project
         uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
@@ -476,18 +488,11 @@ jobs:
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
           deployment-name: pr-${{ github.event.pull_request.number }}
           delete-github-env: 'false'
-          delete-container: 'true'
-          containers: |
-            [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-externe-stubs", "tag": "${{ needs.meta.outputs.tag }}"}
-            ]
+          delete-container: 'false'
 
   cleanup-preview-magazijnen:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    needs: meta
     runs-on: ubuntu-latest
-    permissions:
-      packages: write
     steps:
       - name: Cleanup magazijnen-project
         uses: RijksICTGilde/zad-actions/cleanup@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
@@ -496,11 +501,62 @@ jobs:
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
           deployment-name: pr-${{ github.event.pull_request.number }}
           delete-github-env: 'false'
-          delete-container: 'true'
-          containers: |
-            [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "${{ needs.meta.outputs.tag }}"}
-            ]
+          delete-container: 'false'
+
+  # Ruimt ALLE images van de PR op: één ghcr-versie per commit, niet alleen de laatste. De
+  # tags van deze PR zijn te herkennen aan de prefix `pr-<n>-`; het afsluitende koppelteken
+  # is essentieel, anders zou het sluiten van PR 16 de images van PR 168 meenemen.
+  #
+  # Bewust niet de `delete-container`-stap van zad-actions: die verwijdert één exacte tag, wat
+  # met unieke tags per commit alle tussenversies zou laten staan. Ook bewust géén
+  # package-brede fallback bij "cannot delete the last tagged version" (die de action wél
+  # heeft): dat zou een preview-cleanup het hele package laten verwijderen inclusief de
+  # main-images. De `main-<sha7>`-tags zorgen ervoor dat die situatie zich niet voordoet.
+  cleanup-preview-images:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Verwijder de ghcr-versies van deze PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG: ${{ needs.meta.outputs.owner }}
+          PREFIX: pr-${{ github.event.pull_request.number }}-
+        run: |
+          set -euo pipefail
+          fail=0
+
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs; do
+            if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
+              echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
+              fail=1
+              continue
+            fi
+
+            # --paginate levert per pagina een eigen array; jq verwerkt ze als losse inputs.
+            ids=$(printf '%s' "$versions" | jq -r --arg p "$PREFIX" \
+              '.[] | select(.metadata.container.tags | any(startswith($p))) | .id')
+
+            if [ -z "$ids" ]; then
+              echo "$pkg: geen versies met tag-prefix $PREFIX."
+              continue
+            fi
+
+            for id in $ids; do
+              if gh api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE; then
+                echo "$pkg: versie $id verwijderd."
+              else
+                echo "::warning::$pkg: versie $id niet verwijderd."
+                fail=1
+              fi
+            done
+          done
+
+          # Achterblijvende images zijn geen reden om de PR-afsluiting te blokkeren, maar het
+          # moet wel als rode job zichtbaar zijn — anders groeit de ghcr-berg ongemerkt door.
+          exit "$fail"
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
