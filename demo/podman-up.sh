@@ -39,7 +39,7 @@ DEMO_IMAGES=(
 
 # --- gereedschap en podman-socket bepalen -----------------------------------------------------
 
-for gereedschap in podman curl; do
+for gereedschap in podman curl python3; do
     command -v "$gereedschap" >/dev/null 2>&1 || {
         echo "$gereedschap niet gevonden op PATH." >&2
         exit 1
@@ -200,12 +200,20 @@ C+=(--profile demo)
 if ! RENDER="$("${C[@]}" config 2>&1)"; then
     echo "Deze compose kan de gestapelde bestanden niet verwerken:" >&2
     printf '%s\n' "$RENDER" >&2
+
+    # Implementaties die `!reset` niet kennen struikelen al over de tag zelf en komen dus hier
+    # terecht, niet in de assertie hieronder.
+    if [ "$MODUS" = "hostnet" ]; then
+        echo "hostnet vraagt compose v2.24.4 of nieuwer voor \`!reset\`; podman-compose kan dit niet." >&2
+    fi
+
     exit 1
 fi
 
 if [ "$MODUS" = "hostnet" ] && printf '%s\n' "$RENDER" | grep -q 'published:'; then
-    echo "Deze compose past \`!reset\` niet toe: er blijven gepubliceerde poorten staan." >&2
-    echo "hostnet vraagt compose v2.24.4 of nieuwer; podman-compose kan dit niet." >&2
+    echo "Er blijft een gepubliceerde poort staan naast \`network_mode: host\`." >&2
+    echo "Waarschijnlijk heeft een service in compose.yaml \`ports:\` gekregen zonder dat" >&2
+    echo "compose.podman-hostnet.yaml die met \`ports: !reset []\` opruimt." >&2
     exit 1
 fi
 
@@ -283,7 +291,7 @@ wacht_op() {
             echo "TIMEOUT: $naam kwam niet omhoog (laatste exit $status)." >&2
 
             if [ "$status" -eq 124 ]; then
-                echo "  elke poging liep in de timeout van 10s" >&2
+                echo "  de laatste poging liep in de timeout van 10s" >&2
             fi
 
             if [ -n "$uitvoer" ]; then
@@ -330,11 +338,28 @@ wacht_op "clickhouse"     clickhouse      curl -sSf --max-time 3 http://127.0.0.
 wacht_op "profiel-service" profiel-service curl -sSf --max-time 3 http://127.0.0.1:8089/__admin/mappings
 wacht_op "magazijn-stubs" magazijn-stubs  curl -sSf --max-time 3 http://127.0.0.1:8092/__admin/mappings
 
-# Niet alleen of de admin-API leeft: met een niet-geladen proxies.json start Toxiproxy gezond op
-# met NUL proxies, geeft `GET /proxies` een lege `{}` met status 200, en is de hele keten dood
-# terwijl elke probe groen is. Geldt in beide modi.
-wacht_op "toxiproxy" toxiproxy bash -c \
-    'curl -sSf --max-time 3 http://127.0.0.1:8474/proxies | grep -q "\"magazijn-a\""'
+# Elke proxy afzonderlijk controleren, niet of de admin-API leeft en ook niet of één bekende naam
+# er staat. Toxiproxy stopt namelijk bij de eerste listener die niet kan binden, laat de rest van
+# het bestand ongeladen en blijft daarna gezond draaien met een status 200 op `GET /proxies` — dus
+# noch de containerstatus noch een steekproef op één naam ziet het. In een gedeelde netns is een
+# bezette proxy-poort een reëel geval, en de keten is dan stil kapot.
+PROXY_BRON="$WORTEL/toxiproxy/proxies.json"
+
+if [ "$MODUS" = "hostnet" ]; then
+    PROXY_BRON="$WORTEL/demo/generated/proxies-host.json"
+fi
+
+wacht_op "toxiproxy" toxiproxy python3 -c '
+import json, sys, urllib.request
+
+verwacht = {p["name"] for p in json.load(open(sys.argv[1]))}
+actief = set(json.load(urllib.request.urlopen("http://127.0.0.1:8474/proxies", timeout=3)))
+ontbreekt = verwacht - actief
+
+if ontbreekt:
+    print("proxies niet geladen: " + ", ".join(sorted(ontbreekt)), file=sys.stderr)
+    sys.exit(1)
+' "$PROXY_BRON"
 
 # Een poortprobe bewijst niet dat ónze container antwoordde: crasht hij op een bezette poort, dan
 # neemt de bestaande host-service het antwoord over. Daarom na afloop opnieuw de status.

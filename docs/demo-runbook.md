@@ -64,9 +64,9 @@ DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-
 
 Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
 controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
-zijn, genereert de stub-artefacten, en wacht tot elke container draait. Redis, beide Postgres,
-ClickHouse, de profiel- en magazijn-stubs, Toxiproxy en de vier services worden daarna ook
-functioneel gepolld.
+zijn, genereert de stub-artefacten, en controleert na elke start dat elke container draait. Redis,
+beide Postgres, ClickHouse, de profiel-stub, de stub-magazijnen, Toxiproxy en de vier services
+worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
 
 Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
 
@@ -86,8 +86,13 @@ wachtwoord of met het demo-wachtwoord. Draai deze modus dus alleen op een vertro
 poorten die `compose.yaml` publiceert, waaronder beide Postgres-instanties, binden ook in
 `bridge` al op alle interfaces.)
 
-Botst een van die poorten met iets dat al draait, dan stopt de betreffende container en meldt het
-script welke dat is, mét het containerlog waarin de bezette poort staat. De overlay haalt de
+Botst een van die poorten met iets dat al draait, dan hangt het van de poort af hoe dat zich
+uit. Een service die zelf niet kan binden stopt, en het script meldt welke container dat is mét
+het log waarin de bezette poort staat — voor de vier JVM-services duurt dat wel tot de wachttijd
+verstreken is, omdat ze pas tijdens het opstarten struikelen. Botst een Toxiproxy-listener, dan
+stopt die container níet: Toxiproxy laadt tot de mislukte proxy en draait door. Het script
+vergelijkt daarom de geladen proxies met `proxies.json` en noemt de ontbrekende bij naam. De
+overlay haalt de
 gepubliceerde poorten en de healthchecks met `!reset` weg; dat vereist compose v2.24.4 of nieuwer
 en werkt niet met `podman-compose`. Het script rendert daarom eerst de samengestelde configuratie
 en controleert dat er geen gepubliceerde poort meer in staat — een implementatie die de tag

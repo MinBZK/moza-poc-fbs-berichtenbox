@@ -28,9 +28,9 @@ PROXIES="$GEN/proxies-host.json"
 trap 'rm -f "$REGISTER.tmp" "$PROXIES.tmp"' EXIT
 
 # In één gedeelde netns bestaan de container-DNS-namen niet; alles loopt over 127.0.0.1 met de
-# poorten uit compose.podman-hostnet.yaml. Eerst naar `.tmp`: `sed` kan niet uit zijn eigen
-# invoerbestand lezen én erin schrijven, en een falende guard hoort de bestemming onaangeroerd te
-# laten.
+# poorten uit compose.podman-hostnet.yaml. Beide gaan eerst naar `.tmp`, zodat een falende guard
+# de bestemming onaangeroerd laat; voor het register is dat bovendien nodig omdat `sed` niet uit
+# zijn eigen invoerbestand kan lezen én erin schrijven.
 sed 's|http://magazijn-stubs:8080|http://127.0.0.1:8092|g' "$REGISTER" > "$REGISTER.tmp"
 
 sed -e 's|"berichtenmagazijn-a:8090"|"127.0.0.1:8090"|' \
