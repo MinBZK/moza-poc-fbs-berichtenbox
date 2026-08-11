@@ -11,16 +11,19 @@ COMPOSE=(docker compose -f "$(dirname "$0")/docker-compose.yaml")
 
 echo "smoke: containerstatus controleren..."
 
-# De verwachte set komt uit de compose-file, niet uit `ps`: een container die nooit is aangemaakt
-# ontbreekt in `ps` en zou anders stil groen blijven.
-mapfile -t verwacht < <("${COMPOSE[@]}" config --services | sort)
+status=$("${COMPOSE[@]}" ps -a --format '{{.Service}} {{.State}} {{.ExitCode}}')
+
+# De verwachte set is de vereniging van twee onvolledige lijsten. Alleen `config --services`
+# missen we een service die enkel in een overlay bestaat (dit script kent maar één `-f`); alleen
+# `ps` missen we een service die nooit is aangemaakt. Samen dekken ze allebei die gaten.
+mapfile -t verwacht < <( { "${COMPOSE[@]}" config --services; awk '{print $1}' <<<"$status"; } \
+  | grep -v '^$' | sort -u)
 
 if [ "${#verwacht[@]}" -eq 0 ]; then
-  echo "FAIL: compose levert geen services op — klopt het pad naar docker-compose.yaml?" >&2
+  echo "FAIL: geen services gevonden — klopt het pad naar docker-compose.yaml?" >&2
   exit 1
 fi
 
-status=$("${COMPOSE[@]}" ps -a --format '{{.Service}} {{.State}} {{.ExitCode}}')
 fout=0
 
 for service in "${verwacht[@]}"; do

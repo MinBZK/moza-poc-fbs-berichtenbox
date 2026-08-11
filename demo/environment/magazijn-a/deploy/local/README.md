@@ -14,8 +14,10 @@ het cert-contract).
 > postgres met `postgres/postgres`, de controller met `AUTHN_TYPE=none` en
 > `CSRF_PROTECTION_ENABLED=false`, en `DISABLE_CRL_CHECKS=true`. Onder bridge zitten die achter een
 > eigen containernetwerk; onder de hostnet-overlay staan ze op de loopback van de machine en zijn
-> ze bereikbaar voor elk lokaal proces en elke lokale gebruiker. Niet draaien op een gedeelde of
-> multi-user machine, en niet op een bastion- of VPN-host.
+> ze bereikbaar voor elk lokaal proces en elke lokale gebruiker. Onder die overlay draaien de
+> cert-lezende containers bovendien in jouw UID (`keep-id`) én in jouw netwerk-namespace: de grens
+> tussen container en host is daar dunner dan de standaard rootless-mapping. Niet draaien op een
+> gedeelde of multi-user machine, en niet op een bastion- of VPN-host.
 
 ## Benodigdheden
 
@@ -135,8 +137,9 @@ docker compose -f deploy/local/docker-compose.yaml \
 **Elk verder compose-commando heeft dezelfde drie `-f`'s nodig** — `up`, `down`, `restart`,
 `--force-recreate`. Met één `-f` rendert compose de services opnieuw uit alleen de basis en draait
 hij je stilletjes terug naar bridge. De smokes en `publish-service.sh` zijn wél veilig met één
-`-f`: die gebruiken uitsluitend `exec`, `logs` en `ps`, en die zoeken containers op projectnaam
-plus servicelabel zonder de servicespec opnieuw te renderen.
+`-f`: die lezen alleen (`exec`, `logs`, `ps`, `config`) en hercreëren niets — `ps` en `exec`
+vinden de draaiende containers op projectnaam plus servicelabel, ongeacht met hoeveel `-f` ze
+gestart zijn.
 
 `!reset` vereist Compose **≥ 2.24.4**; oudere versies struikelen over de YAML-tag met een fout die
 niet naar de oorzaak wijst. `podman-compose` (mét streepje) ondersteunt het niet.
@@ -169,8 +172,8 @@ de enige met een nieuwe URL, want `stub-upstream` moet `8080` houden — die poo
 
 Vijf beperkingen:
 
-- **Niet tegelijk met logius' harness.** Beide overlays gebruiken dezelfde poortindeling, dus ze
-  botsen over de hele linie — niet alleen op `:443`. Onder bridge kan het wel, want elk
+- **Niet tegelijk met logius' harness.** Beide overlays gebruiken vrijwel dezelfde
+  poortindeling, dus ze botsen op bijna elke poort — niet alleen op `:443`. Onder bridge kan het wel, want elk
   compose-project krijgt een eigen netwerk.
 - **De harness deelt de poortruimte met je machine.** Draait er al iets op `:5432`, dan faalt de
   harness-postgres bij het binden en blijft hij `exited` — `smoke-services.sh` vlagt dat direct.

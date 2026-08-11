@@ -47,8 +47,8 @@
 #     die je na afloop terugdraait (`sudo sysctl net.ipv4.ip_unprivileged_port_start=1024`).
 #
 # Deze harness en die van logius kunnen in hostnet-modus NIET tegelijk draaien: beide overlays
-# gebruiken bewust dezelfde poortindeling, dus ze botsen op de hele lijst, niet alleen op :443.
-# Onder bridge kan het wel, want elk compose-project krijgt een eigen netwerk.
+# gebruiken bewust vrijwel dezelfde poortindeling, dus ze botsen op bijna elke poort — niet
+# alleen op :443. Onder bridge kan het wel, want elk compose-project krijgt een eigen netwerk.
 x-hosts: &hosts
   - "directory.fsc-test.local:127.0.0.1"
   - "magazijn-a.fsc-test.local:127.0.0.1"
