@@ -9,6 +9,13 @@ OIDC-login-voorziening — control-plane-only voor deze ene peer. Bouwt voort op
 > **Vereist Docker + `docker compose` (v2) en gegenereerde certs** (`pki/issue.sh`, vereist
 > `cfssl`). Draai eerst de PKI in `pki/`, dan de stack + smoke hieronder.
 
+> **Alleen op je eigen machine.** De harness draait met defaults die nergens anders horen:
+> postgres met `postgres/postgres`, de controller met `AUTHN_TYPE=none` en
+> `CSRF_PROTECTION_ENABLED=false`, en `DISABLE_CRL_CHECKS=true`. Onder bridge zitten die achter een
+> eigen containernetwerk; onder de hostnet-overlay staan ze op de loopback van de machine en zijn
+> ze bereikbaar voor elk lokaal proces en elke lokale gebruiker. Niet draaien op een gedeelde of
+> multi-user machine, en niet op een bastion- of VPN-host.
+
 ## Benodigdheden
 
 - **Docker** + `docker compose` (v2). Onder **rootless podman** stapel je
@@ -45,13 +52,14 @@ sleep 20 && docker compose -f deploy/local/docker-compose.yaml ps
 ./deploy/local/run-smokes.sh    # verwacht: "ALLE SMOKES GROEN."
 ```
 
-Losse smoke (voor gerichte diagnose):
+Losse smokes (voor gerichte diagnose):
 
 ```bash
 ./deploy/local/smoke-announce.sh    # verwacht: "OK: logius is aangemeld ..."
+./deploy/local/smoke-services.sh    # verwacht: "OK: alle 13 services gezond ..."
 ```
 
-Opruimen:
+Opruimen (met dezelfde `-f`'s als waarmee je startte):
 
 ```bash
 docker compose -f deploy/local/docker-compose.yaml down -v
@@ -150,7 +158,9 @@ Wat de overlay verandert — de poorten zijn container-listeners, niet host-publ
 | directory-UI | `8080`, host-poort `8081` | `8081` |
 | controller-UI | `8080`, host-poort `8091` | `8091` |
 | monitoring (alle componenten) | `8080` / `8081` | `18080`, `28080`, `38081`, `48081`, `58081`, `8444`, `8082` |
+| postgres | `5432`, onbereikbaar buiten het compose-netwerk | `5432` met `listen_addresses=127.0.0.1` |
 | postgres-healthcheck | aanwezig | vervalt; wachters op `service_started` |
+| `restart: on-failure` | onbegrensd | `on-failure:600` op elke service die het heeft |
 | router-config | `haproxy.cfg` (runtime-DNS) | `haproxy.podman-hostnet.cfg` (vaste adressen) |
 
 De UI's houden dus hun vertrouwde URL: wat onder bridge de host-poort was, is hier de
@@ -158,17 +168,36 @@ container-poort. De interne manager-poort `9443` en de controller-administratie 
 bewust staan: magazijn-a's `publish-service.sh` en `smoke-discover.sh` hebben die adressen hard
 staan, en beide overlays houden dezelfde poortindeling aan.
 
-Drie beperkingen:
+Vijf beperkingen:
 
 - **Niet tegelijk met magazijn-a's harness.** Beide overlays gebruiken dezelfde poortindeling, dus
   ze botsen over de hele linie — niet alleen op `:443`. Onder bridge kan het wel, want elk
   compose-project krijgt een eigen netwerk.
-- **De harness deelt de poortruimte met je machine.** Draait er al iets op `:5432`, dan bindt de
-  harness-postgres niet en praten alle componenten tegen die vreemde database; je ziet dat als
-  ontbrekende `fsc_*`-databases in de smoke-logs. Hetzelfde geldt voor `:443` en de UI-poorten.
-- **Faalt een container tijdens de eerste `up`,** dan blijft hij in status `Created` achter en
-  geeft elke volgende `up` `write /proc/<pid>/uid_map: Operation not permitted`. Dat is geen
-  keep-id-probleem — `podman rm -f <container>` en opnieuw `up` lost het op.
+- **De harness deelt de poortruimte met je machine.** Draait er al iets op `:5432`, dan faalt de
+  harness-postgres bij het binden en blijft hij `exited` — `smoke-services.sh` vlagt dat direct.
+  Hetzelfde geldt voor `:443` en de UI-poorten.
+- **De router bindt `:443`, dus de netns van de aanroeper moet
+  `net.ipv4.ip_unprivileged_port_start` op 0 hebben.** De per-container `sysctls`-regel uit de
+  basis vervalt hier: in een gedeelde netns mag een container die niet zetten. Controleer met
+  `sysctl net.ipv4.ip_unprivileged_port_start`. Staat hij op 1024, dan faalt de router op
+  `bind 127.0.0.1:443: Permission denied`, resolvet geen enkele `*.fsc-test.local`-naam meer en
+  vallen alle smokes om zonder dat de managerlogs een fout tonen. Zet je hem host-breed op 0, dan
+  mag voortaan elke onprivilegieerde gebruiker op die machine onder poort 1024 binden — draai dat
+  na afloop terug.
+- **Single-host.** Onder bridge publiceerde de router al geen host-poort, dus federatie met een
+  externe peer kon toen ook niet; deze overlay cementeert dat. Draai `127.0.0.1` niet terug naar
+  `0.0.0.0` om een multi-host-testnet te bouwen — dan zet je de hele stack, inclusief postgres en
+  de controller zonder authenticatie, op het netwerk.
+- **Faalt een container tijdens de eerste `up`** (`container ID 0 cannot be mapped to a host ID`),
+  dan blijft hij in status `Created` achter en geeft elke volgende `up`
+  `write /proc/<pid>/uid_map: Operation not permitted`. Dat is geen keep-id-probleem maar een race
+  bij het aanmaken van de ID-gemapte laagkopie. Ruim op en probeer opnieuw; soms is dat twee of
+  drie keer nodig voordat de stack compleet staat:
+
+  ```bash
+  podman ps -a --format '{{.Names}} {{.Status}}' | grep -v ' Up ' | awk '{print $1}' \
+    | xargs -r podman rm -f
+  ```
 
 ## Troubleshooting
 
@@ -180,7 +209,8 @@ Drie beperkingen:
   Anders: `HOST_UID`/`HOST_GID` in `deploy/local/.env` matchen niet met de eigenaar van de keys.
   Zet ze met
   `printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env` en
-  `docker compose -f deploy/local/docker-compose.yaml up -d --force-recreate`.
+  `docker compose -f deploy/local/docker-compose.yaml -f deploy/local/docker-compose.podman.yaml up -d --force-recreate`
+  (onder Docker zonder die tweede `-f`; onder de hostnet-overlay met alle drie).
 - **Poort bezet** (8081, 8091) → stop de conflicterende dienst of pas de `ports`/`bind`
   in `docker-compose.yaml` / `haproxy.cfg` aan. De router publiceert geen host-poort
   (SNI-passthrough intern op het compose-netwerk), dus `443` kan hier niet conflicteren — behalve
@@ -212,7 +242,8 @@ Drie beperkingen:
 - **`migrate-*` hangt / `database "…" does not exist`** → `postgres-init.sql` draait alleen bij
   een **vers** volume. Bestaat er al een postgres-volume van een eerdere run? Maak de ontbrekende
   DB eenmalig aan (`... exec -T postgres psql -U postgres -c "CREATE DATABASE <naam>;"`) of
-  `down -v && up -d` (wist alles, re-init inclusief nieuwe DB's).
+  `down -v && up -d` (wist alles, re-init inclusief nieuwe DB's) — met dezelfde `-f`'s
+  als waarmee je startte.
 
 ## Cert-contract (referentie, overgenomen uit `pki/README.md`)
 

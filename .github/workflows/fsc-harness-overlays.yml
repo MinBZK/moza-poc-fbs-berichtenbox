@@ -1,38 +1,58 @@
 # Bewaakt dat de podman-overlays van de lokale FSC-harnessen blijven passen op hun basis.
 #
 # De hostnet-overlay spiegelt elke service uit docker-compose.yaml: `network_mode: host`,
-# `extra_hosts` en een botsvrije poort. Voegt iemand een service aan de basis toe zonder de
-# overlay bij te werken, dan vraagt die service het default-netwerk terug — en omdat de overlay
-# dat netwerk met `!reset` weghaalt, valt de hele stack om. Dat faalt pas bij `up`, op de machine
-# van de volgende gebruiker, met een melding die niet naar de oorzaak wijst.
+# `extra_hosts` en een botsvrije poort op 127.0.0.1. Twee dingen kunnen daar stil misgaan:
 #
-# Deze guard rendert alleen de merge (geen containers) en controleert dat elke service in het
-# resultaat op de netns van de aanroeper zit. Dat is precies de drift die niemand anders ziet:
-# `config -q` alleen accepteert een halve overlay zonder morren.
+#  1. Iemand voegt een service aan de basis toe en vergeet de overlay. Die service vraagt dan het
+#     default-netwerk terug, en omdat de overlay dat netwerk met `!reset` weghaalt, valt de hele
+#     stack om — pas bij `up`, op de machine van de volgende gebruiker.
+#  2. Iemand voegt een listener toe die op `0.0.0.0` bindt. In een gedeelde netns staat die
+#     daarmee op élke interface van de machine, inclusief de componenten die zonder authenticatie
+#     draaien (controller met AUTHN_TYPE=none, postgres met harness-credentials).
+#
+# Deze guard rendert alleen de merge (geen containers) en controleert beide invarianten.
+# `config -q` alleen zou een halve overlay zonder morren accepteren.
 
 name: FSC-harness overlays
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths: ['demo/environment/**']
+    # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
+    # zonder dat de guard zelf ooit gedraaid heeft.
+    paths: ['demo/environment/**', '.github/workflows/fsc-harness-overlays.yml']
   push:
     branches: [main]
-    paths: ['demo/environment/**']
+    paths: ['demo/environment/**', '.github/workflows/fsc-harness-overlays.yml']
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  hostnet-overlay-dekt-alle-services:
+  hostnet-overlay-past-op-de-basis:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Elke service in de hostnet-merge draait op de netns van de aanroeper
+        with:
+          persist-credentials: false
+      - name: Elke service op de gedeelde netns, elke listener op loopback
         run: |
+          # set -e is hier dragend: zonder dat levert een gefaalde `compose config` een lege
+          # variabele op, waarna de tellingen leeg zijn en de guard groen wordt zonder iets te
+          # hebben gemeten.
+          set -euo pipefail
+
           fail=0
+          peers=0
+
           for peer in demo/environment/*/deploy/local; do
             [ -f "$peer/docker-compose.podman-hostnet.yaml" ] || continue
+            peers=$((peers + 1))
 
             # PKI_DIR/HOST_UID komen normaal uit .env (gitignored). De waarden doen er niet toe:
             # `config` rendert alleen, het mount niets en controleert geen paden.
@@ -41,21 +61,77 @@ jobs:
                              -f docker-compose.podman.yaml \
                              -f docker-compose.podman-hostnet.yaml config --format json)
 
-            mapfile -t missend < <(jq -r '.services | to_entries[]
-              | select(.value.network_mode != "host") | .key' <<<"$merged")
-
             totaal=$(jq -r '.services | length' <<<"$merged")
 
-            if [ "$totaal" -eq 0 ]; then
-              # Nul services = de merge is leeg of het JSON-schema is gewijzigd; dan meet de
-              # guard niets meer en moet hij luid falen in plaats van stil groen te worden.
-              echo "::error file=$peer/docker-compose.podman-hostnet.yaml::merge levert geen services op — guard kan drift niet meer detecteren."
+            if [ -z "$totaal" ] || [ "$totaal" -eq 0 ]; then
+              echo "FOUT: $peer levert geen services op — de merge is leeg of het JSON-schema is gewijzigd."
               fail=1
-            elif [ "${#missend[@]}" -gt 0 ]; then
-              echo "::error file=$peer/docker-compose.podman-hostnet.yaml::zonder network_mode host in de hostnet-merge: ${missend[*]}. Voeg ze toe aan de overlay (network_mode, extra_hosts en een botsvrije poort)."
+              continue
+            fi
+
+            mapfile -t geen_host < <(jq -r '.services | to_entries[]
+              | select(.value.network_mode != "host") | .key' <<<"$merged")
+
+            # Listeners uit env. Alles moet op 127.0.0.1 staan; in één netns is 0.0.0.0 élke
+            # interface van de machine.
+            mapfile -t env_lek < <(jq -r '.services | to_entries[] | . as $s
+              | ($s.value.environment // {}) | to_entries[]
+              | select(.key | test("^(LISTEN_ADDRESS|MONITORING_ADDRESS)"))
+              | select(.value != null)
+              | select(.value | tostring | startswith("127.0.0.1") | not)
+              | "\($s.key): \(.key)=\(.value)"' <<<"$merged")
+
+            # Listeners uit `command`. Die ontsnappen aan de env-check — en aan een `ss`-controle
+            # op 0.0.0.0, want een Go-binary die op `:8080` bindt toont als `*:8080`.
+            mapfile -t cmd_lek < <(jq -r '.services | to_entries[] | . as $s
+              | ($s.value.command // []) | .[]?
+              | select(type == "string")
+              | select(test("listen"; "i"))
+              | select(test("127\\.0\\.0\\.1") | not)
+              | "\($s.key): \(.)"' <<<"$merged")
+
+            # De keep-id-overlay kent dezelfde drift, met de bug waar deze harness ooit op
+            # strandde: een nieuwe service met een /pki-mount en `user:` die daar niet in staat,
+            # faalt onder rootless podman met `permission denied` op de privékey.
+            mapfile -t geen_keepid < <(jq -r '.services | to_entries[]
+              | select((.value.volumes // []) | any(.target == "/pki"))
+              | select(.value.user != null)
+              | select(.value.userns_mode != "keep-id") | .key' <<<"$merged")
+
+            if [ "${#geen_keepid[@]}" -gt 0 ]; then
+              echo "FOUT: $peer — leest /pki als een vaste UID maar zonder keep-id:"
+              printf '  %s\n' "${geen_keepid[@]}"
+              echo "  Voeg ze toe aan docker-compose.podman.yaml."
               fail=1
-            else
-              echo "$peer: $totaal/$totaal services op de gedeelde netns."
+            fi
+
+            if [ "${#geen_host[@]}" -gt 0 ]; then
+              echo "FOUT: $peer — zonder network_mode host in de hostnet-merge:"
+              printf '  %s\n' "${geen_host[@]}"
+              echo "  Voeg ze toe aan de overlay: network_mode, extra_hosts en een botsvrije poort."
+              fail=1
+            fi
+
+            if [ "${#env_lek[@]}" -gt 0 ] || [ "${#cmd_lek[@]}" -gt 0 ]; then
+              echo "FOUT: $peer — listeners die niet op 127.0.0.1 binden:"
+              printf '  %s\n' "${env_lek[@]}" "${cmd_lek[@]}"
+              fail=1
+            fi
+
+            if [ "$fail" -eq 0 ]; then
+              echo "$peer: $totaal/$totaal services op de gedeelde netns, alle listeners op loopback."
             fi
           done
+
+          if [ "$peers" -eq 0 ]; then
+            echo "FOUT: geen enkele harness gevonden onder demo/environment/*/deploy/local — is de mapstructuur gewijzigd?"
+            fail=1
+          fi
+
+          # Servicenamen en paden komen uit de PR en gaan daarom niet in een ::error-annotatie:
+          # een `%0A` daarin zou een tweede workflow-commando starten. De details staan hierboven.
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::De hostnet-overlays passen niet meer op hun basis. Zie de log hierboven."
+          fi
+
           exit "$fail"

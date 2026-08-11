@@ -32,14 +32,18 @@
 #  4. Geen postgres-healthcheck: podman draait healthchecks via systemd-timers, en juist in de
 #     omgevingen die deze overlay nodig hebben ontbreekt systemd — de status blijft dan eeuwig
 #     'starting' en `condition: service_healthy` loopt vast. De wachters worden `service_started`
-#     en pollen postgres zelf op via `restart: on-failure`. Die lus krijgt hier een expliciet
-#     maximum: podman herstart zonder backoff, dus een structureel falende migratie zou anders de
-#     hele sessie een core verbranden terwijl de harness er 'nog aan het opstarten' uitziet.
+#     en pollen postgres zelf op via `restart: on-failure`. Élke `on-failure`-service krijgt hier
+#     een maximum, niet alleen die wachters: podman herstart zonder backoff, dus een structureel
+#     falende container verbrandt anders de hele sessie een core terwijl de harness er 'nog aan
+#     het opstarten' uitziet. 600 pogingen ligt ruim boven een trage `initdb` en is nog steeds
+#     eindig; raakt het budget op, dan staat de container zichtbaar op `exited`.
 #  5. De router draait op de hostnet-variant van haproxy.cfg (vaste 127.0.0.1-backends in plaats
 #     van runtime-DNS) en verliest zijn `sysctls`-regel: in een gedeelde netns mag een container
 #     die niet zetten. Dat vereist wel dat de netns van de aanroeper `ip_unprivileged_port_start`
 #     al op 0 heeft staan; zo niet, faalt de router op `bind :443` en resolvet geen enkele
-#     `*.fsc-test.local`-naam meer.
+#     `*.fsc-test.local`-naam meer. Zet je die sysctl host-breed, dan mag voortaan élke
+#     onprivilegieerde gebruiker op die machine onder poort 1024 binden — een bewuste verlaging
+#     die je na afloop terugdraait (`sudo sysctl net.ipv4.ip_unprivileged_port_start=1024`).
 #
 # Deze harness en die van magazijn-a kunnen in hostnet-modus NIET tegelijk draaien: beide overlays
 # gebruiken bewust dezelfde poortindeling, dus ze botsen op de hele lijst, niet alleen op :443.
@@ -72,7 +76,7 @@ services:
   manager-directory:
     network_mode: host
     extra_hosts: *hosts
-    restart: on-failure:60
+    restart: on-failure:600
     environment:
       LISTEN_ADDRESS_EXTERNAL: 127.0.0.1:18443
       LISTEN_ADDRESS_INTERNAL: 127.0.0.1:19443
@@ -85,7 +89,7 @@ services:
   migrate-logius:
     network_mode: host
     extra_hosts: *hosts
-    restart: on-failure:60
+    restart: on-failure:600
     depends_on:
       postgres:
         condition: service_started
@@ -107,6 +111,7 @@ services:
     network_mode: host
     networks: !reset null
     extra_hosts: *hosts
+    restart: on-failure:600
     environment:
       # MANAGER_INTERNAL_ADDRESS blijft naar 9443 wijzen — die poort verhuist niet.
       LISTEN_ADDRESS: 127.0.0.1:58443
@@ -117,6 +122,7 @@ services:
   inway-logius:
     network_mode: host
     extra_hosts: *hosts
+    restart: on-failure:600
     environment:
       # LISTEN_ADDRESS houdt 8443 uit de basis: dat is de backend van de :443-SNI-route, en die
       # poort botst met niets. De monitoring-poort schuift mee naar de buur-poort.
@@ -141,7 +147,7 @@ services:
   migrate-controller-logius:
     network_mode: host
     extra_hosts: *hosts
-    restart: on-failure:60
+    restart: on-failure:600
     depends_on:
       postgres:
         condition: service_started
@@ -151,6 +157,7 @@ services:
     networks: !reset null
     ports: !reset []
     extra_hosts: *hosts
+    restart: on-failure:600
     environment:
       # LISTEN_ADDRESS_ADMINISTRATION_API houdt 9444 en MANAGER_ADDRESS_INTERNAL blijft naar 9443
       # wijzen; alleen de registration-API botst met de interne manager-poort.
@@ -162,7 +169,7 @@ services:
   migrate-txlog-logius:
     network_mode: host
     extra_hosts: *hosts
-    restart: on-failure:60
+    restart: on-failure:600
     # De migrate-job erft LISTEN/MONITORING uit het `x-txlog-common-env`-anchor van de basis. Die
     # waarden (9443/8081) botsen in één netns met de manager resp. de directory-UI, dus ze moeten
     # ook hier meeverhuizen — ook al opent een `migrate up` die listeners naar verwachting nooit.
@@ -177,6 +184,7 @@ services:
     network_mode: host
     networks: !reset null
     extra_hosts: *hosts
+    restart: on-failure:600
     environment:
       LISTEN_ADDRESS: 127.0.0.1:49443
       MONITORING_ADDRESS: 127.0.0.1:48081

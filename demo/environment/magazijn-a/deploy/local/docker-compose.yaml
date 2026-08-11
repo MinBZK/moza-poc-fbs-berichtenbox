@@ -6,7 +6,8 @@
 # Twee overlays bouwen hierop voort: docker-compose.podman.yaml (rootless podman) en
 # docker-compose.podman-hostnet.yaml (geen bruikbaar bridge-netwerk). Die tweede spiegelt elke
 # listener-poort en elke netwerk-alias uit dit bestand — voeg je hier een service, een poort of
-# een alias toe, pas hem daar dan mee aan. Niets bewaakt dat automatisch.
+# een alias toe, pas hem daar dan mee aan. Een nieuwe service wordt door
+# .github/workflows/fsc-harness-overlays.yml bewaakt; poorten en aliassen niet.
 x-manager-image: &manager-image docker.io/federatedserviceconnectivity/manager:${IMAGE_TAG:-v2.5.2}
 x-manager-common-env: &manager-common-env
   LOG_TYPE: local
