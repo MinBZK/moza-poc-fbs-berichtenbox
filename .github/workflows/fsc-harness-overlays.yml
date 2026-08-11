@@ -126,10 +126,36 @@ jobs:
             ongelimiteerd=$(jq -r '.services | to_entries[]
               | select(.value.restart == "on-failure") | .key' <<<"$merged")
 
+            # Postgres drukt zijn bind niet uit als `adres:poort`, dus LEK ziet hem niet. Zonder
+            # override zet het image zelf `listen_addresses='*'`: de DB met harness-credentials op
+            # elke interface van de machine.
+            pg_lek=$(jq -r '.services | to_entries[] | . as $s
+              | ($s.value.command // [])[]?
+              | select(type == "string") | select(test("listen_addresses="))
+              | select(test("listen_addresses=127\\.0\\.0\\.1") | not)
+              | "\($s.key): \(.)"' <<<"$merged")
+
+            pg_mist=$(jq -r '.services | to_entries[]
+              | select(.key == "postgres")
+              | select(((.value.command // []) | map(select(test("listen_addresses="))) | length) == 0)
+              | .key' <<<"$merged")
+
             # haproxy opent zijn poort uit een gemounte configfile en ontsnapt dus aan elke
-            # controle op de compose-merge.
-            haproxy_lek=$(grep -nE '^[[:space:]]*bind[[:space:]]' \
-              "$peer/haproxy.podman-hostnet.cfg" | grep -vE 'bind[[:space:]]+127\.0\.0\.1:' || true)
+            # controle op de compose-merge. Lees het pad uit de merge in plaats van de bestandsnaam
+            # aan te nemen: verdwijnt de `volumes`-override, dan mount de router weer de
+            # bridge-config met `bind *:443` terwijl deze check groen blijft op een ongebruikt
+            # bestand.
+            cfg=$(jq -r '.services.router.volumes[]?
+              | select(.target == "/usr/local/etc/haproxy/haproxy.cfg") | .source' <<<"$merged")
+
+            if [ -z "$cfg" ] || [ ! -f "$cfg" ]; then
+              echo "FOUT: $peer — router mount geen leesbare haproxy-config (${cfg:-<geen>})."
+              peer_fail=1
+              cfg=/dev/null
+            fi
+
+            haproxy_lek=$(grep -nE '^[[:space:]]*bind[[:space:]]' "$cfg" \
+              | grep -vE 'bind[[:space:]]+127\.0\.0\.1:' || true)
 
             meld() {
               [ -n "$2" ] || return 0
@@ -144,7 +170,9 @@ jobs:
             meld "bind-adres dat niet op loopback staat:" "$bind_lek"
             meld "nog een gepubliceerde poort in de merge (mist een 'ports: !reset []'):" "$poorten"
             meld "onbegrensde 'restart: on-failure' (zet een maximum in de overlay):" "$ongelimiteerd"
-            meld "bind-regel in haproxy.podman-hostnet.cfg die niet op 127.0.0.1 staat:" "$haproxy_lek"
+            meld "postgres luistert niet uitsluitend op 127.0.0.1:" "$pg_lek"
+            meld "postgres zonder expliciete listen_addresses (het image kiest dan '*'):" "$pg_mist"
+            meld "bind-regel in de gemounte haproxy-config die niet op 127.0.0.1 staat:" "$haproxy_lek"
 
             if [ "$peer_fail" -eq 0 ]; then
               echo "$peer: $totaal/$totaal services op de gedeelde netns, alle listeners op loopback."

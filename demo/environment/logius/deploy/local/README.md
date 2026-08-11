@@ -168,13 +168,13 @@ Wat de overlay verandert — de poorten zijn container-listeners, niet host-publ
 De UI's houden dus hun vertrouwde URL: wat onder bridge de host-poort was, is hier de
 container-poort. De interne manager-poort `9443` en de controller-administratie `9444` blijven
 bewust staan: magazijn-a's `publish-service.sh` en `smoke-discover.sh` hebben die adressen hard
-staan, en beide overlays houden dezelfde poortindeling aan.
+staan, en beide overlays houden vrijwel dezelfde poortindeling aan.
 
 Vijf beperkingen:
 
-- **Niet tegelijk met magazijn-a's harness.** Beide overlays gebruiken dezelfde poortindeling, dus
-  ze botsen over de hele linie — niet alleen op `:443`. Onder bridge kan het wel, want elk
-  compose-project krijgt een eigen netwerk.
+- **Niet tegelijk met magazijn-a's harness.** Beide overlays gebruiken vrijwel dezelfde
+  poortindeling, dus ze botsen op bijna elke poort — niet alleen op `:443`. Onder bridge kan het
+  wel, want elk compose-project krijgt een eigen netwerk.
 - **De harness deelt de poortruimte met je machine.** Draait er al iets op `:5432`, dan faalt de
   harness-postgres bij het binden en blijft hij `exited` — `smoke-services.sh` vlagt dat direct.
   Hetzelfde geldt voor `:443` en de UI-poorten.
@@ -182,8 +182,9 @@ Vijf beperkingen:
   `net.ipv4.ip_unprivileged_port_start` op 0 hebben.** De per-container `sysctls`-regel uit de
   basis vervalt hier: in een gedeelde netns mag een container die niet zetten. Controleer met
   `sysctl net.ipv4.ip_unprivileged_port_start`. Staat hij op 1024, dan faalt de router op
-  `bind 127.0.0.1:443: Permission denied`, resolvet geen enkele `*.fsc-test.local`-naam meer en
-  vallen alle smokes om zonder dat de managerlogs een fout tonen. Zet je hem host-breed op 0, dan
+  `bind 127.0.0.1:443: Permission denied`. De namen resolven dan nog wél — die komen hier uit
+  `extra_hosts`, niet van de router — maar elke `:443`-verbinding krijgt ECONNREFUSED en alle
+  smokes vallen om zonder dat de managerlogs een fout tonen. Zet je hem host-breed op 0, dan
   mag voortaan elke onprivilegieerde gebruiker op die machine onder poort 1024 binden — draai dat
   na afloop terug.
 - **Single-host.** Onder bridge publiceerde de router al geen host-poort, dus federatie met een
@@ -221,7 +222,7 @@ Vijf beperkingen:
 - **Smoke faalt** → `docker compose -f deploy/local/docker-compose.yaml logs
   manager-directory manager-logius controller-logius` voor de mesh-logs. Blijft de announce-smoke
   hangen op "nog niet aangemeld" terwijl de managers gezond loggen, controleer dan éérst
-  `docker compose ps -a | grep router`: de `*.fsc-test.local`-namen zijn aliassen van de ROUTER,
+  `docker compose -f deploy/local/docker-compose.yaml ps -a | grep router`: de `*.fsc-test.local`-namen zijn aliassen van de ROUTER,
   dus zonder router vertrekt geen enkele announce en zie je in de managerlogs geen fout.
 - **Podman i.p.v. Docker** → de harness draait op beide, mits:
   - Gebruik `docker compose` of `podman compose` (zónder streepje). `podman-compose` (mét

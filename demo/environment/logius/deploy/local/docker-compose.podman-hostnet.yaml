@@ -40,8 +40,9 @@
 #  5. De router draait op de hostnet-variant van haproxy.cfg (vaste 127.0.0.1-backends in plaats
 #     van runtime-DNS) en verliest zijn `sysctls`-regel: in een gedeelde netns mag een container
 #     die niet zetten. Dat vereist wel dat de netns van de aanroeper `ip_unprivileged_port_start`
-#     al op 0 heeft staan; zo niet, faalt de router op `bind :443` en resolvet geen enkele
-#     `*.fsc-test.local`-naam meer. Zet je die sysctl host-breed, dan mag voortaan élke
+#     al op 0 heeft staan; zo niet, faalt de router op `bind :443`. De namen resolven dan nog
+#     wél (die komen uit extra_hosts), maar elke :443-verbinding krijgt ECONNREFUSED. Zet je
+#     die sysctl host-breed, dan mag voortaan élke
 #     onprivilegieerde gebruiker op die machine onder poort 1024 binden — een bewuste verlaging
 #     die je na afloop terugdraait (`sudo sysctl net.ipv4.ip_unprivileged_port_start=1024`).
 #
