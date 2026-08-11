@@ -276,8 +276,23 @@ class DownstreamClientTest {
     }
 
     @Test
-    fun `plain http naar localhost wordt toegestaan voor dev`() {
-        // server.baseUrl is al http://127.0.0.1:* — dat moet door valideerUrl heen komen.
+    fun `in test blijft plain http naar niet-loopback afgekeurd`() {
+        // Alleen dev heeft de bypass nodig (container-DNS in de demo-stack). De testconfig gebruikt
+        // loopback-URL's, die sowieso mogen; 'test' meenemen zou de validatie over de hele
+        // QuarkusTest-oppervlakte uitschakelen zonder er iets voor terug te krijgen.
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://demo.invalid/events"))
+        client = DownstreamClient(config, objectMapper, openTelemetry, "test")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout)
+        assertTrue((resultaat as DownstreamResultaat.ConfiguratieFout).reden.contains("TLS"))
+    }
+
+    @Test
+    fun `plain http naar loopback wordt toegestaan zonder profiel-uitzondering`() {
+        // De client uit @BeforeEach draait onder 'prod'; server.baseUrl is http://127.0.0.1:*.
+        // Bewijst dus de loopback-uitzondering zélf, niet de dev/test-bypass eromheen.
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertEquals(DownstreamResultaat.Geslaagd, resultaat)
     }
