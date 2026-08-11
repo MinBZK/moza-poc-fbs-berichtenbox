@@ -116,3 +116,17 @@ jobs:
           min-coverage-overall: 0
           min-coverage-changed-files: 0
           update-comment: true
+
+  # 460+ regels compose zijn de enige beschrijving van de demo-stack en worden door geen
+  # enkele build-stap gelezen: een typfout of een ongeldige verwijzing blijkt nu pas als
+  # iemand de stack start, meestal vlak voor een demo. `config -q` parseert en valideert
+  # zonder daemon of images, in seconden. Met `--profile demo`, want de demo-services staan
+  # achter dat profiel en zouden anders juist niet gecontroleerd worden.
+  compose:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: compose.yaml valideren
+        run: docker compose --profile demo config -q

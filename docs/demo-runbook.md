@@ -46,8 +46,12 @@ Er zijn twee modi met dezelfde compose:
 | `docker compose up -d` | Alleen infra (Redis, Postgres, WireMock-stubs, ClickHouse) | **Ontwikkelen** — draai services zelf met `./mvnw quarkus:dev` (hot reload) |
 | `docker compose --profile demo up -d` | Alles: infra + de drie services + demo-console + Toxiproxy + stub-magazijnen | **Demo** |
 
-> **Belangrijk voor "veel magazijnen" (fase 6):** genereer eerst de stub-artefacten (§4), anders
-> mounten de compose-volumes lege mappen. Voor alle andere scenario's is dat niet nodig.
+> **Draai altijd eerst §4**, óók als je "veel magazijnen" niet demonstreert. `demo/generated/` is
+> git-ignored, dus na een verse checkout bestaat het niet. Compose maakt een ontbrekend mount-pad
+> zelf aan — als **directory**. `magazijnen-stubs.properties` wordt dan een map,
+> `SMALLRYE_CONFIG_LOCATIONS` wijst naar een map, de uitvraag start niet, en het generatiescript
+> kan dat bestand daarna ook niet meer schrijven (eerst `rm -rf demo/generated/`). Het is één
+> idempotent commando; sla het niet over.
 
 Openen na start:
 - **Bedieningspaneel:** <http://localhost:8095/>
@@ -57,10 +61,12 @@ Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-vo
 
 ---
 
-## 4. "Veel magazijnen" voorbereiden (alleen voor fase 6)
+## 4. Stub-artefacten genereren (altijd, vóór de eerste start)
 
 Eén getal `n` genereert het register, de profiel-stub en n WireMock-mappings in `demo/generated/`
-(git-ignored). Dezelfde env-var voedt het script én de demo-console — dus altijd samen exporteren:
+(git-ignored). Dezelfde env-var voedt het script én de demo-console — dus altijd samen exporteren.
+Alleen "veel magazijnen" (fase 6) gebruikt die stubs echt, maar de stap is onvoorwaardelijk: zonder
+de gegenereerde bestanden start de uitvraag niet (zie de waarschuwing in §3):
 
 ```bash
 export DEMO_MAGAZIJN_STUBS=40
@@ -98,7 +104,7 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 | Persona | Identificatie | Bevraagt |
 |---|---|---|
 | J. Pietersen (ZZP) | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
-| Bakkerij De Vroege Vogel | BSN `123456782` | RVO |
+| Bakkerij De Vroege Vogel | BSN `999996666` | RVO |
 | Garage Van Dijk B.V. | KVK `12345678` | Belastingdienst |
 | Grootbedrijf B.V. | KVK `90000001` | n stub-magazijnen (fase 6) |
 
