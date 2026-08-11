@@ -2,7 +2,8 @@
 
 const BASIS = 'http://localhost:8086/api/v1';
 
-// magazijnId per bericht onthouden — PATCH/DELETE (taak 4/5) vereisen ?magazijnId=.
+// magazijnId per bericht onthouden: de lijst levert het mee, maar PATCH en DELETE vereisen het
+// als queryparameter en het detail-endpoint geeft het niet opnieuw terug.
 const magazijnPerBericht = new Map();
 
 // magazijnId (== afzender-OIN) → organisatienaam, gevuld uit de ophaal-events, zodat de UI
@@ -351,10 +352,15 @@ function kiesMap(mapWaarde) {
   herteken();
 }
 
+// De hele regel is een <button> in de <li>: een li met click-listener is niet focusbaar en
+// niet met het toetsenbord te bedienen. Een knop levert focus, Enter/Spatie en een rol op.
 function lijstItem(bericht) {
   const li = document.createElement('li');
+  const knop = document.createElement('button');
 
-  if (bericht.status !== 'gelezen') li.classList.add('ongelezen');
+  knop.type = 'button';
+
+  if (bericht.status !== 'gelezen') knop.classList.add('ongelezen');
 
   const titel = document.createElement('span');
 
@@ -375,8 +381,9 @@ function lijstItem(bericht) {
     new Date(bericht.publicatietijdstip).toLocaleDateString('nl-NL') +
     (bericht.aantalBijlagen > 0 ? ` 📎${bericht.aantalBijlagen}` : '');
 
-  li.append(titel, meta);
-  li.addEventListener('click', () => openBericht(bericht));
+  knop.append(titel, meta);
+  knop.addEventListener('click', () => openBericht(bericht));
+  li.appendChild(knop);
 
   return li;
 }
@@ -413,7 +420,20 @@ async function leesProblem(respons) {
 el('ophalen').addEventListener('click', ophalen);
 // Alleen de lijst (cache) verversen, zonder _ophalen — toont live in de cache opgevoerde berichten.
 el('vernieuw').addEventListener('click', laadLijst);
+// Alles wat van de vórige persona is afgeleid weggooien. Zonder dit blijven de mapknoppen met
+// hun tellingen staan en rendert de eerstvolgende actie (map kiezen, sorteren, filteren) de
+// lijst van die persona onder de kop van de nieuwe — in een Berichtenbox-demo precies het
+// verkeerde plaatje. De magazijnnamen blijven: die horen bij de OIN, niet bij de persona.
+function wisPersonaState() {
+  alleBerichten = [];
+  magazijnPerBericht.clear();
+  actieveMap = null;
+  huidigePagina = 0;
+  renderMappen();
+}
+
 el('persona').addEventListener('change', () => {
+  wisPersonaState();
   toon(el('voortgang'), false);
   toonLeeg('Persona gewijzigd — klik op Ophalen.');
 });
@@ -625,7 +645,8 @@ function detailInhoud(bericht) {
   return p;
 }
 
-// Bijlagen: alleen bijlageId + naam zijn gevuld; de download-actie komt in taak 4.
+// Bijlagen komen uit het detail-endpoint met alleen bijlageId + naam; de inhoud volgt pas bij
+// het downloaden zelf.
 function renderBijlagen(bericht) {
   const div = document.createElement('div');
 
@@ -640,15 +661,14 @@ function renderBijlagen(bericht) {
   kop.textContent = 'Bijlagen: ';
   div.appendChild(kop);
 
+  // Knop, geen <a href="#">: dit is een actie, geen navigatie — zo klopt de rol voor
+  // schermlezers en hoeft er geen default-navigatie onderdrukt te worden.
   bijlagen.forEach((bijlage) => {
-    const knop = document.createElement('a');
+    const knop = document.createElement('button');
 
-    knop.href = '#';
+    knop.type = 'button';
     knop.textContent = bijlage.naam;
-    knop.addEventListener('click', (gebeurtenis) => {
-      gebeurtenis.preventDefault();
-      downloadBijlage(bericht.berichtId, bijlage.bijlageId, bijlage.naam);
-    });
+    knop.addEventListener('click', () => downloadBijlage(bericht.berichtId, bijlage.bijlageId, bijlage.naam));
     div.appendChild(knop);
   });
 

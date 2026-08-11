@@ -17,7 +17,7 @@ class GeneratorProducer {
         DemoBerichtGenerator(
             personas = listOf(
                 Persona("J. Pietersen", "BSN", "999993653", listOf(RVO, BELASTINGDIENST)),
-                Persona("Bakkerij De Vroege Vogel", "BSN", "123456782", listOf(RVO)),
+                Persona("Bakkerij De Vroege Vogel", "BSN", "999996666", listOf(RVO)),
                 Persona("Garage Van Dijk B.V.", "KVK", "12345678", listOf(BELASTINGDIENST)),
             ),
             organisaties = mapOf(

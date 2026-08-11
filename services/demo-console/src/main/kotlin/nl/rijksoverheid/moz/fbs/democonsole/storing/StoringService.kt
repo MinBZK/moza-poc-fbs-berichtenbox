@@ -18,7 +18,16 @@ class StoringService(@param:RestClient private val toxiproxy: ToxiproxyClient) {
 
     // Herstel: elke proxy weer aan, alle toxics weg.
     fun reset() {
-        toxiproxy.proxies().forEach { (naam, status) ->
+        val proxies = toxiproxy.proxies()
+
+        // Toxiproxy start gezond op met nul proxies zodra proxies.json ontbreekt of misvormd is.
+        // Al het uitvraag- en magazijnverkeer loopt erdoorheen, dus dan is de keten dood — en
+        // juist deze knop moet dat aanwijzen in plaats van "alles normaal" te bevestigen.
+        check(proxies.isNotEmpty()) {
+            "Toxiproxy kent geen enkele proxy: de keten loopt nergens doorheen. Controleer toxiproxy/proxies.json en herstart toxiproxy."
+        }
+
+        proxies.forEach { (naam, status) ->
             if (!status.enabled) {
                 controleer(toxiproxy.zetProxy(naam, ProxyPatch(enabled = true)), "inschakelen van $naam")
             }

@@ -251,7 +251,11 @@ services:
     image: fbs-demo/fbs-demo-console:demo
     profiles: [demo]
     ports:
-      - "8095:8095"
+      # Uitsluitend op loopback publiceren. Deze console heeft geen authenticatie en
+      # POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases; op 0.0.0.0 is dat
+      # vanaf het hele netwerk bereikbaar. De Berichtenbox-UI praat sowieso alleen vanaf
+      # localhost (vaste API-basis localhost:8086 plus de CORS-allowlist van de uitvraag).
+      - "127.0.0.1:8095:8095"
     depends_on:
       berichtenmagazijn-a:
         condition: service_started

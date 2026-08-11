@@ -4,9 +4,10 @@ import io.quarkus.redis.datasource.RedisDataSource
 import jakarta.enterprise.context.ApplicationScoped
 
 /**
- * Laat de sessiecache "verlopen" door alle sessie-keys te wissen. Het verlies van de
- * `:status`-key doet de uitvraag denken dat er geen actieve sessie is → GET /berichten geeft
- * 409. Bewust alleen DEL op de sessie-prefix; nooit FLUSHDB/FT.DROPINDEX (die slopen de index).
+ * Laat de sessiecache "verlopen" door alle sessie-keys te wissen. Zonder de `:status`-key ziet de
+ * uitvraag een sessie die nog niet gevuld is (niet: een afwezige sessie), en geeft GET /berichten
+ * 409 — de "nog niet opgehaald"-tak, dezelfde als vóór de eerste ophaalronde. Bewust alleen DEL op
+ * de sessie-prefix; nooit FLUSHDB/FT.DROPINDEX (die slopen de index).
  */
 @ApplicationScoped
 class SessieService(private val redis: RedisDataSource) {

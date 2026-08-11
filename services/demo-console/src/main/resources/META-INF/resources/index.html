@@ -77,23 +77,49 @@
     async function post(pad, bevestig) {
       if (bevestig && !confirm('Zeker weten? Dit verwijdert alle berichten uit beide magazijnen.')) return;
 
-      toon('Bezig…');
-      try {
-        const r = await fetch(pad, { method: 'POST' });
-        toon(JSON.stringify(await r.json(), null, 2));
-      } catch (e) {
-        toon('Fout: ' + e);
-      }
+      await roep(pad, { method: 'POST' });
     }
 
     async function get(pad) {
+      await roep(pad, {});
+    }
+
+    // Tijdens een demo moet één blik volstaan om te zien wát er stuk is. Daarom drie gescheiden
+    // uitkomsten: de console niet bereikbaar, de actie geweigerd (met de melding uit de body),
+    // of gelukt. Zonder de .ok-toets levert elke storing dezelfde onbruikbare 'SyntaxError' op,
+    // omdat r.json() dan over een foutbody struikelt.
+    async function roep(pad, opties) {
       toon('Bezig…');
+
+      let r;
+
       try {
-        const r = await fetch(pad);
-        toon(JSON.stringify(await r.json(), null, 2));
+        r = await fetch(pad, opties);
       } catch (e) {
-        toon('Fout: ' + e);
+        toon('Geen verbinding met de demo-console: ' + e);
+
+        return;
       }
+
+      const tekst = await r.text();
+
+      let body;
+
+      try {
+        body = JSON.parse(tekst);
+      } catch (e) {
+        toon(`Onleesbaar antwoord (HTTP ${r.status}):\n${tekst || '(lege body)'}`);
+
+        return;
+      }
+
+      if (!r.ok) {
+        toon(`Mislukt (HTTP ${r.status}): ${body.fout || tekst}`);
+
+        return;
+      }
+
+      toon(JSON.stringify(body, null, 2));
     }
 
     function toon(tekst) { uit.textContent = tekst; }

@@ -7,6 +7,7 @@ import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.core.MediaType
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
@@ -32,19 +33,10 @@ class DemoResource(
 
     @POST
     @Path("/basisvulling")
-    fun basisvulling(): Map<String, Int> {
-        val opdrachten = basisdataset.laad()
-        val geslaagd = aanleverService.leverAan(opdrachten)
-
-        return mapOf("aangeboden" to opdrachten.size, "geslaagd" to geslaagd)
-    }
+    fun basisvulling(): AanleverResultaat = aanleverService.leverAan(basisdataset.laad())
 
     @POST
     @Path("/random")
-    fun random(@QueryParam("aantal") @DefaultValue("10") aantal: Int): Map<String, Int> {
-        val opdrachten = generator.genereer(aantal, Random.Default)
-        val geslaagd = aanleverService.leverAan(opdrachten)
-
-        return mapOf("aangeboden" to opdrachten.size, "geslaagd" to geslaagd)
-    }
+    fun random(@QueryParam("aantal") @DefaultValue("10") aantal: Int): AanleverResultaat =
+        aanleverService.leverAan(generator.genereer(aantal, Random.Default))
 }
