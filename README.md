@@ -89,7 +89,7 @@ Start daarna de stack en controleer de keten:
 
 ```bash
 docker compose --profile demo up -d   # alles in containers
-./demo/smoke.sh                       # rookproef: aanleveren + ophalen
+./demo/smoke.sh                       # rookproef: aanleveren bij beide magazijnen + ophalen
 ```
 
 Zónder `--profile demo` start compose alleen de infrastructuur (Redis, Postgres, WireMock,
