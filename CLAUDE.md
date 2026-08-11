@@ -201,9 +201,14 @@ géén uitgeschakeld component**).
   (bv. een oude `:main`-tag) terwijl de gesyncte manifest allang een geldige tag heeft.
   **Verifieer altijd eerst de tag/`replicas` in het gerenderde `*-deployment.yaml`** vóór
   je de UI-fouttekst gelooft.
-- De workflow pusht tags `main-<sha7>` (push→main) en `pr-<n>` (PR) — **nooit** een kale
-  `:main`. Zie de `meta`-job in `deploy.yml`. Een deployment die `:main` verwacht, is
-  handmatig/verouderd geconfigureerd.
+- De workflow pusht tags `main-<sha7>` (push→main) en `pr-<n>-<sha7>` (PR) — **nooit** een
+  kale `:main` of `:pr-<n>`. Zie de `meta`-job in `deploy.yml`. Een deployment die `:main`
+  verwacht, is handmatig/verouderd geconfigureerd.
+- **Image-tags moeten uniek zijn per commit.** Argo synct op verschil in het gerenderde
+  manifest; een herbruikte tag laat dat manifest ongewijzigd, dus rolt er niets uit en
+  blijft de preview op de eerste build hangen terwijl de deploy-check groen is
+  (`imagePullPolicy: Always` werkt pas bij een herstart). Bij PR-sluiten ruimt
+  `cleanup-preview-images` alle `pr-<n>-*`-versies in ghcr op.
 - De ghcr-images (`ghcr.io/minbzk/fbs-*`) zijn **public**; ZAD trekt ze via de
   pull-through-mirror `rcr.rijksapps.nl/ghcr-rig/minbzk/*`. Een 404 op een bestaande,
   publieke tag wijst op de mirror/registry-config aan ZAD-zijde, niet op onze push.

@@ -38,16 +38,24 @@
 # GESTAPELDE PR'S (base != main) deployen niet — zie het `branches`-filter hieronder. Hun
 # wijzigingen belanden alsnog in een preview zodra ze de PR bereiken die wél op main mikt: die
 # krijgt dan een `synchronize` en rolt zijn eigen pr-<n> opnieuw uit. Wat zo'n PR aan controles
-# houdt: test, detekt-gate en infra-image-pins (die workflows filteren niet op de doelbranch).
-# CodeQL en de fuzz-check draaien er NIET — codeql.yml en cflite_pr.yml filteren nog wel op main,
-# dus die dekking komt pas bij de PR naar main. Een gestapelde PR is dus inhoudelijk getoetst,
-# maar niet security-gescand; weeg dat mee bij het reviewen ervan.
+# houdt: test, detekt-gate en infra-image-pins — die workflows draaien zichzelf op elke PR
+# BEHALVE die naar main (`branches-ignore: [main]`), en worden voor een PR naar main juist hier
+# aangeroepen. CodeQL en de fuzz-check draaien er NIET: codeql.yml filtert op main en
+# cflite_pr.yml draait uitsluitend als aangeroepen workflow vanuit deze. Die dekking komt dus pas
+# bij de PR naar main. Een gestapelde PR is inhoudelijk getoetst maar niet security-gescand; weeg
+# dat mee bij het reviewen ervan.
 #
 # BEKENDE BEPERKING: wordt een PR ná een preview-deploy handmatig weggericht van main, dan valt
 # hij buiten dit filter en ruimt het sluiten zijn pr-<n>-deployments en ghcr-tags niet meer op.
 # Handmatig opruimen (of de base terugzetten vóór het sluiten). De omgekeerde beweging —
 # GitHub's automatische retarget náár main bij het mergen van de parent — is veilig: de checks
 # zijn dan afwezig i.p.v. groen, en `strict: true` op main dwingt sowieso een verse run af.
+#
+# TIMEOUT-MINUTES OP ELKE JOB: GitHub's default is 360 minuten. Een job die hangt (netwerkstall,
+# vastgelopen Testcontainer, een herintroduceerde wachtlus) houdt dan zes uur een runner bezet
+# voordat iemand het merkt. De waarden hieronder staan op ~3× de waargenomen maximumduur, dus ruim
+# genoeg voor een trage runner maar kort genoeg om verspilling te begrenzen. Jobs die een andere
+# workflow aanroepen kunnen de sleutel niet dragen; die staat daar in de aangeroepen workflow.
 #
 # Repo-secrets (Settings → Secrets and variables → Actions):
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
@@ -68,8 +76,9 @@ on:
   # automatisch naar main zodra de parent merget, zónder nieuw event — die stale vinkjes zouden
   # dan blijven staan. Zonder run zijn de checks afwezig, wat de merge wél blokkeert.
   #
-  # Let op de bewuste asymmetrie met test.yml/detekt.yml: die hebben juist géén branch-filter,
-  # want een gestapelde PR verdient wél inhoudelijke toetsing. Alleen de deploy valt weg.
+  # Let op de bewuste asymmetrie met test.yml/detekt.yml/pin-consistency.yml: die dragen het
+  # complement (`branches-ignore: [main]`), want een gestapelde PR verdient wél inhoudelijke
+  # toetsing. Alleen de deploy valt weg. Samen dekken de twee filters elke PR precies één keer.
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, closed]
@@ -80,12 +89,16 @@ on:
 # (build → packages, cleanup → deployments/packages/pull-requests) declareren dat zelf.
 permissions: read-all
 
-# Eén deploy-run tegelijk per PR; een nieuwe push wacht op de lopende i.p.v. die af te
-# breken (cancel-in-progress: false) — een halverwege afgebroken ZAD-deploy kan een
-# deployment in een inconsistente staat achterlaten.
-concurrency:
-  group: zad-deploy-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+# GEEN workflow-brede concurrency. De toetsende checks draaien sinds #173 als jobs ín deze
+# workflow; een workflow-brede groep met `cancel-in-progress: false` zou een opvolgende push laten
+# wachten tot de vorige deploy klaar is én de achterhaalde testrun helemaal uit laten draaien —
+# precies de verspilling die we wegnemen. Met `cancel-in-progress: true` zou een lopende ZAD-deploy
+# halverwege afgebroken kunnen worden, wat een deployment in een inconsistente staat achterlaat.
+# Beide eisen tegelijk kan alleen per job:
+#   * build/toetsing → eigen groep met cancel-in-progress: true (achterhaald werk stoppen);
+#   * deploy/cleanup → eigen groep PER PROJECT + doel-deployment met cancel-in-progress: false
+#     (nooit halverwege afbreken; per project apart zodat de drie parallelle jobs elkaar niet
+#     blokkeren, wat met één gedeelde groep wél zou gebeuren).
 
 env:
   REGISTRY: ghcr.io
@@ -114,25 +127,43 @@ env:
   PREVIEW_TASK_TIMEOUT: '900'
 
 jobs:
-  # Docs-only PR's (alleen docs/ of *.md) hoeven niet naar ZAD te deployen. Deze job bepaalt dat
-  # één keer; de kwaliteits-`gate` en de deploy-preview-jobs hangen eraan en worden op een
-  # docs-only PR overgeslagen — 'skipped' telt als succes voor de required checks, dus de merge
-  # blijft mogelijk. Op een push naar main draait alles altijd (run=true).
+  # Bepaalt één keer of deze revisie de bouw-en-deployketen in moet. De `gate`, de build-jobs en
+  # de deploy-preview-jobs hangen eraan; 'skipped' telt als succes voor de required checks, dus
+  # de merge blijft mogelijk. Op een push naar main draait alles altijd (run=true).
+  #
+  # Twee gevallen slaan we over:
+  # - Docs-only PR's (alleen docs/ of *.md): er is niets te draaien op ZAD.
+  # - PR's van een bot: `zad-actions` weigert die zelf (`skip-bot-prs`, default true), dus de
+  #   preview komt er toch niet. Zonder deze uitsluiting bouwden en pushten we er wél drie
+  #   images voor die nooit een pod bereiken — en de cleanup slaat bot-PR's óók over, dus die
+  #   bleven permanent in ghcr staan (zichtbaar aan `pr-143` en `pr-167` van gesloten
+  #   Dependabot-PR's).
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
     steps:
-      - name: Detecteer niet-documentatie wijzigingen
+      - name: Bepaal of er gebouwd en gedeployd moet worden
         id: filter
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          # Het type komt van GitHub zelf (enum), niet uit door de indiener bepaalde tekst.
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
           if [ "$EVENT" != "pull_request" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$PR_AUTHOR_TYPE" = "Bot" ]; then
+            # Luid loggen: een overgeslagen deploy laat de required checks 'skipped' (= succes)
+            # rapporteren, dus een onterechte overslag moet in de run-samenvatting zichtbaar zijn.
+            echo "::notice::PR van een bot — zad-actions deployt die niet, dus bouwen we ook niet."
+            echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), deploy
@@ -155,26 +186,67 @@ jobs:
           fi
 
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
+  #
+  # De PR-tag draagt de head-sha en is dus UNIEK per commit — dat is de kern van de
+  # preview-uitrol, geen cosmetica. De deploy zet de image-referentie in het door Operations
+  # Manager gerenderde k8s-manifest, en Argo CD rolt alleen uit bij een verschil in dát
+  # manifest. Met een vaste tag `pr-<n>` blijft het manifest bij elke volgende commit
+  # byte-identiek: de deploy-check wordt groen terwijl de pod op de image-laag van de eerste
+  # build blijft draaien. `imagePullPolicy: Always` vangt dat niet af — dat werkt pas bij een
+  # herstart, en die komt niet vanzelf. Op main speelde het niet: `main-<sha7>` wijzigt al
+  # per commit.
+  #
+  # Elke build krijgt zo zijn eigen tag; `cleanup-preview-images` ruimt ze bij PR-sluiten
+  # allemaal op — op prefix, plus de kale `pr-<n>` van vóór deze wijziging.
   meta:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       tag: ${{ steps.m.outputs.tag }}
       owner: ${{ steps.m.outputs.owner }}
     steps:
       - id: m
+        # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
+        env:
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.number }}
+          # Op een pull_request-event is GITHUB_SHA de (efemere) merge-commit; de head-sha is
+          # wat in de PR-tijdlijn staat en waar een reviewer op kan matchen.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "tag=pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "pull_request" ]; then
+            tag="pr-${PR}-${HEAD_SHA::7}"
+
+            # Een herdraai bouwt uit refs/pull/<n>/merge, dus met de main van dát moment. Is main
+            # inmiddels verder, dan levert dezelfde head-sha andere inhoud op en zou de tag
+            # verschuiven — precies de bevriezing die deze tagvorm moet voorkomen. Vanaf poging 2
+            # dus een eigen tag. Poging 1 (het normale geval) blijft kaal en leesbaar.
+            if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]; then
+              tag="${tag}-r${GITHUB_RUN_ATTEMPT}"
+            fi
+
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
           else
             echo "tag=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
           echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-  # Bouw + push de service-images met jib (geen Dockerfile). Niet op PR-close.
+  # Bouw + push de service-images met jib (geen Dockerfile). Niet op PR-close, en niet wanneer
+  # `changes` de keten heeft uitgesloten: zo'n revisie deployt toch niet, dus twee volledige
+  # Maven/jib-builds + push kosten dan alleen rekentijd, netwerk en een ghcr-versie die nooit
+  # een pod bereikt.
   build:
-    if: github.event_name == 'push' || github.event.action != 'closed'
-    needs: meta
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: [meta, changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Een opvolgende push maakt deze build achterhaald: de preview rolt straks toch de nieuwere
+    # commit uit, dus doorbouwen levert alleen runnertijd en een ghcr-versie op die nooit een pod
+    # bereikt. Per matrix-service een eigen groep, anders blokkeren de twee parallelle builds van
+    # dezelfde run elkaar.
+    concurrency:
+      group: build-${{ matrix.service }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -214,9 +286,13 @@ jobs:
   # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
   # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
   build-externe-stubs:
-    if: github.event_name == 'push' || github.event.action != 'closed'
-    needs: meta
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: [meta, changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: build-externe-stubs-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -234,110 +310,116 @@ jobs:
           docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
+  # De vier toetsende workflows draaien als aangeroepen (`workflow_call`) job ín deze workflow,
+  # zodat de deploy er met `needs:` aan kan hangen. Vóór #173 draaiden ze zelfstandig en wachtte
+  # een `gate`-job er in een poll-lus op: ~461 s per run een runner die niets deed dan `sleep 15`.
+  # Hun eigen `pull_request`-trigger staat nu op `branches-ignore: [main]` — het complement van de
+  # `branches: [main]` hierboven — zodat een gestapelde PR ze zelfstandig draait en een PR naar
+  # main ze precies één keer draait, hier.
+  #
+  # LET OP: door de aanroep krijgen de check-runs het caller-job-voorvoegsel: `checks-test / test`
+  # in plaats van `test`. Branch protection op main pint op die namen; wijzig je hier een job-id,
+  # dan moet de required context mee. Een required context die nooit meer verschijnt, blokkeert
+  # elke merge.
+  #
+  # `github.event.action != 'closed'`: de close-trigger is er voor de cleanup-jobs, daar valt
+  # niets te toetsen.
+  checks-test:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    uses: ./.github/workflows/test.yml
+    # De aangeroepen workflow mag nooit meer rechten hebben dan de caller-job toekent;
+    # pull-requests: write is voor de JaCoCo-coverage-comment.
+    permissions:
+      contents: read
+      pull-requests: write
+
+  checks-detekt:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    uses: ./.github/workflows/detekt.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
+
+  checks-pins:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    uses: ./.github/workflows/pin-consistency.yml
+    permissions:
+      contents: read
+
+  # ClusterFuzzLite fuzzt alleen PR's: op een push naar main is er geen basis om code-change-fuzzing
+  # tegen af te zetten. Deze job wordt daar dus overgeslagen, en de gate telt dat als OK.
+  checks-fuzz:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    uses: ./.github/workflows/cflite_pr.yml
+    permissions: read-all
+
   # Kwaliteitspoort vóór élke ZAD-deploy: geen cluster-capaciteit (en geen review-ruis van een
-  # "geslaagde" preview) verspillen aan een revisie die de tests/kwaliteitsgates niet haalt. De
-  # functionele checks draaien in aparte workflows (Test, detekt, Pin consistency, ClusterFuzzLite),
-  # dus we kunnen er niet via `needs` aan hangen — vandaar dat we hun check-runs op dezelfde
-  # head-SHA pollen.
-  # De fuzz-check ('PR', cflite_pr.yml) hoort erbij: een nog lopende fuzzer of een gevonden crash
-  # mag niet ingehaald worden door een preview-deploy. Die check bestaat echter ALLEEN op
-  # pull_request-events; op push-naar-main draait cflite_pr niet, dus daar zou 'PR' eeuwig
-  # 'afwezig' zijn en de gate tot de timeout laten falen. Daarom staat 'PR' alleen in de set bij
-  # een pull_request (conditionele REQUIRED hieronder).
+  # "geslaagde" preview) verspillen aan een revisie die de tests/kwaliteitsgates niet haalt.
+  #
+  # De poort zelf toetst niets — dat doen de checks-jobs hierboven. Hij aggregeert alleen hun
+  # resultaat op één plek, zodat de "overgeslagen telt als OK"-regel één keer bestaat in plaats van
+  # als `always() && ...`-formule op elk van de zes deploy-jobs, met zes kansen op drift.
+  #
   # CodeQL en architecture bewust NIET in de set: CodeQL mag traag of tijdelijk rood zijn (bv.
   # extractor-lag op een nieuwe Kotlin-versie) zonder de preview te blokkeren, en architecture
-  # triggert alleen op docs/architecture-wijzigingen — op een gewone PR verschijnt er geen
-  # check-run ('afwezig'), waardoor de gate anders tot de timeout zou blijven wachten.
+  # triggert alleen op docs/architecture-wijzigingen.
   gate:
-    # Niet op PR-close (teardown, geen deploy) en niet op een docs-only PR (niets te deployen).
-    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
-    needs: changes
+    # `!cancelled()` i.p.v. de impliciete success(): een overgeslagen `checks-fuzz` (push naar main)
+    # zou deze job anders meeslepen in 'skipped' en de deploy stilzwijgend blokkeren. Bij een
+    # geannuleerde run hoeft de poort juist niet meer te oordelen.
+    # Niet op PR-close (teardown, geen deploy) en niet wanneer `changes` de keten heeft
+    # uitgesloten (docs-only of bot-PR) — dan valt er niets te bewaken.
+    if: >-
+      !cancelled()
+      && (github.event_name == 'push'
+          || (github.event.action != 'closed' && needs.changes.outputs.run == 'true'))
+    needs: [changes, checks-test, checks-detekt, checks-pins, checks-fuzz]
     runs-on: ubuntu-latest
-    permissions:
-      checks: read
+    timeout-minutes: 5
     steps:
-      - name: Wacht tot de verplichte checks slagen
+      - name: Beoordeel de verplichte checks
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          # PR: de branch-head (waar de sibling-workflows hun checks aan hangen). Push naar
-          # main: de push-SHA. Bij push is de pull_request-context leeg → valt terug op github.sha.
-          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          # Exacte check-namen: Test-workflow → 'test', detekt.yml → 'detekt-gate',
-          # pin-consistency.yml → 'infra-image-pins', cflite_pr.yml → 'PR' (fuzz, alleen op PR).
-          REQUIRED: ${{ (github.event_name == 'pull_request' && 'test detekt-gate infra-image-pins PR') || 'test detekt-gate infra-image-pins' }}
-          # ~2× de typische `test`-duur (~7 min incl. Testcontainers) als marge voor een trage
-          # runner; fail-closed, dus liever iets ruimer dan een op-zich-groene build blokkeren.
-          TIMEOUT_SECONDS: '900'
-          POLL_SECONDS: '15'
+          # Naam=resultaat per verplichte check. De namen zijn die van de check-runs zoals ze in
+          # de PR verschijnen, niet de job-id's — dit is wat een lezer van het logboek zoekt.
+          # De fuzz-check hoort er alleen bij op een pull_request; op een push naar main is hij
+          # per definitie afwezig en zou hij elke run een 'overgeslagen'-waarschuwing opleveren.
+          RESULTATEN: |
+            test=${{ needs.checks-test.result }}
+            detekt-gate=${{ needs.checks-detekt.result }}
+            infra-image-pins=${{ needs.checks-pins.result }}
+            ${{ github.event_name == 'pull_request' && format('PR={0}', needs.checks-fuzz.result) || '' }}
         run: |
           set -euo pipefail
-          # REQUIRED komt uit de job-`env` hierboven; shellcheck ziet die bron niet en denkt
-          # dat het een misspelling van de lokale `required`-array is (SC2153).
-          # shellcheck disable=SC2153
-          read -ra required <<< "$REQUIRED"
-          deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+          geblokkeerd=0
 
-          while :; do
-            pending=()
+          while IFS='=' read -r naam resultaat; do
+            [ -n "$naam" ] || continue
 
-            for name in "${required[@]}"; do
-              # Server-side op naam filteren én alle pagina's mergen: op een drukke PR staan er
-              # (met reruns) makkelijk >100 check-runs op de SHA. Eén ongepagineerde pagina zou
-              # de nieuwste run kunnen missen en stil een oudere conclusie kiezen. Nieuwste =
-              # hoogste `id` (monotoon; `started_at` is null zolang een rerun nog queued is en
-              # zou dan verkeerd vooraan sorteren).
-              if ! entry=$(gh api --paginate \
-                    "repos/$REPO/commits/$SHA/check-runs?check_name=$name&per_page=100" \
-                    --jq '.check_runs[]' | jq -sc 'sort_by(.id) | last // empty'); then
-                echo "::warning::Ophalen van check-runs voor '$name' faalde — retry over ${POLL_SECONDS}s."
-                entry=""
-              fi
+            case "$resultaat" in
+              success)
+                echo "Verplichte check '$naam' geslaagd."
+                ;;
+              skipped)
+                # Legitiem wanneer de check zichzelf heeft overgeslagen via zijn eigen
+                # relevantie-filter: de fuzz-`PR` bij een niet-fuzz-relevante wijziging of op een
+                # push naar main, of een docs-only wijziging. (Een docs-only PR bereikt deze poort
+                # niet eens — dan is de deploy zelf al overgeslagen.) Luid loggen zodat een
+                # onbedoelde overslag auditbaar is i.p.v. stil als 'groen' doortelt.
+                echo "::warning::Verplichte check '$naam' is overgeslagen — als OK geteld (check overgeslagen via eigen relevantie-filter)."
+                ;;
+              *)
+                echo "::error::Verplichte check '$naam' eindigde als '$resultaat' — deploy geblokkeerd."
+                geblokkeerd=1
+                ;;
+            esac
+          done <<< "$RESULTATEN"
 
-              if [ -z "$entry" ]; then
-                pending+=("$name(afwezig)")
-                continue
-              fi
+          if [ "$geblokkeerd" -ne 0 ]; then
+            exit 1
+          fi
 
-              status=$(jq -r '.status' <<< "$entry")
-
-              if [ "$status" != "completed" ]; then
-                pending+=("$name($status)")
-                continue
-              fi
-
-              conclusion=$(jq -r '.conclusion // ""' <<< "$entry")
-
-              case "$conclusion" in
-                success) ;;
-                skipped|neutral)
-                  # Alleen legitiem als de check bewust is overgeslagen door zijn eigen
-                  # relevantie-filter: de fuzz-`PR` bij een niet-fuzz-relevante wijziging, of een
-                  # paths-gated check zonder rakende bestanden. (Een docs-only PR bereikt deze gate
-                  # niet — dan is de deploy zelf al overgeslagen.) Luid loggen zodat een onbedoelde
-                  # overslag auditbaar is i.p.v. stil als 'groen' doortelt.
-                  echo "::warning::Verplichte check '$name' concludeerde '$conclusion' — als OK geteld (check overgeslagen via eigen relevantie-filter)."
-                  ;;
-                *)
-                  echo "::error::Verplichte check '$name' concludeerde '$conclusion' — deploy geblokkeerd."
-                  exit 1
-                  ;;
-              esac
-            done
-
-            if [ "${#pending[@]}" -eq 0 ]; then
-              echo "Alle verplichte checks groen ($REQUIRED) op $SHA — deploy vrijgegeven."
-              exit 0
-            fi
-
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::Timeout na ${TIMEOUT_SECONDS}s — nog niet afgerond: ${pending[*]}"
-              exit 1
-            fi
-
-            echo "Wachten op: ${pending[*]} — opnieuw over ${POLL_SECONDS}s"
-            sleep "$POLL_SECONDS"
-          done
+          echo "Alle verplichte checks groen — deploy vrijgegeven."
 
   # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
   # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
@@ -351,6 +433,14 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Eén ZAD-taak tegelijk op deze deployment; een nieuwe push wacht op de lopende i.p.v. die af
+    # te breken — een halverwege afgebroken ZAD-deploy laat de deployment in een inconsistente
+    # staat achter. De cleanup-job voor hetzelfde project + dezelfde PR deelt deze groep, zodat een
+    # PR-close een lopende deploy niet onder handen wegtrekt.
+    concurrency:
+      group: zad-uitvraag-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
@@ -381,6 +471,10 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: zad-externe-stubs-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
@@ -404,6 +498,10 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: zad-magazijnen-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
@@ -422,16 +520,22 @@ jobs:
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
 
-  # Opruimen bij PR-sluiten: per project een eigen (parallelle) job, elk ruimt zijn eigen
-  # deployment + ÓNZE images op. De GitHub-environment (één per PR) ruimt alleen de
-  # uitvraag-job op; de andere zetten delete-github-env uit.
+  # Opruimen bij PR-sluiten: per project een eigen (parallelle) job die zijn eigen deployment
+  # opruimt. De GitHub-environment (één per PR) ruimt alleen de uitvraag-job op; de andere
+  # zetten delete-github-env uit. De images gaan in één aparte job (cleanup-preview-images):
+  # de `delete-container`-stap van zad-actions verwijdert precies één exacte tag per package,
+  # en een PR heeft er sinds de unieke tags één per commit.
   cleanup-preview-uitvraag:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    needs: meta
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Zelfde groep als de deploy-job van dit project + deze PR: opruimen mag een lopende deploy
+    # niet onder handen wegtrekken.
+    concurrency:
+      group: zad-uitvraag-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
       deployments: write
-      packages: write
       pull-requests: write
     steps:
       # Pre-flight: een ontbrekende GH_ADMIN_TOKEN zou de env-/deployment-cleanup pas
@@ -452,19 +556,16 @@ jobs:
           deployment-name: pr-${{ github.event.pull_request.number }}
           delete-github-env: 'true'
           delete-github-deployments: 'true'
-          delete-container: 'true'
-          containers: |
-            [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenuitvraag", "tag": "${{ needs.meta.outputs.tag }}"}
-            ]
+          delete-container: 'false'
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
 
   cleanup-preview-externe-stubs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    needs: meta
     runs-on: ubuntu-latest
-    permissions:
-      packages: write
+    timeout-minutes: 15
+    concurrency:
+      group: zad-externe-stubs-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     steps:
       - name: Cleanup externe-stubs-project
         uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
@@ -473,18 +574,15 @@ jobs:
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
           deployment-name: pr-${{ github.event.pull_request.number }}
           delete-github-env: 'false'
-          delete-container: 'true'
-          containers: |
-            [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-externe-stubs", "tag": "${{ needs.meta.outputs.tag }}"}
-            ]
+          delete-container: 'false'
 
   cleanup-preview-magazijnen:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    needs: meta
     runs-on: ubuntu-latest
-    permissions:
-      packages: write
+    timeout-minutes: 15
+    concurrency:
+      group: zad-magazijnen-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     steps:
       - name: Cleanup magazijnen-project
         uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
@@ -493,11 +591,79 @@ jobs:
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
           deployment-name: pr-${{ github.event.pull_request.number }}
           delete-github-env: 'false'
-          delete-container: 'true'
-          containers: |
-            [
-              {"org": "${{ needs.meta.outputs.owner }}", "name": "fbs-berichtenmagazijn", "tag": "${{ needs.meta.outputs.tag }}"}
-            ]
+          delete-container: 'false'
+
+  # Ruimt ALLE images van de PR op: één ghcr-versie per commit, niet alleen de laatste. De
+  # tags van deze PR zijn te herkennen aan de prefix `pr-<n>-`; het afsluitende koppelteken
+  # is essentieel, anders zou het sluiten van PR 16 de images van PR 168 meenemen.
+  #
+  # Bewust niet de `delete-container`-stap van zad-actions: die verwijdert één exacte tag, wat
+  # met unieke tags per commit alle tussenversies zou laten staan. Ook bewust géén
+  # package-brede fallback bij "cannot delete the last tagged version" (die de action wél
+  # heeft): dat zou een preview-cleanup het hele package laten verwijderen inclusief de
+  # main-images. De `main-<sha7>`-tags zorgen ervoor dat die situatie zich niet voordoet.
+  #
+  # RACE bij sluiten tijdens een lopende build (~85 s venster): sinds de workflow-brede
+  # concurrency naar job-niveau verhuisde (#173) wachten de jobs van een close-run niet meer op
+  # een nog draaiende build van een eerdere push. Sluit iemand de PR vlak na een push, dan kan
+  # deze sweep vóór die push af zijn en blijft één ghcr-versie achter. De build-jobs joinen niet
+  # in deze groep, want ze hebben er per service al één (anders zouden ze elkaar blokkeren).
+  # Gevolg is één weesversie, geen kapotte deploy; opruimen kan door deze job te herdraaien.
+  cleanup-preview-images:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      packages: write
+    steps:
+      - name: Verwijder de ghcr-versies van deze PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG: ${{ needs.meta.outputs.owner }}
+          PREFIX: pr-${{ github.event.pull_request.number }}-
+          # Overgangsgeval: PR's die al liepen vóór de unieke tags bestonden, hebben nog een
+          # kale `pr-<n>`-versie in ghcr staan. Die valt niet onder de prefix, dus expliciet
+          # meenemen — anders blijft hij achter zodra zo'n PR sluit.
+          LEGACY_TAG: pr-${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          fail=0
+
+          # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
+          # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
+          # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
+          # de `build`-matrix en `build-externe-stubs`; een vergeten package laat weesversies
+          # achter.
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs; do
+            if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
+              echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
+              fail=1
+              continue
+            fi
+
+            # --paginate levert per pagina een eigen array; jq verwerkt ze als losse inputs.
+            ids=$(printf '%s' "$versions" | jq -r --arg p "$PREFIX" --arg legacy "$LEGACY_TAG" \
+              '.[] | select(.metadata.container.tags | any(startswith($p) or . == $legacy)) | .id')
+
+            if [ -z "$ids" ]; then
+              echo "$pkg: geen versies met tag $LEGACY_TAG of prefix $PREFIX."
+              continue
+            fi
+
+            for id in $ids; do
+              if gh api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE; then
+                echo "$pkg: versie $id verwijderd."
+              else
+                echo "::warning::$pkg: versie $id niet verwijderd."
+                fail=1
+              fi
+            done
+          done
+
+          # Achterblijvende images zijn geen reden om de PR-afsluiting te blokkeren, maar het
+          # moet wel als rode job zichtbaar zijn — anders groeit de ghcr-berg ongemerkt door.
+          exit "$fail"
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
@@ -505,6 +671,12 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Eén ZAD-taak tegelijk op de `test`-deployment van dit project; twee snel opeenvolgende merges
+    # naar main mogen elkaars deploy niet halverwege afbreken.
+    concurrency:
+      group: zad-uitvraag-test
+      cancel-in-progress: false
     permissions:
       contents: read
     environment:
@@ -526,6 +698,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: zad-externe-stubs-test
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
@@ -545,6 +721,11 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Dekt ook de tweede stap (deployment `fsc-magazijna`) — die hoort bij hetzelfde project.
+    concurrency:
+      group: zad-magazijnen-test
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
