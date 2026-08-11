@@ -12,7 +12,9 @@ het cert-contract).
 
 ## Benodigdheden
 
-- **Docker** + `docker compose` (v2).
+- **Docker** + `docker compose` (v2). Onder **rootless podman** stapel je
+  `deploy/local/docker-compose.podman.yaml` erop — zie de podman-eisen onder
+  [Troubleshooting](#troubleshooting).
 - Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
   `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
   faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
@@ -35,7 +37,8 @@ cd -
 cp deploy/local/.env.example deploy/local/.env
 printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env
 
-# 3. Start de stack.
+# 3. Start de stack. Onder rootless podman: hang er
+#    `-f deploy/local/docker-compose.podman.yaml` achter, in élk compose-commando hieronder.
 docker compose -f deploy/local/docker-compose.yaml up -d
 sleep 20 && docker compose -f deploy/local/docker-compose.yaml ps
 
@@ -67,7 +70,8 @@ docker compose -f deploy/local/docker-compose.yaml down -v
   `fsc_directory`, `fsc_magazijn_a`, `fsc_controller_magazijn_a`, `fsc_txlog_magazijn_a`.
 - **router** (haproxy) — SNI-passthrough op `:443` naar `manager-directory`,
   `manager-magazijn-a` en `inway-magazijn-a`.
-- **manager-directory** + **directory-ui** (`http://localhost:8080`, geen login) — de lokale
+- **manager-directory** + **directory-ui** (`http://localhost:8080`, geen login; onder de
+  hostnet-overlay `8081`) — de lokale
   FSC-directory (`AUTO_SIGN_GRANTS=servicePublication,delegatedServicePublication`).
 - **migrate-magazijn-a**, **manager-magazijn-a** — de manager van de peer (announce, token- en
   contractendpoints).
@@ -92,7 +96,12 @@ provider-only-harness.
 | `smoke-announce.sh` | `magazijn-a` (OIN `00000000000000100000`) staat in `peers.peers` met een `manager_address` op `:443`. |
 | `publish-service.sh` | `berichtenmagazijn` is aangemaakt op de controller + gepubliceerd via een `servicePublication`-contract op de manager. Idempotent. |
 | `smoke-discover.sh` | `berichtenmagazijn` is vindbaar in de directory-catalogus voor de magazijn-OIN. |
-| `run-smokes.sh` | Draait de drie bovenstaande in volgorde. |
+| `smoke-services.sh` | Elke langlopende service draait en elke migrate-job is afgerond. |
+| `run-smokes.sh` | Draait de vier bovenstaande in volgorde. |
+
+`smoke-services.sh` vangt wat de andere drie missen: componenten die crash-loopen zonder dat het
+gebruikte pad erlangs komt. Txlog en stub-upstream worden door geen enkele smoke aangeroepen, dus
+zonder deze statuscheck zouden ze dood kunnen zijn bij een groene keten.
 
 `smoke-discover.sh` bevraagt de **mesh-API** van de eigen manager
 (`GET /v1/peers/{dir}/services?peer_id={provider}` op de Internal-API `:9443`, met het
@@ -101,12 +110,73 @@ opgevraagd, niet uit een `services`-tabel gelezen. Dit spiegelt repo A's bewezen
 `smoke-publish.sh`. Announce en publish zijn lokaal groen bevonden; discover draait via deze
 mesh-API-methode.
 
+## Podman zonder bridge-netwerk
+
+Draait podman zélf in een container, dan kan netavark geen bridge opzetten (`failed to set
+autoconf sysctl: Permission denied` — `/proc/sys` is daar niet schrijfbaar) en ontbreekt
+`aardvark-dns`, waardoor geen enkele containernaam resolvet. De overlay
+`docker-compose.podman-hostnet.yaml` laat alle containers dan de netns van de aanroeper delen:
+
+```bash
+docker compose -f deploy/local/docker-compose.yaml \
+               -f deploy/local/docker-compose.podman.yaml \
+               -f deploy/local/docker-compose.podman-hostnet.yaml up -d
+./deploy/local/run-smokes.sh
+```
+
+**Elk verder compose-commando heeft dezelfde drie `-f`'s nodig** — `up`, `down`, `restart`,
+`--force-recreate`. Met één `-f` rendert compose de services opnieuw uit alleen de basis en draait
+hij je stilletjes terug naar bridge. De smokes en `publish-service.sh` zijn wél veilig met één
+`-f`: die gebruiken uitsluitend `exec`, `logs` en `ps`, en die zoeken containers op projectnaam
+plus servicelabel zonder de servicespec opnieuw te renderen.
+
+`!reset` vereist Compose **≥ 2.24.4**; oudere versies struikelen over de YAML-tag met een fout die
+niet naar de oorzaak wijst. `podman-compose` (mét streepje) ondersteunt het niet.
+
+Wat de overlay verandert — de poorten zijn container-listeners, niet host-publicaties:
+
+| | Bridge (basis) | Hostnet-overlay |
+|---|---|---|
+| Naamresolutie | netwerk-`aliases` | `extra_hosts` naar `127.0.0.1` |
+| Bind-adres | `0.0.0.0` in een eigen netns; twee poorten op `127.0.0.1` gepubliceerd | overal `127.0.0.1` |
+| manager directory | `8443` / `9443` / `9444` | `18443` / `19443` / `19444` |
+| manager magazijn-a | `8443` / `9443` / `9444` | `28443` / `9443` / `29444` |
+| controller | registratie `9443`, administratie `9444` | `39443`, administratie blijft `9444` |
+| txlog | `9443` | `49443` |
+| inway | `8443` | `8443` |
+| stub-upstream | `8080` | `8080` |
+| controller-UI | `8080`, host-poort `8090` | `8090` |
+| directory-UI | `8080`, host-poort `8080` | **`8081`** |
+| monitoring (alle componenten) | `8080` / `8081` | `18080`, `28080`, `38081`, `48081`, `8444`, `8082` |
+| postgres-healthcheck | aanwezig | vervalt; wachters op `service_started` |
+| router-config | `haproxy.cfg` (runtime-DNS) | `haproxy.podman-hostnet.cfg` (vaste adressen) |
+
+De interne manager-poort `9443` en de controller-administratie `9444` blijven bewust staan:
+`publish-service.sh` en `smoke-discover.sh` hebben die adressen hard staan. De controller-UI houdt
+zijn vertrouwde URL doordat de host-poort `8090` hier de container-poort wordt. De directory-UI is
+de enige met een nieuwe URL, want `stub-upstream` moet `8080` houden — die poort staat hard in
+`publish-service.sh` als endpoint-URL van de gepubliceerde dienst.
+
+Drie beperkingen:
+
+- **Niet tegelijk met logius' harness.** Beide overlays gebruiken dezelfde poortindeling, dus ze
+  botsen over de hele linie — niet alleen op `:443`. Onder bridge kan het wel, want elk
+  compose-project krijgt een eigen netwerk.
+- **De harness deelt de poortruimte met je machine.** Draait er al iets op `:5432`, dan bindt de
+  harness-postgres niet en praten alle componenten tegen die vreemde database; je ziet dat als
+  ontbrekende `fsc_*`-databases in de smoke-logs. Hetzelfde geldt voor `:443` en de UI-poorten.
+- **Faalt een container tijdens de eerste `up`,** dan blijft hij in status `Created` achter en
+  geeft elke volgende `up` `write /proc/<pid>/uid_map: Operation not permitted`. Dat is geen
+  keep-id-probleem — `podman rm -f <container>` en opnieuw `up` lost het op.
+
 ## Troubleshooting
 
 - **Container kan cert niet vinden** → controleer dat `pki/out/magazijn-a/<endpoint>/` en
   `pki/internal/magazijn-a/<endpoint>/` bestaan (na `./pki/issue.sh`); paden moeten
   matchen met de compose-env.
-- **`permission denied` op `key.pem` bij boot** → `HOST_UID`/`HOST_GID` in
+- **`permission denied` op `key.pem` bij boot** → onder rootless podman: de
+  `docker-compose.podman.yaml`-overlay ontbreekt in het commando (zie de podman-eisen hieronder).
+  Anders: `HOST_UID`/`HOST_GID` in
   `deploy/local/.env` matchen niet met de eigenaar van de keys. Zet ze met
   `printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env` en
   `docker compose -f deploy/local/docker-compose.yaml up -d --force-recreate`.
@@ -128,6 +198,13 @@ mesh-API-methode.
   - `haproxy.cfg` gebruikt `parse-resolv-conf` in plaats van een vast nameserver-adres: Docker's
     embedded DNS zit op `127.0.0.11`, podman's aardvark-dns op de netwerk-gateway. Met een hard
     adres logt de router `<NOSRV>` en zijn alle backends onbereikbaar.
+  - Stapel `-f deploy/local/docker-compose.podman.yaml` op elk compose-commando. Die overlay zet
+    `userns_mode: "keep-id"` op de cert-lezende services. Rootless podman mapt host-UID 1000 op
+    container-UID 0; zonder keep-id is de UID uit `user:` een subuid die de 0600-privékeys niet
+    mag lezen, en faalt elke container die `/pki` mount bij boot. De regel staat bewust niet in de
+    basis: Docker accepteert alleen een lege `userns_mode` of `host` en weigert op `keep-id`.
+  - Geen bruikbaar bridge-netwerk (podman in een container)? Zie
+    [Podman zonder bridge-netwerk](#podman-zonder-bridge-netwerk) hierboven.
 - **`migrate-*` hangt / `database "…" does not exist`** → `postgres-init.sql` draait alleen bij
   een **vers** volume. Bestaat er al een postgres-volume van een eerdere run? Maak de ontbrekende
   DB eenmalig aan (`... exec -T postgres psql -U postgres -c "CREATE DATABASE <naam>;"`) of

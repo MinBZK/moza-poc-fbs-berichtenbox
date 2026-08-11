@@ -1,0 +1,61 @@
+# Bewaakt dat de podman-overlays van de lokale FSC-harnessen blijven passen op hun basis.
+#
+# De hostnet-overlay spiegelt elke service uit docker-compose.yaml: `network_mode: host`,
+# `extra_hosts` en een botsvrije poort. Voegt iemand een service aan de basis toe zonder de
+# overlay bij te werken, dan vraagt die service het default-netwerk terug — en omdat de overlay
+# dat netwerk met `!reset` weghaalt, valt de hele stack om. Dat faalt pas bij `up`, op de machine
+# van de volgende gebruiker, met een melding die niet naar de oorzaak wijst.
+#
+# Deze guard rendert alleen de merge (geen containers) en controleert dat elke service in het
+# resultaat op de netns van de aanroeper zit. Dat is precies de drift die niemand anders ziet:
+# `config -q` alleen accepteert een halve overlay zonder morren.
+
+name: FSC-harness overlays
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['demo/environment/**']
+  push:
+    branches: [main]
+    paths: ['demo/environment/**']
+
+permissions:
+  contents: read
+
+jobs:
+  hostnet-overlay-dekt-alle-services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Elke service in de hostnet-merge draait op de netns van de aanroeper
+        run: |
+          fail=0
+          for peer in demo/environment/*/deploy/local; do
+            [ -f "$peer/docker-compose.podman-hostnet.yaml" ] || continue
+
+            # PKI_DIR/HOST_UID komen normaal uit .env (gitignored). De waarden doen er niet toe:
+            # `config` rendert alleen, het mount niets en controleert geen paden.
+            merged=$(cd "$peer" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
+              docker compose -f docker-compose.yaml \
+                             -f docker-compose.podman.yaml \
+                             -f docker-compose.podman-hostnet.yaml config --format json)
+
+            mapfile -t missend < <(jq -r '.services | to_entries[]
+              | select(.value.network_mode != "host") | .key' <<<"$merged")
+
+            totaal=$(jq -r '.services | length' <<<"$merged")
+
+            if [ "$totaal" -eq 0 ]; then
+              # Nul services = de merge is leeg of het JSON-schema is gewijzigd; dan meet de
+              # guard niets meer en moet hij luid falen in plaats van stil groen te worden.
+              echo "::error file=$peer/docker-compose.podman-hostnet.yaml::merge levert geen services op — guard kan drift niet meer detecteren."
+              fail=1
+            elif [ "${#missend[@]}" -gt 0 ]; then
+              echo "::error file=$peer/docker-compose.podman-hostnet.yaml::zonder network_mode host in de hostnet-merge: ${missend[*]}. Voeg ze toe aan de overlay (network_mode, extra_hosts en een botsvrije poort)."
+              fail=1
+            else
+              echo "$peer: $totaal/$totaal services op de gedeelde netns."
+            fi
+          done
+          exit "$fail"

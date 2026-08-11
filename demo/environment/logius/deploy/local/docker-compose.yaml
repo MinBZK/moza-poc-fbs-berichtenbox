@@ -1,6 +1,11 @@
 # Lokale FSC-harness: directory + peer logius (manager/outway/inway/controller/txlog)
 # + SNI-router. Bewijst announce zonder productie-infra. Zie README.md voor het cert-contract
 # en de boot-stappen (vereist Docker + gegenereerde certs via `pki/issue.sh`).
+#
+# Twee overlays bouwen hierop voort: docker-compose.podman.yaml (rootless podman) en
+# docker-compose.podman-hostnet.yaml (geen bruikbaar bridge-netwerk). Die tweede spiegelt elke
+# listener-poort en elke netwerk-alias uit dit bestand — voeg je hier een service, een poort of
+# een alias toe, pas hem daar dan mee aan. Niets bewaakt dat automatisch.
 x-manager-image: &manager-image docker.io/federatedserviceconnectivity/manager:${IMAGE_TAG:-v2.5.2}
 x-manager-common-env: &manager-common-env
   LOG_TYPE: local

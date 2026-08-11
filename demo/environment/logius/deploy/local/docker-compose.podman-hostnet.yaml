@@ -1,0 +1,184 @@
+# Overlay op docker-compose.yaml + docker-compose.podman.yaml — vangnet voor omgevingen zonder
+# bruikbaar bridge-netwerk (podman-in-een-container: netavark kan de ipv6-sysctls van de bridge
+# niet zetten en aardvark-dns ontbreekt, dus container-DNS resolvet niet).
+#
+#   docker compose -f deploy/local/docker-compose.yaml \
+#                  -f deploy/local/docker-compose.podman.yaml \
+#                  -f deploy/local/docker-compose.podman-hostnet.yaml up -d
+#
+# Deze overlay hoort altijd bovenop docker-compose.podman.yaml: hij bestaat alleen voor podman, en
+# de keep-id-mapping die de privékeys leesbaar maakt staat daar.
+#
+# Alle containers delen de netns van de aanroeper. De `*.fsc-test.local`-namen komen daarom uit
+# `extra_hosts` in plaats van uit netwerk-aliassen. Ze blíjven nodig: de internal-mTLS-certificaten
+# dragen `manager.logius.fsc-test.local` en broertjes als SAN, dus de adressen platslaan naar
+# 127.0.0.1 zou de hostnaam-verificatie breken. Alleen de poort mag verschuiven, de naam niet.
+#
+# Vijf soorten aanpassing, en alleen deze:
+#
+#  1. `network_mode: host` + `extra_hosts`; de netwerk-aliassen en gepubliceerde poorten uit de
+#     basis worden met `!reset` weggehaald (beide zijn onverenigbaar met een gedeelde netns).
+#  2. Eén netns is één poortruimte, dus botsende listeners krijgen een uniek poortnummer en de
+#     adres-env's die ernaar wijzen volgen. Alleen wat écht botst verhuist; de interne
+#     manager-poort 9443 en de controller-administratie 9444 blijven staan, gelijk aan magazijn-a's
+#     overlay (daar hebben publish-service.sh en smoke-discover.sh die adressen hard staan). De
+#     UI's verhuizen van container-:8080 naar :8081 (directory) en :8091 (controller) — precies de
+#     host-poorten die ze onder bridge al publiceerden, zodat de README-URL's blijven kloppen.
+#     Ook elke `MONITORING_ADDRESS` verhuist; die staan nergens in een adres-env.
+#  3. Alles bindt op 127.0.0.1 in plaats van 0.0.0.0. In een gedeelde netns is `0.0.0.0` élke
+#     interface van de aanroeper, terwijl de basis bewust alleen twee UI-poorten op loopback
+#     publiceerde. Zonder deze regel staan onder meer postgres (postgres/postgres) en de
+#     controller (AUTHN_TYPE=none) open op het netwerk van de machine.
+#  4. Geen postgres-healthcheck: podman draait healthchecks via systemd-timers, en juist in de
+#     omgevingen die deze overlay nodig hebben ontbreekt systemd — de status blijft dan eeuwig
+#     'starting' en `condition: service_healthy` loopt vast. De wachters worden `service_started`
+#     en pollen postgres zelf op via `restart: on-failure`. Die lus krijgt hier een expliciet
+#     maximum: podman herstart zonder backoff, dus een structureel falende migratie zou anders de
+#     hele sessie een core verbranden terwijl de harness er 'nog aan het opstarten' uitziet.
+#  5. De router draait op de hostnet-variant van haproxy.cfg (vaste 127.0.0.1-backends in plaats
+#     van runtime-DNS) en verliest zijn `sysctls`-regel: in een gedeelde netns mag een container
+#     die niet zetten. Dat vereist wel dat de netns van de aanroeper `ip_unprivileged_port_start`
+#     al op 0 heeft staan; zo niet, faalt de router op `bind :443` en resolvet geen enkele
+#     `*.fsc-test.local`-naam meer.
+#
+# Deze harness en die van magazijn-a kunnen in hostnet-modus NIET tegelijk draaien: beide overlays
+# gebruiken bewust dezelfde poortindeling, dus ze botsen op de hele lijst, niet alleen op :443.
+# Onder bridge kan het wel, want elk compose-project krijgt een eigen netwerk.
+x-hosts: &hosts
+  - "directory.fsc-test.local:127.0.0.1"
+  - "logius.fsc-test.local:127.0.0.1"
+  - "manager.logius.fsc-test.local:127.0.0.1"
+  - "controller.logius.fsc-test.local:127.0.0.1"
+  - "txlog.logius.fsc-test.local:127.0.0.1"
+  - "outway.logius.fsc-test.local:127.0.0.1"
+  - "inway.logius.fsc-test.local:127.0.0.1"
+  - "postgres:127.0.0.1"
+
+services:
+  postgres:
+    network_mode: host
+    healthcheck: !reset null
+    # Zonder listen_addresses bindt postgres op alle interfaces van de aanroeper; in de basis was
+    # de DB überhaupt niet van buiten het compose-netwerk bereikbaar.
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+
+  router:
+    network_mode: host
+    networks: !reset null
+    sysctls: !reset null
+    volumes:
+      - ./haproxy.podman-hostnet.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+  manager-directory:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:60
+    environment:
+      LISTEN_ADDRESS_EXTERNAL: 127.0.0.1:18443
+      LISTEN_ADDRESS_INTERNAL: 127.0.0.1:19443
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 127.0.0.1:19444
+      MONITORING_ADDRESS: 127.0.0.1:18080
+    depends_on:
+      postgres:
+        condition: service_started
+
+  migrate-logius:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:60
+    depends_on:
+      postgres:
+        condition: service_started
+
+  manager-logius:
+    network_mode: host
+    networks: !reset null
+    extra_hosts: *hosts
+    environment:
+      # LISTEN_ADDRESS_INTERNAL houdt poort 9443 uit de basis (parity met magazijn-a's overlay).
+      LISTEN_ADDRESS_EXTERNAL: 127.0.0.1:28443
+      LISTEN_ADDRESS_INTERNAL: 127.0.0.1:9443
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 127.0.0.1:29444
+      MONITORING_ADDRESS: 127.0.0.1:28080
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:39443
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:49443
+
+  outway-logius:
+    network_mode: host
+    networks: !reset null
+    extra_hosts: *hosts
+    environment:
+      # MANAGER_INTERNAL_ADDRESS blijft naar 9443 wijzen — die poort verhuist niet.
+      LISTEN_ADDRESS: 127.0.0.1:58443
+      MONITORING_ADDRESS: 127.0.0.1:58081
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:39443
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:49443
+
+  inway-logius:
+    network_mode: host
+    extra_hosts: *hosts
+    environment:
+      # LISTEN_ADDRESS houdt 8443 uit de basis: dat is de backend van de :443-SNI-route, en die
+      # poort botst met niets. De monitoring-poort schuift mee naar de buur-poort.
+      LISTEN_ADDRESS: 127.0.0.1:8443
+      MONITORING_ADDRESS: 127.0.0.1:8444
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:39443
+      MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS: https://manager.logius.fsc-test.local:29444
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:49443
+
+  toolbox:
+    network_mode: host
+    extra_hosts: *hosts
+
+  directory-ui:
+    network_mode: host
+    ports: !reset []
+    extra_hosts: *hosts
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:8081
+      MONITORING_ADDRESS: 127.0.0.1:8082
+
+  migrate-controller-logius:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:60
+    depends_on:
+      postgres:
+        condition: service_started
+
+  controller-logius:
+    network_mode: host
+    networks: !reset null
+    ports: !reset []
+    extra_hosts: *hosts
+    environment:
+      # LISTEN_ADDRESS_ADMINISTRATION_API houdt 9444 en MANAGER_ADDRESS_INTERNAL blijft naar 9443
+      # wijzen; alleen de registration-API botst met de interne manager-poort.
+      LISTEN_ADDRESS_UI: 127.0.0.1:8091
+      LISTEN_ADDRESS_REGISTRATION_API: 127.0.0.1:39443
+      LISTEN_ADDRESS_ADMINISTRATION_API: 127.0.0.1:9444
+      MONITORING_ADDRESS: 127.0.0.1:38081
+
+  migrate-txlog-logius:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:60
+    # De migrate-job erft LISTEN/MONITORING uit het `x-txlog-common-env`-anchor van de basis. Die
+    # waarden (9443/8081) botsen in één netns met de manager resp. de directory-UI, dus ze moeten
+    # ook hier meeverhuizen — ook al opent een `migrate up` die listeners naar verwachting nooit.
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:49443
+      MONITORING_ADDRESS: 127.0.0.1:48081
+    depends_on:
+      postgres:
+        condition: service_started
+
+  txlog-logius:
+    network_mode: host
+    networks: !reset null
+    extra_hosts: *hosts
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:49443
+      MONITORING_ADDRESS: 127.0.0.1:48081
+
+networks: !reset null
