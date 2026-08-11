@@ -28,9 +28,9 @@ PROXIES="$GEN/proxies-host.json"
 trap 'rm -f "$REGISTER.tmp" "$PROXIES.tmp"' EXIT
 
 # In één gedeelde netns bestaan de container-DNS-namen niet; alles loopt over 127.0.0.1 met de
-# poorten uit compose.podman-hostnet.yaml. Beide bestanden worden eerst naar `.tmp` geschreven en
-# pas na de guards naar hun bestemming gekopieerd — een half omgeschreven bestand zou anders door
-# een handmatige compose-start gemount worden.
+# poorten uit compose.podman-hostnet.yaml. Eerst naar `.tmp`: `sed` kan niet uit zijn eigen
+# invoerbestand lezen én erin schrijven, en een falende guard hoort de bestemming onaangeroerd te
+# laten.
 sed 's|http://magazijn-stubs:8080|http://127.0.0.1:8092|g' "$REGISTER" > "$REGISTER.tmp"
 
 sed -e 's|"berichtenmagazijn-a:8090"|"127.0.0.1:8090"|' \
@@ -59,7 +59,7 @@ fi
 # Op de hele waarde toetsen, niet op een substring: een nieuwe container-DNS-naam uit de generator
 # (of een naam waar 127.0.0.1 toevallig in voorkomt) zou anders ongemerkt blijven staan.
 if grep -E '^magazijnen\."[^"]*"\.url=' "$REGISTER.tmp" |
-   grep -vE '=http://127\.0\.0\.1:[0-9]+' >&2; then
+   grep -vE '=http://127\.0\.0\.1:[0-9]+(/[^[:space:]]*)?$' >&2; then
     echo "FOUT: bovenstaande register-URL's wijzen niet naar 127.0.0.1; vul de sed-regel aan." >&2
     exit 1
 fi
@@ -93,7 +93,8 @@ if grep -o '"listen": *"[^"]*"' "$PROXIES.tmp" |
 fi
 
 # Met `cat` naar de bestemming, niet met `mv`: compose mount beide bestanden als lós bestand, en
-# een vervangen inode laat een draaiende container naar het oude bestand blijven kijken.
+# een vervangen inode laat een draaiende container naar het oude bestand blijven kijken. Prijs
+# daarvan: dit schrijven is niet atomair, dus een crash middenin laat een half bestand achter.
 cat "$REGISTER.tmp" > "$REGISTER"
 cat "$PROXIES.tmp" > "$PROXIES"
 

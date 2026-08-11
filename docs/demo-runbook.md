@@ -64,8 +64,9 @@ DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-
 
 Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
 controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
-zijn, genereert de stub-artefacten, en wacht tot elke container draait. De infra en de vier
-services worden daarna ook functioneel gepolld.
+zijn, genereert de stub-artefacten, en wacht tot elke container draait. Redis, beide Postgres,
+ClickHouse, de profiel- en magazijn-stubs, Toxiproxy en de vier services worden daarna ook
+functioneel gepolld.
 
 Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
 
@@ -85,11 +86,12 @@ wachtwoord of met het demo-wachtwoord. Draai deze modus dus alleen op een vertro
 poorten die `compose.yaml` publiceert, waaronder beide Postgres-instanties, binden ook in
 `bridge` al op alle interfaces.)
 
-Botst een van die poorten met iets dat al draait, dan meldt het script bij een koude start welke
-poorten bezet zijn en stopt het; draait de stack al, dan is die controle uitgeschakeld zodat een
-herstart gewoon werkt. De overlay haalt de gepubliceerde poorten en de healthchecks met `!reset`
-weg; dat vereist compose v2.24.4 of nieuwer en werkt niet met `podman-compose`. Het script toetst
-dat door de samengestelde configuratie te laten renderen vóór er iets start.
+Botst een van die poorten met iets dat al draait, dan stopt de betreffende container en meldt het
+script welke dat is, mét het containerlog waarin de bezette poort staat. De overlay haalt de
+gepubliceerde poorten en de healthchecks met `!reset` weg; dat vereist compose v2.24.4 of nieuwer
+en werkt niet met `podman-compose`. Het script rendert daarom eerst de samengestelde configuratie
+en controleert dat er geen gepubliceerde poort meer in staat — een implementatie die de tag
+negeert in plaats van toepast, valt daar door de mand.
 
 Afsluiten met dezelfde socket en dezelfde overlays als het script gebruikte:
 

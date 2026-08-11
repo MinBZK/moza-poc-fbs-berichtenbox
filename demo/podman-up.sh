@@ -37,13 +37,6 @@ DEMO_IMAGES=(
     localhost/fbs-demo/fbs-demo-console:demo
 )
 
-# Best-effort preflight: botst een poort in de gedeelde netns, dan start die container niet en
-# beantwoordt de reeds draaiende host-service de probe alsof alles goed ging. De lijst is niet
-# uitputtend — hij dekt wat we kennen uit compose en toxiproxy/proxies.json, plus de vier poorten
-# die ClickHouse zelf opent (8123 http, 9000 native, 9004 mysql, 9005 postgres, 9009 interserver).
-HOSTNET_POORTEN=(5432 5433 6379 8081 8082 8083 8084 8086 8089 8090 8091 8092 8095 8123
-                 9000 9004 9005 9009 16379 18084 18086 18089 18090 18091)
-
 # --- gereedschap en podman-socket bepalen -----------------------------------------------------
 
 for gereedschap in podman curl; do
@@ -72,7 +65,7 @@ if [ -z "${DOCKER_HOST:-}" ]; then
         # `--time=0` houdt de service draaien ná dit script, zodat een latere `… down` dezelfde
         # socket vindt. Het log blijft staan: zonder die uitvoer is een mislukte start (subuid,
         # storage.conf, bezette socket) niet te diagnosticeren.
-        SERVICE_LOG="$(mktemp)"
+        SERVICE_LOG="$(mktemp -t podman-service.XXXXXX)"
         podman system service --time=0 "unix://$SOCK" >"$SERVICE_LOG" 2>&1 &
         for _ in $(seq 1 20); do [ -S "$SOCK" ] && break; sleep 0.5; done
 
@@ -117,7 +110,7 @@ fi
 kan_bridge() {
     local net="fbs-netprobe-$$-${RANDOM}" log ok=1
 
-    log="$(mktemp)"
+    log="$(mktemp -t netprobe.XXXXXX)"
 
     probe_opruimen() {
         podman rm -f "${net}-doel" >/dev/null 2>&1 || true
@@ -175,8 +168,9 @@ if [ -z "$MODUS" ]; then
 
     # Buiten Linux draait podman in een VM; een gedeelde netns is dan die van de VM en niet die
     # van de host, zodat er zonder gepubliceerde poorten niets doorkomt. Hostnet is daar dus geen
-    # bruikbaar vangnet en wordt nooit automatisch gekozen. Zonder podman-runtime is de probe
-    # betekenisloos, dus dan houden we het ook op bridge.
+    # bruikbaar vangnet en wordt nooit automatisch gekozen. Draait de stack op een andere engine
+    # dan podman, dan geldt hetzelfde: hostnet bestaat alleen voor kapotte podman-netwerken, en de
+    # probe hieronder zou een engine beoordelen die de stack niet draait.
     if [ "$(uname -s)" != "Linux" ] || [ "$PODMAN_RUNTIME" -eq 0 ]; then
         MODUS=bridge
     elif kan_bridge; then
@@ -198,17 +192,20 @@ fi
 
 C+=(--profile demo)
 
-# Toets het gedrag, niet het versienummer: `version --short` geeft bij een externe compose-provider
-# de versie van de provider (podman) terug en zegt dan niets over de ondersteunde spec. Struikelt
-# een implementatie over `!reset`, dan blijkt dat hier — vóór er iets gestart is.
-if ! MERGEFOUT="$("${C[@]}" config -q 2>&1)"; then
+# Toets de uitkomst, niet het versienummer en niet of het parset: `version --short` geeft bij een
+# externe compose-provider een versie die niets over de ondersteunde spec zegt, en een onbekende
+# YAML-tag wordt door sommige implementaties stilzwijgend genegeerd in plaats van geweigerd. Dus
+# renderen en kijken of `!reset` écht is toegepast — blijft er een gepubliceerde poort staan naast
+# `network_mode: host`, dan mislukt de start pas verderop en zonder bruikbare melding.
+if ! RENDER="$("${C[@]}" config 2>&1)"; then
     echo "Deze compose kan de gestapelde bestanden niet verwerken:" >&2
-    printf '%s\n' "$MERGEFOUT" >&2
+    printf '%s\n' "$RENDER" >&2
+    exit 1
+fi
 
-    if [ "$MODUS" = "hostnet" ]; then
-        echo "hostnet gebruikt \`!reset\`; dat vraagt compose v2.24.4+ en kent podman-compose niet." >&2
-    fi
-
+if [ "$MODUS" = "hostnet" ] && printf '%s\n' "$RENDER" | grep -q 'published:'; then
+    echo "Deze compose past \`!reset\` niet toe: er blijven gepubliceerde poorten staan." >&2
+    echo "hostnet vraagt compose v2.24.4 of nieuwer; podman-compose kan dit niet." >&2
     exit 1
 fi
 
@@ -239,43 +236,33 @@ if [ "$PODMAN_RUNTIME" -eq 1 ]; then
     fi
 fi
 
-# Connect-probe via bash zelf: `ss`/`lsof` ontbreken juist in de kale images waarvoor hostnet
-# bedoeld is, en een preflight die zichzelf stil overslaat is geen preflight.
-poort_bezet() {
-    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
-}
-
-# Alleen zinvol bij een koude start: draait het project al, dan zijn de eigen containers de
-# bezetters en zou de preflight een gewone herstart blokkeren.
-if [ "$MODUS" = "hostnet" ] && [ -z "$("${C[@]}" ps -q 2>/dev/null)" ]; then
-    BEZET=""
-
-    for poort in "${HOSTNET_POORTEN[@]}"; do
-        if poort_bezet "$poort"; then BEZET="$BEZET $poort"; fi
-    done
-
-    if [ -n "$BEZET" ]; then
-        echo "Deze poorten zijn al bezet en botsen met de gedeelde netns:$BEZET" >&2
-        echo "Stop die processen, of draai de stack in bridge-modus (MODUS=bridge)." >&2
-        exit 1
-    fi
-fi
-
+# Bewijst dat ónze container draait. Dat is in een gedeelde netns de enige betrouwbare controle:
+# een poortprobe daar kan net zo goed beantwoord worden door een service die de gebruiker al had
+# draaien, terwijl onze container op 'address already in use' is gestopt. Het containerlog noemt
+# dan precies welke poort bezet was.
 vereis_draaiend() {
-    local svc uit
+    local svc uit fout
+
+    fout="$(mktemp -t vereis-draaiend.XXXXXX)"
 
     for svc in "$@"; do
-        if ! uit="$("${C[@]}" ps -q --status running "$svc" 2>&1)"; then
-            echo "FOUT: kon de status van '$svc' niet opvragen: $uit" >&2
+        # stderr apart houden: podman schrijft bij elke compose-aanroep een provider-banner naar
+        # stderr, en die zou de leeg-test — de eigenlijke controle — altijd laten slagen.
+        if ! uit="$("${C[@]}" ps -q --status running "$svc" 2>"$fout")"; then
+            echo "FOUT: kon de status van '$svc' niet opvragen: $(tail -3 "$fout")" >&2
+            rm -f "$fout"
             exit 1
         fi
 
         if [ -z "$uit" ]; then
             echo "FOUT: container '$svc' draait niet." >&2
             "${C[@]}" logs --tail=30 "$svc" >&2 || true
+            rm -f "$fout"
             exit 1
         fi
     done
+
+    rm -f "$fout"
 }
 
 # wacht_op <label> <compose-service|-> <commando…>
@@ -284,11 +271,13 @@ wacht_op() {
     shift 2
 
     while :; do
+        # `status=$?` ná een `if` leest de status van het if-statement (altijd 0), niet die van
+        # de conditie; vandaar de else-tak.
         if uitvoer="$("$TIMEOUT_BIN" 10 "$@" 2>&1)"; then
             break
+        else
+            status=$?
         fi
-
-        status=$?
 
         if [ "$SECONDS" -ge "$eind" ]; then
             echo "TIMEOUT: $naam kwam niet omhoog (laatste exit $status)." >&2
@@ -360,7 +349,9 @@ wacht_op "berichtenmagazijn-b" berichtenmagazijn-b curl -sSf --max-time 3 http:/
 wacht_op "uitvraag"            berichtenuitvraag   curl -sSf --max-time 3 http://127.0.0.1:8086/q/health/ready
 wacht_op "console"             demo-console        curl -sSf --max-time 3 http://127.0.0.1:8095/
 
-vereis_draaiend "${SERVICES[@]}"
+# Ook de infra opnieuw: die draagt tijdens het starten van de services de zwaarste last
+# (migraties, vier tegelijk verbindende clients) en is sinds de vorige controle niet meer bekeken.
+vereis_draaiend "${INFRA[@]}" "${SERVICES[@]}"
 
 # Alle probes hierboven lopen over 127.0.0.1; is de demo op een ander adres aangekondigd, dan is
 # dát het adres dat moet werken (firewall, of hostnet in een VM waar niets naar buiten komt).
