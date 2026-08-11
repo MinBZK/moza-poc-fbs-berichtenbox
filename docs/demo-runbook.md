@@ -62,28 +62,34 @@ demo/podman-up.sh                        # kiest zelf de werkbare netwerkmodus
 DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-allowlist
 ```
 
-Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie,
-controleert dat de drie demo-images gebouwd zijn, genereert de stub-artefacten en wacht tot elke
-container draait én antwoordt.
+Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
+controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
+zijn, genereert de stub-artefacten, en wacht tot elke container draait. De infra en de vier
+services worden daarna ook functioneel gepolld.
 
 Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
 
 | Modus | Wanneer | Bestand |
 |---|---|---|
 | `bridge` | normale podman: Linux rootless, of podman machine op macOS/Windows | `compose.podman.yaml` (overlay op `compose.yaml`) |
-| `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (derde overlay, bovenop de twee andere) |
+| `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (derde bestand, bovenop de basis en de podman-overlay) |
 
 Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet` nooit
 automatisch gekozen: podman draait daar in een VM, dus de gedeelde namespace is die van de VM en
 zonder gepubliceerde poorten komt er niets door naar je werkplek.
 
-In `hostnet` delen alle containers één netwerknamespace en luisteren ze op vaste poorten op
-**alle interfaces van de host** — er is geen port-publishing meer die dat kan beperken, dus twee
-Postgres-instanties, ClickHouse en de Toxiproxy-admin-API staan open op elk adres van de machine.
-Draai deze modus alleen op een vertrouwd netwerk. Botst een van die poorten met iets dat al
-draait (een lokale Postgres of Redis), dan stopt het script vóór het starten met de bezette
-poorten erbij. De overlay haalt de gepubliceerde poorten en de healthchecks met `!reset` weg; dat
-vereist compose v2.24.4 of nieuwer, niet `podman-compose` — het script controleert dat.
+In `hostnet` delen alle containers één netwerknamespace. Poorten die in `bridge` alleen intern
+bestonden — ClickHouse' native, MySQL-, PostgreSQL- en interserver-protocol (9000/9004/9005/9009)
+en de zes Toxiproxy-proxy-listeners — staan dan open op elk adres van de machine, zonder
+wachtwoord of met het demo-wachtwoord. Draai deze modus dus alleen op een vertrouwd netwerk. (De
+poorten die `compose.yaml` publiceert, waaronder beide Postgres-instanties, binden ook in
+`bridge` al op alle interfaces.)
+
+Botst een van die poorten met iets dat al draait, dan meldt het script bij een koude start welke
+poorten bezet zijn en stopt het; draait de stack al, dan is die controle uitgeschakeld zodat een
+herstart gewoon werkt. De overlay haalt de gepubliceerde poorten en de healthchecks met `!reset`
+weg; dat vereist compose v2.24.4 of nieuwer en werkt niet met `podman-compose`. Het script toetst
+dat door de samengestelde configuratie te laten renderen vóór er iets start.
 
 Afsluiten met dezelfde socket en dezelfde overlays als het script gebruikte:
 

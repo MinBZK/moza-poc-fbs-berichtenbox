@@ -2,23 +2,21 @@
 # bridge-netwerk (podman-in-een-container: `/proc/sys` is read-only, dus netavark krijgt de
 # sysctls van de bridge niet gezet, en aardvark-dns ontbreekt, dus container-DNS resolvet niet).
 #
-# Start de stack via `demo/podman-up.sh`: deze overlay heeft geen healthchecks meer (zie punt 3),
-# dus een kale `up -d` meldt succes zodra de containers gestart zijn, ook als Postgres nog
-# initialiseert. Het wachtwerk zit in dat script.
+# Start deze modus via `demo/podman-up.sh` — het wachten zit daar, niet in compose (zie punt 3).
 #
-# Alle containers delen de netns van de aanroeper en praten over 127.0.0.1 in plaats van over
-# container-DNS-namen. Images, SELinux-labels en de overige env en mounts blijven uit de twee
-# onderliggende bestanden — hier staan alleen de verschillen.
+# Alle containers delen de netns van de aanroeper. Images, SELinux-labels en de overige env en
+# mounts blijven uit de twee onderliggende bestanden — hier staan alleen de verschillen.
 #
 # Vier soorten aanpassing, en alleen deze:
 #
 #  1. `network_mode: host` met `ports: !reset []`: in een gedeelde netns luistert alles al op de
 #     netns van de aanroeper, en een gepubliceerde poort is daar onverenigbaar mee.
-#  2. Eén netns is één poortruimte, dus botsende listeners krijgen een uniek poortnummer en de
-#     adres-env's die ernaar wijzen volgen. De WireMock-stubs luisteren in de basis allemaal
-#     intern op 8080 en beide magazijnen op 8090; ze krijgen hier hun gepubliceerde poort als
-#     luisterpoort, zodat de poortentabel uit de runbook blijft kloppen. Afwijkend van die tabel:
-#     de dev-stubs op 8081/8082 en de toxiproxy-proxies op 16379/18084/18086/18089/18090/18091.
+#  2. Adressering: elke container-DNS-naam wordt 127.0.0.1, en listeners die daardoor op dezelfde
+#     poort zouden botsen krijgen een uniek poortnummer dat de adres-env's volgen. De
+#     WireMock-stubs luisteren in de basis allemaal intern op 8080 en beide magazijnen op 8090;
+#     ze krijgen hier hun gepubliceerde poort als luisterpoort, zodat de poortentabel uit de
+#     runbook blijft kloppen. Wat niet in die tabel staat, houdt zijn poort uit compose.yaml
+#     (de dev-stubs) respectievelijk toxiproxy/proxies.json (de proxy-listeners).
 #  3. Geen healthchecks en `service_started` als wachtconditie: podman voert healthchecks uit via
 #     systemd-timers, en juist in de omgevingen die deze overlay nodig hebben draait geen systemd
 #     — de status blijft dan eeuwig 'starting' en `condition: service_healthy` loopt vast.

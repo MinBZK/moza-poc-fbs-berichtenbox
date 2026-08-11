@@ -22,63 +22,79 @@ if [ "$MODUS" = "bridge" ]; then
     exit 0
 fi
 
-# In één gedeelde netns bestaan de container-DNS-namen niet; alles loopt over 127.0.0.1 met de
-# poorten uit compose.podman-hostnet.yaml.
 REGISTER="$GEN/magazijnen-stubs.properties"
+PROXIES="$GEN/proxies-host.json"
 
-# Niet met `sed -i`: dat vervangt het inode, terwijl compose dit bestand als lós bestand mount.
-# Een tweede run tegen een draaiende stack zou de container dan naar het verwijderde inode laten
-# kijken en het register stil niet bijwerken.
+trap 'rm -f "$REGISTER.tmp" "$PROXIES.tmp"' EXIT
+
+# In één gedeelde netns bestaan de container-DNS-namen niet; alles loopt over 127.0.0.1 met de
+# poorten uit compose.podman-hostnet.yaml. Beide bestanden worden eerst naar `.tmp` geschreven en
+# pas na de guards naar hun bestemming gekopieerd — een half omgeschreven bestand zou anders door
+# een handmatige compose-start gemount worden.
 sed 's|http://magazijn-stubs:8080|http://127.0.0.1:8092|g' "$REGISTER" > "$REGISTER.tmp"
-cat "$REGISTER.tmp" > "$REGISTER"
-rm -f "$REGISTER.tmp"
 
-# Let op magazijn-b: die luistert in deze variant op 8091, niet op 8090 zoals bij bridge.
 sed -e 's|"berichtenmagazijn-a:8090"|"127.0.0.1:8090"|' \
     -e 's|"berichtenmagazijn-b:8090"|"127.0.0.1:8091"|' \
     -e 's|"redis:6379"|"127.0.0.1:6379"|' \
     -e 's|"profiel-service:8080"|"127.0.0.1:8089"|' \
     -e 's|"notificatie-stub:8080"|"127.0.0.1:8084"|' \
     -e 's|"berichtenuitvraag:8086"|"127.0.0.1:8086"|' \
-    "$WORTEL/toxiproxy/proxies.json" > "$GEN/proxies-host.json.tmp"
+    "$WORTEL/toxiproxy/proxies.json" > "$PROXIES.tmp"
 
-# Guards op de omgeschreven bestanden. Beide tellen éérst wat er te controleren viel: vindt een
-# guard niets — verminkte invoer, hernoemd veld, een `jq`-herformattering die key en waarde op
-# aparte regels zet — dan is 'nul afwijkingen' niet te onderscheiden van 'alles goed' en zou hij
-# stil groen worden op werk dat nooit is gedaan.
-REGEL_URLS="$(grep -cE '^magazijnen\."[^"]+"\.url=' "$REGISTER" || true)"
+# De guards tellen éérst wat ze herkennen. Vinden ze niets — hernoemd veld, verminkte invoer, een
+# formaat waarin het patroon niet meer matcht — dan is 'nul afwijkingen' niet te onderscheiden van
+# 'alles goed' en zou de guard stil groen worden op werk dat nooit is gedaan. Bron en doel worden
+# op dezelfde manier geteld, anders geeft compacte JSON (alles op één regel) een vals alarm.
+tel() {
+    grep -o "$1" "$2" | grep -c . || true
+}
 
-if [ "$REGEL_URLS" -eq 0 ]; then
-    echo "FOUT: geen enkele register-URL gevonden in $REGISTER — guard kan niets borgen." >&2
+REGISTER_URLS="$(tel '^magazijnen\."[^"]*"\.url=[^ ]*' "$REGISTER.tmp")"
+
+if [ "$REGISTER_URLS" -eq 0 ]; then
+    echo "FOUT: geen enkele register-URL herkend in $REGISTER.tmp — guard kan niets borgen." >&2
     exit 1
 fi
 
-# Op de klasse controleren, niet op de ene string die de sed hierboven verving: een nieuwe
-# container-DNS-naam uit de generator zou anders ongemerkt in het register blijven staan.
-if grep -E '^magazijnen\."[^"]+"\.url=' "$REGISTER" | grep -v '=http://127\.0\.0\.1:' >&2; then
+# Op de hele waarde toetsen, niet op een substring: een nieuwe container-DNS-naam uit de generator
+# (of een naam waar 127.0.0.1 toevallig in voorkomt) zou anders ongemerkt blijven staan.
+if grep -E '^magazijnen\."[^"]*"\.url=' "$REGISTER.tmp" |
+   grep -vE '=http://127\.0\.0\.1:[0-9]+' >&2; then
     echo "FOUT: bovenstaande register-URL's wijzen niet naar 127.0.0.1; vul de sed-regel aan." >&2
     exit 1
 fi
 
-BRON_UPSTREAMS="$(grep -c '"upstream"' "$WORTEL/toxiproxy/proxies.json" || true)"
-
-# Tellen wat de guard hieronder daadwerkelijk hérkent, niet hoe vaak het woord voorkomt: zet
-# iemand `proxies.json` met `jq .` om, dan staan sleutel en waarde op aparte regels, matcht het
-# patroon nergens meer en zou de guard nul afwijkingen zien op nul gecontroleerde upstreams.
-DOEL_UPSTREAMS="$(grep -o '"upstream": *"[^"]*"' "$GEN/proxies-host.json.tmp" | grep -c . || true)"
+BRON_UPSTREAMS="$(tel '"upstream": *"[^"]*"' "$WORTEL/toxiproxy/proxies.json")"
+DOEL_UPSTREAMS="$(tel '"upstream": *"[^"]*"' "$PROXIES.tmp")"
+DOEL_LISTENS="$(tel '"listen": *"[^"]*"' "$PROXIES.tmp")"
 
 if [ "$BRON_UPSTREAMS" -eq 0 ] || [ "$DOEL_UPSTREAMS" -ne "$BRON_UPSTREAMS" ]; then
     echo "FOUT: $DOEL_UPSTREAMS van $BRON_UPSTREAMS upstreams herkend — guard kan niets borgen." >&2
     exit 1
 fi
 
-if grep -o '"upstream": *"[^"]*"' "$GEN/proxies-host.json.tmp" | grep -v '127\.0\.0\.1' >&2; then
+if [ "$DOEL_LISTENS" -ne "$BRON_UPSTREAMS" ]; then
+    echo "FOUT: $DOEL_LISTENS listen-adressen bij $BRON_UPSTREAMS upstreams — proxies.json klopt niet." >&2
+    exit 1
+fi
+
+if grep -o '"upstream": *"[^"]*"' "$PROXIES.tmp" |
+   grep -vE '"upstream": *"127\.0\.0\.1:[0-9]+"' >&2; then
     echo "FOUT: bovenstaande toxiproxy-upstreams wijzen niet naar 127.0.0.1; vul de sed-regels aan." >&2
     exit 1
 fi
 
-# Pas hernoemen als de guards slagen: een half geschreven bestand zou anders door een handmatige
-# compose-start gewoon gemount worden.
-mv "$GEN/proxies-host.json.tmp" "$GEN/proxies-host.json"
+# Een listen-adres op een containernaam laadt Toxiproxy niet (`Failed to populate proxies`), en dan
+# staat er een gezonde proxy-loze Toxiproxy die elke naïeve probe groen laat.
+if grep -o '"listen": *"[^"]*"' "$PROXIES.tmp" |
+   grep -vE '"listen": *"(0\.0\.0\.0|127\.0\.0\.1):[0-9]+"' >&2; then
+    echo "FOUT: bovenstaande toxiproxy-listen-adressen zijn geen IP:poort." >&2
+    exit 1
+fi
 
-echo "Klaar (hostnet): $REGEL_URLS register-URL's en $DOEL_UPSTREAMS toxiproxy-upstreams op 127.0.0.1."
+# Met `cat` naar de bestemming, niet met `mv`: compose mount beide bestanden als lós bestand, en
+# een vervangen inode laat een draaiende container naar het oude bestand blijven kijken.
+cat "$REGISTER.tmp" > "$REGISTER"
+cat "$PROXIES.tmp" > "$PROXIES"
+
+echo "Klaar (hostnet): $REGISTER_URLS register-URL's en $DOEL_UPSTREAMS toxiproxy-upstreams op 127.0.0.1."
