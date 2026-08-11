@@ -18,9 +18,42 @@ direct opvalt; enkele hebben geen default en laten de service falen-te-starten
 | `magazijn.publicatie.verwerkingsregister-publiceren` | `application.properties` | AVG art. 30-register-URI voor publicatie-activiteit; wordt aan elke LDV-context gekoppeld | Bean Validation `@URL` + `@NotBlank` |
 | `magazijn.publicatie.verwerkingsregister-aanleveren` | `application.properties` | AVG art. 30-register-URI voor aanlever-activiteit | Bean Validation `@URL` + `@NotBlank` |
 | `magazijn.publicatie.downstreams.<key>.url` | `application.properties` | Eén entry per downstream (Aanmeld, Notificatie, ...). Service faalt-te-starten zonder ≥1 downstream | `PublicatieOutbox.valideerStartConfiguratie` |
-| `LDV_CLICKHOUSE_ENDPOINT` | env var | TLS-endpoint van centrale LDV-ClickHouse; `https://`-only conform BIO 13.2.1 | Geen default in `%prod` — env var ontbreekt = startup-fout |
-| `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD` | env var | LDV-credentials; geen prod-defaults | Idem |
+| `LDV_DBMS` | env var | Backend voor het logboek: `postgresql` (default) of `clickhouse` | Onbekende waarde = startup-fout |
+| `LDV_POSTGRES_URL` | env var | JDBC-URL van het logboek; buiten dev/test verplicht `ssl=true` of `sslmode=require`/`verify-ca`/`verify-full` conform BIO 13.2.1 | Geen default in `%prod`: ontbreekt de env var, dan faalt de expressie-expansie bij boot. Versleutelt de URL niet, dan gooit `LdvEndpointValidator` — **tenzij `fbs.ldv.unsafe-allow-plaintext-endpoint=true`** staat (zie hieronder); dan start de service wél en gaat het BSN in `dpl.core.data_subject_id` plaintext over de lijn |
+| `LDV_POSTGRES_USERNAME`, `LDV_POSTGRES_PASSWORD` | env var | LDV-credentials; geen prod-defaults | Ontbreekt = de wrapper faalt bij de eerste logregel (hij leest de credentials pas bij gebruik), en fail-closed maakt van die verwerking een 500 |
+| `LDV_CLICKHOUSE_ENDPOINT`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD` | env var | Alleen nodig bij `LDV_DBMS=clickhouse`; endpoint is dan `https://`-only | Endpoint leeg of zonder `https://` = startup-fout via `LdvEndpointValidator` — **tenzij `fbs.ldv.unsafe-allow-plaintext-endpoint=true`** (zie hieronder); dan start de service ook met een leeg of plaintext endpoint. De credentials hebben een lege default en worden pas bij de eerste logregel gecontroleerd, niet bij boot |
+| `FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT` | env var | **BEWUST ONVEILIG.** Zet de TLS-eis op het LDV-endpoint uit. Default `false` | Geen faalwijze — dat is precies het punt: de guard laat een plaintext endpoint door en logt alleen een WARNING met het token `OUTBOUND_TLS_DISABLED` |
+| `logboekdataverwerking.span-processor` / `.write-failure-policy` | `application.properties` | Staan vast op `simple` + `fail-closed`. Niet overschrijven: `batch` exporteert op een achtergrondthread (de applicatie ziet dan nooit of de logregel is opgeslagen) en `fail-open` slikt schrijffouten door — beide zetten fail-closed stil uit, en een env var wint van `application.properties` | Elke andere waarde = startup-fout via `LdvFailClosedValidator` (buiten `dev`/`test`) |
 | `quarkus.datasource.jdbc.url`, `quarkus.datasource.username`, `quarkus.datasource.password` | env var | Postgres-connectie | Quarkus datasource-init faalt zonder |
+
+## De onveilige plaintext-override
+
+`fbs.ldv.unsafe-allow-plaintext-endpoint` (env var
+`FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT`) schakelt de TLS-eis op het LDV-endpoint uit.
+Default `false`; **op ZAD staat hij aan**, want de platformdatabase is daar alleen intern
+en zonder TLS bereikbaar.
+
+Wat je opgeeft: het `dataSubjectId` in een logregel kan een BSN bevatten, en dat gaat dan
+onversleuteld over het netwerk (BIO 13.2.1 / AVG art. 32). De guard blokkeert niet meer,
+maar logt bij élke boot een WARNING die begint met het stabiele token
+`OUTBOUND_TLS_DISABLED`.
+
+Alleen verantwoord wanneer aan één van deze voorwaarden is voldaan:
+
+1. het netwerkpad levert zelf transport-security (mesh-mTLS, of een niet-routeerbaar
+   intern segment binnen één cluster), of
+2. er stromen geen echte persoonsgegevens (test-/demodata).
+
+Verplicht bij gebruik: een alert-regel (Loki/SIEM) op `OUTBOUND_TLS_DISABLED`. Zonder die
+regel scrolt de waarschuwing weg en blijft een onbedoeld onversleuteld endpoint
+onopgemerkt — precies het scenario waarin de vlag per ongeluk aan blijft staan nadat het
+netwerk wél TLS kreeg.
+
+**Let op de wisselwerking met de tabel hierboven:** met deze vlag aan is de boot-guard
+géén garantie meer, voor geen van beide backends. Een plaintext `LDV_POSTGRES_URL` start
+gewoon op, en zo ook een leeg of `http://`-`LDV_CLICKHOUSE_ENDPOINT`. Dat laatste is niet
+theoretisch: bij een rollback naar ClickHouse blijft deze vlag volgens het ontwerp
+aanstaan.
 
 ## Tuning-properties (defaults zijn safe maar context-afhankelijk)
 

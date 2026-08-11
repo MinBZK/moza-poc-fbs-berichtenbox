@@ -18,9 +18,10 @@ const val LDV_CONTEXT_DEFAULT_PRIORITY = Priorities.AUTHENTICATION - 100
 
 /**
  * Zet safe defaults op LogboekContext vóór resource-code de echte `dataSubjectId` zet.
- * Voorkomt `IllegalArgumentException` uit `addLogboekContextToSpan` als Bean Validation
- * een request afwijst vóór de resource iets vult, of als de service zelf span-management
- * doet (zoals `AanleverResource`).
+ * Zonder deze defaults levert een request dat vóór de resource sneuvelt — Bean Validation
+ * wijst het af, of de service doet zelf span-management zoals `AanleverResource` — een
+ * logregel op met lege betrokkene-velden, die de wrapper als onvolledige context
+ * wegschrijft met een waarschuwing.
  *
  * Vroege [LDV_CONTEXT_DEFAULT_PRIORITY] zodat latere filters op een gevulde context rekenen.
  */

@@ -25,12 +25,12 @@ De Berichtenbox bestaat uit de volgende onderdelen:
 
 - Java 21+
 - Maven 3.9+ (of gebruik de meegeleverde Maven wrapper `./mvnw`)
-- Docker (voor lokale services: Redis, WireMock, ClickHouse)
+- Docker (voor lokale services: Redis, WireMock, PostgreSQL)
 
 ## Snel starten
 
 ```bash
-# Start lokale services (Redis, WireMock magazijnen, ClickHouse)
+# Start lokale services (Redis, WireMock magazijnen, PostgreSQL)
 docker compose up -d
 ```
 

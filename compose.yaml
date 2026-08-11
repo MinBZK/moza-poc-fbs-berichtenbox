@@ -70,14 +70,23 @@ services:
       - ./wiremock/notificatie-stub/mappings:/home/wiremock/mappings
     command: ["--verbose", "--global-response-templating"]
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:26.7
+  # LDV-logboek van de uitvraag. Elke organisatie voert een eigen verwerkingenlogboek;
+  # de magazijnen schrijven daarom in hun eigen postgres-a/-b, de uitvraag hier.
+  postgres-uitvraag:
+    image: postgres:18
     ports:
-      - "8123:8123"
+      - "5434:5432"
     environment:
-      CLICKHOUSE_USER: ldv
-      CLICKHOUSE_PASSWORD: ldv
-      CLICKHOUSE_DB: ldv_logging
+      POSTGRES_USER: ldv
+      POSTGRES_PASSWORD: ldv
+      POSTGRES_DB: ldv_logging
+    volumes:
+      - postgres-data-uitvraag:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ldv -d ldv_logging"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   postgres-a:
     image: postgres:18
@@ -285,3 +294,4 @@ services:
 volumes:
   postgres-data-a:
   postgres-data-b:
+  postgres-data-uitvraag:

@@ -66,4 +66,64 @@ object OutboundTlsValidator {
                 "(BIO 13.2.1: persoonsgegevens versleuteld over netwerk). Huidige waarde: '$endpoint'"
         }
     }
+
+    /** `sslmode`-waarden die versleuteling garanderen; `prefer` valt stil terug op plaintext. */
+    private val SSLMODES_MET_GARANTIE = setOf("require", "verify-ca", "verify-full")
+
+    /**
+     * Verifieert dat [url] een JDBC-verbinding opzet die daadwerkelijk versleutelt.
+     * De JDBC-vorm heeft geen scheme om op te controleren, dus de check kijkt naar
+     * `ssl=true` of een `sslmode` uit [SSLMODES_MET_GARANTIE].
+     *
+     * Verder identiek aan [requireHttps]: zelfde profielvrijstelling, zelfde
+     * bewust-onveilige override met dezelfde alert-token-waarschuwing.
+     *
+     * @throws IllegalArgumentException als het profiel TLS vereist, de URL geen
+     *   versleuteling garandeert, en de onveilige override niet expliciet aan staat.
+     */
+    fun requireJdbcTls(
+        profile: String,
+        url: String,
+        configKey: String,
+        unsafeAllowPlaintext: Boolean = false,
+    ) {
+        if (profile in PROFIELEN_ZONDER_TLS_EIS) return
+
+        // pgJDBC zet de querystring sequentieel in een Properties-object: bij een dubbele
+        // sleutel wint het laatste voorkomen. `associate` volgt dezelfde last-wins-regel
+        // (een latere entry overschrijft een eerdere bij hetzelfde key), dus de guard
+        // beoordeelt precies de waarde waarmee de driver ook daadwerkelijk verbindt —
+        // anders zou `sslmode=require&sslmode=disable` hier ten onrechte als veilig gelden.
+        val effectieveParameters = url.substringAfter('?', "")
+            .split('&')
+            .associate { parameter ->
+                parameter.substringBefore('=').lowercase() to parameter.substringAfter('=', "")
+            }
+
+        // SslMode.of(Properties) in pgJDBC laat sslmode exclusief de modus bepalen zodra
+        // de property gezet is; ssl wordt alleen geraadpleegd als sslmode ontbreekt. Een
+        // aanwezige maar lege of onbekende sslmode-waarde valt dus niet terug op ssl —
+        // fail-closed, want de driver kiest in dat geval ook niet stilzwijgend voor ssl.
+        val sslmode = effectieveParameters["sslmode"]
+
+        val isVersleuteld = if (sslmode != null) {
+            sslmode.lowercase() in SSLMODES_MET_GARANTIE
+        } else {
+            effectieveParameters["ssl"].equals("true", ignoreCase = true)
+        }
+
+        if (unsafeAllowPlaintext && !isVersleuteld) {
+            log.warning(
+                "$TLS_DISABLED_ALERT_TOKEN: TLS-eis BEWUST uitgeschakeld voor $configKey in profiel " +
+                    "'$profile' — persoonsgegevens (o.a. BSN) gaan PLAINTEXT over het netwerk. Alleen " +
+                    "toegestaan bij mesh-mTLS of zonder echte persoonsgegevens.",
+            )
+        }
+
+        require(isVersleuteld || unsafeAllowPlaintext) {
+            "$configKey MOET een versleutelde verbinding opzetten in profiel '$profile' — " +
+                "gebruik ssl=true of sslmode=require/verify-ca/verify-full " +
+                "(BIO 13.2.1: persoonsgegevens versleuteld over netwerk)."
+        }
+    }
 }
