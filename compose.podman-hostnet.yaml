@@ -2,11 +2,12 @@
 # bridge-netwerk (podman-in-een-container: `/proc/sys` is read-only, dus netavark krijgt de
 # sysctls van de bridge niet gezet, en aardvark-dns ontbreekt, dus container-DNS resolvet niet).
 #
-#   docker-compose -f compose.yaml -f compose.podman.yaml -f compose.podman-hostnet.yaml \
-#                  --profile demo up -d
+# Start de stack via `demo/podman-up.sh`: deze overlay heeft geen healthchecks meer (zie punt 3),
+# dus een kale `up -d` meldt succes zodra de containers gestart zijn, ook als Postgres nog
+# initialiseert. Het wachtwerk zit in dat script.
 #
 # Alle containers delen de netns van de aanroeper en praten over 127.0.0.1 in plaats van over
-# container-DNS-namen. Images, mounts, SELinux-labels en de overige env blijven uit de twee
+# container-DNS-namen. Images, SELinux-labels en de overige env en mounts blijven uit de twee
 # onderliggende bestanden — hier staan alleen de verschillen.
 #
 # Vier soorten aanpassing, en alleen deze:
@@ -14,21 +15,16 @@
 #  1. `network_mode: host` met `ports: !reset []`: in een gedeelde netns luistert alles al op de
 #     netns van de aanroeper, en een gepubliceerde poort is daar onverenigbaar mee.
 #  2. Eén netns is één poortruimte, dus botsende listeners krijgen een uniek poortnummer en de
-#     adres-env's die ernaar wijzen volgen. De vijf WireMock-stubs luisteren in de basis allemaal
-#     intern op 8080, en beide magazijnen op 8090; die krijgen hier hun gepubliceerde poort als
-#     luisterpoort, zodat de URL's uit de runbook blijven kloppen.
-#  3. Geen healthchecks: podman voert die uit via systemd-timers, en juist in de omgevingen die
-#     deze overlay nodig hebben draait geen systemd — de status blijft dan eeuwig 'starting' en
-#     `condition: service_healthy` loopt vast. De wachters worden `service_started`;
-#     `demo/podman-up.sh` wacht zelf actief op Redis, Postgres en Toxiproxy.
-#  4. Toxiproxy krijgt de omgeschreven proxy-definities uit `demo/generated/` (upstreams op
-#     127.0.0.1); `demo/podman-prepare.sh hostnet` genereert die.
-#
-# Poortverdeling binnen de gedeelde netns:
-#   6379 redis · 5432/5433 postgres a/b · 8081/8082 wiremock magazijn a/b (dev-stubs)
-#   8083 aanmeld · 8084 notificatie · 8089 profiel · 8092 magazijn-stubs · 8123 clickhouse
-#   8090/8091 berichtenmagazijn a/b · 8086 uitvraag · 8095 demo-console
-#   8474 toxiproxy-admin · 16379/18084/18086/18089/18090/18091 toxiproxy-proxies
+#     adres-env's die ernaar wijzen volgen. De WireMock-stubs luisteren in de basis allemaal
+#     intern op 8080 en beide magazijnen op 8090; ze krijgen hier hun gepubliceerde poort als
+#     luisterpoort, zodat de poortentabel uit de runbook blijft kloppen. Afwijkend van die tabel:
+#     de dev-stubs op 8081/8082 en de toxiproxy-proxies op 16379/18084/18086/18089/18090/18091.
+#  3. Geen healthchecks en `service_started` als wachtconditie: podman voert healthchecks uit via
+#     systemd-timers, en juist in de omgevingen die deze overlay nodig hebben draait geen systemd
+#     — de status blijft dan eeuwig 'starting' en `condition: service_healthy` loopt vast.
+#  4. Bestanden uit `demo/generated/` wijzen naar 127.0.0.1: de toxiproxy-definities krijgen hier
+#     een eigen bestandsnaam, het magazijnregister wordt onder dezelfde naam herschreven en is
+#     daarom hier niet zichtbaar. `demo/podman-prepare.sh hostnet` maakt beide.
 services:
   redis:
     network_mode: host

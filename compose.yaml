@@ -1,3 +1,6 @@
+# Images volledig gekwalificeerd (`docker.io/…`): Docker vult die prefix impliciet aan, podman
+# alleen met ingestelde `unqualified-search-registries` en faalt anders non-interactief. Nieuwe
+# services dus ook volledig kwalificeren.
 services:
   redis:
     image: docker.io/redis/redis-stack-server:7.4.0-v3
@@ -158,8 +161,9 @@ services:
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_AANMELD_MAX_POGINGEN: "50"
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_NOTIFICATIE_MAX_POGINGEN: "50"
 
-  # Beide magazijn-containers luisteren intern op 8090; alleen de gepubliceerde poort
-  # verschilt. MAGAZIJN_B_URL wijst daarom naar berichtenmagazijn-b:8090, niet naar 8091.
+  # In deze stack luisteren beide magazijn-containers intern op 8090; alleen de gepubliceerde
+  # poort verschilt. MAGAZIJN_B_URL wijst daarom naar berichtenmagazijn-b:8090, niet naar 8091.
+  # (In de gedeelde-netns-variant wijkt b uit naar 8091 — zie compose.podman-hostnet.yaml.)
   berichtenmagazijn-b:
     image: fbs-demo/fbs-berichtenmagazijn:demo
     profiles: [demo]
@@ -230,9 +234,13 @@ services:
       MAGAZIJN_B_URL: http://toxiproxy:18091
       PROFIEL_SERVICE_URL: http://toxiproxy:18089
       LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
-      # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig;
-      # origins staan onder %dev in application.properties. Alleen in het demo-profiel.
+      # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig. Alleen in
+      # het demo-profiel.
       QUARKUS_HTTP_CORS_ENABLED: "true"
+      # De UI leidt de API-host af uit de browser-locatie, dus elk adres waarop de demo geopend
+      # wordt moet hier in de allowlist staan — anders blokkeert de preflight. Zet DEMO_HOST op
+      # het VM- of container-adres; de default localhost dekt de gewone lokale demo.
+      QUARKUS_HTTP_CORS_ORIGINS: "http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095"
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
       BERICHTENSESSIECACHE_TTL: PT2M

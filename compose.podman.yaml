@@ -7,17 +7,15 @@
 #
 #  1. `localhost/`-prefix op de zelf gebouwde images. Jib laadt ze onder `localhost/...`; podman
 #     zoekt een kale `fbs-demo/...` op een registry i.p.v. lokaal.
-#  2. CORS-origin voor de Berichtenbox-UI. Wordt de stack niet op `localhost` geopend maar op een
-#     VM- of container-IP, dan moet die origin in de allowlist van de uitvraag staan. Zet
-#     `DEMO_HOST` op het adres waarop je de demo benadert.
+#  2. `:z` op elke bind-mount. Op Fedora/RHEL met SELinux enforcing krijgt de container zonder
+#     label "permission denied" op de gemounte mappings.
 #
-# De basis-images staan volledig gekwalificeerd in compose.yaml zelf (`docker.io/...`). Docker
-# vult die prefix impliciet aan, podman alleen met `unqualified-search-registries` — en faalt
-# anders non-interactief. Ze hier nog eens overschrijven zou de pins verdubbelen, en de
-# `infra-image-pins`-guard eist één uniforme pin per image over de hele repo.
+# De basis-images staan al volledig gekwalificeerd in compose.yaml (met de reden erbij); ze hier
+# nog eens overschrijven zou dezelfde pin op twee plekken zetten, die bij een Dependabot-bump uit
+# elkaar lopen.
 #
-# SELinux (Fedora/RHEL, enforcing): de bind-mounts krijgen hier `:z` zodat de containers de
-# gemounte mappings mogen lezen. Zonder label krijg je "permission denied" op de WireMock-mappings.
+# De CORS-allowlist staat óók in compose.yaml: de Berichtenbox-UI leidt de API-host af uit de
+# browser-locatie, en dat gedrag is niet podman-specifiek.
 services:
   magazijn-a:
     volumes:
@@ -59,8 +57,6 @@ services:
 
   berichtenuitvraag:
     image: localhost/fbs-demo/fbs-berichtenuitvraag:demo
-    environment:
-      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095"
     volumes:
       - ./demo/generated/magazijnen-stubs.properties:/demo-config/magazijnen-stubs.properties:ro,z
 

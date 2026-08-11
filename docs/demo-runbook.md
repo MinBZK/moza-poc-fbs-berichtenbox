@@ -62,8 +62,9 @@ demo/podman-up.sh                        # kiest zelf de werkbare netwerkmodus
 DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-allowlist
 ```
 
-Het script zoekt de podman-API-socket (start hem zo nodig), kiest `docker-compose`,
-`docker compose` of `podman-compose`, genereert de stub-artefacten en wacht tot alles gezond is.
+Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie,
+controleert dat de drie demo-images gebouwd zijn, genereert de stub-artefacten en wacht tot elke
+container draait én antwoordt.
 
 Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
 
@@ -72,15 +73,25 @@ Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als na
 | `bridge` | normale podman: Linux rootless, of podman machine op macOS/Windows | `compose.podman.yaml` (overlay op `compose.yaml`) |
 | `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (derde overlay, bovenop de twee andere) |
 
-Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. In `hostnet` delen alle containers één
-netwerknamespace en luisteren ze op vaste poorten op `127.0.0.1` — handig als vangnet, maar
-ongeschikt op macOS (zonder published ports komt er niets door naar de host) en op een werkplek
-waar al een Postgres of Redis op de standaardpoorten draait. De overlay haalt de gepubliceerde
-poorten en de healthchecks met `!reset` weg; dat vereist een compose die de Compose-spec van 2024
-of later kent (`docker compose` v2.24+), niet `podman-compose`.
+Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet` nooit
+automatisch gekozen: podman draait daar in een VM, dus de gedeelde namespace is die van de VM en
+zonder gepubliceerde poorten komt er niets door naar je werkplek.
 
-Afsluiten: `docker-compose -f compose.yaml -f compose.podman.yaml --profile demo down`
-(in `hostnet`: met `-f compose.podman-hostnet.yaml` erachteraan).
+In `hostnet` delen alle containers één netwerknamespace en luisteren ze op vaste poorten op
+**alle interfaces van de host** — er is geen port-publishing meer die dat kan beperken, dus twee
+Postgres-instanties, ClickHouse en de Toxiproxy-admin-API staan open op elk adres van de machine.
+Draai deze modus alleen op een vertrouwd netwerk. Botst een van die poorten met iets dat al
+draait (een lokale Postgres of Redis), dan stopt het script vóór het starten met de bezette
+poorten erbij. De overlay haalt de gepubliceerde poorten en de healthchecks met `!reset` weg; dat
+vereist compose v2.24.4 of nieuwer, niet `podman-compose` — het script controleert dat.
+
+Afsluiten met dezelfde socket en dezelfde overlays als het script gebruikte:
+
+```bash
+export DOCKER_HOST="unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+docker compose -f compose.yaml -f compose.podman.yaml --profile demo down
+# in hostnet: -f compose.podman-hostnet.yaml vóór --profile toevoegen
+```
 
 ---
 

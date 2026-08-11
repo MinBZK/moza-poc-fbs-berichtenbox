@@ -1,8 +1,9 @@
 'use strict';
 
-// Host uit de browser-locatie i.p.v. hardgecodeerd localhost: de demo-stack is ook bereikbaar
-// vanaf een andere machine (bv. een container-host die op het bridge-IP kijkt). De uitvraag
-// publiceert altijd op 8086, dus alleen de host varieert.
+// Host uit de browser-locatie: de demo wordt niet altijd op localhost geopend, maar ook op een
+// VM- of container-adres. De poort ligt wél vast — die is in compose.yaml en beide overlays
+// gelijk. Elk adres waarop de demo geopend wordt, moet in de CORS-allowlist van de uitvraag
+// staan (`DEMO_HOST`), anders blokkeert de preflight.
 const BASIS = `http://${window.location.hostname}:8086/api/v1`;
 
 // magazijnId per bericht onthouden — PATCH/DELETE (taak 4/5) vereisen ?magazijnId=.
