@@ -93,7 +93,7 @@ LOGMGR_HOST_DISPLAY="logius-fscmgr-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 LOGCTL_HOST_DISPLAY="logius-fscctl-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 LOGOUTWAY_HOST_DISPLAY="logius-fscoutway-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 LOGINWAY_HOST_DISPLAY="logius-fscinway-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
-LOGTXLOG_HOST_DISPLAY="logius-fsctxlog-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
+# Geen txlog-variant: die heeft geen mesh-ingress, dus een externe hostnaam zegt niets.
 
 # Cluster-INTERNE Service-DNS (sinds de ZAD-multi-poort-fix, 2026-07-13). Elke component exposet nu
 # ál zijn `ports.inbound` als ClusterIP-Service-poort; de Service heet `<deployment>-<component>` en
@@ -105,8 +105,9 @@ LOGTXLOG_HOST_DISPLAY="logius-fsctxlog-${DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}"
 # csr.json's + cert-manifest.md). Kort + intra-namespace; geen $DEPLOYMENT_NAME-substitutie nodig.
 LOGMGR_SVC="${DEPLOYMENT}-logius-fscmgr"
 LOGCTL_SVC="${DEPLOYMENT}-logius-fscctl"
-LOGOUTWAY_SVC="${DEPLOYMENT}-logius-fscoutway"
-LOGINWAY_SVC="${DEPLOYMENT}-logius-fscinway"
+LOGOUTWAY_SVC="${DEPLOYMENT}-logius-fscoutway"          # egress-proxy; hierlangs bereikt een app de mesh
+# Geen inway-variant: die wordt vanuit de mesh op de publieke `:443`-ingress aangesproken,
+# niet intern — er is dus geen cluster-Service-DNS-consument voor.
 LOGTXLOG_SVC="${DEPLOYMENT}-logius-fsctxlog"
 LOGPG_SVC="${DEPLOYMENT}-logius-fscpg"                  # self-hosted Postgres, intern op :5432
 
@@ -290,7 +291,7 @@ if [ "${MODE}" = plan ]; then
   echo "### component logius-fscinway (inway)"; echo "${LOGINWAY_BODY}"
   echo "### component logius-fsctxlog (txlog-api -> logius-fscpg schema '${TXLOG_SCHEMA:-public}')"; echo "${LOGTXLOG_BODY}"
   echo "Extern (mesh, :443): logius-fscmgr=${LOGMGR_HOST_DISPLAY} logius-fscinway=${LOGINWAY_HOST_DISPLAY}  (logius-fscoutway=${LOGOUTWAY_HOST_DISPLAY} is egress-only — geen mesh-ingress)"
-  echo "Intern (cluster-Service-DNS): ${LOGMGR_SVC}:9443/:9444  ${LOGCTL_SVC}:9443/:9444  ${LOGTXLOG_SVC}:8443  db=${LOGPG_SVC}:5432  (logius-fscctl-UI: ${LOGCTL_HOST_DISPLAY}:443)"
+  echo "Intern (cluster-Service-DNS): ${LOGMGR_SVC}:9443/:9444  ${LOGCTL_SVC}:9443/:9444  ${LOGOUTWAY_SVC}:8443  ${LOGTXLOG_SVC}:8443  db=${LOGPG_SVC}:5432  (logius-fscctl-UI: ${LOGCTL_HOST_DISPLAY}:443)"
   echo "Directory-manager (repo A, extern): ${DIRECTORY_MANAGER_HOST}"
   exit 0
 fi
@@ -379,4 +380,4 @@ echo "  - logius-fscpg: init-script als bijlage op /docker-entrypoint-initdb.d/1
 echo "  - FSC-componenten: cert-bijlagen op /etc/fsc/... + Publicatie op het web modus 2 op logius-fscmgr en logius-fscinway (mesh :443; de outway logius-fscoutway is egress-only — geen web-publicatie/inbound ingress)."
 echo "  - DB-migraties: manager/controller/txlog migreren automatisch bij boot via hun migrate-wrapper-image (geen handmatige stap)."
 echo "Extern (mesh, :443): logius-fscmgr=${LOGMGR_HOST_DISPLAY} logius-fscinway=${LOGINWAY_HOST_DISPLAY}  (logius-fscoutway=${LOGOUTWAY_HOST_DISPLAY} is egress-only — geen mesh-ingress)"
-echo "Intern (cluster-Service-DNS): ${LOGMGR_SVC}:9443/:9444  ${LOGCTL_SVC}:9443/:9444  ${LOGTXLOG_SVC}:8443  db=${LOGPG_SVC}:5432"
+echo "Intern (cluster-Service-DNS): ${LOGMGR_SVC}:9443/:9444  ${LOGCTL_SVC}:9443/:9444  ${LOGOUTWAY_SVC}:8443  ${LOGTXLOG_SVC}:8443  db=${LOGPG_SVC}:5432"

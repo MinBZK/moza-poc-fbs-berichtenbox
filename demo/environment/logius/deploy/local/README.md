@@ -119,7 +119,9 @@ docker compose -f deploy/local/docker-compose.yaml logs inway-logius | tail -30
 - **`permission denied` op `key.pem` bij boot** → `HOST_UID`/`HOST_GID` in
   `deploy/local/.env` matchen niet met de eigenaar van de keys. Zet ze met
   `printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env` en
-  `docker compose -f deploy/local/docker-compose.yaml up -d --force-recreate`.
+  `docker compose -f deploy/local/docker-compose.yaml up -d --force-recreate`. Kloppen ze wél,
+  dan draai je waarschijnlijk **rootless podman** — dat vergt UID-mapping die deze harness nog
+  niet meelevert (zie het podman-punt hieronder).
 - **Poort bezet** (8081, 8091) → stop de conflicterende dienst of pas de `ports`/`bind`
   in `docker-compose.yaml` / `haproxy.cfg` aan. De router publiceert geen host-poort
   (SNI-passthrough intern op het compose-netwerk), dus `443` kan hier niet conflicteren.
@@ -128,7 +130,13 @@ docker compose -f deploy/local/docker-compose.yaml logs inway-logius | tail -30
   hangen op "nog niet aangemeld" terwijl de managers gezond loggen, controleer dan éérst
   `docker compose ps -a | grep router`: de `*.fsc-test.local`-namen zijn aliassen van de ROUTER,
   dus zonder router vertrekt geen enkele announce en zie je in de managerlogs geen fout.
-- **Podman i.p.v. Docker** → de harness draait op beide, mits:
+- **Podman i.p.v. Docker** → onder **rootful** podman draait de harness zoals hieronder.
+  **Rootless** podman — de normale modus op Linux — heeft daarnaast UID-mapping nodig: het mapt
+  host-UID 1000 op container-UID 0, waardoor `user: "1000:1000"` in de container een subuid wordt
+  en de container de `0600`-privékeys van host-UID 1000 níét meer leest. Elke `/pki`-mountende
+  container faalt dan bij boot op `permission denied`. De oplossing (`userns_mode: "keep-id"` op
+  de cert-lezende services) komt met de podman-overlay uit de opvolg-PR; tot die er is, draai je
+  hier rootful podman of Docker. Voor beide podman-modi geldt verder:
   - Gebruik `docker compose` of `podman compose` (zónder streepje). `podman-compose` (mét
     streepje) is een losse herimplementatie die `depends_on: condition:` en netwerk-`aliases:`
     niet volledig dekt — de managers starten dan vóór hun migraties en de peers vinden elkaar
