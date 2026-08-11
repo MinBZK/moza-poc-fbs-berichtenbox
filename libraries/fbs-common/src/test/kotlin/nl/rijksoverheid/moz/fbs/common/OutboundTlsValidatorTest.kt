@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
@@ -127,6 +129,153 @@ class OutboundTlsValidatorTest {
         // Een lege waarde is geen https, maar de bewuste override onderdrukt de eis ook hier.
         assertDoesNotThrow {
             OutboundTlsValidator.requireHttps("prod", "", key, unsafeAllowPlaintext = true)
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv?ssl=true",
+            "jdbc:postgresql://db:5432/ldv?sslmode=require",
+            "jdbc:postgresql://db:5432/ldv?sslmode=verify-ca",
+            "jdbc:postgresql://db:5432/ldv?sslmode=verify-full",
+            "jdbc:postgresql://db:5432/ldv?user=x&sslmode=require&y=1",
+        ],
+    )
+    fun `prod accepteert een JDBC-URL die daadwerkelijk versleutelt`(url: String) {
+        assertDoesNotThrow { OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url") }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv",
+            "jdbc:postgresql://db:5432/ldv?sslmode=disable",
+            "jdbc:postgresql://db:5432/ldv?sslmode=allow",
+            "jdbc:postgresql://db:5432/ldv?sslmode=prefer",
+            "jdbc:postgresql://db:5432/ldv?ssl=false",
+            "",
+        ],
+    )
+    fun `prod weigert een JDBC-URL zonder gegarandeerde versleuteling`(url: String) {
+        val ex = assertThrows<IllegalArgumentException> {
+            OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url")
+        }
+        assertTrue(ex.message!!.contains("BIO 13.2.1"), "foutmelding moet naar BIO 13.2.1 verwijzen")
+        assertTrue(ex.message!!.contains("ldv.url"), "foutmelding moet de configkey noemen")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["dev", "test"])
+    fun `dev en test laten een plaintext JDBC-URL toe`(profiel: String) {
+        assertDoesNotThrow {
+            OutboundTlsValidator.requireJdbcTls(profiel, "jdbc:postgresql://localhost:5432/ldv", "ldv.url")
+        }
+    }
+
+    @Test
+    fun `de onveilige override laat plaintext JDBC toe in prod`() {
+        assertDoesNotThrow {
+            OutboundTlsValidator.requireJdbcTls(
+                "prod",
+                "jdbc:postgresql://db:5432/ldv",
+                "ldv.url",
+                unsafeAllowPlaintext = true,
+            )
+        }
+    }
+
+    @Test
+    fun `de onveilige override logt luid met het stabiele alert-token voor JDBC`() {
+        // Zelfde borging als requireHttps: zonder deze WARNING (met het greppable token)
+        // blijft de ops-alertregel stil bij een bewust onveilig JDBC-endpoint.
+        val warnings = warnRecords {
+            OutboundTlsValidator.requireJdbcTls(
+                "prod",
+                "jdbc:postgresql://db:5432/ldv",
+                "ldv.url",
+                unsafeAllowPlaintext = true,
+            )
+        }
+
+        val warning = warnings.singleOrNull()
+
+        assertNotNull(warning, "plaintext-override MOET precies één WARNING loggen")
+        assertTrue(warning!!.message.contains(OutboundTlsValidator.TLS_DISABLED_ALERT_TOKEN), "log moet het alert-token bevatten")
+        assertTrue(warning.message.contains("ldv.url"), "log moet de config-key noemen voor diagnose")
+    }
+
+    @Test
+    fun `de onveilige override is in dev een no-op zonder waarschuwing voor JDBC`() {
+        // dev/test keren terug vóór de flag wordt geraadpleegd: geen throw én geen WARNING.
+        val warnings = warnRecords {
+            OutboundTlsValidator.requireJdbcTls(
+                "dev",
+                "jdbc:postgresql://localhost:5432/ldv",
+                "ldv.url",
+                unsafeAllowPlaintext = true,
+            )
+        }
+
+        assertTrue(warnings.isEmpty(), "in dev mag de override niets loggen")
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv?sslmode=require&sslmode=disable",
+            "jdbc:postgresql://db:5432/ldv?ssl=true&ssl=false",
+        ],
+    )
+    fun `bij een dubbele sleutel geldt het laatste voorkomen, ook als dat onveilig is`(url: String) {
+        // pgJDBC zet de querystring sequentieel in een Properties-object: het laatste
+        // voorkomen van een sleutel wint. De guard moet dus hetzelfde beoordelen als
+        // waarmee de driver daadwerkelijk verbindt, niet "veilig als er ergens een veilige
+        // waarde staat" — anders keurt hij een verbinding goed die in werkelijkheid
+        // plaintext is.
+        val ex = assertThrows<IllegalArgumentException> {
+            OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url")
+        }
+        assertTrue(ex.message!!.contains("BIO 13.2.1"), "foutmelding moet naar BIO 13.2.1 verwijzen")
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv?sslmode=disable&sslmode=require",
+            "jdbc:postgresql://db:5432/ldv?ssl=false&ssl=true",
+            "jdbc:postgresql://db:5432/ldv?user=x&sslmode=disable&sslmode=require",
+        ],
+    )
+    fun `bij een dubbele sleutel geldt het laatste voorkomen, ook als dat veilig is`(url: String) {
+        // De derde waarde combineert de dubbele sleutel met een onverwante parameter
+        // (`user`), zodat alleen `ssl`/`sslmode` meetellen voor de beslissing.
+        assertDoesNotThrow { OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url") }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "jdbc:postgresql://db:5432/ldv?ssl=true&sslmode=disable",
+            "jdbc:postgresql://db:5432/ldv?sslmode=disable&ssl=true",
+            "jdbc:postgresql://db:5432/ldv?sslmode=&ssl=true",
+            "jdbc:postgresql://db:5432/ldv?sslmode=onzin",
+        ],
+    )
+    fun `sslmode bepaalt exclusief zodra aanwezig, ssl doet er dan niet toe`(url: String) {
+        // pgJDBC (SslMode.of(Properties)) raadpleegt ssl alleen als sslmode ontbreekt.
+        // Een aanwezige sslmode — ook leeg of onbekend — wint dus altijd van ssl=true,
+        // ongeacht de volgorde in de querystring.
+        val ex = assertThrows<IllegalArgumentException> {
+            OutboundTlsValidator.requireJdbcTls("prod", url, "ldv.url")
+        }
+        assertTrue(ex.message!!.contains("BIO 13.2.1"), "foutmelding moet naar BIO 13.2.1 verwijzen")
+    }
+
+    @Test
+    fun `een onveilige ssl-waarde doet er niet toe als sslmode wel garandeert`() {
+        assertDoesNotThrow {
+            OutboundTlsValidator.requireJdbcTls("prod", "jdbc:postgresql://db:5432/ldv?ssl=false&sslmode=require", "ldv.url")
         }
     }
 

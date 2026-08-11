@@ -12,7 +12,7 @@ import org.jboss.logging.Logger
  * `W3CTraceContextPropagator` HTTP-headers te lezen voor trace-context, wat buiten
  * een actieve REST-request faalt met `No REST request in progress`. De scheduler-thread
  * heeft van zichzelf geen REST-context, dus de annotatie is hier niet bruikbaar.
- * Volwaardige LDV-integratie (ClickHouse-span via `ProcessingHandler.startSpan` direct)
+ * Volwaardige LDV-integratie (een eigen span via `ProcessingHandler.startSpan`)
  * is een vervolg-issue.
  *
  * Privacy: `ontvangerWaarde` (BSN/RSIN/KVK/OIN) staat conform CLAUDE.md *niet* in

@@ -3,19 +3,21 @@
 # DRIE losse ZAD-projecten (deployments zijn geïsoleerd; cross-project bereik je via de
 # https-ingress-URLs `<component>-<deployment>-<projectid>.rig.prd1.gn2.quattro.rijksapps.nl`):
 #
-#   uitvraag       (mpfb-8wh)     componenten: redis + clickhouse + uitvraag
+#   uitvraag       (mpfb-8wh)     componenten: redis + uitvraag
 #   externe-stubs  (mpfpsm-lcl)   componenten: profiel + notificatie (WireMock-stubs)
-#   magazijnen     (mpfm-w3h)     componenten: clickhouse + magazijna + magazijnb in de
-#                                 deployments `test`/`pr-<n>`, plus magazijna-fsc{pg,mgr,
-#                                 ctl,inway,txlog} (FSC-provider-peer) in de EIGEN,
-#                                 preview-loze deployment `fsc-magazijna` — zie
+#   magazijnen     (mpfm-w3h)     componenten: magazijna + magazijnb in de deployments
+#                                 `test`/`pr-<n>`, plus magazijna-fsc{pg,mgr,ctl,inway,
+#                                 txlog} (FSC-provider-peer) in de EIGEN, preview-loze
+#                                 deployment `fsc-magazijna` — zie
 #                                 demo/environment/magazijn-a/
 #
-# Redis (sessiecache) en ClickHouse (LDV) draaien per project intern (centrale ZAD-Redis
-# v7 mist RediSearch; ClickHouse niet deelbaar tussen deployments). Interne calls zijn
-# http: redis via redis://…:6379, LDV via http://…:8123 (de %prod-https-eis op het LDV-
-# endpoint staat uit via FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT; rationale + voorwaarden
-# in de KDoc van OutboundTlsValidator.requireHttps).
+# Redis (sessiecache) draait per project intern (centrale ZAD-Redis v7 mist RediSearch);
+# interne calls zijn http: redis via redis://…:6379. Het LDV-logboek draait op de
+# PostgreSQL die het ZAD-platform per component levert (service `postgresql-database`,
+# niet in de component-payloads hieronder — het platform provisioneert 'm zelf); de
+# interne JDBC-verbinding daarheen is plaintext, waarvoor
+# FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT aan blijft staan (rationale + voorwaarden in de
+# KDoc van OutboundTlsValidator.requireHttps).
 #
 # HARDE VOORWAARDE voor plaintext-LDV met echte persoonsgegevens: het ZAD-project levert
 # pod-to-pod transport-encryptie (mesh-mTLS), niet enkel netwerk-isolatie — de BSN in het
@@ -103,10 +105,8 @@ env:
   PROJECT_UITVRAAG: mpfb-8wh
   PROJECT_EXTERNE_STUBS: mpfpsm-lcl
   PROJECT_MAGAZIJNEN: mpfm-w3h
-  # Publieke infra-images (niet door de cleanup verwijderd). Pin in sync met compose.yaml
-  # (zie pin-consistency.yml). ClickHouse draait op het stock-image; geef het genoeg
-  # geheugen via het container-limit (~2–4Gi). Logt naar bestanden in de container, niet
-  # naar stdout (geen env-var verandert dat).
+  # Publiek infra-image (niet door de cleanup verwijderd). Pin in sync met compose.yaml
+  # (zie pin-consistency.yml).
   #
   # Redis draait op ZAD zónder persistence: zet op de redis-component de runtime-env
   # `REDIS_ARGS=--save "" --appendonly no` (in Operations Manager, net als de overige
@@ -115,7 +115,6 @@ env:
   # "Permission denied". Kan uit: de sessiecache is ephemeral en rekent nergens op
   # persistence (idempotente RediSearch-bootstrap, TTL-entries, crash-safe vangnet-lock).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
-  CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:26.7
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
@@ -428,7 +427,7 @@ jobs:
   # zad-action doet geen k8s-readinessprobe maar curlt vanaf de runner ELKE component-URL op
   # één health-endpoint (input `health-endpoint`, default '/'). De services bieden nu wél
   # /q/health/ready (smallrye-health), maar deze deployments mengen niet-HTTP-componenten
-  # (redis, clickhouse) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
+  # (redis) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
@@ -465,7 +464,6 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
-              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -518,7 +516,6 @@ jobs:
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: |
             [
-              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]
@@ -694,7 +691,6 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
-              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -741,7 +737,6 @@ jobs:
           deployment-name: test
           components: |
             [
-              {"name": "clickhouse", "image": "${{ env.CLICKHOUSE_IMAGE }}"},
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
             ]

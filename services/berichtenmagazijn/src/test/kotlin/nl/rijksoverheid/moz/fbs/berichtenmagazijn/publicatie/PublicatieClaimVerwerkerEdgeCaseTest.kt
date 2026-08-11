@@ -1,20 +1,24 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import io.mockk.Called
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import io.mockk.verifyOrder
 import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.StatusCode
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -22,15 +26,15 @@ import java.time.ZoneOffset
 import java.util.UUID
 
 /**
- * Borgt twee defensieve paden in [PublicatieClaimVerwerker] die in eerdere
- * reviews als ongetest werden geflagd:
+ * Borgt defensieve paden in [PublicatieClaimVerwerker]:
  *  1. **Duplicate-send venster**: downstream gaf 2xx, maar `markeerGeslaagd`
  *     gooit `IllegalStateException`. Verwerker moet ERROR-loggen en
  *     re-throwen zodat REQUIRES_NEW rolt; volgende pollronde retried met
  *     dezelfde UUIDv5-id (downstream dedupliceert).
- *  2. **LDV-handler-failure swallow**: `addLogboekContextToSpan` gooit; mag
- *     de transactie-commit niet ondermijnen — wordt in finally afgevangen
- *     en gelogd, geen propagatie.
+ *  2. **Logregel-vóór-levering-volgorde**: de LDV-schrijfactie wordt bevestigd
+ *     vóórdat het CloudEvent de deur uitgaat. Faalt de schrijfactie, dan mag er
+ *     niet geleverd worden; faalt de levering, dan blijft de al bevestigde
+ *     logregel onaangeroerd (die zit niet in de JTA-transactie).
  */
 class PublicatieClaimVerwerkerEdgeCaseTest {
 
@@ -91,66 +95,46 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         ),
     )
 
-    private fun stubBaseline() {
+    private fun stubClaimMetBericht() {
         every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim)
         every { berichten.findByBerichtId(claim.berichtId) } returns bericht
         every { processingHandler.startSpan(any<String>(), any()) } returns span
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://localhost:1/events"))
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
     }
 
     @Test
     fun `markeerGeslaagd faalt na 2xx = duplicate-send venster gelogd en herthrown`() {
-        stubBaseline()
+        // De logregel is dan al bevestigd (die gaat vóór de levering) — deze late
+        // faalroute raakt het logboek niet meer, alleen de claim-status.
+        stubClaimMetBericht()
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns DownstreamResultaat.Geslaagd
         every { claimer.markeerGeslaagd(claim.claimId, any()) } throws
             IllegalStateException("delivery weg, contract gebroken")
 
         // Re-thrown zodat REQUIRES_NEW van caller rollbacked en volgende ronde retried.
-        assertThrows(IllegalStateException::class.java) { verwerker.verwerkEenClaim() }
-        // LDV-context ondanks fout alsnog gekoppeld.
-        verify { processingHandler.addLogboekContextToSpan(span, any<LogboekContext>()) }
-    }
-
-    @Test
-    fun `LDV-config-fout wordt geslikt en status-write blijft staan`() {
-        stubBaseline()
-        every { downstreamClient.lever(claim.doel, event) } returns DownstreamResultaat.Geslaagd
-        justRun { claimer.markeerGeslaagd(claim.claimId, any()) }
-        // Round 5: catch is genarrowed van RuntimeException naar IllegalArgumentException
-        // — dat is wat ProcessingHandler zelf gooit op niet-URI/leeg processingActivityId
-        // (config-state-fout). Andere RuntimeExceptions wijzen op programmeerfouten en
-        // moeten WÉL REQUIRES_NEW rollen.
-        every {
-            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>())
-        } throws IllegalArgumentException("processingActivityId moet absolute URI zijn")
-
-        // Géén exception verwacht — LDV-config-fout zou anders REQUIRES_NEW rolen
-        // en duplicate-send forceren bij volgende ronde.
-        verwerker.verwerkEenClaim()
-
-        // markeerGeslaagd is wél aangeroepen (status-write doorgegaan).
-        verify { claimer.markeerGeslaagd(claim.claimId, any()) }
-        // Round 6 H2: span.end() draait OOK na geslikte LDV-fout (eigen finally).
-        verify { span.end() }
+        assertThrows<IllegalStateException> { verwerker.verwerkEenClaim() }
+        verify { processingHandler.addLogboekContextToSpan(span, any<LogboekContext>(), any()) }
     }
 
     @Test
     fun `doel-niet-in-config zet onbekend als foreign_operation_processor en markeert MISLUKT`() {
-        // M5 test-gap: dekt de warn-tak en het `<onbekend>`-fallback-pad
-        // wanneer config.downstreams() de doel-key niet meer bevat (config-drift
-        // of removal-migratie). PublicatieClaimVerwerker zet `<onbekend>` als
-        // span-attribute en DownstreamClient retourneert ConfiguratieFout
-        // (non-herstelbaar) → markeerMislukt met null volgendePoging.
+        // Dekt de warn-tak en het `<onbekend>`-fallback-pad wanneer config.downstreams()
+        // de doel-key niet meer bevat (config-drift of removal-migratie).
+        // PublicatieClaimVerwerker zet `<onbekend>` als span-attribute en DownstreamClient
+        // retourneert ConfiguratieFout (non-herstelbaar) → markeerMislukt met null
+        // volgendePoging.
         every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim)
         every { berichten.findByBerichtId(claim.berichtId) } returns bericht
         every { processingHandler.startSpan(any<String>(), any()) } returns span
         every { config.downstreams() } returns emptyMap()
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
             DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
         justRun { claimer.markeerMislukt(any(), any(), any()) }
@@ -168,6 +152,29 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
     }
 
     @Test
+    fun `doel-niet-in-config zet ERROR-status op de LDV-context`() {
+        // Bij een onbekend doel staat de onmogelijkheid van de verstrekking al vast op
+        // schrijfmoment; de logregel mag dan niet op UNSET (= geen fout) blijven staan.
+        every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim)
+        every { berichten.findByBerichtId(claim.berichtId) } returns bericht
+        every { processingHandler.startSpan(any<String>(), any()) } returns span
+        every { config.downstreams() } returns emptyMap()
+        every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
+        every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { downstreamClient.lever(claim.doel, event) } returns
+            DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
+        justRun { claimer.markeerMislukt(any(), any(), any()) }
+
+        val ldvContextSlot = slot<LogboekContext>()
+        justRun { processingHandler.addLogboekContextToSpan(span, capture(ldvContextSlot), any()) }
+
+        verwerker.verwerkEenClaim()
+
+        assertEquals(StatusCode.ERROR, ldvContextSlot.captured.status)
+    }
+
+    @Test
     fun `maxPogingen wordt per-downstream geresolved op claim doel, niet van een ander doel`() {
         // Borgt per-doel-resolutie: aanmeld heeft maxPogingen=1, notificatie=5. De claim
         // is voor aanmeld en faalt herstelbaar (NetwerkFout). pogingenNaFout=1 >= aanmeld.max
@@ -182,7 +189,8 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         )
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>()) }
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
             DownstreamResultaat.NetwerkFout("transient")
         justRun { claimer.markeerMislukt(any(), any(), any()) }
@@ -194,23 +202,56 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
     }
 
     @Test
-    fun `niet-IAE uit ProcessingHandler propageert WEL en span end() draait alsnog`() {
-        // Round 6 H2: Borgt het catch-narrowing-contract. Een RuntimeException
-        // (hier IllegalStateException) uit `addLogboekContextToSpan` MAG niet
-        // geslikt worden door de finally — dat zou programmeerfouten verbergen.
-        // Tegelijk MOET span.end() in zijn eigen finally draaien (anders span-leak).
-        // Een toekomstige refactor die catch broadens naar `RuntimeException`
-        // zou markeerGeslaagd-status laten staan terwijl REQUIRES_NEW had moeten rollen
-        // → duplicate-send risico. Deze test pint dat contract vast.
-        stubBaseline()
+    fun `de logregel is bevestigd voordat er geleverd wordt`() {
+        // Bevestigen na de levering zou betekenen dat een rollback op een LDV-fout een
+        // al verstuurd CloudEvent opnieuw laat versturen.
+        stubClaimMetBericht()
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns DownstreamResultaat.Geslaagd
         justRun { claimer.markeerGeslaagd(claim.claimId, any()) }
-        every {
-            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>())
-        } throws IllegalStateException("LDV-lib state corruptie")
 
-        assertThrows(IllegalStateException::class.java) { verwerker.verwerkEenClaim() }
-        // span.end() draaide ondanks doorgegooide fout (eigen finally rond addLogboekContextToSpan).
+        verwerker.verwerkEenClaim()
+
+        verifyOrder {
+            processingHandler.addLogboekContextToSpan(span, any<LogboekContext>(), any())
+            span.end()
+            processingHandler.enforceWriteAcknowledgement(true)
+            downstreamClient.lever(claim.doel, event)
+        }
+    }
+
+    @Test
+    fun `een LDV-schrijffout verhindert de levering`() {
+        stubClaimMetBericht()
+        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every {
+            processingHandler.enforceWriteAcknowledgement(any())
+        } throws LogboekWriteException("Logregel kon niet in het Logboek worden opgeslagen")
+
+        assertThrows<LogboekWriteException> { verwerker.verwerkEenClaim() }
+
+        verify { downstreamClient wasNot Called }
+        verify(exactly = 0) { claimer.markeerGeslaagd(any(), any()) }
+    }
+
+    @Test
+    fun `elke fout uit addLogboekContextToSpan propageert en de span eindigt alsnog`() {
+        // Er is geen swallow meer: een fout hier betekent dat het logboek niet gevuld is,
+        // en dan mag er niet geleverd worden.
+        stubClaimMetBericht()
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
+        } throws IllegalStateException("ldv stuk")
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<IllegalStateException> { verwerker.verwerkEenClaim() }
+
         verify { span.end() }
+        verify { downstreamClient wasNot Called }
+        // De recorder is thread-gebonden: zonder consumptie op déze uitgang erft de
+        // volgende claim op dezelfde thread de schrijffout. `false` omdat er al een fout
+        // propageert die niet gemaskeerd mag worden.
+        verify { processingHandler.enforceWriteAcknowledgement(false) }
     }
 }

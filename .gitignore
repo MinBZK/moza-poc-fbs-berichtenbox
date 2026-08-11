@@ -45,6 +45,9 @@ node_modules/
 # Tijdelijke files van import-rewrite-scripts
 *.kt.tmp
 
+# Demo-artefacten die de demo-scripts genereren (stub-mappings, proxy-config)
+demo/generated/
+
 # FSC-peer certificaten (privésleutels — NOOIT committen)
 demo/environment/*/pki/ca/
 demo/environment/*/pki/out/
