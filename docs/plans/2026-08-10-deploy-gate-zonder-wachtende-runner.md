@@ -130,13 +130,34 @@ relevant geweest als 1 én 2 waren afgevallen.
 - **`build` achter de gate zetten.** Zou ~190 s runnertijd besparen op de 12% runs waarin een
   check faalt (6 van 51 in de meetweek), maar kost 83 s extra wachttijd op élke geslaagde run.
   Netto slechter.
-- **`build` laten afhangen van `changes`.** Op een docs-only PR bouwt en pusht de keten nu drie
-  images die nooit uitgerold worden. Fix lijkt triviaal, maar de cleanup bij PR-close probeert dan
-  een tag te verwijderen die niet bestaat, en of `zad-actions/cleanup` daarop faalt is niet
-  geverifieerd. In de meetweek kwam het geval niet voor (0 docs-only PR's). Doorgeschoven.
+- ~~**`build` laten afhangen van `changes`.**~~ Opgelost in #172, dat tijdens deze PR op main
+  landde: `build` en `build-externe-stubs` hangen daar nu aan `changes` en slaan docs-only én
+  bot-PR's over. De blokkade die dit hier deed doorschuiven — de cleanup die een niet-bestaande
+  tag zou verwijderen — verviel in dezelfde wijziging, doordat de image-cleanup op prefix werkt
+  in plaats van op een exacte tag.
 - **De per-commit image-tag (#171/#172)** is niet aangeraakt.
 
 Deze posten staan met meetgegevens en de gevonden valkuilen in #176.
+
+## Samenloop met #172
+
+#172 (unieke image-tag per commit) landde op main terwijl deze PR openstond en raakt dezelfde
+jobs. Bij het samenvoegen:
+
+- `build`/`build-externe-stubs` houden de `changes`-afhankelijkheid uit #172 én de job-concurrency
+  uit deze PR. Het oorspronkelijke argument voor die concurrency — voorkomen dat twee runs dezelfde
+  tag overschrijven — is met de per-commit-tag vervallen; wat blijft is dat een achterhaalde build
+  geen runnertijd hoeft te kosten. Het comment is daarop aangepast.
+- De `cleanup-preview-*`-jobs verloren in #172 hun `packages: write` en `needs: meta`; die
+  versmalling is overgenomen, met de job-concurrency en `timeout-minutes` van deze PR erbovenop.
+- De nieuwe job `cleanup-preview-images` heeft `timeout-minutes` gekregen.
+
+**Nieuwe randgeval door het verplaatsen van de concurrency.** Een close-run wacht niet meer op een
+nog lopende build van een eerdere push (venster ≈ 85 s). Sluit iemand de PR vlak na een push, dan
+kan `cleanup-preview-images` klaar zijn vóór die build zijn tag pusht, en blijft één ghcr-versie
+achter. De build-jobs kunnen niet in de cleanup-groep meedraaien — ze hebben er per service al
+één, anders blokkeren ze elkaar. Gevolg is een weesversie, geen kapotte deploy; herdraaien van de
+job ruimt hem op. Staat als bekende beperking in `deploy.yml` en als vervolgpunt in #176.
 
 ## Handmatige stap bij de merge
 
