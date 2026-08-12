@@ -77,9 +77,10 @@ is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
 
 > **CORS voor de Berichtenbox-UI** is een runtime-property (`quarkus.http.cors.enabled`),
 > uitsluitend gezet als env-var in het demo-profiel van `compose.yaml` — de
-> `application.properties` van `berichtenuitvraag` bevat geen CORS-config. Er staat geen
-> origins-allowlist tegenover, dus in de demo laat Quarkus elke origin toe. Prod/ZAD
-> (profiel prod) krijgt geen enabled, dus die images blijven CORS-loos. Geen build-flag nodig.
+> `application.properties` van `berichtenuitvraag` bevat geen CORS-config. Enabled zónder
+> `quarkus.http.cors.origins` laat alleen same-origin door; cross-origin krijgt 403. De UI
+> op `:8095` roept de API op `:8086` aan en heeft dus een allowlist nodig. Prod/ZAD (profiel
+> prod) krijgt geen enabled, dus die images blijven CORS-loos. Geen build-flag nodig.
 
 > **Apple Silicon / ARM:** jib bouwt standaard `linux/amd64` (de ZAD-cluster is amd64).
 > Op een ARM-host draaien die images onder emulatie — voeg

@@ -161,7 +161,8 @@ services:
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
       # Geen LDV-env: onder %dev volgt het logboek DB_JDBC_URL hierboven. LDV_POSTGRES_* hier
-      # alsnog zetten werkt niet — de %dev-sleutel schaduwt de basissleutel die die env-var leest.
+      # alsnog zetten werkt niet — de %dev-regel van het magazijn leest de datasource, niet die
+      # env-var. Bij de uitvraag verderop kán het wél; die %dev-regel leest LDV_POSTGRES_URL zelf.
       # Outbox sneller laten pollen zodat storing→herstel binnen seconden zichtbaar is (default 60s),
       # en meer pogingen zodat een uitgeschakelde downstream niet terminal MISLUKT tijdens de uitleg.
       MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
@@ -249,8 +250,9 @@ services:
       LDV_POSTGRES_USERNAME: ldv
       LDV_POSTGRES_PASSWORD: ldv
       # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig, en
-      # alleen in het demo-profiel. Er staat géén origins-allowlist tegenover, dus Quarkus
-      # laat elke origin toe; acceptabel voor een demo op je eigen machine, niet om te kopiëren.
+      # alleen in het demo-profiel. Let op: enabled zónder origins-allowlist laat Quarkus
+      # alleen same-origin door en weigert de rest met 403. De UI draait op :8095 en roept
+      # :8086 aan, dus die calls hebben een allowlist nodig (QUARKUS_HTTP_CORS_ORIGINS).
       QUARKUS_HTTP_CORS_ENABLED: "true"
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
@@ -273,8 +275,7 @@ services:
       # Uitsluitend op loopback publiceren. Deze console heeft geen authenticatie en
       # POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases; op 0.0.0.0 is dat
       # vanaf het hele netwerk bereikbaar. De Berichtenbox-UI praat sowieso alleen vanaf
-      # localhost: de API-basis staat vast op localhost:8086. Reken niet op CORS als tweede
-      # slot — de uitvraag heeft geen origins-allowlist en laat in de demo elke origin toe.
+      # localhost: de API-basis staat vast op localhost:8086.
       - "127.0.0.1:8095:8095"
     depends_on:
       berichtenmagazijn-a:
