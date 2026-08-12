@@ -2,12 +2,9 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured
-import io.restassured.config.HttpClientConfig
-import io.restassured.config.RestAssuredConfig
 import io.restassured.http.Method
 import io.swagger.v3.parser.OpenAPIV3Parser
 import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
@@ -37,6 +34,18 @@ class RouteDekkingTest {
         /** Gelijk aan `servers.url` in de spec; de resources dragen dit voorvoegsel via `ApiInfo.BASE_PATH`. */
         private const val BASIS_PAD = "/api/v1"
 
+        /** Methodes die geen enkel pad in onze specs declareert; één ervan dient als sonde. */
+        private val SONDE_METHODES = listOf("TRACE", "PUT", "HEAD")
+
+        @JvmStatic
+        fun padenUitDeSpec(): List<Arguments> {
+            val spec = requireNotNull(OpenAPIV3Parser().read(SPEC)) { "Spec $SPEC niet gevonden op het test-classpath" }
+
+            return spec.paths.map { (pad, item) ->
+                Arguments.of(pad, item.readOperationsMap().keys.map { it.name }.toSet())
+            }
+        }
+
         @JvmStatic
         fun routesUitDeSpec(): List<Arguments> {
             val spec = requireNotNull(OpenAPIV3Parser().read(SPEC)) { "Spec $SPEC niet gevonden op het test-classpath" }
@@ -52,16 +61,6 @@ class RouteDekkingTest {
     fun `elk pad uit de spec komt bij een resource aan`(methode: String, pad: String) {
         val heeftPadParameter = "{" in pad
         val status = RestAssured.given()
-            // Een afgewezen request wordt beantwoord zónder de body te lezen; zonder deze
-            // grens blijft de client schrijven tot iets anders ingrijpt. Dat liet een
-            // CI-job ooit zes uur doorlopen voordat de runner hem afkapte.
-            .config(
-                RestAssuredConfig.config().httpClient(
-                    HttpClientConfig.httpClientConfig()
-                        .setParam("http.socket.timeout", SOCKET_TIMEOUT_MS)
-                        .setParam("http.connection.timeout", CONNECT_TIMEOUT_MS),
-                ),
-            )
             .`when`()
             .request(Method.valueOf(methode), BASIS_PAD + metIngevuldeParameters(pad))
             .then()
@@ -76,17 +75,40 @@ class RouteDekkingTest {
         )
 
         if (!heeftPadParameter) {
-            assertTrue(
-                status != 404,
+            assertNotEquals(
+                404,
+                status,
                 "$methode $pad geeft 404 terwijl het pad geen parameters heeft: er is geen route voor",
             )
         }
+    }
+
+    /**
+     * Op een pad mét parameters is 404 het normale antwoord op een onbekend id, dus daar zegt de
+     * statuscode niets over de routering. Een methode die de spec níét noemt wél: bestaat de
+     * route, dan antwoordt de router met 405; is de route verdwenen, dan blijft het 404. Zo is
+     * ook voor die paden vast te stellen dát ze geregistreerd zijn.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("padenUitDeSpec")
+    fun `elk pad uit de spec is als route geregistreerd`(pad: String, gespecificeerdeMethodes: Set<String>) {
+        val ongebruikt = SONDE_METHODES.firstOrNull { it !in gespecificeerdeMethodes } ?: return
+        val status = RestAssured.given()
+            .`when`()
+            .request(Method.valueOf(ongebruikt), BASIS_PAD + metIngevuldeParameters(pad))
+            .then()
+            .extract()
+            .statusCode()
+
+        assertNotEquals(
+            404,
+            status,
+            "$ongebruikt $pad geeft 404: er is geen route voor dit pad. Een bestaande route zou " +
+                "met 405 antwoorden op een methode die de spec niet noemt.",
+        )
     }
 
     /** Een willekeurig, geldig gevormd id: het gaat om de routering, niet om een bestaand bericht. */
     private fun metIngevuldeParameters(pad: String) =
         Regex("""\{[^}]+}""").replace(pad) { UUID.randomUUID().toString() }
 }
-
-private const val SOCKET_TIMEOUT_MS = 30_000
-private const val CONNECT_TIMEOUT_MS = 10_000
