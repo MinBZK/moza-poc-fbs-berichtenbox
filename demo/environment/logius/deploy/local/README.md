@@ -82,7 +82,8 @@ docker compose -f deploy/local/docker-compose.yaml down -v
   leest z'n config bij de eigen manager op de internal-**unauthenticated** poort (`:9444`) —
   bewust anders dan de outway, die de authenticated `:9443` gebruikt (conform magazijn-a's
   bewezen inway-config). Eigen SNI-route op de router (`inway.logius.fsc-test.local`). Biedt
-  (nog) geen dienst aan: er is geen `CreateService` gedaan.
+  de dienst `profiel-service` aan (zie `publish-service.sh`), met `stub-upstream` als
+  `endpoint_url`.
 - **toolbox** — curl-client op het netwerk voor mTLS-onboarding-calls (niet gebruikt door deze
   announce-only-proof, maar beschikbaar voor gerichte diagnose).
 
@@ -95,10 +96,15 @@ aan.
 | Script | Bewijst |
 |--------|---------|
 | `smoke-announce.sh` | `logius` (OIN `00000000000000001000`) staat in `peers.peers` met een `manager_address` op `:443`. |
-| `run-smokes.sh` | Draait `smoke-announce.sh`. |
+| `publish-service.sh` | `profiel-service` is aangemaakt op de controller en gepubliceerd (servicePublication-contract, auto-signed). |
+| `smoke-discover.sh` | `profiel-service` is vindbaar via de manager-mesh-API (`GET /v1/peers/{dir}/services`). |
+| `consume-service.sh` | Een zelfreferentieel `serviceConnection`-contract is wederzijds ondertekend; levert de `Fsc-Grant-Hash`-waarde. |
+| `run-smokes.sh` | Draait alle vier in volgorde. |
 
-Announce-only: er is (nog) geen dienst-publicatie of discovery-smoke — de inway draait wel, maar
-er is nog geen `CreateService` gedaan, dus er valt nog niets te discoveren of aan te roepen.
+De inway draait, biedt `profiel-service` aan, en er is een geldig afnemer-contract — het
+volledige lokale FSC-bewijs voor deze dienst is hiermee rond. Het écht dóór de inway heen
+aanroepen van `stub-upstream` (het data-pad) én de integratie met `berichtenuitvraag` zelf
+blijven buiten deze lokale proof (zie `deploy/zad/verify-zad.md`).
 
 **Inway-boot handmatig controleren.** `run-smokes.sh` test alleen de announce; een crash-loopende
 inway wordt daardoor niet gesignaleerd. Dat is precies hoe het geaccepteerde `:9444`-risico zich
