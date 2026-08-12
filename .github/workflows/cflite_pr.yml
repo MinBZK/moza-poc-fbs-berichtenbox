@@ -56,6 +56,12 @@ jobs:
           language: jvm
           github-token: ${{ secrets.GITHUB_TOKEN }}
           keep-unaffected-fuzz-targets: true
+          # De bad-build-check kopieert de volledige buildoutput (inclusief de meegebundelde
+          # JDK 21) naar tmp en start elk fuzz-doel los op — circa 161s. Direct daarna draait
+          # `run_fuzzers` diezelfde doelen tóch, dus een doel dat niet bouwt of meteen crasht
+          # valt daar alsnog om. De check is bedoeld voor de onbewaakte OSS-Fuzz-pijplijn, niet
+          # voor een poort die zelf meteen fuzzt.
+          bad-build-check: false
       - name: Run Fuzzers
         id: run
         uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1

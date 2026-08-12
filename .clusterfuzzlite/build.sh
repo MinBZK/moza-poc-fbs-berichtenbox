@@ -12,15 +12,23 @@ PL=$(IFS=,; echo "${MODULES[*]}")
 # `dependency:copy-dependencies` ze kan resolven. Met `package` zou fbs-common
 # wel in target/ belanden maar niet in ~/.m2 — dan faalt copy-dependencies met
 # "could not find artifact nl.rijksoverheid.moz:fbs-common".
-./mvnw install -DskipTests -pl "$PL" -am -B
+# Alleen wat de fuzz-build nodig heeft: statische analyse, coverage-rapportage en de
+# Quarkus-augmentatie leveren geen bytecode die gefuzzd wordt en kostten samen tientallen
+# seconden per run. `-ntp` scheelt tienduizenden downloadregels in de log.
+./mvnw install -DskipTests -pl "$PL" -am -B -ntp -T 1C \
+    -Ddetekt.skip=true -Djacoco.skip=true -Dquarkus.build.skip=true
 
 mkdir -p "$OUT/lib" "$OUT/classes" "$OUT/test-classes"
 
-# Per module: dependency-jars + gecompileerde app- en test-classes verzamelen.
-# Mergen in dezelfde $OUT-mappen; de packages verschillen per module, dus geen
-# class-collisies. Trailing `/.` kopieert de inhoud i.p.v. de map zelf.
+# Dependency-jars van alle modules in één reactor-pass; vier losse aanroepen betaalden
+# elk opnieuw de Maven-opstartkosten. Alles landt in dezelfde $OUT/lib, wat ook al het
+# geval was.
+./mvnw dependency:copy-dependencies -DoutputDirectory="$OUT/lib" -pl "$PL" -B -ntp
+
+# Classes blijven per module: ze staan in aparte target-mappen. Mergen in dezelfde
+# $OUT-mappen; de packages verschillen per module, dus geen class-collisies. Trailing
+# `/.` kopieert de inhoud i.p.v. de map zelf.
 for MODULE in "${MODULES[@]}"; do
-    ./mvnw dependency:copy-dependencies -DoutputDirectory="$OUT/lib" -pl "$MODULE" -B
     cp -r "$MODULE/target/classes/." "$OUT/classes/"
     cp -r "$MODULE/target/test-classes/." "$OUT/test-classes/"
 done
