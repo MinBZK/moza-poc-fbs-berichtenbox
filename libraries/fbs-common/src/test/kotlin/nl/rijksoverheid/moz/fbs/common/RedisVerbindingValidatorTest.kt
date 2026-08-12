@@ -380,6 +380,46 @@ class RedisVerbindingValidatorTest {
         }
     }
 
+    /**
+     * Zonder adres valt de client terug op zijn eigen default (`redis://localhost:6379`):
+     * onversleuteld en zonder wachtwoord. Dat is precies het stille gat dat deze check hoort te
+     * sluiten, dus het telt als gebrek — niet als "niets te doen".
+     */
+    @Test
+    fun `een dienst die de opslag gebruikt maar geen adres heeft, wordt geweigerd`() {
+        val config = configMet("quarkus.http.port" to "8080")
+
+        if (!RedisVerbindingValidator.redisExtensieAanwezig()) return
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(ex.message!!.contains("geen adres"), "melding: ${ex.message}")
+    }
+
+    @Test
+    fun `een leeg adres telt niet als geconfigureerd`() {
+        val config = configMet("quarkus.redis.hosts" to "", "quarkus.redis.password" to "geheim")
+
+        if (!RedisVerbindingValidator.redisExtensieAanwezig()) return
+
+        assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+    }
+
+    /** De hosts-provider bestaat per client, dus ook op een named client. */
+    @Test
+    fun `een hosts-provider op een named client wordt ook geweigerd`() {
+        val config = configMet(
+            "quarkus.redis.hosts" to "rediss://a.intern:6379",
+            "quarkus.redis.password" to "geheim",
+            "quarkus.redis.tls.hostname-verification-algorithm" to "HTTPS",
+            "quarkus.redis.beheer.hosts-provider-name" to "eigen-provider",
+        )
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(ex.message!!.contains("beheer"), "melding moet de named client noemen: ${ex.message}")
+    }
+
     private fun configMet(vararg paren: Pair<String, String>) = SmallRyeConfigBuilder()
         .withSources(PropertiesConfigSource(paren.toMap(), "test", 100))
         .build()
@@ -424,7 +464,12 @@ class RedisVerbindingValidatorTest {
 
         val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
 
-        assertTrue(ex.message!!.contains("trust-all"), "melding: ${ex.message}")
+        // De melding moet de sleutel noemen die de client écht leest; wijst hij naar het
+        // client-eigen blok, dan zet de operator die op false en blijft de boot falen.
+        assertTrue(
+            ex.message!!.contains("quarkus.tls.opslag.trust-all"),
+            "melding moet naar de benoemde tls-configuratie wijzen: ${ex.message}",
+        )
     }
 
     /** Een env-var als QUARKUS_REDIS__CACHE_A__HOSTS levert een clientnaam mét punt op. */

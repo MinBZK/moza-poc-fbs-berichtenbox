@@ -53,11 +53,22 @@ class RedisVerbindingValidator(
         /** Redis over TLS. Het enkelvoudige `redis://` is de onversleutelde variant. */
         private const val TLS_SCHEME = "rediss://"
 
+        /**
+         * Klasse uit de Redis-extensie. Staat die op het classpath, dan verbindt deze dienst met
+         * de opslag en moet er een adres geconfigureerd zijn — ontbreekt dat, dan valt de client
+         * terug op zijn eigen default `redis://localhost:6379`: onversleuteld en zonder
+         * wachtwoord. Zonder de extensie is er niets te beveiligen.
+         */
+        private const val REDIS_EXTENSIE_KLASSE = "io.quarkus.redis.datasource.RedisDataSource"
+
         /** `quarkus.redis.hosts` (default client) en `quarkus.redis.<naam>.hosts` (named clients). */
         // De clientnaam mag zelf punten bevatten: een env-var als QUARKUS_REDIS__CACHE_A__HOSTS
         // komt als `quarkus.redis."cache.a".hosts` in de configuratie terecht. Een patroon dat
         // punten verbiedt zou zo'n client niet ontdekken en hem dus ongecontroleerd laten.
         private val HOSTS_PATROON = Regex("""^quarkus\.redis\.(?:(.+?)\.)?hosts$""")
+
+        /** Zelfde vorm voor de programmatische variant; die bestaat óók per client. */
+        private val PROVIDER_PATROON = Regex("""^quarkus\.redis\.(?:(.+?)\.)?hosts-provider-name$""")
 
         /**
          * Beoordeelt elke geconfigureerde Redis-client. Named clients zijn vandaag ongebruikt,
@@ -73,29 +84,55 @@ class RedisVerbindingValidator(
 
             val clients = config.propertyNames.mapNotNull { HOSTS_PATROON.find(it)?.groupValues?.get(1) }.toSortedSet()
 
-            // Een client kan ook zonder `hosts` bestaan, via een programmatische hosts-provider.
-            // Die waarde is hier niet te beoordelen, dus hij telt als gebrek in plaats van als
-            // "geen opslag" — anders zou de check zwijgen over een verbinding die wél bestaat.
-            val provider = config.getOptionalValue("quarkus.redis.hosts-provider-name", String::class.java).orElse("")
+            // Een client kan ook zonder `hosts` bestaan, via een programmatische hosts-provider —
+            // per client, dus ook op een named client. Die waarde is hier niet te beoordelen, dus
+            // hij telt als gebrek in plaats van als "geen opslag": anders zwijgt de check over een
+            // verbinding die wél bestaat.
+            val providers = config.propertyNames.filter { PROVIDER_PATROON.matches(it) }
 
-            if (provider.isNotEmpty()) {
+            if (providers.isNotEmpty()) {
                 throw IllegalStateException(
-                    "quarkus.redis.hosts-provider-name is gezet in profiel '$profile'; de verbinding met de " +
-                        "berichtenopslag is daarmee niet te beoordelen op versleuteling en authenticatie.",
+                    "${providers.sorted()} is gezet in profiel '$profile'; de verbinding met de berichtenopslag " +
+                        "is daarmee niet te beoordelen op versleuteling en authenticatie.",
                 )
             }
 
-            if (clients.isEmpty()) {
-                log.info("Geen berichtenopslag geconfigureerd; verbindingscheck niet van toepassing")
+            val metAdres = clients.filter { naam -> adresVan(config, prefixVan(naam)).isNotBlank() }
 
-                return
+            // Geen enkel adres, terwijl deze dienst de opslag wél gebruikt: de client valt dan
+            // terug op zijn eigen default (plaintext localhost). Dat is precies het stille gat
+            // dat deze check hoort te sluiten, dus het telt als gebrek en niet als "niets te doen".
+            if (metAdres.isEmpty()) {
+                if (!redisExtensieAanwezig()) {
+                    log.info("Geen berichtenopslag in gebruik; verbindingscheck niet van toepassing")
+
+                    return
+                }
+
+                throw IllegalStateException(
+                    "Deze dienst gebruikt de berichtenopslag, maar er is in profiel '$profile' geen adres " +
+                        "geconfigureerd (quarkus.redis.hosts). Zonder adres verbindt de client onversleuteld " +
+                        "en zonder wachtwoord met zijn eigen default.",
+                )
             }
 
-            clients.forEach { naam -> valideerClient(profile, config, naam, unsafeAllowPlaintext) }
+            metAdres.forEach { naam -> valideerClient(profile, config, naam, unsafeAllowPlaintext) }
         }
 
+        internal fun redisExtensieAanwezig(): Boolean = try {
+            Class.forName(REDIS_EXTENSIE_KLASSE, false, RedisVerbindingValidator::class.java.classLoader)
+            true
+        } catch (_: ClassNotFoundException) {
+            false
+        }
+
+        private fun prefixVan(naam: String) = if (naam.isEmpty()) "quarkus.redis" else "quarkus.redis.$naam"
+
+        private fun adresVan(config: Config, prefix: String) =
+            config.getOptionalValue("$prefix.hosts", String::class.java).orElse("")
+
         private fun valideerClient(profile: String, config: Config, naam: String, unsafeAllowPlaintext: Boolean) {
-            val prefix = if (naam.isEmpty()) "quarkus.redis" else "quarkus.redis.$naam"
+            val prefix = prefixVan(naam)
 
             // Een benoemde TLS-configuratie vervangt het hele `<prefix>.tls.*`-blok: de client
             // leest dan die bucket. De legacy-keys beoordelen zou een garantie geven over
@@ -112,10 +149,14 @@ class RedisVerbindingValidator(
                 // ongemerkt elk certificaat accepteren.
                 trustAll = leesBoolean(config, "$tlsPrefix.trust-all") ||
                     leesBoolean(config, "quarkus.tls.trust-all"),
+                tlsPrefix = tlsPrefix,
                 hostnameVerificatie = config
                     .getOptionalValue("$tlsPrefix.hostname-verification-algorithm", String::class.java)
                     .orElse("NONE"),
-                tlsIngeschakeld = leesBoolean(config, "$tlsPrefix.enabled"),
+                // Alleen op het client-eigen blok: de TLS-registry-bucket kent geen `enabled`,
+                // dus die sleutel daar lezen zou altijd false opleveren en de erkenning van een
+                // los ingeschakelde TLS juist wegnemen op het pad waar de registry gebruikt wordt.
+                tlsIngeschakeld = leesBoolean(config, "$prefix.tls.enabled"),
                 unsafeAllowPlaintext = unsafeAllowPlaintext,
                 configPrefix = prefix,
             )
@@ -146,6 +187,10 @@ class RedisVerbindingValidator(
             tlsIngeschakeld: Boolean = false,
             unsafeAllowPlaintext: Boolean = false,
             configPrefix: String = "quarkus.redis",
+            // Waar de TLS-instellingen vandaan komen: het client-eigen blok, of de bucket van een
+            // benoemde TLS-configuratie. De melding moet de sleutel noemen die de client écht
+            // leest — anders zet de operator de andere op false en blijft de boot falen.
+            tlsPrefix: String = "$configPrefix.tls",
         ) {
             if (profile in PROFIELEN_ZONDER_TLS_EIS) return
 
@@ -167,7 +212,7 @@ class RedisVerbindingValidator(
             }
 
             val transportGebreken =
-                transportGebrekenIn(adressen, trustAll, hostnameVerificatie, tlsIngeschakeld, configPrefix)
+                transportGebrekenIn(adressen, trustAll, hostnameVerificatie, tlsIngeschakeld, configPrefix, tlsPrefix)
             val authGebreken = authGebrekenIn(adressen, password, configPrefix)
 
             // De hosts-waarde zelf komt hier nooit in: hij mag een wachtwoord in de userinfo
@@ -220,6 +265,7 @@ class RedisVerbindingValidator(
             hostnameVerificatie: String,
             tlsIngeschakeld: Boolean,
             configPrefix: String,
+            tlsPrefix: String,
         ): List<String> {
             val gebreken = mutableListOf<String>()
             // Hoofdlettergevoelig, gelijk aan wat Vert.x accepteert: `REDISS://` weigert de
@@ -233,11 +279,12 @@ class RedisVerbindingValidator(
             }
 
             if (trustAll) {
-                gebreken += "$configPrefix.tls.trust-all staat aan, waardoor elk certificaat wordt geaccepteerd"
+                gebreken += "$tlsPrefix.trust-all (of quarkus.tls.trust-all) staat aan, " +
+                    "waardoor elk certificaat wordt geaccepteerd"
             }
 
             if (hostnameVerificatie.equals("NONE", ignoreCase = true)) {
-                gebreken += "$configPrefix.tls.hostname-verification-algorithm staat op NONE, " +
+                gebreken += "$tlsPrefix.hostname-verification-algorithm staat op NONE, " +
                     "waardoor niet wordt gecontroleerd of het certificaat bij de opslag hoort"
             }
 
