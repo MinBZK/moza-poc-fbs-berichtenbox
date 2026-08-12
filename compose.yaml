@@ -160,7 +160,8 @@ services:
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
-      # Geen LDV-env: het magazijn logt onder %dev in zijn eigen datasource, dus postgres-a.
+      # Geen LDV-env: onder %dev volgt het logboek de datasource van de service zelf
+      # (DB_JDBC_URL hierboven) — elke organisatie houdt zijn logboek in zijn eigen database.
       # Outbox sneller laten pollen zodat storing→herstel binnen seconden zichtbaar is (default 60s),
       # en meer pogingen zodat een uitgeschakelde downstream niet terminal MISLUKT tijdens de uitleg.
       MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
@@ -188,7 +189,7 @@ services:
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
-      # Geen LDV-env: het magazijn logt onder %dev in zijn eigen datasource, dus postgres-b.
+      # Geen LDV-env: het logboek volgt DB_JDBC_URL hierboven, net als bij magazijn A.
       MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_AANMELD_MAX_POGINGEN: "50"
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_NOTIFICATIE_MAX_POGINGEN: "50"
@@ -240,9 +241,10 @@ services:
       MAGAZIJN_A_URL: http://toxiproxy:18090
       MAGAZIJN_B_URL: http://toxiproxy:18091
       PROFIEL_SERVICE_URL: http://toxiproxy:18089
-      # Het logboek moet expliciet: de %dev-default wijst naar localhost:5434, en dat is
-      # binnen een container de container zelf. Credentials staan hier naast de service
-      # die ze definieert, zodat een wijziging daar niet stil uiteenloopt.
+      # Het logboek moet expliciet: de %dev-default is een localhost-adres (bedoeld voor
+      # draaien op de host), en localhost is binnen een container de container zelf.
+      # Gebruikersnaam en wachtwoord moeten gelijk blijven aan wat postgres-uitvraag
+      # hierboven definieert; niets in compose bewaakt dat.
       LDV_POSTGRES_URL: jdbc:postgresql://postgres-uitvraag:5432/ldv_logging
       LDV_POSTGRES_USERNAME: ldv
       LDV_POSTGRES_PASSWORD: ldv

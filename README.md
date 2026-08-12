@@ -96,8 +96,8 @@ docker compose --profile demo up -d   # alles in containers
 Sla het generatiescript niet over: compose maakt een ontbrekend mount-pad aan als directory,
 waarna `magazijnen-stubs.properties` een map wordt en de uitvraag niet meer start.
 
-Zónder `--profile demo` start compose alleen de infrastructuur (Redis, Postgres, WireMock,
-ClickHouse). Gebruik die modus tijdens het ontwikkelen en draai de services met
+Zónder `--profile demo` start compose alleen de infrastructuur (Redis, de drie
+Postgres-instanties, WireMock). Gebruik die modus tijdens het ontwikkelen en draai de services met
 `quarkus:dev` zoals hierboven — in een container kost elke codewijziging een image-build.
 
 De poorten zijn in beide modi gelijk (8090, 8091, 8086), dus de Bruno-collectie en de
