@@ -45,7 +45,7 @@ node_modules/
 # Tijdelijke files van import-rewrite-scripts
 *.kt.tmp
 
-# Demo-artefacten die de demo-scripts genereren (stub-mappings, proxy-config)
+# Gegenereerde demo-artefacten (fase 6 — veel magazijnen). Regenereren met demo/genereer-magazijnen.py.
 demo/generated/
 
 # FSC-peer certificaten (privésleutels — NOOIT committen)
