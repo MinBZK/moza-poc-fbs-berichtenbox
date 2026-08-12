@@ -6,6 +6,15 @@ on:
   # runner bezet zonder werk te doen. Een gestapelde PR fuzzt dus nog steeds niet; die dekking
   # komt bij de PR naar main.
   workflow_call:
+    inputs:
+      fuzz-relevant:
+        description: >-
+          Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml. Leeg (de default) betekent
+          "niet meegegeven", en dan bepaalt deze workflow het zelf — zo blijft hij zelfstandig
+          bruikbaar op een gestapelde PR.
+        type: string
+        required: false
+        default: ""
 
 permissions: read-all
 
@@ -15,7 +24,9 @@ jobs:
   # `PR` is een required status check, en een paths-filter zou de check bij niet-relevante PR's
   # (docs, bruno, workflows) nooit rapporteren en de merge eeuwig blokkeren. Een via `if`
   # overgeslagen job telt daarentegen als 'skipped' = succes voor branch protection.
+  # Draait alleen wanneer de caller de uitkomst niet meegaf; zie de toelichting in test.yml.
   changes:
+    if: inputs.fuzz-relevant == ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -40,7 +51,9 @@ jobs:
 
   PR:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    # Sla alleen over bij een expliciete 'false'; zie de toelichting in test.yml.
+    if: "!cancelled() && needs.changes.outputs.run != 'false' && inputs.fuzz-relevant != 'false'"
+
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:

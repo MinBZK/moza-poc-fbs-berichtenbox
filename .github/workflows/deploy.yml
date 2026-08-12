@@ -143,8 +143,15 @@ jobs:
     timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
+      deploy: ${{ steps.filter.outputs.deploy }}
+      demo-only: ${{ steps.filter.outputs.demo-only }}
+      fuzz: ${{ steps.filter.outputs.fuzz }}
     steps:
-      - name: Bepaal of er gebouwd en gedeployd moet worden
+      # Eén plek waar de gewijzigde bestanden opgehaald en beoordeeld worden. De aangeroepen
+      # workflows stelden dezelfde vraag elk apart; dat kostte per PR vier runner-allocaties
+      # voor hetzelfde antwoord. Zij krijgen de uitkomst nu als input en slaan hun eigen
+      # detectie over.
+      - name: Bepaal wat er moet draaien
         id: filter
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -154,8 +161,14 @@ jobs:
           # Het type komt van GitHub zelf (enum), niet uit door de indiener bepaalde tekst.
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
+          # Alles aan op een push naar main: er is geen PR-bestandenlijst om tegen af te zetten.
           if [ "$EVENT" != "pull_request" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "run=true"
+              echo "deploy=true"
+              echo "demo-only=false"
+              echo "fuzz=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -163,26 +176,70 @@ jobs:
             # Luid loggen: een overgeslagen deploy laat de required checks 'skipped' (= succes)
             # rapporteren, dus een onterechte overslag moet in de run-samenvatting zichtbaar zijn.
             echo "::notice::PR van een bot — zad-actions deployt die niet, dus bouwen we ook niet."
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            # De code-checks draaien wél: een bot-PR (bv. een dependency-bump) hoort getoetst
+            # te worden, hij wordt alleen niet uitgerold.
+            {
+              echo "run=true"
+              echo "demo-only=false"
+              echo "fuzz=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), deploy
           # dan TÓCH i.p.v. stil overslaan — anders zou een overgeslagen deploy onterecht als
           # 'skipped' (= succes) doortellen in de required checks.
           if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
-            echo "::warning::Kon gewijzigde bestanden niet ophalen — deploy draait fail-safe."
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Kon gewijzigde bestanden niet ophalen — alles draait fail-safe."
+            {
+              echo "run=true"
+              echo "deploy=true"
+              echo "demo-only=false"
+              echo "fuzz=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "Gewijzigde bestanden:"
           printf '%s\n' "$files"
 
+          # `run`: raakt de PR iets anders dan documentatie? Poort voor de code-checks.
           if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Alleen documentatie gewijzigd — deploy overgeslagen."
+            echo "Alleen documentatie gewijzigd — code-checks en deploy overgeslagen."
             echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # `deploy`: kan de wijziging de uitgerolde applicatie raken? Strenger dan `run`,
+          # want dit is de enige post die échte clustercapaciteit kost (pods, volumes,
+          # ingress) in plaats van alleen runnertijd. Bruno-verzoeken en de demo-stack zitten
+          # niet in een image en veranderen niets aan wat er draait.
+          #
+          # `.github/` staat er bewust NIET bij: een wijziging aan de workflows kan de deploy
+          # zelf raken, en dan is een preview juist wél zinvol.
+          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^bruno/|^demo/)'; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Niets dat de uitgerolde applicatie raakt — deploy overgeslagen."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # `demo-only`: zie de toelichting in test.yml — demo-console is het enige blad in de
+          # module-graaf zonder koppeling, dus dan volstaat een build van die ene module.
+          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^services/demo-console/|^demo/)'; then
+            echo "demo-only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Uitsluitend demo-console geraakt — test-job scoped naar die module."
+            echo "demo-only=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          # `fuzz`: alleen bronnen die de fuzz-doelen of hun build raken.
+          if printf '%s\n' "$files" | grep -qE '(^libraries/|^services/|^pom\.xml$|^\.clusterfuzzlite/)'; then
+            echo "fuzz=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Geen fuzz-relevante wijzigingen — fuzzing overgeslagen."
+            echo "fuzz=false" >> "$GITHUB_OUTPUT"
           fi
 
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
@@ -236,7 +293,7 @@ jobs:
   # Maven/jib-builds + push kosten dan alleen rekentijd, netwerk en een ghcr-versie die nooit
   # een pod bereikt.
   build:
-    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.deploy == 'true')
     needs: [meta, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -285,8 +342,14 @@ jobs:
 
   # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
   # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
+  #
+  # BEWUST GEEN paths-filter, hoewel de inhoud zelden wijzigt: de deploy-jobs verwachten een
+  # image op de tag van déze run, en die tag draagt per commit de head-sha — precies wat de
+  # preview-uitrol laat werken. Overslaan bij een ongewijzigde stub-map zou een
+  # tag-hergebruikstrategie vergen die daarmee botst. De prijs is een herbouw per commit; de
+  # opbrengst van een filter weegt daar niet tegenop zolang de per-commit-tag de basis is.
   build-externe-stubs:
-    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.deploy == 'true')
     needs: [meta, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -324,9 +387,19 @@ jobs:
   #
   # `github.event.action != 'closed'`: de close-trigger is er voor de cleanup-jobs, daar valt
   # niets te toetsen.
+  # `!cancelled()` plus "sla alleen over bij een expliciete false": faalt `changes`, dan is de
+  # uitkomst leeg en draait de check tóch. Zou de check hier op `== 'true'` hangen, dan werd hij
+  # bij een mislukte detectie overgeslagen — en `skipped` telt door als succes voor branch
+  # protection, dus ongetoetste code zou merge-baar worden.
   checks-test:
-    if: github.event_name == 'push' || github.event.action != 'closed'
+    needs: changes
+    if: >-
+      !cancelled()
+      && (github.event_name == 'push' || github.event.action != 'closed')
+      && needs.changes.outputs.run != 'false'
     uses: ./.github/workflows/test.yml
+    with:
+      demo-only: ${{ needs.changes.outputs.demo-only }}
     # De aangeroepen workflow mag nooit meer rechten hebben dan de caller-job toekent;
     # pull-requests: write is voor de JaCoCo-coverage-comment.
     permissions:
@@ -334,8 +407,14 @@ jobs:
       pull-requests: write
 
   checks-detekt:
-    if: github.event_name == 'push' || github.event.action != 'closed'
+    needs: changes
+    if: >-
+      !cancelled()
+      && (github.event_name == 'push' || github.event.action != 'closed')
+      && needs.changes.outputs.run != 'false'
     uses: ./.github/workflows/detekt.yml
+    with:
+      wijzigingen-relevant: ${{ needs.changes.outputs.run }}
     permissions:
       contents: read
       pull-requests: read
@@ -350,8 +429,15 @@ jobs:
   # ClusterFuzzLite fuzzt alleen PR's: op een push naar main is er geen basis om code-change-fuzzing
   # tegen af te zetten. Deze job wordt daar dus overgeslagen, en de gate telt dat als OK.
   checks-fuzz:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    needs: changes
+    if: >-
+      !cancelled()
+      && github.event_name == 'pull_request'
+      && github.event.action != 'closed'
+      && needs.changes.outputs.fuzz != 'false'
     uses: ./.github/workflows/cflite_pr.yml
+    with:
+      fuzz-relevant: ${{ needs.changes.outputs.fuzz }}
     permissions: read-all
 
   # Kwaliteitspoort vóór élke ZAD-deploy: geen cluster-capaciteit (en geen review-ruis van een
@@ -373,7 +459,7 @@ jobs:
     if: >-
       !cancelled()
       && (github.event_name == 'push'
-          || (github.event.action != 'closed' && needs.changes.outputs.run == 'true'))
+          || (github.event.action != 'closed' && needs.changes.outputs.deploy == 'true'))
     needs: [changes, checks-test, checks-detekt, checks-pins, checks-fuzz]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -430,7 +516,7 @@ jobs:
   # (redis) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -468,7 +554,7 @@ jobs:
             ]
 
   deploy-preview-externe-stubs:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -495,7 +581,7 @@ jobs:
             ]
 
   deploy-preview-magazijnen:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.run == 'true'
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20

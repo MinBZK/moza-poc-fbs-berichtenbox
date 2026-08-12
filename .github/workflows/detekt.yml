@@ -5,6 +5,15 @@ on:
   # de deploy er met `needs:` aan, in plaats van in een eigen job op de check-run te pollen —
   # een pollende job houdt een runner bezet zonder werk te doen.
   workflow_call:
+    inputs:
+      wijzigingen-relevant:
+        description: >-
+          Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml. Leeg (de default) betekent
+          "niet meegegeven", en dan bepaalt deze workflow het zelf — zo blijft hij zelfstandig
+          bruikbaar op een gestapelde PR.
+        type: string
+        required: false
+        default: ""
   # Het complement van deploy.yml's `branches: [main]`, dat op de DOELbranch filtert. Een
   # gestapelde PR (base = een feature-branch) draait deploy.yml niet en heeft deze workflow dus
   # zelfstandig nodig: zonder analyse komen bevindingen pas aan het licht op de PR naar main,
@@ -31,7 +40,9 @@ jobs:
   # gegate, maar de workflow zelf draait wél door — zo wordt de required status check ook bij een
   # docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes voor
   # branch protection.
+  # Draait alleen wanneer de caller de uitkomst niet meegaf; zie de toelichting in test.yml.
   changes:
+    if: inputs.wijzigingen-relevant == ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -69,7 +80,9 @@ jobs:
 
   detekt:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    # Sla alleen over bij een expliciete 'false'; zie de toelichting in test.yml.
+    if: "!cancelled() && needs.changes.outputs.run != 'false'"
+
     # Naam onderscheidt deze build-gate van de gelijknamige code-scanning-check die
     # GitHub Advanced Security post (SARIF tool.name "detekt"). Required status check.
     name: detekt-gate

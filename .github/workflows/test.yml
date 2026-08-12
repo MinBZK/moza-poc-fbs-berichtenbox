@@ -5,6 +5,16 @@ on:
   # de deploy er met `needs:` aan, in plaats van in een eigen job op de check-run te pollen —
   # een pollende job houdt een runner bezet zonder werk te doen.
   workflow_call:
+    inputs:
+      demo-only:
+        description: >-
+          Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml: 'true' wanneer de PR
+          uitsluitend demo-console raakt. Leeg (de default) betekent "niet meegegeven", en dan
+          bepaalt deze workflow het zelf — zo blijft hij zelfstandig bruikbaar op een
+          gestapelde PR.
+        type: string
+        required: false
+        default: ""
   # Het complement van deploy.yml's `branches: [main]`, dat op de DOELbranch filtert. Een
   # gestapelde PR (base = een feature-branch) draait deploy.yml niet en heeft deze workflow dus
   # zelfstandig nodig: zo'n PR wordt op eigen merites gereviewd en gemerged, en zonder tests komt
@@ -32,7 +42,10 @@ jobs:
   # bij een docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes
   # voor branch protection. Een workflow-niveau paths-filter zou de check juist nooit rapporteren
   # en de PR eeuwig blokkeren.
+  # Draait alleen wanneer de caller de uitkomst niet meegaf; anders is dit dezelfde vraag
+  # voor de tweede keer, en dat kostte per PR een runner-allocatie voor een bekend antwoord.
   changes:
+    if: inputs.demo-only == ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -87,7 +100,11 @@ jobs:
 
   test:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    # Sla alleen over bij een expliciete 'false'; een lege of ontbrekende uitkomst (caller gaf
+    # het antwoord mee, of de detectie faalde) betekent draaien. `!cancelled()` zodat een
+    # overgeslagen `changes` deze job niet meesleept — een overgeslagen check telt als succes.
+    if: "!cancelled() && needs.changes.outputs.run != 'false'"
+
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # pull-requests: write voor de coverage-PR-comment (madrapps/jacoco-report).
@@ -135,7 +152,7 @@ jobs:
       # demo-only-run bestaat er nergens een jacoco.xml — de comment-stap zou dan niets te
       # rapporteren hebben.
       - name: JaCoCo coverage als PR-comment
-        if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true'
+        if: github.event_name == 'pull_request' && inputs.demo-only != 'true' && needs.changes.outputs.demo-only != 'true'
         uses: madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920 # v1.8.0
         with:
           paths: |
@@ -154,7 +171,8 @@ jobs:
   # achter dat profiel en zouden anders juist niet gecontroleerd worden.
   compose:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: "!cancelled() && needs.changes.outputs.run != 'false'"
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
