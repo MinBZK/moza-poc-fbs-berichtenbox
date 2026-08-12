@@ -31,7 +31,13 @@ tb() { "${COMPOSE[@]}" exec -T toolbox curl -sS --fail-with-body \
 # bij ELKE aanroep; dat is geen curl-fout. Filteren voorkomt vals-alarm-WARN's en een
 # misleidende "laatste fout" op de FAIL-paden hieronder.
 strip_wrapper_noise() {
-  grep -v '^>>>> Executing external compose provider' "$ERRLOG" > "${ERRLOG}.f" 2>/dev/null || :
+  # De banner draagt SGR-ANSI-codes (bv. ESC[4m vóór de tekst), dus een anker op regelbegin mist
+  # 'm; ANSI eerst strippen (portable-vorm i.p.v. \x1b, een GNU-sed-extensie die BSD-sed/macOS
+  # niet kent), dan zonder anker filteren, en de lege regel weggooien die overblijft na het
+  # strippen van de losse ESC[0m-regel.
+  LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$ERRLOG" \
+    | grep -v 'Executing external compose provider' \
+    | grep -v '^[[:space:]]*$' > "${ERRLOG}.f" 2>/dev/null || :
   mv -f "${ERRLOG}.f" "$ERRLOG"
 }
 
