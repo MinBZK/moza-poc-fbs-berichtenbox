@@ -15,6 +15,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -181,5 +182,25 @@ class ClassifyMagazijnFaultTest {
     fun `een gewone fout is geen afbreking`() {
         assertFalse(service.isAfbreking(IllegalStateException("redis stuk")))
         assertFalse(service.isAfbreking(java.net.ConnectException("refused")))
+    }
+
+    // --- de bedrading van de opstartcontrole ---
+
+    /**
+     * Zonder observer maakt ArC deze bean pas bij het eerste request aan, en dan komt een
+     * ongeldige timeout-combinatie pas aan het licht als een gebruiker een ophaalronde start.
+     * De validatie zelf is hierboven gedekt; deze test bewaakt dat hij ook echt bij het opstarten
+     * hangt — precies het gat dat een eerdere ronde in deze PR blootlegde.
+     */
+    @Test
+    fun `de timeout-controle hangt aan het opstarten`() {
+        val observer = BerichtensessiecacheService::class.java.methods.singleOrNull { methode ->
+            methode.parameterTypes.contentEquals(arrayOf(io.quarkus.runtime.StartupEvent::class.java)) &&
+                methode.parameterAnnotations.any { annotaties ->
+                    annotaties.any { it.annotationClass == jakarta.enterprise.event.Observes::class }
+                }
+        }
+
+        assertNotNull(observer, "geen @Observes StartupEvent-methode: de validatie draait dan pas bij het eerste request")
     }
 }

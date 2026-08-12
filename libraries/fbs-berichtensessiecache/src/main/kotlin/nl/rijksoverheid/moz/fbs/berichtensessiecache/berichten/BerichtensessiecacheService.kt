@@ -4,9 +4,11 @@ import com.fasterxml.jackson.core.JsonProcessingException
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.TimeoutException
 import io.smallrye.mutiny.Uni
+import io.quarkus.runtime.StartupEvent
 import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
@@ -90,6 +92,16 @@ internal class BerichtensessiecacheService(
     private val circuitBreaker: MagazijnCircuitBreaker,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
+
+    /**
+     * Dwingt bean-instantiatie — en daarmee [valideerTimeouts] — af bij het opstarten. Zonder deze
+     * observer maakt ArC deze bean pas aan bij het eerste request (het enige pad ernaartoe loopt
+     * via de facade), en dan komt een ongeldige timeout-combinatie pas aan het licht wanneer een
+     * gebruiker een ophaalronde start: pod gestart, readiness groen, rollout geslaagd, en daarna
+     * faalt élke ophaalronde. De ondergrenzen in `MagazijnClientFactory` vangen dat niet — die
+     * kent de query-timeout niet, en juist de verhouding read > query is hier de invariant.
+     */
+    fun onStartup(@Observes event: StartupEvent) = Unit
 
     @PostConstruct
     fun valideerTimeouts() {
@@ -274,7 +286,7 @@ internal class BerichtensessiecacheService(
                 // Herstel interrupt-flag voor graceful pod-shutdown; 503 (transient), geen eigen-bug.
                 Thread.currentThread().interrupt()
                 log.warnf(ex, "(errorId=%s) Lock-acquire onderbroken voor key=%s", errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId)
+                cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId, afbreking = true)
                 WebApplicationException("Service shutdown tijdens ophaalstart", 503)
             }
             LockAcquireError.JSON_SERIALIZATION -> {
@@ -360,7 +372,7 @@ internal class BerichtensessiecacheService(
                 val errorId = UUID.randomUUID()
 
                 log.warnf(ex, "(errorId=%s) Resolver-await onderbroken voor key=%s", errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId)
+                cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId, afbreking = true)
                 throw WebApplicationException("Service shutdown tijdens ophalen", 503)
             }
             isOuterTimeout -> {
@@ -807,6 +819,11 @@ internal class BerichtensessiecacheService(
         cacheKey: String,
         oorzaak: String,
         errorId: UUID = UUID.randomUUID(),
+        // De aanroeper weet of dit een afbrekingspad is; hier afleiden uit de opgevangen fout kan
+        // niet. Een gezette interrupt-flag laat de await hierónder onmiddellijk falen met een
+        // InterruptedException, óók wanneer de werkelijke oorzaak een echte storing was — dan zou
+        // de alert-marker juist bij een storing wegvallen.
+        afbreking: Boolean = false,
     ) {
         try {
             berichtenCache.storeAggregationStatus(
@@ -816,11 +833,10 @@ internal class BerichtensessiecacheService(
 
             log.warnf("Lock vrijgegeven na fout (errorId=%s) voor key=%s: %s", errorId, cacheKey, oorzaak)
         } catch (cleanupEx: Exception) {
-            // Een afbreking is ook hier geen storing. Dit pad wordt juist vanuit de
-            // interrupt-takken aangeroepen, en de await hieronder draait dan op een thread met
-            // gezette flag — een rolling restart tijdens een lopende ophaalstart zou anders
-            // gegarandeerd een FATAL met alert-marker per onderbroken sessie opleveren.
-            if (isAfbreking(cleanupEx)) {
+            // Een afbreking is ook hier geen storing: een rolling restart tijdens een lopende
+            // ophaalstart zou anders gegarandeerd een FATAL met alert-marker per onderbroken
+            // sessie opleveren.
+            if (afbreking) {
                 log.infof(
                     "Lock-cleanup afgebroken (errorId=%s) voor key=%s: %s — lock leunt op TTL",
                     errorId,
@@ -953,7 +969,7 @@ internal class BerichtensessiecacheService(
                     // status 400, dus via het echte magazijn-pad komt een 301 hier niet aan — die
                     // strandt eerder op het parsen van de redirect-body en wordt MALFORMED. Deze
                     // tak is de vangnet-kant van de classificatie; hem sluitend maken vraagt een
-                    // eigen ResponseExceptionMapper op MagazijnClient. TODO(#870)
+                    // eigen ResponseExceptionMapper op MagazijnClient. TODO(MinBZK/MijnOverheidZakelijk#870)
                     status in 300..399 -> MagazijnFault.HTTP_3XX
                     // WAE zonder status = raw WAE("oeps") zonder Response → eigen-bug.
                     else -> MagazijnFault.INTERNAL_BUG
