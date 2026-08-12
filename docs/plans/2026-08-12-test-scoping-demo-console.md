@@ -1,6 +1,6 @@
 # CI: test.yml scopen op demo-console-only wijzigingen
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 ## Aanleiding
 
@@ -53,12 +53,11 @@ else:
 ## Randgeval: JaCoCo-coverage-comment
 
 `madrapps/jacoco-report` glob't `services/*/target/site/jacoco/jacoco.xml` +
-`libraries/*/target/site/jacoco/jacoco.xml`. Bij een `demo-only`-run bestaat alleen (als
-demo-console al JaCoCo had, wat nu niet zo is — geen `jacoco-maven-plugin` in
-`services/demo-console/pom.xml`) geen enkel rapport. De comment-stap draait alleen bij
-`github.event_name == 'pull_request'` en faalt niet op een lege glob (Ant-style patterns die
-niets matchen leveren gewoon nul entries); te verifiëren bij implementatie met een demo-only
-testrun.
+`libraries/*/target/site/jacoco/jacoco.xml`. `demo-console` heeft geen `jacoco-maven-plugin`
+(geen coverage-gate voor de wegwerp-module), dus bij een `demo-only`-run bestaat er nergens een
+rapport. In plaats van te vertrouwen op de action's gedrag bij een lege glob (ongeverifieerd,
+en een silent-lege comment is ook niet wenselijk), slaat de stap zichzelf over via een extra
+`if`-voorwaarde (`needs.changes.outputs.demo-only != 'true'`).
 
 ## Verificatie
 
