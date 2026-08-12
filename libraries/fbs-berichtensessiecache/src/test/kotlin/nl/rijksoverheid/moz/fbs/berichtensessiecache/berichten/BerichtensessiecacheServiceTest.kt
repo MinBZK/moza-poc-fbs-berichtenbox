@@ -20,6 +20,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -136,9 +137,10 @@ class BerichtensessiecacheServiceTest {
         val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(5))
 
         assertEquals(1, events.size)
-        assertEquals(EventType.OPHALEN_GEREED, events[0].event)
-        assertEquals(0, events[0].totaalBerichten)
-        assertEquals(0, events[0].totaalMagazijnen)
+        val gereed = assertInstanceOf(OphalenGereed::class.java, events[0])
+
+        assertEquals(0, gereed.totaalBerichten)
+        assertEquals(0, gereed.totaalMagazijnen)
         verify { berichtenCache.store(cacheKey, emptyList()) }
     }
 
@@ -378,15 +380,15 @@ class BerichtensessiecacheServiceTest {
             .await().atMost(Duration.ofSeconds(5))
 
         assertEquals(1, events.size)
-        assertEquals(EventType.OPHALEN_FOUT, events[0].event)
-        assertEquals(0, events[0].totaalMagazijnen)
-        assertNotNull(events[0].referentie)
+        val fout = assertInstanceOf(OphalenFout::class.java, events[0])
+
+        assertEquals(0, fout.totaalMagazijnen)
         org.junit.jupiter.api.Assertions.assertDoesNotThrow {
-            UUID.fromString(events[0].referentie!!)
+            UUID.fromString(fout.referentie)
         }
         assertTrue(
-            events[0].foutmelding!!.contains("(ref: ${events[0].referentie})"),
-            "Foutmelding moet de (ref: <UUID>)-suffix dragen die het referentie-veld spiegelt; was: ${events[0].foutmelding}",
+            fout.foutmelding.contains("(ref: ${fout.referentie})"),
+            "Foutmelding moet de (ref: <UUID>)-suffix dragen die het referentie-veld spiegelt; was: ${fout.foutmelding}",
         )
         verify {
             berichtenCache.storeAggregationStatus(
@@ -469,12 +471,11 @@ class BerichtensessiecacheServiceTest {
         val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooidEvent = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooidEvent = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnStatus.FOUT, voltooidEvent.status)
-        assertNotNull(voltooidEvent.foutmelding)
+        assertEquals(MagazijnFoutStatus.FOUT, voltooidEvent.status)
         assertTrue(
-            voltooidEvent.foutmelding!!.contains("schema-drift"),
+            voltooidEvent.foutmelding.contains("schema-drift"),
             "Foutmelding moet schema-drift signaleren, niet generieke netwerk-fout: ${voltooidEvent.foutmelding}",
         )
     }
@@ -584,22 +585,21 @@ class BerichtensessiecacheServiceTest {
         val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val fouten = events.filter { it.event == EventType.OPHALEN_FOUT }
+        val fouten = events.filterIsInstance<OphalenFout>()
 
         assertEquals(1, fouten.size, "Verwacht 1 OPHALEN_FOUT-event in: $events")
-        assertNotNull(fouten[0].referentie, "OPHALEN_FOUT moet referentie dragen voor support-correlatie")
         org.junit.jupiter.api.Assertions.assertDoesNotThrow {
-            UUID.fromString(fouten[0].referentie!!)
+            UUID.fromString(fouten[0].referentie)
         }
         // De referentie staat zowel in de foutmelding-tekst ("(ref: ...)") als in het
         // gestructureerde referentie-veld; de tekst meldt expliciet dat eerder getoonde
         // per-magazijn-resultaten niet bewaard zijn.
         assertTrue(
-            fouten[0].foutmelding!!.startsWith("Resultaten konden niet worden opgeslagen"),
+            fouten[0].foutmelding.startsWith("Resultaten konden niet worden opgeslagen"),
             "Foutmelding moet melden dat resultaten niet bewaard zijn; was: ${fouten[0].foutmelding}",
         )
         assertTrue(
-            fouten[0].foutmelding!!.contains("(ref: ${fouten[0].referentie})"),
+            fouten[0].foutmelding.contains("(ref: ${fouten[0].referentie})"),
             "Foutmelding moet (ref: <UUID>)-suffix dragen; was: ${fouten[0].foutmelding}",
         )
     }
@@ -635,12 +635,11 @@ class BerichtensessiecacheServiceTest {
         val events = serviceMetLageCap.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnStatus.FOUT, voltooid.status)
-        assertNotNull(voltooid.foutmelding)
+        assertEquals(MagazijnFoutStatus.FOUT, voltooid.status)
         assertTrue(
-            voltooid.foutmelding!!.contains("te veel berichten"),
+            voltooid.foutmelding.contains("te veel berichten"),
             "Foutmelding moet overflow signaleren: ${voltooid.foutmelding}",
         )
     }
@@ -662,9 +661,9 @@ class BerichtensessiecacheServiceTest {
         val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnStatus.FOUT, voltooid.status)
+        assertEquals(MagazijnFoutStatus.FOUT, voltooid.status)
         assertEquals("Magazijn kon niet geraadpleegd worden", voltooid.foutmelding)
     }
 
@@ -702,11 +701,11 @@ class BerichtensessiecacheServiceTest {
         val events = serviceVolBulkhead.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnStatus.FOUT, voltooid.status)
+        assertEquals(MagazijnFoutStatus.FOUT, voltooid.status)
         assertTrue(
-            voltooid.foutmelding!!.contains("systeem druk"),
+            voltooid.foutmelding.contains("systeem druk"),
             "Foutmelding moet OVERBELAST signaleren: ${voltooid.foutmelding}",
         )
         // De magazijn-call is nooit gestart: de afwijzing claimt geen permit (blijft 0 = vastgehouden).
@@ -748,9 +747,8 @@ class BerichtensessiecacheServiceTest {
         val events = serviceBalans.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
-        assertEquals(MagazijnStatus.OK, voltooid.status)
         assertEquals(1, balansBulkhead.vrijePermits(), "permit teruggegeven na geslaagde aggregatie")
     }
 
@@ -785,9 +783,8 @@ class BerichtensessiecacheServiceTest {
         val events = serviceMetLageCap.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
-        assertEquals(MagazijnStatus.OK, voltooid.status)
         assertEquals(2, voltooid.aantalBerichten)
     }
 
@@ -815,9 +812,8 @@ class BerichtensessiecacheServiceTest {
         val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
-        assertEquals(MagazijnStatus.OK, voltooid.status)
         assertEquals(1, voltooid.aantalBerichten)
     }
 
@@ -890,9 +886,9 @@ class BerichtensessiecacheServiceTest {
         val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnStatus.FOUT, voltooid.status)
+        assertEquals(MagazijnFoutStatus.FOUT, voltooid.status)
         assertEquals("Magazijn kon niet geraadpleegd worden", voltooid.foutmelding)
     }
 
@@ -912,9 +908,8 @@ class BerichtensessiecacheServiceTest {
         val events = service.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
 
-        val voltooid = events.first { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID }
+        val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
-        assertEquals(MagazijnStatus.OK, voltooid.status)
         assertEquals(0, voltooid.aantalBerichten)
     }
 
@@ -933,22 +928,22 @@ class BerichtensessiecacheServiceTest {
             .await().atMost(Duration.ofSeconds(5))
 
         assertEquals(1, events.size)
-        assertEquals(EventType.OPHALEN_FOUT, events[0].event)
+        val fout = assertInstanceOf(OphalenFout::class.java, events[0])
+
         assertTrue(
-            events[0].foutmelding!!.contains("configuratie"),
-            "Foutmelding moet config-mismatch noemen: ${events[0].foutmelding}",
+            fout.foutmelding.contains("configuratie"),
+            "Foutmelding moet config-mismatch noemen: ${fout.foutmelding}",
         )
         // referentie-veld voor support-correlatie moet geldige UUID-string zijn,
         // én moet als substring in foutmelding voorkomen (riem-en-bretels invariant).
-        assertNotNull(events[0].referentie)
         org.junit.jupiter.api.Assertions.assertDoesNotThrow {
-            UUID.fromString(events[0].referentie!!)
+            UUID.fromString(fout.referentie)
         }
         // Strakker dan contains() — pint de "(ref: <id>)"-suffix-conventie vast die
         // de service-comment expliciet belooft; voorkomt stille refactor naar prefix/midden.
         assertTrue(
-            events[0].foutmelding!!.endsWith("(ref: ${events[0].referentie})"),
-            "foutmelding moet '(ref: <id>)'-suffix hebben: ${events[0].foutmelding}",
+            fout.foutmelding.endsWith("(ref: ${fout.referentie})"),
+            "foutmelding moet '(ref: <id>)'-suffix hebben: ${fout.foutmelding}",
         )
         verify {
             berichtenCache.storeAggregationStatus(

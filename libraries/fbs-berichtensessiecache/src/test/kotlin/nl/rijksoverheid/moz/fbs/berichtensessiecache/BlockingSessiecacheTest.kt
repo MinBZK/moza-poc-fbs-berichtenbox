@@ -7,15 +7,17 @@ import io.mockk.verify
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.WebApplicationException
+import java.time.Instant
+import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtensessiecacheService
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheContentieException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheCorruptedException
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
@@ -25,8 +27,6 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.time.Instant
-import java.util.UUID
 
 /**
  * Pin het facade-contract van [BlockingSessiecache]: de gereed-status-gating op
@@ -169,7 +169,7 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `ophalen geeft de event-stream van de service ongewijzigd door`() {
-        val event = MagazijnEvent(event = EventType.OPHALEN_GEREED, totaalBerichten = 0, totaalMagazijnen = 0)
+        val event: MagazijnEvent = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 0, totaalMagazijnen = 0)
 
         every { service.haalBerichtenOp(ontvanger) } returns Multi.createFrom().item(event)
 

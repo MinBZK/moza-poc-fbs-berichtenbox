@@ -15,8 +15,10 @@ import jakarta.ws.rs.core.MediaType
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenFout
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
@@ -143,9 +145,11 @@ class OphalenSseResource(
  * finale event telt — GEREED zonder mislukkingen is OK, elke (deel)mislukking ERROR;
  * tussentijdse events leveren `null` (geen wijziging). Pure functie, los van de
  * resource, zodat de audit-invariant per event-type gepind kan worden in een unit-test.
+ * De `when` is uitputtend over de sealed hiërarchie: een nieuw soort voortgangsbericht
+ * dwingt hier een bewuste keuze af in plaats van stil in een `else` te verdwijnen.
  */
-internal fun logboekStatusVoor(event: MagazijnEvent): StatusCode? = when (event.event) {
-    EventType.OPHALEN_GEREED -> if (event.mislukt == 0) StatusCode.OK else StatusCode.ERROR
-    EventType.OPHALEN_FOUT -> StatusCode.ERROR
-    else -> null
+internal fun logboekStatusVoor(event: MagazijnEvent): StatusCode? = when (event) {
+    is OphalenGereed -> if (event.mislukt == 0) StatusCode.OK else StatusCode.ERROR
+    is OphalenFout -> StatusCode.ERROR
+    is MagazijnBevraging -> null
 }

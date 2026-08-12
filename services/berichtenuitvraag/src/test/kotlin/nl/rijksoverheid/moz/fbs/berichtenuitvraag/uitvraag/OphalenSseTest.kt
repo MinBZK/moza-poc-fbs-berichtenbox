@@ -6,9 +6,12 @@ import io.restassured.RestAssured.given
 import io.smallrye.mutiny.Multi
 import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGestart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OpslaanMislukt
 import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -37,8 +40,7 @@ class OphalenSseTest {
         sessiecache.reset()
     }
 
-    private fun gereedEvent(geslaagd: Int = 1, mislukt: Int = 0) = MagazijnEvent(
-        event = EventType.OPHALEN_GEREED,
+    private fun gereedEvent(geslaagd: Int = 1, mislukt: Int = 0) = OphalenGereed(
         totaalBerichten = geslaagd,
         geslaagd = geslaagd,
         mislukt = mislukt,
@@ -48,13 +50,8 @@ class OphalenSseTest {
     @Test
     fun `_ophalen streamt facade-events als SSE-frames`() {
         sessiecache.ophalenEvents = Multi.createFrom().items(
-            MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_GESTART, magazijnId = "magazijn-a"),
-            MagazijnEvent(
-                event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
-                magazijnId = "magazijn-a",
-                status = MagazijnStatus.OK,
-                aantalBerichten = 2,
-            ),
+            MagazijnBevragingGestart(magazijnId = "magazijn-a", naam = null),
+            MagazijnBevragingGeslaagd(magazijnId = "magazijn-a", naam = null, aantalBerichten = 2),
             gereedEvent(),
         )
 
@@ -80,8 +77,13 @@ class OphalenSseTest {
         // bij de client aankomen, inclusief het OPHALEN_GEREED-eindevent met de
         // mislukt-telling.
         sessiecache.ophalenEvents = Multi.createFrom().items(
-            MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID, magazijnId = "magazijn-a", status = MagazijnStatus.OK, aantalBerichten = 1),
-            MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID, magazijnId = "magazijn-b", status = MagazijnStatus.FOUT, foutmelding = "Magazijn tijdelijk niet bereikbaar"),
+            MagazijnBevragingGeslaagd(magazijnId = "magazijn-a", naam = null, aantalBerichten = 1),
+            MagazijnBevragingMislukt(
+                magazijnId = "magazijn-b",
+                naam = null,
+                status = MagazijnFoutStatus.FOUT,
+                foutmelding = "Magazijn tijdelijk niet bereikbaar",
+            ),
             gereedEvent(geslaagd = 1, mislukt = 1),
         )
 
@@ -103,11 +105,12 @@ class OphalenSseTest {
         // client bereiken inclusief de referentie, zodat de UI "haal opnieuw op" kan
         // tonen; de bijbehorende LDV-ERROR-mapping is gepind in LogboekStatusVoorTest.
         sessiecache.ophalenEvents = Multi.createFrom().items(
-            MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_GESTART, magazijnId = "magazijn-a"),
-            MagazijnEvent(
-                event = EventType.OPHALEN_FOUT,
-                totaalMagazijnen = 1,
+            MagazijnBevragingGestart(magazijnId = "magazijn-a", naam = null),
+            OpslaanMislukt(
                 foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: test)",
+                geslaagd = 0,
+                mislukt = 1,
+                totaalMagazijnen = 1,
                 referentie = "test",
             ),
         )
@@ -161,7 +164,7 @@ class OphalenSseTest {
         // de status ligt dan vast op 200. De eis: het geleverde frame komt door en
         // de stream termineert — geen hang, geen half frame.
         sessiecache.ophalenEvents = Multi.createBy().concatenating().streams(
-            Multi.createFrom().item(MagazijnEvent(event = EventType.MAGAZIJN_BEVRAGING_GESTART, magazijnId = "magazijn-a")),
+            Multi.createFrom().item(MagazijnBevragingGestart(magazijnId = "magazijn-a", naam = null)),
             Multi.createFrom().failure(IllegalStateException("aggregatie-pijplijn brak")),
         )
 

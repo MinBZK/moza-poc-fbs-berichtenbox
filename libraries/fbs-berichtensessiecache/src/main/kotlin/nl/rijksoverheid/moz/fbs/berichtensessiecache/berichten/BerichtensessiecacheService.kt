@@ -332,9 +332,7 @@ internal class BerichtensessiecacheService(
 
             ResolveUitkomst.FoutStream(
                 Multi.createFrom().item(
-                    MagazijnEvent(
-                        event = EventType.OPHALEN_FOUT,
-                        totaalMagazijnen = 0,
+                    OphalenMislukt(
                         foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: $ref)",
                         referentie = ref,
                     ),
@@ -459,9 +457,7 @@ internal class BerichtensessiecacheService(
             // Referentie zowel in foutmelding-tekst ("(ref: ...)") als in het
             // gestructureerde `referentie`-veld, voor UIs die het veld nog niet renderen.
             return Multi.createFrom().item(
-                MagazijnEvent(
-                    event = EventType.OPHALEN_FOUT,
-                    totaalMagazijnen = 0,
+                OphalenMislukt(
                     foutmelding = "Interne fout bij opslaan resultaten (ref: $ref)",
                     referentie = ref,
                 ),
@@ -469,8 +465,7 @@ internal class BerichtensessiecacheService(
         }
 
         return Multi.createFrom().item(
-            MagazijnEvent(
-                event = EventType.OPHALEN_GEREED,
+            OphalenGereed(
                 totaalBerichten = 0,
                 geslaagd = 0,
                 mislukt = 0,
@@ -497,11 +492,7 @@ internal class BerichtensessiecacheService(
     ): Multi<MagazijnEvent> {
         val naam = clientFactory.getNaam(magazijnId)
 
-        val gestartEvent = MagazijnEvent(
-            event = EventType.MAGAZIJN_BEVRAGING_GESTART,
-            magazijnId = magazijnId,
-            naam = naam,
-        )
+        val gestartEvent = MagazijnBevragingGestart(magazijnId = magazijnId, naam = naam)
 
         // `deferred` zodat de circuit-check PAS bij subscription loopt: een nooit-gesubscribete
         // stream (cancel vóór subscribe in het SSE-pad) claimt zo geen half-open probe. Het bulkhead
@@ -553,7 +544,7 @@ internal class BerichtensessiecacheService(
             }
         }
 
-        val resultStream = resultUni.toMulti().map { result ->
+        val resultStream = resultUni.toMulti().map<MagazijnEvent> { result ->
             naarVoltooidEvent(result, alleBerichten, geslaagd, mislukt)
         }
 
@@ -617,25 +608,22 @@ internal class BerichtensessiecacheService(
         alleBerichten: MutableList<Bericht>,
         geslaagd: AtomicInteger,
         mislukt: AtomicInteger,
-    ): MagazijnEvent = when (result) {
+    ): MagazijnBevragingVoltooid = when (result) {
         is MagazijnResult.Success -> {
             alleBerichten.addAll(result.berichten)
             geslaagd.incrementAndGet()
-            MagazijnEvent(
-                event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
+            MagazijnBevragingGeslaagd(
                 magazijnId = result.magazijnId,
                 naam = result.naam,
-                status = MagazijnStatus.OK,
                 aantalBerichten = result.berichten.size,
             )
         }
         is MagazijnResult.Failure -> {
             mislukt.incrementAndGet()
-            MagazijnEvent(
-                event = EventType.MAGAZIJN_BEVRAGING_VOLTOOID,
+            MagazijnBevragingMislukt(
                 magazijnId = result.magazijnId,
                 naam = result.naam,
-                status = if (result.fault == MagazijnFault.TIMEOUT) MagazijnStatus.TIMEOUT else MagazijnStatus.FOUT,
+                status = if (result.fault == MagazijnFault.TIMEOUT) MagazijnFoutStatus.TIMEOUT else MagazijnFoutStatus.FOUT,
                 foutmelding = foutmeldingVoor(result.fault),
             )
         }
@@ -699,9 +687,8 @@ internal class BerichtensessiecacheService(
                         berichtenCache.storeAggregationStatus(cacheKey, status),
                     )
                     .discardItems()
-                    .map { _ ->
-                        MagazijnEvent(
-                            event = EventType.OPHALEN_GEREED,
+                    .map<MagazijnEvent> { _ ->
+                        OphalenGereed(
                             totaalBerichten = alleBerichten.size,
                             geslaagd = geslaagd.get(),
                             mislukt = mislukt.get(),
@@ -761,12 +748,11 @@ internal class BerichtensessiecacheService(
             // faalde, dus de client moet opnieuw ophalen i.p.v. te denken dat de
             // resultaten beschikbaar zijn via GET /berichten.
             .replaceWith(
-                MagazijnEvent(
-                    event = EventType.OPHALEN_FOUT,
+                OpslaanMislukt(
+                    foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
                     geslaagd = geslaagd.get(),
                     mislukt = mislukt.get(),
                     totaalMagazijnen = totaalMagazijnen,
-                    foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
                     referentie = ref,
                 )
             )
