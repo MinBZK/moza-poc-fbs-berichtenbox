@@ -47,4 +47,16 @@ class MagazijnClientFactoryTimeoutTest {
     fun `een positieve timeout komt door`(waarde: Long) {
         assertDoesNotThrow { factory(connectTimeoutMs = waarde, readTimeoutMs = waarde).valideerTimeouts() }
     }
+
+    /**
+     * De tabel hierboven zegt niets over de vraag of de controle ook echt bij het opstarten
+     * draait. Zonder deze test blijft alles groen als de aanroep uit `init()` verdwijnt, en dan
+     * start de dienst alsnog met een uitgeschakelde bescherming.
+     */
+    @Test
+    fun `de controle hangt aan het opstarten van de factory`() {
+        val ex = assertThrows<IllegalArgumentException> { factory(connectTimeoutMs = 0).init() }
+
+        assertTrue(ex.message!!.contains("connect-timeout-ms"), "melding: ${ex.message}")
+    }
 }

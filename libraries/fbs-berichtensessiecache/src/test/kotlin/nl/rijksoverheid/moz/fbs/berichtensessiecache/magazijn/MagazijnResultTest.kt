@@ -49,7 +49,7 @@ class MagazijnResultTest {
     }
 
     @Test
-    fun `data class equals en hashCode werken`() {
+    fun `Success vergelijkt op waarde`() {
         val a1 = MagazijnResult.Success("id", "n", listOf(bericht))
         val a2 = MagazijnResult.Success("id", "n", listOf(bericht))
         val b = MagazijnResult.Success("id", "andere", listOf(bericht))

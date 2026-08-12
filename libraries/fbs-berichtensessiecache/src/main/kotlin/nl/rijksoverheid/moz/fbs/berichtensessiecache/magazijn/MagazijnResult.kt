@@ -47,13 +47,18 @@ internal sealed class MagazijnResult {
  * de call is bewust overgeslagen (snelle fail i.p.v. wachten op een timeout). Geen
  * resultaat van een echte call, dus nooit door `classifyMagazijnFault` geproduceerd.
  *
+ * [HTTP_3XX]: het magazijn antwoordde met een doorverwijzing die de client niet volgde — het
+ * staat op een ander adres dan geconfigureerd. Eigen constante naast [HTTP_4XX] zodat het log de
+ * werkelijke oorzaak noemt; het circuit-breaker-gedrag is identiek (het magazijn ís bereikt, en
+ * een configuratiefout telt niet als availability-storing).
+ *
  * [OVERBELAST]: het concurrency-bulkhead ([MagazijnAggregatieBulkhead]) zat vol — er was geen
  * vrije permit, dus het magazijn is niet eens bevraagd. Geen uitspraak over de beschikbaarheid
  * van dít magazijn (de saturatie komt typisch door een ánder, traag magazijn), dus telt niet als
  * storing én niet als succes.
  */
 internal enum class MagazijnFault {
-    TIMEOUT, MALFORMED, OVERFLOW, HTTP_5XX, HTTP_4XX, NETWORK, INTERNAL_BUG, CIRCUIT_OPEN, OVERBELAST
+    TIMEOUT, MALFORMED, OVERFLOW, HTTP_5XX, HTTP_4XX, HTTP_3XX, NETWORK, INTERNAL_BUG, CIRCUIT_OPEN, OVERBELAST
 }
 
 /**
@@ -68,7 +73,8 @@ internal val MagazijnFault.teltAlsStoring: Boolean
     get() = when (this) {
         MagazijnFault.TIMEOUT, MagazijnFault.HTTP_5XX, MagazijnFault.NETWORK -> true
         MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW, MagazijnFault.HTTP_4XX,
-        MagazijnFault.INTERNAL_BUG, MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST,
+        MagazijnFault.HTTP_3XX, MagazijnFault.INTERNAL_BUG, MagazijnFault.CIRCUIT_OPEN,
+        MagazijnFault.OVERBELAST,
         -> false
     }
 
@@ -82,8 +88,8 @@ internal val MagazijnFault.magazijnBereikt: Boolean
     get() = when (this) {
         MagazijnFault.OVERBELAST, MagazijnFault.CIRCUIT_OPEN -> false
         MagazijnFault.TIMEOUT, MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW,
-        MagazijnFault.HTTP_5XX, MagazijnFault.HTTP_4XX, MagazijnFault.NETWORK,
-        MagazijnFault.INTERNAL_BUG,
+        MagazijnFault.HTTP_5XX, MagazijnFault.HTTP_4XX, MagazijnFault.HTTP_3XX,
+        MagazijnFault.NETWORK, MagazijnFault.INTERNAL_BUG,
         -> true
     }
 
@@ -115,7 +121,13 @@ internal fun circuitActieVoor(result: MagazijnResult): CircuitActie = when (resu
  * `WebApplicationException`/`ProcessingException` — dit is een interne signalering,
  * geen upstream-fault, en wordt door de service in een aparte foutmelding gemapt.
  */
-internal class MagazijnResponseOverflow(message: String) : RuntimeException(message)
+internal class MagazijnResponseOverflow(val aantal: Int, val cap: Int) :
+    RuntimeException("Magazijn leverde meer berichten dan toegestaan") {
+    // Aantallen als velden, niet in de message: die tekst hoort langs geen enkel pad naar
+    // buiten te lekken, terwijl de omvang wél nodig is als een overflow onverwacht via een
+    // ander pad wordt afgehandeld dan het mappen (waar de counts al gelogd worden).
+    override fun toString() = "MagazijnResponseOverflow(aantal=$aantal, cap=$cap)"
+}
 
 /**
  * Marker-exception voor een door de circuit breaker overgeslagen magazijn-call. Draagt de

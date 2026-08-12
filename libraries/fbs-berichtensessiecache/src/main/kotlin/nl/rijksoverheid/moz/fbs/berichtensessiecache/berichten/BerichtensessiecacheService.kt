@@ -558,13 +558,10 @@ internal class BerichtensessiecacheService(
                 "Magazijn %s (%s) overschreed berichten-cap: %d > %d",
                 magazijnId, naam, response.berichten.size, maxBerichtenPerMagazijn,
             )
-            // Geen aantallen in de exception-tekst: die belandt niet in de respons, maar de
-            // grens en de werkelijke omvang zijn interne gegevens die niet naar buiten horen
-            // te lekken langs welk pad dan ook. De counts staan hierboven al in de log.
             return MagazijnResult.Failure(
                 magazijnId,
                 naam,
-                MagazijnResponseOverflow("Magazijn leverde meer berichten dan toegestaan"),
+                MagazijnResponseOverflow(response.berichten.size, maxBerichtenPerMagazijn),
                 MagazijnFault.OVERFLOW,
             )
         }
@@ -654,8 +651,8 @@ internal class BerichtensessiecacheService(
     private fun magazijnFoutStatusVoor(fault: MagazijnFault): MagazijnFoutStatus = when (fault) {
         MagazijnFault.TIMEOUT -> MagazijnFoutStatus.TIMEOUT
         MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW, MagazijnFault.HTTP_5XX,
-        MagazijnFault.HTTP_4XX, MagazijnFault.NETWORK, MagazijnFault.INTERNAL_BUG,
-        MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST,
+        MagazijnFault.HTTP_4XX, MagazijnFault.HTTP_3XX, MagazijnFault.NETWORK,
+        MagazijnFault.INTERNAL_BUG, MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST,
         -> MagazijnFoutStatus.FOUT
     }
 
@@ -665,6 +662,7 @@ internal class BerichtensessiecacheService(
         MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
         MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
         MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
+        MagazijnFault.HTTP_3XX -> "Magazijn verwijst door naar een ander adres (configuratiefout, contact beheerder)"
         MagazijnFault.CIRCUIT_OPEN -> "Magazijn tijdelijk niet beschikbaar (herhaalde storingen)"
         MagazijnFault.OVERBELAST -> "Magazijn tijdelijk niet beschikbaar (systeem druk, probeer het later opnieuw)"
         // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
@@ -735,9 +733,9 @@ internal class BerichtensessiecacheService(
         val ref = errorId.toString()
         val afgebroken = isAfbreking(error)
 
-        // Een afbreking is geen storing: de gebruiker sloot de pagina, of de pod gaat uit.
-        // Op errorf-niveau loggen zou beheer wakker maken voor normaal gedrag en echte
-        // fouten laten ondersneeuwen.
+        // Een afbreking is geen storing. De aggregatie loopt bewust door na een client-disconnect,
+        // dus de reële trigger hier is een pod die uitgaat. Op errorf-niveau loggen zou beheer
+        // wakker maken voor normaal gedrag en echte fouten laten ondersneeuwen.
         if (afgebroken) {
             log.infof(
                 "(errorId=%s) Opslaan na aggregatie afgebroken (key=%s, berichten=%d); geen storing",
@@ -764,8 +762,11 @@ internal class BerichtensessiecacheService(
             // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
             // Een afbreking krijgt die marker niet: beheer oppiepen voor een gesloten
             // pagina of een herstart laat echte storingen ondersneeuwen.
+            // Bewust alleen `e`: is de eerste fout een afbreking maar de tweede een echte
+            // Redis-uitval, dan is de cache voor deze sessie wél onbruikbaar en blijft de lock
+            // op de TTL hangen — precies de conditie waarvoor de marker bestaat.
             .onFailure().invoke { e ->
-                if (afgebroken || isAfbreking(e)) {
+                if (isAfbreking(e)) {
                     log.infof(
                         "(errorId=%s) Ook de fout-status kon niet worden weggeschreven na een afbreking (key=%s); lock leunt op TTL",
                         errorId, cacheKey,
@@ -890,17 +891,21 @@ internal class BerichtensessiecacheService(
     }
 
     /**
-     * Onderscheidt "het ophalen is afgebroken" van "er ging iets stuk". Een gebruiker die de
-     * pagina sluit en een pod die herstart leveren beide een annulering of een interrupt op;
-     * dat is normaal gedrag en hoort geen storingsmelding op te leveren. [classifyMagazijnFault]
-     * maakt hetzelfde onderscheid voor de per-magazijn-calls.
+     * Onderscheidt "het ophalen is afgebroken" van "er ging iets stuk". Bij een pod-herstart
+     * midden in de aggregatie levert dat een annulering of een interrupt op; dat is normaal
+     * gedrag en hoort geen storingsmelding op te leveren. [classifyMagazijnFault] maakt
+     * hetzelfde onderscheid voor de per-magazijn-calls.
+     *
+     * Uitsluitend de meegegeven fout telt, niet de interrupt-flag van de huidige thread. Die
+     * flag is thread-sticky en wordt elders in deze klasse bewust gezet zonder hem ooit te
+     * wissen; komt zo'n worker-thread terug in de pool, dan zou een échte Redis-uitval daarna
+     * als afbreking gelden en zou de alert stilvallen.
      */
     internal fun isAfbreking(error: Throwable): Boolean {
         val chain = error.causeChain()
 
         return chain.hasCauseOf(java.util.concurrent.CancellationException::class.java) ||
-            chain.hasCauseOf(InterruptedException::class.java) ||
-            Thread.currentThread().isInterrupted
+            chain.hasCauseOf(InterruptedException::class.java)
     }
 
     // Internal voor directe unit-test van de classificatie-tabel (zie service-test).
@@ -921,12 +926,12 @@ internal class BerichtensessiecacheService(
                 when {
                     status in 500..599 -> MagazijnFault.HTTP_5XX
                     status >= 400 -> MagazijnFault.HTTP_4XX
-                    // Een 3xx die als fout terugkomt betekent dat de client de redirect niet
-                    // volgde: het magazijn staat op een ander adres dan wij kennen. Dat is een
-                    // configuratie-kwestie aan de andere kant, geen bug in onze code — vandaar
-                    // dezelfde behandeling als een 4xx (errorf + "contact beheerder"), niet de
-                    // INTERNAL_BUG-tak die als eigen storing zou alerten.
-                    status in 300..399 -> MagazijnFault.HTTP_4XX
+                    // Een 3xx die als fout terugkomt betekent dat de client de doorverwijzing
+                    // niet volgde: het magazijn staat op een ander adres dan wij kennen. Een
+                    // eigen fault i.p.v. HTTP_4XX, zodat het log de werkelijke oorzaak noemt —
+                    // een beheerder die dit ziet moet naar de magazijn-URL kijken, niet naar
+                    // een 4xx die er niet is.
+                    status in 300..399 -> MagazijnFault.HTTP_3XX
                     // WAE zonder status = raw WAE("oeps") zonder Response → eigen-bug.
                     else -> MagazijnFault.INTERNAL_BUG
                 }
@@ -956,6 +961,10 @@ internal class BerichtensessiecacheService(
                 log.warnf(error, "Magazijn %s (%s) 5xx", magazijnId, naam)
             MagazijnFault.HTTP_4XX ->
                 log.errorf(error, "Magazijn %s (%s) 4xx — configuratie/auth-fout", magazijnId, naam)
+            // Eigen tak, niet samengevoegd met 4xx: wie dit ziet moet de magazijn-URL in het
+            // register nakijken, niet naar rechten of een verkeerd pad zoeken.
+            MagazijnFault.HTTP_3XX ->
+                log.errorf(error, "Magazijn %s (%s) verwijst door — geconfigureerde URL wijst niet naar het magazijn", magazijnId, naam)
             MagazijnFault.NETWORK ->
                 log.warnf(error, "Magazijn %s (%s) niet bereikbaar (network/processing)", magazijnId, naam)
             // Bewust overgeslagen door de circuit breaker — geen echte call-fout. Het CIRCUIT_OPEN-

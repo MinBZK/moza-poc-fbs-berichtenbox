@@ -52,7 +52,7 @@ class ClassifyMagazijnFaultTest {
 
     @Test
     fun `MagazijnResponseOverflow direct = OVERFLOW`() {
-        assertEquals(MagazijnFault.OVERFLOW, service.classifyMagazijnFault(MagazijnResponseOverflow("te veel")))
+        assertEquals(MagazijnFault.OVERFLOW, service.classifyMagazijnFault(MagazijnResponseOverflow(aantal = 300, cap = 200)))
     }
 
     @Test
@@ -120,15 +120,14 @@ class ClassifyMagazijnFaultTest {
 
     /**
      * Een 3xx die als fout terugkomt betekent dat de client de doorverwijzing niet volgde: het
-     * magazijn staat op een ander adres dan geconfigureerd. Dat is een configuratiekwestie aan
-     * de andere kant, geen bug bij ons, dus dezelfde behandeling als een 4xx — niet de
-     * INTERNAL_BUG-tak, die als eigen storing zou alerten.
+     * magazijn staat op een ander adres dan geconfigureerd. Een eigen fault, zodat het log de
+     * werkelijke oorzaak noemt in plaats van een 4xx die er niet is.
      */
     @ParameterizedTest
     @ValueSource(ints = [300, 301, 302, 307, 308, 399])
-    fun `WebApplicationException met 3xx = HTTP_4XX (upstream-configuratie, geen eigen bug)`(status: Int) {
+    fun `WebApplicationException met 3xx = HTTP_3XX (magazijn staat elders, geen eigen bug)`(status: Int) {
         assertEquals(
-            MagazijnFault.HTTP_4XX,
+            MagazijnFault.HTTP_3XX,
             service.classifyMagazijnFault(WebApplicationException(Response.status(status).build())),
         )
     }
