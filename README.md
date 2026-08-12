@@ -136,9 +136,11 @@ De belangrijkste configuratie staat in `services/berichtenuitvraag/src/main/reso
 # Magazijnregister: de map-key is de afzender-OIN, de waarde het magazijn van die organisatie.
 # %dev vult de URL uit een env-var met de lokale poort als default, zodat dezelfde
 # configuratie in een container naar container-DNS wijst.
-magazijnen."00000000000000100000".url=${MAGAZIJN_A_URL}   # %dev-default: http://localhost:8090
+# %dev-default van MAGAZIJN_A_URL: http://localhost:8090
+magazijnen."00000000000000100000".url=${MAGAZIJN_A_URL}
 magazijnen."00000000000000100000".naam=Magazijn A
-magazijnen."00000001823288444000".url=${MAGAZIJN_B_URL}   # %dev-default: http://localhost:8091
+# %dev-default van MAGAZIJN_B_URL: http://localhost:8091
+magazijnen."00000001823288444000".url=${MAGAZIJN_B_URL}
 magazijnen."00000001823288444000".naam=Magazijn B
 ```
 
