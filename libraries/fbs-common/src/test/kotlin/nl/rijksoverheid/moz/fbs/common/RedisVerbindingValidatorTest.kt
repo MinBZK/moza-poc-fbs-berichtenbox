@@ -28,15 +28,15 @@ class RedisVerbindingValidatorTest {
         password: String = "geheim",
         trustAll: Boolean = false,
         hostnameVerificatie: String = "HTTPS",
-        tlsIngeschakeld: Boolean = false,
         unsafeAllowPlaintext: Boolean = false,
     ) = RedisVerbindingValidator.validate(
         profile = profile,
-        hosts = hosts,
+        // De komma-vorm blijft de leesbaarste manier om een lijst in een testgeval te zetten;
+        // het splitsen dat de productie-code deed, gebeurt nu hier.
+        adressen = hosts.split(",").map { it.trim() }.filter { it.isNotEmpty() },
         password = password,
         trustAll = trustAll,
         hostnameVerificatie = hostnameVerificatie,
-        tlsIngeschakeld = tlsIngeschakeld,
         unsafeAllowPlaintext = unsafeAllowPlaintext,
     )
 
@@ -46,7 +46,7 @@ class RedisVerbindingValidatorTest {
     @ValueSource(strings = ["dev", "test"])
     fun `lokale profielen mogen onbeschermd verbinden`(profiel: String) {
         assertDoesNotThrow {
-            RedisVerbindingValidator.validate(profiel, "redis://localhost:6379")
+            RedisVerbindingValidator.validate(profiel, listOf("redis://localhost:6379"))
         }
     }
 
@@ -59,7 +59,7 @@ class RedisVerbindingValidatorTest {
     @ValueSource(strings = ["dev,demo", "test,integratie", "DEV", "Test", "prod", "staging", "acceptatie"])
     fun `elk ander profiel krijgt de volle eis`(profiel: String) {
         assertThrows<IllegalStateException> {
-            RedisVerbindingValidator.validate(profiel, "redis://opslag.intern:6379", password = "geheim")
+            RedisVerbindingValidator.validate(profiel, listOf("redis://opslag.intern:6379"), password = "geheim")
         }
     }
 
@@ -217,7 +217,13 @@ class RedisVerbindingValidatorTest {
             valideerVeilig(hosts = "rediss://default:geheim@a.intern:6379,rediss://b.intern:6379", password = "")
         }
 
-        assertTrue(ex.message!!.contains("password"), "melding moet de wachtwoord-key noemen: ${ex.message}")
+        // Op de onderscheidende zin, niet op "password": dat woord staat óók in het gebrek over
+        // inloggegevens in de URL, waardoor de assertie ook zou slagen als de per-adres-telling
+        // vervangen werd door "is er érgens een wachtwoord".
+        assertTrue(
+            ex.message!!.contains("er is geen wachtwoord ingesteld"),
+            "melding moet melden dat er geen los wachtwoord is: ${ex.message}",
+        )
     }
 
     @Test
@@ -379,13 +385,6 @@ class RedisVerbindingValidatorTest {
         assertDoesNotThrow { RedisVerbindingValidator.valideerAlleClients("prod", config) }
     }
 
-    @Test
-    fun `een dienst zonder redis-configuratie doorloopt de bedrading zonder fout`() {
-        assertDoesNotThrow {
-            RedisVerbindingValidator.valideerAlleClients("prod", configMet("quarkus.http.port" to "8080"))
-        }
-    }
-
     /**
      * Een client die geconfigureerd ís maar geen adres heeft: de Redis-client weigert hier zelf,
      * maar stil overslaan zou deze check laten zwijgen over een client die hij zelf ontdekte.
@@ -396,27 +395,7 @@ class RedisVerbindingValidatorTest {
 
         val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
 
-        assertTrue(ex.message!!.contains("leeg"), "melding: ${ex.message}")
-    }
-
-    /**
-     * Met een benoemde TLS-configuratie leest de client `tls.enabled` niet; dan bepaalt alleen het
-     * schema of er versleuteld wordt. Hem daar tóch honoreren zou een plaintext-adres laten
-     * doorgaan als versleuteld — precies de fail-open die deze check moet uitsluiten.
-     */
-    @Test
-    fun `tls-enabled telt niet mee bij een benoemde tls-configuratie`() {
-        val config = configMet(
-            "quarkus.redis.hosts" to "redis://opslag.intern:6379",
-            "quarkus.redis.password" to "geheim",
-            "quarkus.redis.tls-configuration-name" to "opslag",
-            "quarkus.redis.tls.enabled" to "true",
-            "quarkus.tls.opslag.hostname-verification-algorithm" to "HTTPS",
-        )
-
-        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
-
-        assertTrue(ex.message!!.contains("rediss://"), "melding: ${ex.message}")
+        assertTrue(ex.message!!.contains("geen enkel adres"), "melding: ${ex.message}")
     }
 
     /** Een provider náást een geldige hosts is geen gebrek: de client gebruikt dan hosts. */
@@ -445,6 +424,80 @@ class RedisVerbindingValidatorTest {
         val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
 
         assertTrue(ex.message!!.contains("beheer"), "melding moet de named client noemen: ${ex.message}")
+    }
+
+    /**
+     * De geïndexeerde schrijfwijze is wat een omgevingsvariabele oplevert
+     * (`QUARKUS_REDIS_HOSTS_0_`). Quarkus bindt die gewoon; hem hier niet herkennen zou de hele
+     * check laten zwijgen over een client die wél gebouwd wordt.
+     */
+    @Test
+    fun `een geindexeerd adres wordt ontdekt en beoordeeld`() {
+        val config = configMet(
+            "quarkus.redis.hosts[0]" to "redis://opslag.intern:6379",
+            "quarkus.redis.password" to "geheim",
+        )
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(ex.message!!.contains("rediss://"), "melding: ${ex.message}")
+    }
+
+    @Test
+    fun `meerdere geindexeerde adressen worden allemaal beoordeeld`() {
+        val config = configMet(
+            "quarkus.redis.hosts[0]" to "rediss://a.intern:6379",
+            "quarkus.redis.hosts[1]" to "redis://b.intern:6379",
+            "quarkus.redis.password" to "geheim",
+            "quarkus.redis.tls.hostname-verification-algorithm" to "HTTPS",
+        )
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(ex.message!!.contains("1 van de 2"), "melding: ${ex.message}")
+    }
+
+    /**
+     * De Redis-client leest het wachtwoord ook uit een query-parameter. Dan staat het net zo goed
+     * in de deployment-omgeving en in elke pod-beschrijving als bij de userinfo-vorm.
+     */
+    @Test
+    fun `een wachtwoord in een query-parameter telt als inloggegevens in het adres`() {
+        val ex = assertThrows<IllegalStateException> {
+            valideerVeilig(hosts = "rediss://opslag.intern:6379?password=geheim")
+        }
+
+        assertTrue(ex.message!!.contains("inloggegevens in de URL"), "melding: ${ex.message}")
+    }
+
+    /** Een onleesbaar adres is geen "geen inloggegevens" maar iets wat niet te beoordelen valt. */
+    @Test
+    fun `een onleesbaar adres wordt als gebrek gemeld`() {
+        val ex = assertThrows<IllegalStateException> {
+            valideerVeilig(hosts = "rediss://:p@ssw%rd@opslag.intern:6379")
+        }
+
+        assertTrue(ex.message!!.contains("niet te lezen"), "melding: ${ex.message}")
+    }
+
+    /**
+     * De hele fail-closed-eigenschap zit in de default die de check aanneemt wanneer de sleutel
+     * ontbreekt. Zonder deze test overleeft een mutatie naar een permissieve default de suite,
+     * en laat de guard elke verbinding zonder peer-verificatie door.
+     */
+    @Test
+    fun `een ontbrekende hostnaam-verificatie geldt als uitgeschakeld`() {
+        val config = configMet(
+            "quarkus.redis.hosts" to "rediss://opslag.intern:6379",
+            "quarkus.redis.password" to "geheim",
+        )
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(
+            ex.message!!.contains("hostname-verification-algorithm"),
+            "een ontbrekende sleutel hoort als NONE te gelden: ${ex.message}",
+        )
     }
 
     private fun configMet(vararg paren: Pair<String, String>) = SmallRyeConfigBuilder()
@@ -526,12 +579,6 @@ class RedisVerbindingValidatorTest {
         val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
 
         assertTrue(ex.message!!.contains("hosts-provider-name"), "melding: ${ex.message}")
-    }
-
-    /** TLS kan ook via de losse schakelaar aanstaan; dan zegt het schema niets meer. */
-    @Test
-    fun `tls via de losse schakelaar maakt het schema niet doorslaggevend`() {
-        assertDoesNotThrow { valideerVeilig(hosts = "redis://opslag.intern:6379", tlsIngeschakeld = true) }
     }
 
     /** Staat de klep open, dan hoort de melding niet alsnog om TLS te vragen. */

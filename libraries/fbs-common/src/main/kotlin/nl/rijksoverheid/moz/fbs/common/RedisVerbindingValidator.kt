@@ -57,7 +57,10 @@ class RedisVerbindingValidator(
         // De clientnaam mag zelf punten bevatten: een env-var als QUARKUS_REDIS__CACHE_A__HOSTS
         // komt als `quarkus.redis."cache.a".hosts` in de configuratie terecht. Een patroon dat
         // punten verbiedt zou zo'n client niet ontdekken en hem dus ongecontroleerd laten.
-        private val HOSTS_PATROON = Regex("""^quarkus\.redis\.(?:(.+?)\.)?hosts$""")
+        // `hosts` mag ook geïndexeerd geschreven worden (`hosts[0]`, of als env-var
+        // QUARKUS_REDIS_HOSTS_0_). Quarkus bindt die vorm gewoon; hem hier niet herkennen zou de
+        // hele check laten zwijgen over een client die wél gebouwd wordt.
+        private val HOSTS_PATROON = Regex("""^quarkus\.redis\.(?:(.+?)\.)?hosts(?:\[\d+])?$""")
 
         /** Zelfde vorm voor de programmatische variant; die bestaat óók per client. */
         private val PROVIDER_PATROON = Regex("""^quarkus\.redis\.(?:(.+?)\.)?hosts-provider-name$""")
@@ -89,7 +92,7 @@ class RedisVerbindingValidator(
                 .filterNot { sleutel ->
                     val naam = PROVIDER_PATROON.find(sleutel)?.groupValues?.get(1).orEmpty()
 
-                    adresVan(config, prefixVan(naam)).isNotBlank()
+                    adressenVan(config, prefixVan(naam)).isNotEmpty()
                 }
 
             if (providers.isNotEmpty()) {
@@ -110,8 +113,15 @@ class RedisVerbindingValidator(
 
         private fun prefixVan(naam: String) = if (naam.isEmpty()) "quarkus.redis" else "quarkus.redis.$naam"
 
-        private fun adresVan(config: Config, prefix: String) =
-            config.getOptionalValue("$prefix.hosts", String::class.java).orElse("")
+        /**
+         * Leest zowel de komma-vorm als de geïndexeerde vorm; SmallRye levert beide via
+         * `getOptionalValues`. Zelf op komma's splitsen zou de geïndexeerde vorm missen.
+         */
+        private fun adressenVan(config: Config, prefix: String): List<String> =
+            config.getOptionalValues("$prefix.hosts", String::class.java)
+                .orElse(emptyList())
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
 
         private fun valideerClient(profile: String, config: Config, naam: String, unsafeAllowPlaintext: Boolean) {
             val prefix = prefixVan(naam)
@@ -124,7 +134,7 @@ class RedisVerbindingValidator(
 
             validate(
                 profile = profile,
-                hosts = config.getOptionalValue("$prefix.hosts", String::class.java).orElse(""),
+                adressen = adressenVan(config, prefix),
                 password = config.getOptionalValue("$prefix.password", String::class.java).orElse(""),
                 // De globale registry-knop telt mee: de client zet trust-all zodra één van beide
                 // aanstaat. Alleen de client-eigen knop lezen laat `quarkus.tls.trust-all=true`
@@ -135,11 +145,6 @@ class RedisVerbindingValidator(
                 hostnameVerificatie = config
                     .getOptionalValue("$tlsPrefix.hostname-verification-algorithm", String::class.java)
                     .orElse("NONE"),
-                // `tls.enabled` geldt alleen zónder benoemde TLS-configuratie. Met een naam leest
-                // de client die sleutel niet en bepaalt uitsluitend het schema of er versleuteld
-                // wordt — hem daar tóch honoreren zou een `redis://`-adres als versleuteld laten
-                // doorgaan terwijl de verbinding plaintext is.
-                tlsIngeschakeld = tlsNaam.isEmpty() && leesBoolean(config, "$prefix.tls.enabled"),
                 unsafeAllowPlaintext = unsafeAllowPlaintext,
                 configPrefix = prefix,
             )
@@ -163,11 +168,10 @@ class RedisVerbindingValidator(
         @Suppress("LongParameterList")
         fun validate(
             profile: String,
-            hosts: String,
+            adressen: List<String>,
             password: String = "",
             trustAll: Boolean = false,
             hostnameVerificatie: String = "NONE",
-            tlsIngeschakeld: Boolean = false,
             unsafeAllowPlaintext: Boolean = false,
             configPrefix: String = "quarkus.redis",
             // Waar de TLS-instellingen vandaan komen: het client-eigen blok, of de bucket van een
@@ -177,18 +181,9 @@ class RedisVerbindingValidator(
         ) {
             if (profile in PROFIELEN_ZONDER_TLS_EIS) return
 
-            // Een lege waarde op een client die wél geconfigureerd is: de Redis-client weigert
-            // hier zelf ("Redis host not configured"), maar stil overslaan zou deze check laten
-            // zwijgen over een client die hij nota bene zelf ontdekt heeft.
-            if (hosts.isBlank()) {
-                throw IllegalStateException(meldingVoor(profile, listOf("$configPrefix.hosts is leeg")))
-            }
-
-            val adressen = hosts.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-
-            // Een waarde die alleen uit scheidingstekens bestaat is niet blank, maar levert nul
-            // adressen op. Zonder deze afslag zouden alle per-adres-checks leeg-waar zijn en zou
-            // een onbeoordeelde configuratie als "voldoet" door de guard komen.
+            // Nul adressen op een client die wél geconfigureerd is: de Redis-client weigert hier
+            // zelf ("Redis host not configured"), maar stil overslaan zou deze check laten zwijgen
+            // over een client die hij nota bene zelf ontdekt heeft.
             if (adressen.isEmpty()) {
                 throw IllegalStateException(
                     meldingVoor(profile, listOf("$configPrefix.hosts bevat geen enkel adres")),
@@ -196,7 +191,7 @@ class RedisVerbindingValidator(
             }
 
             val transportGebreken =
-                transportGebrekenIn(adressen, trustAll, hostnameVerificatie, tlsIngeschakeld, configPrefix, tlsPrefix)
+                transportGebrekenIn(adressen, trustAll, hostnameVerificatie, configPrefix, tlsPrefix)
             val authGebreken = authGebrekenIn(adressen, password, configPrefix)
 
             // De hosts-waarde zelf komt hier nooit in: hij mag een wachtwoord in de userinfo
@@ -247,16 +242,17 @@ class RedisVerbindingValidator(
             adressen: List<String>,
             trustAll: Boolean,
             hostnameVerificatie: String,
-            tlsIngeschakeld: Boolean,
             configPrefix: String,
             tlsPrefix: String,
         ): List<String> {
             val gebreken = mutableListOf<String>()
             // Hoofdlettergevoelig, gelijk aan wat Vert.x accepteert: `REDISS://` weigert de
             // runtime alsnog, dus hier toelaten zou een garantie suggereren die hier niet ligt.
-            // De losse `tls.enabled`-schakelaar zet TLS voor álle adressen aan; dan zegt het
-            // schema niets meer en zou weigeren een werkende opstelling blokkeren.
-            val zonderTls = if (tlsIngeschakeld) 0 else adressen.count { !it.startsWith(TLS_SCHEME) }
+            // Het schema is op élk pad doorslaggevend — ook met een benoemde TLS-configuratie zet
+            // Quarkus de versleuteling op het schema, en een client met `tls.enabled` op een
+            // `redis://`-adres weigert bij het verbinden ("Pool initialized with SSL but
+            // connection requested plain socket"). Er is dus geen opstelling om uit te zonderen.
+            val zonderTls = adressen.count { !it.startsWith(TLS_SCHEME) }
 
             if (zonderTls > 0) {
                 gebreken += "$zonderTls van de ${adressen.size} adressen in $configPrefix.hosts gebruikt geen $TLS_SCHEME"
@@ -283,6 +279,13 @@ class RedisVerbindingValidator(
          */
         private fun authGebrekenIn(adressen: List<String>, password: String, configPrefix: String): List<String> {
             val gebreken = mutableListOf<String>()
+            val onleesbaar = adressen.count { leesUri(it) == null }
+
+            if (onleesbaar > 0) {
+                gebreken += "$onleesbaar van de ${adressen.size} adressen in $configPrefix.hosts is niet te lezen " +
+                    "als adres, dus niet te beoordelen op inloggegevens"
+            }
+
             val metWachtwoordInAdres = adressen.count { heeftWachtwoordInUrl(it) }
 
             if (metWachtwoordInAdres > 0) {
@@ -299,14 +302,28 @@ class RedisVerbindingValidator(
 
         /**
          * Parseert als URI in plaats van op `@` te splitsen: een `@` in een query-parameter
-         * (`?client=a@b`, een ondersteunde vorm) zou anders als inloggegevens tellen. Een adres
-         * dat niet als URI te lezen is, telt niet als geauthenticeerd — de runtime weigert het
-         * even goed.
+         * (`?client=a@b`, een ondersteunde vorm) zou anders als inloggegevens tellen.
+         *
+         * De query-parameters tellen wél mee wanneer ze `password` heten: de Redis-client leest
+         * het wachtwoord ook daaruit, en dan staat het net zo goed in de deployment-omgeving als
+         * bij de userinfo-vorm.
          */
-        private fun heeftWachtwoordInUrl(adres: String): Boolean = try {
-            URI(adres).userInfo?.substringAfter(":", "")?.isNotEmpty() ?: false
+        private fun heeftWachtwoordInUrl(adres: String): Boolean {
+            val uri = leesUri(adres) ?: return false
+            val inUserInfo = uri.userInfo?.substringAfter(":", "")?.isNotEmpty() ?: false
+            val inQuery = uri.query
+                ?.split("&")
+                ?.any { it.startsWith("password=") && it.substringAfter("=").isNotEmpty() }
+                ?: false
+
+            return inUserInfo || inQuery
+        }
+
+        /** Een adres dat niet als URI te lezen is, is geen "geen inloggegevens" maar een eigen gebrek. */
+        private fun leesUri(adres: String): URI? = try {
+            URI(adres)
         } catch (_: URISyntaxException) {
-            false
+            null
         }
     }
 }
