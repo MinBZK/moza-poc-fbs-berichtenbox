@@ -10,7 +10,7 @@ import org.jboss.logging.Logger
  * Uniforme upstream-fout-mapping voor calls naar de sessiecache-facade én het magazijn.
  *
  * Allowlist: alleen een echte client-/contract-`4xx` (400..499) propageert 1-op-1
- * (bv. 404 cache-miss of 409 cache-nog-niet-gevuld); al het andere — geen response
+ * (bv. een 404 of 409 van het magazijn); al het andere — geen response
  * (transport-storing) en elke non-4xx-status (1xx/3xx/5xx) — wordt 502. Rationale:
  * voor een server-naar-server client is een lekkende non-4xx geen begrijpelijk
  * contract, dus telt als upstream-storing. Zo blijft "502 = upstream-fout, niet onze
@@ -89,8 +89,9 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
  * cache-library breekt hier de build i.p.v. stil verkeerd bij de gebruiker te landen.
  *
  * Bewust géén 502-mapping hier: deze functie levert puur de status die per cache-foutgeval
- * hoort. De per-consumer transportpolitiek (lees-pad → [mapUpstreamFout] dat 5xx naar 502
- * maakt; aanmeld-pad → status-behoudend) blijft daar belegd.
+ * hoort. Het lees-pad geeft die status rechtstreeks door ([leesUitCache]); het aanmeld-pad is
+ * status-behoudend. De 502-politiek van [mapUpstreamFout] geldt voor fouten die niet uit deze
+ * classificatie komen.
  */
 internal fun SessiecacheException.naApiFout(): WebApplicationException = when (this) {
     is SessiecacheException.NogNietGevuld -> WebApplicationException(message, this, Response.Status.CONFLICT)
