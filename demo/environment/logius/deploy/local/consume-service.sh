@@ -86,6 +86,20 @@ contract_state() {  # $1=json $2=content_hash
     | map(select(. != null)) | (first // "unknown") | ascii_downcase' 2>/dev/null || echo unknown
 }
 
+# Het top-level `hash`/`content_hash`-veld op een contract-entry is het CONTRACT-hash, niet het
+# grant-hash waarop de outway routeert (Fsc-Grant-Hash) — dat zit als eigen `hash`-veld op de
+# individuele grant in content.grants[]. Matcht op service.name + outway-thumbprint zodat dit
+# ook klopt zodra een contract ooit meer dan één grant draagt.
+grant_hash() {  # $1=json $2=content_hash $3=service_name $4=outway_thumbprint
+  [ "$HAVE_JQ" -eq 1 ] || { echo unknown; return; }
+  printf '%s' "$1" | jq -r --arg h "$2" --arg svc "$3" --arg thumb "$4" '
+    [.. | objects | select((.hash? // .content_hash? // .content?.content_hash?) == $h)] as $c
+    | [$c[] | (.content?.grants? // [])[]
+         | select(.service?.name == $svc and .outway?.identification?.public_key_thumbprint == $thumb)
+         | .hash?] as $g
+    | ($g[0] // "unknown")' 2>/dev/null || echo unknown
+}
+
 # --- 0. Outway-public-key-thumbprint (host-side openssl) --------------------------------------
 command -v openssl >/dev/null 2>&1 || { echo "FAIL: openssl niet gevonden op de host." >&2; exit 1; }
 [ -r "$OUTWAY_CERT_HOST" ] || { echo "FAIL: outway-cert niet leesbaar: $OUTWAY_CERT_HOST (draai pki/issue.sh?)" >&2; exit 1; }
@@ -108,15 +122,28 @@ if [ -f "$STATE_FILE" ]; then
         CSTATE=$(contract_state "$LIST" "$SAVED")
         case "$CSTATE" in
           valid|contract_state_valid|unknown)
+            GRANT=$(grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
+            [ "$GRANT" != "unknown" ] || {
+              echo "FAIL: contract $SAVED gevonden, maar geen grant-hash voor service=$SERVICE_NAME," \
+                   "outway-thumbprint=$THUMB (jq beschikbaar? content.grants[] aanwezig?)." >&2
+              exit 1
+            }
             echo "OK: eerder geaccepteerd contract $SAVED draagt nog de provider-accept en heeft manager-state $CSTATE (idempotent, skip)."
-            echo "GRANT-HASH: $SAVED"; exit 0 ;;
+            echo "CONTRACT-HASH: $SAVED"
+            echo "GRANT-HASH: $GRANT"; exit 0 ;;
           *)
             echo "consume: state-file-contract $SAVED draagt de accept-handtekening, maar manager-state is $CSTATE (niet CONTRACT_STATE_VALID) — opnieuw opzetten." ;;
         esac ;;
       unknown)
         if printf '%s' "$LIST" | grep -qF "$SAVED"; then
-          echo "OK: eerder geaccepteerd contract $SAVED nog aanwezig (idempotent, skip; jq afwezig -> geen staat-check)."
-          echo "GRANT-HASH: $SAVED"; exit 0
+          GRANT=$(grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
+          [ "$GRANT" != "unknown" ] || {
+            echo "FAIL: contract $SAVED aanwezig, maar kon geen grant-hash lezen (vereist jq; installeer jq)." >&2
+            exit 1
+          }
+          echo "OK: eerder geaccepteerd contract $SAVED nog aanwezig (idempotent, skip)."
+          echo "CONTRACT-HASH: $SAVED"
+          echo "GRANT-HASH: $GRANT"; exit 0
         fi ;;
       no) echo "consume: state-file-contract $SAVED draagt geen provider-accept meer." ;;
     esac
@@ -176,9 +203,12 @@ FINAL=$(manager_contracts)
 case "$(accept_state "$FINAL" "$HASH" "$PROVIDER_OIN")" in
   yes) echo "OK: contract $HASH draagt de accept-handtekening (geverifieerd)." ;;
   unknown)
-    printf '%s' "$FINAL" | grep -qF "$HASH" \
-      && echo "OK (fallback, geen jq/afwijkende vorm): contract $HASH aanwezig na een 2xx-accept." \
-      || { echo "FAIL: contract $HASH niet teruggevonden na accept." >&2; exit 1; } ;;
+    if printf '%s' "$FINAL" | grep -qF "$HASH"; then
+      echo "OK (fallback, geen jq/afwijkende vorm): contract $HASH aanwezig na een 2xx-accept."
+    else
+      echo "FAIL: contract $HASH niet teruggevonden na accept." >&2
+      exit 1
+    fi ;;
   no) echo "FAIL: contract $HASH draagt geen accept-handtekening (accept-PUT gaf 2xx, staat zegt nee — inspecteer handmatig)." >&2; exit 1 ;;
 esac
 
@@ -194,6 +224,14 @@ case "$CONTRACT_STATE" in
   *) echo "FAIL: contract $HASH draagt de accept-handtekening maar staat niet op CONTRACT_STATE_VALID (state=$CONTRACT_STATE)." >&2; exit 1 ;;
 esac
 
+GRANT=$(grant_hash "$FINAL" "$HASH" "$SERVICE_NAME" "$THUMB")
+[ "$GRANT" != "unknown" ] || {
+  echo "FAIL: kon geen grant-hash vinden voor service=$SERVICE_NAME, outway-thumbprint=$THUMB" \
+       "in contract $HASH (vereist jq; installeer jq)." >&2
+  exit 1
+}
+
 mkdir -p "$STATE_DIR" && printf '%s\n' "$HASH" > "$STATE_FILE"
-echo "GRANT-HASH: $HASH"
+echo "CONTRACT-HASH: $HASH"
+echo "GRANT-HASH: $GRANT"
 echo "CONSUME OK."
