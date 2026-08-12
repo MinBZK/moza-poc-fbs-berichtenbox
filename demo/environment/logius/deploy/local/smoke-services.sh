@@ -16,7 +16,13 @@ status=$("${COMPOSE[@]}" ps -a --format '{{.Service}} {{.State}} {{.ExitCode}}')
 # De verwachte set is de vereniging van twee onvolledige lijsten. Alleen `config --services`
 # missen we een service die enkel in een overlay bestaat (dit script kent maar één `-f`); alleen
 # `ps` missen we een service die nooit is aangemaakt. Samen dekken ze allebei die gaten.
-mapfile -t verwacht < <( { "${COMPOSE[@]}" config --services; awk '{print $1}' <<<"$status"; } \
+#
+# Een read-loop en geen `mapfile`: dat is een bash-4-builtin en macOS levert bash 3.2.
+verwacht=()
+
+while IFS= read -r dienst; do
+  verwacht+=("$dienst")
+done < <( { "${COMPOSE[@]}" config --services; awk '{print $1}' <<<"$status"; } \
   | grep -v '^$' | sort -u)
 
 if [ "${#verwacht[@]}" -eq 0 ]; then

@@ -37,6 +37,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
+      demo-only: ${{ steps.filter.outputs.demo-only }}
     steps:
       - name: Detecteer niet-documentatie wijzigingen
         id: filter
@@ -48,6 +49,7 @@ jobs:
         run: |
           if [ "$EVENT" != "pull_request" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "demo-only=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), draai
@@ -56,6 +58,7 @@ jobs:
           if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
             echo "::warning::Kon gewijzigde bestanden niet ophalen — code-checks draaien fail-safe."
             echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "demo-only=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -66,6 +69,20 @@ jobs:
           else
             echo "Alleen documentatie gewijzigd — code-checks overgeslagen."
             echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # demo-console heeft bewust geen afhankelijkheid op fbs-common of een andere
+          # reactor-module (zie services/demo-console/pom.xml) — het enige blad in de
+          # module-graaf zonder koppeling. Raakt de PR verder niets buiten
+          # services/demo-console/ en demo/ (de Python-generator + smoke.sh, die alleen de
+          # demo-stack aansturen), dan hoeven berichtenmagazijn/berichtenuitvraag/libraries
+          # niet mee gebouwd en getest te worden. Fail-safe zoals hierboven: elk onbekend of
+          # breder pad → false (volledige build), nooit omgekeerd stil onder-testen.
+          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^services/demo-console/|^demo/)'; then
+            echo "demo-only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Uitsluitend demo-console geraakt — test-job scoped naar die module."
+            echo "demo-only=true" >> "$GITHUB_OUTPUT"
           fi
 
   test:
@@ -87,8 +104,16 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
+      # demo-only (changes-job): scope naar de ene module zonder reactor-koppeling i.p.v. ook
+      # berichtenmagazijn/berichtenuitvraag/libraries en hun Testcontainers-integratietests te
+      # bouwen voor een wijziging die ze niet raakt.
       - name: Test
-        run: ./mvnw -B test
+        run: |
+          if [ "${{ needs.changes.outputs.demo-only }}" = "true" ]; then
+            ./mvnw -B test -pl services/demo-console
+          else
+            ./mvnw -B test
+          fi
       # Coverage-zichtbaarheid op PR-niveau. Bewust GitHub-native (madrapps/jacoco-report)
       # i.p.v. Codecov: geen externe SaaS, geen upload-token, geen extra supply-chain-
       # oppervlak (Codecov kende in 2021 een uploader-compromittering). JaCoCo levert al een
@@ -104,8 +129,13 @@ jobs:
       # rapport hanteert dezelfde excludes als de 90%-gate, dus de comment spiegelt de gate.
       # Glob op `services/*` + `libraries/*` zodat nieuwe modules (services én gedeelde
       # libraries zoals fbs-common) automatisch meegenomen worden.
+      #
+      # demo-only sluit deze stap uit: services/demo-console/pom.xml heeft geen
+      # jacoco-maven-plugin (geen coverage-gate voor de wegwerp-module), dus bij een
+      # demo-only-run bestaat er nergens een jacoco.xml — de comment-stap zou dan niets te
+      # rapporteren hebben.
       - name: JaCoCo coverage als PR-comment
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true'
         uses: madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920 # v1.8.0
         with:
           paths: |
@@ -116,3 +146,17 @@ jobs:
           min-coverage-overall: 0
           min-coverage-changed-files: 0
           update-comment: true
+
+  # 460+ regels compose zijn de enige beschrijving van de demo-stack en worden door geen
+  # enkele build-stap gelezen: een typfout of een ongeldige verwijzing blijkt nu pas als
+  # iemand de stack start, meestal vlak voor een demo. `config -q` parseert en valideert
+  # zonder daemon of images, in seconden. Met `--profile demo`, want de demo-services staan
+  # achter dat profiel en zouden anders juist niet gecontroleerd worden.
+  compose:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: compose.yaml valideren
+        run: docker compose --profile demo config -q
