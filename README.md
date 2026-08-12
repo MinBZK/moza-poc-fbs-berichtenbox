@@ -76,9 +76,10 @@ is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
 ```
 
 > **CORS voor de Berichtenbox-UI** is een runtime-property (`quarkus.http.cors.enabled`),
-> gezet onder `%dev` in `berichtenuitvraag` én als env-var in het demo-profiel van
-> `compose.yaml`. Prod/ZAD (profiel prod) krijgt geen enabled, dus die images blijven
-> CORS-loos. Geen build-flag nodig.
+> uitsluitend gezet als env-var in het demo-profiel van `compose.yaml` — de
+> `application.properties` van `berichtenuitvraag` bevat geen CORS-config. Er staat geen
+> origins-allowlist tegenover, dus in de demo laat Quarkus elke origin toe. Prod/ZAD
+> (profiel prod) krijgt geen enabled, dus die images blijven CORS-loos. Geen build-flag nodig.
 
 > **Apple Silicon / ARM:** jib bouwt standaard `linux/amd64` (de ZAD-cluster is amd64).
 > Op een ARM-host draaien die images onder emulatie — voeg
@@ -132,11 +133,13 @@ bijbehorende `.bru`-request.
 De belangrijkste configuratie staat in `services/berichtenuitvraag/src/main/resources/application.properties`:
 
 ```properties
-# Magazijnen waarmee de in-process sessiecache communiceert
-magazijnen.instances.magazijn-a.url=http://localhost:8081
-magazijnen.instances.magazijn-a.naam=Magazijn A
-magazijnen.instances.magazijn-b.url=http://localhost:8082
-magazijnen.instances.magazijn-b.naam=Magazijn B
+# Magazijnregister: de map-key is de afzender-OIN, de waarde het magazijn van die organisatie.
+# %dev vult de URL uit een env-var met de lokale poort als default, zodat dezelfde
+# configuratie in een container naar container-DNS wijst.
+magazijnen."00000000000000100000".url=${MAGAZIJN_A_URL}   # %dev-default: http://localhost:8090
+magazijnen."00000000000000100000".naam=Magazijn A
+magazijnen."00000001823288444000".url=${MAGAZIJN_B_URL}   # %dev-default: http://localhost:8091
+magazijnen."00000001823288444000".naam=Magazijn B
 ```
 
 ## Licentie
