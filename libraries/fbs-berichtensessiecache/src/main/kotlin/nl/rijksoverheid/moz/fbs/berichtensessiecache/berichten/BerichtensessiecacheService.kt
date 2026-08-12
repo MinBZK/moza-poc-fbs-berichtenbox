@@ -816,6 +816,21 @@ internal class BerichtensessiecacheService(
 
             log.warnf("Lock vrijgegeven na fout (errorId=%s) voor key=%s: %s", errorId, cacheKey, oorzaak)
         } catch (cleanupEx: Exception) {
+            // Een afbreking is ook hier geen storing. Dit pad wordt juist vanuit de
+            // interrupt-takken aangeroepen, en de await hieronder draait dan op een thread met
+            // gezette flag — een rolling restart tijdens een lopende ophaalstart zou anders
+            // gegarandeerd een FATAL met alert-marker per onderbroken sessie opleveren.
+            if (isAfbreking(cleanupEx)) {
+                log.infof(
+                    "Lock-cleanup afgebroken (errorId=%s) voor key=%s: %s — lock leunt op TTL",
+                    errorId,
+                    cacheKey,
+                    oorzaak,
+                )
+
+                return
+            }
+
             // FATAL + ALERT-marker: oorspronkelijke fout PLUS cleanup-fail = lock blijft
             // tot Redis-TTL hangen, ontvanger 60s onbedienbaar. Zelfde marker als het
             // aggregatie-pad (`[ALERT cache_doublefail]`) voor uniforme alert-routing
@@ -893,8 +908,10 @@ internal class BerichtensessiecacheService(
     /**
      * Onderscheidt "het ophalen is afgebroken" van "er ging iets stuk". Bij een pod-herstart
      * midden in de aggregatie levert dat een annulering of een interrupt op; dat is normaal
-     * gedrag en hoort geen storingsmelding op te leveren. [classifyMagazijnFault] maakt
-     * hetzelfde onderscheid voor de per-magazijn-calls.
+     * gedrag en hoort geen storingsmelding op te leveren. [classifyMagazijnFault] herkent
+     * annulering ook, maar mapt hem op `NETWORK` — dat telt daar wél als storing voor de circuit
+     * breaker. Die keuze staat los van deze: hier gaat het om het log-niveau, daar om de vraag of
+     * een magazijn tijdelijk overgeslagen moet worden.
      *
      * Uitsluitend de meegegeven fout telt, niet de interrupt-flag van de huidige thread. Die
      * flag is thread-sticky en wordt elders in deze klasse bewust gezet zonder hem ooit te
@@ -931,6 +948,12 @@ internal class BerichtensessiecacheService(
                     // eigen fault i.p.v. HTTP_4XX, zodat het log de werkelijke oorzaak noemt —
                     // een beheerder die dit ziet moet naar de magazijn-URL kijken, niet naar
                     // een 4xx die er niet is.
+                    //
+                    // LET OP: de REST-client maakt vandaag pas een WebApplicationException vanaf
+                    // status 400, dus via het echte magazijn-pad komt een 301 hier niet aan — die
+                    // strandt eerder op het parsen van de redirect-body en wordt MALFORMED. Deze
+                    // tak is de vangnet-kant van de classificatie; hem sluitend maken vraagt een
+                    // eigen ResponseExceptionMapper op MagazijnClient. TODO(#870)
                     status in 300..399 -> MagazijnFault.HTTP_3XX
                     // WAE zonder status = raw WAE("oeps") zonder Response → eigen-bug.
                     else -> MagazijnFault.INTERNAL_BUG

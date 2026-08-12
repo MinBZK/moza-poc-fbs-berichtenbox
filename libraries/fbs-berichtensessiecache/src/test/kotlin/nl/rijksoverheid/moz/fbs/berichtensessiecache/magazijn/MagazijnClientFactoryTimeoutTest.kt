@@ -1,13 +1,13 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import io.mockk.mockk
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
-import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 
 /**
  * Een timeout van 0 of lager zet de bescherming stil uit in plaats van hem korter te zetten:

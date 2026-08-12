@@ -1,8 +1,10 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
+import io.quarkus.runtime.StartupEvent
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeadersFilter
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
@@ -28,6 +30,15 @@ internal class MagazijnClientFactory(
     private val log = Logger.getLogger(MagazijnClientFactory::class.java)
     private lateinit var cachedClients: Map<String, MagazijnClient>
     private lateinit var cachedNamen: Map<String, String?>
+
+    /**
+     * Dwingt bean-instantiatie — en daarmee [init] met zijn validatie — af bij het opstarten.
+     * Zonder deze observer maakt ArC de bean pas aan bij het eerste gebruik, en dan komt een
+     * ongeldige timeout pas bij de eerste ophaalronde aan het licht: de pod start, readiness
+     * wordt groen, de rollout slaagt, en daarna faalt élke ophaal-request. Zelfde patroon als
+     * `ConfigMagazijnregister`.
+     */
+    fun onStartup(@Observes event: StartupEvent) = Unit
 
     @PostConstruct
     fun init() {
