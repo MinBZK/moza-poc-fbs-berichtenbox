@@ -61,14 +61,17 @@ De OIN staat in **lockstep** met elke `pki/peers/logius/<endpoint>/csr.json`.
 ## Scope
 
 **In scope:** de peer voor `logius` (OIN `00000000000000001000`), volledige pariteit
-met de provider-peer: PKI-laag, lokale compose-proof (announce), ZAD-deploy + cert-runbooks,
-de CI-stap voor tag-updates, docs.
+met de provider-peer: PKI-laag, lokale compose-proof (announce; sinds het addendum van
+2026-08-12 ook publish-service/discover/contract voor de eigen dienst `profiel-service`),
+ZAD-deploy + cert-runbooks, de CI-stap voor tag-updates, docs.
 
 **Buiten scope (vervolg):**
 
-- **Discover + data-pad lokaal.** De lokale proof is *announce-only* (zie hieronder). Discover van
-  `berichtenmagazijn` en het echte data-pad `outway → inway → berichtenmagazijn` bewijs je op ZAD
-  tegen de échte directory + echte magazijn-a-peer.
+- **Discover + data-pad naar `berichtenmagazijn` lokaal.** De lokale proof was bij dit ontwerp
+  *announce-only* (zie hieronder); sinds het addendum van 2026-08-12 toont ze ook
+  publish-service/discover/contract voor de eigen dienst `profiel-service`. Discover van
+  `berichtenmagazijn` en het echte data-pad `outway → inway → berichtenmagazijn` bewijs je nog
+  altijd op ZAD tegen de échte directory + echte magazijn-a-peer.
 - **Contract (ServiceConnectionGrant).** Het afnemer-contract naar `berichtenmagazijn`.
 - **txlog-hardening / e2e-verantwoording.**
 - **De `berichtenuitvraag`-app** verandert niet; integratie is config-only (`Magazijnregister`-URL
@@ -135,11 +138,13 @@ logius                                 centrale kern (directory)
 2. **Deploy** — peer-componenten (lokaal compose → ZAD-upsert).
 3. **Announce** — manager verschijnt in `peers.peers` met `manager_address` op `:443`.
 
-Discover (`berichtenmagazijn` vindbaar) en het contract/data-pad volgen op ZAD (vervolg).
+Discover van `berichtenmagazijn` en het contract/data-pad daarnaartoe volgen op ZAD (vervolg); voor
+de eigen dienst `profiel-service` zijn publish, discover en het (zelfreferentiële) contract
+inmiddels lokaal aangetoond, zie het addendum van 2026-08-12.
 
 ## Levering — twee fasen
 
-### Fase 1 — Lokale compose-proof (*announce-only*, A1)
+### Fase 1 — Lokale compose-proof (announce; sinds addendum ook profiel-service, A1)
 
 Zelfstandige harness (mirror van magazijn-a's `deploy/local`, single-peer): directory + peer
 (manager + outway + inway + controller + txlog + postgres) + SNI-router + directory-ui. Bewijst:
@@ -150,9 +155,11 @@ Zelfstandige harness (mirror van magazijn-a's `deploy/local`, single-peer): dire
 - de **controller-UI** is bereikbaar (host-poort `8091`; magazijn-a's harness bindt `8090`, zodat
   beide naast elkaar kunnen draaien).
 
-Bewust *geen* lokale discover-smoke: deze compose heeft geen provider die `berichtenmagazijn`
-publiceert (ook al draait sinds de inway-uitbreiding wél een eigen inway mee), dus lokaal
-discoveren is betekenisloos. Discover bewijzen we tegen de échte directory op ZAD (Fase 2).
+Bewust *geen* lokale discover-smoke voor `berichtenmagazijn`: deze compose heeft geen provider die
+`berichtenmagazijn` publiceert, dus lokaal discoveren daarvan is betekenisloos — dat bewijzen we
+tegen de échte directory op ZAD (Fase 2). Voor de eigen dienst `profiel-service` geldt dit niet
+meer: sinds het addendum van 2026-08-12 bestaat daarvoor wél een lokale discover-smoke
+(`smoke-discover.sh`), zie het addendum.
 
 > **outway boot zonder contract.** In deze fase routeert de outway nog niets (geen contract). Hij
 > mag niet crash-loopen; de acceptatie asserteert dat geen component in een restart-loop zit.

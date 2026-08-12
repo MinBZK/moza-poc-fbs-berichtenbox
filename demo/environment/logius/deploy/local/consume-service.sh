@@ -97,8 +97,14 @@ if [ -f "$STATE_FILE" ]; then
     LIST=$(manager_contracts)
     case "$(accept_state "$LIST" "$SAVED" "$PROVIDER_OIN")" in
       yes)
-        echo "OK: eerder geaccepteerd contract $SAVED draagt nog de provider-accept (idempotent, skip)."
-        echo "GRANT-HASH: $SAVED"; exit 0 ;;
+        CSTATE=$(contract_state "$LIST" "$SAVED")
+        case "$CSTATE" in
+          valid|contract_state_valid|unknown)
+            echo "OK: eerder geaccepteerd contract $SAVED draagt nog de provider-accept en heeft manager-state $CSTATE (idempotent, skip)."
+            echo "GRANT-HASH: $SAVED"; exit 0 ;;
+          *)
+            echo "consume: state-file-contract $SAVED draagt de accept-handtekening, maar manager-state is $CSTATE (niet CONTRACT_STATE_VALID) — opnieuw opzetten." ;;
+        esac ;;
       unknown)
         if printf '%s' "$LIST" | grep -qF "$SAVED"; then
           echo "OK: eerder geaccepteerd contract $SAVED nog aanwezig (idempotent, skip; jq afwezig -> geen staat-check)."

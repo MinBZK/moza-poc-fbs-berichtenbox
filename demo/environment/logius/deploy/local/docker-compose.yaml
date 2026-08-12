@@ -262,7 +262,8 @@ services:
         condition: service_started
 
   toolbox:
-    # Curl-client BINNEN het netwerk voor gerichte mTLS-diagnose (niet gebruikt door de announce-only-proof).
+    # Curl-client BINNEN het netwerk voor de mTLS-onboarding-calls: publish-service.sh,
+    # smoke-discover.sh en consume-service.sh draaien hun curl-aanroepen hier doorheen.
     # Draait als host-UID zodat het de 0600-internal-key leest.
     image: docker.io/curlimages/curl:8.11.1
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"

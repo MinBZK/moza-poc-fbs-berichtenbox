@@ -88,8 +88,9 @@ docker compose -f deploy/local/docker-compose.yaml down -v
   bewezen inway-config). Eigen SNI-route op de router (`inway.logius.fsc-test.local`). Biedt
   de dienst `profiel-service` aan (zie `publish-service.sh`), met `stub-upstream` als
   `endpoint_url`.
-- **toolbox** — curl-client op het netwerk voor mTLS-onboarding-calls (niet gebruikt door de
-  smoke-scripts zelf, maar beschikbaar voor gerichte diagnose).
+- **toolbox** — curl-client op het netwerk voor de mTLS-onboarding-calls: `publish-service.sh`,
+  `smoke-discover.sh` en `consume-service.sh` draaien hun curl-aanroepen allemaal via
+  `docker compose exec -T toolbox curl`.
 
 Geen OIDC-login-voorziening — dat blijft buiten scope voor deze harness (zie de sectie "Smoke"
 hieronder voor wat wél is aangetoond: announce, dienst-publicatie, discovery en een
