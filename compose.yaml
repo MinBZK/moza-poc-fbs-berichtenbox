@@ -9,6 +9,9 @@ services:
       timeout: 3s
       retries: 5
 
+  # Overblijfsel: geen enkel profiel bevraagt deze twee. Dev en demo gebruiken de echte
+  # magazijnen (8090/8091) en de testsuite start zijn eigen WireMocks op dynamische poorten;
+  # alleen de %test-regels in de uitvraag wijzen hier nog naar, en die worden overschreven.
   magazijn-a:
     image: wiremock/wiremock:3.13.2
     ports:
@@ -250,10 +253,12 @@ services:
       LDV_POSTGRES_USERNAME: ldv
       LDV_POSTGRES_PASSWORD: ldv
       # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig, en
-      # alleen in het demo-profiel. Let op: enabled zónder origins-allowlist laat Quarkus
-      # alleen same-origin door en weigert de rest met 403. De UI draait op :8095 en roept
-      # :8086 aan, dus die calls hebben een allowlist nodig (QUARKUS_HTTP_CORS_ORIGINS).
+      # alleen in het demo-profiel. De allowlist hoort erbij: enabled zónder origins laat
+      # Quarkus alleen same-origin door, en de UI op :8095 roept deze API op :8086 aan —
+      # dat is cross-origin en zou 403 geven. Methods en headers blijven ongezet; die
+      # spiegelt Quarkus uit het preflight-verzoek.
       QUARKUS_HTTP_CORS_ENABLED: "true"
+      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095"
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
       BERICHTENSESSIECACHE_TTL: PT2M

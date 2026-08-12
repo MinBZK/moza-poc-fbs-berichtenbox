@@ -87,7 +87,7 @@ Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-vo
 | berichtenuitvraag | 8086 | Ophalen/tonen/beheren van berichten |
 | berichtenmagazijn-a / -b | 8090 / 8091 | Twee echte magazijnen (RVO / Belastingdienst) |
 | magazijn-stubs | 8092 | Eén WireMock met n pad-gebaseerde stub-magazijnen (`/mNN`) |
-| magazijn-a / -b (WireMock) | 8081 / 8082 | Overblijfsel-stubs; starten óók zonder `--profile demo`. Niets bevraagt ze: dev en demo gebruiken de echte magazijnen op 8090/8091, en de testsuite start zijn eigen WireMocks |
+| magazijn-a / -b (WireMock) | 8081 / 8082 | Overblijfsel-stubs; starten óók zonder `--profile demo`, maar niets bevraagt ze |
 | toxiproxy | 8474 (admin) | Netwerkstoringen tussen uitvraag/magazijn en afhankelijkheden |
 | profiel-service | 8089 | Profiel-stub (welke magazijnen per persona) |
 | redis | 6379 | Sessiecache + ontdubbel-markers |
