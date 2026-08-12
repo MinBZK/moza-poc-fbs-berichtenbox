@@ -125,7 +125,7 @@ object DomainValidationFuzzer {
         val event: MagazijnEvent = when (data.pickValue(EventType.entries.toTypedArray())) {
             EventType.MAGAZIJN_BEVRAGING_GESTART -> MagazijnBevragingGestart(magazijnId, naam)
             EventType.MAGAZIJN_BEVRAGING_VOLTOOID -> if (data.consumeBoolean()) {
-                MagazijnBevragingGeslaagd(magazijnId, naam, aantalBerichten = data.consumeInt(0, Int.MAX_VALUE))
+                MagazijnBevragingGeslaagd(magazijnId, naam, aantalBerichten = data.consumeInt())
             } else {
                 MagazijnBevragingMislukt(
                     magazijnId,
@@ -134,30 +134,20 @@ object DomainValidationFuzzer {
                     foutmelding = tekst,
                 )
             }
-            // De tellers zijn geen fuzz-oppervlak maar dragen wel invarianten; bouw ze
-            // consistent op zodat deze target de wire toetst en niet de teller-checks.
-            EventType.OPHALEN_GEREED -> {
-                val geslaagd = data.consumeInt(0, 1000)
-                val mislukt = data.consumeInt(0, 1000)
-
-                OphalenGereed(
-                    totaalBerichten = data.consumeInt(0, Int.MAX_VALUE),
-                    geslaagd = geslaagd,
-                    mislukt = mislukt,
-                    totaalMagazijnen = geslaagd + mislukt,
-                )
-            }
+            EventType.OPHALEN_GEREED -> OphalenGereed(
+                totaalBerichten = data.consumeInt(),
+                geslaagd = data.consumeInt(),
+                mislukt = data.consumeInt(),
+                totaalMagazijnen = data.consumeInt(),
+            )
             EventType.OPHALEN_FOUT -> if (data.consumeBoolean()) {
                 OphalenMisluktVoorBevraging(foutmelding = tekst, referentie = data.consumeString(50))
             } else {
-                val geslaagd = data.consumeInt(0, 1000)
-                val mislukt = data.consumeInt(0, 1000)
-
                 OphalenMisluktNaBevraging(
                     foutmelding = tekst,
-                    geslaagd = geslaagd,
-                    mislukt = mislukt,
-                    totaalMagazijnen = geslaagd + mislukt,
+                    geslaagd = data.consumeInt(),
+                    mislukt = data.consumeInt(),
+                    totaalMagazijnen = data.consumeInt(),
                     referentie = data.consumeString(50),
                 )
             }

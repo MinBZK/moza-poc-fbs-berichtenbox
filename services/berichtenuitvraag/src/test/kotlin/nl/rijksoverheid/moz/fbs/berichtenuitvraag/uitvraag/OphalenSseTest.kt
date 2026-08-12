@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
+import kotlin.reflect.KClass
 
 /**
  * Coverage voor [OphalenSseResource]: het endpoint is jaxrs-spec-extern en wordt
@@ -113,6 +114,18 @@ class OphalenSseTest {
                 """{"event":"ophalen-fout","foutmelding":"Resultaten konden niet worden opgeslagen (ref: abc)","geslaagd":1,"mislukt":1,"totaalMagazijnen":2,"referentie":"abc"}""",
             ),
         )
+    }
+
+    /**
+     * Spiegel van dezelfde guard in de library: zonder deze controle laat een nieuw soort
+     * voortgangsbericht wél de library-test vallen, maar glipt het ongetoetst langs het
+     * transport — en juist dáár wordt de type-dispatch vastgelegd.
+     */
+    @Test
+    fun `elk concreet event-type staat in de SSE-wire-tabel`() {
+        val gedekt = wireContract().map { it.get()[0]!!.javaClass }.toSet()
+
+        assertEquals(bladtypen(MagazijnEvent::class), gedekt, "Ongedekt event-type op de stroom")
     }
 
     @ParameterizedTest
@@ -331,3 +344,6 @@ class OphalenSseTest {
             .statusCode(400)
     }
 }
+
+private fun bladtypen(type: KClass<*>): Set<Class<*>> =
+    type.sealedSubclasses.flatMap { sub -> if (sub.isSealed) bladtypen(sub) else setOf(sub.java) }.toSet()

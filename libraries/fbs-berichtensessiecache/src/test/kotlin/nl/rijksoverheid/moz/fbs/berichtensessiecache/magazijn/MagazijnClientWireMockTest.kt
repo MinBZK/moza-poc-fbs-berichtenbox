@@ -12,6 +12,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingVoltooid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
@@ -88,7 +89,7 @@ class MagazijnClientWireMockTest {
 
         val events = ophaalEvents()
 
-        assertTrue(events.any { it is MagazijnBevragingVoltooid && it.status == MagazijnStatus.FOUT }, "Verwacht FOUT-event in: $events")
+        assertTrue(events.any { it is MagazijnBevragingMislukt && it.fout == MagazijnFoutStatus.FOUT }, "Verwacht FOUT-event in: $events")
         // Partial failure: magazijn-a (500) faalt, magazijn-b slaagt → degradatie i.p.v.
         // totale fout. De aggregatie telt 1 geslaagd / 1 mislukt en levert het ene
         // overlevende bericht.
@@ -120,7 +121,7 @@ class MagazijnClientWireMockTest {
         val events = ophaalEvents()
 
         assertTrue(
-            events.any { it is MagazijnBevragingVoltooid && it.status == MagazijnStatus.TIMEOUT },
+            events.any { it is MagazijnBevragingMislukt && it.fout == MagazijnFoutStatus.TIMEOUT },
             "Verwacht TIMEOUT-event op de geconfigureerde 2s-grens maar stream bevatte: $events",
         )
     }
@@ -228,7 +229,7 @@ class MagazijnClientWireMockTest {
 
         val events = ophaalEvents()
 
-        assertTrue(events.any { it is MagazijnBevragingVoltooid && it.status == MagazijnStatus.FOUT }, "Verwacht FOUT-event in: $events")
+        assertTrue(events.any { it is MagazijnBevragingMislukt && it.fout == MagazijnFoutStatus.FOUT }, "Verwacht FOUT-event in: $events")
     }
 
     @Test

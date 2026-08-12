@@ -101,7 +101,7 @@ done
 for veld in '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-gestart"' \
     '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-voltooid"' \
     '"event"[[:space:]]*:[[:space:]]*"ophalen-gereed"' \
-    '"magazijnId"' '"aantalBerichten"' '"totaalBerichten"' '"totaalMagazijnen"'; do
+    '"magazijnId"' '"naam"' '"aantalBerichten"' '"totaalBerichten"' '"totaalMagazijnen"'; do
     grep -Eq "$veld" "$stream" \
         || { echo "FOUT: de ophaal-stream mist $veld, dat de berichtenbox-console wél verwacht"; exit 1; }
 done

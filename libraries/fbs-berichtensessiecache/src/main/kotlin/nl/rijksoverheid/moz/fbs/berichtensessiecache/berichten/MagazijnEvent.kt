@@ -74,10 +74,6 @@ data class MagazijnBevragingGeslaagd(
     val aantalBerichten: Int,
 ) : MagazijnBevragingVoltooid {
     override val status: MagazijnStatus get() = MagazijnStatus.OK
-
-    init {
-        require(aantalBerichten >= 0) { "aantalBerichten mag niet negatief zijn, was $aantalBerichten" }
-    }
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -94,11 +90,11 @@ data class MagazijnBevragingMislukt(
 /**
  * Afsluitend bericht van een geslaagde ophaalronde; de tellers dekken alle bevraagde magazijnen.
  *
- * De tellers worden begrensd zoals in [AggregationStatus], dus met `<=` en niet met een
- * gelijkheid: elke bevraging levert weliswaar precies één uitkomst, maar een `require` die
- * hier alsnog aanslaat zou een deels geslaagde ophaalronde omzetten in een harde fout
- * midden in een al geopende stroom. De ondergrens vangt het echte risico — een telbug die
- * negatieve aantallen aan het portaal toont.
+ * De tellers worden hier bewust niet gevalideerd. De grenzen liggen op de aggregatiestatus
+ * die van dezelfde waarden wordt gebouwd, vlak vóór dit bericht en vóórdat er iets in de
+ * cache belandt. Een tweede check hier zou pas kunnen aanslaan als die eerste al door was,
+ * en dan midden in een geopende stroom: het bericht is de laatste stap ná een geslaagde
+ * opslag, dus een throw zou de gebruiker een al veilig opgeslagen resultaat afnemen.
  */
 @JsonPropertyOrder("event", "totaalBerichten", "geslaagd", "mislukt", "totaalMagazijnen")
 data class OphalenGereed(
@@ -108,11 +104,6 @@ data class OphalenGereed(
     val totaalMagazijnen: Int,
 ) : MagazijnEvent {
     override val event: EventType get() = EventType.OPHALEN_GEREED
-
-    init {
-        require(totaalBerichten >= 0) { "totaalBerichten mag niet negatief zijn, was $totaalBerichten" }
-        vereisGeldigeUitkomsten(geslaagd, mislukt, totaalMagazijnen)
-    }
 }
 
 /**
@@ -147,7 +138,9 @@ data class OphalenMisluktVoorBevraging(
 /**
  * De magazijnen zijn bevraagd, maar het opslaan van het resultaat mislukte. De tellers zijn
  * er wél: het portaal heeft de per-magazijn-uitkomsten al gezien en moet weten dat ze niet
- * bewaard zijn. Zie [OphalenGereed] voor de reden dat de tellers met `<=` begrensd worden.
+ * bewaard zijn. Zie [OphalenGereed] voor de reden dat de tellers hier niet gevalideerd worden;
+ * dit bericht is bovendien zelf het herstelpad, dus een throw zou de gebruiker helemáál geen
+ * afsluitend bericht opleveren.
  */
 @JsonPropertyOrder("event", "foutmelding", "geslaagd", "mislukt", "totaalMagazijnen", "referentie")
 data class OphalenMisluktNaBevraging(
@@ -156,17 +149,4 @@ data class OphalenMisluktNaBevraging(
     val mislukt: Int,
     override val totaalMagazijnen: Int,
     override val referentie: String,
-) : OphalenFout {
-    init {
-        vereisGeldigeUitkomsten(geslaagd, mislukt, totaalMagazijnen)
-    }
-}
-
-private fun vereisGeldigeUitkomsten(geslaagd: Int, mislukt: Int, totaalMagazijnen: Int) {
-    require(geslaagd >= 0) { "geslaagd mag niet negatief zijn, was $geslaagd" }
-    require(mislukt >= 0) { "mislukt mag niet negatief zijn, was $mislukt" }
-    require(totaalMagazijnen >= 0) { "totaalMagazijnen mag niet negatief zijn, was $totaalMagazijnen" }
-    require(geslaagd + mislukt <= totaalMagazijnen) {
-        "geslaagd + mislukt ($geslaagd + $mislukt) past niet in totaalMagazijnen ($totaalMagazijnen)"
-    }
-}
+) : OphalenFout

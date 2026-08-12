@@ -11,6 +11,7 @@ import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingVoltooid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
@@ -79,7 +80,7 @@ class MagazijnCircuitBreakerIntegrationTest {
             "A is overgeslagen → mislukte bevraging",
         )
 
-        assertEquals(MagazijnStatus.FOUT, aVoltooid.status)
+        assertEquals(MagazijnFoutStatus.FOUT, aVoltooid.fout)
         assertTrue(
             aVoltooid.foutmelding.contains("tijdelijk niet beschikbaar"),
             "A moet de circuit-open-melding dragen, was: ${aVoltooid.foutmelding}",

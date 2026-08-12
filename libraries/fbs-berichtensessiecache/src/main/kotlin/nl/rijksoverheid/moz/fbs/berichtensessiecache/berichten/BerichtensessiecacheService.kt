@@ -326,8 +326,7 @@ internal class BerichtensessiecacheService(
             // "Profiel offline, retry over 30s". Cache wordt NIET overschreven met empty.
             if (ex.categorie != ProfielServiceFoutException.Categorie.CONFIG_DRIFT) throw ex
 
-            // Riem-en-bretels: gestructureerd `referentie`-veld + suffix in tekst.
-            // Single source `ref` voorkomt format-drift tussen beide velden.
+            // Single source `ref` voorkomt format-drift tussen het veld en de tekst.
             val ref = ex.errorId.toString()
 
             ResolveUitkomst.FoutStream(
@@ -452,10 +451,8 @@ internal class BerichtensessiecacheService(
 
             log.errorf(ex, "(errorId=%s) Store-fout bij lege magazijn-set voor key=%s", errorId, cacheKey)
             cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set", errorId)
-            // SSE-stream is al actief op dit punt; OPHALEN_FOUT-event geeft de client
+            // SSE-stream is al actief op dit punt; een fout-event geeft de client
             // dezelfde UX als het aggregatie-faalpad i.p.v. een mid-stream HTTP-500.
-            // Referentie zowel in foutmelding-tekst ("(ref: ...)") als in het
-            // gestructureerde `referentie`-veld, voor UIs die het veld nog niet renderen.
             return Multi.createFrom().item(
                 OphalenMisluktVoorBevraging(
                     foutmelding = "Interne fout bij opslaan resultaten (ref: $ref)",
@@ -648,7 +645,7 @@ internal class BerichtensessiecacheService(
      * de overige faults ononderscheidbaar "mislukt" zijn (BIO 14.1.3 — geen technisch
      * onderscheid richting eindgebruiker).
      */
-    internal fun magazijnFoutStatusVoor(fault: MagazijnFault): MagazijnFoutStatus = when (fault) {
+    private fun magazijnFoutStatusVoor(fault: MagazijnFault): MagazijnFoutStatus = when (fault) {
         MagazijnFault.TIMEOUT -> MagazijnFoutStatus.TIMEOUT
         MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW, MagazijnFault.HTTP_5XX,
         MagazijnFault.HTTP_4XX, MagazijnFault.NETWORK, MagazijnFault.INTERNAL_BUG,
@@ -718,7 +715,7 @@ internal class BerichtensessiecacheService(
     /**
      * Eerste fout = store(berichten) of storeAggregationStatus(GEREED) faalde;
      * cacheKey + counters + errorId in log zodat ops kan correleren naar
-     * specifieke sessie én naar het MagazijnEvent.referentie veld.
+     * specifieke sessie én naar het OphalenFout.referentie-veld.
      */
     private fun herstelNaAggregatieCacheFout(
         error: Throwable,
@@ -755,8 +752,6 @@ internal class BerichtensessiecacheService(
                 )
             }
             .onFailure().recoverWithNull()
-            // Referentie zowel in foutmelding-tekst ("(ref: ...)") als in het
-            // gestructureerde `referentie`-veld, voor UIs zonder veld-rendering.
             // Meld expliciet dat de eerder per-magazijn getoonde resultaten niet
             // bewaard zijn: de VOLTOOID-events zijn al geëmit, maar de cache-write
             // faalde, dus de client moet opnieuw ophalen i.p.v. te denken dat de

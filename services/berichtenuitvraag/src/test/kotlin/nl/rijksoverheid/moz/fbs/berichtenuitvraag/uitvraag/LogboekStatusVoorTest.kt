@@ -7,6 +7,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenFout
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktVoorBevraging
@@ -110,6 +111,14 @@ class LogboekStatusVoorTest {
         val gedekt = tussentijdseEvents().map { it.javaClass }.toSet()
 
         assertEquals(bladtypen(MagazijnBevraging::class), gedekt, "Ongedekt bevragings-event")
+    }
+
+    /** Dezelfde guard voor de andere samenvattende tak: `is OphalenFout` vangt óók meerdere typen. */
+    @Test
+    fun `elk soort fout-eindbericht staat in de foutlijst`() {
+        val gedekt = fouteindEvents().map { it.javaClass }.toSet()
+
+        assertEquals(bladtypen(OphalenFout::class), gedekt, "Ongedekt fout-eindbericht")
     }
 }
 

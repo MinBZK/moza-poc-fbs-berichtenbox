@@ -6,7 +6,6 @@ import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
@@ -164,31 +163,5 @@ class MagazijnEventTest {
             MagazijnStatus.entries.toSet() - MagazijnStatus.OK,
             MagazijnFoutStatus.entries.map { it.wire }.toSet(),
         )
-    }
-
-    @Test
-    fun `negatieve tellers worden geweigerd`() {
-        assertThrows<IllegalArgumentException> {
-            OphalenGereed(totaalBerichten = -1, geslaagd = 0, mislukt = 0, totaalMagazijnen = 0)
-        }
-        assertThrows<IllegalArgumentException> {
-            OphalenGereed(totaalBerichten = 0, geslaagd = -1, mislukt = 0, totaalMagazijnen = 0)
-        }
-        assertThrows<IllegalArgumentException> {
-            MagazijnBevragingGeslaagd(magazijnId = OIN, naam = null, aantalBerichten = -1)
-        }
-        assertThrows<IllegalArgumentException> {
-            OphalenMisluktNaBevraging(foutmelding = "x", geslaagd = -1, mislukt = 0, totaalMagazijnen = 0, referentie = "r")
-        }
-    }
-
-    @Test
-    fun `meer uitkomsten dan bevraagde magazijnen wordt geweigerd`() {
-        assertThrows<IllegalArgumentException> {
-            OphalenGereed(totaalBerichten = 0, geslaagd = 2, mislukt = 1, totaalMagazijnen = 2)
-        }
-        assertThrows<IllegalArgumentException> {
-            OphalenMisluktNaBevraging(foutmelding = "x", geslaagd = 1, mislukt = 1, totaalMagazijnen = 1, referentie = "r")
-        }
     }
 }
