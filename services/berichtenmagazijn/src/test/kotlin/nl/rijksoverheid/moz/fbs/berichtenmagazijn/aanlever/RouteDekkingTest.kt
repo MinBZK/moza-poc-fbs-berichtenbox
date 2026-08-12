@@ -4,7 +4,9 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured
 import io.restassured.http.Method
 import io.swagger.v3.parser.OpenAPIV3Parser
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.fail
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
@@ -92,7 +94,8 @@ class RouteDekkingTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("padenUitDeSpec")
     fun `elk pad uit de spec is als route geregistreerd`(pad: String, gespecificeerdeMethodes: Set<String>) {
-        val ongebruikt = SONDE_METHODES.firstOrNull { it !in gespecificeerdeMethodes } ?: return
+        val ongebruikt = SONDE_METHODES.firstOrNull { it !in gespecificeerdeMethodes }
+            ?: fail("$pad declareert alle sonde-methodes; kies er een die de spec niet gebruikt")
         val status = RestAssured.given()
             .`when`()
             .request(Method.valueOf(ongebruikt), BASIS_PAD + metIngevuldeParameters(pad))
@@ -100,11 +103,12 @@ class RouteDekkingTest {
             .extract()
             .statusCode()
 
-        assertNotEquals(
-            404,
+        // Precies 405, niet "alles behalve 404": dat is wat een bestaande route antwoordt op een
+        // methode die de spec niet noemt, en alleen zo is de sonde zelf falsifieerbaar.
+        assertEquals(
+            405,
             status,
-            "$ongebruikt $pad geeft 404: er is geen route voor dit pad. Een bestaande route zou " +
-                "met 405 antwoorden op een methode die de spec niet noemt.",
+            "$ongebruikt $pad hoort 405 te geven; 404 betekent dat er geen route voor dit pad is",
         )
     }
 
