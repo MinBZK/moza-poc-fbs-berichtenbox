@@ -2,8 +2,9 @@
 
 Runnable shift-left van de ZAD-deploy: een lokale FSC-directory + de peer `logius`
 (manager + outway + inway + controller + txlog + eigen DB's) + een SNI-router op `:443`. Bewijst dat
-`logius` zich aanmeldt (announce) bij de directory. Geen aangeboden dienst, geen
-OIDC-login-voorziening — control-plane-only voor deze ene peer. Bouwt voort op `pki/`
+`logius` zich aanmeldt (announce) bij de directory, de dienst `profiel-service` aanbiedt en
+vindbaar/afneembaar is (publicatie, discovery, een zelfreferentieel afnemer-contract). Geen
+OIDC-login-voorziening — dat blijft buiten scope voor deze peer-harness. Bouwt voort op `pki/`
 (zie dat README voor het cert-contract).
 
 > **Vereist Docker + `docker compose` (v2) en gegenereerde certs** (`pki/issue.sh`, vereist
@@ -42,10 +43,13 @@ sleep 20 && docker compose -f deploy/local/docker-compose.yaml ps
 ./deploy/local/run-smokes.sh    # verwacht: "ALLE SMOKES GROEN."
 ```
 
-Losse smoke (voor gerichte diagnose):
+Losse smoke (voor gerichte diagnose, elk zelfstandig draaibaar):
 
 ```bash
-./deploy/local/smoke-announce.sh    # verwacht: "OK: logius is aangemeld ..."
+./deploy/local/smoke-announce.sh     # verwacht: "OK: logius is aangemeld ..."
+./deploy/local/publish-service.sh    # verwacht: "publish: klaar."
+./deploy/local/smoke-discover.sh     # verwacht: "SMOKE-DISCOVER GROEN."
+./deploy/local/consume-service.sh    # verwacht: "CONSUME OK."
 ```
 
 Opruimen:
@@ -84,12 +88,12 @@ docker compose -f deploy/local/docker-compose.yaml down -v
   bewezen inway-config). Eigen SNI-route op de router (`inway.logius.fsc-test.local`). Biedt
   de dienst `profiel-service` aan (zie `publish-service.sh`), met `stub-upstream` als
   `endpoint_url`.
-- **toolbox** — curl-client op het netwerk voor mTLS-onboarding-calls (niet gebruikt door deze
-  announce-only-proof, maar beschikbaar voor gerichte diagnose).
+- **toolbox** — curl-client op het netwerk voor mTLS-onboarding-calls (niet gebruikt door de
+  smoke-scripts zelf, maar beschikbaar voor gerichte diagnose).
 
-Geen aangeboden-dienst-onboarding, geen OIDC-login-voorziening — beide zijn buiten scope voor
-deze announce-proof. De inway draait wel (mesh-ingress + registratie), maar biedt nog geen dienst
-aan.
+Geen OIDC-login-voorziening — dat blijft buiten scope voor deze harness (zie de sectie "Smoke"
+hieronder voor wat wél is aangetoond: announce, dienst-publicatie, discovery en een
+afnemer-contract).
 
 ## Smoke
 
@@ -106,11 +110,14 @@ volledige lokale FSC-bewijs voor deze dienst is hiermee rond. Het écht dóór d
 aanroepen van `stub-upstream` (het data-pad) én de integratie met `berichtenuitvraag` zelf
 blijven buiten deze lokale proof (zie `deploy/zad/verify-zad.md`).
 
-**Inway-boot handmatig controleren.** `run-smokes.sh` test alleen de announce; een crash-loopende
-inway wordt daardoor niet gesignaleerd. Dat is precies hoe het geaccepteerde `:9444`-risico zich
-zou manifesteren: de inway gebruikt `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS` (`:9444`), en als
-`fsc-inway serve` v2.5.2 tóch de authenticated `:9443` blijkt te eisen, faalt de boot daar
-zichtbaar. Controleer dus na `docker compose up -d`:
+**Inway-boot handmatig controleren.** `run-smokes.sh` bewijst het functionele eindresultaat
+(registratie, publicatie, discovery, afnemer-contract) via de API's, maar toont niet de
+container-status zelf; een inway die herhaaldelijk crasht en herstart vóórdat de poll in
+`publish-service.sh` slaagt, wordt daardoor niet gesignaleerd. Dat is precies hoe het
+geaccepteerde `:9444`-risico zich zou manifesteren: de inway gebruikt
+`MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS` (`:9444`), en als `fsc-inway serve` v2.5.2 tóch de
+authenticated `:9443` blijkt te eisen, faalt de boot daar zichtbaar. Controleer dus na
+`docker compose up -d`:
 
 ```text
 docker compose -f deploy/local/docker-compose.yaml ps inway-logius      # verwacht: running, niet restarting
