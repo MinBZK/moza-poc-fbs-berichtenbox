@@ -17,6 +17,14 @@ INTERVAL=5
 ERRLOG=$(mktemp)
 trap 'rm -f "$ERRLOG"' EXIT
 
+# Onder podman schrijft de external-compose-provider-wrapper zelf een bannerregel naar stderr
+# bij ELKE aanroep; dat is geen psql-fout. Filteren voorkomt dat de FAIL-diagnostiek die
+# providermelding als "laatste psql-fout" presenteert.
+strip_wrapper_noise() {
+  grep -v '^>>>> Executing external compose provider' "$ERRLOG" > "${ERRLOG}.f" 2>/dev/null || :
+  mv -f "${ERRLOG}.f" "$ERRLOG"
+}
+
 echo "smoke: wachten tot logius ($CONSUMER_OIN) announce't bij de directory (op :443)..."
 elapsed=0
 while [ "$elapsed" -lt "$TIMEOUT" ]; do
@@ -46,6 +54,7 @@ if ! "${COMPOSE[@]}" exec -T postgres psql -U postgres -d fsc_directory -tA \
        "(id/manager_address) kapot, niet de announce." >&2
 fi
 # Surface de laatste psql-stderr (leeg = schoon, dus echt geen announce).
+strip_wrapper_noise
 if [ -s "$ERRLOG" ]; then
   echo "  -> laatste psql-fout:" >&2
   tail -n 3 "$ERRLOG" >&2

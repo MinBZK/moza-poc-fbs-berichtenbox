@@ -46,12 +46,20 @@ STATE_FILE="${STATE_DIR}/${CONSUMER_OIN}-${PROVIDER_OIN}-${SERVICE_NAME}.hash"
 ERRLOG=$(mktemp)
 trap 'rm -f "$ERRLOG"' EXIT
 
-tb() { "${COMPOSE[@]}" exec -T toolbox curl -s --fail-with-body \
+tb() { "${COMPOSE[@]}" exec -T toolbox curl -sS --fail-with-body \
          --cert "$CERT" --key "$KEY" --cacert "$CA" "$@" 2>"$ERRLOG"; }
+
+# Onder podman schrijft de external-compose-provider-wrapper zelf een bannerregel naar stderr
+# bij ELKE aanroep; dat is geen curl-fout. Filteren voorkomt vals-alarm-WARN's en een
+# misleidende "laatste fout" op de FAIL-paden hieronder.
+strip_wrapper_noise() {
+  grep -v '^>>>> Executing external compose provider' "$ERRLOG" > "${ERRLOG}.f" 2>/dev/null || :
+  mv -f "${ERRLOG}.f" "$ERRLOG"
+}
 
 manager_contracts() {
   local out; out=$(tb "$MANAGER/v1/contracts") || {
-    echo "  WARN: GET /v1/contracts faalde: $(tail -n1 "$ERRLOG" 2>/dev/null)" >&2; : >"$ERRLOG"; }
+    echo "  WARN: GET /v1/contracts faalde: $(strip_wrapper_noise; tail -n1 "$ERRLOG" 2>/dev/null)" >&2; : >"$ERRLOG"; }
   printf '%s' "$out"
 }
 
@@ -141,7 +149,7 @@ RESP=$(tb -X POST "$MANAGER/v1/contracts" -H 'Content-Type: application/json' -d
       }
     } ]
   }
-}") || { echo "FAIL: POST /v1/contracts geweigerd: ${RESP:-<leeg>} $(tail -n1 "$ERRLOG" 2>/dev/null)" >&2; exit 1; }
+}") || { echo "FAIL: POST /v1/contracts geweigerd: ${RESP:-<leeg>} $(strip_wrapper_noise; tail -n1 "$ERRLOG" 2>/dev/null)" >&2; exit 1; }
 
 HASH=$(printf '%s' "$RESP" | sed -n 's/.*"content_hash"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
 [ -n "$HASH" ] || { echo "FAIL: contract-respons zonder content_hash (formaat geweigerd?): $RESP" >&2; exit 1; }
@@ -160,7 +168,7 @@ done
 
 echo "consume: accepteren (PUT .../accept)..."
 tb -X PUT "$MANAGER/v1/contracts/$HASH/accept" -H 'Content-Type: application/json' \
-  || { echo "FAIL: PUT accept ($HASH) geweigerd: $(tail -n1 "$ERRLOG" 2>/dev/null)" >&2; exit 1; }
+  || { echo "FAIL: PUT accept ($HASH) geweigerd: $(strip_wrapper_noise; tail -n1 "$ERRLOG" 2>/dev/null)" >&2; exit 1; }
 echo "  provider-handtekening gezet (2xx)."
 
 # --- 4. Onafhankelijk verifiëren ----------------------------------------------------------------
