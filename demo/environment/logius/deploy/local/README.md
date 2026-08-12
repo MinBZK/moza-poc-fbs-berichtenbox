@@ -27,6 +27,9 @@ OIDC-login-voorziening — dat blijft buiten scope voor deze peer-harness. Bouwt
 - Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
   `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
   faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
+- **jq** (host-side) — `consume-service.sh` leest het grant-hash uit `content.grants[]`
+  daarmee; zonder jq faalt het script expliciet in plaats van het verkeerde (contract-)hash
+  af te geven.
 
 ## Draaiboek
 
@@ -118,7 +121,7 @@ afnemer-contract).
 | `smoke-services.sh` | Elke langlopende service draait en elke migrate-job is afgerond. |
 | `publish-service.sh` | `profiel-service` is aangemaakt op de controller en gepubliceerd (servicePublication-contract, auto-signed). |
 | `smoke-discover.sh` | `profiel-service` is vindbaar via de manager-mesh-API (`GET /v1/peers/{dir}/services`). |
-| `consume-service.sh` | Een zelfreferentieel `serviceConnection`-contract is wederzijds ondertekend; levert de `Fsc-Grant-Hash`-waarde. |
+| `consume-service.sh` | Een zelfreferentieel `serviceConnection`-contract is wederzijds ondertekend; levert zowel het contract-hash als het grant-hash waarop de outway routeert (`Fsc-Grant-Hash`). |
 | `run-smokes.sh` | Draait alle vijf in volgorde. |
 
 De inway draait, biedt `profiel-service` aan, en er is een geldig afnemer-contract — het
