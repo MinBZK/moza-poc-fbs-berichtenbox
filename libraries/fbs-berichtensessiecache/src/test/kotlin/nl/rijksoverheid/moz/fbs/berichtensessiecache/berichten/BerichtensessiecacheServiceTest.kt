@@ -1065,4 +1065,21 @@ class BerichtensessiecacheServiceTest {
         inhoud = "Inhoud van het bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
     )
+
+    /**
+     * Het acceptatiecriterium dat foutmeldingen geen interne tellingen of grenswaarden bevatten,
+     * is anders alleen door een refactor geborgd: zet iemand de aantallen terug in de melding,
+     * dan blijft een test die op `contains("te veel berichten")` assert gewoon groen.
+     */
+    @Test
+    fun `geen enkele eindgebruiker-melding draagt een getal`() {
+        val meldingen = MagazijnFault.entries.map { service.foutmeldingVoor(it) }
+
+        meldingen.forEach { melding ->
+            assertTrue(
+                melding.none { teken -> teken.isDigit() },
+                "melding bevat een getal en daarmee mogelijk een interne grenswaarde: $melding",
+            )
+        }
+    }
 }

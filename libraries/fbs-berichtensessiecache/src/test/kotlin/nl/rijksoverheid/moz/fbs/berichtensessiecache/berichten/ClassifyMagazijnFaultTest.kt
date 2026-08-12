@@ -53,7 +53,7 @@ class ClassifyMagazijnFaultTest {
 
     @Test
     fun `MagazijnResponseOverflow direct = OVERFLOW`() {
-        assertEquals(MagazijnFault.OVERFLOW, service.classifyMagazijnFault(MagazijnResponseOverflow(aantal = 300, cap = 200)))
+        assertEquals(MagazijnFault.OVERFLOW, service.classifyMagazijnFault(MagazijnResponseOverflow()))
     }
 
     @Test
@@ -189,8 +189,8 @@ class ClassifyMagazijnFaultTest {
     /**
      * Zonder observer maakt ArC deze bean pas bij het eerste request aan, en dan komt een
      * ongeldige timeout-combinatie pas aan het licht als een gebruiker een ophaalronde start.
-     * De validatie zelf is hierboven gedekt; deze test bewaakt dat hij ook echt bij het opstarten
-     * hangt — precies het gat dat een eerdere ronde in deze PR blootlegde.
+     * De validatie zelf is elders gedekt; deze test bewaakt dat hij ook echt aan het opstarten
+     * hangt en niet pas bij het eerste request draait.
      */
     @Test
     fun `de timeout-controle hangt aan het opstarten`() {

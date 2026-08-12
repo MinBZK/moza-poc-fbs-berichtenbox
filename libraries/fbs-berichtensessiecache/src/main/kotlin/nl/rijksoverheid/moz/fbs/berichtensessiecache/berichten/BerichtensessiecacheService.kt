@@ -117,7 +117,10 @@ internal class BerichtensessiecacheService(
         // De per-magazijn query-timeout (ifNoItem) MOET vóór de socket-read-timeout aanslaan,
         // anders krijgt de client een ruwe client-fout i.p.v. een net TIMEOUT-event; de
         // read-timeout blijft het vangnet als de query-timeout om welke reden dan ook niet vuurt.
-        require(magazijnReadTimeoutMs > magazijnQueryTimeoutSeconds * 1000) {
+        // In seconden vergelijken i.p.v. de query-timeout naar milliseconden te tillen: dat
+        // laatste loopt bij een absurde waarde over naar negatief en laat de check dan juist
+        // passeren — precies het stil uitzetten van een bescherming dat hier voorkomen wordt.
+        require(magazijnReadTimeoutMs / 1000 > magazijnQueryTimeoutSeconds) {
             "magazijn-client.read-timeout-ms ($magazijnReadTimeoutMs) moet groter zijn dan " +
                 "berichtensessiecache.magazijn-query-timeout-seconds × 1000 (${magazijnQueryTimeoutSeconds * 1000})"
         }
@@ -283,10 +286,13 @@ internal class BerichtensessiecacheService(
 
         return when (classifyLockAcquireError(ex)) {
             LockAcquireError.INTERRUPTED -> {
-                // Herstel interrupt-flag voor graceful pod-shutdown; 503 (transient), geen eigen-bug.
-                Thread.currentThread().interrupt()
+                // Flag wissen vóór de cleanup en daarna herstellen; zie de toelichting op het
+                // resolver-pad. Blijft hij staan, dan breekt de await in de cleanup meteen af en
+                // meldt het log ten onrechte dat de lock op zijn TTL leunt.
+                Thread.interrupted()
                 log.warnf(ex, "(errorId=%s) Lock-acquire onderbroken voor key=%s", errorId, cacheKey)
                 cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId, afbreking = true)
+                Thread.currentThread().interrupt()
                 WebApplicationException("Service shutdown tijdens ophaalstart", 503)
             }
             LockAcquireError.JSON_SERIALIZATION -> {
@@ -357,22 +363,26 @@ internal class BerichtensessiecacheService(
     private fun gooiResolverFout(ex: Exception, cacheKey: String): Nothing {
         // Cause-walking via causeChain() (eenmaal materialiseren) — Mutiny wrapt
         // InterruptedException/TimeoutException, directe instanceof matched niet.
-        // isInterrupted (non-destructive) — Thread.interrupted() zou de flag wissen
-        // ook in niet-interrupt-branches.
         val chain = ex.causeChain()
-        val wasInterrupted = Thread.currentThread().isInterrupted ||
-            chain.hasCauseOf(InterruptedException::class.java)
+        // Uitsluitend de fout zelf, om dezelfde reden als in isAfbreking: de interrupt-flag is
+        // thread-sticky en zou een storing op een hergebruikte worker-thread als onderbreking
+        // laten gelden — en dat oordeel stuurt hieronder de alert-onderdrukking aan.
+        val wasInterrupted = chain.hasCauseOf(InterruptedException::class.java)
         val isOuterTimeout = chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
             chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java)
 
         when {
             wasInterrupted -> {
-                // Interrupt-flag (her)bevestigen voor graceful pod-shutdown; 503 (transient).
-                Thread.currentThread().interrupt()
+                // Flag wissen vóór de cleanup en daarna herstellen: staat hij nog, dan gooit de
+                // await in de cleanup onmiddellijk en wordt de lock niet vrijgegeven terwijl het
+                // log meldt dat hij op de TTL leunt. Mutiny heeft de flag al gezet toen de await
+                // afbrak, dus dit herstelt hem, het zet hem niet voor het eerst.
+                Thread.interrupted()
                 val errorId = UUID.randomUUID()
 
                 log.warnf(ex, "(errorId=%s) Resolver-await onderbroken voor key=%s", errorId, cacheKey)
                 cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId, afbreking = true)
+                Thread.currentThread().interrupt()
                 throw WebApplicationException("Service shutdown tijdens ophalen", 503)
             }
             isOuterTimeout -> {
@@ -573,7 +583,7 @@ internal class BerichtensessiecacheService(
             return MagazijnResult.Failure(
                 magazijnId,
                 naam,
-                MagazijnResponseOverflow(response.berichten.size, maxBerichtenPerMagazijn),
+                MagazijnResponseOverflow(),
                 MagazijnFault.OVERFLOW,
             )
         }
@@ -668,7 +678,7 @@ internal class BerichtensessiecacheService(
         -> MagazijnFoutStatus.FOUT
     }
 
-    private fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
+    internal fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
         MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
         MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
         MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"

@@ -121,13 +121,7 @@ internal fun circuitActieVoor(result: MagazijnResult): CircuitActie = when (resu
  * `WebApplicationException`/`ProcessingException` — dit is een interne signalering,
  * geen upstream-fault, en wordt door de service in een aparte foutmelding gemapt.
  */
-internal class MagazijnResponseOverflow(val aantal: Int, val cap: Int) :
-    RuntimeException("Magazijn leverde meer berichten dan toegestaan") {
-    // Aantallen als velden, niet in de message: die tekst hoort langs geen enkel pad naar
-    // buiten te lekken, terwijl de omvang wél nodig is als een overflow onverwacht via een
-    // ander pad wordt afgehandeld dan het mappen (waar de counts al gelogd worden).
-    override fun toString() = "MagazijnResponseOverflow(aantal=$aantal, cap=$cap)"
-}
+internal class MagazijnResponseOverflow : RuntimeException("Magazijn leverde meer berichten dan toegestaan")
 
 /**
  * Marker-exception voor een door de circuit breaker overgeslagen magazijn-call. Draagt de

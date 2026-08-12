@@ -172,11 +172,10 @@ class MagazijnCircuitBreakerTest {
     }
 
     /**
-     * Uitputtend over de enum in plaats van een handmatige lijst: de vorige versie somde negen
-     * van de tien constanten op, dus een nieuwe fault kon er stilzwijgend bij komen met de
-     * verkeerde circuit-actie. Zou HTTP_3XX ooit als storing gaan tellen, dan opent een
-     * redirect-misconfiguratie circuits — dat hoort een bewuste wijziging te zijn, geen
-     * neveneffect.
+     * Uitputtend over de enum in plaats van een handmatige lijst: een handmatige lijst laat een
+     * nieuwe fault stilzwijgend met de verkeerde circuit-actie meeliften. Zou HTTP_3XX ooit als
+     * storing gaan tellen, dan opent een redirect-misconfiguratie circuits — dat hoort een
+     * bewuste wijziging te zijn, geen neveneffect.
      */
     @ParameterizedTest
     @EnumSource(MagazijnFault::class)
