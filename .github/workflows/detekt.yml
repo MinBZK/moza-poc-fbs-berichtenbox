@@ -41,6 +41,9 @@ jobs:
   # docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes voor
   # branch protection.
   # Draait alleen wanneer de caller de uitkomst niet meegaf; zie de toelichting in test.yml.
+  # LET OP: het patroon hieronder staat óók in de `changes`-job van deploy.yml en moet daarmee
+  # gelijk blijven. Op een PR naar main draait alleen die van deploy.yml, dus een eenzijdige
+  # wijziging hier heeft daar geen effect en valt niet op.
   changes:
     if: inputs.wijzigingen-relevant == ''
     runs-on: ubuntu-latest

@@ -127,7 +127,12 @@ env:
   PREVIEW_TASK_TIMEOUT: '900'
 
 jobs:
-  # Bepaalt één keer of deze revisie de bouw-en-deployketen in moet. De `gate`, de build-jobs en
+  # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
+  # uitkomsten: `run` (code-checks), `deploy` (bouwen en uitrollen), `demo-only` (test-scope)
+  # en `fuzz` (fuzz-ronde). Voor een bot-PR valt alléén het uitrollen af — tests, detekt en
+  # fuzz draaien juist wél, want een dependency-bump hoort getoetst te worden.
+  #
+  # Oorspronkelijke opzet: bepaalt één keer of deze revisie de bouw-en-deployketen in moet. De `gate`, de build-jobs en
   # de deploy-preview-jobs hangen eraan; 'skipped' telt als succes voor de required checks, dus
   # de merge blijft mogelijk. Op een push naar main draait alles altijd (run=true).
   #
@@ -139,6 +144,8 @@ jobs:
   #   bleven permanent in ghcr staan (zichtbaar aan `pr-143` en `pr-167` van gesloten
   #   Dependabot-PR's).
   changes:
+    # Op een close-event slaan alle consumenten over, dus dan valt er niets te bepalen.
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -178,7 +185,7 @@ jobs:
             # Alleen het uitrollen valt af; de code-checks draaien wél, want een bot-PR
             # (bv. een dependency-bump) hoort getoetst te worden. Welke checks nodig zijn volgt
             # uit dezelfde bestandsanalyse als bij een gewone PR — een action-pin-bump verdient
-            # geen fuzz-ronde van dertig minuten.
+            # geen fuzz-ronde.
             echo "::notice::PR van een bot — zad-actions deployt die niet, dus bouwen we ook niet."
             BOT_PR=true
           fi
@@ -209,14 +216,15 @@ jobs:
 
           # `deploy`: kan de wijziging de uitgerolde applicatie raken? Strenger dan `run`,
           # want dit is de enige post die échte clustercapaciteit kost (pods, volumes,
-          # ingress) in plaats van alleen runnertijd. Bruno-verzoeken en de demo-stack zitten
-          # niet in een image en veranderen niets aan wat er draait.
+          # ingress) in plaats van alleen runnertijd. Bruno-verzoeken, de demo-stack en
+          # demo-console zitten in geen enkel uitgerold image — demo-console staat niet in de
+          # build-matrix hieronder en heeft geen ZAD-component.
           #
           # `.github/` staat er bewust NIET bij: een wijziging aan de workflows kan de deploy
           # zelf raken, en dan is een preview juist wél zinvol.
           if [ "${BOT_PR:-false}" = "true" ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-          elif printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^bruno/|^demo/)'; then
+          elif printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^bruno/|^demo/|^services/demo-console/)'; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "Niets dat de uitgerolde applicatie raakt — deploy overgeslagen."
@@ -392,7 +400,8 @@ jobs:
   # die wél als 'skipped' (= succes) doortelt.
   #
   # `!cancelled()` zodat een mislukte detectie de checks niet meesleept: de uitkomst is dan
-  # leeg, en de aangeroepen workflow leest "leeg" als "gewoon draaien" — fail-safe.
+  # leeg, en op een lege uitkomst zet de aangeroepen workflow zijn eigen detectie weer aan.
+  # De uitkomst is daarmee fail-safe — hij wordt opnieuw bepaald, niet aangenomen.
   checks-test:
     needs: changes
     if: >-
