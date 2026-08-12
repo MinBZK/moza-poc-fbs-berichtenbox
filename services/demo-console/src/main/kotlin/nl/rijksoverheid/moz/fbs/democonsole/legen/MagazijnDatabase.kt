@@ -37,16 +37,16 @@ class MagazijnDatabase(
         queryEnkeleInt(bron, "SELECT count(*) FROM berichten")
 
     private fun voerUit(bron: JavaxDataSource, sql: String) {
-        bron.connection.use { verbinding ->
-            verbinding.createStatement().use { stmt ->
+        bron.connection.use { connection ->
+            connection.createStatement().use { stmt ->
                 stmt.execute(sql)
             }
         }
     }
 
     private fun queryEnkeleInt(bron: JavaxDataSource, sql: String): Int =
-        bron.connection.use { verbinding ->
-            verbinding.createStatement().use { stmt ->
+        bron.connection.use { connection ->
+            connection.createStatement().use { stmt ->
                 stmt.executeQuery(sql).use { rs -> eersteInt(rs) }
             }
         }

@@ -37,7 +37,25 @@ Na een codewijziging in één service volstaat dat ene `-pl services/<naam>` opn
 
 ---
 
-## 3. Stack starten
+## 3. Stub-artefacten genereren (altijd, vóór de eerste start)
+
+Eén getal `n` genereert het register, de profiel-stub en n WireMock-mappings in `demo/generated/`
+(git-ignored). Dezelfde env-var voedt het script én de demo-console — dus altijd samen exporteren.
+Alleen "veel magazijnen" (fase 6) gebruikt die stubs echt, maar de stap is onvoorwaardelijk: zonder
+de gegenereerde bestanden start de uitvraag niet (zie de waarschuwing in §4):
+
+```bash
+export DEMO_MAGAZIJN_STUBS=40
+python3 demo/genereer-magazijnen.py
+docker compose --profile demo up -d
+```
+
+Wil je n wijzigen: pas `DEMO_MAGAZIJN_STUBS` aan, draai het script opnieuw, en herstart de
+uitvraag + stub-magazijnen (§8). Zonder Docker verandert er niets aan de rest van de stack.
+
+---
+
+## 4. Stack starten
 
 Er zijn twee modi met dezelfde compose:
 
@@ -46,7 +64,7 @@ Er zijn twee modi met dezelfde compose:
 | `docker compose up -d` | Alleen infra (Redis, Postgres, WireMock-stubs, ClickHouse) | **Ontwikkelen** — draai services zelf met `./mvnw quarkus:dev` (hot reload) |
 | `docker compose --profile demo up -d` | Alles: infra + de drie services + demo-console + Toxiproxy + stub-magazijnen | **Demo** |
 
-> **Draai altijd eerst §4**, óók als je "veel magazijnen" niet demonstreert. `demo/generated/` is
+> **Draai altijd eerst §3**, óók als je "veel magazijnen" niet demonstreert. `demo/generated/` is
 > git-ignored, dus na een verse checkout bestaat het niet. Compose maakt een ontbrekend mount-pad
 > zelf aan — als **directory**. `magazijnen-stubs.properties` wordt dan een map,
 > `SMALLRYE_CONFIG_LOCATIONS` wijst naar een map, de uitvraag start niet, en het generatiescript
@@ -58,24 +76,6 @@ Openen na start:
 - **Berichtenbox (ondernemer):** <http://localhost:8095/berichtenbox.html>
 
 Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-volumes te wissen).
-
----
-
-## 4. Stub-artefacten genereren (altijd, vóór de eerste start)
-
-Eén getal `n` genereert het register, de profiel-stub en n WireMock-mappings in `demo/generated/`
-(git-ignored). Dezelfde env-var voedt het script én de demo-console — dus altijd samen exporteren.
-Alleen "veel magazijnen" (fase 6) gebruikt die stubs echt, maar de stap is onvoorwaardelijk: zonder
-de gegenereerde bestanden start de uitvraag niet (zie de waarschuwing in §3):
-
-```bash
-export DEMO_MAGAZIJN_STUBS=40
-python3 demo/genereer-magazijnen.py
-docker compose --profile demo up -d
-```
-
-Wil je n wijzigen: pas `DEMO_MAGAZIJN_STUBS` aan, draai het script opnieuw, en herstart de
-uitvraag + stub-magazijnen (§8). Zonder Docker verandert er niets aan de rest van de stack.
 
 ---
 
@@ -139,7 +139,7 @@ Herstellen via *Alles normaal (reset)* in de Storingen-sectie.
 | Wat je wijzigde | Wat nodig is |
 |---|---|
 | Kotlin/resources in een service | jib-rebuild van dat image (§2, `-pl services/<naam>`) → `docker compose --profile demo up -d <service>` |
-| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJN_STUBS` | Regenereer (§4) → `docker compose --profile demo up -d --force-recreate magazijn-stubs berichtenuitvraag` |
+| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJN_STUBS` | Regenereer (§3) → `docker compose --profile demo up -d --force-recreate magazijn-stubs berichtenuitvraag` |
 | `compose.yaml` (env/mount) | `docker compose --profile demo up -d --force-recreate <service>` (geen rebuild) |
 | `toxiproxy/proxies.json` | `docker compose --profile demo up -d --force-recreate toxiproxy` |
 | WireMock-mappings van een echt stub-magazijn | `docker compose restart magazijn-a` (of `-b`) |

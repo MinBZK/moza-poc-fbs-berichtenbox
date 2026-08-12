@@ -47,8 +47,8 @@ function toon(element, zichtbaar) {
   element.hidden = !zichtbaar;
 }
 
-// Fetch-helper: zet altijd de X-Ontvanger-header en de basis-URL. Een verbindingsfout
-// (uitvraag weg, doorgeknipte verbinding) komt terug als respons-vormig object in plaats van
+// Fetch-helper: zet altijd de X-Ontvanger-header en de basis-URL. Een connection error
+// (uitvraag weg, connection halverwege doorgeknipt) komt terug als respons-vormig object in plaats van
 // een verworpen promise, zodat elke aanroeper hem via zijn bestaande `respons.ok`-toets ziet.
 // Zonder dat blijft de fout als unhandled rejection liggen en doet de knop zichtbaar niets —
 // juist de storing die de demo moet tonen, blijft dan onzichtbaar.
@@ -89,7 +89,7 @@ async function ophalen() {
   let buffer = '';
   let klaar = false;
 
-  // Wordt de verbinding halverwege de stream doorgeknipt, dan verwerpt read() of struikelt
+  // Wordt de connection halverwege de stream doorgeknipt, dan verwerpt read() of struikelt
   // JSON.parse over een half frame. Zonder deze catch bevriest het voortgangspaneel op de
   // laatste regel en lijkt het ophalen nog te lopen — precies de storing verzwegen die de
   // demo laat zien. De afbreekregel sluit de voortgang expliciet af.
@@ -399,8 +399,8 @@ function toonLeeg(tekst, fout) {
   p.classList.toggle('fout', Boolean(fout));
 }
 
-// Eén foutregel voor beide soorten mislukking: geen verbinding, of een HTTP-status met
-// problem+json-detail. Een verbindingsfout heeft geen body, dus die leest leesProblem niet.
+// Eén foutregel voor beide soorten mislukking: geen connection, of een HTTP-status met
+// problem+json-detail. Een connection error heeft geen body, dus die leest leesProblem niet.
 async function foutTekst(respons) {
   if (respons.netwerkfout) return respons.melding;
 
