@@ -18,19 +18,25 @@ main { padding: 1.5rem; max-width: 60rem; }
 .demo-label { color: #777; font-size: 0.8rem; font-style: italic; margin-left: auto; }
 .voortgang { padding: 0.75rem 1.5rem; background: #f4f4f4; font-family: monospace; white-space: pre-wrap; }
 .lijst { list-style: none; padding: 0; margin: 0; }
-.lijst li { border-bottom: 1px solid #ddd; padding: 0.75rem 0.5rem; cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; }
-.lijst li > span:first-child { display: flex; flex-direction: column; }
-.lijst li:hover { background: #f0f6ff; }
+.lijst li { border-bottom: 1px solid #ddd; }
+.lijst li > button { width: 100%; border: none; background: none; font: inherit; color: inherit;
+  text-align: left; padding: 0.75rem 0.5rem; cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; }
+.lijst li > button > span:first-child { display: flex; flex-direction: column; }
+.lijst li > button:hover { background: #f0f6ff; }
 .lijst .afzender { font-size: 0.8rem; color: #555; }
 .lijst .ongelezen { font-weight: 700; }
 .lijst .meta { color: #555; font-size: 0.85rem; margin-left: auto; white-space: nowrap; }
 .melding { color: #555; }
+/* [hidden] eerst: een `display`-regel op dezelfde specificiteit wint anders van de
+   browser-default `[hidden] { display: none }`, waardoor toon(..., false) niets doet. */
+[hidden] { display: none !important; }
 .paginering { display: flex; gap: 1rem; align-items: center; margin-top: 0.75rem; }
 .paginering button:disabled { opacity: 0.4; cursor: default; }
 #pagina-info { color: #555; font-size: 0.9rem; }
 .detail { border: 1px solid #ccc; padding: 1rem; margin-top: 1rem; }
 .detail h2 { margin-top: 0; }
 .detail .inhoud { white-space: pre-wrap; }
-.detail .bijlagen a { display: inline-block; margin: 0.25rem 0.5rem 0 0; }
+.detail .bijlagen button { display: inline-block; margin: 0.25rem 0.5rem 0 0; border: none; background: none;
+  font: inherit; color: #154273; text-decoration: underline; padding: 0; cursor: pointer; }
 .detail .acties { margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .fout { color: #b00; }

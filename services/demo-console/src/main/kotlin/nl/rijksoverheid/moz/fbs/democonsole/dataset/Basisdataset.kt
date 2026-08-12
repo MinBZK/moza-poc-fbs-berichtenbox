@@ -14,10 +14,10 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.BijlageDto
 class Basisdataset(private val mapper: ObjectMapper) {
 
     fun laad(): List<AanleverOpdracht> {
-        val stroom = javaClass.classLoader.getResourceAsStream(PAD)
+        val inputStream = javaClass.classLoader.getResourceAsStream(PAD)
             ?: throw IllegalStateException("basisdataset niet gevonden op classpath: $PAD")
 
-        val opdrachten: List<AanleverOpdracht> = stroom.use { mapper.readValue(it) }
+        val opdrachten: List<AanleverOpdracht> = inputStream.use { mapper.readValue(it) }
 
         // Wat variatie in de beginsituatie: elk derde bericht een PDF-bijlage (voor de
         // download-demo), en elk vierde alvast op gelezen (voor een realistische lees-mix).

@@ -54,10 +54,6 @@ services:
     ports: !reset []
     command: ["--port", "8084", "--verbose", "--global-response-templating"]
 
-  clickhouse:
-    network_mode: host
-    ports: !reset []
-
   postgres-a:
     network_mode: host
     ports: !reset []
@@ -71,6 +67,15 @@ services:
     healthcheck: !reset null
     environment:
       PGPORT: "5433"
+
+  # Idem voor het LDV-logboek: 5434 is ook het adres dat de dev-profielen als default gebruiken,
+  # dus in een gedeelde netns vinden de services hun logboek zonder extra env.
+  postgres-uitvraag:
+    network_mode: host
+    ports: !reset []
+    healthcheck: !reset null
+    environment:
+      PGPORT: "5434"
 
   toxiproxy:
     network_mode: host

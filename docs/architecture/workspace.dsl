@@ -176,6 +176,14 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"
 
+        // Drie componentrelaties (ophalen, sessiecache-aggregatie, beheer) lopen naar hetzelfde magazijn.
+        // Structurizr leidt daaruit per elementenpaar hooguit één systeemlijn af, die dan willekeurig de
+        // beschrijving van de eerst geparste relatie erft — het beheerverkeer verdwijnt zo uit beeld. Door
+        // de systeemlijn hier expliciet en vóór die componentrelaties te declareren, staat de samengevoegde
+        // beschrijving vast en blijft het bij één lijn per richting.
+        berichtenUitvraagSysteem -> bboMagazijn "Haalt berichtenlijst, berichtinhoud en bijlagen op en beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
+        berichtenUitvraagSysteem -> eigenMagazijn "Haalt berichtenlijst, berichtinhoud en bijlagen op en beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
+
         uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op" "Digikoppeling REST API via FSC"
         uitvraagBeheerService -> magazijnOphaalBeheerApi "Beheert berichtstatus" "Digikoppeling REST API via FSC"
 
@@ -215,8 +223,6 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
         systemLandscape "SystemLandscape" "Het Federatief Berichtenstelsel - een stelsel van federatief gekoppelde diensten" {
             include *
-            exclude "bboMagazijn -> berichtenUitvraagSysteem"
-            exclude "eigenMagazijn -> berichtenUitvraagSysteem"
             autoLayout
         }
 

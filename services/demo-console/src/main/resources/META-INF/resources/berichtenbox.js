@@ -6,7 +6,8 @@
 // staan (`DEMO_HOST`), anders blokkeert de preflight.
 const BASIS = `http://${window.location.hostname}:8086/api/v1`;
 
-// magazijnId per bericht onthouden — PATCH/DELETE (taak 4/5) vereisen ?magazijnId=.
+// magazijnId per bericht onthouden: de lijst levert het mee, maar PATCH en DELETE vereisen het
+// als queryparameter en het detail-endpoint geeft het niet opnieuw terug.
 const magazijnPerBericht = new Map();
 
 // magazijnId (== afzender-OIN) → organisatienaam, gevuld uit de ophaal-events, zodat de UI
@@ -50,11 +51,19 @@ function toon(element, zichtbaar) {
   element.hidden = !zichtbaar;
 }
 
-// Fetch-helper: zet altijd de X-Ontvanger-header en de basis-URL.
+// Fetch-helper: zet altijd de X-Ontvanger-header en de basis-URL. Een connection error
+// (uitvraag weg, connection halverwege doorgeknipt) komt terug als respons-vormig object in plaats van
+// een verworpen promise, zodat elke aanroeper hem via zijn bestaande `respons.ok`-toets ziet.
+// Zonder dat blijft de fout als unhandled rejection liggen en doet de knop zichtbaar niets —
+// juist de storing die de demo moet tonen, blijft dan onzichtbaar.
 async function api(pad, opties = {}) {
   const headers = Object.assign({ 'X-Ontvanger': huidigeOntvanger() }, opties.headers || {});
 
-  return fetch(BASIS + pad, Object.assign({}, opties, { headers }));
+  try {
+    return await fetch(BASIS + pad, Object.assign({}, opties, { headers }));
+  } catch (fout) {
+    return { ok: false, status: 0, netwerkfout: true, melding: 'geen verbinding: ' + fout };
+  }
 }
 
 function toonVoortgang(regels) {
@@ -71,20 +80,10 @@ async function ophalen() {
 
   toonVoortgang(regels);
 
-  let respons;
-
-  try {
-    respons = await api('/berichten/_ophalen');
-  } catch (fout) {
-    toonVoortgang(['Netwerkfout bij ophalen: ' + fout]);
-
-    return;
-  }
+  const respons = await api('/berichten/_ophalen');
 
   if (!respons.ok) {
-    const detail = await leesProblem(respons);
-
-    toonVoortgang([`Ophalen mislukt (HTTP ${respons.status}): ${detail}`]);
+    toonVoortgang([`Ophalen mislukt (${await foutTekst(respons)})`]);
 
     return;
   }
@@ -94,28 +93,39 @@ async function ophalen() {
   let buffer = '';
   let klaar = false;
 
-  while (!klaar) {
-    const { done, value } = await lezer.read();
+  // Wordt de connection halverwege de stream doorgeknipt, dan verwerpt read() of struikelt
+  // JSON.parse over een half frame. Zonder deze catch bevriest het voortgangspaneel op de
+  // laatste regel en lijkt het ophalen nog te lopen — precies de storing verzwegen die de
+  // demo laat zien. De afbreekregel sluit de voortgang expliciet af.
+  try {
+    while (!klaar) {
+      const { done, value } = await lezer.read();
 
-    if (done) break;
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true });
 
-    let scheiding;
+      let scheiding;
 
-    while ((scheiding = buffer.indexOf('\n\n')) >= 0) {
-      const frame = buffer.slice(0, scheiding);
+      while ((scheiding = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, scheiding);
 
-      buffer = buffer.slice(scheiding + 2);
+        buffer = buffer.slice(scheiding + 2);
 
-      const dataRegel = frame.split('\n').find((r) => r.startsWith('data:'));
+        const dataRegel = frame.split('\n').find((r) => r.startsWith('data:'));
 
-      if (dataRegel) {
-        const gebeurtenis = JSON.parse(dataRegel.slice(5).trim());
+        if (dataRegel) {
+          const gebeurtenis = JSON.parse(dataRegel.slice(5).trim());
 
-        klaar = verwerkOphaalEvent(gebeurtenis, regels) || klaar;
+          klaar = verwerkOphaalEvent(gebeurtenis, regels) || klaar;
+        }
       }
     }
+  } catch (fout) {
+    regels.push('Stream afgebroken: ' + fout);
+    toonVoortgang(regels);
+
+    return;
   }
 
   await laadLijst();
@@ -188,7 +198,7 @@ async function laadLijst() {
 
     if (!respons.ok) {
       if (verzameld.length === 0) {
-        toonLeeg(`Lijst laden mislukt (HTTP ${respons.status}).`, true);
+        toonLeeg(`Lijst laden mislukt (${await foutTekst(respons)}).`, true);
 
         return;
       }
@@ -346,10 +356,15 @@ function kiesMap(mapWaarde) {
   herteken();
 }
 
+// De hele regel is een <button> in de <li>: een li met click-listener is niet focusbaar en
+// niet met het toetsenbord te bedienen. Een knop levert focus, Enter/Spatie en een rol op.
 function lijstItem(bericht) {
   const li = document.createElement('li');
+  const knop = document.createElement('button');
 
-  if (bericht.status !== 'gelezen') li.classList.add('ongelezen');
+  knop.type = 'button';
+
+  if (bericht.status !== 'gelezen') knop.classList.add('ongelezen');
 
   const titel = document.createElement('span');
 
@@ -370,8 +385,9 @@ function lijstItem(bericht) {
     new Date(bericht.publicatietijdstip).toLocaleDateString('nl-NL') +
     (bericht.aantalBijlagen > 0 ? ` 📎${bericht.aantalBijlagen}` : '');
 
-  li.append(titel, meta);
-  li.addEventListener('click', () => openBericht(bericht));
+  knop.append(titel, meta);
+  knop.addEventListener('click', () => openBericht(bericht));
+  li.appendChild(knop);
 
   return li;
 }
@@ -387,6 +403,14 @@ function toonLeeg(tekst, fout) {
   p.classList.toggle('fout', Boolean(fout));
 }
 
+// Eén foutregel voor beide soorten mislukking: geen connection, of een HTTP-status met
+// problem+json-detail. Een connection error heeft geen body, dus die leest leesProblem niet.
+async function foutTekst(respons) {
+  if (respons.netwerkfout) return respons.melding;
+
+  return `HTTP ${respons.status}: ${await leesProblem(respons)}`;
+}
+
 async function leesProblem(respons) {
   try {
     const body = await respons.json();
@@ -400,7 +424,20 @@ async function leesProblem(respons) {
 el('ophalen').addEventListener('click', ophalen);
 // Alleen de lijst (cache) verversen, zonder _ophalen — toont live in de cache opgevoerde berichten.
 el('vernieuw').addEventListener('click', laadLijst);
+// Alles wat van de vórige persona is afgeleid weggooien. Zonder dit blijven de mapknoppen met
+// hun tellingen staan en rendert de eerstvolgende actie (map kiezen, sorteren, filteren) de
+// lijst van die persona onder de kop van de nieuwe — in een Berichtenbox-demo precies het
+// verkeerde plaatje. De magazijnnamen blijven: die horen bij de OIN, niet bij de persona.
+function wisPersonaState() {
+  alleBerichten = [];
+  magazijnPerBericht.clear();
+  actieveMap = null;
+  huidigePagina = 0;
+  renderMappen();
+}
+
 el('persona').addEventListener('change', () => {
+  wisPersonaState();
   toon(el('voortgang'), false);
   toonLeeg('Persona gewijzigd — klik op Ophalen.');
 });
@@ -435,7 +472,7 @@ async function downloadBijlage(berichtId, bijlageId, naam) {
   const respons = await api(`/berichten/${berichtId}/bijlagen/${bijlageId}`);
 
   if (!respons.ok) {
-    alert(`Bijlage downloaden mislukt (HTTP ${respons.status}).`);
+    alert(`Bijlage downloaden mislukt (${await foutTekst(respons)}).`);
 
     return;
   }
@@ -456,7 +493,7 @@ async function toonDetail(berichtId) {
   const respons = await api('/berichten/' + berichtId);
 
   if (!respons.ok) {
-    alert(`Bericht laden mislukt (HTTP ${respons.status}).`);
+    alert(`Bericht laden mislukt (${await foutTekst(respons)}).`);
 
     return;
   }
@@ -493,15 +530,27 @@ function detailKop(bericht) {
   return frag;
 }
 
-// PATCH vereist ?magazijnId= (uit de lijst bewaard) en content-type merge-patch+json.
-async function markeer(berichtId, status) {
+// Elke schrijfactie (PATCH/DELETE) heeft ?magazijnId= nodig, bewaard bij het laden van de lijst.
+// Ontbreekt hij, dan zou encodeURIComponent(undefined) de string "undefined" doorsturen en de
+// server met een HTTP 400 antwoorden — een melding die naar de server wijst terwijl de oorzaak
+// lokaal is. Geeft null terug als het bericht niet bekend is; de aanroeper stopt dan.
+function vereisMagazijn(berichtId) {
   const magazijnId = magazijnVan(berichtId);
 
   if (!magazijnId) {
     alert('Geen magazijnId bekend — haal eerst de lijst op.');
 
-    return;
+    return null;
   }
+
+  return magazijnId;
+}
+
+// PATCH vereist ?magazijnId= (uit de lijst bewaard) en content-type merge-patch+json.
+async function markeer(berichtId, status) {
+  const magazijnId = vereisMagazijn(berichtId);
+
+  if (!magazijnId) return;
 
   const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
     method: 'PATCH',
@@ -510,7 +559,7 @@ async function markeer(berichtId, status) {
   });
 
   if (!respons.ok) {
-    alert(`Markeren mislukt (HTTP ${respons.status}).`);
+    alert(`Markeren mislukt (${await foutTekst(respons)}).`);
 
     return;
   }
@@ -534,7 +583,9 @@ function openBericht(bericht) {
 // PATCH {map}. Merge-patch kan `map` niet wissen (null = niet wijzigen), dus verplaatsen
 // gaat alleen náár een map/Archief, niet terug naar Postvak IN.
 async function schrijfMap(berichtId, map) {
-  const magazijnId = magazijnVan(berichtId);
+  const magazijnId = vereisMagazijn(berichtId);
+
+  if (!magazijnId) return;
 
   const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
     method: 'PATCH',
@@ -543,7 +594,7 @@ async function schrijfMap(berichtId, map) {
   });
 
   if (!respons.ok) {
-    alert(`Verplaatsen mislukt (HTTP ${respons.status}).`);
+    alert(`Verplaatsen mislukt (${await foutTekst(respons)}).`);
 
     return;
   }
@@ -572,14 +623,16 @@ function archiveer(berichtId) {
 async function verwijder(berichtId) {
   if (!confirm('Dit bericht definitief verwijderen?')) return;
 
-  const magazijnId = magazijnVan(berichtId);
+  const magazijnId = vereisMagazijn(berichtId);
+
+  if (!magazijnId) return;
 
   const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
     method: 'DELETE',
   });
 
   if (!respons.ok) {
-    alert(`Verwijderen mislukt (HTTP ${respons.status}).`);
+    alert(`Verwijderen mislukt (${await foutTekst(respons)}).`);
 
     return;
   }
@@ -596,7 +649,8 @@ function detailInhoud(bericht) {
   return p;
 }
 
-// Bijlagen: alleen bijlageId + naam zijn gevuld; de download-actie komt in taak 4.
+// Bijlagen komen uit het detail-endpoint met alleen bijlageId + naam; de inhoud volgt pas bij
+// het downloaden zelf.
 function renderBijlagen(bericht) {
   const div = document.createElement('div');
 
@@ -611,15 +665,14 @@ function renderBijlagen(bericht) {
   kop.textContent = 'Bijlagen: ';
   div.appendChild(kop);
 
+  // Knop, geen <a href="#">: dit is een actie, geen navigatie — zo klopt de rol voor
+  // schermlezers en hoeft er geen default-navigatie onderdrukt te worden.
   bijlagen.forEach((bijlage) => {
-    const knop = document.createElement('a');
+    const knop = document.createElement('button');
 
-    knop.href = '#';
+    knop.type = 'button';
     knop.textContent = bijlage.naam;
-    knop.addEventListener('click', (gebeurtenis) => {
-      gebeurtenis.preventDefault();
-      downloadBijlage(bericht.berichtId, bijlage.bijlageId, bijlage.naam);
-    });
+    knop.addEventListener('click', () => downloadBijlage(bericht.berichtId, bijlage.bijlageId, bijlage.naam));
     div.appendChild(knop);
   });
 

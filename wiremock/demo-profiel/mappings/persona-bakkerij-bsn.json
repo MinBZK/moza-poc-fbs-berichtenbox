@@ -2,7 +2,7 @@
   "priority": 1,
   "request": {
     "method": "GET",
-    "urlPathPattern": "/api/profielservice/v1/BSN/123456782"
+    "urlPathPattern": "/api/profielservice/v1/BSN/999996666"
   },
   "response": {
     "status": 200,

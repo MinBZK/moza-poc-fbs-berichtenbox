@@ -46,6 +46,22 @@ class DownstreamClient(
 ) {
 
     private val log = Logger.getLogger(DownstreamClient::class.java)
+
+    init {
+        // De bypass zet méér uit dan een TLS-uitzondering — ook de SSRF-blocklist vervalt — dus
+        // laat hij een spoor achter, zoals OutboundTlsValidator dat voor de kleinere TLS-only
+        // override doet. Draait een instantie ooit onbedoeld onder dev (de demo-compose zet dat
+        // profiel op vier plaatsen met hetzelfde image), dan is dat zonder deze regel onzichtbaar.
+        if (profiel in PROFIELEN_ZONDER_TLS_EIS) {
+            log.warnf(
+                "%s: profiel '%s' — downstream-URL-validatie laat plain http naar niet-loopback toe " +
+                    "en slaat de SSRF-blocklist over. Uitsluitend bedoeld voor de lokale demo-stack.",
+                VALIDATIE_UIT_ALERT_TOKEN,
+                profiel,
+            )
+        }
+    }
+
     private val http: HttpClient = HttpClient.newBuilder()
         .connectTimeout(config.client().connectTimeout())
         // Forum Standaardisatie: alleen TLS 1.3/1.2. JDK21 sluit oudere versies al uit,
@@ -175,10 +191,12 @@ class DownstreamClient(
         val host = parsed.host?.lowercase()
             ?: return DownstreamResultaat.ConfiguratieFout("URL mist host-component")
 
-        // In dev/test mag http naar niet-loopback hosts (container-DNS, stubs) en vervalt de
-        // SSRF-blocklist — consistent met OutboundTlsValidator, dat http in dev/test ook
-        // toestaat. Buiten dev/test blijven TLS-buiten-loopback (BIO 13.2.1) en de
-        // SSRF-blocklist (OWASP) onverkort gelden.
+        // In dev mag http naar niet-loopback hosts en vervalt de SSRF-blocklist. Beide zijn nodig
+        // en niet inwisselbaar: de demo-stack levert af op container-DNS (`http://toxiproxy:18086`),
+        // dat op een bridge-netwerk naar een RFC1918-adres resolveert. Alleen de TLS-eis versoepelen
+        // laat de publicatieketen dus alsnog stuklopen op de blocklist, met een foutmelding die naar
+        // TLS wijst. Buiten dev gelden TLS-buiten-loopback (BIO 13.2.1) en de blocklist (OWASP)
+        // onverkort. Een actieve bypass logt bij boot een WARNING met [VALIDATIE_UIT_ALERT_TOKEN].
         if (profiel in PROFIELEN_ZONDER_TLS_EIS) return null
 
         // Exact-loopback-whitelist: geen wildcard-subdomeinen of overige 127.x.x.x
@@ -273,8 +291,21 @@ class DownstreamClient(
     }
 
     companion object {
-        /** Profielen waarin http naar niet-loopback en de SSRF-blocklist vervallen (lokale demo/tests). */
-        private val PROFIELEN_ZONDER_TLS_EIS = setOf("dev", "test")
+        /**
+         * Profielen waarin http naar niet-loopback én de SSRF-blocklist vervallen. Alleen `dev`:
+         * de demo-stack draait haar downstreams over container-DNS (`http://toxiproxy:18086`),
+         * wat op een bridge-netwerk naar een RFC1918-adres resolveert — dat raakt beide guards.
+         * `test` staat er bewust NIET in: de testconfig gebruikt loopback-URL's, die sowieso zijn
+         * toegestaan, dus opnemen zou de validatie over de hele `@QuarkusTest`-oppervlakte
+         * uitschakelen zonder er iets voor terug te krijgen.
+         */
+        private val PROFIELEN_ZONDER_TLS_EIS = setOf("dev")
+
+        /**
+         * Greppable marker bij een actieve bypass. Ops hangt hier een alert-regel aan; de waarde
+         * mag niet wijzigen zonder die alert mee te verhuizen.
+         */
+        const val VALIDATIE_UIT_ALERT_TOKEN = "DOWNSTREAM_URL_VALIDATIE_UIT"
 
         /**
          * Laat alleen W3C `traceparent` door; `tracestate` (vendor-routing/sampling)

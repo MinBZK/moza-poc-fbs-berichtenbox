@@ -5,6 +5,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.core.Response
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class VeelMagazijnenServiceTest {
@@ -56,6 +57,26 @@ class VeelMagazijnenServiceTest {
 
         verify(exactly = 5) { wiremock.verwijderOverlay(any()) }
         verify(exactly = 0) { wiremock.voegOverlayToe(any()) }
+    }
+
+    @Test
+    fun `een 404 bij het weghalen van een overlay is geen fout`() {
+        // 404 = er stond geen overlay; dat is precies de gewenste eindtoestand.
+        every { wiremock.verwijderOverlay(any()) } returns respons(404)
+
+        service.zetActief(5)
+
+        verify(exactly = 5) { wiremock.verwijderOverlay(any()) }
+    }
+
+    @Test
+    fun `een andere foutstatus bij het weghalen van een overlay faalt zichtbaar`() {
+        // Zonder deze toets meldt het paneel "actief: 5 van 5" terwijl de magazijnen op 503 blijven.
+        every { wiremock.verwijderOverlay(any()) } returns respons(500)
+
+        val fout = assertThrows(IllegalStateException::class.java) { service.zetActief(5) }
+
+        assertTrue(fout.message!!.contains("500"), "melding moet de status noemen, was: ${fout.message}")
     }
 
     @Test

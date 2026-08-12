@@ -11,10 +11,12 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
+import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 import java.util.UUID
 
@@ -32,18 +34,28 @@ class BerichtOpslagServiceTest {
         java.time.Clock.systemUTC(),
     )
 
+    private fun valideer(
+        onderwerp: String = "Voorlopige aanslag 2026",
+        inhoud: String = "Hierbij ontvangt u...",
+        publicatietijdstip: Instant? = null,
+        bijlagen: List<BijlageInvoer> = emptyList(),
+    ): Bericht = service.valideerAanlevering(
+        afzender = "00000001003214345000",
+        ontvangerType = IdentificatienummerType.BSN,
+        ontvangerWaarde = "999993653",
+        onderwerp = onderwerp,
+        inhoud = inhoud,
+        publicatietijdstip = publicatietijdstip,
+        bijlagen = bijlagen,
+    )
+
     @Test
-    fun `slaBerichtOp roept repository opslaan aan en retourneert het domeinobject`() {
+    fun `slaBerichtOp roept repository opslaan aan met het gevalideerde domeinobject`() {
         val berichtSlot = slot<Bericht>()
         every { repository.save(capture(berichtSlot)) } answers { }
 
-        val bericht = service.slaBerichtOp(
-            afzender = "00000001003214345000",
-            ontvangerType = IdentificatienummerType.BSN,
-            ontvangerWaarde = "999993653",
-            onderwerp = "Voorlopige aanslag 2026",
-            inhoud = "Hierbij ontvangt u...",
-        )
+        val bericht = valideer()
+        service.slaBerichtOp(bericht)
 
         assertNotNull(bericht.berichtId)
         assertNotNull(bericht.tijdstipOntvangst)
@@ -67,14 +79,8 @@ class BerichtOpslagServiceTest {
         val datumSlot = slot<Instant>()
         every { publicatieOutbox.planDeliveries(capture(berichtIdSlot), capture(datumSlot)) } returns Unit
 
-        val bericht = service.slaBerichtOp(
-            afzender = "00000001003214345000",
-            ontvangerType = IdentificatienummerType.BSN,
-            ontvangerWaarde = "999993653",
-            onderwerp = "Geplande publicatie",
-            inhoud = "...",
-            publicatietijdstip = toekomst,
-        )
+        val bericht = valideer(onderwerp = "Geplande publicatie", inhoud = "...", publicatietijdstip = toekomst)
+        service.slaBerichtOp(bericht)
 
         assertEquals(toekomst, bericht.publicatietijdstip)
         assertNotEquals(bericht.publicatietijdstip, bericht.tijdstipOntvangst)
@@ -83,24 +89,37 @@ class BerichtOpslagServiceTest {
     }
 
     @Test
-    fun `slaBerichtOp roept validatie aan vóór repository save`() {
-        // Borgt het contract met issue #541: validatie hoort vóór persistentie.
-        // Anders zou een ongeldig bericht eerst in de DB landen (bij rollback ook nog
-        // ID-ruimte verbruiken) en faalt de keten op een onlogische plek.
+    fun `valideerAanlevering valideert zonder iets op te slaan`() {
+        // Borgt het contract met issue #541: validatie hoort vóór persistentie. Doordat
+        // valideerAanlevering en slaBerichtOp gescheiden zijn, kan de aanroeper daar de
+        // logregel tussen schrijven — en blijft een ongeldig bericht sowieso uit de DB.
         every { repository.save(any()) } answers { }
+        val bijlagen = listOf(BijlageInvoer("doc.pdf", "application/pdf", byteArrayOf(1, 2)))
 
-        service.slaBerichtOp(
-            afzender = "00000001003214345000",
-            ontvangerType = IdentificatienummerType.BSN,
-            ontvangerWaarde = "999993653",
-            onderwerp = "Test",
-            inhoud = "Inhoud",
-            bijlagen = listOf(BijlageInvoer("doc.pdf", "application/pdf", byteArrayOf(1, 2))),
-        )
+        val bericht = valideer(onderwerp = "Test", inhoud = "Inhoud", bijlagen = bijlagen)
+
+        verify { validatieService.valideer(bericht, bijlagen) }
+        verify(exactly = 0) { repository.save(any()) }
+        verify(exactly = 0) { publicatieOutbox.planDeliveries(any(), any()) }
+
+        service.slaBerichtOp(bericht, bijlagen)
 
         verifyOrder {
-            validatieService.valideer(any(), any())
-            repository.save(any())
+            validatieService.valideer(bericht, bijlagen)
+            repository.save(bericht)
         }
+    }
+
+    @Test
+    fun `valideerAanlevering laat een validatiefout door en slaat niets op`() {
+        every { validatieService.valideer(any(), any()) } throws
+            DomainValidationException("Bijlage mimeType moet application/pdf zijn")
+
+        assertThrows<DomainValidationException> {
+            valideer(bijlagen = listOf(BijlageInvoer("doc.txt", "text/plain", byteArrayOf(1))))
+        }
+
+        verify(exactly = 0) { repository.save(any()) }
+        verify(exactly = 0) { publicatieOutbox.planDeliveries(any(), any()) }
     }
 }

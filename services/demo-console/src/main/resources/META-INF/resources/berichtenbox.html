@@ -13,7 +13,7 @@
       <label>Ingelogd als
         <select id="persona">
           <option value="BSN:999993653">J. Pietersen (ZZP)</option>
-          <option value="BSN:123456782">Bakkerij De Vroege Vogel</option>
+          <option value="BSN:999996666">Bakkerij De Vroege Vogel</option>
           <option value="KVK:12345678">Garage Van Dijk B.V.</option>
           <option value="KVK:90000001">Grootbedrijf B.V. (veel magazijnen)</option>
         </select>
@@ -24,7 +24,9 @@
     </div>
   </header>
 
-  <section id="voortgang" class="voortgang" hidden></section>
+  <!-- aria-live: de ophaalvoortgang komt regel voor regel binnen uit de SSE-stream; zonder dit
+       merkt een schermlezer-gebruiker niets van de voortgang of van een afgebroken stream. -->
+  <section id="voortgang" class="voortgang" aria-live="polite" hidden></section>
 
   <main class="werkblad">
     <nav id="mappen" class="mappen"></nav>

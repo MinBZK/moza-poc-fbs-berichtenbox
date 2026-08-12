@@ -84,17 +84,22 @@ volumes lege dirs. Python (geen build/coverage/detekt) volstaat: deterministisch
 ### Live "k van n actief" — demo-console `veelmagazijnen/`
 
 - **`WireMockAdminClient`** (`@RegisterRestClient(configKey="magazijnstubs")`):
-  `PUT /__admin/mappings/{id}` (overlay upsert), `DELETE /__admin/mappings/{id}` (overlay weg),
+  `POST /__admin/mappings` (overlay aanmaken, id in de body — WireMock's PUT is update-only en
+  geeft 404 op een nog-niet-bestaande id), `DELETE /__admin/mappings/{id}` (overlay weg),
   `POST /__admin/mappings/reset` (herlaad van schijf).
-- **`VeelMagazijnenService(config)`** met `n` uit `demo.veel-magazijnen.aantal` (`${DEMO_MAGAZIJN_STUBS:12}`):
-  - `zetActief(k)`: voor i in 1..n → i≤k: overlay verwijderen (`DELETE`, 404 = al actief, negeren);
-    i>k: 503-overlay plaatsen (`PUT` met `{priority:1, request:{GET /mNN/api/v1/berichten}, response:{status:503}}`).
+- **`VeelMagazijnenService(config)`** met `n` uit `veel-magazijnen.aantal` (`${DEMO_MAGAZIJN_STUBS:12}`;
+  buiten de `demo`-prefix, die is geclaimd door `@ConfigMapping` en eist dat élke `demo.*`-property
+  op een mapping-member valt — anders SRCFG00050 bij boot):
+  - `zetActief(k)`: voor i in 1..n → altijd eerst de overlay verwijderen (`DELETE`, 404 = er stond er
+    geen); daarna krijgt alleen i>k een verse 503-overlay (`POST` met
+    `{id, priority:1, request:{GET /mNN/api/v1/berichten}, response:{status:503}}`).
     Priority 1 wint van de base (priority 5). Overlay-id deterministisch uit i:
-    `"00000000-0000-0000-0000-%012d".format(i)`.
+    `"11111111-0000-0000-0000-%012d".format(i)` — bewust níet de `00000000-…`-reeks, want die
+    gebruikt het generatie-script al voor de stub-`berichtId`'s.
   - `reset()`: `POST /__admin/mappings/reset` → alle base-mappings terug, alles actief.
 - **`VeelMagazijnenResource`**: `POST /api/demo/veel-magazijnen/actief/{k}`, `POST /api/demo/veel-magazijnen/reset`.
 - Config: `quarkus.rest-client.magazijnstubs.url=${MAGAZIJN_STUBS_ADMIN_URL:http://localhost:8092}`,
-  `demo.veel-magazijnen.aantal=${DEMO_MAGAZIJN_STUBS:12}`.
+  `veel-magazijnen.aantal=${DEMO_MAGAZIJN_STUBS:12}`.
 
 Waarom een 503-overlay i.p.v. de base-mapping vervangen: de demo-console hoeft de (grote) 200-body
 niet te kennen; overlay plaatsen/verwijderen is stateless en per stub deterministisch.
@@ -129,7 +134,7 @@ niet te kennen; overlay plaatsen/verwijderen is stateless en per stub determinis
 
 ## Testen
 
-- **`VeelMagazijnenServiceTest`** (MockK): `zetActief(k)` bij n=5 → `DELETE` voor m01..mk, `PUT`
+- **`VeelMagazijnenServiceTest`** (MockK): `zetActief(k)` bij n=5 → `DELETE` voor m01..m05, `POST`
   503 voor m(k+1)..m5, met de deterministische overlay-id's; grenswaarden `k=0` (alles uit) en
   `k=n` (alles aan); `k` buiten bereik → fout; `reset()` → `POST …/reset`.
 - Augmentatie wiret de `magazijnstubs`-rest-client (config aanwezig).

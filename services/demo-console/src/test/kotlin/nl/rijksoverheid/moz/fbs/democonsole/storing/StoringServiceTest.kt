@@ -4,6 +4,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.core.Response
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class StoringServiceTest {
@@ -51,6 +53,18 @@ class StoringServiceTest {
         verify { toxiproxy.zetProxy("magazijn-a", ProxyPatch(enabled = true)) }
         verify { toxiproxy.verwijderToxic("magazijn-a", "latency_downstream") }
         verify(exactly = 0) { toxiproxy.zetProxy("magazijn-b", any()) }
+    }
+
+    @Test
+    fun `reset faalt als Toxiproxy geen enkele proxy kent`() {
+        // Ontbrekende of misvormde proxies.json: Toxiproxy start gezond op met nul proxies,
+        // terwijl al het uitvraag- en magazijnverkeer erdoorheen loopt. De lus over een lege map
+        // zou stil slagen en "alles normaal" bevestigen terwijl de keten dood is.
+        every { toxiproxy.proxies() } returns emptyMap()
+
+        val fout = assertThrows(IllegalStateException::class.java) { service.reset() }
+
+        assertTrue(fout.message!!.contains("proxies.json"), "melding moet naar de oorzaak wijzen, was: ${fout.message}")
     }
 
     @Test

@@ -1,7 +1,11 @@
 name: ClusterFuzzLite PR fuzzing
 on:
-  pull_request:
-    branches: [main]
+  # Uitsluitend als aangeroepen workflow: deze fuzzing draaide al alleen voor PR's naar main, en
+  # dat is precies wanneer deploy.yml draait. Door hem daar aan te roepen kan de deploy er met
+  # `needs:` aan hangen in plaats van op de check-run te pollen — een pollende job houdt een
+  # runner bezet zonder werk te doen. Een gestapelde PR fuzzt dus nog steeds niet; die dekking
+  # komt bij de PR naar main.
+  workflow_call:
 
 permissions: read-all
 
@@ -13,6 +17,7 @@ jobs:
   # overgeslagen job telt daarentegen als 'skipped' = succes voor branch protection.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
     steps:
@@ -37,6 +42,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true

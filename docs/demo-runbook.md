@@ -37,7 +37,25 @@ Na een codewijziging in één service volstaat dat ene `-pl services/<naam>` opn
 
 ---
 
-## 3. Stack starten
+## 3. Stub-artefacten genereren (altijd, vóór de eerste start)
+
+Eén getal `n` genereert het register, de profiel-stub en n WireMock-mappings in `demo/generated/`
+(git-ignored). Dezelfde env-var voedt het script én de demo-console — dus altijd samen exporteren.
+Alleen "veel magazijnen" (fase 6) gebruikt die stubs echt, maar de stap is onvoorwaardelijk: zonder
+de gegenereerde bestanden start de uitvraag niet (zie de waarschuwing in §4):
+
+```bash
+export DEMO_MAGAZIJN_STUBS=40
+python3 demo/genereer-magazijnen.py
+docker compose --profile demo up -d
+```
+
+Wil je n wijzigen: pas `DEMO_MAGAZIJN_STUBS` aan, draai het script opnieuw, en herstart de
+uitvraag + stub-magazijnen (§8). Zonder Docker verandert er niets aan de rest van de stack.
+
+---
+
+## 4. Stack starten
 
 Er zijn twee modi met dezelfde compose:
 
@@ -46,8 +64,12 @@ Er zijn twee modi met dezelfde compose:
 | `docker compose up -d` | Alleen infra (Redis, Postgres, WireMock-stubs, ClickHouse) | **Ontwikkelen** — draai services zelf met `./mvnw quarkus:dev` (hot reload) |
 | `docker compose --profile demo up -d` | Alles: infra + de drie services + demo-console + Toxiproxy + stub-magazijnen | **Demo** |
 
-> **Belangrijk voor "veel magazijnen" (fase 6):** genereer eerst de stub-artefacten (§4), anders
-> mounten de compose-volumes lege mappen. Voor alle andere scenario's is dat niet nodig.
+> **Draai altijd eerst §3**, óók als je "veel magazijnen" niet demonstreert. `demo/generated/` is
+> git-ignored, dus na een verse checkout bestaat het niet. Compose maakt een ontbrekend mount-pad
+> zelf aan — als **directory**. `magazijnen-stubs.properties` wordt dan een map,
+> `SMALLRYE_CONFIG_LOCATIONS` wijst naar een map, de uitvraag start niet, en het generatiescript
+> kan dat bestand daarna ook niet meer schrijven (eerst `rm -rf demo/generated/`). Het is één
+> idempotent commando; sla het niet over.
 
 Openen na start:
 - **Bedieningspaneel:** <http://localhost:8095/>
@@ -65,7 +87,7 @@ DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-
 Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
 controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
 zijn, genereert de stub-artefacten, en controleert na elke start dat elke container draait. Redis,
-beide Postgres, ClickHouse, de profiel-stub, de stub-magazijnen, Toxiproxy en de vier services
+de drie Postgres-instanties, de profiel-stub, de stub-magazijnen, Toxiproxy en de vier services
 worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
 
 Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
@@ -79,12 +101,10 @@ Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet`
 automatisch gekozen: podman draait daar in een VM, dus de gedeelde namespace is die van de VM en
 zonder gepubliceerde poorten komt er niets door naar je werkplek.
 
-In `hostnet` delen alle containers één netwerknamespace. Poorten die in `bridge` alleen intern
-bestonden — ClickHouse' native, MySQL-, PostgreSQL- en interserver-protocol (9000/9004/9005/9009)
-en de zes Toxiproxy-proxy-listeners — staan dan open op elk adres van de machine, zonder
-wachtwoord of met het demo-wachtwoord. Draai deze modus dus alleen op een vertrouwd netwerk. (De
-poorten die `compose.yaml` publiceert, waaronder beide Postgres-instanties, binden ook in
-`bridge` al op alle interfaces.)
+In `hostnet` delen alle containers één netwerknamespace. De zes Toxiproxy-proxy-listeners, die in
+`bridge` alleen intern bestonden, staan dan open op elk adres van de machine. Draai deze modus dus
+alleen op een vertrouwd netwerk. (De poorten die `compose.yaml` publiceert, waaronder alle drie de
+Postgres-instanties, binden ook in `bridge` al op alle interfaces.)
 
 Botst een van die poorten met iets dat al draait, dan hangt het van de poort af hoe dat zich
 uit. Een service die zelf niet kan binden stopt, en het script meldt welke container dat is mét
@@ -105,22 +125,6 @@ export DOCKER_HOST="unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.
 docker compose -f compose.yaml -f compose.podman.yaml --profile demo down
 # in hostnet: -f compose.podman-hostnet.yaml vóór --profile toevoegen
 ```
-
----
-
-## 4. "Veel magazijnen" voorbereiden (alleen voor fase 6)
-
-Eén getal `n` genereert het register, de profiel-stub en n WireMock-mappings in `demo/generated/`
-(git-ignored). Dezelfde env-var voedt het script én de demo-console — dus altijd samen exporteren:
-
-```bash
-export DEMO_MAGAZIJN_STUBS=40
-python3 demo/genereer-magazijnen.py
-docker compose --profile demo up -d
-```
-
-Wil je n wijzigen: pas `DEMO_MAGAZIJN_STUBS` aan, draai het script opnieuw, en herstart de
-uitvraag + stub-magazijnen (§8). Zonder Docker verandert er niets aan de rest van de stack.
 
 ---
 
@@ -149,7 +153,7 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 | Persona | Identificatie | Bevraagt |
 |---|---|---|
 | J. Pietersen (ZZP) | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
-| Bakkerij De Vroege Vogel | BSN `123456782` | RVO |
+| Bakkerij De Vroege Vogel | BSN `999996666` | RVO |
 | Garage Van Dijk B.V. | KVK `12345678` | Belastingdienst |
 | Grootbedrijf B.V. | KVK `90000001` | n stub-magazijnen (fase 6) |
 
@@ -184,7 +188,7 @@ Herstellen via *Alles normaal (reset)* in de Storingen-sectie.
 | Wat je wijzigde | Wat nodig is |
 |---|---|
 | Kotlin/resources in een service | jib-rebuild van dat image (§2, `-pl services/<naam>`) → `docker compose --profile demo up -d <service>` |
-| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJN_STUBS` | Regenereer (§4) → `docker compose --profile demo up -d --force-recreate magazijn-stubs berichtenuitvraag` |
+| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJN_STUBS` | Regenereer (§3) → `docker compose --profile demo up -d --force-recreate magazijn-stubs berichtenuitvraag` |
 | `compose.yaml` (env/mount) | `docker compose --profile demo up -d --force-recreate <service>` (geen rebuild) |
 | `toxiproxy/proxies.json` | `docker compose --profile demo up -d --force-recreate toxiproxy` |
 | WireMock-mappings van een echt stub-magazijn | `docker compose restart magazijn-a` (of `-b`) |

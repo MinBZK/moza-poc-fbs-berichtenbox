@@ -493,7 +493,7 @@ Het UBO-patroon -- "verschillende gemeentelijke bronnen uniform ontsluiten via e
 | OpenFSC Inway | FSC Inway | Authenticatie, autorisatie en routering van verzoeken |
 | Uniformeren | PseudoniemService + aggregatie in sessiecache | Omvorming en bundeling van gegevens uit meerdere bronnen |
 | Aanbieden (FSC-catalogus) | FSC service publicatie | Beschikbaar stellen van de service aan afnemers |
-| Logging (audit trail) | Logboek Dataverwerkingen (ClickHouse) | Vastleggen van gegevensleveringen voor verantwoording |
+| Logging (audit trail) | Logboek Dataverwerkingen (PostgreSQL) | Vastleggen van gegevensleveringen voor verantwoording |
 
 ### 9.2 Conclusie: het patroon wordt al gevolgd
 

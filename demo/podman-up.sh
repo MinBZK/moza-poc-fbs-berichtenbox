@@ -311,7 +311,7 @@ wacht_op() {
     echo "  ✓ $naam"
 }
 
-INFRA=(redis postgres-a postgres-b clickhouse profiel-service magazijn-a magazijn-b
+INFRA=(redis postgres-a postgres-b postgres-uitvraag profiel-service magazijn-a magazijn-b
        aanmeld-stub notificatie-stub magazijn-stubs toxiproxy)
 SERVICES=(berichtenmagazijn-a berichtenmagazijn-b berichtenuitvraag demo-console)
 
@@ -322,19 +322,21 @@ echo "[3/4] infra starten ($MODUS)"
 # eerst de containerstatus, dan pas de functionele probes.
 vereis_draaiend "${INFRA[@]}"
 
-# Postgres-b luistert in hostnet op 5433 (PGPORT), in bridge intern gewoon op 5432; `pg_isready`
-# draait binnen de container en volgt die keuze.
+# Postgres-b en het LDV-logboek van de uitvraag luisteren in hostnet op hun eigen PGPORT (5433 en
+# 5434), in bridge intern gewoon op 5432; `pg_isready` draait binnen de container en volgt die
+# keuze.
 PGPORT_B=5432
-[ "$MODUS" = "hostnet" ] && PGPORT_B=5433
+PGPORT_UITVRAAG=5432
+[ "$MODUS" = "hostnet" ] && PGPORT_B=5433 && PGPORT_UITVRAAG=5434
 
 wacht_op "redis"      redis      "${C[@]}" exec -T redis redis-cli ping
 wacht_op "postgres-a" postgres-a "${C[@]}" exec -T postgres-a pg_isready -U berichtenmagazijn -d berichtenmagazijn
 wacht_op "postgres-b" postgres-b "${C[@]}" exec -T postgres-b pg_isready -U berichtenmagazijn -d berichtenmagazijn -p "$PGPORT_B"
+wacht_op "postgres-uitvraag" postgres-uitvraag "${C[@]}" exec -T postgres-uitvraag pg_isready -U ldv -d ldv_logging -p "$PGPORT_UITVRAAG"
 
-# Deze drie draaien vanaf de host: in bridge via de gepubliceerde poort, in hostnet via diezelfde
-# poort in de gedeelde netns. Zonder ze meldt het script succes terwijl register,
-# profielvoorkeuren of logboek onbereikbaar zijn.
-wacht_op "clickhouse"     clickhouse      curl -sSf --max-time 3 http://127.0.0.1:8123/ping
+# Deze twee draaien vanaf de host: in bridge via de gepubliceerde poort, in hostnet via diezelfde
+# poort in de gedeelde netns. Zonder ze meldt het script succes terwijl register of
+# profielvoorkeuren onbereikbaar zijn.
 wacht_op "profiel-service" profiel-service curl -sSf --max-time 3 http://127.0.0.1:8089/__admin/mappings
 wacht_op "magazijn-stubs" magazijn-stubs  curl -sSf --max-time 3 http://127.0.0.1:8092/__admin/mappings
 

@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd — fases 0–6; fase 7 (rode vlag door de keten + k6-loadtest) volgt apart
 
 # Demo-platform PoC Berichtenbox — ontwerp
 

@@ -124,7 +124,7 @@ def mapping(i: int) -> dict:
         "priority": 5,
         "request": {
             "method": "GET",
-            "urlPathPattern": f"{pad(i)}/api/v1/berichten",
+            "urlPath": f"{pad(i)}/api/v1/berichten",
             "headers": {"X-Ontvanger": {"matches": ".+"}},
         },
         "response": {
@@ -244,7 +244,7 @@ De lokaal-testbare kern: een client tegen de WireMock-admin-API en een service d
 
 **Interfaces:**
 - Produceert:
-  - `WireMockAdminClient` (`zetOverlay(id, WireMockStub)`, `verwijderOverlay(id)`, `herlaad()`).
+  - `WireMockAdminClient` (`voegOverlayToe(WireMockStub)`, `verwijderOverlay(id)`, `herlaad()`).
   - `VeelMagazijnenService.zetActief(k): Map<String,Int>`, `.reset(): Map<String,Int>`; companion
     `overlayId(i): String`, `stubPad(i): String`.
   - `data class WireMockStub(id, priority, request, response)` + `WireMockRequest`, `WireMockResponse`.
@@ -273,31 +273,35 @@ class VeelMagazijnenServiceTest {
     @Test
     fun `zetActief laat 1 tot k actief en zet k+1 tot n op storing`() {
         every { wiremock.verwijderOverlay(any()) } returns respons(200)
-        every { wiremock.zetOverlay(any(), any()) } returns respons(201)
+        every { wiremock.voegOverlayToe(any()) } returns respons(201)
 
         service.zetActief(3)
 
-        // 1..3 actief → overlay verwijderd
-        verify { wiremock.verwijderOverlay(VeelMagazijnenService.overlayId(1)) }
-        verify { wiremock.verwijderOverlay(VeelMagazijnenService.overlayId(3)) }
-        // 4..5 op storing → 503-overlay op het juiste pad
+        // Elke stub krijgt eerst een DELETE (idempotent), ongeacht actief/inactief.
+        verify(exactly = 5) { wiremock.verwijderOverlay(any()) }
+        // 4..5 op storing → verse 503-overlay op het pad-prefix van dat magazijn.
         verify {
-            wiremock.zetOverlay(
-                VeelMagazijnenService.overlayId(4),
-                match { it.response.status == 503 && it.request.urlPathPattern == VeelMagazijnenService.stubPad(4) },
+            wiremock.voegOverlayToe(
+                match {
+                    it.id == VeelMagazijnenService.overlayId(4) &&
+                        it.response.status == 503 &&
+                        it.request.urlPath == VeelMagazijnenService.stubPad(4)
+                },
             )
         }
-        verify { wiremock.zetOverlay(VeelMagazijnenService.overlayId(5), any()) }
-        verify(exactly = 0) { wiremock.zetOverlay(VeelMagazijnenService.overlayId(3), any()) }
+        verify { wiremock.voegOverlayToe(match { it.id == VeelMagazijnenService.overlayId(5) }) }
+        verify(exactly = 2) { wiremock.voegOverlayToe(any()) }
+        verify(exactly = 0) { wiremock.voegOverlayToe(match { it.id == VeelMagazijnenService.overlayId(3) }) }
     }
 
     @Test
     fun `zetActief 0 zet alles op storing`() {
-        every { wiremock.zetOverlay(any(), any()) } returns respons(201)
+        every { wiremock.verwijderOverlay(any()) } returns respons(200)
+        every { wiremock.voegOverlayToe(any()) } returns respons(201)
 
         service.zetActief(0)
 
-        verify(exactly = 5) { wiremock.zetOverlay(any(), any()) }
+        verify(exactly = 5) { wiremock.voegOverlayToe(any()) }
         verify(exactly = 0) { wiremock.verwijderOverlay(any()) }
     }
 
@@ -308,7 +312,7 @@ class VeelMagazijnenServiceTest {
         service.zetActief(5)
 
         verify(exactly = 5) { wiremock.verwijderOverlay(any()) }
-        verify(exactly = 0) { wiremock.zetOverlay(any(), any()) }
+        verify(exactly = 0) { wiremock.voegOverlayToe(any()) }
     }
 
     @Test
@@ -343,14 +347,13 @@ package nl.rijksoverheid.moz.fbs.democonsole.veelmagazijnen
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.POST
-import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 
-data class WireMockRequest(val method: String, val urlPathPattern: String)
+data class WireMockRequest(val method: String, val urlPath: String)
 
 data class WireMockResponse(val status: Int)
 
@@ -363,18 +366,18 @@ data class WireMockStub(
 )
 
 /**
- * Client voor de WireMock-admin-API van de stub-magazijnen. `zetOverlay` plaatst per stub een
- * 503-mapping met vaste id (upsert via PUT); `verwijderOverlay` haalt hem weg; `herlaad` reset naar
- * de mappings van schijf (alles weer actief).
+ * Client voor de WireMock-admin-API van de stub-magazijnen. `voegOverlayToe` maakt per stub een
+ * 503-mapping aan (POST met een vaste id in de body — WireMock's PUT is update-only en geeft 404 op
+ * een nog-niet-bestaande id); `verwijderOverlay` haalt hem weg op die id; `herlaad` reset naar de
+ * mappings van schijf (alles weer actief).
  */
 @Path("/__admin/mappings")
 @RegisterRestClient(configKey = "magazijnstubs")
 interface WireMockAdminClient {
 
-    @PUT
-    @Path("/{id}")
+    @POST
     @Consumes(MediaType.APPLICATION_JSON)
-    fun zetOverlay(@PathParam("id") id: String, stub: WireMockStub): Response
+    fun voegOverlayToe(stub: WireMockStub): Response
 
     @DELETE
     @Path("/{id}")
@@ -406,7 +409,7 @@ import org.eclipse.microprofile.rest.client.inject.RestClient
 @ApplicationScoped
 class VeelMagazijnenService(
     @param:RestClient private val wiremock: WireMockAdminClient,
-    @param:ConfigProperty(name = "demo.veel-magazijnen.aantal") private val aantal: Int,
+    @param:ConfigProperty(name = "veel-magazijnen.aantal") private val aantal: Int,
 ) {
 
     fun zetActief(k: Int): Map<String, Int> {
@@ -430,15 +433,21 @@ class VeelMagazijnenService(
         return mapOf("actief" to aantal, "totaal" to aantal)
     }
 
-    // Idempotent: een 404 betekent dat er geen overlay stond — dat is precies "actief".
+    // Idempotent: een 404 betekent dat er geen overlay stond — dat is precies "actief". Elke
+    // ándere foutstatus moet wél opvallen: de default rest-client-mapper staat uit, dus zonder
+    // deze toets meldt het paneel "actief: 12 van 12" terwijl de magazijnen op 503 blijven staan.
     private fun verwijderStoring(i: Int) {
-        wiremock.verwijderOverlay(overlayId(i)).close()
+        wiremock.verwijderOverlay(overlayId(i)).use {
+            check(it.status in 200..299 || it.status == GEEN_OVERLAY) {
+                "WireMock-fout bij storing weghalen van magazijn $i: HTTP ${it.status}"
+            }
+        }
     }
 
     private fun plaatsStoring(i: Int) {
         val stub = WireMockStub(overlayId(i), STORING_PRIORITEIT, WireMockRequest("GET", stubPad(i)), WireMockResponse(503))
 
-        controleer(wiremock.zetOverlay(overlayId(i), stub), "storing zetten op magazijn $i")
+        controleer(wiremock.voegOverlayToe(stub), "storing zetten op magazijn $i")
     }
 
     private fun controleer(response: Response, actie: String) {
@@ -470,7 +479,7 @@ quarkus.rest-client.magazijnstubs.url=${MAGAZIJN_STUBS_ADMIN_URL:http://localhos
 
 # Ingericht aantal stub-magazijnen (moet gelijk zijn aan het n waarmee demo/genereer-magazijnen.py
 # draaide). Bepaalt tot welke index de 'k van n actief'-knop schakelt.
-demo.veel-magazijnen.aantal=${DEMO_MAGAZIJN_STUBS:12}
+veel-magazijnen.aantal=${DEMO_MAGAZIJN_STUBS:12}
 ```
 
 - [ ] **Stap 6: Draai de test — verwacht slagen + detekt**

@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Demo-platform fase 2b — Berichtenbox-UI (beheer) — ontwerp
 

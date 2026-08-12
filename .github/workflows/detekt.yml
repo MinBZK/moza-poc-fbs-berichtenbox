@@ -1,29 +1,39 @@
 name: detekt
 
 on:
-  push:
-    branches: [main]
-  # Géén branch-filter op pull_request: die filtert op de DOELbranch, waardoor een gestapelde
-  # PR (base = een feature-branch i.p.v. main) helemaal geen detekt-analyse zou draaien. Zo'n PR
-  # wordt op eigen merites gereviewd en gemerged; zonder analyse komen bevindingen pas aan het
-  # licht op de PR naar main, vermengd met de rest van de stapel. deploy.yml filtert juist wél op
-  # de doelbranch — die deployt niet vanaf een feature-branch. Die asymmetrie is opzet.
+  # deploy.yml roept deze workflow aan voor PR's naar main en voor pushes naar main. Daar hangt
+  # de deploy er met `needs:` aan, in plaats van in een eigen job op de check-run te pollen —
+  # een pollende job houdt een runner bezet zonder werk te doen.
+  workflow_call:
+  # Het complement van deploy.yml's `branches: [main]`, dat op de DOELbranch filtert. Een
+  # gestapelde PR (base = een feature-branch) draait deploy.yml niet en heeft deze workflow dus
+  # zelfstandig nodig: zonder analyse komen bevindingen pas aan het licht op de PR naar main,
+  # vermengd met de rest van de stapel. Voor een PR naar main roept deploy.yml deze workflow aan;
+  # zonder dit filter zou detekt dan twee keer draaien. De asymmetrie — wel toetsen, niet
+  # deployen — is opzet.
   pull_request:
+    branches-ignore: [main]
   workflow_dispatch:
 
-permissions: read-all
+# Geen `read-all`: als aangeroepen workflow mag dit nooit meer zijn dan de caller-job toekent, en
+# die kent alleen toe wat hier daadwerkelijk nodig is. De `changes`-job leest de bestandenlijst van
+# de PR; de `detekt`-job verhoogt zelf naar security-events: write voor de SARIF-upload.
+permissions:
+  contents: read
+  pull-requests: read
 
 concurrency:
   group: detekt-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De detekt-gate is
-  # hieraan gegate, maar de workflow blijft triggeren zodat de required status check
-  # `detekt-gate` ook bij een docs-only PR gerapporteerd wordt: een via `if` overgeslagen
-  # job telt als 'skipped' = succes voor branch protection.
+  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De detekt-gate is hieraan
+  # gegate, maar de workflow zelf draait wél door — zo wordt de required status check ook bij een
+  # docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes voor
+  # branch protection.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
     steps:
@@ -64,6 +74,7 @@ jobs:
     # GitHub Advanced Security post (SARIF tool.name "detekt"). Required status check.
     name: detekt-gate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write

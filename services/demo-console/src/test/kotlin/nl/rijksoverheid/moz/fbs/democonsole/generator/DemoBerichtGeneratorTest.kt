@@ -29,7 +29,7 @@ class DemoBerichtGeneratorTest {
 
     private val personas = listOf(
         Persona("J. Pietersen", "BSN", "999993653", listOf(rvo, belastingdienst)),
-        Persona("Bakkerij De Vroege Vogel", "BSN", "123456782", listOf(rvo)),
+        Persona("Bakkerij De Vroege Vogel", "BSN", "999996666", listOf(rvo)),
         Persona("Garage Van Dijk B.V.", "KVK", "12345678", listOf(belastingdienst)),
     )
 
@@ -64,7 +64,7 @@ class DemoBerichtGeneratorTest {
     fun `Bakkerij ontvangt alleen van RVO, Garage alleen van Belastingdienst`() {
         val opdrachten = generator().genereer(aantal = 100, random = Random(4))
 
-        val bakkerij = opdrachten.filter { it.verzoek.ontvanger.waarde == "123456782" }
+        val bakkerij = opdrachten.filter { it.verzoek.ontvanger.waarde == "999996666" }
         val garage = opdrachten.filter { it.verzoek.ontvanger.waarde == "12345678" }
 
         assertTrue(bakkerij.isNotEmpty() && bakkerij.all { it.magazijnOin == rvo })
@@ -91,6 +91,22 @@ class DemoBerichtGeneratorTest {
 
         assertTrue(opdrachten.all { it.verzoek.publicatietijdstip.endsWith("Z") })
         assertTrue(opdrachten.all { Instant.parse(it.verzoek.publicatietijdstip).isBefore(nu) })
+    }
+
+    @Test
+    fun `varieert over personas, organisaties en sjablonen`() {
+        // Alle andere assertions hebben de vorm "elke opdracht voldoet aan P" en blijven groen bij
+        // een regressie naar personas[0]. Deze pint dat er daadwerkelijk gespreid wordt.
+        val opdrachten = generator().genereer(aantal = 100, random = Random(8))
+
+        assertEquals(personas.size, opdrachten.map { it.verzoek.ontvanger.waarde }.distinct().size)
+        assertEquals(organisaties.size, opdrachten.map { it.magazijnOin }.distinct().size)
+        assertEquals(
+            organisaties.values.sumOf { it.sjablonen.size },
+            opdrachten.map { it.verzoek.onderwerp }.distinct().size,
+            "elk sjabloon van elke organisatie hoort voor te komen",
+        )
+        assertTrue(opdrachten.map { it.verzoek.publicatietijdstip }.distinct().size > 1, "tijdstippen moeten spreiden")
     }
 
     @Test

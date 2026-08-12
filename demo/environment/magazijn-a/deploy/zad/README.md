@@ -3,7 +3,7 @@
 ZAD-rollout van de FSC-provider-peer `magazijn-a` (manager `magazijna-fscmgr`, controller
 `magazijna-fscctl`, inway `magazijna-fscinway`, txlog `magazijna-fsctxlog`, self-hosted Postgres
 `magazijna-fscpg`), **CO-LOCATED in het bestaande ZAD-project `mpfm-w3h`** — hetzelfde project als
-de `magazijna`/`magazijnb`/clickhouse-componenten die `deploy.yml` beheert. Peer en app delen het
+de `magazijna`/`magazijnb`-componenten die `deploy.yml` beheert. Peer en app delen het
 project, maar **niet de deployment**: de app draait in `test` (en per PR in `pr-<n>`), de peer in
 zijn eigen deployment **`fsc-magazijna`**. De `magazijna-fsc*`-componentnamen bestaan om botsingen
 met de app-componenten in dat gedeelde project te voorkomen. Bouwt voort op `pki/` (certs) en
@@ -43,7 +43,7 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
 | `upsert-peer.sh` | `validate`/`plan`/`apply` tegen de ZAD v2 Operations Manager API — lokaal/handmatig hulpmiddel voor de eenmalige component-creatie (env/ports/certs) en voor debugging. |
 | `cert-manifest.md` | Runbook: welk cert-bestand op welk `/etc/fsc/...`-pad, per component (UI-only bijlagen). |
 | `verify-zad.md` | Runbook: announce/publiceren/discover ná een geslaagde apply, + de acceptatiecriteria. |
-| `../../../../../.github/workflows/deploy.yml` (root) | `deploy-test-magazijnen`-job: de DOORLOPENDE image-tag-updates (elke push naar main). Twee stappen — `magazijna`/`magazijnb`/clickhouse op deployment `test`, de vijf `magazijna-fsc*`-componenten op `fsc-magazijna`. Niet de eenmalige creatie (die doet `upsert-peer.sh`). |
+| `../../../../../.github/workflows/deploy.yml` (root) | `deploy-test-magazijnen`-job: de DOORLOPENDE image-tag-updates (elke push naar main). Twee stappen — `magazijna`/`magazijnb` op deployment `test`, de vijf `magazijna-fsc*`-componenten op `fsc-magazijna`. Niet de eenmalige creatie (die doet `upsert-peer.sh`). |
 
 ## Volgorde
 
@@ -77,7 +77,7 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
 | Variabele | Default | Rol |
 |-----------|---------|-----|
 | `ZAD_API_KEY` | — (verplicht bij `apply`) | Auth tegen de ZAD v2-API; de bestaande **`ZAD_API_KEY_MAGAZIJNEN`** (key van het gedeelde project `mpfm-w3h`) — géén aparte peer-key meer nodig. **Niet** inline zetten (`export`, niet `ZAD_API_KEY=... ./upsert-peer.sh ...` — dat komt in de shell-history). |
-| `ZAD_PROJECT` | `mpfm-w3h` | Gedeeld ZAD-project van peer + app (`magazijna`/`magazijnb`/clickhouse). Bepaalt óók de namespace (`rig-prd-<project>`) in de cert-SAN's — `pki/gen-csr.sh` leest dezelfde var, dus een projectwissel is env-var-only (her-uitgeven + opnieuw uploaden). |
+| `ZAD_PROJECT` | `mpfm-w3h` | Gedeeld ZAD-project van peer + app (`magazijna`/`magazijnb`). Bepaalt óók de namespace (`rig-prd-<project>`) in de cert-SAN's — `pki/gen-csr.sh` leest dezelfde var, dus een projectwissel is env-var-only (her-uitgeven + opnieuw uploaden). |
 | `ZAD_DEPLOYMENT` | `fsc-magazijna` | Default voor het `[deployment]`-argument (het CLI-arg wint) — de eigen, preview-loze peer-deployment. Gedeeld met `pki/gen-csr.sh` zodat cert-SAN's en deploy-adressen sporen; een deployment-wissel vraagt dus om her-uitgeven + opnieuw uploaden van de certs. |
 | `ZAD_BASE` | `https://zad.rijksapp.nl` | Basis-URL van de ZAD v2 Operations Manager API. |
 | `ZAD_BASE_DOMAIN` | `rig.prd1.gn2.quattro.rijksapps.nl` | Base-domain voor de per-component mesh-hostnamen. |
@@ -94,6 +94,6 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
 | `ZAD_MAGAZIJNA_UPSTREAM_URL` | `https://magazijna-<magazijna-deployment>-<project>.<base-domain>` | Volledige override van de endpoint-URL naar de `magazijna`-app; standaard afgeleid uit `ZAD_MAGAZIJNA_DEPLOYMENT`/`ZAD_PROJECT`. |
 
 `deploy.yml`'s `deploy-test-magazijnen`-job gebruikt voor zijn image-tag-updates het bestaande
-secret `ZAD_API_KEY_MAGAZIJNEN` — dezelfde key als voor `magazijna`/`magazijnb`/clickhouse, geen
+secret `ZAD_API_KEY_MAGAZIJNEN` — dezelfde key als voor `magazijna`/`magazijnb`, geen
 apart secret voor de peer. Voor een lokale `upsert-peer.sh apply`-run: `export
 ZAD_API_KEY=<waarde van ZAD_API_KEY_MAGAZIJNEN>` (en `export ZAD_PG_PASSWORD=...`), niet inline.

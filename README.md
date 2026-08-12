@@ -25,12 +25,12 @@ De Berichtenbox bestaat uit de volgende onderdelen:
 
 - Java 21+
 - Maven 3.9+ (of gebruik de meegeleverde Maven wrapper `./mvnw`)
-- Docker (voor lokale services: Redis, WireMock, ClickHouse)
+- Docker (voor lokale services: Redis, WireMock, PostgreSQL)
 
 ## Snel starten
 
 ```bash
-# Start lokale services (Redis, WireMock magazijnen, ClickHouse)
+# Start lokale services (Redis, WireMock magazijnen, PostgreSQL)
 docker compose up -d
 ```
 
@@ -85,12 +85,16 @@ is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
 > `-Dquarkus.jib.platforms=linux/arm64` toe voor native images. Deze flag hoort op de
 > commandoregel en niet in de config, anders wordt ook de CI-/ZAD-build arm64.
 
-Start daarna de stack en controleer de keten:
+Genereer daarna de stub-artefacten, start de stack en controleer de keten:
 
 ```bash
+python3 demo/genereer-magazijnen.py   # vult demo/generated/ (git-ignored, dus altijd nodig)
 docker compose --profile demo up -d   # alles in containers
-./demo/smoke.sh                       # rookproef: aanleveren + ophalen
+./demo/smoke.sh                       # rookproef: aanleveren bij beide magazijnen + ophalen
 ```
+
+Sla het generatiescript niet over: compose maakt een ontbrekend mount-pad aan als directory,
+waarna `magazijnen-stubs.properties` een map wordt en de uitvraag niet meer start.
 
 Zónder `--profile demo` start compose alleen de infrastructuur (Redis, Postgres, WireMock,
 ClickHouse). Gebruik die modus tijdens het ontwikkelen en draai de services met

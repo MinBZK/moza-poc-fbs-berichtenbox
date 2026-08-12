@@ -38,9 +38,15 @@ class VeelMagazijnenService(
         return mapOf("actief" to aantal, "totaal" to aantal)
     }
 
-    // Idempotent: een 404 betekent dat er geen overlay stond — dat is precies "actief".
+    // Idempotent: een 404 betekent dat er geen overlay stond — dat is precies "actief". Elke
+    // ándere foutstatus moet wél opvallen: de default rest-client-mapper staat uit, dus zonder
+    // deze toets meldt het paneel "actief: 12 van 12" terwijl de magazijnen op 503 blijven staan.
     private fun verwijderStoring(i: Int) {
-        wiremock.verwijderOverlay(overlayId(i)).close()
+        wiremock.verwijderOverlay(overlayId(i)).use {
+            check(it.status in 200..299 || it.status == GEEN_OVERLAY) {
+                "WireMock-fout bij storing weghalen van magazijn $i: HTTP ${it.status}"
+            }
+        }
     }
 
     private fun plaatsStoring(i: Int) {
@@ -59,6 +65,8 @@ class VeelMagazijnenService(
     companion object {
 
         const val STORING_PRIORITEIT = 1
+
+        const val GEEN_OVERLAY = 404
 
         fun overlayId(i: Int): String = "11111111-0000-0000-0000-%012d".format(i)
 
