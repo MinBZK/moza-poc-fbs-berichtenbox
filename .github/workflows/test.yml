@@ -6,6 +6,16 @@ on:
   # een pollende job houdt een runner bezet zonder werk te doen.
   workflow_call:
     inputs:
+      wijzigingen-relevant:
+        description: >-
+          Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml: 'false' wanneer de PR
+          alleen documentatie raakt. Leeg (de default) betekent "niet meegegeven", en dan
+          bepaalt deze workflow het zelf. Het overslaan gebeurt hier, in de job — niet bij de
+          caller: die overslaan zou deze workflow helemaal niet draaien, waardoor de required
+          check-run nooit verschijnt en de merge voorgoed blokkeert.
+        type: string
+        required: false
+        default: ""
       demo-only:
         description: >-
           Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml: 'true' wanneer de PR
@@ -45,7 +55,7 @@ jobs:
   # Draait alleen wanneer de caller de uitkomst niet meegaf; anders is dit dezelfde vraag
   # voor de tweede keer, en dat kostte per PR een runner-allocatie voor een bekend antwoord.
   changes:
-    if: inputs.demo-only == ''
+    if: inputs.wijzigingen-relevant == ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -100,10 +110,11 @@ jobs:
 
   test:
     needs: changes
-    # Sla alleen over bij een expliciete 'false'; een lege of ontbrekende uitkomst (caller gaf
-    # het antwoord mee, of de detectie faalde) betekent draaien. `!cancelled()` zodat een
-    # overgeslagen `changes` deze job niet meesleept — een overgeslagen check telt als succes.
-    if: "!cancelled() && needs.changes.outputs.run != 'false'"
+    # Sla alleen over bij een expliciete 'false', uit welke van de twee bronnen dan ook; een
+    # lege of ontbrekende uitkomst (detectie faalde) betekent draaien. `!cancelled()` zodat een
+    # overgeslagen `changes` deze job niet meesleept — een overgeslagen job ín deze workflow
+    # telt wél als succes voor branch protection.
+    if: "!cancelled() && inputs.wijzigingen-relevant != 'false' && needs.changes.outputs.run != 'false'"
 
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -126,7 +137,7 @@ jobs:
       # bouwen voor een wijziging die ze niet raakt.
       - name: Test
         run: |
-          if [ "${{ needs.changes.outputs.demo-only }}" = "true" ]; then
+          if [ "${{ inputs.demo-only }}" = "true" ] || [ "${{ needs.changes.outputs.demo-only }}" = "true" ]; then
             ./mvnw -B test -pl services/demo-console
           else
             ./mvnw -B test
@@ -171,7 +182,7 @@ jobs:
   # achter dat profiel en zouden anders juist niet gecontroleerd worden.
   compose:
     needs: changes
-    if: "!cancelled() && needs.changes.outputs.run != 'false'"
+    if: "!cancelled() && inputs.wijzigingen-relevant != 'false' && needs.changes.outputs.run != 'false'"
 
     runs-on: ubuntu-latest
     steps:

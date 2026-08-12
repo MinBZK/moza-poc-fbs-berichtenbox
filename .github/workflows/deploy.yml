@@ -175,16 +175,12 @@ jobs:
           if [ "$PR_AUTHOR_TYPE" = "Bot" ]; then
             # Luid loggen: een overgeslagen deploy laat de required checks 'skipped' (= succes)
             # rapporteren, dus een onterechte overslag moet in de run-samenvatting zichtbaar zijn.
+            # Alleen het uitrollen valt af; de code-checks draaien wél, want een bot-PR
+            # (bv. een dependency-bump) hoort getoetst te worden. Welke checks nodig zijn volgt
+            # uit dezelfde bestandsanalyse als bij een gewone PR — een action-pin-bump verdient
+            # geen fuzz-ronde van dertig minuten.
             echo "::notice::PR van een bot — zad-actions deployt die niet, dus bouwen we ook niet."
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-            # De code-checks draaien wél: een bot-PR (bv. een dependency-bump) hoort getoetst
-            # te worden, hij wordt alleen niet uitgerold.
-            {
-              echo "run=true"
-              echo "demo-only=false"
-              echo "fuzz=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
+            BOT_PR=true
           fi
           # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), deploy
           # dan TÓCH i.p.v. stil overslaan — anders zou een overgeslagen deploy onterecht als
@@ -218,7 +214,9 @@ jobs:
           #
           # `.github/` staat er bewust NIET bij: een wijziging aan de workflows kan de deploy
           # zelf raken, en dan is een preview juist wél zinvol.
-          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^bruno/|^demo/)'; then
+          if [ "${BOT_PR:-false}" = "true" ]; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          elif printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^bruno/|^demo/)'; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
             echo "Niets dat de uitgerolde applicatie raakt — deploy overgeslagen."
@@ -387,18 +385,22 @@ jobs:
   #
   # `github.event.action != 'closed'`: de close-trigger is er voor de cleanup-jobs, daar valt
   # niets te toetsen.
-  # `!cancelled()` plus "sla alleen over bij een expliciete false": faalt `changes`, dan is de
-  # uitkomst leeg en draait de check tóch. Zou de check hier op `== 'true'` hangen, dan werd hij
-  # bij een mislukte detectie overgeslagen — en `skipped` telt door als succes voor branch
-  # protection, dus ongetoetste code zou merge-baar worden.
+  # De caller-jobs staan bewust ALTIJD aan; het overslaan gebeurt binnen de aangeroepen
+  # workflow. Een overgeslagen caller-job draait die workflow namelijk nooit, waardoor de
+  # geneste check-run (`checks-test / test`) niet bestaat — en een required context die niet
+  # verschijnt blokkeert de merge voorgoed. Anders dan een overgeslagen job ín deze workflow,
+  # die wél als 'skipped' (= succes) doortelt.
+  #
+  # `!cancelled()` zodat een mislukte detectie de checks niet meesleept: de uitkomst is dan
+  # leeg, en de aangeroepen workflow leest "leeg" als "gewoon draaien" — fail-safe.
   checks-test:
     needs: changes
     if: >-
       !cancelled()
       && (github.event_name == 'push' || github.event.action != 'closed')
-      && needs.changes.outputs.run != 'false'
     uses: ./.github/workflows/test.yml
     with:
+      wijzigingen-relevant: ${{ needs.changes.outputs.run }}
       demo-only: ${{ needs.changes.outputs.demo-only }}
     # De aangeroepen workflow mag nooit meer rechten hebben dan de caller-job toekent;
     # pull-requests: write is voor de JaCoCo-coverage-comment.
@@ -411,7 +413,6 @@ jobs:
     if: >-
       !cancelled()
       && (github.event_name == 'push' || github.event.action != 'closed')
-      && needs.changes.outputs.run != 'false'
     uses: ./.github/workflows/detekt.yml
     with:
       wijzigingen-relevant: ${{ needs.changes.outputs.run }}
@@ -434,7 +435,6 @@ jobs:
       !cancelled()
       && github.event_name == 'pull_request'
       && github.event.action != 'closed'
-      && needs.changes.outputs.fuzz != 'false'
     uses: ./.github/workflows/cflite_pr.yml
     with:
       fuzz-relevant: ${{ needs.changes.outputs.fuzz }}

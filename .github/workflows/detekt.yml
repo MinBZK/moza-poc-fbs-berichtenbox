@@ -81,7 +81,7 @@ jobs:
   detekt:
     needs: changes
     # Sla alleen over bij een expliciete 'false'; zie de toelichting in test.yml.
-    if: "!cancelled() && needs.changes.outputs.run != 'false'"
+    if: "!cancelled() && inputs.wijzigingen-relevant != 'false' && needs.changes.outputs.run != 'false'"
 
     # Naam onderscheidt deze build-gate van de gelijknamige code-scanning-check die
     # GitHub Advanced Security post (SARIF tool.name "detekt"). Required status check.

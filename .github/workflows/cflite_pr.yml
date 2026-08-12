@@ -23,7 +23,9 @@ jobs:
   # zijn gewijzigd. De fuzz-job is hieraan gegate i.p.v. via een workflow-niveau paths-filter:
   # `PR` is een required status check, en een paths-filter zou de check bij niet-relevante PR's
   # (docs, bruno, workflows) nooit rapporteren en de merge eeuwig blokkeren. Een via `if`
-  # overgeslagen job telt daarentegen als 'skipped' = succes voor branch protection.
+  # overgeslagen job telt daarentegen als 'skipped' = succes voor branch protection. Om
+  # diezelfde reden gate't deploy.yml niet de aanroep van deze workflow maar geeft het de
+  # uitkomst als input door: een niet-aangeroepen workflow rapporteert helemaal niets.
   # Draait alleen wanneer de caller de uitkomst niet meegaf; zie de toelichting in test.yml.
   changes:
     if: inputs.fuzz-relevant == ''
