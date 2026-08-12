@@ -8,13 +8,12 @@ import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
-import java.time.Duration
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingVoltooid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockBerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
@@ -23,6 +22,7 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Duration
 
 /**
  * End-to-end gedrag van de per-magazijn circuit breaker via de aggregatie-pipeline.
@@ -79,7 +79,7 @@ class MagazijnCircuitBreakerIntegrationTest {
             "A is overgeslagen → mislukte bevraging",
         )
 
-        assertEquals(MagazijnFoutStatus.FOUT, aVoltooid.status)
+        assertEquals(MagazijnStatus.FOUT, aVoltooid.status)
         assertTrue(
             aVoltooid.foutmelding.contains("tijdelijk niet beschikbaar"),
             "A moet de circuit-open-melding dragen, was: ${aVoltooid.foutmelding}",

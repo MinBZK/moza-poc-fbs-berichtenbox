@@ -7,8 +7,6 @@ import io.mockk.verify
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.WebApplicationException
-import java.time.Instant
-import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
@@ -27,6 +25,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.time.Instant
+import java.util.UUID
 
 /**
  * Pin het facade-contract van [BlockingSessiecache]: de gereed-status-gating op

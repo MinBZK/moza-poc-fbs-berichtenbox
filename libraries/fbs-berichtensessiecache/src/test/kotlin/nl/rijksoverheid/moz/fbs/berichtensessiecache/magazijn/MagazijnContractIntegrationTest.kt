@@ -10,13 +10,13 @@ import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
-import java.time.Instant
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingVoltooid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Instant
 
 /**
  * Contract-tests die magazijn-spec-conforme JSON-bodies tegen
@@ -212,7 +213,7 @@ class MagazijnContractIntegrationTest {
         val events = ophaalEvents()
 
         assertTrue(
-            events.any { it is MagazijnBevragingMislukt && it.status == MagazijnFoutStatus.FOUT },
+            events.any { it is MagazijnBevragingVoltooid && it.status == MagazijnStatus.FOUT },
             "Verwacht een FOUT-event voor het magazijn zonder berichten-veld, maar kreeg: $events",
         )
         assertTrue(events.any { it.event == EventType.OPHALEN_GEREED })
@@ -231,7 +232,7 @@ class MagazijnContractIntegrationTest {
 
         assertTrue(events.any { it.event == EventType.OPHALEN_GEREED })
         assertFalse(
-            events.any { it is MagazijnBevragingMislukt && it.status == MagazijnFoutStatus.FOUT || it.event == EventType.OPHALEN_FOUT },
+            events.any { it is MagazijnBevragingVoltooid && it.status == MagazijnStatus.FOUT || it.event == EventType.OPHALEN_FOUT },
             "Verwacht geen FOUT-event bij minimale spec-conforme magazijn-body, maar kreeg: $events",
         )
     }

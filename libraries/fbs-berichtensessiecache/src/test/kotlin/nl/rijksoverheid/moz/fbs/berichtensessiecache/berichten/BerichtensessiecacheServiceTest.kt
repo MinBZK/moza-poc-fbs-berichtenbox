@@ -473,7 +473,7 @@ class BerichtensessiecacheServiceTest {
 
         val voltooidEvent = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnFoutStatus.FOUT, voltooidEvent.status)
+        assertEquals(MagazijnStatus.FOUT, voltooidEvent.status)
         assertTrue(
             voltooidEvent.foutmelding.contains("schema-drift"),
             "Foutmelding moet schema-drift signaleren, niet generieke netwerk-fout: ${voltooidEvent.foutmelding}",
@@ -637,7 +637,7 @@ class BerichtensessiecacheServiceTest {
 
         val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnFoutStatus.FOUT, voltooid.status)
+        assertEquals(MagazijnStatus.FOUT, voltooid.status)
         assertTrue(
             voltooid.foutmelding.contains("te veel berichten"),
             "Foutmelding moet overflow signaleren: ${voltooid.foutmelding}",
@@ -663,7 +663,7 @@ class BerichtensessiecacheServiceTest {
 
         val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnFoutStatus.FOUT, voltooid.status)
+        assertEquals(MagazijnStatus.FOUT, voltooid.status)
         assertEquals("Magazijn kon niet geraadpleegd worden", voltooid.foutmelding)
     }
 
@@ -703,7 +703,7 @@ class BerichtensessiecacheServiceTest {
 
         val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnFoutStatus.FOUT, voltooid.status)
+        assertEquals(MagazijnStatus.FOUT, voltooid.status)
         assertTrue(
             voltooid.foutmelding.contains("systeem druk"),
             "Foutmelding moet OVERBELAST signaleren: ${voltooid.foutmelding}",
@@ -888,7 +888,7 @@ class BerichtensessiecacheServiceTest {
 
         val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnFoutStatus.FOUT, voltooid.status)
+        assertEquals(MagazijnStatus.FOUT, voltooid.status)
         assertEquals("Magazijn kon niet geraadpleegd worden", voltooid.foutmelding)
     }
 

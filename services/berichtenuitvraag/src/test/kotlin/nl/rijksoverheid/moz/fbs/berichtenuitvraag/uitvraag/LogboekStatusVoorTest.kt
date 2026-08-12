@@ -1,19 +1,21 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import io.opentelemetry.api.trace.StatusCode
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGestart
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMislukt
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OpslaanMislukt
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktVoorBevraging
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
+import kotlin.reflect.KClass
 
 /**
  * Pint de LDV-status-mapping (AVG art. 30-audittrail) per event-type: een refactor
@@ -32,13 +34,13 @@ class LogboekStatusVoorTest {
             MagazijnBevragingMislukt(
                 magazijnId = "00000001001234567890",
                 naam = "Magazijn A",
-                status = MagazijnFoutStatus.FOUT,
+                fout = MagazijnFoutStatus.FOUT,
                 foutmelding = "Magazijn tijdelijk niet bereikbaar",
             ),
             MagazijnBevragingMislukt(
                 magazijnId = "00000001001234567890",
                 naam = "Magazijn A",
-                status = MagazijnFoutStatus.TIMEOUT,
+                fout = MagazijnFoutStatus.TIMEOUT,
                 foutmelding = "Magazijn reageerde niet binnen de timeout",
             ),
         )
@@ -46,8 +48,8 @@ class LogboekStatusVoorTest {
         /** Elk fout-eindbericht logt ERROR, ongeacht of het ophalen of het opslaan strandde. */
         @JvmStatic
         fun fouteindEvents(): List<MagazijnEvent> = listOf(
-            OphalenMislukt(foutmelding = "Interne fout bij opslaan resultaten (ref: abc)", referentie = "abc"),
-            OpslaanMislukt(
+            OphalenMisluktVoorBevraging(foutmelding = "Interne fout bij opslaan resultaten (ref: abc)", referentie = "abc"),
+            OphalenMisluktNaBevraging(
                 foutmelding = "Resultaten konden niet worden opgeslagen (ref: abc)",
                 geslaagd = 1,
                 mislukt = 1,
@@ -96,4 +98,20 @@ class LogboekStatusVoorTest {
     fun `tussentijdse events wijzigen de status niet`(event: MagazijnEvent) {
         assertNull(logboekStatusVoor(event))
     }
+
+    /**
+     * De `when` in [logboekStatusVoor] vangt alle bevragings-events in één tak af, dus een
+     * nieuw soort daaronder compileert zonder dat iemand een keuze maakt. Deze guard dwingt
+     * af dat elk nieuw bevragings-type hierboven expliciet als "verandert de status niet"
+     * wordt opgevoerd.
+     */
+    @Test
+    fun `elk soort bevragings-event staat in de tussentijdse lijst`() {
+        val gedekt = tussentijdseEvents().map { it.javaClass }.toSet()
+
+        assertEquals(bladtypen(MagazijnBevraging::class), gedekt, "Ongedekt bevragings-event")
+    }
 }
+
+private fun bladtypen(type: KClass<*>): Set<Class<*>> =
+    type.sealedSubclasses.flatMap { sub -> if (sub.isSealed) bladtypen(sub) else setOf(sub.java) }.toSet()

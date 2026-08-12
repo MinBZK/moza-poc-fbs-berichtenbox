@@ -95,6 +95,17 @@ for oin in "$AFZENDER_OIN_A" "$AFZENDER_OIN_B"; do
         || { echo "FOUT: geen geslaagde bevraging van magazijn $oin in de ophaal-stream"; exit 1; }
 done
 
+# De berichtenbox-console leest deze velden rechtstreeks uit de stroom; ze staan in geen
+# enkel API-contract, dus zonder deze controle valt een hernoeming pas op in de browser —
+# waar de console stilletjes stopt met bijwerken in plaats van een fout te tonen.
+for veld in '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-gestart"' \
+    '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-voltooid"' \
+    '"event"[[:space:]]*:[[:space:]]*"ophalen-gereed"' \
+    '"magazijnId"' '"aantalBerichten"' '"totaalBerichten"' '"totaalMagazijnen"'; do
+    grep -Eq "$veld" "$stream" \
+        || { echo "FOUT: de ophaal-stream mist $veld, dat de berichtenbox-console wél verwacht"; exit 1; }
+done
+
 lijst=/tmp/smoke-berichten.json
 curl -sf "$UITVRAAG/api/v1/berichten" -H "X-Ontvanger: $ONTVANGER" > "$lijst"
 

@@ -5,8 +5,8 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
@@ -18,6 +18,11 @@ import kotlin.reflect.KClass
  * `naam` liggen vast. De verwachte JSON staat hier voluit — een wijziging in de
  * event-typen moet zichtbaar zijn als een wijziging in deze strings, niet stilzwijgend
  * doorwerken naar afnemers.
+ *
+ * Deze tests pinnen het formaat *per type*. Dat de SSE-writer óók per runtime-type
+ * serialiseert (en niet op het gedeclareerde `Multi<MagazijnEvent>`-elementtype, wat elk
+ * bericht tot alleen zijn discriminator zou reduceren) is een eigenschap van het
+ * transport en wordt daarom in `OphalenSseTest` op de echte stroom vastgelegd.
  */
 @QuarkusTest
 @TestProfile(MockedDependenciesProfile::class)
@@ -27,44 +32,46 @@ class MagazijnEventTest {
     lateinit var objectMapper: ObjectMapper
 
     companion object {
+        const val OIN = "00000001001234567890"
+
         @JvmStatic
         fun wireContract(): List<Arguments> = listOf(
             Arguments.of(
-                MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = "Magazijn A"),
-                """{"event":"magazijn-bevraging-gestart","magazijnId":"00000001001234567890","naam":"Magazijn A"}""",
+                MagazijnBevragingGestart(magazijnId = OIN, naam = "Magazijn A"),
+                """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN","naam":"Magazijn A"}""",
             ),
             Arguments.of(
-                MagazijnBevragingGeslaagd(magazijnId = "00000001001234567890", naam = "Magazijn A", aantalBerichten = 3),
-                """{"event":"magazijn-bevraging-voltooid","magazijnId":"00000001001234567890","naam":"Magazijn A","status":"OK","aantalBerichten":3}""",
+                MagazijnBevragingGeslaagd(magazijnId = OIN, naam = "Magazijn A", aantalBerichten = 3),
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK","aantalBerichten":3}""",
             ),
             Arguments.of(
                 MagazijnBevragingMislukt(
-                    magazijnId = "00000001001234567890",
+                    magazijnId = OIN,
                     naam = "Magazijn A",
-                    status = MagazijnFoutStatus.FOUT,
+                    fout = MagazijnFoutStatus.FOUT,
                     foutmelding = "Magazijn tijdelijk niet bereikbaar",
                 ),
-                """{"event":"magazijn-bevraging-voltooid","magazijnId":"00000001001234567890","naam":"Magazijn A","status":"FOUT","foutmelding":"Magazijn tijdelijk niet bereikbaar"}""",
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"FOUT","foutmelding":"Magazijn tijdelijk niet bereikbaar"}""",
             ),
             Arguments.of(
                 MagazijnBevragingMislukt(
-                    magazijnId = "00000001001234567890",
+                    magazijnId = OIN,
                     naam = "Magazijn A",
-                    status = MagazijnFoutStatus.TIMEOUT,
+                    fout = MagazijnFoutStatus.TIMEOUT,
                     foutmelding = "Magazijn reageerde niet binnen de timeout",
                 ),
-                """{"event":"magazijn-bevraging-voltooid","magazijnId":"00000001001234567890","naam":"Magazijn A","status":"TIMEOUT","foutmelding":"Magazijn reageerde niet binnen de timeout"}""",
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"TIMEOUT","foutmelding":"Magazijn reageerde niet binnen de timeout"}""",
             ),
             Arguments.of(
                 OphalenGereed(totaalBerichten = 5, geslaagd = 2, mislukt = 0, totaalMagazijnen = 2),
                 """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":2,"mislukt":0,"totaalMagazijnen":2}""",
             ),
             Arguments.of(
-                OphalenMislukt(foutmelding = "Interne fout (ref: abc)", referentie = "abc"),
+                OphalenMisluktVoorBevraging(foutmelding = "Interne fout (ref: abc)", referentie = "abc"),
                 """{"event":"ophalen-fout","foutmelding":"Interne fout (ref: abc)","totaalMagazijnen":0,"referentie":"abc"}""",
             ),
             Arguments.of(
-                OpslaanMislukt(
+                OphalenMisluktNaBevraging(
                     foutmelding = "Resultaten konden niet worden opgeslagen (ref: abc)",
                     geslaagd = 1,
                     mislukt = 1,
@@ -83,11 +90,6 @@ class MagazijnEventTest {
             sealedSubclasses.flatMap { sub -> if (sub.isSealed) sub.bladtypen() else setOf(sub.java) }.toSet()
     }
 
-    /**
-     * Serialiseert via een `MagazijnEvent`-referentie, niet via het concrete type: zo valt
-     * een serializer die op het statische (interface-)type zou schrijven — en dan alleen
-     * `event` zou uitschrijven — direct door de mand.
-     */
     @ParameterizedTest
     @MethodSource("wireContract")
     fun `event serialiseert naar het afgesproken wire-formaat`(event: MagazijnEvent, verwacht: String) {
@@ -96,17 +98,45 @@ class MagazijnEventTest {
 
     @Test
     fun `ontbrekende naam wordt weggelaten in plaats van als null geschreven`() {
-        val gestart: MagazijnEvent = MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = null)
-        val geslaagd: MagazijnEvent = MagazijnBevragingGeslaagd(magazijnId = "00000001001234567890", naam = null, aantalBerichten = 0)
+        assertEquals(
+            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN"}""",
+            objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = null)),
+        )
+        assertEquals(
+            """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","status":"OK","aantalBerichten":0}""",
+            objectMapper.writeValueAsString(MagazijnBevragingGeslaagd(magazijnId = OIN, naam = null, aantalBerichten = 0)),
+        )
+    }
+
+    /**
+     * Een lege naam is niet hetzelfde als een ontbrekende naam: hij wordt wél uitgeschreven,
+     * waarna het portaal via zijn eigen `naam || magazijnId`-terugval de OIN toont.
+     */
+    @Test
+    fun `lege naam wordt uitgeschreven, niet weggelaten`() {
+        assertEquals(
+            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN","naam":""}""",
+            objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = "")),
+        )
+    }
+
+    /**
+     * De magazijnnaam komt uit beheerconfiguratie en gaat ongefilterd de stroom op. Een
+     * regeleinde of quote daarin moet als escape-sequentie op de lijn belanden: een rauwe
+     * newline zou het SSE-frame in tweeën knippen, waarna de client een afgekapt JSON-fragment
+     * te verwerken krijgt.
+     */
+    @Test
+    fun `regeleinde en quote in de naam worden ge-escaped`() {
+        val json = objectMapper.writeValueAsString(
+            MagazijnBevragingGestart(magazijnId = OIN, naam = "Bureau \"A\"\nregel2"),
+        )
 
         assertEquals(
-            """{"event":"magazijn-bevraging-gestart","magazijnId":"00000001001234567890"}""",
-            objectMapper.writeValueAsString(gestart),
+            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN","naam":"Bureau \"A\"\nregel2"}""",
+            json,
         )
-        assertEquals(
-            """{"event":"magazijn-bevraging-voltooid","magazijnId":"00000001001234567890","status":"OK","aantalBerichten":0}""",
-            objectMapper.writeValueAsString(geslaagd),
-        )
+        assertEquals(1, json.lines().size, "een voortgangsbericht moet één regel blijven: $json")
     }
 
     @Test
@@ -123,10 +153,42 @@ class MagazijnEventTest {
         assertEquals(EventType.entries.toSet(), geproduceerd)
     }
 
+    /**
+     * De foutstatussen zijn een deelverzameling van de wire-woordenlijst, met `OK` als enige
+     * waarde die er niet in zit. Loopt dat uit elkaar, dan zet een mislukte bevraging een
+     * statuswoord op de lijn dat het portaal niet kent.
+     */
     @Test
-    fun `een mislukte bevraging draagt nooit de geslaagd-status`() {
-        val foutwaarden = MagazijnFoutStatus.entries.map { it.value }.toSet()
+    fun `de foutstatussen dekken de wire-woordenlijst op OK na`() {
+        assertEquals(
+            MagazijnStatus.entries.toSet() - MagazijnStatus.OK,
+            MagazijnFoutStatus.entries.map { it.wire }.toSet(),
+        )
+    }
 
-        assertTrue(STATUS_GESLAAGD !in foutwaarden, "STATUS_GESLAAGD hoort niet in MagazijnFoutStatus te zitten")
+    @Test
+    fun `negatieve tellers worden geweigerd`() {
+        assertThrows<IllegalArgumentException> {
+            OphalenGereed(totaalBerichten = -1, geslaagd = 0, mislukt = 0, totaalMagazijnen = 0)
+        }
+        assertThrows<IllegalArgumentException> {
+            OphalenGereed(totaalBerichten = 0, geslaagd = -1, mislukt = 0, totaalMagazijnen = 0)
+        }
+        assertThrows<IllegalArgumentException> {
+            MagazijnBevragingGeslaagd(magazijnId = OIN, naam = null, aantalBerichten = -1)
+        }
+        assertThrows<IllegalArgumentException> {
+            OphalenMisluktNaBevraging(foutmelding = "x", geslaagd = -1, mislukt = 0, totaalMagazijnen = 0, referentie = "r")
+        }
+    }
+
+    @Test
+    fun `meer uitkomsten dan bevraagde magazijnen wordt geweigerd`() {
+        assertThrows<IllegalArgumentException> {
+            OphalenGereed(totaalBerichten = 0, geslaagd = 2, mislukt = 1, totaalMagazijnen = 2)
+        }
+        assertThrows<IllegalArgumentException> {
+            OphalenMisluktNaBevraging(foutmelding = "x", geslaagd = 1, mislukt = 1, totaalMagazijnen = 1, referentie = "r")
+        }
     }
 }

@@ -332,7 +332,7 @@ internal class BerichtensessiecacheService(
 
             ResolveUitkomst.FoutStream(
                 Multi.createFrom().item(
-                    OphalenMislukt(
+                    OphalenMisluktVoorBevraging(
                         foutmelding = "Geen ophaling mogelijk: configuratie-mismatch — contact beheerder (ref: $ref)",
                         referentie = ref,
                     ),
@@ -457,7 +457,7 @@ internal class BerichtensessiecacheService(
             // Referentie zowel in foutmelding-tekst ("(ref: ...)") als in het
             // gestructureerde `referentie`-veld, voor UIs die het veld nog niet renderen.
             return Multi.createFrom().item(
-                OphalenMislukt(
+                OphalenMisluktVoorBevraging(
                     foutmelding = "Interne fout bij opslaan resultaten (ref: $ref)",
                     referentie = ref,
                 ),
@@ -623,7 +623,7 @@ internal class BerichtensessiecacheService(
             MagazijnBevragingMislukt(
                 magazijnId = result.magazijnId,
                 naam = result.naam,
-                status = if (result.fault == MagazijnFault.TIMEOUT) MagazijnFoutStatus.TIMEOUT else MagazijnFoutStatus.FOUT,
+                fout = magazijnFoutStatusVoor(result.fault),
                 foutmelding = foutmeldingVoor(result.fault),
             )
         }
@@ -640,6 +640,20 @@ internal class BerichtensessiecacheService(
             CircuitActie.MELD_FOUT -> circuitBreaker.meldFout(magazijnId)
             CircuitActie.MELD_ONBESLIST -> circuitBreaker.meldOnbeslist(magazijnId)
         }
+    }
+
+    /**
+     * Vertaalt een fault naar de status die de gebruiker op de lijn ziet. Alleen een echte
+     * timeout verdient het eigen woord: de gebruiker kan dan zinnig opnieuw proberen, terwijl
+     * de overige faults ononderscheidbaar "mislukt" zijn (BIO 14.1.3 — geen technisch
+     * onderscheid richting eindgebruiker).
+     */
+    internal fun magazijnFoutStatusVoor(fault: MagazijnFault): MagazijnFoutStatus = when (fault) {
+        MagazijnFault.TIMEOUT -> MagazijnFoutStatus.TIMEOUT
+        MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW, MagazijnFault.HTTP_5XX,
+        MagazijnFault.HTTP_4XX, MagazijnFault.NETWORK, MagazijnFault.INTERNAL_BUG,
+        MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST,
+        -> MagazijnFoutStatus.FOUT
     }
 
     private fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
@@ -748,7 +762,7 @@ internal class BerichtensessiecacheService(
             // faalde, dus de client moet opnieuw ophalen i.p.v. te denken dat de
             // resultaten beschikbaar zijn via GET /berichten.
             .replaceWith(
-                OpslaanMislukt(
+                OphalenMisluktNaBevraging(
                     foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
                     geslaagd = geslaagd.get(),
                     mislukt = mislukt.get(),
