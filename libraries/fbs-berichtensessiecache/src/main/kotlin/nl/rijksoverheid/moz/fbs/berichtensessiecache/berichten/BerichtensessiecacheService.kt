@@ -558,9 +558,15 @@ internal class BerichtensessiecacheService(
                 "Magazijn %s (%s) overschreed berichten-cap: %d > %d",
                 magazijnId, naam, response.berichten.size, maxBerichtenPerMagazijn,
             )
-            val foutMessage = "Magazijn leverde meer berichten dan toegestaan (${response.berichten.size} > $maxBerichtenPerMagazijn)"
-
-            return MagazijnResult.Failure(magazijnId, naam, MagazijnResponseOverflow(foutMessage), MagazijnFault.OVERFLOW)
+            // Geen aantallen in de exception-tekst: die belandt niet in de respons, maar de
+            // grens en de werkelijke omvang zijn interne gegevens die niet naar buiten horen
+            // te lekken langs welk pad dan ook. De counts staan hierboven al in de log.
+            return MagazijnResult.Failure(
+                magazijnId,
+                naam,
+                MagazijnResponseOverflow("Magazijn leverde meer berichten dan toegestaan"),
+                MagazijnFault.OVERFLOW,
+            )
         }
 
         // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein
@@ -727,12 +733,24 @@ internal class BerichtensessiecacheService(
     ): Uni<MagazijnEvent> {
         val errorId = UUID.randomUUID()
         val ref = errorId.toString()
+        val afgebroken = isAfbreking(error)
 
-        log.errorf(
-            error,
-            "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
-            errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
-        )
+        // Een afbreking is geen storing: de gebruiker sloot de pagina, of de pod gaat uit.
+        // Op errorf-niveau loggen zou beheer wakker maken voor normaal gedrag en echte
+        // fouten laten ondersneeuwen.
+        if (afgebroken) {
+            log.infof(
+                "(errorId=%s) Opslaan na aggregatie afgebroken (key=%s, berichten=%d); geen storing",
+                errorId, cacheKey, alleBerichten.size,
+            )
+        } else {
+            log.errorf(
+                error,
+                "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
+                errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+            )
+        }
+
         val foutStatus = AggregationStatus(
             status = OphalenStatus.FOUT,
             totaalMagazijnen = totaalMagazijnen,
@@ -744,12 +762,21 @@ internal class BerichtensessiecacheService(
             // FATAL + ALERT-marker: dubbele Redis-fout = cache effectief onbruikbaar
             // voor deze sessie. Lock blijft tot Redis-TTL hangen. Het prefix wordt
             // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
+            // Een afbreking krijgt die marker niet: beheer oppiepen voor een gesloten
+            // pagina of een herstart laat echte storingen ondersneeuwen.
             .onFailure().invoke { e ->
-                log.fatalf(
-                    e,
-                    "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
-                    errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
-                )
+                if (afgebroken || isAfbreking(e)) {
+                    log.infof(
+                        "(errorId=%s) Ook de fout-status kon niet worden weggeschreven na een afbreking (key=%s); lock leunt op TTL",
+                        errorId, cacheKey,
+                    )
+                } else {
+                    log.fatalf(
+                        e,
+                        "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
+                        errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                    )
+                }
             }
             .onFailure().recoverWithNull()
             // Meld expliciet dat de eerder per-magazijn getoonde resultaten niet
@@ -862,6 +889,20 @@ internal class BerichtensessiecacheService(
         }
     }
 
+    /**
+     * Onderscheidt "het ophalen is afgebroken" van "er ging iets stuk". Een gebruiker die de
+     * pagina sluit en een pod die herstart leveren beide een annulering of een interrupt op;
+     * dat is normaal gedrag en hoort geen storingsmelding op te leveren. [classifyMagazijnFault]
+     * maakt hetzelfde onderscheid voor de per-magazijn-calls.
+     */
+    internal fun isAfbreking(error: Throwable): Boolean {
+        val chain = error.causeChain()
+
+        return chain.hasCauseOf(java.util.concurrent.CancellationException::class.java) ||
+            chain.hasCauseOf(InterruptedException::class.java) ||
+            Thread.currentThread().isInterrupted
+    }
+
     // Internal voor directe unit-test van de classificatie-tabel (zie service-test).
     internal fun classifyMagazijnFault(error: Throwable): MagazijnFault {
         // Cause-walking eenmalig via causeChain(); meerdere instanceof-checks tegen
@@ -880,6 +921,12 @@ internal class BerichtensessiecacheService(
                 when {
                     status in 500..599 -> MagazijnFault.HTTP_5XX
                     status >= 400 -> MagazijnFault.HTTP_4XX
+                    // Een 3xx die als fout terugkomt betekent dat de client de redirect niet
+                    // volgde: het magazijn staat op een ander adres dan wij kennen. Dat is een
+                    // configuratie-kwestie aan de andere kant, geen bug in onze code — vandaar
+                    // dezelfde behandeling als een 4xx (errorf + "contact beheerder"), niet de
+                    // INTERNAL_BUG-tak die als eigen storing zou alerten.
+                    status in 300..399 -> MagazijnFault.HTTP_4XX
                     // WAE zonder status = raw WAE("oeps") zonder Response → eigen-bug.
                     else -> MagazijnFault.INTERNAL_BUG
                 }

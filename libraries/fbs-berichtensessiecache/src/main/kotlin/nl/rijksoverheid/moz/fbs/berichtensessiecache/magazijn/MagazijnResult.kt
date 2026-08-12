@@ -16,17 +16,25 @@ internal sealed class MagazijnResult {
         }
     }
 
-    data class Failure(
+    /**
+     * Bewust géén `data class`: de classificatie wordt eenmaal in de service-laag bepaald en
+     * ligt daarna vast, zodat downstream-mapping niet opnieuw classificeert en de fout onderweg
+     * niet van betekenis verandert. Een gegenereerde `copy` zou precies dat toestaan —
+     * `copy(fault = …)` maakt van een timeout stilzwijgend een eigen bug, met bijbehorende
+     * alert-ruis. Gelijkheid is hier niet nodig: instanties worden per bevraging gemaakt en
+     * direct in een `when` verwerkt.
+     */
+    class Failure(
         override val magazijnId: String,
         override val naam: String?,
         val error: Throwable,
-        // Classificatie eenmaal bepaald in service-laag en hier vastgezet zodat
-        // downstream-mapping niet opnieuw classificeert (voorkomt drift).
         val fault: MagazijnFault,
     ) : MagazijnResult() {
         init {
             require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
         }
+
+        override fun toString() = "Failure(magazijnId=$magazijnId, naam=$naam, fault=$fault, error=${error.javaClass.simpleName})"
     }
 }
 

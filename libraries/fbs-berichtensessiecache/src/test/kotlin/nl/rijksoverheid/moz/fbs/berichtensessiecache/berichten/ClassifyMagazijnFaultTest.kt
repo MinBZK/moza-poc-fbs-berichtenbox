@@ -15,12 +15,16 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
- * Direct-tests op `classifyMagazijnFault` — buiten de end-to-end SSE-pipeline om.
- * Pinned alle enum-takken inclusief edge-cases (WAE met null Response, status=0,
- * status=399) en cause-walking via geneste exceptions.
+ * Direct-tests op `classifyMagazijnFault` en `isAfbreking` — buiten de end-to-end
+ * SSE-pipeline om. Pinnen alle enum-takken inclusief edge-cases (WAE met null Response,
+ * status onder 300, 3xx) en cause-walking via geneste exceptions.
  */
 @QuarkusTest
 @TestProfile(MockedDependenciesProfile::class)
@@ -114,12 +118,27 @@ class ClassifyMagazijnFaultTest {
         assertEquals(MagazijnFault.INTERNAL_BUG, service.classifyMagazijnFault(wae))
     }
 
+    /**
+     * Een 3xx die als fout terugkomt betekent dat de client de doorverwijzing niet volgde: het
+     * magazijn staat op een ander adres dan geconfigureerd. Dat is een configuratiekwestie aan
+     * de andere kant, geen bug bij ons, dus dezelfde behandeling als een 4xx — niet de
+     * INTERNAL_BUG-tak, die als eigen storing zou alerten.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [300, 301, 302, 307, 308, 399])
+    fun `WebApplicationException met 3xx = HTTP_4XX (upstream-configuratie, geen eigen bug)`(status: Int) {
+        assertEquals(
+            MagazijnFault.HTTP_4XX,
+            service.classifyMagazijnFault(WebApplicationException(Response.status(status).build())),
+        )
+    }
+
     @Test
-    fun `WebApplicationException status 399 (geen 4xx, geen 5xx) = INTERNAL_BUG`() {
-        // Edge: 399 valt buiten beide HTTP-bereiken → eigen-bug.
+    fun `WebApplicationException met status onder 300 = INTERNAL_BUG`() {
+        // Een 2xx die als fout terugkomt kan geen upstream-signaal zijn; dan zit de fout bij ons.
         assertEquals(
             MagazijnFault.INTERNAL_BUG,
-            service.classifyMagazijnFault(WebApplicationException(Response.status(399).build())),
+            service.classifyMagazijnFault(WebApplicationException(Response.status(299).build())),
         )
     }
 
@@ -138,5 +157,30 @@ class ClassifyMagazijnFaultTest {
         val wae = WebApplicationException(Response.status(500).build())
         val diep = RuntimeException("outer", wae)
         assertEquals(MagazijnFault.HTTP_5XX, service.classifyMagazijnFault(diep))
+    }
+
+    // --- isAfbreking: normaal gedrag mag geen storingsmelding opleveren ---
+
+    @Test
+    fun `CancellationException is een afbreking`() {
+        assertTrue(service.isAfbreking(java.util.concurrent.CancellationException("client weg")))
+    }
+
+    @Test
+    fun `InterruptedException is een afbreking`() {
+        assertTrue(service.isAfbreking(InterruptedException("pod gaat uit")))
+    }
+
+    @Test
+    fun `een diep gewrapte annulering is een afbreking`() {
+        val diep = RuntimeException("outer", RuntimeException("middle", java.util.concurrent.CancellationException("weg")))
+
+        assertTrue(service.isAfbreking(diep))
+    }
+
+    @Test
+    fun `een gewone fout is geen afbreking`() {
+        assertFalse(service.isAfbreking(IllegalStateException("redis stuk")))
+        assertFalse(service.isAfbreking(java.net.ConnectException("refused")))
     }
 }
