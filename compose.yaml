@@ -10,8 +10,9 @@ services:
       retries: 5
 
   # Overblijfsel: geen enkel profiel bevraagt deze twee. Dev en demo gebruiken de echte
-  # magazijnen (8090/8091) en de testsuite start zijn eigen WireMocks op dynamische poorten;
-  # alleen de %test-regels in de uitvraag wijzen hier nog naar, en die worden overschreven.
+  # magazijnen (8090/8091), en alleen de %test-regels in de uitvraag noemen deze poorten nog.
+  # Die OIN's worden in tests nooit opgezocht: de fixture registreert eigen OIN's op
+  # dynamische WireMock-poorten en de aggregatie volgt wat de profiel-resolver teruggeeft.
   magazijn-a:
     image: wiremock/wiremock:3.13.2
     ports:

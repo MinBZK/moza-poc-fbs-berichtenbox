@@ -44,6 +44,9 @@ class ApplicationPropertiesTest {
         "%dev.quarkus.rest-client.profiel-service.url, PROFIEL_SERVICE_URL",
         "%dev.magazijnen.\"00000000000000100000\".url, MAGAZIJN_A_URL",
         "%dev.magazijnen.\"00000001823288444000\".url, MAGAZIJN_B_URL",
+        "%dev.logboekdataverwerking.postgresql.url, LDV_POSTGRES_URL",
+        "%dev.logboekdataverwerking.postgresql.username, LDV_POSTGRES_USERNAME",
+        "%dev.logboekdataverwerking.postgresql.password, LDV_POSTGRES_PASSWORD",
     )
     fun `dev-regels van de demo houden hun env-var-expansie`(sleutel: String, envVar: String) {
         val properties = Properties().apply {
