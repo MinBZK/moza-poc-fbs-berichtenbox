@@ -201,3 +201,18 @@ Deze punten gelden voor beide peers 1:1 (zelfde v2-API, zelfde OpenFSC-images):
   eerste run op ZAD (`outway serve --help` / OpenFSC `helm/charts`-outway-values); cert-paden en
   hostnamen liggen vast. Voor de inway is dit al bevestigd: `fsc-inway serve` v2.5.2 boot gezond
   met `MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS` (`:9444`).
+
+## Addendum 2026-08-12 — profiel-service-publicatie + zelfreferentieel afnemer-contract
+
+`logius` biedt sindsdien lokaal de dienst `profiel-service` aan (`deploy/local/publish-service.sh`,
+naar het bewezen patroon van `magazijn-a`) en heeft een geldig, wederzijds ondertekend
+`ServiceConnectionGrant`-contract (`deploy/local/consume-service.sh`, geadapteerd van
+`moza-fsc-testnet/contracts/bootstrap.sh`). Het contract is bewust **zelfreferentieel**
+(consumer-OIN = provider-OIN = `00000000000000001000`): `berichtenuitvraag`'s eigen outway IS
+de logius-outway (co-locatie, zie hierboven), dus de "afnemer" van `profiel-service` is
+architectuurgewijs dezelfde peer als de "aanbieder".
+
+Zie `docs/plans/2026-08-12-logius-profiel-service-fsc-publicatie.md` voor de volledige
+uitvoering en `deploy/zad/verify-zad.md` voor de resterende ZAD-vervolgstappen (CreateService
+tegen de échte upstream, het contract herhalen tegen de ZAD-manager, en het zetten van
+`PROFIEL_SERVICE_URL`/`PROFIEL_SERVICE_GRANT_HASH` op de gedeployde `berichtenuitvraag`-app).
