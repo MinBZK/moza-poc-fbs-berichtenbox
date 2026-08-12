@@ -70,6 +70,14 @@ class BerichtOpslagServiceLoggingTest {
         julLogger.removeHandler(handler)
     }
 
+    private fun gevalideerdBericht(): Bericht = service.valideerAanlevering(
+        afzender = "00000001003214345000",
+        ontvangerType = IdentificatienummerType.BSN,
+        ontvangerWaarde = bsn,
+        onderwerp = "Test",
+        inhoud = "Test",
+    )
+
     /** JBoss Logger schrijft het al-geformatteerde bericht naar `LogRecord.message`. */
     private fun formatted(record: LogRecord): String =
         record.parameters?.takeIf { it.isNotEmpty() }
@@ -78,13 +86,7 @@ class BerichtOpslagServiceLoggingTest {
 
     @Test
     fun `debug-log na succes bevat ontvangerType maar geen BSN-waarde`() {
-        service.slaBerichtOp(
-            afzender = "00000001003214345000",
-            ontvangerType = IdentificatienummerType.BSN,
-            ontvangerWaarde = bsn,
-            onderwerp = "Test",
-            inhoud = "Test",
-        )
+        service.slaBerichtOp(gevalideerdBericht())
 
         val output = records.joinToString("\n") { formatted(it) }
         assertFalse(
@@ -102,13 +104,7 @@ class BerichtOpslagServiceLoggingTest {
         every { repository.save(any<Bericht>()) } throws PersistenceException("infra fout")
 
         assertThrows(PersistenceException::class.java) {
-            service.slaBerichtOp(
-                afzender = "00000001003214345000",
-                ontvangerType = IdentificatienummerType.BSN,
-                ontvangerWaarde = bsn,
-                onderwerp = "Test",
-                inhoud = "Test",
-            )
+            service.slaBerichtOp(gevalideerdBericht())
         }
 
         val errorRecords = records.filter { it.level.intValue() >= Level.SEVERE.intValue() }

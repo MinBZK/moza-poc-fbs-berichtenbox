@@ -21,12 +21,20 @@ import org.junit.jupiter.api.Test
 import java.sql.SQLException
 
 /**
- * Verifieert dat exceptions in `skipOn` (client-fouten) het circuit NIET openen.
- * `requestVolumeThreshold=20, failureRatio=0.5` zou na 10 failures in 20 requests
- * openen als de exception WEL als failure telde; met skipOn moet het gesloten blijven.
+ * Verifieert dat exceptions in `skipOn` géén circuit in het aanleverpad openen, en dat de
+ * aanleveraar in plaats daarvan de mapper-status ziet (400/409/403).
+ * `requestVolumeThreshold=20, failureRatio=0.5` zou na 10 failures in 20 requests openen
+ * als de exception WEL als failure telde; met skipOn moet het gesloten blijven.
  *
- * Mockt de repository zodat de echte `@CircuitBreaker`-interceptor actief blijft
- * tijdens de test — dat is precies het gedrag dat we willen verifiëren.
+ * De eerste twee tests mocken de repository, zodat de fout uit de persistentielaag komt
+ * en de `@CircuitBreaker`-interceptor op `slaBerichtOp` er echt langs moet. De derde test
+ * gaat over `ToestemmingGeweigerdException`, die sinds de splitsing van
+ * [BerichtOpslagService] in `valideerAanlevering` ontstaat — dat heeft zijn eigen circuit
+ * met zijn eigen `skipOn`, dus die test bewaakt de skipOn-werking dáár, over de volle
+ * keten tot en met de 403 die de aanleveraar ziet.
+ *
+ * [ValidatieCircuitBreakerTest] dekt hetzelfde circuit op bean-niveau en voegt de
+ * tegenhanger toe: een Profiel-storing moet het circuit wél openen.
  */
 @QuarkusTest
 class CircuitBreakerSkipOnTest {
@@ -93,9 +101,11 @@ class CircuitBreakerSkipOnTest {
 
     @Test
     fun `ToestemmingGeweigerdException opent circuit niet`() {
-        // ToestemmingGeweigerdException wordt vóór de repository gegooid door
-        // BerichtValidatieService — niet via de repo-mock maar via de Profiel-
-        // Service-mock: een lege PartijResponse (geen voorkeur) leidt tot weigering.
+        // ToestemmingGeweigerdException komt uit BerichtValidatieService, die in
+        // valideerAanlevering draait — de methode met het Profiel-circuit. Staat de
+        // exception niet in díé skipOn, dan slaan deze 30 requests na de twintigste om in
+        // 503. Niet via de repo-mock dus, maar via de Profiel-Service-mock: een lege
+        // PartijResponse (geen voorkeur) leidt tot weigering.
         (profielClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
             PartijResponse(voorkeuren = emptyList())
         }

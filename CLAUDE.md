@@ -22,7 +22,7 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
 - **Caching:** sessiecache-specifiek (library `fbs-berichtensessiecache`, in-process in `berichtenuitvraag`): Redis (sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via de interne `BerichtenCache`-laag — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes. Consumers gebruiken uitsluitend de publieke `Sessiecache`-facade. Berichtenmagazijn heeft geen cache.
-- **Persistentie:** berichtenmagazijn-specifiek: PostgreSQL 18 + Hibernate ORM Panache. Tests via Quarkus Dev Services (Testcontainers); dev via `compose.yaml`. Geen H2.
+- **Persistentie:** berichtenmagazijn-specifiek: PostgreSQL 18 + Hibernate ORM Panache. Tests via Quarkus Dev Services (Testcontainers); dev via `compose.yaml`. Geen H2. Het Logboek Dataverwerkingen (LDV) schrijft daarnaast naar zijn eigen PostgreSQL — elke service naar de database van zijn eigen deployment (`LDV_DBMS=postgresql`, default; `clickhouse` blijft een werkend alternatief).
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
 
@@ -136,7 +136,7 @@ class Voorbeeld {
 > "Failed to start quarkus"-fouten in ongewijzigde code. `mvn clean ...` voorkomt dit.
 
 ```bash
-docker compose up -d                                             # Start Redis, WireMock, ClickHouse
+docker compose up -d                                             # Start Redis, WireMock, PostgreSQL
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
 ./mvnw compile -pl services/berichtenuitvraag -am                # Compileren berichtenuitvraag
@@ -182,7 +182,7 @@ Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-fr
 
 | Repo / pad | Wat |
 |------------|-----|
-| `rig-cluster-projects` → `projects/<project-id>.yaml` | OM-projectspec: componenten, resources (auto-tune-history), aliassen (cross-project-URL's op `$DEPLOYMENT_NAME`), SOPS-versleutelde env. `redis`/`clickhouse` pinnen hier hun `image:`; app-componenten krijgen hun tag uit de deploy. |
+| `rig-cluster-projects` → `projects/<project-id>.yaml` | OM-projectspec: componenten, resources (auto-tune-history), aliassen (cross-project-URL's op `$DEPLOYMENT_NAME`), SOPS-versleutelde env. `redis` pint hier zijn `image:`; app-componenten krijgen hun tag uit de deploy. |
 | `argo-applications` → `odcn-production/<project-id>/` | Eén `*-<deployment>-argocd-application.yaml` per deployment. Toont `spec.source.repoURL`/`path`/`targetRevision` + `syncPolicy` (bevestigt `selfHeal`/`prune`). |
 | `rig-cluster-application-test` → `odcn-production/<project-id>/<deployment>/` | **Gerenderde k8s-manifests die Argo daadwerkelijk synct.** Hier staat de échte image-tag én `replicas` per component (bv. `test/uitvraag-deployment.yaml`). Dit is de grond-waarheid bij elk pull-/schaal-probleem. |
 
@@ -201,9 +201,14 @@ géén uitgeschakeld component**).
   (bv. een oude `:main`-tag) terwijl de gesyncte manifest allang een geldige tag heeft.
   **Verifieer altijd eerst de tag/`replicas` in het gerenderde `*-deployment.yaml`** vóór
   je de UI-fouttekst gelooft.
-- De workflow pusht tags `main-<sha7>` (push→main) en `pr-<n>` (PR) — **nooit** een kale
-  `:main`. Zie de `meta`-job in `deploy.yml`. Een deployment die `:main` verwacht, is
-  handmatig/verouderd geconfigureerd.
+- De workflow pusht tags `main-<sha7>` (push→main) en `pr-<n>-<sha7>` (PR) — **nooit** een
+  kale `:main` of `:pr-<n>`. Zie de `meta`-job in `deploy.yml`. Een deployment die `:main`
+  verwacht, is handmatig/verouderd geconfigureerd.
+- **Image-tags moeten uniek zijn per commit.** Argo synct op verschil in het gerenderde
+  manifest; een herbruikte tag laat dat manifest ongewijzigd, dus rolt er niets uit en
+  blijft de preview op de eerste build hangen terwijl de deploy-check groen is
+  (`imagePullPolicy: Always` werkt pas bij een herstart). Bij PR-sluiten ruimt
+  `cleanup-preview-images` alle `pr-<n>-*`-versies in ghcr op.
 - De ghcr-images (`ghcr.io/minbzk/fbs-*`) zijn **public**; ZAD trekt ze via de
   pull-through-mirror `rcr.rijksapps.nl/ghcr-rig/minbzk/*`. Een 404 op een bestaande,
   publieke tag wijst op de mirror/registry-config aan ZAD-zijde, niet op onze push.
@@ -218,9 +223,12 @@ géén uitgeschakeld component**).
   de project-spec, niet in de deployment). Dit is precies wat onze zad-actions **cleanup**
   (delete) + **deploy** (upsert) doen; de workflow verwijdert `test` nooit, dus doe het
   met de hand tegen de baseline. **DESTRUCTIEF:** `DELETE` draait Argo `prune`+`Delete`
-  en, voor projecten met de `postgresql-database`-service (bv. magazijnen `mpfm-w3h`),
-  `database_cleanup` → DB-data weg. Projecten zónder DB (uitvraag `mpfb-8wh`: enkel
-  redis/clickhouse, ephemeral) verliezen niets. Geverifieerd 2026-07-02.
+  en, voor projecten met de `postgresql-database`-service, `database_cleanup` →
+  DB-data weg — geverifieerd 2026-07-02 voor magazijnen `mpfm-w3h`. Hetzelfde geldt
+  voor uitvraag `mpfb-8wh` zodra de LDV-PostgreSQL-migratie die service daar aan het
+  `uitvraag`-component koppelt (handmatige OM-stap — voor uitvraag niet apart
+  geverifieerd). Projecten zónder DB (externe-stubs `mpfpsm-lcl`: enkel wiremock-stubs,
+  ephemeral) verliezen niets.
 
 ## Belangrijke bestanden
 
@@ -235,7 +243,7 @@ géén uitgeschakeld component**).
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
-| `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, ClickHouse)               |
+| `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
 | `.github/workflows/`                   | CI: CodeQL security scanning, Scorecard, Architecture validatie |
 | `.github/CODEOWNERS`                   | Code ownership (`@MinBZK/mijnoverheid-zakelijk`)                |
 
@@ -243,8 +251,9 @@ géén uitgeschakeld component**).
 
 | Variabele               | Default | Beschrijving                                                                                                     |
 |-------------------------|---------|--------------------------------------------------------------------------------------------------------------------|
-| `CLICKHOUSE_USERNAME`   | `ldv`   | ClickHouse gebruikersnaam (Logboek Dataverwerkingen)                                                              |
-| `CLICKHOUSE_PASSWORD`   | `ldv`   | ClickHouse wachtwoord                                                                                             |
+| `LDV_DBMS`             | `postgresql` | Backend voor het Logboek Dataverwerkingen (`postgresql` of `clickhouse`) |
+| `LDV_POSTGRES_URL`     | per profiel | JDBC-URL van het logboek; buiten dev/test TLS-verplicht |
+| `LDV_POSTGRES_USERNAME`, `LDV_POSTGRES_PASSWORD` | per profiel | LDV-credentials |
 | `MAGAZIJN_A_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor magazijn-a; leeg = geen `Fsc-Grant-Hash`-header, magazijn wordt dan direct/zonder outway aangeroepen |
 | `PROFIEL_SERVICE_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor de Profiel-service; leeg = geen `Fsc-Grant-Hash`-header, de Profiel-service wordt dan direct/zonder outway aangeroepen |
 
