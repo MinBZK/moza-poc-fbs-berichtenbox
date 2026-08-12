@@ -14,7 +14,9 @@
 #   4. poll tot het contract (op content_hash) zichtbaar is, dan PUT /v1/contracts/{hash}/accept
 #      (2xx = provider-handtekening) — expliciet, want AUTO_SIGN_GRANTS dekt alleen
 #      (delegated)servicePublication, niet serviceConnection;
-#   5. verifieer onafhankelijk (re-GET) dat het contract de provider-accept draagt.
+#   5. verifieer onafhankelijk (re-GET) dat het contract de provider-accept draagt, én dat de
+#      manager het contract als CONTRACT_STATE_VALID beschouwt (de daadwerkelijke gate voor
+#      grant-gebruik door de outway, apart van accept-signature-aanwezigheid).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -63,6 +65,17 @@ accept_state() {  # $1=json $2=content_hash $3=oin
       elif ([ $c[] | .signatures?.accept? | objects ] | length) == 0 then "unknown"
       elif ($c | any((.signatures?.accept? // {}) | has($oin))) then "yes"
       else "no" end' 2>/dev/null || echo unknown
+}
+
+# Aanvullend op accept_state(): de daadwerkelijke bruikbaarheid van de grant hangt af van de
+# manager-state (CONTRACT_STATE_VALID), niet alleen van accept-signature-aanwezigheid — die twee
+# vielen tot dusver steeds samen, maar zijn niet gegarandeerd identiek. Zelfde jq-aanpak als
+# contract_state() in moza-fsc-testnet/contracts/bootstrap.sh.
+contract_state() {  # $1=json $2=content_hash
+  [ "$HAVE_JQ" -eq 1 ] || { echo unknown; return; }
+  printf '%s' "$1" | jq -r --arg h "$2" '
+    [.. | objects | select((.hash? // .content_hash? // .content?.content_hash?) == $h) | .state?]
+    | map(select(. != null)) | (first // "unknown") | ascii_downcase' 2>/dev/null || echo unknown
 }
 
 # --- 0. Outway-public-key-thumbprint (host-side openssl) --------------------------------------
@@ -153,6 +166,18 @@ case "$(accept_state "$FINAL" "$HASH" "$PROVIDER_OIN")" in
       && echo "OK (fallback, geen jq/afwijkende vorm): contract $HASH aanwezig na een 2xx-accept." \
       || { echo "FAIL: contract $HASH niet teruggevonden na accept." >&2; exit 1; } ;;
   no) echo "FAIL: contract $HASH draagt geen accept-handtekening (accept-PUT gaf 2xx, staat zegt nee — inspecteer handmatig)." >&2; exit 1 ;;
+esac
+
+# Aanvullende gate naast de accept-signature-check hierboven: bevestigt dat de manager het
+# contract ook daadwerkelijk als CONTRACT_STATE_VALID beschouwt (de echte poort voor
+# grant-gebruik door de outway). Bij "unknown" (geen jq / afwijkende JSON-vorm) valt dit terug
+# op de reeds bevestigde accept-aanwezigheid hierboven, zoals de rest van dit script bij
+# ontbrekende jq consequent doet.
+CONTRACT_STATE=$(contract_state "$FINAL" "$HASH")
+case "$CONTRACT_STATE" in
+  valid|contract_state_valid) echo "OK: contract $HASH heeft manager-state CONTRACT_STATE_VALID (geverifieerd)." ;;
+  unknown) echo "  (state-check niet mogelijk: geen jq of afwijkende JSON-vorm — accept-aanwezigheid hierboven blijft de gate.)" ;;
+  *) echo "FAIL: contract $HASH draagt de accept-handtekening maar staat niet op CONTRACT_STATE_VALID (state=$CONTRACT_STATE)." >&2; exit 1 ;;
 esac
 
 mkdir -p "$STATE_DIR" && printf '%s\n' "$HASH" > "$STATE_FILE"
