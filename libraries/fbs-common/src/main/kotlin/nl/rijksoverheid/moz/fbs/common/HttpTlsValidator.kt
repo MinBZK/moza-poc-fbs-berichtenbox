@@ -34,7 +34,6 @@ class HttpTlsValidator(
 
     companion object {
         private val log = Logger.getLogger(HttpTlsValidator::class.java)
-        private val PROFIELEN_ZONDER_TLS_EIS = setOf("dev", "test")
         private val GELDIGE_TLS_TERMINATIONS = setOf("app", "mesh")
 
         fun validate(
