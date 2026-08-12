@@ -7,15 +7,15 @@ MODULES=(libraries/fbs-common libraries/fbs-berichtensessiecache services/berich
 # Comma-gescheiden lijst voor de Maven `-pl`-flag.
 PL=$(IFS=,; echo "${MODULES[*]}")
 
-# Bouw de modules plus upstream-dependencies (o.a. libraries/fbs-common) en
-# installeer ze in de lokale Maven-repo, zodat de vervolgstap
-# `dependency:copy-dependencies` ze kan resolven. Met `package` zou fbs-common
-# wel in target/ belanden maar niet in ~/.m2 — dan faalt copy-dependencies met
+# Bouw de modules plus upstream-dependencies (o.a. libraries/fbs-common) en installeer ze in de
+# lokale Maven-repo, zodat `dependency:copy-dependencies` ze kan resolven. Met `package` zou
+# fbs-common wel in target/ belanden maar niet in ~/.m2 — dan faalt copy-dependencies met
 # "could not find artifact nl.rijksoverheid.moz:fbs-common".
-# Alleen wat de fuzz-build nodig heeft: statische analyse, coverage-rapportage en de
-# Quarkus-augmentatie leveren geen bytecode die gefuzzd wordt en kostten samen tientallen
-# seconden per run. `-ntp` scheelt tienduizenden downloadregels in de log.
-./mvnw install -DskipTests -pl "$PL" -am -B -ntp -T 1C \
+#
+# Statische analyse, coverage-rapportage en de Quarkus-augmentatie leveren geen bytecode die
+# gefuzzd wordt; ze kostten samen tientallen seconden per run. `-ntp` scheelt tienduizenden
+# downloadregels in de log.
+./mvnw install -DskipTests -pl "$PL" -am -B -ntp \
     -Ddetekt.skip=true -Djacoco.skip=true -Dquarkus.build.skip=true
 
 mkdir -p "$OUT/lib" "$OUT/classes" "$OUT/test-classes"
