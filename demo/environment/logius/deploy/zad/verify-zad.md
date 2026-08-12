@@ -54,16 +54,28 @@ afnemer-contract (ServiceConnectionGrant) — nog niet onderdeel van dit ontwerp
 het project `mpfb-8wh` en dus de namespace, en de ingress-URL-variant vervalt omdat de outway
 bewust niet op het web gepubliceerd is (zie stap 2 hierboven).
 
-### Nog niet bewijsbaar: het inbound data-pad
+### Inbound data-pad — profiel-service (lokaal bewezen, ZAD-apply is handmatig vervolgwerk)
 
-`logius-fscinway` draait, maar biedt nog geen dienst aan — er is geen `CreateService` gedaan. Zodra de
-upstream bekend is, komt daar bij:
+Lokaal bewezen in `deploy/local/` (`publish-service.sh` + `smoke-discover.sh` +
+`consume-service.sh`, zie `docs/plans/2026-08-12-logius-profiel-service-fsc-publicatie.md`):
+`logius` publiceert de dienst `profiel-service` op zijn eigen inway en heeft een geldig,
+zelfreferentieel afnemer-contract (consumer-OIN = provider-OIN, want `berichtenuitvraag`'s
+eigen outway IS de logius-outway). Op ZAD moet dit nog worden herhaald tegen de échte
+infrastructuur:
 
 1. `ZAD_LOGIUS_UPSTREAM_URL` in `upsert-peer.sh` (cross-deployment ingress-URL, https/:443,
-   naar analogie van magazijn-a's `ZAD_MAGAZIJNA_UPSTREAM_URL`).
-2. Service aanmaken + publiceren via de `logius-fscctl` Administration-API; `CreateService` verwacht het
-   inway-ADRES (`SELF_ADDRESS`, `https://logius-fscinway-fsc-logius-mpfb-8wh.<base-domain>:443`), niet de naam.
-3. Een smoke voor het pad `externe consumer → logius-fscinway → upstream`.
+   naar analogie van magazijn-a's `ZAD_MAGAZIJNA_UPSTREAM_URL`) — wijst naar de echte
+   MOZA Profiel Service, niet naar een stub.
+2. `CreateService` via de `logius-fscctl` Administration-API (`SERVICE_NAME=profiel-service`,
+   `endpoint_url=<ZAD_LOGIUS_UPSTREAM_URL>`, `inway_address=SELF_ADDRESS` van `logius-fscinway`,
+   `https://logius-fscinway-fsc-logius-mpfb-8wh.<base-domain>:443`).
+3. Het zelfreferentiële `serviceConnection`-contract opnieuw opzetten tegen de ZAD-manager
+   (zelfde POST+PUT-stroom als `consume-service.sh`, met de ZAD-groep-cert-thumbprint van
+   `logius-fscoutway`).
+4. `PROFIEL_SERVICE_URL=https://fsc-logius-logius-fscoutway:8443` en
+   `PROFIEL_SERVICE_GRANT_HASH=<content_hash uit stap 3>` als env-vars op de gedeployde
+   `berichtenuitvraag`-app zetten (project `mpfb-8wh`).
+5. Een smoke voor het pad `berichtenuitvraag → logius-fscoutway → logius-fscinway → upstream`.
 
 ## Acceptatiecriteria — afvinklijst
 
@@ -72,6 +84,8 @@ upstream bekend is, komt daar bij:
 - [ ] Peer heeft een geldige group-cert (getekend onder fsc-testnet's group-CA)
 - [ ] Peer meldt zich aan bij de directory (announce)
 - [ ] `logius-fscinway` draait en registreert zich bij `logius-fscctl` (zie hierboven, punt a0)
-- [ ] Discover + contract + inbound data-pad: vervolgwerk (zie hierboven), niet in deze afvinklijst
+- [ ] `profiel-service` lokaal gepubliceerd + vindbaar + zelfreferentieel contract geldig
+      (zie `deploy/local/run-smokes.sh`)
+- [ ] Discover + contract + inbound data-pad OP ZAD: vervolgwerk (zie hierboven), niet in deze afvinklijst
 
 Elk vinkje vereist een operator met ZAD-toegang, gegenereerde certs en een draaiende peer.

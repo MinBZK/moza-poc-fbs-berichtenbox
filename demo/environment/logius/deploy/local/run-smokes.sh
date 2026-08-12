@@ -3,4 +3,7 @@ set -euo pipefail
 d="$(dirname "$0")"
 "$d/smoke-announce.sh"
 "$d/smoke-services.sh"
+"$d/publish-service.sh"
+"$d/smoke-discover.sh"
+"$d/consume-service.sh"
 echo "ALLE SMOKES GROEN."

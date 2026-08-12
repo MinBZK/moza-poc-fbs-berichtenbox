@@ -76,7 +76,7 @@ uitbreiding), txlog-hardening/e2e-verantwoording (#728), en het echte data-pad d
 
 Gespiegeld op repo A's `example-provider`: per peer een eigen set FSC-componenten. De peer
 draait **co-located in het bestaande ZAD-project `mpfm-w3h`** — hetzelfde project als de
-`magazijna`/`magazijnb`/clickhouse-componenten die `deploy.yml` beheert — maar in een **eigen
+`magazijna`/`magazijnb`-componenten die `deploy.yml` beheert — maar in een **eigen
 deployment `fsc-magazijna`**, niet in `test`.
 
 **Waarom deployment-isolatie:** `deploy-preview-magazijnen` deployt PR-previews met

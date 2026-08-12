@@ -264,9 +264,12 @@ services:
         condition: service_started
       txlog-logius:
         condition: service_started
+      stub-upstream:
+        condition: service_started
 
   toolbox:
-    # Curl-client BINNEN het netwerk voor gerichte mTLS-diagnose (niet gebruikt door de announce-only-proof).
+    # Curl-client BINNEN het netwerk voor de mTLS-onboarding-calls: publish-service.sh,
+    # smoke-discover.sh en consume-service.sh draaien hun curl-aanroepen hier doorheen.
     # Draait als host-UID zodat het de 0600-internal-key leest.
     image: docker.io/curlimages/curl:8.11.1
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
@@ -278,6 +281,13 @@ services:
         condition: service_started
       controller-logius:
         condition: service_started
+
+  stub-upstream:
+    # Neutrale HTTP-echo die de business-app (het echte moza-profiel-service-backend)
+    # vervangt. Wordt de endpoint_url van profiel-service; het échte data-pad dóór de
+    # inway is niet in scope van deze bundel (spiegelt magazijn-a's stub-upstream).
+    image: docker.io/hashicorp/http-echo:1.0
+    command: ["-listen=:8080", "-text=hello from logius profiel-service stub-upstream"]
 
   directory-ui:
     image: docker.io/federatedserviceconnectivity/directory-ui:${IMAGE_TAG:-v2.5.2}

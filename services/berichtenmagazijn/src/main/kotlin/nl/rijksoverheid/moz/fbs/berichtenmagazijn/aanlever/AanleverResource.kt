@@ -8,7 +8,9 @@ import jakarta.ws.rs.Path
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.UriInfo
+import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.AanleverApi
@@ -21,6 +23,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
+import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
 
 /**
@@ -29,7 +32,9 @@ import org.jboss.logging.Logger
  * **Geen `@Logboek`-annotatie**: die interceptor zet `processingActivityId` op een
  * hardcoded annotation-value, wat config-driven URI's onmogelijk maakt. Daarom zelf
  * span-management (zoals [nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimVerwerker]),
- * met de processingActivityId-bron op één plek (config).
+ * met de processingActivityId-bron op één plek (config) — en daarmee ook zelf de
+ * schrijffout-recorder legen en de acknowledgement afdwingen, werk dat de interceptor
+ * normaliter voor zijn rekening neemt.
  *
  * **Inbound W3C `traceparent` wordt als parent geadopteerd** ([OtelContext.current]):
  * de keten loopt door zodat een aanlever-request cross-organisatie traceerbaar
@@ -51,6 +56,39 @@ class AanleverResource(
     private val log = Logger.getLogger(AanleverResource::class.java)
 
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
+        val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
+            BijlageInvoer(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
+        }
+        val bericht = valideerEnLegVast(berichtAanleverenRequest, bijlagen)
+
+        // Pas opslaan nadat de logregel bevestigd is. Andersom zou een aanlevering die
+        // niet in het logboek kwam tóch een bericht én outbox-leveringen achterlaten: de
+        // aanleveraar krijgt dan een 500 en levert opnieuw aan, met een nieuw berichtId
+        // en dus een nieuwe CloudEvent-id waarop downstream-dedup niet aanslaat.
+        opslagService.slaBerichtOp(bericht, bijlagen)
+
+        return naarBerichtResponse(bericht)
+    }
+
+    /**
+     * Valideert de aanlevering en legt de voorgenomen verwerking vast in het logboek.
+     * Keert pas terug als de logregel bevestigd is; een [LogboekWriteException] betekent
+     * dat er niets opgeslagen wordt.
+     *
+     * De logregel beschrijft daarmee het voornemen, niet de uitkomst: een opslagfout ná
+     * dit punt laat een logregel achter voor een aanlevering die niet plaatsvond.
+     * Over-rapporteren is hier het veiligere uiterste — TODO(#924) voor het vastleggen
+     * van de uitkomst.
+     */
+    private fun valideerEnLegVast(
+        berichtAanleverenRequest: BerichtAanleverenRequest,
+        bijlagen: List<BijlageInvoer>,
+    ): Bericht {
+        // De recorder is thread-gebonden en deze resource doet zijn eigen span-beheer:
+        // zonder legen kan een schrijffout van een eerder request op deze pooled thread
+        // dit request laten falen.
+        LogboekWriteFailureRecorder.clear()
+
         // Span en LDV-context binnen try zodat een latere config-throw geen
         // span-leak veroorzaakt; finally end()'t altijd.
         var pendingFailure: Throwable? = null
@@ -62,10 +100,7 @@ class AanleverResource(
             logboekContext.processingActivityId = publicatieConfig.verwerkingsregisterAanleveren()
             return span.makeCurrent().use { _ ->
                 val ontvangerDto = berichtAanleverenRequest.ontvanger
-                val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
-                    BijlageInvoer(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
-                }
-                val bericht = opslagService.slaBerichtOp(
+                val bericht = opslagService.valideerAanlevering(
                     afzender = berichtAanleverenRequest.afzender,
                     ontvangerType = IdentificatienummerType.valueOf(ontvangerDto.type.name),
                     ontvangerWaarde = ontvangerDto.waarde,
@@ -81,7 +116,7 @@ class AanleverResource(
                 logboekContext.dataSubjectId = bericht.ontvanger.waarde
                 logboekContext.dataSubjectType = bericht.ontvanger.type.name
 
-                naarBerichtResponse(bericht)
+                bericht
             }
         } catch (ex: Exception) {
             pendingFailure = ex
@@ -116,40 +151,49 @@ class AanleverResource(
     }
 
     private fun koppelLdvContextEnEindigSpan(span: Span, pendingFailure: Throwable?) {
-        // foreign_operation.processor-attribuut equivalent aan LogboekInterceptor
-        // — alleen koppelen als upstream een traceparent stuurde.
-        val traceparent = httpHeaders.getHeaderString("traceparent")
-
-        if (traceparent != null) {
-            val processor = httpHeaders.getHeaderString("traceparent-processor")
-            span.setAttribute(
-                "dpl.core.foreign_operation.processor",
-                FoutBeschrijving.saneer(processor),
-            )
-        }
-
-        // Genest try/finally: outer borgt `span.end()` (anders span-leak), inner vangt
-        // enkel de IAE die ProcessingHandler op config-fout gooit. Andere exceptions
-        // vliegen door naar de exception-mapper.
         try {
-            try {
-                processingHandler.addLogboekContextToSpan(span, logboekContext)
-            } catch (ex: IllegalArgumentException) {
-                // Eigen errorId als tweede correlatie-handvat naast die van de
-                // ProblemExceptionMapper; pendingFailure-message blijft uit het log
-                // (categorie + cause-type volstaan, geen niet-numerieke PII).
-                val ldvErrorId = java.util.UUID.randomUUID()
-                log.errorf(
-                    ex,
-                    "LDV-context koppelen aan span faalde voor aanleveren-bericht " +
-                        "(ldvErrorId=%s); oorspronkelijke fout-categorie=%s cause=%s",
-                    ldvErrorId,
-                    pendingFailure?.javaClass?.simpleName ?: "geen",
-                    pendingFailure?.cause?.javaClass?.simpleName ?: "geen",
+            // foreign_operation.processor-attribuut equivalent aan LogboekInterceptor
+            // — alleen koppelen als upstream een traceparent stuurde.
+            val traceparent = httpHeaders.getHeaderString("traceparent")
+
+            if (traceparent != null) {
+                val processor = httpHeaders.getHeaderString("traceparent-processor")
+                span.setAttribute(
+                    "dpl.core.foreign_operation.processor",
+                    FoutBeschrijving.saneer(processor),
                 )
             }
-        } finally {
-            span.end()
+
+            try {
+                // Alleen het type van de fout gaat mee: de wrapper zet exception.message op
+                // dezelfde child-spans die dpl.core.data_subject_id dragen, en die rijen
+                // gaan bij een inzageverzoek naar buiten.
+                processingHandler.addLogboekContextToSpan(
+                    span,
+                    logboekContext,
+                    pendingFailure?.let(LdvFoutSamenvatting::van),
+                )
+            } finally {
+                span.end()
+            }
+
+            // Fail-closed: een aanlevering die niet in het logboek kwam, telt niet als
+            // uitgevoerd — deze methode draait vóór de opslag, dus een schrijffout houdt
+            // het bericht uit de database. Propageert er al een functionele fout, dan mag
+            // een schrijffout die niet maskeren: die fout moet de aanleveraar bereiken.
+            processingHandler.enforceWriteAcknowledgement(throwOnFailure = pendingFailure == null)
+        } catch (ex: Exception) {
+            // Deze methode draait vanuit een finally-blok. Gooien terwijl er al een fout
+            // propageert zou die vervángen, waardoor de aanleveraar de domeinfout niet
+            // meer ziet; de LDV-fout gaat dan mee als suppressed.
+            if (pendingFailure == null) throw ex
+
+            pendingFailure.addSuppressed(ex)
+            log.errorf(
+                ex,
+                "LDV-logregel voor aanleveren mislukt terwijl er al een fout propageert (categorie=%s)",
+                ex.javaClass.simpleName,
+            )
         }
     }
 }

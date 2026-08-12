@@ -58,6 +58,7 @@ x-hosts: &hosts
   - "outway.logius.fsc-test.local:127.0.0.1"
   - "inway.logius.fsc-test.local:127.0.0.1"
   - "postgres:127.0.0.1"
+  - "stub-upstream:127.0.0.1"
 
 services:
   postgres:
@@ -136,6 +137,13 @@ services:
   toolbox:
     network_mode: host
     extra_hosts: *hosts
+
+  # De basis laat http-echo op alle interfaces binden; in een gedeelde netns is dat de hele
+  # machine. Poort 8080 blijft: de directory-UI schuift hier juist wég van 8080 naar 8081.
+  stub-upstream:
+    network_mode: host
+    extra_hosts: *hosts
+    command: ["-listen=127.0.0.1:8080", "-text=hello from logius profiel-service stub-upstream"]
 
   directory-ui:
     network_mode: host
