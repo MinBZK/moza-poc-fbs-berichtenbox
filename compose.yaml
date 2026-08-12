@@ -9,11 +9,11 @@ services:
       timeout: 3s
       retries: 5
 
-  # Overblijfsel: er gaat geen HTTP-verkeer naar deze twee. Dev en demo gebruiken de echte
-  # magazijnen (8090/8091); alleen de %test-regels in de uitvraag wijzen deze poorten nog aan.
-  # Die inschrijvingen zelf zijn niet dood — het aanmeld-pad zoekt de afzender-OIN op in het
-  # register — maar de URL wordt nooit gebeld: de testfixture zet magazijn B op een dynamische
-  # poort, en de aggregatie bevraagt alleen wat de profiel-resolver teruggeeft.
+  # Deze twee stubs bedienen geen dev- of demo-pad: die gebruiken de echte magazijnen op
+  # 8090/8091. Het poortenpaar 8081/8082 komt wel voor als registeradres in testprofielen,
+  # onder meer in de uitvraag en de sessiecache-library. Opruimen is dus niet enkel deze
+  # services schrappen: het aanmeld-pad resolvet de afzender-OIN via het register, dus zo'n
+  # inschrijving draagt iets, ook al wordt de URL nooit gebeld.
   magazijn-a:
     image: wiremock/wiremock:3.13.2
     ports:
