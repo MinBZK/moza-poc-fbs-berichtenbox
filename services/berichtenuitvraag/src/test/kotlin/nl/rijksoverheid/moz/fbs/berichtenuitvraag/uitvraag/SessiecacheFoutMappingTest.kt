@@ -4,6 +4,7 @@ import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import org.jboss.logging.Logger
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -109,5 +110,21 @@ class SessiecacheFoutMappingTest {
     @Test
     fun `leesUitCache geeft een succesvol resultaat ongewijzigd terug`() {
         assertEquals(42, leesUitCache(log, "test") { 42 })
+    }
+
+    /**
+     * Een 503 zonder `Retry-After` laat de client zelf een interval verzinnen. De profiel-mapper
+     * zet hem al op zijn retry-bare 503; deze paden horen dezelfde afspraak te volgen.
+     */
+    @Test
+    fun `de retry-bare 503 draagt een Retry-After`() {
+        assertEquals("30", SessiecacheException.OphalenMislukt("x").naApiFout().response.getHeaderString("Retry-After"))
+        assertEquals("30", SessiecacheException.Onbereikbaar("x").naApiFout().response.getHeaderString("Retry-After"))
+    }
+
+    /** Opnieuw proberen helpt niet bij onleesbare data, dus daar hoort de uitnodiging ook niet. */
+    @Test
+    fun `een blijvende fout draagt geen Retry-After`() {
+        assertNull(SessiecacheException.Onleesbaar("x").naApiFout().response.getHeaderString("Retry-After"))
     }
 }

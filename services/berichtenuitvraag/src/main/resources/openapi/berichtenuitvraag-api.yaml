@@ -349,8 +349,14 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     ServiceUnavailable:
       description: |
-        De cache (Redis) was tijdelijk niet bereikbaar bij het starten van een
-        ophaling; opnieuw proberen is zinvol.
+        Tijdelijk niet beschikbaar; opnieuw proberen is zinvol, na de periode uit
+        `Retry-After`. Twee oorzaken vallen hieronder: de tijdelijke berichtenopslag was
+        niet bereikbaar, of de vorige ophaalronde is gestrand — bij dat laatste is
+        `_ophalen` opnieuw aanroepen de weg vooruit.
+      headers:
+        Retry-After:
+          description: Aantal seconden waarna opnieuw proberen zinvol is.
+          schema: { type: integer }
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

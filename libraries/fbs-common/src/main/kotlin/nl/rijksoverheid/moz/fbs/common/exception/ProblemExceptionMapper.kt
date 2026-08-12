@@ -42,7 +42,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
             )
-            maskedServerErrorProblem(errorId = errorId, status = status, title = title)
+            metRetryAfter(exception, maskedServerErrorProblem(errorId = errorId, status = status, title = title))
         } else {
             // 4xx: gesaneerde message naar de client (`sanitizeClientDetail`), maar uit de
             // log gelaten — 4xx-message is vaak user-input en saneer dekt geen niet-numerieke
@@ -92,4 +92,17 @@ internal fun sanitizeClientDetail(message: String?): String? {
         .trim()
         .take(MAX_CLIENT_DETAIL_LENGTH)
     return stripped.ifBlank { null }
+}
+
+/**
+ * Neemt een `Retry-After` van de oorspronkelijke fout over. De mapper bouwt een verse response,
+ * dus zonder deze stap gaat de aanwijzing "probeer het over N seconden opnieuw" verloren — terwijl
+ * dat juist het verschil is tussen een tijdelijke en een blijvende 5xx. Alleen deze header, en
+ * alleen als hij er is: de rest van de oorspronkelijke response blijft bewust buiten de
+ * gemaskeerde 5xx-respons.
+ */
+private fun metRetryAfter(exception: WebApplicationException, respons: Response): Response {
+    val retryAfter = exception.response?.getHeaderString("Retry-After") ?: return respons
+
+    return Response.fromResponse(respons).header("Retry-After", retryAfter).build()
 }

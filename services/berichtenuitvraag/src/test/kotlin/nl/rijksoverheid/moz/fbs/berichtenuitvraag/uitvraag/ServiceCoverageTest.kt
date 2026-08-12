@@ -377,6 +377,7 @@ class ServiceCoverageTest {
             .then()
             .statusCode(503)
             .contentType(containsString("application/problem+json"))
+            .header("Retry-After", "30")
     }
 
     @Test

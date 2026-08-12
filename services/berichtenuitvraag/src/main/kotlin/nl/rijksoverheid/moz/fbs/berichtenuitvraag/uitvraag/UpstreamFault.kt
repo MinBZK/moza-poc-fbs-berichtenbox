@@ -99,12 +99,27 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
     // voorkeurenbron gaf een serverfout) en opnieuw ophalen is de weg vooruit. 503 zegt dat,
     // en het is dezelfde status die `_ophalen` in precies deze situatie al geeft; 500 zou de
     // client naar een bug bij ons wijzen.
-    is SessiecacheException.OphalenMislukt -> WebApplicationException(message, this, Response.Status.SERVICE_UNAVAILABLE)
-    is SessiecacheException.Onbereikbaar -> WebApplicationException(message, this, Response.Status.SERVICE_UNAVAILABLE)
+    is SessiecacheException.OphalenMislukt -> tijdelijkNietBeschikbaar(message, this)
+    is SessiecacheException.Onbereikbaar -> tijdelijkNietBeschikbaar(message, this)
     is SessiecacheException.Onleesbaar -> WebApplicationException(message, this, Response.Status.INTERNAL_SERVER_ERROR)
     is SessiecacheException.OngeldigeInvoer -> WebApplicationException(message, this, Response.Status.BAD_REQUEST)
     is SessiecacheException.GeenActieveSessie -> WebApplicationException(message, this, Response.Status.NOT_FOUND)
 }
+
+/**
+ * Een 503 waar opnieuw proberen zin heeft, met dezelfde `Retry-After` als de profiel-mapper op
+ * zijn retry-bare 503 zet. Zonder die header staat de aanwijzing alleen in proza en moet een
+ * client zelf een interval verzinnen.
+ */
+private fun tijdelijkNietBeschikbaar(message: String?, oorzaak: SessiecacheException) =
+    WebApplicationException(
+        message,
+        oorzaak,
+        Response.status(Response.Status.SERVICE_UNAVAILABLE).header("Retry-After", RETRY_AFTER_SECONDEN).build(),
+    )
+
+/** Gelijk aan wat de profiel-mapper hanteert; één waarde zodat clients niet per endpoint hoeven te leren wachten. */
+private const val RETRY_AFTER_SECONDEN = "30"
 
 /**
  * Lees-pad-grens voor cache-facade-calls. De cache classificeert zijn eigen uitkomst al
@@ -126,7 +141,16 @@ internal inline fun <T> leesUitCache(log: Logger, context: String, block: () -> 
     try {
         mapUpstreamFout(log, context, block)
     } catch (e: SessiecacheException) {
-        log.warnf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, e.naApiFout().response.status)
+        val fout = e.naApiFout()
 
-        throw e.naApiFout()
+        // De 409-gating is het normale verloop — een client die leest vóór of tijdens het
+        // ophalen krijgt hem standaard. Die op waarschuwingsniveau loggen zou het signaal
+        // verwateren dat voor de echte storingen bedoeld is.
+        if (e.isStoring()) {
+            log.warnf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, fout.response.status)
+        } else {
+            log.debugf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, fout.response.status)
+        }
+
+        throw fout
     }
