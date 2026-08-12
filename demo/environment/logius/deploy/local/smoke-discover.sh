@@ -28,12 +28,21 @@ MANAGER=https://manager.logius.fsc-test.local:9443
 ERRLOG=$(mktemp)
 trap 'rm -f "$ERRLOG"' EXIT
 
+# Onder podman schrijft de external-compose-provider-wrapper zelf een bannerregel naar stderr
+# bij ELKE aanroep (">>>> Executing external compose provider ... <<<<"), niet alleen bij een
+# echte curl-fout. Zonder filter leest [ -s "$ERRLOG" ] die banner als "poll-fout" op elke poll.
+strip_wrapper_noise() {
+  grep -v '^>>>> Executing external compose provider' "$ERRLOG" > "${ERRLOG}.f" 2>/dev/null || :
+  mv -f "${ERRLOG}.f" "$ERRLOG"
+}
+
 echo "smoke-discover: pollen tot ${SERVICE_NAME} vindbaar is bij de directory (mesh-API)..."
 elapsed=0
 while [ "$elapsed" -lt "$TIMEOUT" ]; do
-  out=$("${COMPOSE[@]}" exec -T toolbox curl -s \
+  out=$("${COMPOSE[@]}" exec -T toolbox curl -sS \
           --cert "$CERT" --key "$KEY" --cacert "$CA" \
           "$MANAGER/v1/peers/$DIR_OIN/services?peer_id=$PROVIDER_OIN" 2>"$ERRLOG" || true)
+  strip_wrapper_noise
   [ -s "$ERRLOG" ] && { echo "  WARN: poll-fout: $(tail -n1 "$ERRLOG")" >&2; : >"$ERRLOG"; }
 
   if printf '%s' "$out" | grep -q "\"$SERVICE_NAME\""; then
@@ -49,8 +58,9 @@ done
 
 echo "FAIL: ${SERVICE_NAME} niet vindbaar binnen ${TIMEOUT}s (publish-service.sh gedraaid?)." >&2
 echo "Debug: eigen publicaties (manager Internal-API) + logs:" >&2
-"${COMPOSE[@]}" exec -T toolbox curl -s --cert "$CERT" --key "$KEY" --cacert "$CA" \
+"${COMPOSE[@]}" exec -T toolbox curl -sS --cert "$CERT" --key "$KEY" --cacert "$CA" \
    "$MANAGER/v1/services/publications" >&2 || true
+strip_wrapper_noise
 [ -s "$ERRLOG" ] && { echo "  -> laatste poll-fout:" >&2; tail -n 3 "$ERRLOG" >&2; }
 "${COMPOSE[@]}" logs --tail=50 manager-logius manager-directory inway-logius >&2 || true
 exit 1

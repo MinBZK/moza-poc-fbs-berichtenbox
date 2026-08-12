@@ -24,8 +24,16 @@ ERRLOG=$(mktemp)
 trap 'rm -f "$ERRLOG"' EXIT
 
 # curl binnen de toolbox, met de internal client-cert. Stderr -> ERRLOG.
-tb() { "${COMPOSE[@]}" exec -T toolbox curl -s --fail-with-body \
+tb() { "${COMPOSE[@]}" exec -T toolbox curl -sS --fail-with-body \
          --cert "$CERT" --key "$KEY" --cacert "$CA" "$@" 2>"$ERRLOG"; }
+
+# Onder podman schrijft de external-compose-provider-wrapper zelf een bannerregel naar stderr
+# bij ELKE aanroep; dat is geen curl-fout. Filteren voorkomt vals-alarm-WARN's en een
+# misleidende "laatste fout" op de FAIL-paden hieronder.
+strip_wrapper_noise() {
+  grep -v '^>>>> Executing external compose provider' "$ERRLOG" > "${ERRLOG}.f" 2>/dev/null || :
+  mv -f "${ERRLOG}.f" "$ERRLOG"
+}
 
 echo "publish: wachten op inway-registratie bij de controller..."
 # inway->controller-registratie is asynchroon na boot; poll (spiegelt smoke-announce.sh)
@@ -35,6 +43,7 @@ elapsed=0
 while [ "$elapsed" -lt 60 ]; do
   # CreateService verwacht het inway-ADRES (https://...:443, = SELF_ADDRESS), niet de naam.
   INWAY_ADDR=$(tb "$CONTROLLER/v1/inways" | grep -o 'https://inway\.logius\.fsc-test\.local:443' | head -1 || true)
+  strip_wrapper_noise
   [ -n "$INWAY_ADDR" ] && break
   # Persistente fout (verkeerd cert-pad, dode toolbox, DNS) mag niet als "traag boot" maskeren.
   [ -s "$ERRLOG" ] && { echo "  WARN: controller-fout: $(tail -n1 "$ERRLOG")" >&2; : >"$ERRLOG"; }
@@ -81,7 +90,7 @@ else
         \"service\": { \"peer_id\": \"$PROVIDER_OIN\", \"name\": \"$SERVICE_NAME\", \"protocol\": \"PROTOCOL_TCP_HTTP_1.1\" }
       } ]
     }
-  }") || { echo "FAIL: POST /v1/contracts geweigerd (iv=$IV): ${RESP:-<leeg>} $(tail -n1 "$ERRLOG" 2>/dev/null)" >&2; exit 1; }
+  }") || { echo "FAIL: POST /v1/contracts geweigerd (iv=$IV): ${RESP:-<leeg>} $(strip_wrapper_noise; tail -n1 "$ERRLOG" 2>/dev/null)" >&2; exit 1; }
   # Een 2xx zónder content_hash duidt op een geweigerd formaat (iv/group_id).
   printf '%s' "$RESP" | grep -q '"content_hash"' \
     || { echo "FAIL: contract-respons zonder content_hash (mogelijk geweigerd iv/group_id-formaat): $RESP" >&2; exit 1; }
