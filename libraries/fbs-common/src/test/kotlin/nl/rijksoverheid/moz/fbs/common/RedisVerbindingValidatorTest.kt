@@ -28,6 +28,7 @@ class RedisVerbindingValidatorTest {
         password: String = "geheim",
         trustAll: Boolean = false,
         hostnameVerificatie: String = "HTTPS",
+        tlsIngeschakeld: Boolean = false,
         unsafeAllowPlaintext: Boolean = false,
     ) = RedisVerbindingValidator.validate(
         profile = profile,
@@ -35,6 +36,7 @@ class RedisVerbindingValidatorTest {
         password = password,
         trustAll = trustAll,
         hostnameVerificatie = hostnameVerificatie,
+        tlsIngeschakeld = tlsIngeschakeld,
         unsafeAllowPlaintext = unsafeAllowPlaintext,
     )
 
@@ -387,6 +389,90 @@ class RedisVerbindingValidatorTest {
      * naar een `%s`-stijl logaanroep de PII-assertions hierboven stilzwijgend laten slagen op
      * een patroon in plaats van op de ingevulde tekst.
      */
+    /**
+     * De client zet trust-all zodra één van beide knoppen aanstaat. Alleen de client-eigen knop
+     * lezen zou `quarkus.tls.trust-all=true` ongemerkt elk certificaat laten accepteren.
+     */
+    @Test
+    fun `de globale trust-all-knop telt mee`() {
+        val config = configMet(
+            "quarkus.redis.hosts" to "rediss://opslag.intern:6379",
+            "quarkus.redis.password" to "geheim",
+            "quarkus.redis.tls.hostname-verification-algorithm" to "HTTPS",
+            "quarkus.tls.trust-all" to "true",
+        )
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(ex.message!!.contains("trust-all"), "melding: ${ex.message}")
+    }
+
+    /**
+     * Een benoemde TLS-configuratie vervangt het hele client-eigen tls-blok. De legacy-keys
+     * beoordelen zou een garantie geven over instellingen die de client niet gebruikt.
+     */
+    @Test
+    fun `een benoemde tls-configuratie wordt beoordeeld in plaats van de client-eigen keys`() {
+        val config = configMet(
+            "quarkus.redis.hosts" to "rediss://opslag.intern:6379",
+            "quarkus.redis.password" to "geheim",
+            "quarkus.redis.tls-configuration-name" to "opslag",
+            // Zou de check hiernaar kijken, dan leek alles in orde.
+            "quarkus.redis.tls.hostname-verification-algorithm" to "HTTPS",
+            "quarkus.tls.opslag.trust-all" to "true",
+        )
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(ex.message!!.contains("trust-all"), "melding: ${ex.message}")
+    }
+
+    /** Een env-var als QUARKUS_REDIS__CACHE_A__HOSTS levert een clientnaam mét punt op. */
+    @Test
+    fun `een named client met een punt in de naam wordt ontdekt`() {
+        val config = configMet(
+            "quarkus.redis.hosts" to "rediss://a.intern:6379",
+            "quarkus.redis.password" to "geheim",
+            "quarkus.redis.tls.hostname-verification-algorithm" to "HTTPS",
+            "quarkus.redis.\"cache.a\".hosts" to "redis://b.intern:6379",
+            "quarkus.redis.\"cache.a\".password" to "geheim",
+        )
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(ex.message!!.contains("cache.a"), "melding moet de named client noemen: ${ex.message}")
+    }
+
+    /**
+     * Een programmatische hosts-provider levert het adres buiten de configuratie om. Die waarde
+     * is hier niet te beoordelen, dus stil doorlaten zou een garantie suggereren die er niet is.
+     */
+    @Test
+    fun `een hosts-provider wordt geweigerd omdat hij niet te beoordelen is`() {
+        val config = configMet("quarkus.redis.hosts-provider-name" to "eigen-provider")
+
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+
+        assertTrue(ex.message!!.contains("hosts-provider-name"), "melding: ${ex.message}")
+    }
+
+    /** TLS kan ook via de losse schakelaar aanstaan; dan zegt het schema niets meer. */
+    @Test
+    fun `tls via de losse schakelaar maakt het schema niet doorslaggevend`() {
+        assertDoesNotThrow { valideerVeilig(hosts = "redis://opslag.intern:6379", tlsIngeschakeld = true) }
+    }
+
+    /** Staat de klep open, dan hoort de melding niet alsnog om TLS te vragen. */
+    @Test
+    fun `met de klep open noemt de melding alleen het ontbrekende wachtwoord`() {
+        val ex = assertThrows<IllegalStateException> {
+            valideerVeilig(hosts = "redis://opslag.intern:6379", password = "", unsafeAllowPlaintext = true)
+        }
+
+        assertTrue(ex.message!!.contains("password"), "melding: ${ex.message}")
+        assertFalse(ex.message!!.contains("rediss://"), "TLS is al vrijgegeven, niet opnieuw eisen: ${ex.message}")
+    }
+
     private fun vangWaarschuwingen(blok: () -> Unit): List<String> {
         val logger = Logger.getLogger(RedisVerbindingValidator::class.java.name)
         val formatter = SimpleFormatter()

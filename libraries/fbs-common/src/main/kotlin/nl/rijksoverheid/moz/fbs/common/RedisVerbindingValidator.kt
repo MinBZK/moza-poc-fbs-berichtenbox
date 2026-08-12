@@ -54,7 +54,10 @@ class RedisVerbindingValidator(
         private const val TLS_SCHEME = "rediss://"
 
         /** `quarkus.redis.hosts` (default client) en `quarkus.redis.<naam>.hosts` (named clients). */
-        private val HOSTS_PATROON = Regex("""^quarkus\.redis\.(?:([^.]+)\.)?hosts$""")
+        // De clientnaam mag zelf punten bevatten: een env-var als QUARKUS_REDIS__CACHE_A__HOSTS
+        // komt als `quarkus.redis."cache.a".hosts` in de configuratie terecht. Een patroon dat
+        // punten verbiedt zou zo'n client niet ontdekken en hem dus ongecontroleerd laten.
+        private val HOSTS_PATROON = Regex("""^quarkus\.redis\.(?:(.+?)\.)?hosts$""")
 
         /**
          * Beoordeelt elke geconfigureerde Redis-client. Named clients zijn vandaag ongebruikt,
@@ -70,6 +73,18 @@ class RedisVerbindingValidator(
 
             val clients = config.propertyNames.mapNotNull { HOSTS_PATROON.find(it)?.groupValues?.get(1) }.toSortedSet()
 
+            // Een client kan ook zonder `hosts` bestaan, via een programmatische hosts-provider.
+            // Die waarde is hier niet te beoordelen, dus hij telt als gebrek in plaats van als
+            // "geen opslag" — anders zou de check zwijgen over een verbinding die wél bestaat.
+            val provider = config.getOptionalValue("quarkus.redis.hosts-provider-name", String::class.java).orElse("")
+
+            if (provider.isNotEmpty()) {
+                throw IllegalStateException(
+                    "quarkus.redis.hosts-provider-name is gezet in profiel '$profile'; de verbinding met de " +
+                        "berichtenopslag is daarmee niet te beoordelen op versleuteling en authenticatie.",
+                )
+            }
+
             if (clients.isEmpty()) {
                 log.info("Geen berichtenopslag geconfigureerd; verbindingscheck niet van toepassing")
 
@@ -81,20 +96,33 @@ class RedisVerbindingValidator(
 
         private fun valideerClient(profile: String, config: Config, naam: String, unsafeAllowPlaintext: Boolean) {
             val prefix = if (naam.isEmpty()) "quarkus.redis" else "quarkus.redis.$naam"
-            val hosts = config.getOptionalValue("$prefix.hosts", String::class.java).orElse("")
+
+            // Een benoemde TLS-configuratie vervangt het hele `<prefix>.tls.*`-blok: de client
+            // leest dan die bucket. De legacy-keys beoordelen zou een garantie geven over
+            // instellingen die niet gebruikt worden.
+            val tlsNaam = config.getOptionalValue("$prefix.tls-configuration-name", String::class.java).orElse("")
+            val tlsPrefix = if (tlsNaam.isEmpty()) "$prefix.tls" else "quarkus.tls.$tlsNaam"
 
             validate(
                 profile = profile,
-                hosts = hosts,
+                hosts = config.getOptionalValue("$prefix.hosts", String::class.java).orElse(""),
                 password = config.getOptionalValue("$prefix.password", String::class.java).orElse(""),
-                trustAll = config.getOptionalValue("$prefix.tls.trust-all", Boolean::class.java).orElse(false),
+                // De globale registry-knop telt mee: de client zet trust-all zodra één van beide
+                // aanstaat. Alleen de client-eigen knop lezen laat `quarkus.tls.trust-all=true`
+                // ongemerkt elk certificaat accepteren.
+                trustAll = leesBoolean(config, "$tlsPrefix.trust-all") ||
+                    leesBoolean(config, "quarkus.tls.trust-all"),
                 hostnameVerificatie = config
-                    .getOptionalValue("$prefix.tls.hostname-verification-algorithm", String::class.java)
+                    .getOptionalValue("$tlsPrefix.hostname-verification-algorithm", String::class.java)
                     .orElse("NONE"),
+                tlsIngeschakeld = leesBoolean(config, "$tlsPrefix.enabled"),
                 unsafeAllowPlaintext = unsafeAllowPlaintext,
                 configPrefix = prefix,
             )
         }
+
+        private fun leesBoolean(config: Config, key: String) =
+            config.getOptionalValue(key, Boolean::class.java).orElse(false)
 
         /**
          * [unsafeAllowPlaintext] zet uitsluitend de **transport**-eisen uit: versleuteling en
@@ -115,10 +143,17 @@ class RedisVerbindingValidator(
             password: String = "",
             trustAll: Boolean = false,
             hostnameVerificatie: String = "NONE",
+            tlsIngeschakeld: Boolean = false,
             unsafeAllowPlaintext: Boolean = false,
             configPrefix: String = "quarkus.redis",
         ) {
-            if (profile in PROFIELEN_ZONDER_TLS_EIS || hosts.isBlank()) return
+            if (profile in PROFIELEN_ZONDER_TLS_EIS) return
+
+            if (hosts.isBlank()) {
+                log.info("$configPrefix.hosts is leeg; niets te beoordelen (de client faalt hier zelf op)")
+
+                return
+            }
 
             val adressen = hosts.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
@@ -127,17 +162,22 @@ class RedisVerbindingValidator(
             // een onbeoordeelde configuratie als "voldoet" door de guard komen.
             if (adressen.isEmpty()) {
                 throw IllegalStateException(
-                    meldingVoor(profile, listOf("$configPrefix.hosts bevat geen enkel adres"), configPrefix),
+                    meldingVoor(profile, listOf("$configPrefix.hosts bevat geen enkel adres")),
                 )
             }
 
-            val transportGebreken = transportGebrekenIn(adressen, trustAll, hostnameVerificatie, configPrefix)
+            val transportGebreken =
+                transportGebrekenIn(adressen, trustAll, hostnameVerificatie, tlsIngeschakeld, configPrefix)
             val authGebreken = authGebrekenIn(adressen, password, configPrefix)
 
             // De hosts-waarde zelf komt hier nooit in: hij mag een wachtwoord in de userinfo
             // dragen, en deze tekst belandt in de opstartlog.
             if (authGebreken.isNotEmpty()) {
-                throw IllegalStateException(meldingVoor(profile, authGebreken + transportGebreken, configPrefix))
+                // Transport-gebreken alleen noemen als ze nog gelden: staat de klep open, dan
+                // zou "zet hosts op rediss://" de operator naar het verkeerde probleem sturen.
+                val teMelden = if (unsafeAllowPlaintext) authGebreken else authGebreken + transportGebreken
+
+                throw IllegalStateException(meldingVoor(profile, teMelden))
             }
 
             if (transportGebreken.isEmpty()) {
@@ -150,7 +190,7 @@ class RedisVerbindingValidator(
             }
 
             if (!unsafeAllowPlaintext) {
-                throw IllegalStateException(meldingVoor(profile, transportGebreken, configPrefix))
+                throw IllegalStateException(meldingVoor(profile, transportGebreken))
             }
 
             log.warning(
@@ -161,26 +201,32 @@ class RedisVerbindingValidator(
             )
         }
 
-        private fun meldingVoor(profile: String, gebreken: List<String>, configPrefix: String) =
+        // Geen algemene slotzin met een advies: elk gebrek noemt zelf de sleutel die aangepast
+        // moet worden. Een vaste zin zou ook om TLS vragen wanneer alleen het wachtwoord
+        // ontbreekt, en dan stuurt de melding de operator naar het verkeerde probleem.
+        private fun meldingVoor(profile: String, gebreken: List<String>) =
             "De verbinding met de tijdelijke berichtenopslag voldoet niet in profiel '$profile': " +
-                "${gebreken.joinToString("; ")}. Zet $configPrefix.hosts op $TLS_SCHEME-adressen met " +
-                "peer-verificatie en $configPrefix.password via de omgeving."
+                gebreken.joinToString("; ") + "."
 
         /**
          * Versleuteling én peer-verificatie. `rediss://` zonder hostnaam-verificatie laat elke
          * partij met een willekeurig geldig certificaat zich als de opslag voordoen; met
          * `trust-all` volstaat élk certificaat.
          */
+        @Suppress("LongParameterList")
         private fun transportGebrekenIn(
             adressen: List<String>,
             trustAll: Boolean,
             hostnameVerificatie: String,
+            tlsIngeschakeld: Boolean,
             configPrefix: String,
         ): List<String> {
             val gebreken = mutableListOf<String>()
             // Hoofdlettergevoelig, gelijk aan wat Vert.x accepteert: `REDISS://` weigert de
             // runtime alsnog, dus hier toelaten zou een garantie suggereren die hier niet ligt.
-            val zonderTls = adressen.count { !it.startsWith(TLS_SCHEME) }
+            // De losse `tls.enabled`-schakelaar zet TLS voor álle adressen aan; dan zegt het
+            // schema niets meer en zou weigeren een werkende opstelling blokkeren.
+            val zonderTls = if (tlsIngeschakeld) 0 else adressen.count { !it.startsWith(TLS_SCHEME) }
 
             if (zonderTls > 0) {
                 gebreken += "$zonderTls van de ${adressen.size} adressen in $configPrefix.hosts gebruikt geen $TLS_SCHEME"
