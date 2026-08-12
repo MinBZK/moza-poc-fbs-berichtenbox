@@ -50,3 +50,6 @@ demo/environment/*/pki/ca/
 demo/environment/*/pki/out/
 demo/environment/*/pki/internal/
 demo/environment/*/pki/zad-upload/
+
+# Lokale contract-bootstrap-state (content_hash, niet geheim maar host-lokaal)
+demo/environment/*/contracts/.bootstrap-state/
