@@ -242,10 +242,16 @@ class RedisVerbindingValidatorTest {
         assertTrue(ex.message!!.contains("geen enkel adres"), "melding moet de lege lijst noemen: ${ex.message}")
     }
 
+    /**
+     * Het overslaan hoort thuis waar de clients ontdekt worden, niet bij de beoordeling van een
+     * client: is er geen enkele client, dan is er niets te beveiligen. Een client die er wél is
+     * maar geen adres draagt, is juist een gebrek — zie de test daarover verderop.
+     */
     @Test
     fun `een dienst zonder opslag-configuratie wordt overgeslagen`() {
-        assertDoesNotThrow { valideerVeilig(hosts = "") }
-        assertDoesNotThrow { valideerVeilig(hosts = "   ") }
+        assertDoesNotThrow {
+            RedisVerbindingValidator.valideerAlleClients("prod", configMet("quarkus.http.port" to "8080"))
+        }
     }
 
     // --- meldingen ---
@@ -381,28 +387,49 @@ class RedisVerbindingValidatorTest {
     }
 
     /**
-     * Zonder adres valt de client terug op zijn eigen default (`redis://localhost:6379`):
-     * onversleuteld en zonder wachtwoord. Dat is precies het stille gat dat deze check hoort te
-     * sluiten, dus het telt als gebrek — niet als "niets te doen".
+     * Een client die geconfigureerd ís maar geen adres heeft: de Redis-client weigert hier zelf,
+     * maar stil overslaan zou deze check laten zwijgen over een client die hij zelf ontdekte.
      */
     @Test
-    fun `een dienst die de opslag gebruikt maar geen adres heeft, wordt geweigerd`() {
-        val config = configMet("quarkus.http.port" to "8080")
-
-        if (!RedisVerbindingValidator.redisExtensieAanwezig()) return
+    fun `een ontdekte client zonder adres wordt geweigerd`() {
+        val config = configMet("quarkus.redis.hosts" to "", "quarkus.redis.password" to "geheim")
 
         val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
 
-        assertTrue(ex.message!!.contains("geen adres"), "melding: ${ex.message}")
+        assertTrue(ex.message!!.contains("leeg"), "melding: ${ex.message}")
     }
 
+    /**
+     * Met een benoemde TLS-configuratie leest de client `tls.enabled` niet; dan bepaalt alleen het
+     * schema of er versleuteld wordt. Hem daar tóch honoreren zou een plaintext-adres laten
+     * doorgaan als versleuteld — precies de fail-open die deze check moet uitsluiten.
+     */
     @Test
-    fun `een leeg adres telt niet als geconfigureerd`() {
-        val config = configMet("quarkus.redis.hosts" to "", "quarkus.redis.password" to "geheim")
+    fun `tls-enabled telt niet mee bij een benoemde tls-configuratie`() {
+        val config = configMet(
+            "quarkus.redis.hosts" to "redis://opslag.intern:6379",
+            "quarkus.redis.password" to "geheim",
+            "quarkus.redis.tls-configuration-name" to "opslag",
+            "quarkus.redis.tls.enabled" to "true",
+            "quarkus.tls.opslag.hostname-verification-algorithm" to "HTTPS",
+        )
 
-        if (!RedisVerbindingValidator.redisExtensieAanwezig()) return
+        val ex = assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
 
-        assertThrows<IllegalStateException> { RedisVerbindingValidator.valideerAlleClients("prod", config) }
+        assertTrue(ex.message!!.contains("rediss://"), "melding: ${ex.message}")
+    }
+
+    /** Een provider náást een geldige hosts is geen gebrek: de client gebruikt dan hosts. */
+    @Test
+    fun `een provider naast een geldig adres blokkeert de start niet`() {
+        val config = configMet(
+            "quarkus.redis.hosts" to "rediss://opslag.intern:6379",
+            "quarkus.redis.password" to "geheim",
+            "quarkus.redis.tls.hostname-verification-algorithm" to "HTTPS",
+            "quarkus.redis.hosts-provider-name" to "eigen-provider",
+        )
+
+        assertDoesNotThrow { RedisVerbindingValidator.valideerAlleClients("prod", config) }
     }
 
     /** De hosts-provider bestaat per client, dus ook op een named client. */

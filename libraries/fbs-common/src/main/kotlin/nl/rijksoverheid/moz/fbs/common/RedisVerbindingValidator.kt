@@ -53,14 +53,6 @@ class RedisVerbindingValidator(
         /** Redis over TLS. Het enkelvoudige `redis://` is de onversleutelde variant. */
         private const val TLS_SCHEME = "rediss://"
 
-        /**
-         * Klasse uit de Redis-extensie. Staat die op het classpath, dan verbindt deze dienst met
-         * de opslag en moet er een adres geconfigureerd zijn — ontbreekt dat, dan valt de client
-         * terug op zijn eigen default `redis://localhost:6379`: onversleuteld en zonder
-         * wachtwoord. Zonder de extensie is er niets te beveiligen.
-         */
-        private const val REDIS_EXTENSIE_KLASSE = "io.quarkus.redis.datasource.RedisDataSource"
-
         /** `quarkus.redis.hosts` (default client) en `quarkus.redis.<naam>.hosts` (named clients). */
         // De clientnaam mag zelf punten bevatten: een env-var als QUARKUS_REDIS__CACHE_A__HOSTS
         // komt als `quarkus.redis."cache.a".hosts` in de configuratie terecht. Een patroon dat
@@ -88,42 +80,32 @@ class RedisVerbindingValidator(
             // per client, dus ook op een named client. Die waarde is hier niet te beoordelen, dus
             // hij telt als gebrek in plaats van als "geen opslag": anders zwijgt de check over een
             // verbinding die wél bestaat.
-            val providers = config.propertyNames.filter { PROVIDER_PATROON.matches(it) }
+            // Een provider telt alleen als de client er ook echt op terugvalt: `hosts` gaat voor,
+            // en een lege waarde is geen provider. Anders zou een achtergebleven configmap-key de
+            // start blokkeren terwijl de client hem negeert.
+            val providers = config.propertyNames
+                .filter { PROVIDER_PATROON.matches(it) }
+                .filter { config.getOptionalValue(it, String::class.java).orElse("").isNotBlank() }
+                .filterNot { sleutel ->
+                    val naam = PROVIDER_PATROON.find(sleutel)?.groupValues?.get(1).orEmpty()
+
+                    adresVan(config, prefixVan(naam)).isNotBlank()
+                }
 
             if (providers.isNotEmpty()) {
                 throw IllegalStateException(
-                    "${providers.sorted()} is gezet in profiel '$profile'; de verbinding met de berichtenopslag " +
-                        "is daarmee niet te beoordelen op versleuteling en authenticatie.",
+                    "${providers.sorted()} levert het opslag-adres buiten de configuratie om in profiel " +
+                        "'$profile'; de verbinding is daarmee niet te beoordelen op versleuteling en authenticatie.",
                 )
             }
 
-            val metAdres = clients.filter { naam -> adresVan(config, prefixVan(naam)).isNotBlank() }
+            if (clients.isEmpty()) {
+                log.info("Geen berichtenopslag geconfigureerd; verbindingscheck niet van toepassing")
 
-            // Geen enkel adres, terwijl deze dienst de opslag wél gebruikt: de client valt dan
-            // terug op zijn eigen default (plaintext localhost). Dat is precies het stille gat
-            // dat deze check hoort te sluiten, dus het telt als gebrek en niet als "niets te doen".
-            if (metAdres.isEmpty()) {
-                if (!redisExtensieAanwezig()) {
-                    log.info("Geen berichtenopslag in gebruik; verbindingscheck niet van toepassing")
-
-                    return
-                }
-
-                throw IllegalStateException(
-                    "Deze dienst gebruikt de berichtenopslag, maar er is in profiel '$profile' geen adres " +
-                        "geconfigureerd (quarkus.redis.hosts). Zonder adres verbindt de client onversleuteld " +
-                        "en zonder wachtwoord met zijn eigen default.",
-                )
+                return
             }
 
-            metAdres.forEach { naam -> valideerClient(profile, config, naam, unsafeAllowPlaintext) }
-        }
-
-        internal fun redisExtensieAanwezig(): Boolean = try {
-            Class.forName(REDIS_EXTENSIE_KLASSE, false, RedisVerbindingValidator::class.java.classLoader)
-            true
-        } catch (_: ClassNotFoundException) {
-            false
+            clients.forEach { naam -> valideerClient(profile, config, naam, unsafeAllowPlaintext) }
         }
 
         private fun prefixVan(naam: String) = if (naam.isEmpty()) "quarkus.redis" else "quarkus.redis.$naam"
@@ -153,10 +135,11 @@ class RedisVerbindingValidator(
                 hostnameVerificatie = config
                     .getOptionalValue("$tlsPrefix.hostname-verification-algorithm", String::class.java)
                     .orElse("NONE"),
-                // Alleen op het client-eigen blok: de TLS-registry-bucket kent geen `enabled`,
-                // dus die sleutel daar lezen zou altijd false opleveren en de erkenning van een
-                // los ingeschakelde TLS juist wegnemen op het pad waar de registry gebruikt wordt.
-                tlsIngeschakeld = leesBoolean(config, "$prefix.tls.enabled"),
+                // `tls.enabled` geldt alleen zónder benoemde TLS-configuratie. Met een naam leest
+                // de client die sleutel niet en bepaalt uitsluitend het schema of er versleuteld
+                // wordt — hem daar tóch honoreren zou een `redis://`-adres als versleuteld laten
+                // doorgaan terwijl de verbinding plaintext is.
+                tlsIngeschakeld = tlsNaam.isEmpty() && leesBoolean(config, "$prefix.tls.enabled"),
                 unsafeAllowPlaintext = unsafeAllowPlaintext,
                 configPrefix = prefix,
             )
@@ -194,10 +177,11 @@ class RedisVerbindingValidator(
         ) {
             if (profile in PROFIELEN_ZONDER_TLS_EIS) return
 
+            // Een lege waarde op een client die wél geconfigureerd is: de Redis-client weigert
+            // hier zelf ("Redis host not configured"), maar stil overslaan zou deze check laten
+            // zwijgen over een client die hij nota bene zelf ontdekt heeft.
             if (hosts.isBlank()) {
-                log.info("$configPrefix.hosts is leeg; niets te beoordelen (de client faalt hier zelf op)")
-
-                return
+                throw IllegalStateException(meldingVoor(profile, listOf("$configPrefix.hosts is leeg")))
             }
 
             val adressen = hosts.split(",").map { it.trim() }.filter { it.isNotEmpty() }
