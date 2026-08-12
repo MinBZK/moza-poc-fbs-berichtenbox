@@ -141,16 +141,23 @@ internal inline fun <T> leesUitCache(log: Logger, context: String, block: () -> 
     try {
         mapUpstreamFout(log, context, block)
     } catch (e: SessiecacheException) {
-        val fout = e.naApiFout()
-
-        // De 409-gating is het normale verloop — een client die leest vóór of tijdens het
-        // ophalen krijgt hem standaard. Die op waarschuwingsniveau loggen zou het signaal
-        // verwateren dat voor de echte storingen bedoeld is.
-        if (e.isStoring()) {
-            log.warnf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, fout.response.status)
-        } else {
-            log.debugf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, fout.response.status)
-        }
-
-        throw fout
+        throw logEnVertaal(log, context, e)
     }
+
+/**
+ * Logt de cache-uitkomst en levert de bijbehorende fout. Eén plek, zodat de vertaling maar één
+ * keer gebeurt en het logniveau bij de uitkomst past: de 409-gating is het normale verloop — een
+ * client die leest vóór of tijdens het ophalen krijgt hem standaard — en die op
+ * waarschuwingsniveau loggen zou het signaal verwateren dat voor de echte storingen bedoeld is.
+ */
+internal fun logEnVertaal(log: Logger, context: String, e: SessiecacheException): WebApplicationException {
+    val fout = e.naApiFout()
+
+    if (e.isStoring()) {
+        log.warnf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, fout.response.status)
+    } else {
+        log.debugf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, fout.response.status)
+    }
+
+    return fout
+}
