@@ -132,12 +132,12 @@ jobs:
   # en `fuzz` (fuzz-ronde). Voor een bot-PR valt alléén het uitrollen af — tests, detekt en
   # fuzz draaien juist wél, want een dependency-bump hoort getoetst te worden.
   #
-  # Oorspronkelijke opzet: bepaalt één keer of deze revisie de bouw-en-deployketen in moet. De `gate`, de build-jobs en
-  # de deploy-preview-jobs hangen eraan; 'skipped' telt als succes voor de required checks, dus
-  # de merge blijft mogelijk. Op een push naar main draait alles altijd (run=true).
+  # De build-, gate- en deploy-preview-jobs hangen aan `deploy`; een via `if` overgeslagen job ín
+  # deze workflow telt als 'skipped' = succes voor de required checks, dus de merge blijft
+  # mogelijk. Op een push naar main staat alles aan.
   #
-  # Twee gevallen slaan we over:
-  # - Docs-only PR's (alleen docs/ of *.md): er is niets te draaien op ZAD.
+  # Twee gevallen rollen niet uit:
+  # - Wijzigingen die de uitgerolde applicatie niet raken (docs, bruno, demo, demo-console).
   # - PR's van een bot: `zad-actions` weigert die zelf (`skip-bot-prs`, default true), dus de
   #   preview komt er toch niet. Zonder deze uitsluiting bouwden en pushten we er wél drie
   #   images voor die nooit een pod bereiken — en de cleanup slaat bot-PR's óók over, dus die
