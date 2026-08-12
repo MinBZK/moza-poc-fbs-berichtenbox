@@ -668,7 +668,20 @@ jobs:
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
   deploy-test-uitvraag:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Expliciete statusfunctie i.p.v. de impliciete success(): die kijkt niet alleen naar de vier
+    # directe needs hieronder, maar transitief door naar hún needs — en `checks-fuzz` (PR-only) is
+    # bij een push naar main altijd 'skipped', wat de impliciete success() over de hele keten laat
+    # falen. `gate` ontsnapt daar zelf al aan met `!cancelled()`, maar dat beschermt alleen `gate`
+    # zelf, niet de jobs die van `gate` afhangen. Vandaar hier dezelfde `!cancelled()`-vorm, plus
+    # expliciete per-need result-checks zodat een échte build-/gate-fout deze job wél overslaat.
+    if: >-
+      !cancelled()
+      && needs.meta.result == 'success'
+      && needs.build.result == 'success'
+      && needs.build-externe-stubs.result == 'success'
+      && needs.gate.result == 'success'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -695,7 +708,16 @@ jobs:
             ]
 
   deploy-test-externe-stubs:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Zelfde reden als deploy-test-uitvraag hierboven: impliciete success() over de needs-keten
+    # wordt vergiftigd door het op push altijd-geskipte `checks-fuzz`, ook al is `gate` zelf groen.
+    if: >-
+      !cancelled()
+      && needs.meta.result == 'success'
+      && needs.build.result == 'success'
+      && needs.build-externe-stubs.result == 'success'
+      && needs.gate.result == 'success'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -718,7 +740,16 @@ jobs:
             ]
 
   deploy-test-magazijnen:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Zelfde reden als deploy-test-uitvraag hierboven: impliciete success() over de needs-keten
+    # wordt vergiftigd door het op push altijd-geskipte `checks-fuzz`, ook al is `gate` zelf groen.
+    if: >-
+      !cancelled()
+      && needs.meta.result == 'success'
+      && needs.build.result == 'success'
+      && needs.build-externe-stubs.result == 'success'
+      && needs.gate.result == 'success'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
     needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
