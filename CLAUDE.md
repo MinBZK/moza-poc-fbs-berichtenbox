@@ -11,8 +11,9 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **Domeinbegrippen blijven Nederlands:** bericht, magazijn, ontvanger, afzender, ophalen, aanleveren, sessie. Ook in code (`meldFout`, `toegestaan`, `drempel`).
-- **Vaste technische idiomen blijven Engels en worden NIET vertaald.** Patroon-, concurrency- en infrastructuurjargon hebben een herkenbare Engelse standaardvorm; vertalen maakt ze juist minder leesbaar. Voorbeelden: circuit breaker, bulkhead, (half-open) probe, acquire/release pairing, starvation, retry, backoff, timeout, permit, semaphore. Dus `probe`/`pairing`/`starvation`, niet `proef`/`paring`/`uithongeren`.
+- **Vaste technische idiomen blijven Engels en worden NIET vertaald.** Patroon-, concurrency- en infrastructuurjargon hebben een herkenbare Engelse standaardvorm; vertalen maakt ze juist minder leesbaar. Voorbeelden: circuit breaker, bulkhead, (half-open) probe, acquire/release pairing, starvation, retry, backoff, timeout, permit, semaphore, stream, connection. Dus `probe`/`pairing`/`starvation`/`stream`/`connection`, niet `proef`/`paring`/`uithongeren`/`stroom`/`verbinding`.
 - **Twijfel?** Is de Engelse vorm de term die in de docs/libraries van dát patroon staat? Dan niet vertalen.
+- **Uitzondering: user-facing tekst.** Deze grens geldt voor identifiers en code-comments, niet voor Nederlandse tekst die rechtstreeks aan een gebruiker of operator getoond wordt (foutmeldingen, UI-labels, alerts). Die blijft Nederlands, ook als de onderliggende oorzaak een technisch idioom is: een UI-string als `'geen verbinding: ' + fout` is prima, ook al heet de variabele in de code zelf `connection`.
 
 ## Technische stack
 
