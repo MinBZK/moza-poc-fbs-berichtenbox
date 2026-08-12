@@ -61,7 +61,7 @@ Er zijn twee modi met dezelfde compose:
 
 | Commando | Wat draait | Wanneer |
 |---|---|---|
-| `docker compose up -d` | Alleen infra (Redis, Postgres, WireMock-stubs, ClickHouse) | **Ontwikkelen** — draai services zelf met `./mvnw quarkus:dev` (hot reload) |
+| `docker compose up -d` | Alleen infra (Redis, de drie Postgres-instanties, WireMock-stubs) | **Ontwikkelen** — draai services zelf met `./mvnw quarkus:dev` (hot reload) |
 | `docker compose --profile demo up -d` | Alles: infra + de drie services + demo-console + Toxiproxy + stub-magazijnen | **Demo** |
 
 > **Draai altijd eerst §3**, óók als je "veel magazijnen" niet demonstreert. `demo/generated/` is
@@ -91,8 +91,8 @@ Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-vo
 | profiel-service | 8089 | Profiel-stub (welke magazijnen per persona) |
 | redis | 6379 | Sessiecache + ontdubbel-markers |
 | aanmeld-stub / notificatie-stub | 8083 / 8084 | Downstreams van de publicatiestroom |
-| postgres-a / -b | 5432 / 5433 | Databases van de echte magazijnen |
-| clickhouse | 8123 | Logboek Dataverwerkingen (LDV) |
+| postgres-a / -b | 5432 / 5433 | Databases van de echte magazijnen, inclusief hun eigen logboek |
+| postgres-uitvraag | 5434 | Logboek Dataverwerkingen (LDV) van de uitvraag |
 
 De uitvraag loopt in de demo door Toxiproxy voor redis, profiel en de twee echte magazijnen; de
 magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze per knop uit kunnen.
