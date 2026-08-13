@@ -10,6 +10,14 @@ on:
 
 permissions: read-all
 
+# Een opvolgende push maakt de vorige analyse achterhaald: die draait ~6 minuten door voor een
+# uitkomst die niemand meer leest. Alleen voor PR's annuleren — op main is elke analyse de
+# baseline van dát commit, en de Scorecard-SAST-check kijkt of een gemergede PR een CodeQL-upload
+# had. Die upload komt van de laatste run op de PR, en die wordt hier nooit geannuleerd.
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # CodeQL draait op ELKE PR, óók docs-only. De OpenSSF Scorecard SAST-check bemonstert de
 # laatste ~30 gemergede PRs en kijkt per PR of er een CodeQL-SARIF-upload was; één overgeslagen
 # analyse laat die PR ongedekt en verlaagt de check-score. CodeQL analyseert bovendien de hele

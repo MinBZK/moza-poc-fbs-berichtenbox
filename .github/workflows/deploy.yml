@@ -182,10 +182,19 @@ jobs:
           echo "Gewijzigde bestanden:"
           printf '%s\n' "$files"
 
-          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
+          # Paden die noch de gebouwde images noch de uitrol kunnen veranderen: documentatie, de
+          # Bruno-collectie, de fuzz-configuratie en de workflows die uitsluitend toetsen. Zonder
+          # dit filter kostte een PR aan bijvoorbeeld de fuzz-configuratie tóch twee jib-builds
+          # plus drie previews — uitrollen van een image dat per definitie gelijk is aan main.
+          #
+          # deploy.yml zelf, .github/actions/ en de zad-actions staan er bewust NIET bij: die
+          # bepalen de uitrol, dus juist daar is een preview het bewijs dat de wijziging klopt.
+          niet_deploybaar='(^docs/|\.md$|^bruno/|^\.clusterfuzzlite/|^\.github/workflows/(test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fuzz-base-image)\.yml$)'
+
+          if printf '%s\n' "$files" | grep -qvE "$niet_deploybaar"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Alleen documentatie gewijzigd — deploy overgeslagen."
+            echo "Geen wijziging die de images of de uitrol raakt — bouwen en deployen overgeslagen."
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
