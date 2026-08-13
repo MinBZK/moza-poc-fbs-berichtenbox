@@ -10,7 +10,15 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/../../../lib/fsc-harness.sh"
 
 # Zet $HAVE_JQ; de vergelijking van de bestaande upstream leest de controller-JSON met jq.
+#
+# Meteen hard falen en niet pas bij de vergelijking: die tak wordt alleen geraakt als de dienst al
+# bestaat, dus zonder deze controle slaagt de eerste run op een machine zonder jq en faalt elke
+# volgende — een verschil dat je aan het script niet ziet.
 fsc_have_jq
+[ "$HAVE_JQ" -eq 1 ] || {
+  echo "FAIL: jq is vereist; dit script vergelijkt de bestaande upstream met de controller-JSON." >&2
+  exit 1
+}
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
@@ -87,13 +95,8 @@ if printf '%s' "$BESTAAND" | grep -q "\"$SERVICE_NAME\""; then
   #
   # Met jq en niet met grep: een grep-patroon over JSON breekt zodra het antwoord met spaties wordt
   # opgemaakt, en de URL zou als regex worden gelezen (een punt matcht dan elk teken).
-  if [ "$HAVE_JQ" -eq 1 ]; then
-    HUIDIGE_URL="$(printf '%s' "$BESTAAND" \
-      | jq -r --arg n "$SERVICE_NAME" '.services[]? | select(.name == $n) | .endpoint_url' 2>/dev/null || true)"
-  else
-    echo "FAIL: jq is vereist om de bestaande upstream te vergelijken." >&2
-    exit 1
-  fi
+  HUIDIGE_URL="$(printf '%s' "$BESTAAND" \
+    | jq -r --arg n "$SERVICE_NAME" '.services[]? | select(.name == $n) | .endpoint_url' 2>/dev/null || true)"
 
   if [ "$HUIDIGE_URL" = "$UPSTREAM_URL" ]; then
     echo "  bestaat al met dezelfde upstream, skip create."

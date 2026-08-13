@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag
 
 import nl.rijksoverheid.moz.fbs.common.fsc.ProfielFscOutwayHeadersFilter
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.util.Properties
@@ -25,6 +26,36 @@ class ApplicationPropertiesTest {
         assertEquals(
             "\${PROFIEL_SERVICE_GRANT_HASH:}",
             properties.getProperty(ProfielFscOutwayHeadersFilter.CONFIG_KEY),
+        )
+    }
+
+    /**
+     * Elk geconfigureerd magazijn moet een `grantHash`-sleutel hebben, ook zonder contract.
+     *
+     * Ontbreekt hij, dan levert de contract-bootstrap wel een `MAGAZIJN_<X>_GRANT_HASH` maar bindt
+     * niets die waarde: dat magazijn wordt zónder `Fsc-Grant-Hash` aangeroepen — dus buiten de
+     * FSC-keten om — terwijl zowel de bootstrap als het ophalen groen melden. Een lege env-var is
+     * de veilige uitkomst; een ontbrekende sleutel is onzichtbaar.
+     */
+    @Test
+    fun `elk magazijn met een url heeft ook een grantHash-sleutel`() {
+        val properties = Properties().apply {
+            File("src/main/resources/application.properties").inputStream().use { load(it) }
+        }
+
+        val urlSleutel = Regex("""^magazijnen\."(\d+)"\.url$""")
+        val oins = properties.stringPropertyNames()
+            .mapNotNull { urlSleutel.find(it)?.groupValues?.get(1) }
+            .toSortedSet()
+
+        assertTrue(oins.isNotEmpty(), "geen enkel magazijn in application.properties — deze test meet niets")
+
+        val zonderGrantHash = oins.filter { properties.getProperty("""magazijnen."$it".grantHash""") == null }
+
+        assertEquals(
+            emptyList<String>(),
+            zonderGrantHash,
+            "magazijn(en) zonder grantHash-sleutel: die worden buiten de FSC-keten om aangeroepen",
         )
     }
 
