@@ -136,6 +136,10 @@ done
 
 # Nul magazijnen is geen succes maar een lege configuratie.
 if [ "$GEDAAN" -eq 0 ] && [ "$FOUTEN" -eq 0 ]; then
+  # Ook hier het oude bestand weg, om dezelfde reden als bij de foutuitgang hieronder: een
+  # grant-hash van een vorige federatie zou anders blijven staan en de demo-stack een dode grant
+  # laten sturen. `MAGAZIJNEN` met alleen spaties komt langs de `:?`-controle hierboven.
+  rm -f "$GRANTS"
   echo "FAIL: MAGAZIJNEN is leeg; er is geen enkel contract opgezet." >&2
   exit 1
 fi

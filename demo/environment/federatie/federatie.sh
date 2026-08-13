@@ -351,7 +351,10 @@ case "${1:-}" in
     echo
     echo "listeners in de gedeelde netns:"
     # Stderr apart houden: gevouwen in de lijst zou een foutregel hieronder als wildcard-bind lezen.
-    ALLE="$(ss -ltnH 2>"$ERRLOG" | awk '{print $4}' | sort -u -t: -k2 -n || true)"
+    # Eerst ontdubbelen, dán op poort ordenen. `sort -u -t: -k2 -n` vergelijkt alléén de sleutel,
+    # dus alle listeners op dezelfde poort vallen samen tot één regel — en laat je juist de
+    # wildcard-bind verdwijnen die de controle hieronder moet tonen.
+    ALLE="$(ss -ltnH 2>"$ERRLOG" | awk '{print $4}' | sort -u | sort -t: -k2 -n || true)"
     fsc_warn_errlog "ss faalde"
     if [ -n "$ALLE" ]; then
       printf '%s\n' "$ALLE" | sed 's/^/  /'

@@ -89,6 +89,31 @@ bind_lek=$(jq -r --arg re "$LEK" --arg kaal "$KAAL_LEK" '.services | to_entries[
   | select(test($re) or test($kaal))
   | "\($s.key): \(.)"' <<<"$MERGED")
 
+# De checks hierboven toetsen een bind-adres dát er staat. Een ONTBREKENDE bind-directive ontsnapt
+# daaraan: valt `command:` weg uit de overlay, dan erft de service de image-default (`0.0.0.0`) en
+# is er niets meer om op te matchen. Per image-familie dus eisen dát de directive er is én dat hij
+# op loopback staat — dezelfde vorm als de postgres-controle hieronder, die dit al deed.
+#
+# Alleen families die in deze repo voorkomen; een service zonder van deze images valt terug op de
+# waarde-checks hierboven.
+bind_mist=$(jq -r '.services | to_entries[] | . as $s
+  | ($s.value.image // "") as $img
+  | ((($s.value.command // []) + ($s.value.entrypoint // [])) | map(select(type == "string")) | join(" ")) as $cmd
+  | ($s.value.environment // {}) as $env
+  | if ($img | test("redis")) then
+      (if ($cmd | test("--bind +127\\.")) then empty
+       else "\($s.key): redis zonder `--bind 127.x` (image-default is elke interface)" end)
+    elif ($img | test("wiremock")) then
+      (if ($cmd | test("--bind-address +127\\.")) then empty
+       else "\($s.key): wiremock zonder `--bind-address 127.x` (image-default is elke interface)" end)
+    elif ($img | test("toxiproxy")) then
+      (if ($cmd | test("-host=127\\.")) then empty
+       else "\($s.key): toxiproxy zonder `-host=127.x` (image-default is elke interface)" end)
+    elif ($env | has("QUARKUS_HTTP_HOST")) then
+      (if (($env.QUARKUS_HTTP_HOST // "") | tostring | test("^127\\.")) then empty
+       else "\($s.key): QUARKUS_HTTP_HOST=\($env.QUARKUS_HTTP_HOST) staat niet op 127.x" end)
+    else empty end' <<<"$MERGED")
+
 # De overlay hoort elke `ports:` uit de basis te resetten; een gepubliceerde poort in een gedeelde
 # netns is betekenisloos en verraadt een vergeten `!reset`.
 poorten=$(jq -r '.services | to_entries[]
@@ -158,6 +183,7 @@ meld "bind-adres dat niet op loopback staat:" "$bind_lek"
 meld "nog een gepubliceerde poort in de merge (mist een 'ports: !reset []'):" "$poorten"
 meld "onbegrensde herstartlus (zet een maximum in de overlay):" "$ongelimiteerd"
 meld "postgres luistert niet uitsluitend op loopback (127.x):" "$pg_lek"
+meld "bind-directive ontbreekt of staat niet op loopback:" "$bind_mist"
 meld "postgres zonder expliciete listen_addresses (het image kiest dan '*'):" "$pg_mist"
 meld "bind-regel in de gemounte haproxy-config die niet op loopback (127.x) staat:" "$haproxy_lek"
 

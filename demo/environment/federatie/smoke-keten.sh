@@ -130,12 +130,9 @@ if PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/docker-com
     comm -12 <(printf '%s\n' "$uit") <(printf '%s\n' "$in")
   }
 
-  # Mislukt de nulmeting, dan mag assert 2 niet "alles is nieuw" concluderen: dat zou juist
-  # vals-groen zijn op een transactie uit een eerdere run.
-  if VOOR="$(gedeelde_txids)"; then VOOR_OK=1; else VOOR_OK=0; VOOR=""; fi
+  TXLOG_LEESBAAR=1
 else
-  VOOR_OK=0
-  VOOR=""
+  TXLOG_LEESBAAR=0
 fi
 
 # De inway moet naar het ECHTE magazijn wijzen. Dat hier afdwingen en niet als voorwaarde aan de
@@ -178,6 +175,17 @@ if fsc_zet_upstream "$ENVDIR" magazijn-a "${MAGAZIJN_A_UPSTREAM:-http://127.0.0.
   fi
 else
   fout "kon de upstream van magazijn-a niet zetten: $(fsc_last_error)"
+fi
+
+# Nulmeting NA stap 0, niet ervoor: die probe gaat zelf door de outway naar de inway en schrijft
+# dus een rij in beide txlogs. Stond de nulmeting ervóór, dan telde die rij als "nieuw" en kon
+# assert 2 nooit rood worden — ook niet als de uitvraag rechtstreeks met het magazijn praat, wat
+# precies het geval is dat deze smoke moet uitsluiten.
+if [ "$TXLOG_LEESBAAR" -eq 1 ] && VOOR="$(gedeelde_txids)"; then
+  VOOR_OK=1
+else
+  VOOR_OK=0
+  VOOR=""
 fi
 
 # --- 1. Data-pad ---------------------------------------------------------------------------------

@@ -302,6 +302,7 @@ jobs:
                  demo/environment/federatie/contracts/*.sh \
                  demo/environment/*/deploy/local/*.sh \
                  demo/environment/*/pki/*.sh \
+                 demo/*.sh \
                  .github/scripts/*.sh; then
             fail=1
           fi
