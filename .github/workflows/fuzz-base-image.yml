@@ -1,0 +1,82 @@
+# Bouwt het basis-image voor de fuzz-controle: de OSS-Fuzz-JVM-builder met de JDK 21 en een
+# warme Maven-repository erin. Dat werk verandert alleen als de dependency-declaraties
+# veranderen, dus het hoort hier en niet in elke fuzz-run.
+#
+# `.clusterfuzzlite/Dockerfile` pint dit image op digest. Na een bouw hier moet die pin dus
+# bijgewerkt worden; de bouw print de nieuwe digest en de guard-job in `cflite_pr.yml`
+# controleert dat de pin bij de huidige pom's hoort.
+name: Fuzz-basis-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/pom.xml'
+      - '.mvn/**'
+      - 'mvnw'
+      - '.clusterfuzzlite/base/Dockerfile'
+      - '.github/workflows/fuzz-base-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/fbs-fuzz-base
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # De pom-hash is de identiteit van dit image: gelijke pom's = gelijke warme repository.
+      # Hij wordt als label meegebakken zodat de guard in de fuzz-workflow kan vaststellen of
+      # de gepinde digest nog bij de huidige pom's hoort.
+      - name: Bepaal de pom-hash
+        id: hash
+        run: echo "poms=${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Inloggen op ghcr
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Tag op de pom-hash: een ongewijzigde dependency-set levert dezelfde tag en overschrijft
+      # zichzelf, een gewijzigde krijgt een eigen tag. Geen bewegende `latest` — de fuzz-workflow
+      # pint op digest.
+      - name: Bouwen en pushen
+        id: push
+        env:
+          POMS: ${{ steps.hash.outputs.poms }}
+        run: |
+          set -euo pipefail
+          docker build \
+            -f .clusterfuzzlite/base/Dockerfile \
+            --label "nl.rijksoverheid.moz.poms-hash=$POMS" \
+            -t "$IMAGE:poms-$POMS" \
+            .
+          docker push "$IMAGE:poms-$POMS"
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:poms-$POMS")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Toon de pin die in .clusterfuzzlite/Dockerfile hoort
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          POMS: ${{ steps.hash.outputs.poms }}
+        run: |
+          {
+            echo "### Fuzz-basis-image gebouwd"
+            echo
+            echo "Zet dit in \`.clusterfuzzlite/Dockerfile\`:"
+            echo
+            echo '```dockerfile'
+            echo "FROM $DIGEST"
+            echo '```'
+            echo
+            echo "pom-hash: \`$POMS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
