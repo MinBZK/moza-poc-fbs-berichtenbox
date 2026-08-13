@@ -28,10 +28,10 @@ ENVDIR="$(cd "${FEDDIR}/.." && pwd)"
 : "${MAGAZIJNEN:?geen MAGAZIJNEN in peers.env}"
 : "${MAGAZIJN_DIENST:?geen MAGAZIJN_DIENST in peers.env}"
 
-CONS_BLOK="$(fsc_peer_waarde BLOK "$UITVRAAG")"
+CONS_NET="$(fsc_peer_waarde NET "$UITVRAAG")"
 CONS_OIN="$(fsc_peer_waarde OIN "$UITVRAAG")"
-[ -n "$CONS_BLOK" ] && [ -n "$CONS_OIN" ] || {
-  echo "FAIL: BLOK_/OIN_ ontbreekt voor de uitvraag-peer '${UITVRAAG}' in peers.env." >&2
+[ -n "$CONS_NET" ] && [ -n "$CONS_OIN" ] || {
+  echo "FAIL: NET_/OIN_ ontbreekt voor de uitvraag-peer '${UITVRAAG}' in peers.env." >&2
   exit 1
 }
 
@@ -39,11 +39,11 @@ FOUTEN=0
 GEDAAN=0
 
 for magazijn in $MAGAZIJNEN; do
-  PROV_BLOK="$(fsc_peer_waarde BLOK "$magazijn")"
+  PROV_NET="$(fsc_peer_waarde NET "$magazijn")"
   PROV_OIN="$(fsc_peer_waarde OIN "$magazijn")"
 
-  if [ -z "$PROV_BLOK" ] || [ -z "$PROV_OIN" ]; then
-    echo "FAIL: BLOK_/OIN_ ontbreekt voor magazijn '${magazijn}' in peers.env." >&2
+  if [ -z "$PROV_NET" ] || [ -z "$PROV_OIN" ]; then
+    echo "FAIL: NET_/OIN_ ontbreekt voor magazijn '${magazijn}' in peers.env." >&2
     FOUTEN=$((FOUTEN + 1))
     continue
   fi
@@ -59,17 +59,19 @@ for magazijn in $MAGAZIJNEN; do
 
   echo "== contract ${UITVRAAG} -> ${magazijn} (${MAGAZIJN_DIENST}) =="
 
-  # De interne manager-API zit op blok+01; de outway van de consumer op blok+40. Die offsets staan
-  # in federatie/README.md en gelden voor elke peer gelijk.
+  # De interne manager-API zit op het manager-adres van de peer, op de standaardpoort 9443. De
+  # octet-toewijzing staat in federatie/README.md en geldt voor elke peer gelijk.
   if FSC_CONSUMER_OIN="$CONS_OIN" \
      FSC_PROVIDER_OIN="$PROV_OIN" \
      FSC_SERVICE_NAME="$MAGAZIJN_DIENST" \
      FSC_OUTWAY_CERT="${ENVDIR}/${UITVRAAG}/pki/out/${UITVRAAG}/outway/cert.pem" \
-     FSC_CONSUMER_MANAGER="https://manager.${UITVRAAG}.fsc-test.local:$((CONS_BLOK + 1))" \
+     FSC_CONSUMER_MANAGER="https://manager.${UITVRAAG}.fsc-test.local:9443" \
+     FSC_CONSUMER_ADRES="$(fsc_component_adres "$CONS_NET" manager)" \
      FSC_CONSUMER_CERT="${ENVDIR}/${UITVRAAG}/pki/internal/${UITVRAAG}/manager/cert.pem" \
      FSC_CONSUMER_KEY="${ENVDIR}/${UITVRAAG}/pki/internal/${UITVRAAG}/manager/key.pem" \
      FSC_CONSUMER_CA="${ENVDIR}/${UITVRAAG}/pki/internal/${UITVRAAG}/ca/root.pem" \
-     FSC_PROVIDER_MANAGER="https://manager.${magazijn}.fsc-test.local:$((PROV_BLOK + 1))" \
+     FSC_PROVIDER_MANAGER="https://manager.${magazijn}.fsc-test.local:9443" \
+     FSC_PROVIDER_ADRES="$(fsc_component_adres "$PROV_NET" manager)" \
      FSC_PROVIDER_CERT="${ENVDIR}/${magazijn}/pki/internal/${magazijn}/manager/cert.pem" \
      FSC_PROVIDER_KEY="${ENVDIR}/${magazijn}/pki/internal/${magazijn}/manager/key.pem" \
      FSC_PROVIDER_CA="${ENVDIR}/${magazijn}/pki/internal/${magazijn}/ca/root.pem" \

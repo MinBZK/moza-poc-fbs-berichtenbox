@@ -38,11 +38,13 @@ ok()   { echo "OK: $*"; }
 : "${MAGAZIJNEN:?geen MAGAZIJNEN in peers.env}"
 : "${MAGAZIJN_DIENST:?geen MAGAZIJN_DIENST in peers.env}"
 
-CONS_BLOK="$(fsc_peer_waarde BLOK "$UITVRAAG")"
+CONS_NET="$(fsc_peer_waarde NET "$UITVRAAG")"
 CONS_OIN="$(fsc_peer_waarde OIN "$UITVRAAG")"
-[ -n "$CONS_BLOK" ] && [ -n "$CONS_OIN" ] || { echo "FAIL: BLOK_/OIN_ ontbreekt voor '${UITVRAAG}'." >&2; exit 1; }
+[ -n "$CONS_NET" ] && [ -n "$CONS_OIN" ] || { echo "FAIL: NET_/OIN_ ontbreekt voor '${UITVRAAG}'." >&2; exit 1; }
 
-OUTWAY="http://127.0.0.1:$((CONS_BLOK + 40))"
+# De outway spreekt plain HTTP op zijn eigen adres; de mTLS begint pas aan de andere kant, richting
+# de inway van de provider.
+OUTWAY="http://$(fsc_component_adres "$CONS_NET" outway):8443"
 
 # Thumbprint van de consumer-outway — zelfde grootheid als bootstrap.sh gebruikt om een contract
 # te identificeren. Nodig om hier dezelfde matcher (fsc_grant_actief) te kunnen hergebruiken.
@@ -50,11 +52,12 @@ CONS_OUTWAY_CERT="${ENVDIR}/${UITVRAAG}/pki/out/${UITVRAAG}/outway/cert.pem"
 CONS_THUMB="$(fsc_outway_thumbprint "$CONS_OUTWAY_CERT")" \
   || { echo "FAIL: kon de outway-thumbprint niet berekenen uit ${CONS_OUTWAY_CERT}: $(fsc_last_error)" >&2; exit 1; }
 
-# manager_json <peer> <blok>: de contracten van die peer via zijn interne API (blok+01).
+# manager_json <peer> <net>: de contracten van die peer via zijn interne API. Elke manager luistert
+# op zijn eigen adres, op de standaardpoort 9443.
 manager_json() {
-  local peer="$1" blok="$2" naam="manager.$1.fsc-test.local" poort=$(( $2 + 1 ))
+  local peer="$1" net="$2" naam="manager.$1.fsc-test.local" poort=9443
   curl -sS --fail-with-body --noproxy '*' \
-    --resolve "${naam}:${poort}:127.0.0.1" \
+    --resolve "${naam}:${poort}:$(fsc_component_adres "$net" manager)" \
     --cert "${ENVDIR}/${peer}/pki/internal/${peer}/manager/cert.pem" \
     --key  "${ENVDIR}/${peer}/pki/internal/${peer}/manager/key.pem" \
     --cacert "${ENVDIR}/${peer}/pki/internal/${peer}/ca/root.pem" \
@@ -62,19 +65,19 @@ manager_json() {
 }
 
 for magazijn in $MAGAZIJNEN; do
-  PROV_BLOK="$(fsc_peer_waarde BLOK "$magazijn")"
+  PROV_NET="$(fsc_peer_waarde NET "$magazijn")"
   PROV_OIN="$(fsc_peer_waarde OIN "$magazijn")"
-  [ -n "$PROV_BLOK" ] && [ -n "$PROV_OIN" ] || { fout "BLOK_/OIN_ ontbreekt voor '${magazijn}'"; continue; }
+  [ -n "$PROV_NET" ] && [ -n "$PROV_OIN" ] || { fout "NET_/OIN_ ontbreekt voor '${magazijn}'"; continue; }
 
   echo "===== ${UITVRAAG} -> ${magazijn} ====="
 
   # --- 1. Contract op beide managers ------------------------------------------------------------
   echo "== 1. contract wederzijds ondertekend =="
   GRANT=""
-  for kant in "$UITVRAAG:$CONS_BLOK" "$magazijn:$PROV_BLOK"; do
-    peer="${kant%%:*}"; blok="${kant##*:}"
+  for kant in "$UITVRAAG:$CONS_NET" "$magazijn:$PROV_NET"; do
+    peer="${kant%%:*}"; net="${kant##*:}"
 
-    if ! JSON="$(manager_json "$peer" "$blok")"; then
+    if ! JSON="$(manager_json "$peer" "$net")"; then
       fout "${peer}: contracten niet op te halen: $(fsc_last_error)"
       continue
     fi
@@ -116,6 +119,11 @@ for magazijn in $MAGAZIJNEN; do
   # iets anders.
   if [ "$CODE" = "200" ] && printf '%s' "$PAYLOAD" | grep -qF "hello from ${magazijn}"; then
     ok "data-pad levert 200 met de echo van ${magazijn}"
+  elif printf '%s' "$PAYLOAD" | grep -qF "service could not be found"; then
+    # Een contract geeft toegang tot een dienst die gepubliceerd MOET zijn; is dat niet gebeurd, dan
+    # faalt de token-uitgifte diep in de keten (outway -> manager -> controller) met een kale 500
+    # waarin het woord 'contract' niet voorkomt. Zonder deze tak zoek je dat in de verkeerde hoek.
+    fout "de dienst '${MAGAZIJN_DIENST}' is niet gepubliceerd op ${magazijn} — draai eerst ${magazijn}/deploy/local/publish-service.sh (of smoke-federatie.sh, die publiceert 'm)"
   else
     fout "data-pad niet geslaagd (HTTP ${CODE:-<geen>}): $(printf '%s' "$PAYLOAD" | head -n1) $(fsc_last_error)"
   fi
@@ -134,7 +142,7 @@ for magazijn in $MAGAZIJNEN; do
   # de autorisatielaag hoort je alsnog te weigeren.
   INWAY_NAAM="inway.${magazijn}.fsc-test.local"
   ZONDER_TOKEN="$(curl -sS --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 15 \
-                    --resolve "${INWAY_NAAM}:443:127.0.0.1" \
+                    --resolve "${INWAY_NAAM}:443:${ADRES_ROUTER}" \
                     --cert "${ENVDIR}/${UITVRAAG}/pki/out/${UITVRAAG}/outway/cert.pem" \
                     --key  "${ENVDIR}/${UITVRAAG}/pki/out/${UITVRAAG}/outway/key.pem" \
                     --cacert "${ENVDIR}/${UITVRAAG}/pki/ca/root.pem" \
@@ -181,9 +189,9 @@ done
 # canonieke contract-hash vóór en na is de eigenlijke garantie.
 echo "===== 5. idempotentie ====="
 
-contract_hashes_per_magazijn() {  # gebruikt $UITVRAAG/$CONS_BLOK/$CONS_THUMB uit de buitenste scope
+contract_hashes_per_magazijn() {  # gebruikt $UITVRAAG/$CONS_NET/$CONS_THUMB uit de buitenste scope
   local json magazijn prov_oin hash
-  json="$(manager_json "$UITVRAAG" "$CONS_BLOK")" || json=""
+  json="$(manager_json "$UITVRAAG" "$CONS_NET")" || json=""
   for magazijn in $MAGAZIJNEN; do
     prov_oin="$(fsc_peer_waarde OIN "$magazijn")"
     hash="$(fsc_grant_actief "$json" "$MAGAZIJN_DIENST" "$prov_oin" "$CONS_OIN" "$CONS_THUMB" \
