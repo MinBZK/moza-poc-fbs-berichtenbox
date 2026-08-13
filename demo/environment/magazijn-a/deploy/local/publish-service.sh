@@ -19,7 +19,10 @@ GROUP_ID="moza-fbs-test"                 # = GROUP_ID env-var op de manager; als
 # overrulebaar, met de standalone-waarde als default. Geprefixt met FSC_ omdat een kale `MANAGER=`
 # in iemands shell anders stilzwijgend een mTLS-call mét het internal-cert van deze peer naar een
 # vreemd endpoint zou sturen.
-STUB_URL="${FSC_STUB_URL:-http://stub-upstream:8080}"
+# De dienst wijst naar de upstream die de inway fronter. In de kale harness is dat de
+# http-echo-stub; zodra de echte applicatie erachter hangt, is het die. FSC_STUB_URL blijft als
+# oude naam werken zodat bestaande aanroepen niet stilvallen.
+UPSTREAM_URL="${FSC_UPSTREAM_URL:-${FSC_STUB_URL:-http://stub-upstream:8080}}"
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CERT=/pki/internal/magazijn-a/manager/cert.pem
@@ -41,14 +44,14 @@ case "$MANAGER" in
   *) echo "FAIL: FSC_MANAGER moet met https:// beginnen: '${MANAGER}'" >&2; exit 2 ;;
 esac
 
-# STUB_URL gaat ongeëscaped een handgebouwde JSON-body in (CreateService, hieronder). Een
+# UPSTREAM_URL gaat ongeëscaped een handgebouwde JSON-body in (CreateService, hieronder). Een
 # aanhalingsteken zou daar uit de string breken en velden kunnen toevoegen.
-case "$STUB_URL" in
+case "$UPSTREAM_URL" in
   http://*|https://*) ;;
-  *) echo "FAIL: FSC_STUB_URL moet met http:// of https:// beginnen: '${STUB_URL}'" >&2; exit 2 ;;
+  *) echo "FAIL: FSC_UPSTREAM_URL moet met http:// of https:// beginnen: '${UPSTREAM_URL}'" >&2; exit 2 ;;
 esac
-case "$STUB_URL" in
-  *'"'*|*'\'*) echo "FAIL: FSC_STUB_URL bevat een aanhalingsteken of backslash." >&2; exit 2 ;;
+case "$UPSTREAM_URL" in
+  *'"'*|*'\'*) echo "FAIL: FSC_UPSTREAM_URL bevat een aanhalingsteken of backslash." >&2; exit 2 ;;
 esac
 
 # Vang curl-/toolbox-stderr op i.p.v. weg te gooien: een mTLS-/netwerk-/dode-container-fout
@@ -77,7 +80,7 @@ if fsc_tb "$CONTROLLER/v1/services" | grep -q "\"$SERVICE_NAME\""; then
   echo "  bestaat al, skip create."
 else
   fsc_tb -X POST "$CONTROLLER/v1/services" -H 'Content-Type: application/json' \
-     -d "{\"name\":\"$SERVICE_NAME\",\"endpoint_url\":\"$STUB_URL\",\"inway_address\":\"$INWAY_ADDR\"}"
+     -d "{\"name\":\"$SERVICE_NAME\",\"endpoint_url\":\"$UPSTREAM_URL\",\"inway_address\":\"$INWAY_ADDR\"}"
   echo "  aangemaakt."
 fi
 
