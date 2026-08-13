@@ -2,7 +2,6 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 import io.quarkus.narayana.jta.QuarkusTransaction
 import io.quarkus.test.junit.QuarkusTest
-import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import jakarta.persistence.EntityManager
@@ -30,7 +29,7 @@ import java.util.UUID
  *  - Outbox groeit niet onbeperkt onder normale werking.
  */
 @QuarkusTest
-@TestProfile(PublicatieDeliveriesOpschonerIntegrationTest.SoloProfile::class)
+@TestProfile(SoloDownstreamProfile::class)
 class PublicatieDeliveriesOpschonerIntegrationTest {
 
     @Inject
@@ -137,12 +136,5 @@ class PublicatieDeliveriesOpschonerIntegrationTest {
         // Geen rijen → geen DELETE; methode moet rustig terugkeren.
         opschoner.verwijderTerminaleRijen()
         assertNotNull(opschoner)
-    }
-
-    class SoloProfile : QuarkusTestProfile {
-        override fun getConfigOverrides(): Map<String, String> = mapOf(
-            "magazijn.publicatie.downstreams.aanmeld.url" to "http://localhost:1/events",
-            "quarkus.scheduler.enabled" to "false",
-        )
     }
 }
