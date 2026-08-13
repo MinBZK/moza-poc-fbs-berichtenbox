@@ -14,13 +14,16 @@ SERVICE_NAME="berichtenmagazijn"
 PROVIDER_OIN="00000000000000100000"
 DIR_OIN="00000000000000000010"
 GROUP_ID="moza-fbs-test"                 # = GROUP_ID env-var op de manager; als de manager een directory-adres verwacht, gebruik DIRECTORY_MANAGER_ADDRESS
-STUB_URL="http://stub-upstream:8080"
+# STUB_URL/CONTROLLER/MANAGER zijn overrulebaar omdat de poortindeling niet vaststaat: draait
+# deze peer naast een andere in één netns (zie ../../../federatie/), dan verhuist elke listener
+# naar het peer-blok. De defaults zijn de standalone-waarden, dus zonder env verandert er niets.
+STUB_URL="${STUB_URL:-http://stub-upstream:8080}"
 
 CERT=/pki/internal/magazijn-a/manager/cert.pem
 KEY=/pki/internal/magazijn-a/manager/key.pem
 CA=/pki/internal/magazijn-a/ca/root.pem
-CONTROLLER=https://controller.magazijn-a.fsc-test.local:9444
-MANAGER=https://manager.magazijn-a.fsc-test.local:9443
+CONTROLLER="${CONTROLLER:-https://controller.magazijn-a.fsc-test.local:9444}"
+MANAGER="${MANAGER:-https://manager.magazijn-a.fsc-test.local:9443}"
 
 # Vang curl-/toolbox-stderr op i.p.v. weg te gooien: een mTLS-/netwerk-/dode-container-fout
 # mag niet als "nog niet klaar" maskeren (spiegelt smoke-announce.sh). Surface 'm in de loop.
