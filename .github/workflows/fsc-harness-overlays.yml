@@ -229,6 +229,10 @@ jobs:
       - name: shellcheck + bash-unittests
         # De harness is bash, en de bash-tests die er zijn (demo/environment/lib/test-*.sh) draaiden
         # tot nu toe nergens automatisch. Zonder deze stap rot elke test die eraan wordt toegevoegd.
+        #
+        # `deploy/zad/*.sh` valt bewust buiten de globs: die scripts dragen bestaande
+        # SC2034-bevindingen die losstaan van de lokale harness. Ze erbij nemen vergt eerst die
+        # opruiming; anders zou deze stap rood staan op iets wat hij niet bewaakt.
         run: |
           set -euo pipefail
 

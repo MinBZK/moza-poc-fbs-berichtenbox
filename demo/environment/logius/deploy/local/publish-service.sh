@@ -3,16 +3,13 @@
 # publiceert 'm via een servicePublication-contract op de eigen manager Internal-API.
 # Idempotent: slaat create/publish over als ze er al zijn. Manager hasht+signt het
 # contract server-side; de directory (AUTO_SIGN_GRANTS=servicePublication) auto-accept.
-# fsc_tb() en de andere helpers uit lib/fsc-harness.sh lezen COMPOSE/CERT/KEY/CA uit de
-# caller-scope. Shellcheck ziet die koppeling niet en vlagt ze als ongebruikt.
-# shellcheck disable=SC2034
 set -euo pipefail
-
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
 
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
 SERVICE_NAME="profiel-service"
 PROVIDER_OIN="00000000000000001000"
@@ -24,8 +21,11 @@ GROUP_ID="moza-fbs-test"
 # vreemd endpoint zou sturen.
 STUB_URL="${FSC_STUB_URL:-http://stub-upstream:8080}"
 
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CERT=/pki/internal/logius/manager/cert.pem
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 KEY=/pki/internal/logius/manager/key.pem
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CA=/pki/internal/logius/ca/root.pem
 CONTROLLER="${FSC_CONTROLLER:-https://controller.logius.fsc-test.local:9444}"
 MANAGER="${FSC_MANAGER:-https://manager.logius.fsc-test.local:9443}"

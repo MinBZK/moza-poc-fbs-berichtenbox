@@ -13,15 +13,22 @@
 #                   zetten de gasten hem in een inactief profiel en rendert hij dus niet mee.
 #
 # Bestaat als apart script omdat twee jobs dezelfde merge moeten toetsen: de drie-bestands-merge
-# (peer standalone) en de vier-bestands-merge (peer in de federatie). Stonden de checks in de
-# eerste job, dan zou de federatie-laag — de láátste overlay, die alle peers in één netns zet —
-# ongecontroleerd blijven. Dat is niet hypothetisch: een `listen_addresses=*` of een `0.0.0.0`-bind
-# die alleen in de federatie-overlay staat, passeerde beide jobs.
+# (peer standalone) en de vier-bestands-merge (peer in de federatie). Elke laag kan een listener
+# introduceren, en alleen de LAATSTE merge is wat er draait — een controle die alleen de eerste
+# merge ziet, mist per definitie alles wat de federatie-overlay toevoegt.
 set -euo pipefail
 
 LABEL="${1:?usage: merge-guard.sh <label> [--postgres]}"
+shift
 EIS_POSTGRES=0
-[ "${2:-}" = "--postgres" ] && EIS_POSTGRES=1
+# Expliciet afwijzen i.p.v. negeren: een verkeerd gespelde of verkeerd geplaatste vlag zou de
+# postgres-eis anders zwijgend uitschakelen.
+for arg in "$@"; do
+  case "$arg" in
+    --postgres) EIS_POSTGRES=1 ;;
+    *) echo "FOUT: onbekend argument '$arg' voor merge-guard.sh." >&2; exit 2 ;;
+  esac
+done
 
 MERGED="$(cat)"
 [ -n "$MERGED" ] || { echo "FOUT: ${LABEL} — lege merge op stdin."; exit 1; }
@@ -93,17 +100,18 @@ pg_lek=$(jq -r '.services | to_entries[] | . as $s
   | select(test("listen_addresses=127\\.0\\.0\\.1") | not)
   | "\($s.key): \(.)"' <<<"$MERGED")
 
-pg_mist=""
-if [ "$EIS_POSTGRES" -eq 1 ]; then
-  pg_mist=$(jq -r '.services | to_entries[]
-    | select(.key == "postgres")
-    | select(((.value.command // []) | map(select(test("listen_addresses="))) | length) == 0)
-    | .key' <<<"$MERGED")
+# De eis "expliciete listen_addresses" geldt zodra er een postgres in de merge zit — óók zonder
+# --postgres. Die vlag stuurt alleen of postgres AANWEZIG moet zijn. Hing de eis aan de vlag, dan
+# zou een gast die zijn postgres uit het inactieve profiel haalt het image-default
+# `listen_addresses='*'` krijgen: de DB met harness-credentials op elke interface, en de guard groen.
+pg_mist=$(jq -r '.services | to_entries[]
+  | select(.key == "postgres")
+  | select(((.value.command // []) | map(select(test("listen_addresses="))) | length) == 0)
+  | .key' <<<"$MERGED")
 
-  if [ "$(jq -r '.services | has("postgres")' <<<"$MERGED")" != "true" ]; then
-    echo "FOUT: ${LABEL} — geen postgres-service in de merge, terwijl --postgres is meegegeven."
-    fail=1
-  fi
+if [ "$EIS_POSTGRES" -eq 1 ] && [ "$(jq -r '.services | has("postgres")' <<<"$MERGED")" != "true" ]; then
+  echo "FOUT: ${LABEL} — geen postgres-service in de merge, terwijl --postgres is meegegeven."
+  fail=1
 fi
 
 # haproxy opent zijn poort uit een gemounte configfile en ontsnapt dus aan elke controle op de
@@ -119,6 +127,14 @@ if [ "$(jq -r '.services | has("router")' <<<"$MERGED")" = "true" ]; then
     echo "FOUT: ${LABEL} — router mount geen leesbare haproxy-config (${cfg:-<geen>})."
     fail=1
   else
+    # Vloer onder het aantal bind-regels: verhuizen ze naar een `include` of naar een runtime
+    # gegenereerde config, dan meet deze check niets meer terwijl hij groen blijft.
+    binds=$(grep -cE '^[[:space:]]*bind[[:space:]]' "$cfg" || true)
+    if [ "${binds:-0}" -eq 0 ]; then
+      echo "FOUT: ${LABEL} — geen enkele bind-regel in ${cfg}; deze check meet niets."
+      fail=1
+    fi
+
     haproxy_lek=$(grep -nE '^[[:space:]]*bind[[:space:]]' "$cfg" \
       | grep -vE 'bind[[:space:]]+127\.0\.0\.1:' || true)
   fi

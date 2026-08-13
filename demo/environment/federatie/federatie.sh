@@ -39,13 +39,10 @@ UP_POGINGEN="${UP_POGINGEN:-3}"
 # crash-lus nog op `Up` en ziet dode_containers hem niet.
 SETTLE_SECONDEN="${SETTLE_SECONDEN:-5}"
 
-# alle_peers: gastheer + gasten, in opstartvolgorde.
-alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
-
 # verwacht_peers: het aantal rijen in peers.peers — elke peer plus de directory zelf.
 verwacht_peers() {
   local n=1   # de directory
-  for _ in $(alle_peers); do n=$((n + 1)); done
+  for _ in $(fsc_alle_peers); do n=$((n + 1)); done
   echo "$n"
 }
 
@@ -90,13 +87,27 @@ psql_directory() {
 # dode_containers <project>: namen+status van containers die niet gezond draaien. Leeg = alles goed.
 #
 # Filtert op de STATUSKOLOM en niet op de containernaam: `Exited (0)` is een migrate-job die zijn
-# werk deed, `Exited (1)` is een fout, en `Restarting` is een crash-lus die nog niet is opgegeven.
-# Op de naam filteren (`-migrate`) zou een migrate-job die met exit 1 stierf onzichtbaar maken.
+# werk deed, `Exited (niet-0)` is een fout, en `Created` is een container die nooit gestart is —
+# precies wat de ID-map-race achterlaat. Op de naam filteren (`-migrate`) zou een migrate-job die
+# met exit 1 stierf onzichtbaar maken.
+#
+# `Restarting` staat er bewust NIET bij: podman kent die status niet (dat is docker-formulering),
+# het levert `Up` of `Exited`. Een container die pas ná de settle omvalt ontsnapt daarmee aan deze
+# meting; de announce-poll erna vangt dat alsnog.
 dode_containers() {
   local project="$1" uit
   uit="$(podman ps -a --filter "label=com.docker.compose.project=${project}" \
            --format '{{.Names}}\t{{.Status}}' 2>"$ERRLOG")" || return 1
-  printf '%s\n' "$uit" | grep -E 'Exited \([^0]|Restarting' || true
+
+  # Nul rijen betekent dat het projectfilter niets selecteert — een verkeerde projectnaam, geen
+  # gezonde stack. Zonder deze vloer zou `up_met_retry` succes melden over een stack die nooit
+  # startte.
+  if [ -z "$uit" ]; then
+    printf '%s' "geen enkele container met label com.docker.compose.project=${project}"
+    return 0
+  fi
+
+  printf '%s\n' "$uit" | grep -E 'Exited \([^0]|Created' || true
 }
 
 # up_met_retry <peer>: `up -d` met een begrensd aantal pogingen.
@@ -160,9 +171,13 @@ up_met_retry() {
 # falen de volgende pogingen gegarandeerd identiek op "already exists" — dus melden.
 opruimen() {
   local project="$1" log="$2" achterblijvers
-  achterblijvers="$(podman ps -aq --filter "label=com.docker.compose.project=${project}" \
-                      --filter status=created --filter status=exited 2>"$ERRLOG" || true)"
-  fsc_warn_errlog "achterblijvers niet opvraagbaar"
+  # Geen `|| true`: een falende `podman ps` zou anders als "niets op te ruimen" lezen, waarna de
+  # volgende poging gegarandeerd identiek faalt op "already exists" — precies wat dit voorkomt.
+  if ! achterblijvers="$(podman ps -aq --filter "label=com.docker.compose.project=${project}" \
+                           --filter status=created --filter status=exited 2>"$ERRLOG")"; then
+    echo "  WARN: achterblijvers niet opvraagbaar: $(fsc_last_error)" >&2
+    return 0
+  fi
   [ -n "$achterblijvers" ] || return 0
 
   # shellcheck disable=SC2086  # bewuste woordsplitsing: een lijst container-ID's.
@@ -271,7 +286,7 @@ case "${1:-}" in
     # Goedkoop itereren: containers stoppen/starten zonder de volumes te wissen.
     ACTIE="$1"
     RC=0
-    for peer in $(alle_peers); do
+    for peer in $(fsc_alle_peers); do
       echo "federatie: ${peer} ${ACTIE}..."
       dc "$peer" "$ACTIE" || { echo "FAIL: '${ACTIE}' mislukte voor '${peer}'." >&2; RC=1; }
     done
@@ -293,7 +308,7 @@ case "${1:-}" in
     }
 
     GEVONDEN=0
-    for peer in $(alle_peers); do
+    for peer in $(fsc_alle_peers); do
       # `config --services` en niet `ps --services`: die laatste toont alleen services met een
       # DRAAIENDE container, dus juist de gecrashte service die je wilt herstarten ontbreekt.
       # Stderr blijft zichtbaar: een ontbrekend compose-bestand hoort geen "service onbekend" te
@@ -317,8 +332,13 @@ case "${1:-}" in
   status)
     # Elke pipeline met `|| true`: onder `pipefail` geeft een `grep` zonder treffers een non-nul
     # status, en dan zou juist het diagnose-commando zwijgend afbreken.
-    podman ps -a --format '{{.Names}}\t{{.Status}}' 2>"$ERRLOG" | sort || true
-    fsc_warn_errlog "podman ps faalde"
+    # Alleen de containers van deze federatie: een ongefilterde `ps -a` toont elke container op de
+    # machine en maakt de uitvoer onbruikbaar op een ontwikkelmachine met ander werk erop.
+    for peer in $(fsc_alle_peers); do
+      podman ps -a --filter "label=com.docker.compose.project=$(compose_project "$peer")" \
+        --format '{{.Names}}\t{{.Status}}' 2>"$ERRLOG" | sort || true
+      fsc_warn_errlog "podman ps faalde voor ${peer}"
+    done
     echo
     echo "listeners in de gedeelde netns:"
     # Stderr apart houden: gevouwen in de lijst zou een foutregel hieronder als wildcard-bind lezen.

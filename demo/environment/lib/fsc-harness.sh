@@ -18,14 +18,22 @@ fsc_errlog_init() {
 # BSD-sed/macOS niet kent), dan zonder regelanker filteren (de banner start niet op kolom 1
 # door de ANSI-prefix), dan lege regels weggooien die overblijven na het strippen van de losse
 # ESC[0m-regel.
-# shellcheck disable=SC2120  # het bestand-argument is optioneel; geen enkele aanroeper geeft er nu
-# een mee, ze scrubben allemaal $ERRLOG. Bewust behouden zodat een tweede logbestand geen
-# signatuurwijziging vergt.
+# shellcheck disable=SC2120  # het bestand-argument is optioneel en defaultt op $ERRLOG; bewust
+# behouden zodat een tweede logbestand geen signatuurwijziging vergt.
 fsc_scrub_errlog() {
   local file="${1:-$ERRLOG}"
-  LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$file" \
-    | grep -v 'Executing external compose provider' \
+
+  # sed apart van de greps: `grep -v` geeft terecht 1 terug als álles weggefilterd wordt, maar dat
+  # is niet te onderscheiden van een sed die het bestand niet kon lezen. Ging dat in één pijplijn,
+  # dan zette `mv -f` een leeg bestand terug en was de reden achter elke latere FAIL-melding weg.
+  LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$file" > "${file}.a" 2>/dev/null || {
+    rm -f "${file}.a"
+    return 0
+  }
+
+  grep -v 'Executing external compose provider' < "${file}.a" \
     | grep -v '^[[:space:]]*$' > "${file}.f" 2>/dev/null || :
+  rm -f "${file}.a"
   mv -f "${file}.f" "$file"
 }
 
@@ -133,6 +141,9 @@ fsc_peer_waarde() {
   naam="$1_$(fsc_peer_var "$2")"
   printf '%s' "${!naam:-}"
 }
+
+# fsc_alle_peers: gastheer + gasten uit peers.env, in opstartvolgorde.
+fsc_alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
 
 # fsc_compose_project <compose-bestand>: de projectnaam uit het `name:`-veld. Compose leidt die
 # niet af zoals je zou raden (`magazijn-a` -> `fsc-magazijna`), dus lezen we 'm. Faalt hard bij een
