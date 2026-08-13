@@ -1,6 +1,6 @@
 # B2: de FBS-keten lokaal door FSC
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 ## Context
 

@@ -66,6 +66,30 @@ else
   ok "component_adres faalt hard op een leeg net"
 fi
 
+# --- fsc_grant_bruikbaar ------------------------------------------------------------------------
+# De sentinel is het hele punt: fsc_grant_hash geeft `unknown` terug in plaats van leeg, en een
+# aanroeper die op leegte toetst schrijft die string door naar de Fsc-Grant-Hash-header.
+fsc_grant_bruikbaar '$1$3$abc' \
+  && ok "grant_bruikbaar accepteert een echt hash" || fout "grant_bruikbaar verwerpt een echt hash"
+
+if fsc_grant_bruikbaar unknown; then
+  fout "grant_bruikbaar accepteert de sentinel 'unknown' (die belandt dan op de header)"
+else
+  ok "grant_bruikbaar verwerpt de sentinel 'unknown'"
+fi
+
+if fsc_grant_bruikbaar ""; then
+  fout "grant_bruikbaar accepteert een lege waarde"
+else
+  ok "grant_bruikbaar verwerpt een lege waarde"
+fi
+
+if fsc_grant_bruikbaar; then
+  fout "grant_bruikbaar accepteert een ontbrekend argument"
+else
+  ok "grant_bruikbaar verwerpt een ontbrekend argument"
+fi
+
 # --- fsc_compose_project ------------------------------------------------------------------------
 printf 'name: fsc-magazijna\nservices:\n  x: {}\n' > "$WERK/goed.yaml"
 [ "$(fsc_compose_project "$WERK/goed.yaml")" = "fsc-magazijna" ] \

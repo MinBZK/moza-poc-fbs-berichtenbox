@@ -1,6 +1,6 @@
 # B2 implementatieplan: de FBS-keten lokaal door FSC
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 **Doel:** `berichtenuitvraag` haalt bij magazijn-a op via outway → router → inway →
 `berichtenmagazijn-a`, lokaal, met bewijs dat de data uit dat magazijn komt en dat de transactie in

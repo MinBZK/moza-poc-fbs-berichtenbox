@@ -118,6 +118,19 @@ else
   VOOR=""
 fi
 
+# De inway moet naar het ECHTE magazijn wijzen. Dat hier afdwingen en niet als voorwaarde aan de
+# gebruiker laten: `smoke-federatie.sh` publiceert de dienst met de echo-stub als upstream, dus wie
+# die smoke ná het instellen draait, zet 'm ongemerkt terug. De publicatie is idempotent.
+echo "== 0. inway wijst naar het echte magazijn =="
+if FSC_CONTROLLER="https://controller.magazijn-a.fsc-test.local:9444" \
+   FSC_MANAGER="https://manager.magazijn-a.fsc-test.local:9443" \
+   FSC_UPSTREAM_URL="${MAGAZIJN_A_UPSTREAM:-http://127.0.0.1:8090}" \
+     "${ENVDIR}/magazijn-a/deploy/local/publish-service.sh" >/dev/null 2>"$ERRLOG"; then
+  ok "upstream van de inway staat op ${MAGAZIJN_A_UPSTREAM:-http://127.0.0.1:8090}"
+else
+  fout "kon de upstream van magazijn-a niet zetten: $(fsc_last_error)"
+fi
+
 # --- 1. Data-pad ---------------------------------------------------------------------------------
 echo "== 1. bericht uit magazijn-a via de FSC-keten =="
 CODE="$(aanleveren "$MAGAZIJN_A_DIRECT" "$MERK")" || CODE=""

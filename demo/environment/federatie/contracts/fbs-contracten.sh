@@ -77,7 +77,7 @@ grant_regel_voor() {
   [ -n "$contract" ] || return 1
 
   grant="$(fsc_grant_hash "$json" "$contract" "$MAGAZIJN_DIENST" "$CONS_THUMB")"
-  [ -n "$grant" ] || return 1
+  fsc_grant_bruikbaar "$grant" || return 1
 
   naam="$(printf '%s' "$magazijn" | tr '[:lower:]-' '[:upper:]_')"
   printf '%s_GRANT_HASH=%s\n' "$naam" "$grant"

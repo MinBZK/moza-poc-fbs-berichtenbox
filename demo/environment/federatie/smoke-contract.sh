@@ -94,8 +94,11 @@ for magazijn in $MAGAZIJNEN; do
     fi
   done
 
-  if [ -z "$GRANT" ]; then
-    fout "geen grant-hash gevonden — de asserts hieronder kunnen niet draaien"
+  if ! fsc_grant_bruikbaar "$GRANT"; then
+    # Niet `[ -z "$GRANT" ]`: fsc_grant_hash levert bij een mislukking de sentinel `unknown`, en
+    # dan zou deze tak nooit vuren. De asserts hieronder draaien vervolgens met een bogus header en
+    # melden een 400 op het data-pad — wat naar het verkeerde component wijst.
+    fout "geen bruikbaar grant-hash gevonden (${GRANT:-<leeg>}) — de asserts hieronder kunnen niet draaien"
     continue
   fi
 

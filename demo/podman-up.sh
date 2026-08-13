@@ -19,7 +19,8 @@
 #   DEMO_HOST=10.0.0.5 demo/podman-up.sh
 #
 # DEMO_HOST is het adres waarop je de demo benadert (voor de CORS-allowlist van de uitvraag);
-# default localhost.
+# default localhost. De poorten zelf blijven op loopback — zie DEMO_BIND in compose.yaml, en de
+# toelichting bij de laatste controle onderaan dit script.
 set -euo pipefail
 
 WORTEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -380,10 +381,15 @@ wacht_op "console"             demo-console        curl -sSf --max-time 3 http:/
 # (migraties, vier tegelijk verbindende clients) en is sinds de vorige controle niet meer bekeken.
 vereis_draaiend "${INFRA[@]}" "${SERVICES[@]}"
 
-# Alle probes hierboven lopen over 127.0.0.1; is de demo op een ander adres aangekondigd, dan is
-# dát het adres dat moet werken (firewall, of hostnet in een VM waar niets naar buiten komt).
+# Bewust GEEN probe op $DEMO_HOST: het bedieningspaneel bindt altijd op loopback (geen
+# authenticatie, en POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases). Een probe
+# op een ander adres zou dus per definitie aflopen op een timeout en de start laten falen terwijl
+# de stack gezond draait. DEMO_HOST stuurt alleen de CORS-allowlist en de URL's hieronder; om er
+# van een andere machine bij te kunnen heb je een tunnel nodig, bijvoorbeeld
+# `ssh -L 8095:127.0.0.1:8095 <host>`.
 if [ "$DEMO_HOST" != "localhost" ]; then
-    wacht_op "console op $DEMO_HOST" demo-console curl -sSf --max-time 3 "http://${DEMO_HOST}:8095/"
+    echo "Let op: het bedieningspaneel luistert alleen op 127.0.0.1. DEMO_HOST zet de CORS-allowlist;"
+    echo "       tunnel poort 8095 (en 8086) als je er vanaf ${DEMO_HOST} bij wilt."
 fi
 
 echo

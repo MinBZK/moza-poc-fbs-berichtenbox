@@ -46,6 +46,10 @@ fi
 # even gevaarlijk, en de volgende die er een toevoegt verzint gegarandeerd een andere naam.
 LEK=':[0-9]{2,5}$'
 LEK="(^|[= ])(0\\.0\\.0\\.0|\\[::\\]|\\*)?${LEK}"
+# Een bind-adres ZONDER poort ontsnapt aan LEK: `QUARKUS_HTTP_HOST=0.0.0.0` draagt geen `:poort`.
+# Vandaar een tweede patroon op de kale wildcard-waarde. Ook dit staat op de waarde en niet op de
+# naam, zodat een volgende service die zijn bind-adres anders noemt er evengoed onder valt.
+KAAL_LEK='(^|[= ])(0\.0\.0\.0|\[?::\]?|\*)$' 
 
 fail=0
 meld() {
@@ -77,12 +81,12 @@ env_lek=$(jq -r '.services | to_entries[] | . as $s
 
 # Naam-onafhankelijk: elke env-waarde en elk `command`/`entrypoint`-token dat eruitziet als een
 # niet-loopback bind.
-bind_lek=$(jq -r --arg re "$LEK" '.services | to_entries[] | . as $s
+bind_lek=$(jq -r --arg re "$LEK" --arg kaal "$KAAL_LEK" '.services | to_entries[] | . as $s
   | ( ($s.value.environment // {}) | to_entries[]
         | select(.value != null) | "\(.key)=\(.value)" ),
     ( (($s.value.command // []) + ($s.value.entrypoint // []))[]?
         | select(type == "string") )
-  | select(test($re))
+  | select(test($re) or test($kaal))
   | "\($s.key): \(.)"' <<<"$MERGED")
 
 # De overlay hoort elke `ports:` uit de basis te resetten; een gepubliceerde poort in een gedeelde
@@ -108,8 +112,11 @@ pg_lek=$(jq -r '.services | to_entries[] | . as $s
 # --postgres. Die vlag stuurt alleen of postgres AANWEZIG moet zijn. Hing de eis aan de vlag, dan
 # zou een gast die zijn postgres uit het inactieve profiel haalt het image-default
 # `listen_addresses='*'` krijgen: de DB met harness-credentials op elke interface, en de guard groen.
+# Elke postgres in de merge, niet alleen een service die letterlijk `postgres` heet: de demo-stack
+# draait er drie (postgres-a, postgres-b, postgres-uitvraag). Op de naam én op de image matchen,
+# zodat een hernoemde service niet stil buiten de controle valt.
 pg_mist=$(jq -r '.services | to_entries[]
-  | select(.key == "postgres")
+  | select((.key | test("postgres")) or ((.value.image // "") | test("postgres")))
   | select(((.value.command // []) | map(select(test("listen_addresses="))) | length) == 0)
   | .key' <<<"$MERGED")
 

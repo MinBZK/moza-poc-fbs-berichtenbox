@@ -126,6 +126,17 @@ fsc_grant_hash() {
     | ($g[0] // "unknown")' 2>/dev/null || echo unknown
 }
 
+# fsc_grant_bruikbaar <hash>: is dit een echt grant-hash?
+#
+# fsc_grant_hash levert bij een mislukking de string `unknown` in plaats van een lege waarde, zodat
+# een aanroeper die 'm alleen toont iets leesbaars afdrukt. Een kale `[ -n "$hash" ]` is daardoor
+# geen geldige controle: die slaagt óók op de sentinel, en dan reist `Fsc-Grant-Hash: unknown` mee
+# naar de outway, die er een 400 op geeft. Vandaar één predicaat in plaats van de vergelijking op
+# elke plek los over te typen.
+fsc_grant_bruikbaar() {
+  [ -n "${1:-}" ] && [ "$1" != unknown ]
+}
+
 # --- contract-matching (gedeeld door contracts/bootstrap.sh en federatie/smoke-contract.sh) ----
 # Eén matcher voor "is dit contract geldig en van toepassing op deze serviceConnection", zodat
 # beide scripts niet elk hun eigen (en dus potentieel afwijkende) criteria hanteren.

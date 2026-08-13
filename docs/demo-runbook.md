@@ -121,10 +121,16 @@ Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet`
 automatisch gekozen: podman draait daar in een VM, dus de gedeelde namespace is die van de VM en
 zonder gepubliceerde poorten komt er niets door naar je werkplek.
 
-In `hostnet` delen alle containers één netwerknamespace. De zes Toxiproxy-proxy-listeners, die in
-`bridge` alleen intern bestonden, staan dan open op elk adres van de machine. Draai deze modus dus
-alleen op een vertrouwd netwerk. (De poorten die `compose.yaml` publiceert, waaronder alle drie de
-Postgres-instanties, binden ook in `bridge` al op alle interfaces.)
+In `hostnet` delen alle containers één netwerknamespace: de zes Toxiproxy-proxy-listeners, die in
+`bridge` alleen intern bestonden, zijn dan ook op de machine zelf zichtbaar. Ze binden — net als
+alle andere services in deze modus — op `127.0.0.1`, dus ze zijn niet van buiten de machine
+bereikbaar. Een CI-job (`demo-stack-op-loopback`) bewaakt dat: elke listener in de gerenderde merge
+moet op loopback staan, anders faalt de build.
+
+Dat is geen detail van deze modus maar de eis die hem werkbaar maakt. In een gedeelde namespace is
+een wildcard-bind (`0.0.0.0`) de hele machine — Redis zonder wachtwoord, drie PostgreSQL-instanties
+met demo-credentials — en botst hij bovendien met elke specifieke bind op dezelfde poort, zoals die
+van een FSC-federatie die in dezelfde namespace draait.
 
 Botst een van die poorten met iets dat al draait, dan hangt het van de poort af hoe dat zich
 uit. Een service die zelf niet kan binden stopt, en het script meldt welke container dat is mét
