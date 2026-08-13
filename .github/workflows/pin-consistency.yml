@@ -62,9 +62,15 @@ jobs:
   fuzz-basis-pin:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # pull-requests: write voor de PR-comment hieronder. Een annotatie alleen is te makkelijk te
+    # missen: deze job blijft groen, dus niemand opent hem.
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: De gepinde digest hoort bij de huidige pom's
+        id: pin
         env:
           # Zelfde bestandenset als .github/workflows/fuzz-base-image.yml gebruikt voor de tag;
           # lopen die twee uiteen, dan vindt de opzoeking hieronder niets en faalt deze job.
@@ -90,15 +96,74 @@ jobs:
             | tr -d '\r' | awk '/[Dd]ocker-[Cc]ontent-[Dd]igest/ {print $2}') || verwachte_digest=""
 
           if [ -z "$verwachte_digest" ]; then
-            echo "::warning::Nog geen fuzz-basis-image voor deze pom's (tag poms-${VERWACHT}). De fuzz-controle werkt gewoon, maar haalt het verschil elke run opnieuw op. Na de merge naar main bouwt de workflow 'Fuzz-basis-image' het nieuwe image; pin daarna de digest die hij print in .clusterfuzzlite/Dockerfile."
+            echo "::warning::Nog geen fuzz-basis-image voor deze pom's (tag poms-${VERWACHT})."
+            {
+              echo "melding<<EOM"
+              echo "De dependency-declaraties zijn gewijzigd, dus het fuzz-basis-image met de warme"
+              echo "Maven-repository hoort opnieuw gebouwd te worden."
+              echo
+              echo "**Blokkeert niets.** De fuzz-controle werkt gewoon; hij haalt alleen het verschil"
+              echo "elke run opnieuw op, en is daarmee zo traag als vóór het basis-image."
+              echo
+              echo "Na de merge naar \`main\` bouwt de workflow **Fuzz-basis-image** het nieuwe image en"
+              echo "print hij de digest. Zet die in \`.clusterfuzzlite/Dockerfile\` en deze melding verdwijnt."
+              echo "EOM"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           printf 'gepind:    %s\nverwacht:  %s\n' "$gepind" "$verwachte_digest"
 
           if [ "$gepind" != "$verwachte_digest" ]; then
-            echo "::warning::Er is een fuzz-basis-image dat wél bij deze pom's hoort, maar de pin wijst naar een ander. Pin ${verwachte_digest} in .clusterfuzzlite/Dockerfile; tot dan is de fuzz-voorbereiding trager dan nodig."
+            echo "::warning::De pin hoort niet bij de huidige pom's; pin ${verwachte_digest}."
+            {
+              echo "melding<<EOM"
+              echo "Er is een fuzz-basis-image dat wél bij de huidige dependency-declaraties hoort, maar"
+              echo "\`.clusterfuzzlite/Dockerfile\` wijst nog naar een ander."
+              echo
+              echo "**Blokkeert niets**, maar de fuzz-voorbereiding is tot die tijd trager dan nodig."
+              echo
+              echo "Werk de pin bij naar:"
+              echo
+              echo '```dockerfile'
+              echo "FROM ghcr.io/${IMAGE_PAD}@${verwachte_digest}"
+              echo '```'
+              echo "EOM"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "Basis-image-pin hoort bij de huidige pom's."
+
+      # De annotatie hierboven staat op de run-samenvatting van een job die groen blijft — die
+      # leest niemand. Deze comment staat waar de wijziging beoordeeld wordt, en wordt weer
+      # opgeruimd zodra de pin klopt, zodat er geen verouderde melding blijft hangen.
+      - name: Meld een verouderde pin op de PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          MELDING: ${{ steps.pin.outputs.melding }}
+          MARKER: '<!-- fuzz-basis-pin -->'
+        run: |
+          set -euo pipefail
+
+          bestaand=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq "[.[] | select(.body | contains(\"$MARKER\"))] | first | .id // empty")
+
+          if [ -z "$MELDING" ]; then
+            if [ -n "$bestaand" ]; then
+              gh api -X DELETE "repos/$REPO/issues/comments/$bestaand"
+              echo "Pin is weer bij; melding verwijderd."
+            fi
+            exit 0
+          fi
+
+          body=$(printf '%s\n### Fuzz-basis-image loopt achter op de dependency-declaraties\n\n%s\n' "$MARKER" "$MELDING")
+
+          if [ -n "$bestaand" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$bestaand" -f body="$body" --jq .html_url
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -f body="$body" --jq .html_url
+          fi
