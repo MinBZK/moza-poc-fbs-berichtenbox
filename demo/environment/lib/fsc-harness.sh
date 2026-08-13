@@ -126,6 +126,49 @@ fsc_grant_hash() {
     | ($g[0] // "unknown")' 2>/dev/null || echo unknown
 }
 
+# --- contract-matching (gedeeld door contracts/bootstrap.sh en federatie/smoke-contract.sh) ----
+# Eén matcher voor "is dit contract geldig en van toepassing op deze serviceConnection", zodat
+# beide scripts niet elk hun eigen (en dus potentieel afwijkende) criteria hanteren.
+
+# fsc_outway_thumbprint <cert-pad>: SPKI-SHA256-thumbprint (64 lowercase hex) van een outway-
+# groepscert op stdout; leeg + non-zero exit bij een ontbrekend/onleesbaar/corrupt certificaat.
+# Vereist $ERRLOG (fsc_errlog_init).
+fsc_outway_thumbprint() {
+  local cert="$1" thumb
+  [ -r "$cert" ] || return 1
+  thumb="$(openssl x509 -in "$cert" -pubkey -noout 2>>"$ERRLOG" \
+             | openssl pkey -pubin -outform DER 2>>"$ERRLOG" \
+             | openssl dgst -sha256 -r 2>>"$ERRLOG" | cut -d' ' -f1)" || return 1
+  case "$thumb" in
+    [0-9a-f]*) [ "${#thumb}" -eq 64 ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  printf '%s' "$thumb"
+}
+
+# fsc_grant_actief <json> <service> <provider_oin> <consumer_oin> <outway_thumbprint>: hashes
+# (één per regel) van niet-ingetrokken CONTRACT_STATE_VALID-contracten die de accept-handtekening
+# van zowel provider als consumer dragen, voor precies deze serviceConnection-combinatie. Leeg bij
+# geen match. De identiteit van een serviceConnection is service + provider + consumer-outway +
+# thumbprint samen: op servicenaam alleen matchen zou ook het servicePublication-contract voor
+# dezelfde dienst meetellen, dat op dezelfde manager staat en altijd aanwezig is.
+fsc_grant_actief() {
+  [ "$HAVE_JQ" -eq 1 ] || return 0
+  printf '%s' "$1" | jq -r \
+    --arg svc "$2" --arg prov "$3" --arg cons "$4" --arg thumb "$5" '
+    [ .contracts[]?
+      | select(.state == "CONTRACT_STATE_VALID" and (.has_revoked // false) == false)
+      | select( ((.signatures.accept // {}) | has($prov))
+                and ((.signatures.accept // {}) | has($cons)) )
+      | select(any(.content.grants[]?;
+            .type == "GRANT_TYPE_SERVICE_CONNECTION"
+            and .service.name == $svc
+            and .service.peer_id == $prov
+            and .outway.peer_id == $cons
+            and .outway.identification.public_key_thumbprint == $thumb))
+      | .hash ] | .[]' 2>/dev/null
+}
+
 # --- federatie-helpers ------------------------------------------------------------------------
 # Gebruikt door demo/environment/federatie/. Staan hier en niet in die map omdat ze door meerdere
 # scripts én door de bash-unittests gedeeld worden.

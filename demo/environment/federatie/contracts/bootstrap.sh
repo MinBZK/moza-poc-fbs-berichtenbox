@@ -9,7 +9,10 @@
 #   1. bereken de SPKI-SHA256-thumbprint van het GROUP-cert van de consumer-outway. Dat is waarmee
 #      de outway zich naar de provider-inway identificeert, en het is stabiel bij cert-rotatie
 #      binnen hetzelfde sleutelpaar;
-#   2. bestaat er al een geldig contract voor precies deze combinatie? -> klaar;
+#   2. bestaat er al een geldig contract voor precies deze combinatie? Zo ja, en staat het ook al
+#      geldig bij de consumer: klaar. Staat het alleen bij de provider geldig (de accept-push naar
+#      de consumer kan stranden, zie stap 5), dan wordt hier hetzelfde herstel toegepast als bij een
+#      verse bootstrap, zónder opnieuw te posten;
 #   3. POST /v1/contracts op de EIGEN manager. Die tekent server-side namens de consumer en synct
 #      het contract via de mesh naar de provider;
 #   4. poll de provider tot het contract er is, dan PUT /v1/contracts/{hash}/accept op de
@@ -25,6 +28,13 @@
 # geldig contract bij. Deze variant leidt het bestaan af uit de contracten zelf — service, provider,
 # consumer-outway en thumbprint samen zijn de identiteit — zodat een herhaalde run een no-op is,
 # waar hij ook draait.
+#
+# De existence-check (stap 2) en de POST (stap 3) zijn niet atomair: twee gelijktijdige of
+# herhaalde runs kunnen allebei een nieuw contract posten. Dat wordt hier niet voorkomen (dat vergt
+# een lock, en dus weer state), maar wel zelf-herstellend gemaakt: bij meer dan één geldig contract
+# voor dezelfde combinatie trekt de eerstvolgende run de overtollige in via
+# `PUT /v1/contracts/{hash}/revoke` en gebruikt verder altijd het (sorteer-)eerste hash — stabiel
+# over runs heen, ook als de volgorde van de manager-API zelf niet gegarandeerd stabiel is.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -103,56 +113,112 @@ provider_api() { api "$PROVIDER_MANAGER" "$PROVIDER_CERT" "$PROVIDER_KEY" "$PROV
 command -v openssl >/dev/null 2>&1 || { echo "FAIL: openssl niet gevonden." >&2; exit 1; }
 [ -r "$OUTWAY_CERT" ] || { echo "FAIL: outway-cert niet leesbaar: ${OUTWAY_CERT} (pki/issue.sh gedraaid?)" >&2; exit 1; }
 
-THUMB="$(openssl x509 -in "$OUTWAY_CERT" -pubkey -noout 2>"$ERRLOG" \
-           | openssl pkey -pubin -outform DER 2>>"$ERRLOG" \
-           | openssl dgst -sha256 -r 2>>"$ERRLOG" | cut -d' ' -f1)" || THUMB=""
-case "$THUMB" in
-  [0-9a-f]*) [ "${#THUMB}" -eq 64 ] || { echo "FAIL: thumbprint is geen 64 hex-tekens: '${THUMB}'" >&2; exit 1; } ;;
-  *) echo "FAIL: kon de outway-thumbprint niet berekenen uit ${OUTWAY_CERT}: $(fsc_last_error)" >&2; exit 1 ;;
-esac
+THUMB="$(fsc_outway_thumbprint "$OUTWAY_CERT")" \
+  || { echo "FAIL: kon de outway-thumbprint niet berekenen uit ${OUTWAY_CERT}: $(fsc_last_error)" >&2; exit 1; }
 echo "bootstrap: outway public-key-thumbprint = ${THUMB}"
 
-# --- 2. Bestaat het contract al? ----------------------------------------------------------------
+# --- Sync-helpers (gebruikt door zowel de existence-check als de verse bootstrap-flow) -----------
+VALID_STATE=contract_state_valid
+
+# contract_zichtbaar <hash>: staat dit contract al in de contractenlijst van de provider?
+contract_zichtbaar() {
+  local hash="$1" rc
+  provider_api "${PROVIDER_MANAGER}/v1/contracts" 2>"$ERRLOG" \
+    | jq -e --arg h "$hash" 'any(.contracts[]?; .hash == $h)' >/dev/null 2>>"$ERRLOG"
+  rc=$?
+  fsc_warn_errlog "sync-poll (provider)"
+  return "$rc"
+}
+
+# consumer_state <hash>: manager-state van dit contract op de consumer, of "onbekend".
+consumer_state() {
+  local hash="$1" json rc state
+  json="$(consumer_api "${CONSUMER_MANAGER}/v1/contracts" 2>"$ERRLOG")"
+  rc=$?
+  fsc_warn_errlog "state-poll (consumer)"
+  [ "$rc" -eq 0 ] || { echo onbekend; return; }
+
+  state="$(fsc_contract_state "$json" "$hash")"
+  [ "$state" = unknown ] && echo onbekend || printf '%s\n' "$state"
+}
+
+# wacht_op_valid <hash>: pollt tot de consumer het contract als geldig ziet, of tot SYNC_TIMEOUT.
+wacht_op_valid() {
+  local hash="$1" elapsed=0
+  while [ "$elapsed" -lt "$SYNC_TIMEOUT" ]; do
+    [ "$(consumer_state "$hash")" = "$VALID_STATE" ] && return 0
+
+    sleep "$SYNC_INTERVAL"; elapsed=$((elapsed + SYNC_INTERVAL))
+    echo "  ...contract nog niet 'valid' op de consumer (${elapsed}s)" >&2
+  done
+  return 1
+}
+
+# zorg_dat_consumer_gesynct <hash>: wacht tot de consumer het contract geldig ziet; forceert één
+# keer de her-distributie van de accept-handtekening als dat niet vanzelf lukt binnen SYNC_TIMEOUT
+# (het canonieke herstel voor een gestrande best-effort-push, zie de moduledoc).
+zorg_dat_consumer_gesynct() {
+  local hash="$1"
+  wacht_op_valid "$hash" && return 0
+
+  echo "bootstrap: accept-handtekening opnieuw laten distribueren..." >&2
+  provider_api -X PUT \
+    "${PROVIDER_MANAGER}/v1/contracts/${hash}/distributions/${CONSUMER_OIN}/DISTRIBUTION_ACTION_SUBMIT_ACCEPT_SIGNATURE/retry" \
+    -H 'Content-Type: application/json' >/dev/null \
+    || echo "  WARN: her-distributie gaf een fout: $(fsc_last_error)" >&2
+
+  wacht_op_valid "$hash"
+}
+
+# --- 2. Bestaat het contract al? ------------------------------------------------------------------
 # De identiteit van een serviceConnection is de combinatie service + provider + consumer-outway +
 # thumbprint. Alleen op servicenaam matchen zou het servicePublication-contract voor dezelfde
 # dienst meetellen, dat op dezelfde manager staat en altijd matcht.
-bestaande_contracten() {  # echoot de hashes van geldige, niet-ingetrokken contracten voor deze combinatie
+bestaande_contracten() {  # hashes van geldige, niet-ingetrokken contracten voor deze combinatie, gesorteerd
   local json
   json="$(provider_api "${PROVIDER_MANAGER}/v1/contracts")" || {
     echo "FAIL: kon de contracten van de provider niet ophalen: $(fsc_last_error)" >&2
     return 1
   }
 
-  printf '%s' "$json" | jq -r \
-    --arg svc "$SERVICE_NAME" --arg prov "$PROVIDER_OIN" \
-    --arg cons "$CONSUMER_OIN" --arg thumb "$THUMB" '
-    [ .contracts[]?
-      | select(.state == "CONTRACT_STATE_VALID" and (.has_revoked // false) == false)
-      | select(any(.content.grants[]?;
-            .type == "GRANT_TYPE_SERVICE_CONNECTION"
-            and .service.name == $svc
-            and .service.peer_id == $prov
-            and .outway.peer_id == $cons
-            and .outway.identification.public_key_thumbprint == $thumb))
-      | .hash ] | .[]' 2>"$ERRLOG" || {
-    echo "FAIL: contract-JSON niet te parsen: $(fsc_last_error)" >&2
-    return 1
-  }
+  fsc_grant_actief "$json" "$SERVICE_NAME" "$PROVIDER_OIN" "$CONSUMER_OIN" "$THUMB" | sort
 }
 
 BESTAAND="$(bestaande_contracten)" || exit 1
 if [ -n "$BESTAAND" ]; then
   AANTAL="$(printf '%s\n' "$BESTAAND" | grep -c .)"
+  HASH="$(printf '%s\n' "$BESTAAND" | head -n1)"
   echo "OK: er is al een geldig contract voor ${SERVICE_NAME} (${CONSUMER_OIN} -> ${PROVIDER_OIN})."
+  printf '%s\n' "$BESTAAND" | sed 's/^/  contract: /'
 
   if [ "$AANTAL" -gt 1 ]; then
-    # Duplicaten zijn niet fataal — de outway gebruikt er één — maar ze wijzen op een eerdere run
-    # zonder deze controle, en ze stapelen zich op.
-    echo "  WAARSCHUWING: ${AANTAL} geldige contracten voor dezelfde combinatie; ruim de overtollige op." >&2
+    # Kan ontstaan doordat deze existence-check en de POST (stap 3) niet atomair zijn: twee
+    # gelijktijdige of herhaalde runs kunnen allebei een nieuw contract posten. De outway gebruikt
+    # er sowieso maar één — het gesorteerd-eerste hash hierboven — maar de rest ruimt zichzelf hier
+    # op, zodat een volgende run weer bij één contract uitkomt.
+    echo "  WAARSCHUWING: ${AANTAL} geldige contracten voor dezelfde combinatie; trek de overtollige in." >&2
+    printf '%s\n' "$BESTAAND" | tail -n +2 | while IFS= read -r dup; do
+      provider_api -X PUT "${PROVIDER_MANAGER}/v1/contracts/${dup}/revoke" \
+          -H 'Content-Type: application/json' >/dev/null 2>"$ERRLOG" \
+        && echo "  ingetrokken: ${dup}" >&2 \
+        || echo "  WARN: kon duplicaat ${dup} niet intrekken: $(fsc_last_error)" >&2
+    done
   fi
 
-  printf '%s\n' "$BESTAAND" | sed 's/^/  contract: /'
-  echo "BOOTSTRAP OK (bestaand contract)."
+  if [ "$(consumer_state "$HASH")" = "$VALID_STATE" ]; then
+    echo "BOOTSTRAP OK (bestaand contract)."
+    exit 0
+  fi
+
+  # Geldig op de provider, maar (nog) niet gesynct naar de consumer — zonder deze controle zou een
+  # retry hier ten onrechte "klaar" melden terwijl de outway de grant nooit ziet (zie moduledoc).
+  echo "bootstrap: contract ${HASH} is geldig op de provider maar nog niet gesynct naar de consumer..." >&2
+  zorg_dat_consumer_gesynct "$HASH" || {
+    echo "FAIL: contract ${HASH} werd niet 'valid' op de consumer (state: $(consumer_state "$HASH"))." >&2
+    exit 1
+  }
+  echo "OK: contract ${HASH} is alsnog wederzijds gesynct."
+  echo "BOOTSTRAP OK (bestaand contract, opnieuw gesynct)."
   exit 0
 fi
 
@@ -186,20 +252,15 @@ RESP="$(consumer_api -X POST "${CONSUMER_MANAGER}/v1/contracts" -H 'Content-Type
   }
 }")" || { echo "FAIL: POST /v1/contracts geweigerd: ${RESP:-<leeg>} $(fsc_last_error)" >&2; exit 1; }
 
-HASH="$(printf '%s' "$RESP" | jq -r '.content_hash // empty' 2>/dev/null)"
+HASH="$(printf '%s' "$RESP" | jq -r '.content_hash // empty' 2>/dev/null)" || HASH=""
 [ -n "$HASH" ] || { echo "FAIL: respons zonder content_hash (formaat geweigerd?): ${RESP}" >&2; exit 1; }
 echo "  consumer-handtekening gezet; mesh-sync gestart; content_hash=${HASH}"
 
 # --- 4. Provider accepteert ----------------------------------------------------------------------
-contract_zichtbaar() {
-  provider_api "${PROVIDER_MANAGER}/v1/contracts" 2>/dev/null \
-    | jq -e --arg h "$HASH" 'any(.contracts[]?; .hash == $h)' >/dev/null 2>&1
-}
-
 echo "bootstrap: wachten tot het contract naar de provider gesynct is..."
 elapsed=0; gesynct=0
 while [ "$elapsed" -lt "$SYNC_TIMEOUT" ]; do
-  if contract_zichtbaar; then gesynct=1; break; fi
+  if contract_zichtbaar "$HASH"; then gesynct=1; break; fi
 
   sleep "$SYNC_INTERVAL"; elapsed=$((elapsed + SYNC_INTERVAL))
   echo "  ...nog niet gesynct (${elapsed}s)" >&2
@@ -216,38 +277,11 @@ provider_api -X PUT "${PROVIDER_MANAGER}/v1/contracts/${HASH}/accept" -H 'Conten
 echo "  provider-handtekening gezet."
 
 # --- 5. Wachten tot de consumer het contract als geldig ziet --------------------------------------
-consumer_state() {
-  consumer_api "${CONSUMER_MANAGER}/v1/contracts" 2>/dev/null \
-    | jq -r --arg h "$HASH" 'first(.contracts[]? | select(.hash == $h) | .state) // "onbekend"' 2>/dev/null \
-    || echo onbekend
-}
-
-wacht_op_valid() {
-  local elapsed=0
-  while [ "$elapsed" -lt "$SYNC_TIMEOUT" ]; do
-    [ "$(consumer_state)" = "CONTRACT_STATE_VALID" ] && return 0
-
-    sleep "$SYNC_INTERVAL"; elapsed=$((elapsed + SYNC_INTERVAL))
-    echo "  ...contract nog niet 'valid' op de consumer (${elapsed}s)" >&2
-  done
-  return 1
-}
-
 echo "bootstrap: wachten tot de consumer het contract als geldig ziet..."
-if ! wacht_op_valid; then
-  # De accept-handtekening wordt best-effort naar de consumer gepusht; strandt die, dan blijft het
-  # contract daar `proposed` en ziet de outway de grant nooit. Dit is het canonieke herstel.
-  echo "bootstrap: accept-handtekening opnieuw laten distribueren..." >&2
-  provider_api -X POST \
-    "${PROVIDER_MANAGER}/v1/contracts/${HASH}/distributions/${CONSUMER_OIN}/DISTRIBUTION_ACTION_SUBMIT_ACCEPT_SIGNATURE/retry" \
-    -H 'Content-Type: application/json' >/dev/null \
-    || echo "  WARN: her-distributie gaf een fout: $(fsc_last_error)" >&2
-
-  wacht_op_valid || {
-    echo "FAIL: contract ${HASH} werd niet 'valid' op de consumer (state: $(consumer_state))." >&2
-    exit 1
-  }
-fi
+zorg_dat_consumer_gesynct "$HASH" || {
+  echo "FAIL: contract ${HASH} werd niet 'valid' op de consumer (state: $(consumer_state "$HASH"))." >&2
+  exit 1
+}
 
 echo "OK: contract ${HASH} is wederzijds ondertekend en geldig."
 echo "BOOTSTRAP OK."

@@ -44,6 +44,12 @@ CONS_OIN="$(fsc_peer_waarde OIN "$UITVRAAG")"
 
 OUTWAY="http://127.0.0.1:$((CONS_BLOK + 40))"
 
+# Thumbprint van de consumer-outway — zelfde grootheid als bootstrap.sh gebruikt om een contract
+# te identificeren. Nodig om hier dezelfde matcher (fsc_grant_actief) te kunnen hergebruiken.
+CONS_OUTWAY_CERT="${ENVDIR}/${UITVRAAG}/pki/out/${UITVRAAG}/outway/cert.pem"
+CONS_THUMB="$(fsc_outway_thumbprint "$CONS_OUTWAY_CERT")" \
+  || { echo "FAIL: kon de outway-thumbprint niet berekenen uit ${CONS_OUTWAY_CERT}: $(fsc_last_error)" >&2; exit 1; }
+
 # manager_json <peer> <blok>: de contracten van die peer via zijn interne API (blok+01).
 manager_json() {
   local peer="$1" blok="$2" naam="manager.$1.fsc-test.local" poort=$(( $2 + 1 ))
@@ -73,23 +79,19 @@ for magazijn in $MAGAZIJNEN; do
       continue
     fi
 
-    # Beide handtekeningen én de lifecycle-state. `signatures.accept` alleen is niet genoeg: de
-    # manager gebruikt de grant pas als het contract óók `CONTRACT_STATE_VALID` is.
-    GEVONDEN="$(printf '%s' "$JSON" | jq -r \
-      --arg svc "$MAGAZIJN_DIENST" --arg prov "$PROV_OIN" --arg cons "$CONS_OIN" '
-      [ .contracts[]?
-        | select(.state == "CONTRACT_STATE_VALID")
-        | select(any(.content.grants[]?;
-              .type == "GRANT_TYPE_SERVICE_CONNECTION"
-              and .service.name == $svc and .service.peer_id == $prov
-              and .outway.peer_id == $cons))
-        | select((.signatures.accept | has($prov)) and (.signatures.accept | has($cons)))
-        | .content.grants[] | select(.type == "GRANT_TYPE_SERVICE_CONNECTION") | .hash ]
-      | .[0] // ""' 2>/dev/null)"
+    # Zelfde matcher als contracts/bootstrap.sh gebruikt om een bestaand contract te herkennen:
+    # lifecycle-state, niet-ingetrokken, beide handtekeningen én de outway-thumbprint. Dat laatste
+    # ontbrak hier voorheen — zonder thumbprint-check zou een contract voor een andere (bv. na
+    # certificaatrotatie verouderde) consumer-outway ook meetellen.
+    CONTRACT_HASH="$(fsc_grant_actief "$JSON" "$MAGAZIJN_DIENST" "$PROV_OIN" "$CONS_OIN" "$CONS_THUMB" \
+      | sort | head -n1)" || CONTRACT_HASH=""
 
-    if [ -n "$GEVONDEN" ]; then
+    if [ -n "$CONTRACT_HASH" ]; then
       ok "${peer}: contract geldig met handtekeningen van beide peers"
-      [ -n "$GRANT" ] || GRANT="$GEVONDEN"
+      if [ -z "$GRANT" ]; then
+        # De grant-hash (voor de Fsc-Grant-Hash-header) is niet het contract-hash zelf.
+        GRANT="$(fsc_grant_hash "$JSON" "$CONTRACT_HASH" "$MAGAZIJN_DIENST" "$CONS_THUMB")"
+      fi
     else
       fout "${peer}: geen geldig contract met beide handtekeningen voor ${MAGAZIJN_DIENST}"
     fi
@@ -174,21 +176,37 @@ done
 
 # --- 5. Idempotentie ------------------------------------------------------------------------------
 # Zonder state-file: de bootstrap moet het bestaande contract herkennen uit de contracten zelf.
-# Anders zou elke deploy er een geldig contract bij maken.
+# Anders zou elke deploy er een geldig contract bij maken. Een aggregaat-COUNT over alle magazijnen
+# zou een verschuiving (het ene magazijn erbij, het andere eraf) niet zien; per-magazijn hetzelfde
+# canonieke contract-hash vóór en na is de eigenlijke garantie.
 echo "===== 5. idempotentie ====="
-VOOR="$(manager_json "$UITVRAAG" "$CONS_BLOK" | jq '[.contracts[]?|select(any(.content.grants[]?; .type=="GRANT_TYPE_SERVICE_CONNECTION"))]|length' 2>/dev/null || echo -1)"
 
-if "${HERE}/contracts/fbs-contracten.sh" >/dev/null 2>&1; then
-  NA="$(manager_json "$UITVRAAG" "$CONS_BLOK" | jq '[.contracts[]?|select(any(.content.grants[]?; .type=="GRANT_TYPE_SERVICE_CONNECTION"))]|length' 2>/dev/null || echo -2)"
+contract_hashes_per_magazijn() {  # gebruikt $UITVRAAG/$CONS_BLOK/$CONS_THUMB uit de buitenste scope
+  local json magazijn prov_oin hash
+  json="$(manager_json "$UITVRAAG" "$CONS_BLOK")" || json=""
+  for magazijn in $MAGAZIJNEN; do
+    prov_oin="$(fsc_peer_waarde OIN "$magazijn")"
+    hash="$(fsc_grant_actief "$json" "$MAGAZIJN_DIENST" "$prov_oin" "$CONS_OIN" "$CONS_THUMB" \
+      | sort | head -n1)" || hash=""
+    printf '%s=%s\n' "$magazijn" "$hash"
+  done
+}
 
-  if [ "$VOOR" -gt 0 ] && [ "$NA" -eq "$VOOR" ]; then
-    ok "her-draaien van de bootstrap levert geen extra contract op (${VOOR} -> ${NA})"
+VOOR="$(contract_hashes_per_magazijn)"
+HERDRAAI_LOG="$(mktemp)"
+
+if "${HERE}/contracts/fbs-contracten.sh" >"$HERDRAAI_LOG" 2>&1; then
+  NA="$(contract_hashes_per_magazijn)"
+
+  if [ -n "$VOOR" ] && [ "$VOOR" = "$NA" ] && ! printf '%s\n' "$VOOR" | grep -q '=$'; then
+    ok "her-draaien van de bootstrap levert per magazijn hetzelfde contract op"
   else
-    fout "aantal serviceConnection-contracten ging van ${VOOR} naar ${NA}"
+    fout "contract-hash per magazijn verschilt (of ontbreekt) vóór/na de her-draai — vóór: [${VOOR}] na: [${NA}]"
   fi
 else
-  fout "fbs-contracten.sh faalde bij de her-draai"
+  fout "fbs-contracten.sh faalde bij de her-draai: $(tail -n 10 "$HERDRAAI_LOG")"
 fi
+rm -f "$HERDRAAI_LOG"
 
 echo
 if [ "$FOUTEN" -eq 0 ]; then
