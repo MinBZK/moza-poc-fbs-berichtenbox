@@ -150,6 +150,31 @@ Daarna:
 respecteert `depends_on` niet, dus dat gooit postgres tegelijk met zijn afnemers om en laat de
 managers achter op `Exited`. Voor een volledige cyclus is `down` + `up` de weg.
 
+## Contracten
+
+Een peer mag pas iets afnemen als er een wederzijds ondertekend `ServiceConnectionGrant`-contract
+ligt. `contracts/fbs-contracten.sh` zet die op voor de FBS-rollen uit `peers.env`: één contract per
+magazijn, zodat de uitvraag-outway `berichtenmagazijn` bij elk van hen mag ophalen.
+
+```bash
+./federatie/contracts/fbs-contracten.sh   # één contract per magazijn uit MAGAZIJNEN
+./federatie/smoke-contract.sh             # bewijst contract, data-pad, afdwinging en verantwoording
+```
+
+Een magazijn toevoegen is één naam in `MAGAZIJNEN`.
+
+`contracts/bootstrap.sh` eronder is generiek — alle peers, adressen en certificaten komen uit env —
+en is **idempotent zonder lokale state**. De generieke variant in `moza-fsc-testnet` onthoudt de
+content-hash in een bestand; dat werkt op een ontwikkelmachine, maar niet in een deploy waar elke
+job met een lege schijf start: daar maakt elke run er nóg een geldig contract bij. Deze variant
+leidt het bestaan af uit de contracten zelf — service, provider, consumer-outway en thumbprint
+samen vormen de identiteit — zodat een herhaalde run overal een no-op is.
+
+De provider tekent niet vanzelf: `AUTO_SIGN_GRANTS` dekt alleen (delegated)servicePublication, dus
+de accept is een expliciete `PUT`. Landt de accept-handtekening daarna niet bij de consumer (die
+push is best-effort, met begrensde backoff en zonder cron-retry), dan blijft het contract daar
+`proposed` en ziet de outway de grant nooit; het script forceert dan de her-distributie.
+
 ## Een peer toevoegen
 
 1. **`peers.env`** — de peer aan `GASTEN` toevoegen, met zijn `OIN_<peer>` en het volgende vrije
