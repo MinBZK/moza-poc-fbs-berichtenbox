@@ -16,9 +16,17 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class DownstreamHttpServer(
     private val pad: String = "/events",
-    /** Bepaalt het statuscode van het n-de request (1-indexed). Default: altijd 202. */
-    private val statusVoorAanroep: (Int) -> Int = { _ -> 202 },
 ) : AutoCloseable {
+
+    /**
+     * Bepaalt de statuscode van het n-de request (1-indexed). Default: altijd 202.
+     *
+     * Instelbaar per test in plaats van vast bij constructie: zo delen tests met verschillend
+     * downstream-gedrag (400, 500, eerst-500-dan-202) dezelfde server en daarmee dezelfde
+     * Quarkus-instantie. Een eigen server per gedrag betekende een eigen resource-manager, en
+     * die dwingt een applicatie-herstart met verse database-container af.
+     */
+    var statusVoorAanroep: (Int) -> Int = ALTIJD_GEACCEPTEERD
 
     private val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
     private val ontvangenBodies = ConcurrentLinkedQueue<String>()
@@ -44,14 +52,23 @@ class DownstreamHttpServer(
         server.start()
     }
 
-    /** Reset call-counter, bodies en headers tussen tests die de server hergebruiken. */
+    /**
+     * Reset call-counter, bodies, headers én het antwoordgedrag tussen tests die de server
+     * hergebruiken. Het gedrag hoort mee terug naar de default: anders erft een volgende test
+     * stilzwijgend de 400 of 500 van zijn voorganger.
+     */
     fun reset() {
         ontvangenBodies.clear()
         ontvangenHeaders.clear()
         aanroepTeller.set(0)
+        statusVoorAanroep = ALTIJD_GEACCEPTEERD
     }
 
     override fun close() {
         server.stop(0)
+    }
+
+    companion object {
+        private val ALTIJD_GEACCEPTEERD: (Int) -> Int = { _ -> 202 }
     }
 }
