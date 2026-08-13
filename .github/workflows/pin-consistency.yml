@@ -49,3 +49,48 @@ jobs:
             fi
           done
           exit "$fail"
+
+  # Het fuzz-basis-image bevat een warme Maven-repository die bij de pom's van dát moment hoort.
+  # `.clusterfuzzlite/Dockerfile` pint het op digest, dus een pom-wijziging zonder nieuw image
+  # laat de fuzz-build stilzwijgend op een verouderde repository draaien: hij werkt nog, maar
+  # haalt het verschil elke run opnieuw op — precies de trage voorbereiding die het image moest
+  # wegnemen. Deze guard maakt dat een harde fout in plaats van sluipend tijdverlies.
+  fuzz-basis-pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: De gepinde digest hoort bij de huidige pom's
+        env:
+          # Zelfde bestandenset als .github/workflows/fuzz-base-image.yml gebruikt voor de tag;
+          # lopen die twee uiteen, dan vindt de opzoeking hieronder niets en faalt deze job.
+          VERWACHT: ${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}
+          IMAGE_PAD: minbzk/fbs-fuzz-base
+        run: |
+          set -euo pipefail
+
+          gepind=$(grep -oE 'sha256:[a-f0-9]{64}' .clusterfuzzlite/Dockerfile | head -1)
+          if [ -z "$gepind" ]; then
+            echo "::error::geen digest-pin gevonden in .clusterfuzzlite/Dockerfile — guard kan drift niet meer zien."
+            exit 1
+          fi
+
+          # Publiek image: een anoniem pull-token volstaat, geen secret nodig.
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:${IMAGE_PAD}:pull&service=ghcr.io" | jq -r .token)
+          verwachte_digest=$(curl -fsSI \
+            -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/${IMAGE_PAD}/manifests/poms-${VERWACHT}" \
+            | tr -d '\r' | awk '/[Dd]ocker-[Cc]ontent-[Dd]igest/ {print $2}') || {
+              echo "::error::geen basis-image voor de huidige pom's (tag poms-${VERWACHT}). Draai de workflow 'Fuzz-basis-image' en pin de digest die hij print in .clusterfuzzlite/Dockerfile."
+              exit 1
+            }
+
+          printf 'gepind:    %s\nverwacht:  %s\n' "$gepind" "$verwachte_digest"
+
+          if [ "$gepind" != "$verwachte_digest" ]; then
+            echo "::error::de gepinde digest hoort niet bij de huidige pom's. Pin ${verwachte_digest} in .clusterfuzzlite/Dockerfile."
+            exit 1
+          fi
+
+          echo "Basis-image-pin hoort bij de huidige pom's."
