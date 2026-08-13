@@ -147,6 +147,16 @@ if [ "$FOUTEN" -eq 0 ]; then
   echo "grant-hashes weggeschreven naar ${GRANTS}."
   echo "FBS-CONTRACTEN OK (${GEDAAN} magazijn(en))."
 else
+  # Ook het BESTAANDE bestand weg. Anders overleeft een grant-hash uit een eerdere federatie een
+  # mislukte run: na `federatie.sh down` (die de volumes wist) en een nieuwe `up` bestaat die grant
+  # niet meer, maar zou de demo-stack er wél mee starten en op elke magazijn-call een
+  # 400 UNKNOWN_GRANT_HASH_IN_HEADER krijgen. Geen bestand = geen FSC-headers = rechtstreeks
+  # verkeer, en dat is een eerlijke uitkomst van een mislukte contract-run.
+  if [ -e "$GRANTS" ]; then
+    rm -f "$GRANTS"
+    echo "grant-hashes uit een eerdere run verwijderd (${GRANTS}); de uitvraag valt terug op rechtstreeks verkeer." >&2
+  fi
+
   echo "FBS-CONTRACTEN ROOD: ${FOUTEN} van $((GEDAAN + FOUTEN)) mislukt." >&2
   exit 1
 fi

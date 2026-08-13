@@ -3,13 +3,15 @@
 # non-interactief. De zelfgebouwde `fbs-demo/…`-images blijven kaal; compose.podman.yaml zet daar
 # `localhost/` voor.
 #
-# `DEMO_BIND` bepaalt op welk hostadres de stack publiceert; default `127.0.0.1`. Zonder die
-# binding staat de hele demo op élke interface van de machine: Redis zonder wachtwoord, twee
-# PostgreSQL-instanties met demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
+# `DEMO_BIND` bepaalt op welk hostadres de stack publiceert; default `127.0.0.1`, en verder wordt
+# alleen `0.0.0.0` ondersteund — `demo/podman-up.sh` controleert elke service over 127.0.0.1 en een
+# specifiek adres laat die controles aflopen. Zonder die binding staat de hele demo op élke
+# interface van de machine: Redis zonder wachtwoord, drie PostgreSQL-instanties met
+# demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
 # aan een kantoor- of thuisnetwerk is dat het hele subnet.
 #
-# Wil je de demo aan iemand anders tonen, zet 'm dan bewust open — `DEMO_BIND=0.0.0.0` of een
-# specifiek adres — in plaats van dat het de default is. `demo-console` doet hier NIET aan mee en
+# Wil je de demo aan iemand anders tonen, zet 'm dan bewust open met `DEMO_BIND=0.0.0.0`, in plaats
+# van dat het de default is. `demo-console` doet hier NIET aan mee en
 # blijft altijd op loopback; zie de toelichting daar.
 services:
   redis:

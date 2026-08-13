@@ -28,6 +28,19 @@ cd "$WORTEL"
 
 export DEMO_HOST="${DEMO_HOST:-localhost}"
 
+# DEMO_BIND stuurt op welk hostadres compose publiceert (zie compose.yaml). Alleen loopback of de
+# wildcard: elke controle in dit script gaat over 127.0.0.1, en dat adres blijft bij beide
+# bereikbaar. Bij een specifiek adres (`DEMO_BIND=10.0.0.5`) zouden die probes 180 seconden lang
+# aflopen en de start laten falen terwijl de stack gezond draait.
+case "${DEMO_BIND:-127.0.0.1}" in
+    127.0.0.1|0.0.0.0) ;;
+    *)
+        echo "FOUT: DEMO_BIND='${DEMO_BIND}' wordt niet ondersteund; gebruik 127.0.0.1 (default) of 0.0.0.0." >&2
+        echo "      De controles in dit script gaan over 127.0.0.1; een specifiek adres laat ze aflopen." >&2
+        exit 2
+        ;;
+esac
+
 # Doorgeven aan compose én aan de generator vanaf één plek; beide hebben hun eigen default.
 export DEMO_MAGAZIJN_STUBS="${DEMO_MAGAZIJN_STUBS:-12}"
 
@@ -393,5 +406,11 @@ if [ "$DEMO_HOST" != "localhost" ]; then
 fi
 
 echo
-echo "Draait ($MODUS). Bedieningspaneel: http://${DEMO_HOST}:8095/"
-echo "                 Berichtenbox:    http://${DEMO_HOST}:8095/berichtenbox.html"
+# Bewust de loopback-URL en niet ${DEMO_HOST}: het bedieningspaneel bindt alleen op 127.0.0.1, dus
+# een kopieerbare regel met een ander adres wijst naar iets dat niet bestaat.
+echo "Draait ($MODUS). Bedieningspaneel: http://127.0.0.1:8095/"
+echo "                 Berichtenbox:    http://127.0.0.1:8095/berichtenbox.html"
+
+if [ "$DEMO_HOST" != "localhost" ]; then
+    echo "                 (vanaf ${DEMO_HOST}: tunnel eerst 8095 en 8086 naar deze machine)"
+fi

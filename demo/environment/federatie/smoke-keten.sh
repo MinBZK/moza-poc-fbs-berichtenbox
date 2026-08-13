@@ -34,6 +34,10 @@ UITVRAAG_URL="${UITVRAAG_URL:-http://127.0.0.1:8086/api/v1}"
 MAGAZIJN_A_DIRECT="${MAGAZIJN_A_DIRECT:-http://127.0.0.1:8090/api/v1}"
 MAGAZIJN_B_DIRECT="${MAGAZIJN_B_DIRECT:-http://127.0.0.1:8091/api/v1}"
 OPHAAL_TIMEOUT="${OPHAAL_TIMEOUT:-60}"
+# Ruimte voor de inway om een gewijzigde upstream op te pikken; elke poging is een volledige
+# ophaling, dus dit is geen vaste wachttijd maar een bovengrens.
+KETEN_POGINGEN="${KETEN_POGINGEN:-5}"
+KETEN_WACHT="${KETEN_WACHT:-3}"
 
 # Testgegevens. Elke run een VERSE ontvanger, en niet een vaste test-BSN: de uitvraag houdt een
 # sessiecache per ontvanger, dus bij een tweede run zou `_ophalen` uit die cache serveren zonder het
@@ -108,13 +112,29 @@ if PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/docker-com
       2>"$ERRLOG" | sort -u
   }
 
+  # Eerst opvangen in variabelen, dan pas vergelijken. In een process substitution is de exitstatus
+  # onzichtbaar: een gestopte postgres of een psql-fout levert dan lege uitvoer met exitcode 0, en
+  # de assert hieronder zou "de uitvraag ging buiten de outway om" melden terwijl het logboek
+  # simpelweg onleesbaar was.
   gedeelde_txids() {
-    comm -12 <(txids "fsc_txlog_$(fsc_peer_var "$UITVRAAG")" out) \
-             <(txids "fsc_txlog_$(fsc_peer_var magazijn-a)" in)
+    local uit in
+    uit="$(txids "fsc_txlog_$(fsc_peer_var "$UITVRAAG")" out)" || {
+      echo "WAARSCHUWING: txlog van ${UITVRAAG} niet leesbaar: $(fsc_last_error)" >&2
+      return 1
+    }
+    in="$(txids "fsc_txlog_$(fsc_peer_var magazijn-a)" in)" || {
+      echo "WAARSCHUWING: txlog van magazijn-a niet leesbaar: $(fsc_last_error)" >&2
+      return 1
+    }
+
+    comm -12 <(printf '%s\n' "$uit") <(printf '%s\n' "$in")
   }
 
-  VOOR="$(gedeelde_txids || true)"
+  # Mislukt de nulmeting, dan mag assert 2 niet "alles is nieuw" concluderen: dat zou juist
+  # vals-groen zijn op een transactie uit een eerdere run.
+  if VOOR="$(gedeelde_txids)"; then VOOR_OK=1; else VOOR_OK=0; VOOR=""; fi
 else
+  VOOR_OK=0
   VOOR=""
 fi
 
@@ -122,11 +142,40 @@ fi
 # gebruiker laten: `smoke-federatie.sh` publiceert de dienst met de echo-stub als upstream, dus wie
 # die smoke ná het instellen draait, zet 'm ongemerkt terug. De publicatie is idempotent.
 echo "== 0. inway wijst naar het echte magazijn =="
-if FSC_CONTROLLER="https://controller.magazijn-a.fsc-test.local:9444" \
-   FSC_MANAGER="https://manager.magazijn-a.fsc-test.local:9443" \
-   FSC_UPSTREAM_URL="${MAGAZIJN_A_UPSTREAM:-http://127.0.0.1:8090}" \
-     "${ENVDIR}/magazijn-a/deploy/local/publish-service.sh" >/dev/null 2>"$ERRLOG"; then
-  ok "upstream van de inway staat op ${MAGAZIJN_A_UPSTREAM:-http://127.0.0.1:8090}"
+if fsc_zet_upstream "$ENVDIR" magazijn-a "${MAGAZIJN_A_UPSTREAM:-http://127.0.0.1:8090}" \
+     >/dev/null 2>"$ERRLOG"; then
+  # De dienstwijziging propageert asynchroon naar de inway; de eerste calls erna komen nog bij de
+  # vórige upstream uit. Hier uitwachten en niet in assert 1: die mag maar één keer ophalen, want
+  # daarna serveert de sessiecache en meet een tweede poging niets meer.
+  #
+  # De probe gaat door de outway naar `/q/health` — een pad dat het echte magazijn met JSON
+  # beantwoordt en de echo-stub met zijn vaste tekst. Zo meten we de keten zelf en niet wat de
+  # controller denkt te weten.
+  GRANT="$(sed -n 's/^MAGAZIJN_A_GRANT_HASH=//p' "$(cd "${ENVDIR}/.." && pwd)/generated/fsc-grants.env" 2>/dev/null || true)"
+  OUTWAY="http://$(fsc_component_adres "$(fsc_peer_waarde NET "$UITVRAAG")" outway):8443"
+  POGING=1
+  DOOR=0
+
+  if ! fsc_grant_bruikbaar "$GRANT"; then
+    fout "geen bruikbaar grant-hash in demo/generated/fsc-grants.env — draai contracts/fbs-contracten.sh"
+  else
+    while [ "$POGING" -le "$KETEN_POGINGEN" ]; do
+      if curl -sS --noproxy '*' --max-time 10 -H "Fsc-Grant-Hash: ${GRANT}" \
+           "${OUTWAY}/q/health" 2>"$ERRLOG" | grep -q '"status"'; then
+        DOOR=1
+        break
+      fi
+
+      [ "$POGING" -lt "$KETEN_POGINGEN" ] && sleep "$KETEN_WACHT"
+      POGING=$((POGING + 1))
+    done
+
+    if [ "$DOOR" -eq 1 ]; then
+      ok "upstream van de inway staat op ${MAGAZIJN_A_UPSTREAM:-http://127.0.0.1:8090} (na ${POGING} poging(en))"
+    else
+      fout "de inway levert na ${KETEN_POGINGEN} pogingen nog niet het echte magazijn — upstream niet doorgedrongen"
+    fi
+  fi
 else
   fout "kon de upstream van magazijn-a niet zetten: $(fsc_last_error)"
 fi
@@ -140,6 +189,9 @@ if [ "$CODE" != "201" ] && [ "$CODE" != "200" ]; then
 else
   ok "bericht '${MERK}' aangeleverd bij magazijn-a (HTTP ${CODE})"
 
+  # Eén ophaling, bewust. Herproberen kan niet: de eerste ophaling vult de sessiecache voor deze
+  # ontvanger, en elke volgende komt daaruit zonder het magazijn nog te bellen. Een tweede poging
+  # zou dus niets nieuws meten en assert 2 juist rood maken.
   if ! ophalen; then
     fout "ophalen bij de uitvraag mislukte: $(fsc_last_error)"
   else
@@ -160,8 +212,11 @@ fi
 echo "== 2. verantwoording in beide txlogs =="
 if [ -z "${PROJECT:-}" ]; then
   fout "projectnaam van de gastheer niet af te leiden — deze assert heeft niets gemeten"
+elif [ "$VOOR_OK" -ne 1 ]; then
+  fout "de nulmeting op de txlogs mislukte — deze assert heeft niets gemeten"
+elif ! NA="$(gedeelde_txids)"; then
+  fout "de txlogs zijn na afloop niet leesbaar — deze assert heeft niets gemeten"
 else
-  NA="$(gedeelde_txids || true)"
   NIEUW="$(comm -13 <(printf '%s\n' "$VOOR") <(printf '%s\n' "$NA") | grep -c . || true)"
 
   if [ "${NIEUW:-0}" -gt 0 ]; then

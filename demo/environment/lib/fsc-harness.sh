@@ -126,6 +126,20 @@ fsc_grant_hash() {
     | ($g[0] // "unknown")' 2>/dev/null || echo unknown
 }
 
+# fsc_zet_upstream <envdir> <peer> <upstream-url>: publiceer de dienst van die peer (opnieuw) met
+# deze upstream achter de inway. Idempotent — bestaat de dienst al met dezelfde upstream, dan doet
+# publish-service.sh niets.
+#
+# Elke smoke die over het data-pad iets beweert, hoort dit zelf te zetten in plaats van het als
+# voorwaarde op te schrijven: smoke-contract.sh toetst de echo van de stub, smoke-keten.sh het
+# échte magazijn, en wie ze na elkaar draait zou anders de ene de andere zien omgooien.
+fsc_zet_upstream() {
+  FSC_CONTROLLER="https://controller.$2.fsc-test.local:9444" \
+  FSC_MANAGER="https://manager.$2.fsc-test.local:9443" \
+  FSC_UPSTREAM_URL="$3" \
+    "$1/$2/deploy/local/publish-service.sh"
+}
+
 # fsc_grant_bruikbaar <hash>: is dit een echt grant-hash?
 #
 # fsc_grant_hash levert bij een mislukking de string `unknown` in plaats van een lege waarde, zodat

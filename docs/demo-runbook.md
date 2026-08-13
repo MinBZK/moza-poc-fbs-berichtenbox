@@ -95,6 +95,10 @@ nodig: `DEMO_BIND` voor de poorten en `DEMO_HOST` voor de CORS-allowlist.
 DEMO_BIND=0.0.0.0 DEMO_HOST=10.0.0.5 demo/podman-up.sh
 ```
 
+`DEMO_BIND` kent maar twee waarden: `127.0.0.1` (default) en `0.0.0.0`. Een specifiek adres wordt
+geweigerd, omdat elke controle in `podman-up.sh` over 127.0.0.1 loopt en anders afloopt op een
+timeout terwijl de stack gezond draait.
+
 Twee beperkingen daarbij:
 
 - **`DEMO_BIND` geldt alleen in bridge-modus.** In `hostnet` publiceert compose geen poorten en
