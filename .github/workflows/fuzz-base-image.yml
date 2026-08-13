@@ -8,6 +8,13 @@
 name: Fuzz-basis-image
 
 on:
+  # TIJDELIJK voor de meting op deze branch: zonder deze trigger is het image pas te bouwen
+  # nadat de workflow op main staat, en dan is de meting die de koppeling moet rechtvaardigen
+  # nog niet gedaan. Gaat eruit voordat deze PR mergeklaar is.
+  pull_request:
+    paths:
+      - '.clusterfuzzlite/base/Dockerfile'
+      - '.github/workflows/fuzz-base-image.yml'
   push:
     branches: [main]
     paths:
