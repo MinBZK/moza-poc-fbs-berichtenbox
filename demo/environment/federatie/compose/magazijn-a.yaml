@@ -9,9 +9,11 @@
 # (zie federatie/compose/logius.yaml). `profiles` houdt ze hier uit `up` zonder ze te hoeven
 # verwijderen; elke `depends_on` die er nog naar wees, wordt vervangen.
 #
-# Let op `!override` en niet `!reset` bij depends_on: `!reset` maakt de sleutel leeg ongeacht
-# wat eronder staat. Op manager-magazijn-a betekent dat de manager gelijk met zijn eigen
-# migratie start en sterft op `relation "peers.peers" does not exist`.
+# Op de drie migrate-jobs is `!override {}` gelijkwaardig aan `!reset` — beide laten de sleutel
+# leeg. Op manager-magazijn-a niet: daar draagt de override inhoud, en `!reset` zou die weggooien
+# ongeacht wat eronder staat. De manager start dan gelijk met zijn eigen migratie en sterft op
+# `relation "peers.peers" does not exist`. Eén tag voor alle vier, zodat een kopieerfout tussen
+# die gevallen niet kan ontstaan.
 #
 # Peer-blok: 61100. Voor het waarom van `extra_hosts` op élke service, zie logius.yaml.
 x-hosts-federatie: &hosts-federatie
@@ -61,7 +63,7 @@ services:
   manager-magazijn-a:
     extra_hosts: *hosts-federatie
     # manager-directory staat in deze stack in een inactief profiel; de directory van de
-    # gastheer-stack draait al voordat deze stack omhoog komt (zie federatie/op.sh).
+    # gastheer-stack draait al voordat deze stack omhoog komt — federatie.sh wacht daarop.
     depends_on: !override
       migrate-magazijn-a:
         condition: service_completed_successfully

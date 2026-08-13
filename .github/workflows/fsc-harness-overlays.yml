@@ -193,3 +193,122 @@ jobs:
           fi
 
           exit "$fail"
+
+  federatie-overlay-past-op-de-peers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Peer-blokken botsen niet en elke listener staat op loopback
+        # De job hierboven merget drie bestanden per peer. De federatie-opstelling voegt er een
+        # vierde aan toe (demo/environment/federatie/compose/<peer>.yaml) en zet daarmee álle
+        # peers in ÉÉN netns. Twee dingen kunnen daar stil misgaan, en beide zijn onzichtbaar in
+        # de drie-bestands-merge:
+        #
+        #  1. Iemand voegt een service toe aan een peer-basis en vergeet de federatie-overlay. Die
+        #     service houdt zijn hostnet-poort — en die is voor élke peer identiek, dus de tweede
+        #     peer botst. Dat uit zich als een raadselachtige TLS- of routeringsfout bij `up`.
+        #  2. Iemand kopieert een overlay voor een nieuwe peer en laat een poort uit het blok van
+        #     de vorige staan.
+        #
+        # Beide zijn statisch te zien: render de vier-bestands-merge per peer en eis dat de
+        # poortverzamelingen disjunct zijn.
+        run: |
+          set -euo pipefail
+
+          FED=demo/environment/federatie
+          [ -d "$FED/compose" ] || { echo "FOUT: $FED/compose ontbreekt."; exit 1; }
+
+          # shellcheck source=/dev/null
+          . "$FED/peers.env"
+
+          fail=0
+          alle=""
+          for peer in $GASTHEER $GASTEN; do
+            lokaal="demo/environment/$peer/deploy/local"
+            overlay="$FED/compose/$peer.yaml"
+
+            if [ ! -f "$overlay" ]; then
+              echo "FOUT: peer '$peer' staat in peers.env maar heeft geen $overlay."
+              fail=1
+              continue
+            fi
+
+            merged=$(cd "$lokaal" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
+              docker compose -f docker-compose.yaml \
+                             -f docker-compose.podman.yaml \
+                             -f docker-compose.podman-hostnet.yaml \
+                             -f "../../../federatie/compose/$peer.yaml" config --format json)
+
+            # Elke listener op loopback — zelfde eis als de drie-bestands-guard, maar nu op de
+            # merge die er in de federatie daadwerkelijk draait.
+            env_lek=$(jq -r '.services | to_entries[] | . as $s
+              | ($s.value.environment // {}) | to_entries[]
+              | select(.key | test("^(LISTEN_ADDRESS|MONITORING_ADDRESS)"))
+              | select(.value == null or ((.value | tostring | startswith("127.0.0.1")) | not))
+              | "\($s.key): \(.key)=\(.value // "<leeg>")"' <<<"$merged")
+
+            if [ -n "$env_lek" ]; then
+              echo "FOUT: $peer — listener-env die niet op 127.0.0.1 staat in de federatie-merge:"
+              printf '%s\n' "$env_lek" | sed 's/^/  /'
+              fail=1
+            fi
+
+            # De poorten die deze peer in de federatie claimt, uit env én uit `command`
+            # (stub-upstream draagt zijn adres in een `-listen=`-vlag).
+            poorten=$(jq -r '.services | to_entries[] | . as $s
+              | ( ($s.value.environment // {}) | to_entries[] | select(.value != null) | (.value | tostring) ),
+                ( (($s.value.command // []) + ($s.value.entrypoint // []))[]? | select(type == "string") )
+              | select(test("(^|=)127\\.0\\.0\\.1:[0-9]+$"))
+              | sub(".*127\\.0\\.0\\.1:"; "")' <<<"$merged" | sort -un)
+
+            blok_var="BLOK_$(printf '%s' "$peer" | tr '-' '_')"
+            blok=$(eval "printf '%s' \"\${$blok_var:-}\"")
+
+            if [ -z "$blok" ]; then
+              echo "FOUT: geen $blok_var in peers.env."
+              fail=1
+              continue
+            fi
+
+            in_blok=0
+            for p in $poorten; do
+              # Federatie-infra draait op de gastheer namens iedereen en hoort bij geen peer-blok.
+              case " $INFRA_POORTEN " in *" $p "*) continue ;; esac
+
+              if [ "$p" -lt "$blok" ] || [ "$p" -ge $((blok + 100)) ]; then
+                echo "FOUT: $peer — poort $p valt buiten zijn blok $blok-$((blok + 99))."
+                fail=1
+              else
+                in_blok=$((in_blok + 1))
+              fi
+              alle="$alle $peer:$p"
+            done
+
+            echo "$peer: $in_blok poorten in blok $blok."
+          done
+
+          # Disjunctheid over de peers heen: het punt van de blokindeling.
+          botsingen=$(printf '%s\n' $alle | awk -F: '{tel[$2]=tel[$2]" "$1} END {for (p in tel) if (split(tel[p],a," ")>1) print p": "tel[p]}')
+          if [ -n "$botsingen" ]; then
+            echo "FOUT: dezelfde poort wordt door meer dan één peer geclaimd:"
+            printf '%s\n' "$botsingen" | sed 's/^/  /'
+            fail=1
+          fi
+
+          # De federatie-router mount een eigen config; die ontsnapt aan elke controle op de merge.
+          haproxy_lek=$(grep -nE '^[[:space:]]*bind[[:space:]]' "$FED/haproxy.federatie.cfg" \
+            | grep -vE 'bind[[:space:]]+127\.0\.0\.1:' || true)
+          if [ -n "$haproxy_lek" ]; then
+            echo "FOUT: bind-regel in haproxy.federatie.cfg die niet op 127.0.0.1 staat:"
+            printf '%s\n' "$haproxy_lek" | sed 's/^/  /'
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::De federatie-overlays passen niet meer op hun peers. Zie de log hierboven."
+          fi
+
+          exit "$fail"
