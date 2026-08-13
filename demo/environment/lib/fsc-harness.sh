@@ -18,6 +18,9 @@ fsc_errlog_init() {
 # BSD-sed/macOS niet kent), dan zonder regelanker filteren (de banner start niet op kolom 1
 # door de ANSI-prefix), dan lege regels weggooien die overblijven na het strippen van de losse
 # ESC[0m-regel.
+# shellcheck disable=SC2120  # het bestand-argument is optioneel; geen enkele aanroeper geeft er nu
+# een mee, ze scrubben allemaal $ERRLOG. Bewust behouden zodat een tweede logbestand geen
+# signatuurwijziging vergt.
 fsc_scrub_errlog() {
   local file="${1:-$ERRLOG}"
   LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$file" \
