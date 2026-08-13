@@ -63,8 +63,13 @@ jobs:
             -t "$IMAGE:poms-$POMS" \
             .
           docker push "$IMAGE:poms-$POMS"
-          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:poms-$POMS")
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          # Via imagetools, niet via `docker inspect .RepoDigests`: buildx pusht een index met
+          # de attestatie erbij, en de registry serveert de tag als díé index. RepoDigests geeft
+          # de onderliggende image-manifest — daarmee pinnen werkt wel, maar dan wijst de pin
+          # naar iets anders dan wat de registry onder deze tag kent, en kan de guard de twee
+          # niet meer tegen elkaar houden.
+          digest=$(docker buildx imagetools inspect "$IMAGE:poms-$POMS" --format '{{.Manifest.Digest}}')
+          echo "digest=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
 
       - name: Toon de pin die in .clusterfuzzlite/Dockerfile hoort
         env:
