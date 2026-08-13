@@ -51,10 +51,14 @@ jobs:
           exit "$fail"
 
   # Het fuzz-basis-image bevat een warme Maven-repository die bij de pom's van dát moment hoort.
-  # `.clusterfuzzlite/Dockerfile` pint het op digest, dus een pom-wijziging zonder nieuw image
-  # laat de fuzz-build stilzwijgend op een verouderde repository draaien: hij werkt nog, maar
-  # haalt het verschil elke run opnieuw op — precies de trage voorbereiding die het image moest
-  # wegnemen. Deze guard maakt dat een harde fout in plaats van sluipend tijdverlies.
+  # `.clusterfuzzlite/Dockerfile` pint het op digest, dus na een pom-wijziging hoort er een nieuw
+  # image gebouwd en gepind te worden.
+  #
+  # Deze job WAARSCHUWT en blokkeert niet. Een verouderde pin maakt de fuzz-build namelijk niet
+  # stuk: Maven haalt op wat er in de warme repository ontbreekt, dus het gevolg is een tragere
+  # voorbereiding, niet een foute. Blokkeren zou bovendien vastlopen — het nieuwe image wordt pas
+  # gebouwd bij een push naar main, en die push is precies wat een blokkerende check tegenhoudt.
+  # Elke dependency-bump zou dan handwerk vragen vóór hij überhaupt gemerged kan worden.
   fuzz-basis-pin:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -71,7 +75,9 @@ jobs:
 
           gepind=$(grep -oE 'sha256:[a-f0-9]{64}' .clusterfuzzlite/Dockerfile | head -1)
           if [ -z "$gepind" ]; then
-            echo "::error::geen digest-pin gevonden in .clusterfuzzlite/Dockerfile — guard kan drift niet meer zien."
+            # Wél hard: zonder pin kan hier niets meer gecontroleerd worden, en dat is een
+            # wijziging aan de Dockerfile zelf — geen situatie die een dependency-bump veroorzaakt.
+            echo "::error::geen digest-pin gevonden in .clusterfuzzlite/Dockerfile — er valt niets meer te controleren."
             exit 1
           fi
 
@@ -81,16 +87,18 @@ jobs:
             -H "Authorization: Bearer $token" \
             -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
             "https://ghcr.io/v2/${IMAGE_PAD}/manifests/poms-${VERWACHT}" \
-            | tr -d '\r' | awk '/[Dd]ocker-[Cc]ontent-[Dd]igest/ {print $2}') || {
-              echo "::error::geen basis-image voor de huidige pom's (tag poms-${VERWACHT}). Draai de workflow 'Fuzz-basis-image' en pin de digest die hij print in .clusterfuzzlite/Dockerfile."
-              exit 1
-            }
+            | tr -d '\r' | awk '/[Dd]ocker-[Cc]ontent-[Dd]igest/ {print $2}') || verwachte_digest=""
+
+          if [ -z "$verwachte_digest" ]; then
+            echo "::warning::Nog geen fuzz-basis-image voor deze pom's (tag poms-${VERWACHT}). De fuzz-controle werkt gewoon, maar haalt het verschil elke run opnieuw op. Na de merge naar main bouwt de workflow 'Fuzz-basis-image' het nieuwe image; pin daarna de digest die hij print in .clusterfuzzlite/Dockerfile."
+            exit 0
+          fi
 
           printf 'gepind:    %s\nverwacht:  %s\n' "$gepind" "$verwachte_digest"
 
           if [ "$gepind" != "$verwachte_digest" ]; then
-            echo "::error::de gepinde digest hoort niet bij de huidige pom's. Pin ${verwachte_digest} in .clusterfuzzlite/Dockerfile."
-            exit 1
+            echo "::warning::Er is een fuzz-basis-image dat wél bij deze pom's hoort, maar de pin wijst naar een ander. Pin ${verwachte_digest} in .clusterfuzzlite/Dockerfile; tot dan is de fuzz-voorbereiding trager dan nodig."
+            exit 0
           fi
 
           echo "Basis-image-pin hoort bij de huidige pom's."

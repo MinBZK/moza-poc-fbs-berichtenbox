@@ -3,8 +3,12 @@
 # deed elke fuzz-run ~14s apt-get en ~100s dependency-downloads opnieuw.
 #
 # Gepind op digest, niet op tag: de tag beweegt mee met de pom's, en een fuzz-build hoort niet
-# stilzwijgend van basis te wisselen. Wijzigen de pom's, dan bouwt die workflow een nieuw image
-# en print hij de digest die hier hoort.
+# stilzwijgend van basis te wisselen. Wijzigen de pom's, dan bouwt die workflow bij de merge naar
+# main een nieuw image en print hij de digest die hier hoort; `fuzz-basis-pin` in
+# pin-consistency.yml waarschuwt tot die pin is bijgewerkt.
+#
+# Een verouderde pin is expres geen blokkade: de build werkt dan gewoon, Maven haalt op wat er in
+# de warme repository ontbreekt. Alleen de voorbereiding is trager tot iemand de pin bijwerkt.
 FROM ghcr.io/minbzk/fbs-fuzz-base@sha256:72751a2ee98213127bef39812c1118f06fc1e66ff841e1a4d913963c58acca9d
 COPY . $SRC/moza-poc-fbs-berichtenbox
 WORKDIR $SRC/moza-poc-fbs-berichtenbox
