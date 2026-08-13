@@ -23,16 +23,6 @@ updates:
       # https://github.com/atlassian/openapi-request-validator/pull/24
       - dependency-name: "com.networknt:json-schema-validator"
         update-types: ["version-update:semver-major"]
-      # openapi-generator 7.24.0 verdeelt de paden anders over de gegenereerde interfaces
-      # (upstream "Fix path shadowing", OpenAPITools/openapi-generator#23871). Bij ons deelt
-      # /berichten een prefix over meerdere tags, waardoor de class-@Path van twee interfaces
-      # leeg wordt; Quarkus REST resolvet eerst op class-basispad en beantwoordt POST
-      # /api/v1/berichten dan met 405 — aanleveren werkt niet meer. Geblokkeerd tot de keuze
-      # uit MinBZK/MijnOverheidZakelijk#870 gemaakt is (useTags=false, spec-paden herzien, of
-      # een upstream-fix). RouteDekkingTest vangt de breuk voortaan af, maar pas nádat de bump
-      # gemerged zou zijn — vandaar ook deze blokkade.
-      - dependency-name: "org.openapitools:openapi-generator-maven-plugin"
-        versions: [">=7.24.0"]
   # Dagelijks: Dependabot genereert geen alerts voor container-images, dus voor de
   # images uit compose.yaml (die via pin-consistency.yml ook de ZAD-runtime-pins
   # sturen) is deze version-update-ronde het enige signaal dat er een nieuwe versie is.
