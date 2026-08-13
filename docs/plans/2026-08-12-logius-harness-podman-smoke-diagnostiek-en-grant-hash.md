@@ -1,4 +1,12 @@
-**Status:** Uitgevoerd (Taak 1-3; Taak 4 — PR-reactie — nog niet geplaatst)
+**Status:** Uitgevoerd (Taak 1-3, inclusief aanvulling hieronder; Taak 4 — PR-reactie — nog niet geplaatst)
+
+**Aanvulling (2026-08-12, na reviewreactie van ericwout-overheid):** de `strip_wrapper_noise()`-filter uit Taak 1 ankerde op regelbegin (`^>>>> Executing external compose provider`), maar de banner draagt SGR-ANSI-codes (`ESC[4m` vóór de tekst, een losse `ESC[0m`-regel erna) — de anker matchte dus niet en de WARN ging alsnog af. Fix (commit `64d4ffb8` op #178, cherry-picked als `632ab123` op #166): ANSI eerst strippen met een portable `LC_ALL=C sed`-vorm (i.p.v. `\x1b`, een GNU-sed-extensie die BSD-sed/macOS niet kent), dan zonder anker filteren, dan lege regels weggooien. Geverifieerd tegen een reproductie met de exacte bytes uit de bug-report.
+
+**Aanvulling (2026-08-13):** de "geen nieuwe gedeelde bash-library"-regel in de Global
+Constraints hieronder is met een derde peer op komst achterhaald —
+`docs/plans/2026-08-13-demo-environment-gedeelde-fsc-harness-lib.md` introduceert alsnog
+`demo/environment/lib/fsc-harness.sh` en verhuist `strip_wrapper_noise`/`grant_hash`/etc.
+daarheen.
 
 # Logius-harness-podman-smoke-diagnostiek-en-grant-hash Implementation Plan
 

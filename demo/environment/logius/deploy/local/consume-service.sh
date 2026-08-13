@@ -20,6 +20,9 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../../lib/fsc-harness.sh
+source "$HERE/../../../lib/fsc-harness.sh"
+
 COMPOSE=(docker compose -f "${HERE}/docker-compose.yaml")
 
 CONSUMER_OIN="00000000000000001000"
@@ -43,67 +46,13 @@ SYNC_TIMEOUT=10; SYNC_INTERVAL=2
 STATE_DIR="${HERE}/../../contracts/.bootstrap-state"
 STATE_FILE="${STATE_DIR}/${CONSUMER_OIN}-${PROVIDER_OIN}-${SERVICE_NAME}.hash"
 
-ERRLOG=$(mktemp)
-trap 'rm -f "$ERRLOG"' EXIT
-
-tb() { "${COMPOSE[@]}" exec -T toolbox curl -sS --fail-with-body \
-         --cert "$CERT" --key "$KEY" --cacert "$CA" "$@" 2>"$ERRLOG"; }
-
-# Onder podman schrijft de external-compose-provider-wrapper zelf een bannerregel naar stderr
-# bij ELKE aanroep; dat is geen curl-fout. Filteren voorkomt vals-alarm-WARN's en een
-# misleidende "laatste fout" op de FAIL-paden hieronder.
-strip_wrapper_noise() {
-  # De banner draagt SGR-ANSI-codes (bv. ESC[4m vóór de tekst), dus een anker op regelbegin mist
-  # 'm; ANSI eerst strippen (portable-vorm i.p.v. \x1b, een GNU-sed-extensie die BSD-sed/macOS
-  # niet kent), dan zonder anker filteren, en de lege regel weggooien die overblijft na het
-  # strippen van de losse ESC[0m-regel.
-  LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$ERRLOG" \
-    | grep -v 'Executing external compose provider' \
-    | grep -v '^[[:space:]]*$' > "${ERRLOG}.f" 2>/dev/null || :
-  mv -f "${ERRLOG}.f" "$ERRLOG"
-}
+fsc_errlog_init
+fsc_have_jq
 
 manager_contracts() {
-  local out; out=$(tb "$MANAGER/v1/contracts") || {
-    echo "  WARN: GET /v1/contracts faalde: $(strip_wrapper_noise; tail -n1 "$ERRLOG" 2>/dev/null)" >&2; : >"$ERRLOG"; }
+  local out; out=$(fsc_tb "$MANAGER/v1/contracts") || {
+    echo "  WARN: GET /v1/contracts faalde: $(fsc_last_error)" >&2; : >"$ERRLOG"; }
   printf '%s' "$out"
-}
-
-HAVE_JQ=0; command -v jq >/dev/null 2>&1 && HAVE_JQ=1
-
-accept_state() {  # $1=json $2=content_hash $3=oin
-  [ "$HAVE_JQ" -eq 1 ] || { echo unknown; return; }
-  printf '%s' "$1" | jq -r --arg h "$2" --arg oin "$3" '
-    [.. | objects | select((.hash? // .content_hash? // .content?.content_hash?) == $h)] as $c
-    | if ($c | length) == 0 then "unknown"
-      elif ([ $c[] | .signatures?.accept? | objects ] | length) == 0 then "unknown"
-      elif ($c | any((.signatures?.accept? // {}) | has($oin))) then "yes"
-      else "no" end' 2>/dev/null || echo unknown
-}
-
-# Aanvullend op accept_state(): de daadwerkelijke bruikbaarheid van de grant hangt af van de
-# manager-state (CONTRACT_STATE_VALID), niet alleen van accept-signature-aanwezigheid — die twee
-# vielen tot dusver steeds samen, maar zijn niet gegarandeerd identiek. Zelfde jq-aanpak als
-# contract_state() in moza-fsc-testnet/contracts/bootstrap.sh.
-contract_state() {  # $1=json $2=content_hash
-  [ "$HAVE_JQ" -eq 1 ] || { echo unknown; return; }
-  printf '%s' "$1" | jq -r --arg h "$2" '
-    [.. | objects | select((.hash? // .content_hash? // .content?.content_hash?) == $h) | .state?]
-    | map(select(. != null)) | (first // "unknown") | ascii_downcase' 2>/dev/null || echo unknown
-}
-
-# Het top-level `hash`/`content_hash`-veld op een contract-entry is het CONTRACT-hash, niet het
-# grant-hash waarop de outway routeert (Fsc-Grant-Hash) — dat zit als eigen `hash`-veld op de
-# individuele grant in content.grants[]. Matcht op service.name + outway-thumbprint zodat dit
-# ook klopt zodra een contract ooit meer dan één grant draagt.
-grant_hash() {  # $1=json $2=content_hash $3=service_name $4=outway_thumbprint
-  [ "$HAVE_JQ" -eq 1 ] || { echo unknown; return; }
-  printf '%s' "$1" | jq -r --arg h "$2" --arg svc "$3" --arg thumb "$4" '
-    [.. | objects | select((.hash? // .content_hash? // .content?.content_hash?) == $h)] as $c
-    | [$c[] | (.content?.grants? // [])[]
-         | select(.service?.name == $svc and .outway?.identification?.public_key_thumbprint == $thumb)
-         | .hash?] as $g
-    | ($g[0] // "unknown")' 2>/dev/null || echo unknown
 }
 
 # --- 0. Outway-public-key-thumbprint (host-side openssl) --------------------------------------
@@ -123,12 +72,12 @@ if [ -f "$STATE_FILE" ]; then
   SAVED=$(cat "$STATE_FILE" 2>/dev/null || true)
   if [ -n "$SAVED" ]; then
     LIST=$(manager_contracts)
-    case "$(accept_state "$LIST" "$SAVED" "$PROVIDER_OIN")" in
+    case "$(fsc_accept_state "$LIST" "$SAVED" "$PROVIDER_OIN")" in
       yes)
-        CSTATE=$(contract_state "$LIST" "$SAVED")
+        CSTATE=$(fsc_contract_state "$LIST" "$SAVED")
         case "$CSTATE" in
           valid|contract_state_valid|unknown)
-            GRANT=$(grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
+            GRANT=$(fsc_grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
             [ "$GRANT" != "unknown" ] || {
               echo "FAIL: contract $SAVED gevonden, maar geen grant-hash voor service=$SERVICE_NAME," \
                    "outway-thumbprint=$THUMB (jq beschikbaar? content.grants[] aanwezig?)." >&2
@@ -142,7 +91,7 @@ if [ -f "$STATE_FILE" ]; then
         esac ;;
       unknown)
         if printf '%s' "$LIST" | grep -qF "$SAVED"; then
-          GRANT=$(grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
+          GRANT=$(fsc_grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
           [ "$GRANT" != "unknown" ] || {
             echo "FAIL: contract $SAVED aanwezig, maar kon geen grant-hash lezen (vereist jq; installeer jq)." >&2
             exit 1
@@ -158,12 +107,11 @@ if [ -f "$STATE_FILE" ]; then
 fi
 
 # --- 2. Contract opstellen + indienen -----------------------------------------------------------
-IV=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]')
-NBF=$(( $(date -u +%s) - 60 ))
-NAF=$((NBF + 315360000))                 # +10 jaar
+IV=$(fsc_new_iv)
+fsc_validity
 
 echo "consume: serviceConnection-contract indienen (zelfreferentieel: consumer=provider=$CONSUMER_OIN)..."
-RESP=$(tb -X POST "$MANAGER/v1/contracts" -H 'Content-Type: application/json' -d "{
+RESP=$(fsc_tb -X POST "$MANAGER/v1/contracts" -H 'Content-Type: application/json' -d "{
   \"contract_content\": {
     \"iv\": \"$IV\",
     \"group_id\": \"$GROUP_ID\",
@@ -182,7 +130,7 @@ RESP=$(tb -X POST "$MANAGER/v1/contracts" -H 'Content-Type: application/json' -d
       }
     } ]
   }
-}") || { echo "FAIL: POST /v1/contracts geweigerd: ${RESP:-<leeg>} $(strip_wrapper_noise; tail -n1 "$ERRLOG" 2>/dev/null)" >&2; exit 1; }
+}") || { echo "FAIL: POST /v1/contracts geweigerd: ${RESP:-<leeg>} $(fsc_last_error)" >&2; exit 1; }
 
 HASH=$(printf '%s' "$RESP" | sed -n 's/.*"content_hash"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
 [ -n "$HASH" ] || { echo "FAIL: contract-respons zonder content_hash (formaat geweigerd?): $RESP" >&2; exit 1; }
@@ -200,13 +148,13 @@ done
   "${COMPOSE[@]}" logs --tail=50 manager-logius >&2 || true; exit 1; }
 
 echo "consume: accepteren (PUT .../accept)..."
-tb -X PUT "$MANAGER/v1/contracts/$HASH/accept" -H 'Content-Type: application/json' \
-  || { echo "FAIL: PUT accept ($HASH) geweigerd: $(strip_wrapper_noise; tail -n1 "$ERRLOG" 2>/dev/null)" >&2; exit 1; }
+fsc_tb -X PUT "$MANAGER/v1/contracts/$HASH/accept" -H 'Content-Type: application/json' \
+  || { echo "FAIL: PUT accept ($HASH) geweigerd: $(fsc_last_error)" >&2; exit 1; }
 echo "  provider-handtekening gezet (2xx)."
 
 # --- 4. Onafhankelijk verifiëren ----------------------------------------------------------------
 FINAL=$(manager_contracts)
-case "$(accept_state "$FINAL" "$HASH" "$PROVIDER_OIN")" in
+case "$(fsc_accept_state "$FINAL" "$HASH" "$PROVIDER_OIN")" in
   yes) echo "OK: contract $HASH draagt de accept-handtekening (geverifieerd)." ;;
   unknown)
     if printf '%s' "$FINAL" | grep -qF "$HASH"; then
@@ -223,14 +171,14 @@ esac
 # grant-gebruik door de outway). Bij "unknown" (geen jq / afwijkende JSON-vorm) valt dit terug
 # op de reeds bevestigde accept-aanwezigheid hierboven, zoals de rest van dit script bij
 # ontbrekende jq consequent doet.
-CONTRACT_STATE=$(contract_state "$FINAL" "$HASH")
+CONTRACT_STATE=$(fsc_contract_state "$FINAL" "$HASH")
 case "$CONTRACT_STATE" in
   valid|contract_state_valid) echo "OK: contract $HASH heeft manager-state CONTRACT_STATE_VALID (geverifieerd)." ;;
   unknown) echo "  (state-check niet mogelijk: geen jq of afwijkende JSON-vorm — accept-aanwezigheid hierboven blijft de gate.)" ;;
   *) echo "FAIL: contract $HASH draagt de accept-handtekening maar staat niet op CONTRACT_STATE_VALID (state=$CONTRACT_STATE)." >&2; exit 1 ;;
 esac
 
-GRANT=$(grant_hash "$FINAL" "$HASH" "$SERVICE_NAME" "$THUMB")
+GRANT=$(fsc_grant_hash "$FINAL" "$HASH" "$SERVICE_NAME" "$THUMB")
 [ "$GRANT" != "unknown" ] || {
   echo "FAIL: kon geen grant-hash vinden voor service=$SERVICE_NAME, outway-thumbprint=$THUMB" \
        "in contract $HASH (vereist jq; installeer jq)." >&2
