@@ -2,8 +2,9 @@
 # Smoke: bewijst dat de peers écht één federatie vormen en niet twee losse harnessen die toevallig
 # tegelijk draaien. Draai na `./federatie.sh up`.
 #
-#   1. gedeelde group-CA — als wederzijdse mTLS-handshake dwars door de router, mét
-#      hostnaam-verificatie, zodat ook vaststaat dat de júiste peer antwoordde;
+#   1. gedeelde group-CA — als échte HTTP-call over wederzijdse mTLS door de router: alleen een
+#      client-cert dat de tegenpeer vertrouwt levert een HTTP-status op, en curl verifieert
+#      daarbij de hostnaam, dus misroutering valt ook door de mand;
 #   2. internal-CA-isolatie — eerst een positieve controle (eigen root valideert eigen leaf), dan
 #      de eis dat de root van A de leaf van B verwerpt. Zonder die positieve controle zou een
 #      kapotte PKI als "isolatie intact" lezen;
@@ -35,20 +36,32 @@ FOUTEN=0
 fout() { echo "FAIL: $*" >&2; FOUTEN=$((FOUTEN + 1)); }
 ok()   { echo "OK: $*"; }
 
-alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
-
 # ok_tenzij <telstand-voor> <melding>: geeft de OK alleen af als er sindsdien niets gemeld is.
 # Zonder deze guard drukt een lus eerst zijn FAILs en dan alsnog een OK over dezelfde eigenschap.
-ok_tenzij() { [ "$FOUTEN" -eq "$1" ] && ok "$2"; }
+# `return 0` is load-bearing: eindigde deze functie op een `&&`-lijst, dan geeft hij 1 terug zodra
+# er iets gemeld is, en `set -e` beëindigt de smoke midden in de asserts — zonder samenvatting en
+# zonder dat assert 4 en 5 ooit draaien.
+ok_tenzij() {
+  if [ "$FOUTEN" -eq "$1" ]; then ok "$2"; fi
+  return 0
+}
 
 # --- 1. Gedeelde group-CA, bewezen op de verbinding ----------------------------------------------
 # Een bestandsvergelijking van root.pem zegt niets over wat de draaiende processen geladen hebben.
-# Deze handshake wél: hij gaat door de router naar de tegenpeer, met ONS client-cert. Accepteert
-# die het, dan draagt zijn proces hetzelfde anker. `-verify_hostname` erbij, want beide peer-certs
-# ketenen naar dezelfde root — zonder die vlag blijft de assert groen als de router misroutet.
+# Deze call wél, en in BEIDE richtingen tegelijk: hij gaat door de router naar de externe manager
+# van de tegenpeer, met ons group-cert als client-cert.
+#
+# Waarom een echte HTTP-call en niet `openssl s_client`: die laatste rapporteert alleen ónze
+# verificatie van HÚN certificaat. Wat de tegenpeer met ons client-cert doet komt onder TLS 1.3 pas
+# ná de handshake-samenvatting, dus een bogus client-cert leverde daar nog steeds "Verify return
+# code: 0" op. Een HTTP-status krijg je alleen als de handshake écht rond is:
+#   geldig group-cert -> een status (welke maakt niet uit, 404 is prima)
+#   geen of vreemd cert -> geen status, curl faalt op TLS
+#
+# curl verifieert de hostnaam standaard, dus misroutering door de router valt hier ook door de mand.
 echo "== 1. gedeelde group-CA (wederzijdse mTLS door de router) =="
-for peer in $(alle_peers); do
-  for tegen in $(alle_peers); do
+for peer in $(fsc_alle_peers); do
+  for tegen in $(fsc_alle_peers); do
     [ "$peer" != "$tegen" ] || continue
 
     ANKER="${ENVDIR}/${peer}/pki/ca/root.pem"
@@ -61,14 +74,16 @@ for peer in $(alle_peers); do
       continue
     fi
 
-    UIT="$(echo | openssl s_client -connect 127.0.0.1:443 -servername "$NAAM" \
-             -verify_hostname "$NAAM" -CAfile "$ANKER" \
-             -cert "$CERT" -key "$SLEUTEL" 2>&1 || true)"
+    STATUS="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+                --resolve "${NAAM}:443:127.0.0.1" \
+                --cert "$CERT" --key "$SLEUTEL" --cacert "$ANKER" \
+                "https://${NAAM}/" 2>"$ERRLOG" || true)"
+    fsc_warn_errlog "curl naar ${tegen}"
 
-    if printf '%s' "$UIT" | grep -q 'Verify return code: 0'; then
-      ok "${peer} spreekt mTLS met ${tegen} door de router"
+    if [ "${STATUS:-000}" != "000" ]; then
+      ok "${peer} spreekt wederzijdse mTLS met ${tegen} door de router (HTTP ${STATUS})"
     else
-      fout "${peer} krijgt ${tegen} niet geverifieerd — group-CA niet gedeeld, of de router routeert niet: $(printf '%s' "$UIT" | grep -m1 'Verify return code' || echo '<geen handshake>')"
+      fout "${peer} krijgt geen TLS-verbinding met ${tegen} — group-CA niet gedeeld, cert niet geaccepteerd, of de router routeert niet"
     fi
   done
 done
@@ -78,7 +93,7 @@ done
 # bij een leeg, afgekapt of verlopen bestand, dus zonder positieve controle vooraf zou een volledig
 # kapotte internal-PKI als "isolatie intact" rapporteren.
 echo "== 2. internal-CA blijft per peer =="
-for peer in $(alle_peers); do
+for peer in $(fsc_alle_peers); do
   ANKER="${ENVDIR}/${peer}/pki/internal/${peer}/ca/root.pem"
   LEAF="${ENVDIR}/${peer}/pki/internal/${peer}/manager/cert.pem"
 
@@ -89,7 +104,7 @@ for peer in $(alle_peers); do
     continue
   fi
 
-  for tegen in $(alle_peers); do
+  for tegen in $(fsc_alle_peers); do
     [ "$peer" != "$tegen" ] || continue
     VREEMD="${ENVDIR}/${tegen}/pki/internal/${tegen}/manager/cert.pem"
 
@@ -130,17 +145,17 @@ luistert() { printf '%s\n' "$LOOPBACK" | grep -qx "$1"; }
 VOOR=$FOUTEN
 GEZIEN=""
 FED_POORTEN=""
-for peer in $(alle_peers); do
+for peer in $(fsc_alle_peers); do
   BLOK="$(fsc_peer_waarde BLOK "$peer")"
   [ -n "$BLOK" ] || { fout "geen BLOK_$(fsc_peer_var "$peer") in peers.env"; continue; }
 
-  if ! POORTEN="$(peer_poorten "$peer")"; then
-    fout "${peer}: poortlijst niet leesbaar uit compose/${peer}.yaml"
+  # Nul treffers is niet "schoon" maar "de overlay ontbreekt of declareert niets" — anders wordt
+  # een peer stilzwijgend niet gemeten. `grep` geeft onder pipefail non-zero bij nul treffers, dus
+  # beide gevallen komen hier samen uit.
+  if ! POORTEN="$(peer_poorten "$peer")" || [ -z "$POORTEN" ]; then
+    fout "${peer}: geen 127.0.0.1-poorten leesbaar uit compose/${peer}.yaml"
     continue
   fi
-  # Nul poorten is niet "schoon" maar "de overlay ontbreekt of declareert niets" — anders wordt
-  # een peer stilzwijgend niet gemeten.
-  [ -n "$POORTEN" ] || { fout "${peer}: compose/${peer}.yaml declareert geen enkele 127.0.0.1-poort"; continue; }
 
   AANTAL=0
   for poort in $POORTEN; do
@@ -171,11 +186,18 @@ ok_tenzij "$VOOR_INFRA" "federatie-infra: alle vaste poorten luisteren"
 
 # Verboden poorten: wat de hostnet-overlay declareert maar de federatie-overlay overschrijft. Blijft
 # zo'n poort luisteren, dan mist een service zijn federatie-overlay — en die poort is voor élke peer
-# identiek, dus de tweede peer botst erop. Afgeleid in plaats van met de hand, want de handmatige
-# variant miste 8080 (stub-upstream), precies het geval waar deze assert voor bestaat.
+# identiek, dus de tweede peer botst erop. Afgeleid uit de overlays: een handmatige lijst dekt per
+# definitie alleen de services die er stonden toen hij geschreven werd.
 VOOR_STANDALONE=$FOUTEN
-for peer in $(alle_peers); do
-  for poort in $(standalone_poorten "$peer"); do
+for peer in $(fsc_alle_peers); do
+  # Zelfde vloer als bij de peer-poorten: een lege lijst betekent dat de hostnet-overlay ontbreekt
+  # of anders is opgemaakt, niet dat er niets te controleren valt.
+  if ! STANDALONE="$(standalone_poorten "$peer")" || [ -z "$STANDALONE" ]; then
+    fout "${peer}: geen poorten leesbaar uit docker-compose.podman-hostnet.yaml — deze assert meet niets"
+    continue
+  fi
+
+  for poort in $STANDALONE; do
     case " $INFRA_POORTEN " in *" $poort "*) continue ;; esac
     case " $FED_POORTEN "   in *" $poort "*) continue ;; esac
 
@@ -190,6 +212,7 @@ ok_tenzij "$VOOR_STANDALONE" "geen standalone-poort blijven hangen"
 # poorten die de federatie claimt — `ss` ziet ook de dev-server en sshd van de gebruiker, en daar
 # rood op gaan zou de assert op termijn versoepeld krijgen. TCP-only; de componenten zijn HTTP/TLS.
 VOOR_BUITEN=$FOUTEN
+[ -n "$LISTENERS" ] || fout "geen listeners gemeten — de buiten-loopback-assert zegt niets"
 BUITEN="$(printf '%s\n' "$LISTENERS" | grep -vE "$LOOPBACK_RE" || true)"
 for adres in $BUITEN; do
   poort="${adres##*:}"
@@ -212,7 +235,7 @@ else
   if [ "$RC" -ne 0 ]; then
     fout "directory-DB niet bevraagbaar: $(fsc_last_error)"
   else
-    for peer in $(alle_peers) directory; do
+    for peer in $(fsc_alle_peers) directory; do
       OIN="$(fsc_peer_waarde OIN "$peer")"
       [ -n "$OIN" ] || { fout "geen OIN_$(fsc_peer_var "$peer") in peers.env"; continue; }
 
@@ -226,7 +249,7 @@ else
     # Ook te véél rijen is fout: een peer uit een eerdere incarnatie (andere group-CA) blijft
     # achter in een niet-gewist volume en zou anders onzichtbaar meeliften.
     VERWACHT=1
-    for _ in $(alle_peers); do VERWACHT=$((VERWACHT + 1)); done
+    for _ in $(fsc_alle_peers); do VERWACHT=$((VERWACHT + 1)); done
     AANTAL="$(printf '%s\n' "$RIJEN" | grep -c . || true)"
 
     if [ "$AANTAL" -eq "$VERWACHT" ]; then
@@ -261,8 +284,15 @@ PROV_BLOK="$(fsc_peer_waarde BLOK "$PROVIDER")"
 CONS_BLOK="$(fsc_peer_waarde BLOK "$CONSUMER")"
 PROV_OIN="$(fsc_peer_waarde OIN "$PROVIDER")"
 
-if [ -z "$PROV_BLOK" ] || [ -z "$CONS_BLOK" ] || [ -z "$PROV_OIN" ]; then
+CONS_OIN="$(fsc_peer_waarde OIN "$CONSUMER")"
+
+if [ -z "$PROV_BLOK" ] || [ -z "$CONS_BLOK" ] || [ -z "$PROV_OIN" ] || [ -z "$CONS_OIN" ]; then
   fout "blok of OIN ontbreekt voor ${PROVIDER}/${CONSUMER} in peers.env"
+elif [ "$PROV_OIN" = "$CONS_OIN" ]; then
+  # Anders is dit weer de zelf-bevraging die deze assert juist verving: `smoke-discover.sh` valt
+  # zónder FSC_PROVIDER_OIN terug op de eigen OIN, en dan bewijst een groene uitkomst niets over
+  # de federatie.
+  fout "consumer en provider hebben dezelfde OIN (${PROV_OIN}) — dit toetst geen cross-peer discovery"
 else
   FSC_CONTROLLER="https://controller.${PROVIDER}.fsc-test.local:$((PROV_BLOK + 12))" \
   FSC_MANAGER="https://manager.${PROVIDER}.fsc-test.local:$((PROV_BLOK + 1))" \

@@ -71,9 +71,9 @@ api_geval 0 "herkent 'error during connect'" \
 api_geval 0 "herkent een dode unix-socket" \
   'dial unix /tmp/podman-run-1000/podman/podman.sock: connect: connection refused'
 
-# Het geval dat de aanleiding was om dit uit te trekken: een containerlog waarin postgres nog
-# opstart bevat óók 'connection refused', maar dat is een gewone transiënte fout waarop juist WÉL
-# geretryd moet worden.
+# Een containerlog waarin postgres nog opstart bevat óók 'connection refused'. Dat is een gewone
+# transiënte fout waarop juist WÉL geretryd moet worden, geen onbereikbare API — vandaar dat de
+# classificatie op compose/podman-eigen foutvormen verankerd is en niet op de losse tekst.
 api_geval 1 "ziet postgres-opstartruis NIET als API-storing" \
   'manager-magazijn-a-1  | failed to connect to `user=postgres`: 127.0.0.1:5432: connection refused'
 api_geval 1 "ziet de ID-map-race NIET als API-storing" \
@@ -85,8 +85,20 @@ FEDSH="$HERE/../federatie/deel-groep-ca.sh"
 if [ -r "$FEDSH" ]; then
   eval "$(sed -n '/^leaves_ketenen()/,/^}/p' "$FEDSH")"
 
-  if ! command -v openssl >/dev/null 2>&1; then
-    echo "OVERSLAAN: leaves_ketenen — openssl ontbreekt"
+  # Zonder deze controle slagen de NEGATIEVE asserts hieronder op "command not found": schrijft
+  # iemand `function leaves_ketenen` of zet er een spatie voor de haakjes, dan extraheert sed niets
+  # en `eval ""` slaagt gewoon.
+  if ! declare -f leaves_ketenen >/dev/null; then
+    fout "leaves_ketenen niet uit ${FEDSH} te extraheren — is de definitievorm gewijzigd?"
+    FEDSH=""
+  fi
+
+  if [ -z "$FEDSH" ]; then
+    :
+  elif ! command -v openssl >/dev/null 2>&1; then
+    # Hard falen i.p.v. overslaan: deze vijf asserts bewaken een DESTRUCTIEVE CA-operatie, en een
+    # stille skip zou "ALLE ASSERTS GROEN" opleveren over 60% van wat het bestand belooft.
+    fout "openssl ontbreekt — de leaves_ketenen-asserts kunnen niet draaien"
   else
     # Twee onafhankelijke CA's + leaves, zodat we een gedeelde en een vreemde keten kunnen bouwen.
     maak_ca() {  # <map>
