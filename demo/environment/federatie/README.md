@@ -35,10 +35,17 @@ de directory-state en het transactielogboek van alle andere. De controllers draa
 `AUTHN_TYPE=none` en luisteren gelijktijdig in dezelfde netns, dus een container van de ene peer kan
 diensten publiceren of intrekken op de controller van de andere.
 
-Voor een testfederatie op één ontwikkelmachine, loopback-only, met testdata is dat prima. Maar het
-betekent wel dat je hier **geen isolatie- of autorisatie-eigenschap mee kunt bewijzen** en al helemaal
-geen negatieve authz-test: elk cross-peer controlepad is onder FSC om te zeilen. Wie dat wil toetsen,
-heeft echte netwerkscheiding nodig.
+Ook de FSC-identiteitslaag zelf is hier zwakker dan hij lijkt: `deel-groep-ca.sh` kopieert de
+**signing-key van de group-CA** (`intermediate-key.pem`) naar elke peer, want zonder die sleutel kan
+een peer zijn eigen certs niet uitgeven. Elke peer kan daarmee een geldig group-certificaat voor
+wíllekeurig welke FSC-identiteit maken. Dat is inherent aan één gedeelde CA — het testnet van
+`moza-fsc-testnet` doet het net zo — maar het betekent dat een peer-identiteit hier niet
+onvervalsbaar is.
+
+Voor een testfederatie op één ontwikkelmachine, loopback-only, met testdata is dat allemaal prima.
+Maar het betekent wel dat je hier **geen isolatie- of autorisatie-eigenschap mee kunt bewijzen** en
+al helemaal geen negatieve authz-test: elk cross-peer controlepad is onder FSC om te zeilen. Wie dat
+wil toetsen, heeft echte netwerkscheiding en een CA per organisatie nodig.
 
 ## Poortschema
 

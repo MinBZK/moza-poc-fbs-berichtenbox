@@ -5,13 +5,13 @@
 #   ./federatie.sh down                # afbreken INCLUSIEF volumes — de schone lei
 #   ./federatie.sh stop                # containers stoppen, volumes behouden
 #   ./federatie.sh start               # gestopte containers weer starten
-#   ./federatie.sh restart [service]   # alles, of één service (bv. `router` na een haproxy-edit)
+#   ./federatie.sh restart <service>   # één service (bv. `router` na een haproxy-edit)
 #   ./federatie.sh status              # containers + alle listeners in de netns
 #
 # `down` wist bewust de volumes: de directory-DB houdt peers vast die aan een group-CA hangen, dus
 # na `deel-groep-ca.sh` moet die state weg. Voor het gewone itereren op een compose- of
-# haproxy-wijziging is dat verspilling — gebruik dan `restart`, dat scheelt initdb, zes migraties
-# en de hele announce-dans.
+# haproxy-wijziging is dat verspilling — gebruik dan `restart <service>`, dat scheelt initdb,
+# zes migraties en de hele announce-dans.
 #
 # Voorwaarden (README.md beschrijft ze):
 #   1. alle peers dragen dezelfde group-CA        -> ./deel-groep-ca.sh
@@ -35,9 +35,9 @@ fsc_errlog_init
 ANNOUNCE_TIMEOUT="${ANNOUNCE_TIMEOUT:-120}"
 ANNOUNCE_INTERVAL="${ANNOUNCE_INTERVAL:-5}"
 UP_POGINGEN="${UP_POGINGEN:-3}"
-
-# peer_var <peer>: peernaam als variabelen-achtervoegsel (`magazijn-a` -> `magazijn_a`).
-peer_var() { printf '%s' "$1" | tr '-' '_'; }
+# Ruimte voor een container om na `up -d` alsnog om te vallen; zonder deze pauze staat een
+# crash-lus nog op `Up` en ziet dode_containers hem niet.
+SETTLE_SECONDEN="${SETTLE_SECONDEN:-5}"
 
 # alle_peers: gastheer + gasten, in opstartvolgorde.
 alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
@@ -49,11 +49,10 @@ verwacht_peers() {
   echo "$n"
 }
 
-# compose_project <peer>: de projectnaam uit het `name:`-veld van de basis-compose. Compose leidt
-# die niet af zoals je zou raden (`magazijn-a` -> `fsc-magazijna`), dus lezen we 'm.
-compose_project() {
-  sed -n 's/^name:[[:space:]]*//p' "${ENVDIR}/$1/deploy/local/docker-compose.yaml" | head -n1
-}
+# compose_project <peer>: de projectnaam van die peer. Faalt hard bij een ontbrekende `name:` —
+# een lege projectnaam maakt elk container-filter betekenisloos en dus elke controle die daarop
+# leunt stil.
+compose_project() { fsc_compose_project "${ENVDIR}/$1/deploy/local/docker-compose.yaml"; }
 
 # dc <peer> <compose-commando...>: docker compose voor die peer, met de vier -f-bestanden.
 dc() {
@@ -88,6 +87,18 @@ psql_directory() {
 
 # --- up ------------------------------------------------------------------------------------------
 
+# dode_containers <project>: namen+status van containers die niet gezond draaien. Leeg = alles goed.
+#
+# Filtert op de STATUSKOLOM en niet op de containernaam: `Exited (0)` is een migrate-job die zijn
+# werk deed, `Exited (1)` is een fout, en `Restarting` is een crash-lus die nog niet is opgegeven.
+# Op de naam filteren (`-migrate`) zou een migrate-job die met exit 1 stierf onzichtbaar maken.
+dode_containers() {
+  local project="$1" uit
+  uit="$(podman ps -a --filter "label=com.docker.compose.project=${project}" \
+           --format '{{.Names}}\t{{.Status}}' 2>"$ERRLOG")" || return 1
+  printf '%s\n' "$uit" | grep -E 'Exited \([^0]|Restarting' || true
+}
+
 # up_met_retry <peer>: `up -d` met een begrensd aantal pogingen.
 #
 # Podman kan bij een verse `up` twee transiënte fouten geven die niets met de configuratie te maken
@@ -105,16 +116,19 @@ up_met_retry() {
     rc=0; dc "$peer" up -d >"$log" 2>&1 || rc=$?
 
     if [ "$rc" -eq 0 ]; then
-      # `up -d` exit 0 zodra de containers gestárt zijn. De overlay geeft elke service
-      # `restart: on-failure:600`, dus een container die meteen omvalt wordt herstart, niet gemeld.
-      # De migrate-jobs horen wél te eindigen (exit 0) en zijn daarom uitgezonderd.
-      dood="$(podman ps -a --filter "label=com.docker.compose.project=${project}" \
-                --filter status=exited --format '{{.Names}} {{.Status}}' 2>"$ERRLOG" \
-                | grep -v -- '-migrate' | grep -v 'migrate-' || true)"
-      fsc_warn_errlog "containerstatus niet opvraagbaar"
+      # `up -d` exit 0 zodra de containers gestárt zijn, niet zodra ze gezond zijn. De overlay geeft
+      # elke service `restart: on-failure:600`, dus een container die meteen omvalt wordt herstart.
+      # Vandaar de settle: direct na `up` staat een crash-lussende container nog op `Up`, en pas na
+      # een paar seconden op `Exited (1)`.
+      sleep "$SETTLE_SECONDEN"
+
+      if ! dood="$(dode_containers "$project")"; then
+        echo "FAIL: containerstatus van '${peer}' niet opvraagbaar: $(fsc_last_error)" >&2
+        rm -f "$log"; return 1
+      fi
 
       if [ -n "$dood" ]; then
-        echo "FAIL: '${peer}' kwam omhoog maar containers zijn gestopt:" >&2
+        echo "FAIL: '${peer}' kwam omhoog maar containers zijn gestopt of blijven herstarten:" >&2
         printf '%s\n' "$dood" >&2
         rm -f "$log"; return 1
       fi
@@ -122,7 +136,7 @@ up_met_retry() {
       rm -f "$log"; return 0
     fi
 
-    if grep -qE 'error during connect|Cannot connect to the Docker daemon|connection refused' "$log"; then
+    if fsc_podman_api_dood "$log"; then
       echo "FAIL: de podman-API-service is niet bereikbaar. Herstart 'm en probeer opnieuw:" >&2
       echo "  podman system service --time=0 unix://\${XDG_RUNTIME_DIR:-/tmp/podman-run-\$(id -u)}/podman/podman.sock &" >&2
       tail -n 5 "$log" >&2; rm -f "$log"; return 1
@@ -163,15 +177,28 @@ opruimen() {
 # Echoot het bereikte aantal; return 1 bij timeout. Expliciete vlag i.p.v. afleiden uit `elapsed`,
 # zodat een herordening van de lus een timeout niet stil in een succes verandert.
 wacht_op_peers() {
-  local doel="$1" wat="$2" elapsed=0 n gehaald=0
+  local doel="$1" wat="$2" elapsed=0 n gehaald=0 db_fouten=0
   while [ "$elapsed" -lt "$ANNOUNCE_TIMEOUT" ]; do
-    n="$(psql_directory "SELECT count(*) FROM peers.peers WHERE manager_address LIKE '%:443'")" || n=0
+    if n="$(psql_directory "SELECT count(*) FROM peers.peers WHERE manager_address LIKE '%:443'")"; then
+      db_fouten=0
+    else
+      # Blijft de DB onbereikbaar, dan is "0 peers aangemeld" de verkeerde diagnose: dan is de
+      # gastheer-stack stuk, niet de announce-keten. Na drie pogingen zeggen we dat ook.
+      n=0; db_fouten=$((db_fouten + 1))
+      if [ "$db_fouten" -ge 3 ]; then
+        echo "FAIL: de directory-DB is ${db_fouten} pogingen achtereen onbereikbaar — draait de gastheer-stack?" >&2
+        printf '0'; return 1
+      fi
+    fi
     [ -n "$n" ] || n=0
 
     if [ "$n" -ge "$doel" ]; then gehaald=1; break; fi
 
     sleep "$ANNOUNCE_INTERVAL"; elapsed=$((elapsed + ANNOUNCE_INTERVAL))
-    echo "  ...${n}/${doel} ${wat} (${elapsed}s)"
+    # Naar stderr: stdout draagt het resultaat en wordt door de command substitution gevangen.
+    # Stond dit op stdout, dan zag de operator 120s lang niets en kwam de voortgang ín de
+    # foutmelding terecht.
+    echo "  ...${n}/${doel} ${wat} (${elapsed}s)" >&2
   done
 
   printf '%s' "${n:-0}"
@@ -243,10 +270,12 @@ case "${1:-}" in
   stop|start)
     # Goedkoop itereren: containers stoppen/starten zonder de volumes te wissen.
     ACTIE="$1"
+    RC=0
     for peer in $(alle_peers); do
       echo "federatie: ${peer} ${ACTIE}..."
-      dc "$peer" "$ACTIE"
+      dc "$peer" "$ACTIE" || { echo "FAIL: '${ACTIE}' mislukte voor '${peer}'." >&2; RC=1; }
     done
+    [ "$RC" -eq 0 ] || exit 1
     echo "FEDERATIE $(printf '%s' "$ACTIE" | tr '[:lower:]' '[:upper:]')."
     ;;
 
@@ -265,8 +294,17 @@ case "${1:-}" in
 
     GEVONDEN=0
     for peer in $(alle_peers); do
-      # De service hoort maar bij één peer-stack; sla de andere stil over.
-      dc "$peer" ps --services 2>/dev/null | grep -qx "$SERVICE" || continue
+      # `config --services` en niet `ps --services`: die laatste toont alleen services met een
+      # DRAAIENDE container, dus juist de gecrashte service die je wilt herstarten ontbreekt.
+      # Stderr blijft zichtbaar: een ontbrekend compose-bestand hoort geen "service onbekend" te
+      # worden.
+      SERVICES="$(dc "$peer" config --services)" || {
+        echo "FAIL: kon de services van '${peer}' niet uitlezen." >&2
+        exit 1
+      }
+      printf '%s\n' "$SERVICES" | grep -qx "$SERVICE" || continue
+
+      # `toolbox` en `stub-upstream` bestaan in élke peer-stack; die herstart dit dus overal.
       echo "federatie: ${peer} restart ${SERVICE}..."
       dc "$peer" restart "$SERVICE"
       GEVONDEN=1
@@ -279,10 +317,13 @@ case "${1:-}" in
   status)
     # Elke pipeline met `|| true`: onder `pipefail` geeft een `grep` zonder treffers een non-nul
     # status, en dan zou juist het diagnose-commando zwijgend afbreken.
-    podman ps -a --format '{{.Names}}\t{{.Status}}' 2>&1 | sort || true
+    podman ps -a --format '{{.Names}}\t{{.Status}}' 2>"$ERRLOG" | sort || true
+    fsc_warn_errlog "podman ps faalde"
     echo
     echo "listeners in de gedeelde netns:"
-    ALLE="$(ss -ltnH 2>&1 | awk '{print $4}' | sort -u -t: -k2 -n || true)"
+    # Stderr apart houden: gevouwen in de lijst zou een foutregel hieronder als wildcard-bind lezen.
+    ALLE="$(ss -ltnH 2>"$ERRLOG" | awk '{print $4}' | sort -u -t: -k2 -n || true)"
+    fsc_warn_errlog "ss faalde"
     if [ -n "$ALLE" ]; then
       printf '%s\n' "$ALLE" | sed 's/^/  /'
     else
@@ -300,7 +341,7 @@ case "${1:-}" in
     ;;
 
   *)
-    echo "usage: $0 <up|down|stop|start|restart [service]|status>" >&2
+    echo "usage: $0 <up|down|stop|start|restart <service>|status>" >&2
     exit 2
     ;;
 esac

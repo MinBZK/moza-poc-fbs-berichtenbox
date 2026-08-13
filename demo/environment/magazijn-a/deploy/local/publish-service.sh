@@ -3,7 +3,11 @@
 # publiceert 'm via een servicePublication-contract op de eigen manager Internal-API.
 # Idempotent: slaat create/publish over als ze er al zijn. Manager hasht+signt het
 # contract server-side; de directory (AUTO_SIGN_GRANTS=servicePublication) auto-accept.
+# fsc_tb() en de andere helpers uit lib/fsc-harness.sh lezen COMPOSE/CERT/KEY/CA uit de
+# caller-scope. Shellcheck ziet die koppeling niet en vlagt ze als ongebruikt.
+# shellcheck disable=SC2034
 set -euo pipefail
+
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
@@ -25,6 +29,17 @@ KEY=/pki/internal/magazijn-a/manager/key.pem
 CA=/pki/internal/magazijn-a/ca/root.pem
 CONTROLLER="${FSC_CONTROLLER:-https://controller.magazijn-a.fsc-test.local:9444}"
 MANAGER="${FSC_MANAGER:-https://manager.magazijn-a.fsc-test.local:9443}"
+
+# De adressen worden geconcateneerd tot curl's URL-argument. Een waarde die met `-` begint leest
+# curl als OPTIE — `-K/pad` maakt er een config-file-lees van — dus eisen we het https-schema.
+case "$CONTROLLER" in
+  https://*) ;;
+  *) echo "FAIL: FSC_CONTROLLER moet met https:// beginnen: '${CONTROLLER}'" >&2; exit 2 ;;
+esac
+case "$MANAGER" in
+  https://*) ;;
+  *) echo "FAIL: FSC_MANAGER moet met https:// beginnen: '${MANAGER}'" >&2; exit 2 ;;
+esac
 
 # STUB_URL gaat ongeëscaped een handgebouwde JSON-body in (CreateService, hieronder). Een
 # aanhalingsteken zou daar uit de string breken en velden kunnen toevoegen.
