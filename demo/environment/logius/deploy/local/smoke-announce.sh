@@ -5,7 +5,11 @@
 # NB: de kolomnaam `id` + tabel `peers.peers` zijn een load-bearing schema-contract.
 set -euo pipefail
 
-COMPOSE=(docker compose -f "$(dirname "$0")/docker-compose.yaml")
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../../lib/fsc-harness.sh
+source "$HERE/../../../lib/fsc-harness.sh"
+
+COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
 CONSUMER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
 TIMEOUT=120
@@ -14,22 +18,7 @@ INTERVAL=5
 # Vang psql-stderr op i.p.v. weg te gooien: een persistente DB-fout (auth, ontbrekende
 # kolom/tabel, dode container) mag niet als "nog niet aangemeld" maskeren — surface 'm
 # op de FAIL-paden. Loop-stderr zelf blijft stil (transiënte boot-ruis).
-ERRLOG=$(mktemp)
-trap 'rm -f "$ERRLOG"' EXIT
-
-# Onder podman schrijft de external-compose-provider-wrapper zelf een bannerregel naar stderr
-# bij ELKE aanroep; dat is geen psql-fout. Filteren voorkomt dat de FAIL-diagnostiek die
-# providermelding als "laatste psql-fout" presenteert.
-strip_wrapper_noise() {
-  # De banner draagt SGR-ANSI-codes (bv. ESC[4m vóór de tekst), dus een anker op regelbegin mist
-  # 'm; ANSI eerst strippen (portable-vorm i.p.v. \x1b, een GNU-sed-extensie die BSD-sed/macOS
-  # niet kent), dan zonder anker filteren, en de lege regel weggooien die overblijft na het
-  # strippen van de losse ESC[0m-regel.
-  LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$ERRLOG" \
-    | grep -v 'Executing external compose provider' \
-    | grep -v '^[[:space:]]*$' > "${ERRLOG}.f" 2>/dev/null || :
-  mv -f "${ERRLOG}.f" "$ERRLOG"
-}
+fsc_errlog_init
 
 echo "smoke: wachten tot logius ($CONSUMER_OIN) announce't bij de directory (op :443)..."
 elapsed=0
@@ -60,10 +49,10 @@ if ! "${COMPOSE[@]}" exec -T postgres psql -U postgres -d fsc_directory -tA \
        "(id/manager_address) kapot, niet de announce." >&2
 fi
 # Surface de laatste psql-stderr (leeg = schoon, dus echt geen announce).
-strip_wrapper_noise
-if [ -s "$ERRLOG" ]; then
+LAST=$(fsc_last_error 3)
+if [ -n "$LAST" ]; then
   echo "  -> laatste psql-fout:" >&2
-  tail -n 3 "$ERRLOG" >&2
+  printf '%s\n' "$LAST" >&2
 fi
 echo "Debug: logs (postgres + migrate + managers):" >&2
 "${COMPOSE[@]}" logs --tail=50 \

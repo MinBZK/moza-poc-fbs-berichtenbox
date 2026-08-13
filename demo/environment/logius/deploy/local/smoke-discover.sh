@@ -7,7 +7,10 @@
 # draaide (run-smokes.sh doet dat).
 set -euo pipefail
 
-HERE="$(dirname "$0")"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../../lib/fsc-harness.sh
+source "$HERE/../../../lib/fsc-harness.sh"
+
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
 SERVICE_NAME="profiel-service"
 PROVIDER_OIN="00000000000000001000"
@@ -25,22 +28,7 @@ MANAGER=https://manager.logius.fsc-test.local:9443
 
 # Vang toolbox-/curl-stderr op zodat een mTLS-/dode-container-fout niet als "nog niet vindbaar"
 # maskeert (spiegelt smoke-announce.sh).
-ERRLOG=$(mktemp)
-trap 'rm -f "$ERRLOG"' EXIT
-
-# Onder podman schrijft de external-compose-provider-wrapper zelf een bannerregel naar stderr
-# bij ELKE aanroep (">>>> Executing external compose provider ... <<<<"), niet alleen bij een
-# echte curl-fout. Zonder filter leest [ -s "$ERRLOG" ] die banner als "poll-fout" op elke poll.
-strip_wrapper_noise() {
-  # De banner draagt SGR-ANSI-codes (bv. ESC[4m vóór de tekst), dus een anker op regelbegin mist
-  # 'm; ANSI eerst strippen (portable-vorm i.p.v. \x1b, een GNU-sed-extensie die BSD-sed/macOS
-  # niet kent), dan zonder anker filteren, en de lege regel weggooien die overblijft na het
-  # strippen van de losse ESC[0m-regel.
-  LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$ERRLOG" \
-    | grep -v 'Executing external compose provider' \
-    | grep -v '^[[:space:]]*$' > "${ERRLOG}.f" 2>/dev/null || :
-  mv -f "${ERRLOG}.f" "$ERRLOG"
-}
+fsc_errlog_init
 
 echo "smoke-discover: pollen tot ${SERVICE_NAME} vindbaar is bij de directory (mesh-API)..."
 elapsed=0
@@ -48,8 +36,7 @@ while [ "$elapsed" -lt "$TIMEOUT" ]; do
   out=$("${COMPOSE[@]}" exec -T toolbox curl -sS \
           --cert "$CERT" --key "$KEY" --cacert "$CA" \
           "$MANAGER/v1/peers/$DIR_OIN/services?peer_id=$PROVIDER_OIN" 2>"$ERRLOG" || true)
-  strip_wrapper_noise
-  [ -s "$ERRLOG" ] && { echo "  WARN: poll-fout: $(tail -n1 "$ERRLOG")" >&2; : >"$ERRLOG"; }
+  fsc_warn_errlog "poll-fout"
 
   if printf '%s' "$out" | grep -q "\"$SERVICE_NAME\""; then
     echo "OK: ${SERVICE_NAME} is gepubliceerd en vindbaar in de directory."
@@ -66,7 +53,7 @@ echo "FAIL: ${SERVICE_NAME} niet vindbaar binnen ${TIMEOUT}s (publish-service.sh
 echo "Debug: eigen publicaties (manager Internal-API) + logs:" >&2
 "${COMPOSE[@]}" exec -T toolbox curl -sS --cert "$CERT" --key "$KEY" --cacert "$CA" \
    "$MANAGER/v1/services/publications" >&2 || true
-strip_wrapper_noise
-[ -s "$ERRLOG" ] && { echo "  -> laatste poll-fout:" >&2; tail -n 3 "$ERRLOG" >&2; }
+LAST=$(fsc_last_error 3)
+[ -n "$LAST" ] && { echo "  -> laatste poll-fout:" >&2; printf '%s\n' "$LAST" >&2; }
 "${COMPOSE[@]}" logs --tail=50 manager-logius manager-directory inway-logius >&2 || true
 exit 1
