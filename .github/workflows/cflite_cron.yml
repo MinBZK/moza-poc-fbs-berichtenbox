@@ -16,6 +16,13 @@ jobs:
         uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
         with:
           language: jvm
+          # Expliciet aan, ook al is `true` de default van de action: de PR- en batch-workflow
+          # verwijzen hierheen met "hier staat hij bewust wél aan", en dan moet wie daarop grept
+          # een sleutel vinden in plaats van proza. De coverage- en prune-ronden draaien over het
+          # bestaande corpus en vallen niet om op een doel dat wel compileert maar bij het starten
+          # crasht; zonder deze check rapporteert zo'n doel stilzwijgend 0% dekking. Wekelijkse
+          # cron, dus de ~161s kosten hier geen wachttijd.
+          bad-build-check: true
       - name: Run Fuzzers (coverage)
         id: coverage
         uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
@@ -34,6 +41,13 @@ jobs:
         uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
         with:
           language: jvm
+          # Expliciet aan, ook al is `true` de default van de action: de PR- en batch-workflow
+          # verwijzen hierheen met "hier staat hij bewust wél aan", en dan moet wie daarop grept
+          # een sleutel vinden in plaats van proza. De coverage- en prune-ronden draaien over het
+          # bestaande corpus en vallen niet om op een doel dat wel compileert maar bij het starten
+          # crasht; zonder deze check rapporteert zo'n doel stilzwijgend 0% dekking. Wekelijkse
+          # cron, dus de ~161s kosten hier geen wachttijd.
+          bad-build-check: true
       - name: Run Fuzzers (pruning)
         id: pruning
         uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
