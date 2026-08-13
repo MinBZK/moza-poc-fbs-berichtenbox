@@ -13,9 +13,9 @@ het cert-contract).
 ## Benodigdheden
 
 - **Docker** + `docker compose` (v2).
-- Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh` en
-  `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs faalt elke
-  container die `/pki` mount bij boot (ontbrekend bestand).
+- Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
+  `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
+  faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
 
 ## Draaiboek
 
@@ -26,6 +26,7 @@ Alle commando's vanuit de **peer-root** (`demo/environment/magazijn-a/`).
 cd pki
 ./init-ca.sh
 ./issue.sh
+./gen-crl.sh
 ./verify.sh          # verwacht: "== ALLE ASSERTS GROEN =="
 cd -
 
@@ -112,7 +113,21 @@ mesh-API-methode.
 - **Poort bezet** (443, 8080, 8090) → stop de conflicterende dienst of pas de `ports`/`bind`
   in `docker-compose.yaml` / `haproxy.cfg` aan.
 - **Smoke faalt** → `docker compose -f deploy/local/docker-compose.yaml logs
-  manager-directory manager-magazijn-a controller-magazijn-a` voor de mesh-logs.
+  manager-directory manager-magazijn-a controller-magazijn-a` voor de mesh-logs. Blijft de
+  announce-smoke hangen op "nog niet aangemeld" terwijl de managers gezond loggen, controleer dan
+  éérst `docker compose ps -a | grep router`: de `*.fsc-test.local`-namen zijn aliassen van de
+  ROUTER, dus zonder router vertrekt geen enkele announce en zie je in de managerlogs geen fout.
+- **Podman i.p.v. Docker** → de harness draait op beide, mits:
+  - Gebruik `docker compose` of `podman compose` (zónder streepje). `podman-compose` (mét
+    streepje) is een losse herimplementatie die `depends_on: condition:` en netwerk-`aliases:`
+    niet volledig dekt — de managers starten dan vóór hun migraties en de peers vinden elkaar
+    niet op hun `*.fsc-test.local`-naam.
+  - De `router` heeft `sysctls: net.ipv4.ip_unprivileged_port_start=0` nodig: het haproxy-image
+    draait als non-root en podman zet die sysctl, anders dan Docker Desktop, niet op 0 → `bind
+    :443` faalt met `Permission denied`.
+  - `haproxy.cfg` gebruikt `parse-resolv-conf` in plaats van een vast nameserver-adres: Docker's
+    embedded DNS zit op `127.0.0.11`, podman's aardvark-dns op de netwerk-gateway. Met een hard
+    adres logt de router `<NOSRV>` en zijn alle backends onbereikbaar.
 - **`migrate-*` hangt / `database "…" does not exist`** → `postgres-init.sql` draait alleen bij
   een **vers** volume. Bestaat er al een postgres-volume van een eerdere run? Maak de ontbrekende
   DB eenmalig aan (`... exec -T postgres psql -U postgres -c "CREATE DATABASE <naam>;"`) of
@@ -134,7 +149,8 @@ De harness mount `pki/` read-only op `/pki`. Per endpoint (`manager`, `controlle
 houd de paden consistent met `SELF_ADDRESS`/SNI.
 
 De directory-peer heeft eigen CSR's onder `pki/peers/directory/`: `directory/csr.json`
-(gebruikt door `manager-directory` én `directory-ui` via `/pki/{out,internal}/directory/directory/...`)
+(gebruikt door `manager-directory` via `/pki/{out,internal}/directory/directory/...`; `directory-ui`
+gebruikt in plaats daarvan de group-cert van `magazijn-a/manager` als lezer-identiteit)
 en `manager/csr.json` (scaffolding voor een latere ZAD-directory-deploy; de lokale compose wiret
 het niet). Beide dragen de directory-OIN `00000000000000000010`. `issue.sh` negeert ongebruikte
 endpoints, dus de extra `manager`-CSR is onschadelijk.

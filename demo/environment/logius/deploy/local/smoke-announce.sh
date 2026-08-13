@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Smoke: bewijst dat magazijn-a zich aanmeldt (announce) bij de directory ÉN dat dat via de
-# :443-SNI-mesh gaat. Pollt de directory-DB tot de magazijn-a-OIN met een manager_address op
+# Smoke: bewijst dat logius zich aanmeldt (announce) bij de directory ÉN dat dat via de
+# :443-SNI-mesh gaat. Pollt de directory-DB tot de logius-OIN met een manager_address op
 # :443 in peers.peers verschijnt.
 # NB: de kolomnaam `id` + tabel `peers.peers` zijn een load-bearing schema-contract.
 set -euo pipefail
@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/../../../lib/fsc-harness.sh"
 
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
-PROVIDER_OIN="00000000000000100000"
+CONSUMER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
 TIMEOUT=120
 INTERVAL=5
@@ -20,14 +20,14 @@ INTERVAL=5
 # op de FAIL-paden. Loop-stderr zelf blijft stil (transiënte boot-ruis).
 fsc_errlog_init
 
-echo "smoke: wachten tot magazijn-a ($PROVIDER_OIN) announce't bij de directory (op :443)..."
+echo "smoke: wachten tot logius ($CONSUMER_OIN) announce't bij de directory (op :443)..."
 elapsed=0
 while [ "$elapsed" -lt "$TIMEOUT" ]; do
   rows=$("${COMPOSE[@]}" exec -T postgres \
     psql -U postgres -d fsc_directory -tA \
     -c "SELECT id FROM peers.peers WHERE manager_address LIKE '%:443';" 2>"$ERRLOG" || true)
-  if printf '%s\n' "$rows" | grep -qx "$PROVIDER_OIN"; then
-    echo "OK: magazijn-a is aangemeld bij de directory (manager_address op :443)."
+  if printf '%s\n' "$rows" | grep -qx "$CONSUMER_OIN"; then
+    echo "OK: logius is aangemeld bij de directory (manager_address op :443)."
     echo "Aangemelde peers:"
     "${COMPOSE[@]}" exec -T postgres \
       psql -U postgres -d fsc_directory \
@@ -38,7 +38,7 @@ while [ "$elapsed" -lt "$TIMEOUT" ]; do
   echo "  ...nog niet aangemeld (${elapsed}s)"
 done
 
-echo "FAIL: magazijn-a ($PROVIDER_OIN) niet aangemeld op :443 binnen ${TIMEOUT}s." >&2
+echo "FAIL: logius ($CONSUMER_OIN) niet aangemeld op :443 binnen ${TIMEOUT}s." >&2
 # Positief-controle: staat de directory zélf in peers.peers? Zo niet, dan is de
 # query/DB/het schema kapot (bv. kolomnaam), niet de announce. Laat stderr hier
 # DOOR (in ERRLOG) zodat de conclusie op de échte psql-fout rust.
@@ -56,5 +56,5 @@ if [ -n "$LAST" ]; then
 fi
 echo "Debug: logs (postgres + migrate + managers):" >&2
 "${COMPOSE[@]}" logs --tail=50 \
-  postgres manager-directory migrate-magazijn-a manager-magazijn-a >&2 || true
+  postgres manager-directory migrate-logius manager-logius >&2 || true
 exit 1

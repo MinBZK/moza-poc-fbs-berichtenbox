@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Onboarding: maakt de dienst berichtenmagazijn aan op de controller Administration-API en
+# Onboarding: maakt de dienst profiel-service aan op de controller Administration-API en
 # publiceert 'm via een servicePublication-contract op de eigen manager Internal-API.
 # Idempotent: slaat create/publish over als ze er al zijn. Manager hasht+signt het
 # contract server-side; de directory (AUTO_SIGN_GRANTS=servicePublication) auto-accept.
@@ -10,17 +10,17 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/../../../lib/fsc-harness.sh"
 
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
-SERVICE_NAME="berichtenmagazijn"
-PROVIDER_OIN="00000000000000100000"
+SERVICE_NAME="profiel-service"
+PROVIDER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
-GROUP_ID="moza-fbs-test"                 # = GROUP_ID env-var op de manager; als de manager een directory-adres verwacht, gebruik DIRECTORY_MANAGER_ADDRESS
+GROUP_ID="moza-fbs-test"
 STUB_URL="http://stub-upstream:8080"
 
-CERT=/pki/internal/magazijn-a/manager/cert.pem
-KEY=/pki/internal/magazijn-a/manager/key.pem
-CA=/pki/internal/magazijn-a/ca/root.pem
-CONTROLLER=https://controller.magazijn-a.fsc-test.local:9444
-MANAGER=https://manager.magazijn-a.fsc-test.local:9443
+CERT=/pki/internal/logius/manager/cert.pem
+KEY=/pki/internal/logius/manager/key.pem
+CA=/pki/internal/logius/ca/root.pem
+CONTROLLER=https://controller.logius.fsc-test.local:9444
+MANAGER=https://manager.logius.fsc-test.local:9443
 
 # Vang curl-/toolbox-stderr op i.p.v. weg te gooien: een mTLS-/netwerk-/dode-container-fout
 # mag niet als "nog niet klaar" maskeren (spiegelt smoke-announce.sh). Surface 'm in de loop.
@@ -33,7 +33,7 @@ INWAY_ADDR=""
 elapsed=0
 while [ "$elapsed" -lt 60 ]; do
   # CreateService verwacht het inway-ADRES (https://...:443, = SELF_ADDRESS), niet de naam.
-  INWAY_ADDR=$(fsc_tb "$CONTROLLER/v1/inways" | grep -o 'https://inway\.magazijn-a\.fsc-test\.local:443' | head -1 || true)
+  INWAY_ADDR=$(fsc_tb "$CONTROLLER/v1/inways" | grep -o 'https://inway\.logius\.fsc-test\.local:443' | head -1 || true)
   [ -n "$INWAY_ADDR" ] && break
   # Persistente fout (verkeerd cert-pad, dode toolbox, DNS) mag niet als "traag boot" maskeren.
   fsc_warn_errlog "controller-fout"
@@ -59,11 +59,12 @@ else
   # UUID + timestamp zijn host-lokaal (geen container-context nodig) -> host-builtins i.p.v. toolbox-exec.
   # UUID v4 (36 tekens): /proc is Linux-only, op macOS valt 'ie terug op uuidgen (lowercase).
   # Als de manager 400 geeft op het iv-formaat, genereer UUID v7.
-  IV=$(fsc_new_iv)
+  IV=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]')
   # Docker Desktop (macOS) draait in een VM waarvan de klok op de host kan achterlopen; de manager
   # weigert dan created_at "in the future" (HTTP 500). Backdate met een skew-marge — op Linux is de
   # skew ~0, dus onschadelijk. Blijft persistent falen? Herstart de Docker-VM (klok resynct).
-  fsc_validity
+  NBF=$(( $(date -u +%s) - 60 ))
+  NAF=$((NBF + 315360000))                 # +10 jaar
   # --fail-with-body laat curl bij 4xx/5xx non-zero exiten MAAR print de body; vang beide zodat
   # `set -e` ons niet vóór de diagnostiek killt en de manager-respons zichtbaar is.
   RESP=$(fsc_tb -X POST "$MANAGER/v1/contracts" -H 'Content-Type: application/json' -d "{
