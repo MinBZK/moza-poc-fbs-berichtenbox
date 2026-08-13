@@ -56,6 +56,10 @@ jobs:
           language: jvm
           github-token: ${{ secrets.GITHUB_TOKEN }}
           keep-unaffected-fuzz-targets: true
+          # De bad-build-check start elk fuzz-doel apart op (~161s, inclusief het kopiëren van
+          # de meegebundelde JDK). `run_fuzzers` draait diezelfde doelen direct daarna, dus een
+          # doel dat niet bouwt of meteen crasht valt daar alsnog om.
+          bad-build-check: false
       - name: Run Fuzzers
         id: run
         uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
