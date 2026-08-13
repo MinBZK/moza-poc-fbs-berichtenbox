@@ -14,13 +14,16 @@ SERVICE_NAME="profiel-service"
 PROVIDER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
 GROUP_ID="moza-fbs-test"
-STUB_URL="http://stub-upstream:8080"
+# STUB_URL/CONTROLLER/MANAGER zijn overrulebaar omdat de poortindeling niet vaststaat: draait
+# deze peer naast een andere in één netns (zie ../../../federatie/), dan verhuist elke listener
+# naar het peer-blok. De defaults zijn de standalone-waarden, dus zonder env verandert er niets.
+STUB_URL="${STUB_URL:-http://stub-upstream:8080}"
 
 CERT=/pki/internal/logius/manager/cert.pem
 KEY=/pki/internal/logius/manager/key.pem
 CA=/pki/internal/logius/ca/root.pem
-CONTROLLER=https://controller.logius.fsc-test.local:9444
-MANAGER=https://manager.logius.fsc-test.local:9443
+CONTROLLER="${CONTROLLER:-https://controller.logius.fsc-test.local:9444}"
+MANAGER="${MANAGER:-https://manager.logius.fsc-test.local:9443}"
 
 # Vang curl-/toolbox-stderr op i.p.v. weg te gooien: een mTLS-/netwerk-/dode-container-fout
 # mag niet als "nog niet klaar" maskeren (spiegelt smoke-announce.sh). Surface 'm in de loop.

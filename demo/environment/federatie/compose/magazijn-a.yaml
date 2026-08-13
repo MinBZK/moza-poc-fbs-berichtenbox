@@ -1,0 +1,105 @@
+# Federatie-overlay voor de peer `magazijn-a`, bovenop zijn eigen drie compose-bestanden:
+#
+#   docker compose -f magazijn-a/deploy/local/docker-compose.yaml \
+#                  -f magazijn-a/deploy/local/docker-compose.podman.yaml \
+#                  -f magazijn-a/deploy/local/docker-compose.podman-hostnet.yaml \
+#                  -f federatie/compose/magazijn-a.yaml up -d
+#
+# Deze peer is GAST: postgres, router, directory en directory-ui komen uit de logius-stack
+# (zie federatie/compose/logius.yaml). `profiles` houdt ze hier uit `up` zonder ze te hoeven
+# verwijderen; elke `depends_on` die er nog naar wees, wordt vervangen.
+#
+# Let op `!override` en niet `!reset` bij depends_on: `!reset` maakt de sleutel leeg ongeacht
+# wat eronder staat. Op manager-magazijn-a betekent dat de manager gelijk met zijn eigen
+# migratie start en sterft op `relation "peers.peers" does not exist`.
+#
+# Peer-blok: 61100. Voor het waarom van `extra_hosts` op élke service, zie logius.yaml.
+x-hosts-federatie: &hosts-federatie
+  - "directory.fsc-test.local:127.0.0.1"
+  - "logius.fsc-test.local:127.0.0.1"
+  - "manager.logius.fsc-test.local:127.0.0.1"
+  - "controller.logius.fsc-test.local:127.0.0.1"
+  - "txlog.logius.fsc-test.local:127.0.0.1"
+  - "outway.logius.fsc-test.local:127.0.0.1"
+  - "inway.logius.fsc-test.local:127.0.0.1"
+  - "magazijn-a.fsc-test.local:127.0.0.1"
+  - "manager.magazijn-a.fsc-test.local:127.0.0.1"
+  - "controller.magazijn-a.fsc-test.local:127.0.0.1"
+  - "txlog.magazijn-a.fsc-test.local:127.0.0.1"
+  - "inway.magazijn-a.fsc-test.local:127.0.0.1"
+  - "postgres:127.0.0.1"
+  - "stub-upstream:127.0.0.1"
+
+services:
+  # --- Federatie-infra: komt uit de logius-stack ---------------------------------------------
+  postgres:
+    profiles: ["gastheer-only"]
+  router:
+    profiles: ["gastheer-only"]
+  manager-directory:
+    profiles: ["gastheer-only"]
+  directory-ui:
+    profiles: ["gastheer-only"]
+
+  # --- Migrate-jobs: postgres draait in de gastheer-stack, niet in deze -----------------------
+  migrate-magazijn-a:
+    extra_hosts: *hosts-federatie
+    depends_on: !override {}
+
+  migrate-controller-magazijn-a:
+    extra_hosts: *hosts-federatie
+    depends_on: !override {}
+
+  migrate-txlog-magazijn-a:
+    extra_hosts: *hosts-federatie
+    depends_on: !override {}
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:61120                           # +20
+      MONITORING_ADDRESS: 127.0.0.1:61121                       # +21
+
+  # --- magazijn-a als peer: blok 61100 -------------------------------------------------------
+  manager-magazijn-a:
+    extra_hosts: *hosts-federatie
+    # manager-directory staat in deze stack in een inactief profiel; de directory van de
+    # gastheer-stack draait al voordat deze stack omhoog komt (zie federatie/op.sh).
+    depends_on: !override
+      migrate-magazijn-a:
+        condition: service_completed_successfully
+    environment:
+      LISTEN_ADDRESS_EXTERNAL: 127.0.0.1:61100                  # +00
+      LISTEN_ADDRESS_INTERNAL: 127.0.0.1:61101                  # +01
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 127.0.0.1:61102  # +02
+      MONITORING_ADDRESS: 127.0.0.1:61103                       # +03
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.magazijn-a.fsc-test.local:61111
+      TX_LOG_API_ADDRESS: https://txlog.magazijn-a.fsc-test.local:61120
+
+  controller-magazijn-a:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS_UI: 127.0.0.1:61110                        # +10
+      LISTEN_ADDRESS_REGISTRATION_API: 127.0.0.1:61111          # +11
+      LISTEN_ADDRESS_ADMINISTRATION_API: 127.0.0.1:61112        # +12
+      MONITORING_ADDRESS: 127.0.0.1:61113                       # +13
+      MANAGER_ADDRESS_INTERNAL: https://manager.magazijn-a.fsc-test.local:61101
+
+  txlog-magazijn-a:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:61120                           # +20
+      MONITORING_ADDRESS: 127.0.0.1:61121                       # +21
+
+  inway-magazijn-a:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:61130                           # +30
+      MONITORING_ADDRESS: 127.0.0.1:61131                       # +31
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.magazijn-a.fsc-test.local:61111
+      MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS: https://manager.magazijn-a.fsc-test.local:61102
+      TX_LOG_API_ADDRESS: https://txlog.magazijn-a.fsc-test.local:61120
+
+  stub-upstream:
+    extra_hosts: *hosts-federatie
+    command: ["-listen=127.0.0.1:61150", "-text=hello from magazijn-a stub-upstream"]   # +50
+
+  toolbox:
+    extra_hosts: *hosts-federatie

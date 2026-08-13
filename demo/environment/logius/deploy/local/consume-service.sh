@@ -36,7 +36,9 @@ GROUP_ID="moza-fbs-test"
 OUTWAY_CERT_HOST="${HERE}/../../pki/out/logius/outway/cert.pem"
 
 # Consumer- én provider-manager zijn hier DEZELFDE (zelfreferentieel) — internal-certs.
-MANAGER="https://manager.logius.fsc-test.local:9443"
+# Overrulebaar: in de federatie-opstelling (../../../federatie/) verhuist de interne
+# manager-poort naar het peer-blok. Default = de standalone-waarde.
+MANAGER="${MANAGER:-https://manager.logius.fsc-test.local:9443}"
 CERT=/pki/internal/logius/manager/cert.pem
 KEY=/pki/internal/logius/manager/key.pem
 CA=/pki/internal/logius/ca/root.pem
