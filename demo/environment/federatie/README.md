@@ -22,7 +22,8 @@ De oplossing berust op één eigenschap van de hostnet-modus: **twee compose-pro
 `network_mode: host` draaien, delen al dezelfde netns.** Ze hoeven dus niet samengevoegd te worden.
 Wat overblijft zijn drie dingen, en die doet deze map:
 
-1. **poorten scheiden** — elke peer krijgt een eigen blok (zie hieronder);
+1. **de componenten scheiden** — elke component krijgt een eigen loopback-adres en houdt zijn
+   standaardpoort (zie hieronder);
 2. **de infra delen** — één peer is *gastheer* en levert postgres, router, directory en
    directory-UI; de rest zijn *gasten* en zetten die vier services in een inactief profiel;
 3. **de group-CA delen** — `deel-groep-ca.sh` geeft alle peers hetzelfde anker.
@@ -47,46 +48,54 @@ Maar het betekent wel dat je hier **geen isolatie- of autorisatie-eigenschap mee
 al helemaal geen negatieve authz-test: elk cross-peer controlepad is onder FSC om te zeilen. Wie dat
 wil toetsen, heeft echte netwerkscheiding en een CA per organisatie nodig.
 
-## Poortschema
+## Adresschema
 
-Vaste federatie-infra, gedraaid door de gastheer namens iedereen, buiten de peer-blokken:
+Elke **component** krijgt een eigen loopback-adres binnen `127.20.0.0/16` en houdt zijn
+**standaardpoort**. Poorten schuiven dus niet; het adres onderscheidt de componenten.
 
-| Poort | Rol |
-|-------|-----|
-| `443` | SNI-router (alle peers) |
-| `5432` | postgres (alle databases) |
-| `18443` / `19443` / `19444` / `18080` | directory-manager extern / intern / intern-unauth / monitoring |
-| `8081` / `8082` | directory-UI / monitoring |
+Vaste federatie-infra, gedraaid door de gastheer namens iedereen, op `127.20.0.x`:
 
-Peer-blokken van **100** poorten, vanaf `61000`:
+| Adres | Rol | Poort(en) |
+|-------|-----|-----------|
+| `127.20.0.1` | SNI-router (alle peers) | `443` |
+| `127.20.0.2` | postgres (alle databases) | `5432` |
+| `127.20.0.3` | directory-manager | `8443` / `9443` / `9444` / `8080` |
+| `127.20.0.4` | directory-UI | `8080` / `8081` |
 
-| Peer | Blok |
-|------|------|
-| `logius` | `61000` |
-| `magazijn-a` | `61100` |
-| *(volgende)* | `61200`, `61300`, … |
+Elke peer krijgt een eigen `/24`:
 
-Binnen een blok liggen de offsets vast, voor élke peer gelijk:
+| Peer | Net |
+|------|-----|
+| `logius` | `127.20.1.0/24` |
+| `magazijn-a` | `127.20.2.0/24` |
+| *(volgende)* | `127.20.3.0/24`, `127.20.4.0/24`, … |
 
-| Offset | Listener | Offset | Listener |
-|--------|----------|--------|----------|
-| `+00` | manager extern | `+10` | controller UI |
-| `+01` | manager intern | `+11` | controller registratie-API |
-| `+02` | manager intern-unauth | `+12` | controller administratie-API |
-| `+03` | manager monitoring | `+13` | controller monitoring |
-| `+20` | txlog | `+30` | inway |
-| `+21` | txlog monitoring | `+31` | inway monitoring |
-| `+40` | outway | `+50` | stub-upstream |
-| `+41` | outway monitoring | | |
+Binnen een `/24` liggen de laatste octetten vast, voor élke peer gelijk:
 
-**Waarom vanaf 61000, en waarom blokken van 100.** Op Linux is de ephemere poortrange
-`32768–60999`; daarboven kan een vaste listener nooit botsen met een uitgaande verbinding. Dat laat
-4536 poorten over (`61000–65535`). Een peer reikt tot `+50`, dus hij beslaat 51 slots — bij blokken
-van 1000 passen er vier peers in het bereik, minder dan er gepland staan; bij blokken van 100 passen
-er 45.
+| Octet | Component | Poorten |
+|-------|-----------|---------|
+| `.1` | manager | `8443` extern, `9443` intern, `9444` intern-unauth, `8080` monitoring |
+| `.2` | controller | `8080` UI, `9443` registratie-API, `9444` administratie-API, `8081` monitoring |
+| `.3` | txlog | `9443`, `8081` monitoring |
+| `.4` | inway | `8443`, `8081` monitoring |
+| `.5` | outway | `8443`, `8081` monitoring |
+| `.6` | stub-upstream | `8080` |
 
-`peers.env` is de enige plek waar staat wie meedoet, met welke OIN en welk blok. `federatie.sh`,
-`smoke-federatie.sh` en de CI-guard lezen alle drie dat bestand.
+**Waarom een adres per component en niet per peer.** Binnen één peer botsen de componenten
+onderling ook: manager en inway willen beide `8443`, en manager-intern, controller-registratie en
+txlog willen alle drie `9443`. In bridge-modus botst dat niet omdat elke container een eigen IP
+heeft — dat is precies wat hier met de hand wordt nagebouwd.
+
+**Waarom `127.20` en niet `127.0`.** Loopback is de hele `127.0.0.0/8`, dus adressen zijn er in
+overvloed. Een eigen prefix maakt bovendien zichtbaar wat van de federatie is: alles binnen
+`127.20.` is van ons, en een andere stack in dezelfde netns — de demo-stack uit `compose.yaml`, of
+een standalone peer-harness op `127.0.0.1` — kan de asserts in `smoke-federatie.sh` daardoor niet
+vertroebelen. Een component die zijn federatie-overlay mist, bindt buiten het prefix en valt juist
+op.
+
+`peers.env` is de enige plek waar staat wie meedoet, met welke OIN en welk net. `federatie.sh`,
+`smoke-federatie.sh` en de CI-guard lezen alle drie dat bestand; de octet-toewijzing zelf staat in
+`fsc_component_adres()` in `../lib/fsc-harness.sh`.
 
 ## Draaiboek
 
@@ -144,11 +153,11 @@ managers achter op `Exited`. Voor een volledige cyclus is `down` + `up` de weg.
 ## Een peer toevoegen
 
 1. **`peers.env`** — de peer aan `GASTEN` toevoegen, met zijn `OIN_<peer>` en het volgende vrije
-   `BLOK_<peer>`.
-2. **`compose/<peer>.yaml`** — kopieer `magazijn-a.yaml`, vervang de peer-naam en zet elke listener
-   op het nieuwe blok (de offsets blijven identiek).
-3. **`haproxy.federatie.cfg`** — twee `use_backend`-regels en twee `backend`-blokken: `<blok>+00`
-   voor de manager, `<blok>+30` voor de inway.
+   `NET_<peer>`.
+2. **`compose/<peer>.yaml`** — kopieer `magazijn-a.yaml`, vervang de peer-naam en zet elk adres op
+   het nieuwe `/24` (de octetten en de poorten blijven identiek).
+3. **`haproxy.federatie.cfg`** — twee `use_backend`-regels en twee `backend`-blokken: `<net>.1:8443`
+   voor de manager, `<net>.4:8443` voor de inway.
 4. **`postgres-init.federatie.sql`** — de drie `CREATE DATABASE`-regels uit de `postgres-init.sql`
    van die peer (niet `fsc_directory`, die is er al).
 5. **De `extra_hosts`-lijst in álle `compose/*.yaml`** — de nieuwe hostnamen erbij, ook in de

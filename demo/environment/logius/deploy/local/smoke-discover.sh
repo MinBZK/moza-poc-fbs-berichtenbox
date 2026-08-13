@@ -31,8 +31,8 @@ CERT=/pki/internal/logius/manager/cert.pem
 KEY=/pki/internal/logius/manager/key.pem
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CA=/pki/internal/logius/ca/root.pem
-# Overrulebaar: in de federatie-opstelling (../../../federatie/) verhuist de interne manager-poort
-# naar het peer-blok. FSC_-prefix zodat een kale `MANAGER=` in de shell dit niet stil omleidt.
+# Overrulebaar: in de federatie-opstelling (../../../federatie/) staat de interne manager op een
+# eigen adres. FSC_-prefix zodat een kale `MANAGER=` in de shell dit niet stil omleidt.
 MANAGER="${FSC_MANAGER:-https://manager.logius.fsc-test.local:9443}"
 
 # De adressen worden geconcateneerd tot curl's URL-argument. Een waarde die met `-` begint leest

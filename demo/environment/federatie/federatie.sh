@@ -358,10 +358,12 @@ case "${1:-}" in
     else
       echo "  (geen — federatie staat neer, of deze shell deelt de netns niet)"
     fi
-    # Bewust ALLE listeners tonen en de afwijkers apart benoemen. Filteren op `^127.0.0.1:` zou
-    # juist een wildcard-bind onzichtbaar maken — precies de fout die je hier wilt zien.
+    # Bewust ALLE listeners tonen en de afwijkers apart benoemen. Filteren op het federatie-prefix
+    # zou juist een wildcard-bind onzichtbaar maken — precies de fout die je hier wilt zien. Elk
+    # 127.x telt als loopback: de federatie zit op 127.20.x, maar podman's resolver (127.0.0.11) en
+    # een lokale dev-server (127.0.0.1) horen hier evenmin als afwijker te verschijnen.
     echo "NIET op loopback (hoort leeg te zijn):"
-    BUITEN="$(printf '%s\n' "$ALLE" | grep -vE '^127\.0\.0\.1:' || true)"
+    BUITEN="$(printf '%s\n' "$ALLE" | grep -vE '^(127\.[0-9]+\.[0-9]+\.[0-9]+|\[::1\]|\[::ffff:127\.[0-9]+\.[0-9]+\.[0-9]+\])(%[^:]*)?:' || true)"
     if [ -n "$BUITEN" ]; then
       printf '%s\n' "$BUITEN" | sed 's/^/  !! /'
     else

@@ -15,7 +15,7 @@ SERVICE_NAME="profiel-service"
 PROVIDER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
 GROUP_ID="moza-fbs-test"
-# De federatie-opstelling (../../../federatie/) verhuist elke listener naar het peer-blok; vandaar
+# De federatie-opstelling (../../../federatie/) geeft elke component een eigen adres; vandaar
 # overrulebaar, met de standalone-waarde als default. Geprefixt met FSC_ omdat een kale `MANAGER=`
 # in iemands shell anders stilzwijgend een mTLS-call mét het internal-cert van deze peer naar een
 # vreemd endpoint zou sturen.

@@ -8,8 +8,8 @@
 #   2. internal-CA-isolatie — eerst een positieve controle (eigen root valideert eigen leaf), dan
 #      de eis dat de root van A de leaf van B verwerpt. Zonder die positieve controle zou een
 #      kapotte PKI als "isolatie intact" lezen;
-#   3. poortschema — elke poort die de overlays declareren luistert, geen standalone-poort is
-#      blijven hangen, en niets luistert buiten loopback;
+#   3. adresschema — elke bind die de overlays declareren luistert, elke peer blijft binnen zijn
+#      eigen /24, er luistert niets onbekends binnen het federatie-prefix, en niets buiten loopback;
 #   4. één directory — alle peers plus de directory, op :443, en géén rijen te veel;
 #   5. cross-peer discovery — de consumer ziet de dienst van de provider in de gedeelde catalogus.
 #      Dit is de functionele federatie-eigenschap; assert 4 toont alleen de DB-kant.
@@ -78,7 +78,7 @@ for peer in $(fsc_alle_peers); do
     # tussen zijn drie kandidaat-oorzaken te kiezen. `--noproxy '*'` omdat alles hier loopback is —
     # met een https_proxy in de omgeving zou een 407 van de proxy als geslaagde handshake lezen.
     STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --noproxy '*' \
-                --resolve "${NAAM}:443:127.0.0.1" \
+                --resolve "${NAAM}:443:${ADRES_ROUTER}" \
                 --cert "$CERT" --key "$SLEUTEL" --cacert "$ANKER" \
                 "https://${NAAM}/" 2>"$ERRLOG" || true)"
 
@@ -92,7 +92,7 @@ for peer in $(fsc_alle_peers); do
     # dwingt de tegenpeer mTLS niet af en zegt de positieve assert hierboven niets over
     # wederzijdsheid — dan rust hij alleen op onze eigen verificatie van hún certificaat.
     ZONDER="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --noproxy '*' \
-                --resolve "${NAAM}:443:127.0.0.1" --cacert "$ANKER" \
+                --resolve "${NAAM}:443:${ADRES_ROUTER}" --cacert "$ANKER" \
                 "https://${NAAM}/" 2>/dev/null || true)"
 
     if [ "${ZONDER:-000}" = "000" ]; then
@@ -137,91 +137,119 @@ for peer in $(fsc_alle_peers); do
   done
 done
 
-# --- 3. Poortschema ------------------------------------------------------------------------------
-# Verwachte én verboden poorten worden UIT de overlays gelezen: een lijst die daarnaast leeft,
-# drift eruit en dekt dan minder dan hij belooft.
-echo "== 3. poortschema =="
-poorten_uit() { grep -oE '127\.0\.0\.1:[0-9]+' "$1" | cut -d: -f2 | sort -un; }
-peer_poorten()       { poorten_uit "${HERE}/compose/$1.yaml"; }
-standalone_poorten() { poorten_uit "${ENVDIR}/$1/deploy/local/docker-compose.podman-hostnet.yaml"; }
+# --- 3. Adresschema ------------------------------------------------------------------------------
+# Elke component heeft een eigen adres binnen 127.20.0.0/16 en houdt zijn standaardpoort. De
+# verwachte `adres:poort`-paren worden UIT de overlays gelezen: een lijst die daarnaast leeft, drift
+# eruit en dekt dan minder dan hij belooft.
+#
+# Dat de federatie een eigen adresruimte heeft, maakt deze asserts scherper dan een poortcontrole:
+# alles binnen het prefix is per definitie van ons, dus een andere stack in dezelfde netns (de
+# demo-stack uit compose.yaml, een standalone peer-harness op 127.0.0.1) kan de meting niet
+# vertroebelen — en een service die zijn federatie-overlay mist, bindt buiten het prefix en valt
+# hieronder juist op.
+echo "== 3. adresschema =="
+FED_RE="^$(printf '%s' "$FED_PREFIX" | sed 's/\./\\./g')\."
+binds_uit()  { grep -oE "${FED_RE#^}[0-9]+\.[0-9]+:[0-9]+" "$1" | sort -u; }
+peer_binds() { binds_uit "${HERE}/compose/$1.yaml"; }
 
 LISTENERS="$(ss -ltnH 2>"$ERRLOG" | awk '{print $4}' | sort -u || true)"
 fsc_warn_errlog "ss faalde"
 [ -n "$LISTENERS" ] || fout "geen enkele listener gevonden — draait de federatie, en deelt deze shell de netns?"
 
-# Eén predicaat voor "is dit loopback", overal gebruikt. Loopback is breder dan het ene adres dat
-# wij configureren: podman's resolver zit op 127.0.0.11, en een dual-stack listener verschijnt als
+# Eén predicaat voor "is dit loopback", overal gebruikt. Loopback is breder dan de adressen die wij
+# configureren: podman's resolver zit op 127.0.0.11, en een dual-stack listener verschijnt als
 # `[::ffff:127.0.0.1]` of `[::1]`. Een scope-id (`127.0.0.53%lo`) hoort er ook bij — systemd-resolved
 # op een doorsnee Ubuntu levert die vorm.
 LOOPBACK_RE='^(127\.[0-9]+\.[0-9]+\.[0-9]+|\[::1\]|\[::ffff:127\.[0-9]+\.[0-9]+\.[0-9]+\])(%[^:]*)?:'
-LOOPBACK="$(printf '%s\n' "$LISTENERS" | grep -E "$LOOPBACK_RE" | sed 's/.*://' | sort -u || true)"
-luistert() { printf '%s\n' "$LOOPBACK" | grep -qx "$1"; }
+FED_LISTENERS="$(printf '%s\n' "$LISTENERS" | grep -E "$FED_RE" | sort -u || true)"
+luistert() { printf '%s\n' "$FED_LISTENERS" | grep -qx "$1"; }
+
+# INFRA_RE: de gastheer draait router, postgres, directory en directory-UI namens iedereen op
+# <prefix>.0.x. Die adressen horen bij geen enkele peer-/24 en zijn daarom uitgezonderd van de
+# /24-controle — maar alleen in de overlay van de GASTHEER. Declareert een gast ze, dan draait die
+# een tweede postgres of router, en dat is precies wat deze opstelling moet uitsluiten.
+INFRA_RE="${FED_RE}0\."
 
 VOOR=$FOUTEN
 GEZIEN=""
-FED_POORTEN=""
+VERWACHT_BINDS=""
 for peer in $(fsc_alle_peers); do
-  BLOK="$(fsc_peer_waarde BLOK "$peer")"
-  [ -n "$BLOK" ] || { fout "geen BLOK_$(fsc_peer_var "$peer") in peers.env"; continue; }
+  NET="$(fsc_peer_waarde NET "$peer")"
+  [ -n "$NET" ] || { fout "geen NET_$(fsc_peer_var "$peer") in peers.env"; continue; }
 
   # Nul treffers is niet "schoon" maar "de overlay ontbreekt of declareert niets" — anders wordt
   # een peer stilzwijgend niet gemeten. `grep` geeft onder pipefail non-zero bij nul treffers, dus
   # beide gevallen komen hier samen uit.
-  if ! POORTEN="$(peer_poorten "$peer")" || [ -z "$POORTEN" ]; then
-    fout "${peer}: geen 127.0.0.1-poorten leesbaar uit compose/${peer}.yaml"
+  if ! BINDS="$(peer_binds "$peer")" || [ -z "$BINDS" ]; then
+    fout "${peer}: geen ${FED_PREFIX}-adressen leesbaar uit compose/${peer}.yaml"
     continue
   fi
 
   AANTAL=0
-  for poort in $POORTEN; do
-    AANTAL=$((AANTAL + 1))
-    FED_POORTEN="${FED_POORTEN} ${poort}"
+  for bind in $BINDS; do
+    VERWACHT_BINDS="${VERWACHT_BINDS} ${bind}"
+    ADRES="${bind%:*}"
 
-    if [ "$poort" -lt "$BLOK" ] || [ "$poort" -ge $((BLOK + 100)) ]; then
-      fout "${peer}: poort ${poort} valt buiten zijn blok ${BLOK}-$((BLOK + 99))"
+    if printf '%s' "$ADRES" | grep -qE "$INFRA_RE"; then
+      if [ "$peer" != "$GASTHEER" ]; then
+        fout "${peer} is gast maar declareert het infra-adres ${ADRES} — draait die een eigen postgres of router?"
+      fi
+
+      luistert "$bind" || fout "federatie-infra: ${bind} staat in de overlay maar luistert niet"
+      continue
     fi
 
-    if printf '%s\n' "$GEZIEN" | grep -qx "$poort"; then
-      fout "poort ${poort} wordt door twee peers geclaimd"
+    AANTAL=$((AANTAL + 1))
+
+    case "$ADRES" in
+      "${NET}."*) ;;
+      *) fout "${peer}: ${bind} valt buiten zijn eigen ${NET}.0/24" ;;
+    esac
+
+    # Twee peers op hetzelfde adres botsen alsnog op hun standaardpoort — het enige wat de
+    # adresscheiding moet uitsluiten. Eén peer die hetzelfde adres meermaals claimt is juist normaal:
+    # een component heeft meerdere listeners (manager: extern, intern, intern-unauth, monitoring).
+    # Vandaar `$2 != p` in de selectie, en niet een vergelijking achteraf op de hele uitkomst.
+    ANDERE="$(printf '%s\n' "$GEZIEN" | awk -v a="$ADRES" -v p="$peer" '$1 == a && $2 != p {print $2}' | sort -u | head -n 1)"
+    if [ -n "$ANDERE" ]; then
+      fout "adres ${ADRES} wordt zowel door ${ANDERE} als door ${peer} geclaimd"
     fi
     GEZIEN="${GEZIEN}
-${poort}"
+${ADRES} ${peer}"
 
-    luistert "$poort" || fout "${peer}: poort ${poort} staat in de overlay maar luistert niet"
+    luistert "$bind" || fout "${peer}: ${bind} staat in de overlay maar luistert niet"
   done
 
-  [ "$AANTAL" -eq 0 ] || ok "${peer}: ${AANTAL} poorten uit blok ${BLOK} gecontroleerd"
+  [ "$AANTAL" -eq 0 ] || ok "${peer}: ${AANTAL} binds in ${NET}.0/24 gecontroleerd"
 done
 
+# De router opent zijn poort uit de gemounte haproxy-config en postgres drukt zijn bind uit als
+# `listen_addresses=` zonder poort; beide ontsnappen dus aan de extractie uit de overlays.
 VOOR_INFRA=$FOUTEN
-for poort in $INFRA_POORTEN; do
-  luistert "$poort" || fout "federatie-infra: poort ${poort} luistert niet"
-done
-ok_tenzij "$VOOR_INFRA" "federatie-infra: alle vaste poorten luisteren"
-
-# Verboden poorten: wat de hostnet-overlay declareert maar de federatie-overlay overschrijft. Blijft
-# zo'n poort luisteren, dan mist een service zijn federatie-overlay — en die poort is voor élke peer
-# identiek, dus de tweede peer botst erop. Afgeleid uit de overlays: een handmatige lijst dekt per
-# definitie alleen de services die er stonden toen hij geschreven werd.
-VOOR_STANDALONE=$FOUTEN
-for peer in $(fsc_alle_peers); do
-  # Zelfde vloer als bij de peer-poorten: een lege lijst betekent dat de hostnet-overlay ontbreekt
-  # of anders is opgemaakt, niet dat er niets te controleren valt.
-  if ! STANDALONE="$(standalone_poorten "$peer")" || [ -z "$STANDALONE" ]; then
-    fout "${peer}: geen poorten leesbaar uit docker-compose.podman-hostnet.yaml — deze assert meet niets"
-    continue
-  fi
-
-  for poort in $STANDALONE; do
-    case " $INFRA_POORTEN " in *" $poort "*) continue ;; esac
-    case " $FED_POORTEN "   in *" $poort "*) continue ;; esac
-
-    if luistert "$poort"; then
-      fout "standalone-poort ${poort} (uit ${peer}'s hostnet-overlay) luistert — een service mist zijn federatie-overlay"
-    fi
+if ! ROUTER_BINDS="$(binds_uit "${HERE}/haproxy.federatie.cfg")" || [ -z "$ROUTER_BINDS" ]; then
+  fout "geen ${FED_PREFIX}-bind leesbaar uit haproxy.federatie.cfg — deze assert meet niets"
+else
+  for bind in $ROUTER_BINDS; do
+    VERWACHT_BINDS="${VERWACHT_BINDS} ${bind}"
+    luistert "$bind" || fout "federatie-infra: de router luistert niet op ${bind}"
   done
+fi
+
+VERWACHT_BINDS="${VERWACHT_BINDS} ${ADRES_POSTGRES}:5432"
+luistert "${ADRES_POSTGRES}:5432" || fout "federatie-infra: postgres luistert niet op ${ADRES_POSTGRES}:5432"
+ok_tenzij "$VOOR_INFRA" "federatie-infra: router en postgres luisteren op hun eigen adres"
+
+# Andersom óók: een luisteraar binnen ons prefix die in geen enkele overlay staat. Dat is een
+# component uit een eerdere incarnatie of een handmatig gestarte container — beide maken de
+# metingen hierboven onbetrouwbaar zonder zelf een assert te breken.
+VOOR_ONBEKEND=$FOUTEN
+for adres in $FED_LISTENERS; do
+  case " $VERWACHT_BINDS " in
+    *" $adres "*) ;;
+    *) fout "${adres} luistert binnen ${FED_PREFIX}. maar staat in geen enkele overlay" ;;
+  esac
 done
-ok_tenzij "$VOOR_STANDALONE" "geen standalone-poort blijven hangen"
+ok_tenzij "$VOOR_ONBEKEND" "geen onbekende luisteraar binnen ${FED_PREFIX}."
 
 # Negatieve assert: in een gedeelde netns is een niet-loopback bind de hele machine. Beperkt tot de
 # poorten die de federatie claimt — `ss` ziet ook de dev-server en sshd van de gebruiker, en daar
@@ -231,14 +259,18 @@ VOOR_BUITEN=$FOUTEN
 BUITEN="$(printf '%s\n' "$LISTENERS" | grep -vE "$LOOPBACK_RE" || true)"
 for adres in $BUITEN; do
   poort="${adres##*:}"
-  case " $INFRA_POORTEN $FED_POORTEN " in
-    *" $poort "*) fout "federatie-poort ${poort} luistert buiten loopback: ${adres}" ;;
-  esac
+
+  for bind in $VERWACHT_BINDS; do
+    if [ "${bind##*:}" = "$poort" ]; then
+      fout "federatie-poort ${poort} luistert buiten loopback: ${adres}"
+      break
+    fi
+  done
 done
 if [ -n "$LISTENERS" ]; then
   ok_tenzij "$VOOR_BUITEN" "geen federatie-poort luistert buiten loopback (TCP)"
 fi
-ok_tenzij "$VOOR" "poortschema consistent met de overlays"
+ok_tenzij "$VOOR" "adresschema consistent met de overlays"
 
 # --- 4. Eén directory ----------------------------------------------------------------------------
 echo "== 4. één directory =="
@@ -282,8 +314,8 @@ fi
 # over de gedeelde group-CA bij de gedeelde directory landde, dat A diezelfde directory over
 # dezelfde CA bereikt, en dat het één directory is en niet twee.
 #
-# Bewust via de peer-eigen scripts met de federatie-poorten uit env: dat toetst meteen dat de
-# de-hardcoding werkt en dat die scripts in deze opstelling bruikbaar blijven.
+# Bewust via de peer-eigen scripts, met de adressen uit env: dat toetst meteen dat die scripts in
+# deze opstelling bruikbaar blijven.
 echo "== 5. publiceren + cross-peer ontdekken =="
 draai() {  # <omschrijving> <commando...> — toont de uitvoer alleen bij falen
   local wat="$1"; shift
@@ -297,27 +329,28 @@ draai() {  # <omschrijving> <commando...> — toont de uitvoer alleen bij falen
 
 PROVIDER=magazijn-a
 CONSUMER="$GASTHEER"
-PROV_BLOK="$(fsc_peer_waarde BLOK "$PROVIDER")"
-CONS_BLOK="$(fsc_peer_waarde BLOK "$CONSUMER")"
 PROV_OIN="$(fsc_peer_waarde OIN "$PROVIDER")"
-
 CONS_OIN="$(fsc_peer_waarde OIN "$CONSUMER")"
 
-if [ -z "$PROV_BLOK" ] || [ -z "$CONS_BLOK" ] || [ -z "$PROV_OIN" ] || [ -z "$CONS_OIN" ]; then
-  fout "blok of OIN ontbreekt voor ${PROVIDER}/${CONSUMER} in peers.env"
+if [ -z "$PROV_OIN" ] || [ -z "$CONS_OIN" ]; then
+  fout "OIN ontbreekt voor ${PROVIDER}/${CONSUMER} in peers.env"
 elif [ "$PROV_OIN" = "$CONS_OIN" ]; then
   # Anders is dit weer de zelf-bevraging die deze assert juist verving: `smoke-discover.sh` valt
   # zónder FSC_PROVIDER_OIN terug op de eigen OIN, en dan bewijst een groene uitkomst niets over
   # de federatie.
   fout "consumer en provider hebben dezelfde OIN (${PROV_OIN}) — dit toetst geen cross-peer discovery"
 else
-  FSC_CONTROLLER="https://controller.${PROVIDER}.fsc-test.local:$((PROV_BLOK + 12))" \
-  FSC_MANAGER="https://manager.${PROVIDER}.fsc-test.local:$((PROV_BLOK + 1))" \
-  FSC_STUB_URL="http://stub-upstream:$((PROV_BLOK + 50))" \
+  # De poorten zijn de standaardpoorten uit de basis-compose — met een adres per component hoeft er
+  # niets meer te schuiven. Toch expliciet meegegeven en niet op de defaults van de scripts
+  # geleund: dan toetst dit meteen dat de de-hardcoding werkt en dat een peer die zijn adressen
+  # ooit anders belegt, deze scripts nog steeds kan gebruiken.
+  FSC_CONTROLLER="https://controller.${PROVIDER}.fsc-test.local:9444" \
+  FSC_MANAGER="https://manager.${PROVIDER}.fsc-test.local:9443" \
+  FSC_STUB_URL="http://stub-upstream:8080" \
     draai "${PROVIDER} publiceert berichtenmagazijn" \
       "${ENVDIR}/${PROVIDER}/deploy/local/publish-service.sh"
 
-  FSC_MANAGER="https://manager.${CONSUMER}.fsc-test.local:$((CONS_BLOK + 1))" \
+  FSC_MANAGER="https://manager.${CONSUMER}.fsc-test.local:9443" \
   FSC_PROVIDER_OIN="$PROV_OIN" \
   FSC_SERVICE_NAME=berichtenmagazijn \
     draai "${CONSUMER} vindt de dienst van ${PROVIDER} in de gedeelde catalogus" \

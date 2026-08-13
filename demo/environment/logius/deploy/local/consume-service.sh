@@ -37,8 +37,8 @@ GROUP_ID="moza-fbs-test"
 OUTWAY_CERT_HOST="${HERE}/../../pki/out/logius/outway/cert.pem"
 
 # Consumer- én provider-manager zijn hier DEZELFDE (zelfreferentieel) — internal-certs.
-# Overrulebaar: in de federatie-opstelling (../../../federatie/) verhuist de interne manager-poort
-# naar het peer-blok. FSC_-prefix zodat een kale `MANAGER=` in de shell dit niet stil omleidt.
+# Overrulebaar: in de federatie-opstelling (../../../federatie/) staat de interne manager op een
+# eigen adres. FSC_-prefix zodat een kale `MANAGER=` in de shell dit niet stil omleidt.
 MANAGER="${FSC_MANAGER:-https://manager.logius.fsc-test.local:9443}"
 
 # De adressen worden geconcateneerd tot curl's URL-argument. Een waarde die met `-` begint leest

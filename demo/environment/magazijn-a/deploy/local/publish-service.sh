@@ -15,7 +15,7 @@ SERVICE_NAME="berichtenmagazijn"
 PROVIDER_OIN="00000000000000100000"
 DIR_OIN="00000000000000000010"
 GROUP_ID="moza-fbs-test"                 # = GROUP_ID env-var op de manager; als de manager een directory-adres verwacht, gebruik DIRECTORY_MANAGER_ADDRESS
-# De federatie-opstelling (../../../federatie/) verhuist elke listener naar het peer-blok; vandaar
+# De federatie-opstelling (../../../federatie/) geeft elke component een eigen adres; vandaar
 # overrulebaar, met de standalone-waarde als default. Geprefixt met FSC_ omdat een kale `MANAGER=`
 # in iemands shell anders stilzwijgend een mTLS-call mét het internal-cert van deze peer naar een
 # vreemd endpoint zou sturen.

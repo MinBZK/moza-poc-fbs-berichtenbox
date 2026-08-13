@@ -143,56 +143,88 @@ jobs:
               printf '%s' "$merged" | "$GUARD" "$peer (federatie-merge)" || fail=1
             fi
 
-            # De poorten die deze peer in de federatie claimt, uit env én uit `command`
-            # (stub-upstream draagt zijn adres in een `-listen=`-vlag).
-            poorten=$(jq -r '.services | to_entries[] | . as $s
+            # De adressen die deze peer in de federatie claimt, uit env én uit `command`
+            # (stub-upstream draagt zijn adres in een `-listen=`-vlag). Elke component heeft een
+            # eigen adres binnen het federatie-prefix en houdt zijn standaardpoort; het adres is
+            # dus wat de peers onderscheidt, niet de poort.
+            binds=$(jq -r --arg pre "$FED_PREFIX" '.services | to_entries[] | . as $s
               | ( ($s.value.environment // {}) | to_entries[] | select(.value != null) | (.value | tostring) ),
                 ( (($s.value.command // []) + ($s.value.entrypoint // []))[]? | select(type == "string") )
-              | select(test("(^|=)127\\.0\\.0\\.1:[0-9]+$"))
-              | sub(".*127\\.0\\.0\\.1:"; "")' <<<"$merged" | sort -un)
+              | select(test("(^|=)" + ($pre | gsub("\\."; "\\.")) + "\\.[0-9]+\\.[0-9]+:[0-9]+$"))
+              | sub("^.*="; "")' <<<"$merged" | sort -u)
 
-            blok_var="BLOK_$(printf '%s' "$peer" | tr '-' '_')"
-            blok="${!blok_var:-}"
+            # Een listener die buiten het federatie-prefix valt, is een service die zijn
+            # federatie-overlay mist: die valt terug op het adres uit de hostnet-overlay
+            # (127.0.0.1) en botst daar met de gelijknamige component van elke andere peer. Dat
+            # moet hier gevangen worden en niet door de smoke: uit de gedeclareerde adressen is
+            # zo'n service juist VERDWENEN, dus daar valt hij niet op.
+            buiten_prefix=$(jq -r --arg pre "$FED_PREFIX" '.services | to_entries[] | . as $s
+              | ($s.value.environment // {}) | to_entries[]
+              | select(.key | test("^(LISTEN_ADDRESS|MONITORING_ADDRESS)"))
+              | select(.value != null and (.value | tostring) != "")
+              | select(((.value | tostring) | startswith($pre + ".")) | not)
+              | "\($s.key): \(.key)=\(.value)"' <<<"$merged")
 
-            if [ -z "$blok" ]; then
-              echo "FOUT: geen $blok_var in peers.env."
+            if [ -n "$buiten_prefix" ]; then
+              echo "FOUT: $peer — listener buiten $FED_PREFIX. (mist zijn federatie-overlay):"
+              printf '%s\n' "$buiten_prefix" | sed 's/^/  /'
+              fail=1
+            fi
+
+            net_var="NET_$(printf '%s' "$peer" | tr '-' '_')"
+            net="${!net_var:-}"
+
+            if [ -z "$net" ]; then
+              echo "FOUT: geen $net_var in peers.env."
               fail=1
               continue
             fi
 
-            in_blok=0
-            for p in $poorten; do
-              # Federatie-infra draait op de GASTHEER namens iedereen en hoort bij geen peer-blok.
-              # Voor een gast is diezelfde poort per definitie een botsing, dus daar geldt de
-              # uitzondering niet: die zou anders een tweede router of postgres onzichtbaar maken.
-              if [ "$peer" = "$GASTHEER" ]; then
-                case " $INFRA_POORTEN " in *" $p "*) continue ;; esac
-              fi
+            in_net=0
+            for b in $binds; do
+              adres="${b%:*}"
 
-              if [ "$p" -lt "$blok" ] || [ "$p" -ge $((blok + 100)) ]; then
-                echo "FOUT: $peer — poort $p valt buiten zijn blok $blok-$((blok + 99))."
-                fail=1
-              else
-                in_blok=$((in_blok + 1))
-              fi
-              alle="$alle $peer:$p"
+              # Federatie-infra draait op de GASTHEER namens iedereen, op <prefix>.0.x, en hoort bij
+              # geen peer-/24. Voor een gast is datzelfde adres per definitie een tweede router of
+              # postgres, dus daar geldt de uitzondering niet.
+              case "$adres" in
+                "$FED_PREFIX".0.*)
+                  if [ "$peer" != "$GASTHEER" ]; then
+                    echo "FOUT: $peer is gast maar claimt infra-adres $adres."
+                    fail=1
+                  fi
+                  continue
+                  ;;
+              esac
+
+              case "$adres" in
+                "$net".*) in_net=$((in_net + 1)) ;;
+                *) echo "FOUT: $peer — $b valt buiten zijn eigen $net.0/24."; fail=1 ;;
+              esac
+
+              alle="$alle $peer:$adres"
             done
 
-            # Nul poorten betekent niet "schoon" maar "de extractie matcht niets meer" — een
+            # Nul adressen betekent niet "schoon" maar "de extractie matcht niets meer" — een
             # opmaakwijziging in de overlay zou de guard anders stilzwijgend uitschakelen.
-            if [ "$in_blok" -eq 0 ]; then
-              echo "FOUT: $peer — 0 poorten uit de merge; de extractie matcht niets meer."
+            if [ "$in_net" -eq 0 ]; then
+              echo "FOUT: $peer — 0 adressen uit de merge; de extractie matcht niets meer."
               fail=1
             else
-              echo "$peer: $in_blok poorten in blok $blok."
+              echo "$peer: $in_net binds in $net.0/24."
             fi
           done
 
-          # Disjunctheid over de peers heen: het punt van de blokindeling.
-          # shellcheck disable=SC2086  # bewuste word splitting: `alle` is een lijst `peer:poort`.
-          botsingen=$(printf '%s\n' $alle | awk -F: 'NF==2 {tel[$2]=tel[$2]" "$1} END {for (p in tel) if (split(tel[p],a," ")>1) print p": "tel[p]}')
+          # Disjunctheid over de peers heen: het punt van de adresindeling. Twee peers op hetzelfde
+          # adres botsen alsnog op hun standaardpoort.
+          #
+          # `sort -u` eerst: één peer claimt zijn eigen adres meermaals, want een component heeft
+          # meerdere listeners (manager: extern, intern, intern-unauth, monitoring). Zonder de
+          # deduplicatie leest elke component met twee poorten als een botsing met zichzelf.
+          # shellcheck disable=SC2086  # bewuste word splitting: `alle` is een lijst `peer:adres`.
+          botsingen=$(printf '%s\n' $alle | sort -u | awk -F: 'NF==2 {tel[$2]=tel[$2]" "$1} END {for (p in tel) if (split(tel[p],a," ")>1) print p": "tel[p]}')
           if [ -n "$botsingen" ]; then
-            echo "FOUT: dezelfde poort wordt door meer dan één peer geclaimd:"
+            echo "FOUT: hetzelfde adres wordt door meer dan één peer geclaimd:"
             printf '%s\n' "$botsingen" | sed 's/^/  /'
             fail=1
           fi

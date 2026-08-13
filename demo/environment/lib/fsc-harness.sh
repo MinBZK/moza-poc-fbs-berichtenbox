@@ -145,6 +145,29 @@ fsc_peer_waarde() {
 # fsc_alle_peers: gastheer + gasten uit peers.env, in opstartvolgorde.
 fsc_alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
 
+# fsc_component_adres <net> <component>: het adres van een component binnen het /24 van een peer,
+# bv. `fsc_component_adres 127.20.2 inway` -> `127.20.2.4`. De octetten liggen vast en zijn voor
+# élke peer gelijk, zodat een adres af te lezen is zonder de overlay erbij te halen.
+#
+# Faalt hard op een onbekende component in plaats van iets aannemelijks te verzinnen: een typefout
+# zou anders een adres opleveren dat nergens luistert, en dat leest als een dode component.
+fsc_component_adres() {
+  local octet
+  case "$2" in
+    manager)       octet=1 ;;
+    controller)    octet=2 ;;
+    txlog)         octet=3 ;;
+    inway)         octet=4 ;;
+    outway)        octet=5 ;;
+    stub-upstream) octet=6 ;;
+    *) return 1 ;;
+  esac
+
+  [ -n "$1" ] || return 1
+
+  printf '%s.%s' "$1" "$octet"
+}
+
 # fsc_compose_project <compose-bestand>: de projectnaam uit het `name:`-veld. Compose leidt die
 # niet af zoals je zou raden (`magazijn-a` -> `fsc-magazijna`), dus lezen we 'm. Faalt hard bij een
 # ontbrekend bestand of een ontbrekende `name:` — een lege projectnaam maakt elk `--filter

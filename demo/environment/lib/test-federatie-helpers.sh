@@ -29,11 +29,42 @@ trap 'rm -rf "$WERK"' EXIT
   && ok "peer_var laat een naam zonder koppelteken ongemoeid" || fout "peer_var muteert een naam zonder koppelteken"
 
 # shellcheck disable=SC2034  # wordt indirect gelezen door fsc_peer_waarde.
-BLOK_magazijn_a=61100
-[ "$(fsc_peer_waarde BLOK magazijn-a)" = "61100" ] \
+NET_magazijn_a=127.20.2
+[ "$(fsc_peer_waarde NET magazijn-a)" = "127.20.2" ] \
   && ok "peer_waarde leest via het genormaliseerde achtervoegsel" || fout "peer_waarde leest niet via het genormaliseerde achtervoegsel"
-[ -z "$(fsc_peer_waarde BLOK bestaat-niet)" ] \
+[ -z "$(fsc_peer_waarde NET bestaat-niet)" ] \
   && ok "peer_waarde levert leeg voor een onbekende peer" || fout "peer_waarde levert niet-leeg voor een onbekende peer"
+
+# --- fsc_component_adres ------------------------------------------------------------------------
+# De octetten liggen vast; verschuift er één, dan wijst een `extra_hosts`-regel naar een component
+# die er niet is en faalt de federatie pas bij `up`, op TLS.
+[ "$(fsc_component_adres 127.20.2 manager)" = "127.20.2.1" ] \
+  && ok "component_adres plakt het manager-octet" || fout "component_adres levert het verkeerde manager-adres"
+[ "$(fsc_component_adres 127.20.1 outway)" = "127.20.1.5" ] \
+  && ok "component_adres plakt het outway-octet" || fout "component_adres levert het verkeerde outway-adres"
+
+# Twee componenten in hetzelfde /24 mogen nooit hetzelfde adres krijgen: dan botsen ze alsnog op
+# hun standaardpoort, precies wat de adresscheiding moet uitsluiten.
+ADRESSEN="$(for c in manager controller txlog inway outway stub-upstream; do
+              fsc_component_adres 127.20.1 "$c"
+            done | sort)"
+if [ "$(printf '%s\n' "$ADRESSEN" | wc -l)" -eq "$(printf '%s\n' "$ADRESSEN" | sort -u | wc -l)" ]; then
+  ok "component_adres geeft elke component een uniek adres binnen het /24"
+else
+  fout "component_adres geeft twee componenten hetzelfde adres — ze botsen dan op hun standaardpoort"
+fi
+
+if fsc_component_adres 127.20.1 kachel >/dev/null 2>&1; then
+  fout "component_adres slaagt op een onbekende component (levert een adres waar niets luistert)"
+else
+  ok "component_adres faalt hard op een onbekende component"
+fi
+
+if fsc_component_adres "" manager >/dev/null 2>&1; then
+  fout "component_adres slaagt op een leeg net (levert '.1', een adres dat nergens bestaat)"
+else
+  ok "component_adres faalt hard op een leeg net"
+fi
 
 # --- fsc_compose_project ------------------------------------------------------------------------
 printf 'name: fsc-magazijna\nservices:\n  x: {}\n' > "$WERK/goed.yaml"

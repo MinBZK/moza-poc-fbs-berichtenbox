@@ -63,12 +63,16 @@ geen_keepid=$(jq -r '.services | to_entries[]
   | select(.value.user != null)
   | select(.value.userns_mode != "keep-id") | .key' <<<"$MERGED")
 
-# Namen die per definitie een listener zijn: die moeten expliciet op 127.0.0.1 staan, ook als het
+# Namen die per definitie een listener zijn: die moeten expliciet op loopback staan, ook als het
 # adres een andere vorm heeft dan LEK vangt (bv. een LAN-adres).
+#
+# Elk 127.x.y.z telt, niet alleen 127.0.0.1: de standalone-harnessen binden op 127.0.0.1, de
+# federatie geeft elke component een eigen adres binnen 127.20.0.0/16. Beide vormen zijn loopback
+# en dus even veilig; wat deze check moet vangen is een adres dat de machine bereikbaar maakt.
 env_lek=$(jq -r '.services | to_entries[] | . as $s
   | ($s.value.environment // {}) | to_entries[]
   | select(.key | test("^(LISTEN_ADDRESS|MONITORING_ADDRESS)"))
-  | select(.value == null or ((.value | tostring | startswith("127.0.0.1")) | not))
+  | select(.value == null or ((.value | tostring | test("^127\\.[0-9]+\\.[0-9]+\\.[0-9]+:")) | not))
   | "\($s.key): \(.key)=\(.value // "<leeg: erft uit de shell van de aanroeper>")"' <<<"$MERGED")
 
 # Naam-onafhankelijk: elke env-waarde en elk `command`/`entrypoint`-token dat eruitziet als een
@@ -97,7 +101,7 @@ ongelimiteerd=$(jq -r '.services | to_entries[]
 pg_lek=$(jq -r '.services | to_entries[] | . as $s
   | ($s.value.command // [])[]?
   | select(type == "string") | select(test("listen_addresses="))
-  | select(test("listen_addresses=127\\.0\\.0\\.1") | not)
+  | select(test("listen_addresses=127\\.[0-9]+\\.[0-9]+\\.[0-9]+") | not)
   | "\($s.key): \(.)"' <<<"$MERGED")
 
 # De eis "expliciete listen_addresses" geldt zodra er een postgres in de merge zit — óók zonder
@@ -136,19 +140,19 @@ if [ "$(jq -r '.services | has("router")' <<<"$MERGED")" = "true" ]; then
     fi
 
     haproxy_lek=$(grep -nE '^[[:space:]]*bind[[:space:]]' "$cfg" \
-      | grep -vE 'bind[[:space:]]+127\.0\.0\.1:' || true)
+      | grep -vE 'bind[[:space:]]+127\.[0-9]+\.[0-9]+\.[0-9]+:' || true)
   fi
 fi
 
 meld "zonder network_mode host in de merge (voeg toe aan de overlay: network_mode, extra_hosts, botsvrije poort):" "$geen_host"
 meld "leest /pki onder een vaste UID zonder keep-id (voeg toe aan docker-compose.podman.yaml):" "$geen_keepid"
-meld "listener-env die niet op 127.0.0.1 staat:" "$env_lek"
+meld "listener-env die niet op loopback (127.x) staat:" "$env_lek"
 meld "bind-adres dat niet op loopback staat:" "$bind_lek"
 meld "nog een gepubliceerde poort in de merge (mist een 'ports: !reset []'):" "$poorten"
 meld "onbegrensde herstartlus (zet een maximum in de overlay):" "$ongelimiteerd"
-meld "postgres luistert niet uitsluitend op 127.0.0.1:" "$pg_lek"
+meld "postgres luistert niet uitsluitend op loopback (127.x):" "$pg_lek"
 meld "postgres zonder expliciete listen_addresses (het image kiest dan '*'):" "$pg_mist"
-meld "bind-regel in de gemounte haproxy-config die niet op 127.0.0.1 staat:" "$haproxy_lek"
+meld "bind-regel in de gemounte haproxy-config die niet op loopback (127.x) staat:" "$haproxy_lek"
 
 if [ "$fail" -eq 0 ]; then
   echo "${LABEL}: ${totaal}/${totaal} services op de gedeelde netns, alle listeners op loopback."
