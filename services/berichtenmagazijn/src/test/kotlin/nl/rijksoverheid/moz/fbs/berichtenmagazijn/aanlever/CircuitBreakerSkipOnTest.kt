@@ -74,7 +74,7 @@ class CircuitBreakerSkipOnTest {
             val actual = given()
                 .contentType(ContentType.JSON)
                 .body(validPayload())
-                .`when`().post("/api/v1/berichten")
+                .`when`().post("/api/v1/aanleveringen")
                 .then()
                 .extract().statusCode()
             assertEquals(expectedStatus, actual, "request $i zou $expectedStatus moeten zijn")

@@ -22,7 +22,7 @@ import java.time.Instant
 import java.util.UUID
 
 @QuarkusTest
-class BeheerResourceIntegrationTest {
+class BerichtenBeheerIntegrationTest {
 
     @Inject lateinit var berichtRepository: BerichtRepository
     @Inject lateinit var bijlageRepository: BijlageRepository
