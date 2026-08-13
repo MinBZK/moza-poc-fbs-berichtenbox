@@ -160,7 +160,7 @@ services:
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
-      LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+      # Geen LDV-env: het magazijn logt onder %dev in zijn eigen datasource, dus postgres-a.
       # Outbox sneller laten pollen zodat storing→herstel binnen seconden zichtbaar is (default 60s),
       # en meer pogingen zodat een uitgeschakelde downstream niet terminal MISLUKT tijdens de uitleg.
       MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
@@ -188,7 +188,7 @@ services:
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
-      LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+      # Geen LDV-env: het magazijn logt onder %dev in zijn eigen datasource, dus postgres-b.
       MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_AANMELD_MAX_POGINGEN: "50"
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_NOTIFICATIE_MAX_POGINGEN: "50"
@@ -230,6 +230,8 @@ services:
         condition: service_started
       toxiproxy:
         condition: service_started
+      postgres-uitvraag:
+        condition: service_healthy
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
@@ -238,7 +240,12 @@ services:
       MAGAZIJN_A_URL: http://toxiproxy:18090
       MAGAZIJN_B_URL: http://toxiproxy:18091
       PROFIEL_SERVICE_URL: http://toxiproxy:18089
-      LDV_CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+      # Het logboek moet expliciet: de %dev-default wijst naar localhost:5434, en dat is
+      # binnen een container de container zelf. Credentials staan hier naast de service
+      # die ze definieert, zodat een wijziging daar niet stil uiteenloopt.
+      LDV_POSTGRES_URL: jdbc:postgresql://postgres-uitvraag:5432/ldv_logging
+      LDV_POSTGRES_USERNAME: ldv
+      LDV_POSTGRES_PASSWORD: ldv
       # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig;
       # origins staan onder %dev in application.properties. Alleen in het demo-profiel.
       QUARKUS_HTTP_CORS_ENABLED: "true"
