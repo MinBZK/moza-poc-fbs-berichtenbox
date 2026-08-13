@@ -275,6 +275,7 @@ jobs:
           if ! shellcheck -x -S warning \
                  demo/environment/lib/*.sh \
                  demo/environment/federatie/*.sh \
+                 demo/environment/federatie/contracts/*.sh \
                  demo/environment/*/deploy/local/*.sh \
                  demo/environment/*/pki/*.sh \
                  .github/scripts/*.sh; then
