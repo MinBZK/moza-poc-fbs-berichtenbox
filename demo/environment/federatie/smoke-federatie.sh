@@ -74,16 +74,31 @@ for peer in $(fsc_alle_peers); do
       continue
     fi
 
-    STATUS="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+    # `-sS` en niet `-s`: die laatste onderdrukt juist de melding die deze assert nodig heeft om
+    # tussen zijn drie kandidaat-oorzaken te kiezen. `--noproxy '*'` omdat alles hier loopback is —
+    # met een https_proxy in de omgeving zou een 407 van de proxy als geslaagde handshake lezen.
+    STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --noproxy '*' \
                 --resolve "${NAAM}:443:127.0.0.1" \
                 --cert "$CERT" --key "$SLEUTEL" --cacert "$ANKER" \
                 "https://${NAAM}/" 2>"$ERRLOG" || true)"
-    fsc_warn_errlog "curl naar ${tegen}"
 
     if [ "${STATUS:-000}" != "000" ]; then
       ok "${peer} spreekt wederzijdse mTLS met ${tegen} door de router (HTTP ${STATUS})"
     else
-      fout "${peer} krijgt geen TLS-verbinding met ${tegen} — group-CA niet gedeeld, cert niet geaccepteerd, of de router routeert niet"
+      fout "${peer} krijgt geen TLS-verbinding met ${tegen} — group-CA niet gedeeld, cert niet geaccepteerd, of de router routeert niet: $(fsc_last_error)"
+    fi
+
+    # Negatieve controle: zonder client-cert hoort er géén verbinding te zijn. Slaagt die tóch, dan
+    # dwingt de tegenpeer mTLS niet af en zegt de positieve assert hierboven niets over
+    # wederzijdsheid — dan rust hij alleen op onze eigen verificatie van hún certificaat.
+    ZONDER="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --noproxy '*' \
+                --resolve "${NAAM}:443:127.0.0.1" --cacert "$ANKER" \
+                "https://${NAAM}/" 2>/dev/null || true)"
+
+    if [ "${ZONDER:-000}" = "000" ]; then
+      ok "${tegen} weigert een verbinding zónder client-cert (mTLS wordt afgedwongen)"
+    else
+      fout "${tegen} accepteert een verbinding zónder client-cert (HTTP ${ZONDER}) — mTLS wordt niet afgedwongen"
     fi
   done
 done
@@ -212,7 +227,7 @@ ok_tenzij "$VOOR_STANDALONE" "geen standalone-poort blijven hangen"
 # poorten die de federatie claimt — `ss` ziet ook de dev-server en sshd van de gebruiker, en daar
 # rood op gaan zou de assert op termijn versoepeld krijgen. TCP-only; de componenten zijn HTTP/TLS.
 VOOR_BUITEN=$FOUTEN
-[ -n "$LISTENERS" ] || fout "geen listeners gemeten — de buiten-loopback-assert zegt niets"
+# `LISTENERS` leeg is hierboven al gemeld; hier alleen de OK onderdrukken, niet dubbel tellen.
 BUITEN="$(printf '%s\n' "$LISTENERS" | grep -vE "$LOOPBACK_RE" || true)"
 for adres in $BUITEN; do
   poort="${adres##*:}"
@@ -220,7 +235,9 @@ for adres in $BUITEN; do
     *" $poort "*) fout "federatie-poort ${poort} luistert buiten loopback: ${adres}" ;;
   esac
 done
-ok_tenzij "$VOOR_BUITEN" "geen federatie-poort luistert buiten loopback (TCP)"
+if [ -n "$LISTENERS" ]; then
+  ok_tenzij "$VOOR_BUITEN" "geen federatie-poort luistert buiten loopback (TCP)"
+fi
 ok_tenzij "$VOOR" "poortschema consistent met de overlays"
 
 # --- 4. Eén directory ----------------------------------------------------------------------------
