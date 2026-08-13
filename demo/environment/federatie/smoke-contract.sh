@@ -52,16 +52,10 @@ CONS_OUTWAY_CERT="${ENVDIR}/${UITVRAAG}/pki/out/${UITVRAAG}/outway/cert.pem"
 CONS_THUMB="$(fsc_outway_thumbprint "$CONS_OUTWAY_CERT")" \
   || { echo "FAIL: kon de outway-thumbprint niet berekenen uit ${CONS_OUTWAY_CERT}: $(fsc_last_error)" >&2; exit 1; }
 
-# manager_json <peer> <net>: de contracten van die peer via zijn interne API. Elke manager luistert
-# op zijn eigen adres, op de standaardpoort 9443.
+# manager_json <peer> <net>: de contracten van die peer via zijn interne API, op het manager-adres
+# binnen zijn eigen /24.
 manager_json() {
-  local peer="$1" net="$2" naam="manager.$1.fsc-test.local" poort=9443
-  curl -sS --fail-with-body --noproxy '*' \
-    --resolve "${naam}:${poort}:$(fsc_component_adres "$net" manager)" \
-    --cert "${ENVDIR}/${peer}/pki/internal/${peer}/manager/cert.pem" \
-    --key  "${ENVDIR}/${peer}/pki/internal/${peer}/manager/key.pem" \
-    --cacert "${ENVDIR}/${peer}/pki/internal/${peer}/ca/root.pem" \
-    "https://${naam}:${poort}/v1/contracts" 2>"$ERRLOG"
+  fsc_manager_contracts "$ENVDIR" "$1" "$(fsc_component_adres "$2" manager)"
 }
 
 for magazijn in $MAGAZIJNEN; do

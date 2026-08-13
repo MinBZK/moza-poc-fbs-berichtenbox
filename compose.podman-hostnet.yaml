@@ -129,14 +129,30 @@ services:
   berichtenuitvraag:
     network_mode: host
     ports: !reset []
+    # Het grant-hash per magazijn komt uit de contract-bootstrap van de federatie
+    # (demo/environment/federatie/contracts/fbs-contracten.sh). Ontbreekt het bestand — geen
+    # federatie op deze machine — dan start de stack gewoon zonder, en valt de uitvraag terug op
+    # rechtstreeks verkeer: `magazijnen."<OIN>".grantHash` leeg betekent "geen FSC-headers".
+    env_file:
+      - path: demo/generated/fsc-grants.env
+        required: false
     depends_on:
       redis:
+        condition: service_started
+      # Deze overlay reset élke healthcheck (podman draait die via systemd-timers, en juist in de
+      # omgevingen die hostnet nodig hebben ontbreekt systemd). Een `condition: service_healthy`
+      # die uit de basis blijft staan, faalt dan met "has no healthcheck configured" — en omdat
+      # depends_on per sleutel gemerged wordt, moet elke wachtende sleutel hier expliciet terug.
+      postgres-uitvraag:
         condition: service_started
     environment:
       # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
       QUARKUS_HTTP_HOST: 127.0.0.1
       REDIS_HOSTS: redis://127.0.0.1:16379
-      MAGAZIJN_A_URL: http://127.0.0.1:18090
+      # Default: rechtstreeks via toxiproxy, zodat de storing-knop van de demo werkt. Zet
+      # MAGAZIJN_A_URL op de outway van de federatie (http://127.20.1.5:8443) om dit magazijn via
+      # de FSC-keten te laten lopen; het grant-hash komt dan uit env_file hierboven.
+      MAGAZIJN_A_URL: ${MAGAZIJN_A_URL:-http://127.0.0.1:18090}
       MAGAZIJN_B_URL: http://127.0.0.1:18091
       PROFIEL_SERVICE_URL: http://127.0.0.1:18089
       LDV_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5434/ldv_logging

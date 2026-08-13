@@ -76,8 +76,19 @@ done
 echo "  inway_address=$INWAY_ADDR"
 
 echo "publish: $SERVICE_NAME aanmaken (idempotent)..."
-if fsc_tb "$CONTROLLER/v1/services" | grep -q "\"$SERVICE_NAME\""; then
-  echo "  bestaat al, skip create."
+BESTAAND="$(fsc_tb "$CONTROLLER/v1/services" || true)"
+if printf '%s' "$BESTAAND" | grep -q "\"$SERVICE_NAME\""; then
+  # Bestaat al — maar met wélke upstream? Zonder deze controle wisselt een run met een andere
+  # FSC_UPSTREAM_URL stilzwijgend niets, en blijft de inway naar de oude upstream wijzen terwijl
+  # het script "klaar" meldt. Dat kost je een half uur zoeken in de verkeerde hoek.
+  if printf '%s' "$BESTAAND" | grep -q "\"endpoint_url\":\"$UPSTREAM_URL\""; then
+    echo "  bestaat al met dezelfde upstream, skip create."
+  else
+    echo "  bestaat al maar met een andere upstream; bijwerken naar ${UPSTREAM_URL}..."
+    fsc_tb -X PUT "$CONTROLLER/v1/services/$SERVICE_NAME" -H 'Content-Type: application/json' \
+       -d "{\"name\":\"$SERVICE_NAME\",\"endpoint_url\":\"$UPSTREAM_URL\",\"inway_address\":\"$INWAY_ADDR\"}"
+    echo "  bijgewerkt."
+  fi
 else
   fsc_tb -X POST "$CONTROLLER/v1/services" -H 'Content-Type: application/json' \
      -d "{\"name\":\"$SERVICE_NAME\",\"endpoint_url\":\"$UPSTREAM_URL\",\"inway_address\":\"$INWAY_ADDR\"}"

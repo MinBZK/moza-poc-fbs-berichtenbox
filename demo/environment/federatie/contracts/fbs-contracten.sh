@@ -3,7 +3,7 @@
 # magazijn, zodat de uitvraag-outway `berichtenmagazijn` bij elk van hen mag afnemen.
 #
 # Wie meedoet staat in peers.env (`UITVRAAG`, `MAGAZIJNEN`, `MAGAZIJN_DIENST`); dit script vertaalt
-# dat naar de peer-blokken en cert-paden en roept per magazijn `bootstrap.sh` aan. Een magazijn
+# dat naar de component-adressen en cert-paden en roept per magazijn `bootstrap.sh` aan. Een magazijn
 # toevoegen is daarmee één naam in `MAGAZIJNEN`.
 #
 # Idempotent, ook zonder lokale state: `bootstrap.sh` leidt uit de contracten zelf af of er al een
@@ -24,6 +24,11 @@ ENVDIR="$(cd "${FEDDIR}/.." && pwd)"
 # shellcheck source=../peers.env
 . "${FEDDIR}/peers.env"
 
+fsc_errlog_init
+# Zet $HAVE_JQ, waar fsc_grant_actief/fsc_grant_hash op leunen. bootstrap.sh doet dit voor zichzelf;
+# sinds dit script zélf het grant-hash afleidt, heeft het de vlag ook nodig.
+fsc_have_jq
+
 : "${UITVRAAG:?geen UITVRAAG in peers.env}"
 : "${MAGAZIJNEN:?geen MAGAZIJNEN in peers.env}"
 : "${MAGAZIJN_DIENST:?geen MAGAZIJN_DIENST in peers.env}"
@@ -37,6 +42,46 @@ CONS_OIN="$(fsc_peer_waarde OIN "$UITVRAAG")"
 
 FOUTEN=0
 GEDAAN=0
+
+# De demo-stack moet het grant-hash kennen om `Fsc-Grant-Hash` te kunnen zetten, en compose kan dat
+# niet uit een draaiende manager halen. Vandaar een gegenereerd env-bestand dat de uitvraag inleest.
+# Naar `.tmp` en pas aan het eind verplaatsen: een half geschreven bestand zou de uitvraag met een
+# grant-hash van het ene magazijn en niets voor het andere laten starten.
+GRANTS="$(cd "${ENVDIR}/.." && pwd)/generated/fsc-grants.env"
+mkdir -p "$(dirname "$GRANTS")"
+: > "$GRANTS.tmp"
+# Eén trap voor beide tijdelijke bestanden: fsc_errlog_init zette er al een op $ERRLOG, en een
+# tweede `trap ... EXIT` vervangt die in plaats van hem aan te vullen.
+trap 'rm -f "$GRANTS.tmp" "$ERRLOG"' EXIT
+
+# Het grant-hash is NIET het contract-hash: de outway routeert op de grant uit `content.grants[]`,
+# en wie het contract-hash op de header zet krijgt structureel 400 UNKNOWN_GRANT_HASH_IN_HEADER.
+CONS_THUMB="$(fsc_outway_thumbprint "${ENVDIR}/${UITVRAAG}/pki/out/${UITVRAAG}/outway/cert.pem")" || {
+  echo "FAIL: kon de outway-thumbprint van '${UITVRAAG}' niet berekenen: $(fsc_last_error)" >&2
+  exit 1
+}
+
+# grant_regel_voor <magazijn> <oin>: één `<PEER>_GRANT_HASH=<hash>`-regel op stdout.
+#
+# De env-naam is de peernaam in hoofdletters: `magazijn-a` -> `MAGAZIJN_A_GRANT_HASH`. Dat is
+# precies de naam die application.properties van de uitvraag leest voor het magazijn met die OIN.
+# Hernoem je een peer in peers.env, dan moet die property mee.
+#
+# De contracten komen van de manager van de CONSUMER: dat is de kant waar de outway zijn grant
+# vandaan haalt. Bij de provider staat hetzelfde contract, maar de uitvraag praat daar niet mee.
+grant_regel_voor() {
+  local magazijn="$1" oin="$2" json contract grant naam
+
+  json="$(fsc_manager_contracts "$ENVDIR" "$UITVRAAG" "$(fsc_component_adres "$CONS_NET" manager)")" || return 1
+  contract="$(fsc_grant_actief "$json" "$MAGAZIJN_DIENST" "$oin" "$CONS_OIN" "$CONS_THUMB" | sort | head -n1)"
+  [ -n "$contract" ] || return 1
+
+  grant="$(fsc_grant_hash "$json" "$contract" "$MAGAZIJN_DIENST" "$CONS_THUMB")"
+  [ -n "$grant" ] || return 1
+
+  naam="$(printf '%s' "$magazijn" | tr '[:lower:]-' '[:upper:]_')"
+  printf '%s_GRANT_HASH=%s\n' "$naam" "$grant"
+}
 
 for magazijn in $MAGAZIJNEN; do
   PROV_NET="$(fsc_peer_waarde NET "$magazijn")"
@@ -77,6 +122,10 @@ for magazijn in $MAGAZIJNEN; do
      FSC_PROVIDER_CA="${ENVDIR}/${magazijn}/pki/internal/${magazijn}/ca/root.pem" \
        "${HERE}/bootstrap.sh"; then
     GEDAAN=$((GEDAAN + 1))
+    grant_regel_voor "$magazijn" "$PROV_OIN" >> "$GRANTS.tmp" || {
+      echo "FAIL: contract staat, maar het grant-hash van ${magazijn} is niet af te leiden." >&2
+      FOUTEN=$((FOUTEN + 1))
+    }
   else
     echo "FAIL: contract ${UITVRAAG} -> ${magazijn} niet opgezet." >&2
     FOUTEN=$((FOUTEN + 1))
@@ -92,6 +141,10 @@ if [ "$GEDAAN" -eq 0 ] && [ "$FOUTEN" -eq 0 ]; then
 fi
 
 if [ "$FOUTEN" -eq 0 ]; then
+  # Overschrijven en niet aanvullen: hashes uit een eerdere run zouden anders blijven staan nadat
+  # een contract is ingetrokken of opnieuw uitgegeven, en de uitvraag zou dan een dode grant sturen.
+  mv "$GRANTS.tmp" "$GRANTS"
+  echo "grant-hashes weggeschreven naar ${GRANTS}."
   echo "FBS-CONTRACTEN OK (${GEDAAN} magazijn(en))."
 else
   echo "FBS-CONTRACTEN ROOD: ${FOUTEN} van $((GEDAAN + FOUTEN)) mislukt." >&2

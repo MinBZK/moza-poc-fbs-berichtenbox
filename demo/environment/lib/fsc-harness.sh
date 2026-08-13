@@ -188,6 +188,24 @@ fsc_peer_waarde() {
 # fsc_alle_peers: gastheer + gasten uit peers.env, in opstartvolgorde.
 fsc_alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
 
+# fsc_manager_contracts <envdir> <peer> <adres>: de contracten van een peer via zijn INTERNE
+# manager-API, met het internal-cert van diezelfde peer. De naam staat niet in /etc/hosts
+# (`extra_hosts` geldt alleen binnen containers), vandaar `--resolve` op het meegegeven adres.
+#
+# Hier en niet in één van de aanroepers, omdat zowel de contract-bootstrap als de smokes deze
+# lijst nodig hebben: twee kopieën zouden uiteen kunnen lopen in cert-pad of poort, en dan meet de
+# smoke iets anders dan de bootstrap doet.
+fsc_manager_contracts() {
+  local envdir="$1" peer="$2" adres="$3" naam="manager.$2.fsc-test.local"
+
+  curl -sS --fail-with-body --noproxy '*' \
+    --resolve "${naam}:9443:${adres}" \
+    --cert "${envdir}/${peer}/pki/internal/${peer}/manager/cert.pem" \
+    --key  "${envdir}/${peer}/pki/internal/${peer}/manager/key.pem" \
+    --cacert "${envdir}/${peer}/pki/internal/${peer}/ca/root.pem" \
+    "https://${naam}:9443/v1/contracts" 2>"$ERRLOG"
+}
+
 # fsc_component_adres <net> <component>: het adres van een component binnen het /24 van een peer,
 # bv. `fsc_component_adres 127.20.2 inway` -> `127.20.2.4`. De octetten liggen vast en zijn voor
 # élke peer gelijk, zodat een adres af te lezen is zonder de overlay erbij te halen.
