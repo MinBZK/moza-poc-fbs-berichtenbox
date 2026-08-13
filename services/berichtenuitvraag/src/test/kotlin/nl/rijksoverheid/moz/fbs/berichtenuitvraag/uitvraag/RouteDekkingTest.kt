@@ -7,6 +7,7 @@ import io.restassured.http.Method
 import io.swagger.v3.parser.OpenAPIV3Parser
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.fail
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -41,8 +42,17 @@ class RouteDekkingTest {
         /** Gelijk aan `servers.url` in de spec; de resources dragen dit voorvoegsel via `ApiInfo.BASE_PATH`. */
         private const val BASIS_PAD = "/api/v1"
 
-        /** Methodes die geen enkel pad in onze specs declareert; één ervan dient als sonde. */
-        private val SONDE_METHODES = listOf("TRACE", "PUT", "HEAD")
+        /** Vastgelegd zodat een verdwenen pad door een halve spec-parse niet stil de dekking verkleint. */
+        private const val PADEN = 6
+        private const val OPERATIES = 8
+
+        /**
+         * Methodes die geen enkel pad in onze specs declareert; de eerste bruikbare dient als
+         * sonde. Geen HEAD: JAX-RS leidt die af van GET, dus een pad met een GET antwoordt met
+         * de GET-status en nooit met 405 — dan zou de sonde een bestaande route als verdwenen
+         * aanmerken. Geen OPTIONS om dezelfde reden: die handelt de container zelf af.
+         */
+        private val SONDE_METHODES = listOf("TRACE", "PUT")
 
         @JvmStatic
         fun padenUitDeSpec(): List<Arguments> {
@@ -120,4 +130,30 @@ class RouteDekkingTest {
     /** Een willekeurig, geldig gevormd id: het gaat om de routering, niet om een bestaand bericht. */
     private fun metIngevuldeParameters(pad: String) =
         Regex("""\{[^}]+}""").replace(pad) { UUID.randomUUID().toString() }
+
+    /**
+     * De controlegroep bij de sonde hierboven. Die leunt erop dat een verdwenen route 404 geeft
+     * in plaats van 405; klopt dat niet, dan slaagt de sonde voor élk pad — ook voor paden die
+     * niet bestaan — en bewijst hij niets. Dat is precies bij de paden mét parameters, waar de
+     * eerste toets al blind is.
+     */
+    @Test
+    fun `de sonde geeft 404 op een pad dat niet bestaat`() {
+        listOf("$BASIS_PAD/bestaat-niet", "$BASIS_PAD/berichten/${UUID.randomUUID()}/bestaat-niet").forEach { pad ->
+            val status = RestAssured.given().`when`().request(Method.TRACE, pad).then().extract().statusCode()
+
+            assertEquals(404, status, "$pad bestaat niet en hoort 404 te geven, anders bewijst de sonde niets")
+        }
+    }
+
+    /**
+     * De spec-parser geeft bij een gedeeltelijk oplosbare spec een niet-null document terug met
+     * mínder paden. De test blijft dan groen met minder gevallen dan bedoeld; dit getal dwingt af
+     * dat een pad erbij of eraf een bewuste aanpassing is.
+     */
+    @Test
+    fun `de spec levert het verwachte aantal paden en operaties`() {
+        assertEquals(PADEN, padenUitDeSpec().size, "aantal paden uit de spec")
+        assertEquals(OPERATIES, routesUitDeSpec().size, "aantal operaties uit de spec")
+    }
 }
