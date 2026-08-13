@@ -53,7 +53,7 @@ class CircuitBreakerTripTest {
             given()
                 .contentType(ContentType.JSON)
                 .body(payload())
-                .`when`().post("/api/v1/berichten")
+                .`when`().post("/api/v1/aanleveringen")
                 .then()
                 .extract().statusCode()
         }

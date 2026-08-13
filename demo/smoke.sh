@@ -37,7 +37,7 @@ lever_aan() {
     local respons="/tmp/smoke-aanlever-$label.json" status berichtId
 
     status=$(curl -s -o "$respons" -w '%{http_code}' \
-        -X POST "$basis/api/v1/berichten" \
+        -X POST "$basis/api/v1/aanleveringen" \
         -H 'Content-Type: application/json' \
         -d "{
               \"afzender\": \"$oin\",

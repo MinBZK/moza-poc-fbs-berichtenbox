@@ -62,7 +62,7 @@ class UncaughtException500ContractTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(500)
             .contentType("application/problem+json")

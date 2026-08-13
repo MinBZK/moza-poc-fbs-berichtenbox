@@ -61,7 +61,7 @@ class PublicatieStream5xxExhaustionE2ETest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
 
