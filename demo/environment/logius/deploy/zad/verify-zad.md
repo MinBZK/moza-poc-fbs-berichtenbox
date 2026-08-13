@@ -10,9 +10,19 @@
    `8080,9443,9444`; logius-fscoutway/logius-fsctxlog `8443`; logius-fscinway `8443`) zodat de
    interne mTLS-poorten een cluster-Service (`fsc-logius-logius-<comp>:<poort>`) krijgen.
 2. Cert-attachments gemount (zie `cert-manifest.md`) + "Publicatie op het web"
-   (passthrough-TLS, modus 2) op logius-fscmgr **en** logius-fscinway ingesteld in de ZAD-UI (de outway logius-fscoutway is
-   egress-only — geen web-publicatie/inbound ingress; de inway logius-fscinway is mesh-ingress en heeft de
-   web-publicatie juist wél nodig, net als logius-fscmgr).
+   (passthrough-TLS, modus 2) op logius-fscmgr **en** logius-fscinway ingesteld in de ZAD-UI. De
+   outway logius-fscoutway blijft functioneel egress-only richting de mesh, maar heeft sinds
+   2026-08-13 óók een eigen "Publicatie op het web" (`tls: standard`, geen passthrough — dit is
+   niet de mesh-SNI-route, maar de lokale serve-poort `8443` waarop de `berichtenuitvraag`-app
+   'm aanroept). Reden: de per-deployment tenant-baseline-NetworkPolicy in ZAD isoleert de
+   `test`- en `fsc-logius`-deployment van elkaar (elke deployment mag alleen naar zichzelf +
+   platform-namespaces, ongeacht dat ze in hetzelfde project/dezelfde namespace zitten); de
+   ClusterIP-service `fsc-logius-logius-fscoutway:8443` is daardoor vanuit `test` onbereikbaar,
+   terwijl verkeer via de ingress-controller wél is toegestaan. Nog te verifiëren: of `tls:
+   standard` hier volstaat, of dat de serve-poort — net als manager/inway — passthrough (eigen
+   cert) nodig heeft. Herzie deze publicatie zodra ZAD een manier biedt om gericht een
+   NetworkPolicy-uitzondering tussen deployments binnen hetzelfde project te configureren; dan
+   kan de outway weer zuiver intern (zonder publieke ingress) bereikt worden.
 3. Componenten herstart en boot-logs foutloos (zie `cert-manifest.md`, laatste sectie) — in het
    bijzonder GEEN `x509: certificate signed by unknown authority` meer op de controller: die
    bereikt de manager nu intern op `fsc-logius-logius-fscmgr:9443` (interne-PKI) i.p.v. de `:443`-group-ingress.

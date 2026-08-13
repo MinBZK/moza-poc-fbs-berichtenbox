@@ -223,3 +223,21 @@ Zie `docs/plans/2026-08-12-logius-profiel-service-fsc-publicatie.md` voor de vol
 uitvoering en `deploy/zad/verify-zad.md` voor de resterende ZAD-vervolgstappen (CreateService
 tegen de échte upstream, het contract herhalen tegen de ZAD-manager, en het zetten van
 `PROFIEL_SERVICE_URL`/`PROFIEL_SERVICE_GRANT_HASH` op de gedeployde `berichtenuitvraag`-app).
+
+## Addendum 2026-08-13 — outway alsnog gepubliceerd op het web (NetworkPolicy-isolatie)
+
+Met `PROFIEL_SERVICE_URL` op de interne ClusterIP-service (`fsc-logius-logius-fscoutway:8443`)
+gaf de `_ophalen`-call op `berichtenuitvraag` een 503 `profiel-service-onbereikbaar`. Root cause:
+de per-deployment tenant-baseline-NetworkPolicy die ZAD voor elke deployment genereert isoleert
+deployments onderling, óók binnen hetzelfde project/dezelfde namespace — de `test`-deployment
+(de app) en `fsc-logius` (deze peer) zitten allebei in `rig-prd-mpfb-8wh`, maar mogen elkaar
+zonder expliciete uitzondering niet bereiken; alleen verkeer via de ingress-controller is
+toegestaan. Dat weerlegt de aanname onder "Fase 2 — ZAD" hierboven dat co-locatie in hetzelfde project
+in-cluster bereikbaarheid zonder publieke ingress-URL zou geven.
+
+Besluit: de eerdere keuze om de outway géén "Publicatie op het web" te geven (zie
+`deploy/zad/verify-zad.md`, punt 2) is teruggedraaid — de outway krijgt alsnog `tls: standard`
+op zijn serve-poort `8443`, analoog aan `logius-fscctl`. Dit is een work-around voor een
+platform-beperking, geen architecturale voorkeur: zodra ZAD een manier biedt om gericht een
+NetworkPolicy-uitzondering tussen deployments binnen hetzelfde project te configureren, kan de
+outway weer intern (zonder publieke ingress) bereikt worden en dit addendum vervallen.
