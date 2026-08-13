@@ -51,8 +51,12 @@ for a in "$@"; do
     *)       ARGS="${ARGS} ${a}" ;;
   esac
 done
-# shellcheck disable=SC2086  # bewuste woordsplitsing: ARGS is een spatie-gescheiden peer-lijst.
+# `set -f` eromheen: zonder globbing-uit zou een peernaam met `*` tegen de cwd expanderen en zo
+# langs de validatie hieronder glippen.
+set -f
+# shellcheck disable=SC2086  # bewuste word splitting: ARGS is een spatie-gescheiden peer-lijst.
 set -- ${ARGS}
+set +f
 
 BRON="${1:-$GASTHEER}"
 shift || true
@@ -90,7 +94,7 @@ done
 # die beide leeg opleveren zouden dan als "gelijk" gelden.
 fingerprint() {
   local uit
-  uit="$(openssl x509 -in "$1" -noout -fingerprint -sha256 2>/dev/null)" || { echo -; return; }
+  uit="$(openssl x509 -in "$1" -noout -fingerprint -sha256 2>"$ERRLOG")" || { echo -; return; }
   [ -n "$uit" ] || { echo -; return; }
   printf '%s' "$uit" | cut -d= -f2
 }
@@ -100,25 +104,40 @@ fingerprint() {
 # niet-atomaire lus gekopieerd en de her-uitgifte komt daarná, dus een afgebroken run laat een
 # peer achter met de nieuwe root en leaves van de oude. `openssl verify` kost milliseconden.
 leaves_ketenen() {  # $1 = pki-map van de doel-peer
-  local pki="$1" leaf gevonden=0
+  local pki="$1" leaf gevonden=0 verwacht=0 csr
   for leaf in "${pki}"/out/*/*/cert.pem; do
     [ -r "$leaf" ] || continue
-    gevonden=1
+    gevonden=$((gevonden + 1))
     openssl verify -CAfile "${pki}/ca/root.pem" -untrusted "${pki}/ca/intermediate.pem" \
       "$leaf" >/dev/null 2>&1 || return 1
   done
-  [ "$gevonden" -eq 1 ] || return 1
+
+  # Het aantal endpoints staat in pki/peers/<peer>/<endpoint>/csr.json. Alleen tellen wat er ís
+  # zou een afgebroken her-uitgifte (twee van de zes leaves geschreven, allebei correct) als
+  # "al gedaan" laten lezen — precies de halve staat die dit script zegt te detecteren.
+  for csr in "${pki}"/peers/*/*/csr.json; do
+    [ -r "$csr" ] && verwacht=$((verwacht + 1))
+  done
+
+  [ "$verwacht" -gt 0 ] || return 1
+  [ "$gevonden" -eq "$verwacht" ] || return 1
   return 0
 }
 
 BRON_FP="$(fingerprint "${BRON_CA}/root.pem")"
+[ "$BRON_FP" != "-" ] || {
+  echo "FAIL: ${BRON_CA}/root.pem is geen leesbaar certificaat: $(fsc_last_error)" >&2
+  exit 1
+}
 echo "group-CA van '${BRON}': ${BRON_FP}"
 
 GEWIJZIGD=0
+BEKEKEN=0
 for doel in $DOELEN; do
   DOEL_PKI="${ENVDIR}/${doel}/pki"
   [ -d "$DOEL_PKI" ] || { echo "FAIL: geen pki/-map voor peer '${doel}' (${DOEL_PKI})." >&2; exit 1; }
   [ "$doel" != "$BRON" ] || { echo "  ${doel}: is de bron zelf, overslaan."; continue; }
+  BEKEKEN=$((BEKEKEN + 1))
 
   DOEL_FP="$(fingerprint "${DOEL_PKI}/ca/root.pem")"
   if [ "$DOEL_FP" = "$BRON_FP" ] && leaves_ketenen "$DOEL_PKI"; then
@@ -177,7 +196,10 @@ for doel in $DOELEN; do
   GEWIJZIGD=$((GEWIJZIGD + 1))
 done
 
-if [ "$CHECK" -eq 1 ]; then
+if [ "$BEKEKEN" -eq 0 ]; then
+  echo "FAIL: elk opgegeven doel is de bron-peer zelf; niets te doen." >&2
+  exit 2
+elif [ "$CHECK" -eq 1 ]; then
   echo "CHECK: niets gewijzigd."
 elif [ "$GEWIJZIGD" -eq 0 ]; then
   echo "GROUP-CA AL GEDEELD (niets te doen)."

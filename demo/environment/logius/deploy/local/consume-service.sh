@@ -17,7 +17,11 @@
 #   5. verifieer onafhankelijk (re-GET) dat het contract de provider-accept draagt, én dat de
 #      manager het contract als CONTRACT_STATE_VALID beschouwt (de daadwerkelijke gate voor
 #      grant-gebruik door de outway, apart van accept-signature-aanwezigheid).
+# fsc_tb() en de andere helpers uit lib/fsc-harness.sh lezen COMPOSE/CERT/KEY/CA uit de
+# caller-scope. Shellcheck ziet die koppeling niet en vlagt ze als ongebruikt.
+# shellcheck disable=SC2034
 set -euo pipefail
+
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
@@ -39,6 +43,13 @@ OUTWAY_CERT_HOST="${HERE}/../../pki/out/logius/outway/cert.pem"
 # Overrulebaar: in de federatie-opstelling (../../../federatie/) verhuist de interne manager-poort
 # naar het peer-blok. FSC_-prefix zodat een kale `MANAGER=` in de shell dit niet stil omleidt.
 MANAGER="${FSC_MANAGER:-https://manager.logius.fsc-test.local:9443}"
+
+# De adressen worden geconcateneerd tot curl's URL-argument. Een waarde die met `-` begint leest
+# curl als OPTIE — `-K/pad` maakt er een config-file-lees van — dus eisen we het https-schema.
+case "$MANAGER" in
+  https://*) ;;
+  *) echo "FAIL: FSC_MANAGER moet met https:// beginnen: '${MANAGER}'" >&2; exit 2 ;;
+esac
 CERT=/pki/internal/logius/manager/cert.pem
 KEY=/pki/internal/logius/manager/key.pem
 CA=/pki/internal/logius/ca/root.pem
