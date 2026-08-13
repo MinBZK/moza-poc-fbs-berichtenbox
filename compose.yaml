@@ -30,7 +30,7 @@ services:
   # MOZA Profiel Service stub voor berichtenmagazijn — simuleert het ophalen van
   # een partij (BSN/KVK/RSIN) inclusief OntvangViaBerichtenbox-voorkeur en scope
   # naar een afzender-OIN. Default mapping geeft een actieve voorkeur voor het
-  # test-OIN 00000001003214345000; voor 403-rookproef is er een mapping op BSN
+  # test-OIN 00000000000000100000 (magazijn A); voor 403-rookproef is er een mapping op BSN
   # 111222333 die een partij zonder voorkeuren teruggeeft.
   profiel-service:
     image: wiremock/wiremock:3.13.2
