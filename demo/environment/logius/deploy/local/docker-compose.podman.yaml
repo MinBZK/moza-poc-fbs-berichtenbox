@@ -1,0 +1,38 @@
+# Overlay op docker-compose.yaml — nodig zodra je de harness onder ROOTLESS PODMAN draait.
+#
+#   docker compose -f deploy/local/docker-compose.yaml \
+#                  -f deploy/local/docker-compose.podman.yaml up -d
+#
+# Rootless podman mapt host-UID 1000 op container-UID 0. De UID uit `user:` is daardoor een
+# subuid (~100999) die de 0600-privékeys niet mag lezen, en elke container die `/pki` mount faalt
+# bij boot met `permission denied`. `keep-id` mapt de host-UID op zichzelf, zodat de owner-bit
+# weer klopt en de keys dicht kunnen blijven.
+#
+# Waarom een aparte overlay en niet in de basis: `userns_mode` is platformspecifiek. Docker
+# accepteert alleen een lege waarde of `host` en weigert te starten op `keep-id`. De basis blijft
+# daarom Docker-draaibaar; podman-gebruikers stapelen dit bestand erop. Onder Docker heb je deze
+# overlay niet nodig — daar is de UID uit `user:` al de host-UID.
+services:
+  manager-directory:
+    userns_mode: "keep-id"
+
+  manager-logius:
+    userns_mode: "keep-id"
+
+  outway-logius:
+    userns_mode: "keep-id"
+
+  inway-logius:
+    userns_mode: "keep-id"
+
+  toolbox:
+    userns_mode: "keep-id"
+
+  directory-ui:
+    userns_mode: "keep-id"
+
+  controller-logius:
+    userns_mode: "keep-id"
+
+  txlog-logius:
+    userns_mode: "keep-id"

@@ -34,7 +34,7 @@ services:
   # MOZA Profiel Service stub voor berichtenmagazijn — simuleert het ophalen van
   # een partij (BSN/KVK/RSIN) inclusief OntvangViaBerichtenbox-voorkeur en scope
   # naar een afzender-OIN. Default mapping geeft een actieve voorkeur voor het
-  # test-OIN 00000001003214345000; voor 403-rookproef is er een mapping op BSN
+  # test-OIN 00000000000000100000 (magazijn A); voor 403-rookproef is er een mapping op BSN
   # 111222333 die een partij zonder voorkeuren teruggeeft.
   profiel-service:
     image: docker.io/wiremock/wiremock:3.13.2
@@ -201,7 +201,7 @@ services:
   # Netwerk-storingssimulator tussen de uitvraag en zijn afhankelijkheden. Proxies vast uit
   # /proxies.json; de demo-console voegt runtime toxics toe via de admin-API (:8474).
   toxiproxy:
-    image: ghcr.io/shopify/toxiproxy:2.11.0
+    image: ghcr.io/shopify/toxiproxy:2.12.0
     profiles: [demo]
     ports:
       - "8474:8474"
