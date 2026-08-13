@@ -89,25 +89,32 @@ done
 # Rechtstreeks vanaf de host: onder hostnet luisteren alle managers in de netns van de aanroeper.
 # De namen staan niet in /etc/hosts (extra_hosts geldt alleen binnen containers), vandaar --resolve
 # op elk manager-adres.
+#
+# Welk adres dat is, verschilt per opstelling: in een standalone harness luistert alles op
+# 127.0.0.1, in de federatie heeft elke component een eigen adres. Vandaar per kant overrulebaar,
+# met de standalone-waarde als default.
+CONSUMER_ADRES="${FSC_CONSUMER_ADRES:-127.0.0.1}"
+PROVIDER_ADRES="${FSC_PROVIDER_ADRES:-127.0.0.1}"
+
 resolve_args() {
-  local url="$1" hostnaam poort
+  local url="$1" adres="$2" hostnaam poort
   hostnaam="${url#https://}"; hostnaam="${hostnaam%%/*}"
   poort="${hostnaam##*:}"; hostnaam="${hostnaam%%:*}"
-  printf '%s\n' --resolve "${hostnaam}:${poort}:127.0.0.1"
+  printf '%s\n' --resolve "${hostnaam}:${poort}:${adres}"
 }
 
-# api <manager-url> <cert> <key> <ca> <curl-args...>
+# api <manager-url> <cert> <key> <ca> <adres> <curl-args...>
 api() {
-  local url="$1" cert="$2" key="$3" ca="$4"; shift 4
+  local url="$1" cert="$2" key="$3" ca="$4" adres="$5"; shift 5
   local r args=()
-  while IFS= read -r r; do args+=("$r"); done < <(resolve_args "$url")
+  while IFS= read -r r; do args+=("$r"); done < <(resolve_args "$url" "$adres")
 
   curl -sS --fail-with-body --noproxy '*' "${args[@]}" \
     --cert "$cert" --key "$key" --cacert "$ca" "$@" 2>"$ERRLOG"
 }
 
-consumer_api() { api "$CONSUMER_MANAGER" "$CONSUMER_CERT" "$CONSUMER_KEY" "$CONSUMER_CA" "$@"; }
-provider_api() { api "$PROVIDER_MANAGER" "$PROVIDER_CERT" "$PROVIDER_KEY" "$PROVIDER_CA" "$@"; }
+consumer_api() { api "$CONSUMER_MANAGER" "$CONSUMER_CERT" "$CONSUMER_KEY" "$CONSUMER_CA" "$CONSUMER_ADRES" "$@"; }
+provider_api() { api "$PROVIDER_MANAGER" "$PROVIDER_CERT" "$PROVIDER_KEY" "$PROVIDER_CA" "$PROVIDER_ADRES" "$@"; }
 
 # --- 1. Outway-thumbprint -----------------------------------------------------------------------
 command -v openssl >/dev/null 2>&1 || { echo "FAIL: openssl niet gevonden." >&2; exit 1; }
