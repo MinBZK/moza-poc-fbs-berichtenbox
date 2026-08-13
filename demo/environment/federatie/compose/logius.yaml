@@ -13,8 +13,9 @@
 # alle peers delen: postgres, de SNI-router en de directory. Als PEER krijgt hij, net als elke
 # andere, een eigen blok van 100 poorten — hier 61000. Die scheiding staat in README.md.
 #
-# Waarom élke service `extra_hosts` krijgt en niet alleen de managers: de directory haalt bij
-# het tekenen van een servicePublication-contract de JWKS op bij de publicerende peer
+# Waarom élke service die TLS naar een peer-naam opzet `extra_hosts` krijgt, en niet alleen de
+# managers: de directory haalt bij het tekenen van een servicePublication-contract de JWKS op bij
+# de publicerende peer
 # (`https://<peer>/.well-known/jwks.json`). Kan hij die naam niet resolven, dan blijft dat
 # contract op CONTRACT_STATE_PROPOSED staan, is de dienst niet vindbaar, en wordt er niet
 # automatisch opnieuw geprobeerd. Eén lijst voor iedereen sluit die klasse fouten uit.

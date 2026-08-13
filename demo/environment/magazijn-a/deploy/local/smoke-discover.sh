@@ -24,9 +24,9 @@ INTERVAL=2
 CERT=/pki/internal/magazijn-a/manager/cert.pem
 KEY=/pki/internal/magazijn-a/manager/key.pem
 CA=/pki/internal/magazijn-a/ca/root.pem
-# Overrulebaar: in de federatie-opstelling (../../../federatie/) verhuist de interne
-# manager-poort naar het peer-blok. Default = de standalone-waarde.
-MANAGER="${MANAGER:-https://manager.magazijn-a.fsc-test.local:9443}"
+# Overrulebaar: in de federatie-opstelling (../../../federatie/) verhuist de interne manager-poort
+# naar het peer-blok. FSC_-prefix zodat een kale `MANAGER=` in de shell dit niet stil omleidt.
+MANAGER="${FSC_MANAGER:-https://manager.magazijn-a.fsc-test.local:9443}"
 
 # Vang toolbox-/curl-stderr op zodat een mTLS-/dode-container-fout niet als "nog niet vindbaar"
 # maskeert (spiegelt smoke-announce.sh).

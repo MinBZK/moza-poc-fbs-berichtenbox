@@ -14,16 +14,27 @@ SERVICE_NAME="profiel-service"
 PROVIDER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
 GROUP_ID="moza-fbs-test"
-# STUB_URL/CONTROLLER/MANAGER zijn overrulebaar omdat de poortindeling niet vaststaat: draait
-# deze peer naast een andere in één netns (zie ../../../federatie/), dan verhuist elke listener
-# naar het peer-blok. De defaults zijn de standalone-waarden, dus zonder env verandert er niets.
-STUB_URL="${STUB_URL:-http://stub-upstream:8080}"
+# De federatie-opstelling (../../../federatie/) verhuist elke listener naar het peer-blok; vandaar
+# overrulebaar, met de standalone-waarde als default. Geprefixt met FSC_ omdat een kale `MANAGER=`
+# in iemands shell anders stilzwijgend een mTLS-call mét het internal-cert van deze peer naar een
+# vreemd endpoint zou sturen.
+STUB_URL="${FSC_STUB_URL:-http://stub-upstream:8080}"
 
 CERT=/pki/internal/logius/manager/cert.pem
 KEY=/pki/internal/logius/manager/key.pem
 CA=/pki/internal/logius/ca/root.pem
-CONTROLLER="${CONTROLLER:-https://controller.logius.fsc-test.local:9444}"
-MANAGER="${MANAGER:-https://manager.logius.fsc-test.local:9443}"
+CONTROLLER="${FSC_CONTROLLER:-https://controller.logius.fsc-test.local:9444}"
+MANAGER="${FSC_MANAGER:-https://manager.logius.fsc-test.local:9443}"
+
+# STUB_URL gaat ongeëscaped een handgebouwde JSON-body in (CreateService, hieronder). Een
+# aanhalingsteken zou daar uit de string breken en velden kunnen toevoegen.
+case "$STUB_URL" in
+  http://*|https://*) ;;
+  *) echo "FAIL: FSC_STUB_URL moet met http:// of https:// beginnen: '${STUB_URL}'" >&2; exit 2 ;;
+esac
+case "$STUB_URL" in
+  *'"'*|*'\'*) echo "FAIL: FSC_STUB_URL bevat een aanhalingsteken of backslash." >&2; exit 2 ;;
+esac
 
 # Vang curl-/toolbox-stderr op i.p.v. weg te gooien: een mTLS-/netwerk-/dode-container-fout
 # mag niet als "nog niet klaar" maskeren (spiegelt smoke-announce.sh). Surface 'm in de loop.
