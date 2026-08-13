@@ -84,6 +84,26 @@ demo/podman-up.sh                        # kiest zelf de werkbare netwerkmodus
 DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-allowlist
 ```
 
+De stack luistert standaard **alleen op `127.0.0.1`**: zonder die grens staan Redis (zonder
+wachtwoord), drie PostgreSQL-instanties met demo-credentials en de WireMock-admin-API's op elke
+interface van de machine — op een kantoor- of thuisnetwerk dus voor het hele subnet.
+
+Wil je de demo aan iemand anders tonen, dan zet je hem bewust open, en heb je **beide** variabelen
+nodig: `DEMO_BIND` voor de poorten en `DEMO_HOST` voor de CORS-allowlist.
+
+```bash
+DEMO_BIND=0.0.0.0 DEMO_HOST=10.0.0.5 demo/podman-up.sh
+```
+
+Twee beperkingen daarbij:
+
+- **`DEMO_BIND` geldt alleen in bridge-modus.** In `hostnet` publiceert compose geen poorten en
+  binden de containers zelf; die staan vast op loopback, want in een gedeelde netns is een
+  wildcard-bind de hele machine — en botst hij bovendien met elke specifieke bind van een
+  FSC-federatie in dezelfde netns.
+- **Het bedieningspaneel blijft altijd op loopback** (`demo-console`, poort 8095): het heeft geen
+  authenticatie en zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
+
 Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
 controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
 zijn, genereert de stub-artefacten, en controleert na elke start dat elke container draait. Redis,
