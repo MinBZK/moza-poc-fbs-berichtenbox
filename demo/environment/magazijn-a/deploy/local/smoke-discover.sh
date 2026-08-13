@@ -47,6 +47,17 @@ esac
 fsc_errlog_init
 fsc_have_jq
 
+# Zonder jq valt de controle terug op alleen de servicenaam. Bij een expliciete
+# cross-peer-vraag is dat geen bruikbare uitkomst: de assert zou dan een gelijknamige
+# eigen dienst accepteren en groen melden over een federatie-eigenschap die niet getoetst is.
+if [ "$HAVE_JQ" -eq 0 ]; then
+  if [ -n "${FSC_PROVIDER_OIN:-}" ] && [ "${FSC_PROVIDER_OIN}" != "00000000000000100000" ]; then
+    echo "FAIL: jq is vereist zodra FSC_PROVIDER_OIN een andere peer aanwijst." >&2
+    exit 1
+  fi
+  echo "  WAARSCHUWING: geen jq — alleen de servicenaam wordt getoetst, niet de eigenaar." >&2
+fi
+
 echo "smoke-discover: pollen tot ${SERVICE_NAME} vindbaar is bij de directory (mesh-API)..."
 elapsed=0
 while [ "$elapsed" -lt "$TIMEOUT" ]; do
@@ -58,12 +69,20 @@ while [ "$elapsed" -lt "$TIMEOUT" ]; do
           "$MANAGER/v1/peers/$DIR_OIN/services?peer_id=$PROVIDER_OIN" 2>"$ERRLOG") || out=""
   fsc_warn_errlog "poll-fout"
 
-  # Naam én eigenaar toetsen: `peer_id` is een server-side filter dat een manager die 'm niet kent
-  # mag negeren, dus alleen op de naam matchen zou de dienst van een andere peer accepteren.
+  # Naam én eigenaar toetsen: de `peer_id`-queryparameter is een server-side filter dat een manager
+  # die 'm niet kent mag negeren, dus alleen op de naam matchen zou de dienst van een andere peer
+  # accepteren. Responsvorm van OpenFSC v2.5.2 (snake_case, niet camelCase):
+  #   {"services":[{"name":"berichtenmagazijn","peer_id":"000...00000",
+  #                 "peer_name":"magazijn-a","type":"SERVICE_TYPE_SERVICE"}]}
   if [ "$HAVE_JQ" -eq 1 ]; then
     gevonden=$(printf '%s' "$out" | jq -r --arg svc "$SERVICE_NAME" --arg oin "$PROVIDER_OIN" '
       [.. | objects | select((.name? // "") == $svc)
-          | select(((.peer_id? // .peer?.id? // "") == $oin) or ($oin == ""))] | length' 2>/dev/null || echo 0)
+          | select(((.peer_id? // .peer?.id? // "") == $oin) or ($oin == ""))] | length' 2>"$ERRLOG") || {
+      # Een onparseerbaar antwoord is iets anders dan "nog niet gepubliceerd"; zonder deze melding
+      # loopt de poll gewoon zijn timeout uit en wijst de FAIL naar de verkeerde oorzaak.
+      fsc_warn_errlog "catalogus-antwoord niet te parsen"
+      gevonden=0
+    }
   else
     # Zonder jq valt dit terug op de naam-match; dan blijft de eigenaar ongetoetst.
     gevonden=0

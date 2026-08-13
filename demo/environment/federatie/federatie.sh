@@ -99,12 +99,11 @@ dode_containers() {
   uit="$(podman ps -a --filter "label=com.docker.compose.project=${project}" \
            --format '{{.Names}}\t{{.Status}}' 2>"$ERRLOG")" || return 1
 
-  # Nul rijen betekent dat het projectfilter niets selecteert — een verkeerde projectnaam, geen
-  # gezonde stack. Zonder deze vloer zou `up_met_retry` succes melden over een stack die nooit
-  # startte.
+  # Return 2 bij nul rijen: het projectfilter selecteert dan niets — een verkeerde projectnaam, geen
+  # gezonde stack. Een aparte code omdat dat een andere fout is dan "container gestopt", en de
+  # aanroeper er een andere melding bij hoort te geven.
   if [ -z "$uit" ]; then
-    printf '%s' "geen enkele container met label com.docker.compose.project=${project}"
-    return 0
+    return 2
   fi
 
   printf '%s\n' "$uit" | grep -E 'Exited \([^0]|Created' || true
@@ -119,7 +118,7 @@ dode_containers() {
 #   - de podman-API-service bezwijkt onder de gelijktijdige creates. Die moet je zelf herstarten;
 #     dit script meldt dat en stopt, want retryen tegen een dode API is zinloos.
 up_met_retry() {
-  local peer="$1" project poging=1 log rc dood
+  local peer="$1" project poging=1 log rc dood rc_status
   project="$(compose_project "$peer")"
   log=$(mktemp)
 
@@ -133,8 +132,15 @@ up_met_retry() {
       # een paar seconden op `Exited (1)`.
       sleep "$SETTLE_SECONDEN"
 
-      if ! dood="$(dode_containers "$project")"; then
+      rc_status=0; dood="$(dode_containers "$project")" || rc_status=$?
+
+      if [ "$rc_status" -eq 1 ]; then
         echo "FAIL: containerstatus van '${peer}' niet opvraagbaar: $(fsc_last_error)" >&2
+        rm -f "$log"; return 1
+      fi
+
+      if [ "$rc_status" -eq 2 ]; then
+        echo "FAIL: geen enkele container met label com.docker.compose.project=${project} — klopt de projectnaam?" >&2
         rm -f "$log"; return 1
       fi
 
@@ -335,7 +341,10 @@ case "${1:-}" in
     # Alleen de containers van deze federatie: een ongefilterde `ps -a` toont elke container op de
     # machine en maakt de uitvoer onbruikbaar op een ontwikkelmachine met ander werk erop.
     for peer in $(fsc_alle_peers); do
-      podman ps -a --filter "label=com.docker.compose.project=$(compose_project "$peer")" \
+      # Projectnaam eerst apart ophalen: mislukt dat binnen het `--filter`-argument, dan blijft er
+      # een leeg label over dat elke container selecteert.
+      PROJ="$(compose_project "$peer")" || { echo "  (projectnaam van ${peer} onbekend)" >&2; continue; }
+      podman ps -a --filter "label=com.docker.compose.project=${PROJ}" \
         --format '{{.Names}}\t{{.Status}}' 2>"$ERRLOG" | sort || true
       fsc_warn_errlog "podman ps faalde voor ${peer}"
     done
