@@ -28,10 +28,10 @@ on:
     types: [opened, synchronize, reopened]
     # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
     # zonder dat de guard zelf ooit gedraaid heeft.
-    paths: ['demo/environment/**', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/podman-prepare.sh', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
   push:
     branches: [main]
-    paths: ['demo/environment/**', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/podman-prepare.sh', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
 
 # LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
 # `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
@@ -250,6 +250,30 @@ jobs:
           fi
 
           exit "$fail"
+
+  # De demo-stack uit compose.yaml draait in dezelfde netns-modus als de harnessen, en dus onder
+  # dezelfde eis: geen enkele listener buiten loopback. Zonder deze job stond die stack op élke
+  # interface van de machine — Redis zonder wachtwoord en twee PostgreSQL-instanties met
+  # demo-credentials — en botste een wildcard-bind bovendien met elke specifieke bind van een
+  # federatie in dezelfde netns.
+  demo-stack-op-loopback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Elke demo-service op de gedeelde netns, elke listener op loopback
+        run: |
+          set -euo pipefail
+
+          # `--profile demo` erbij: zonder dat profiel rendert compose de vier Quarkus-services en
+          # toxiproxy niet, en meet deze job precies de helft van de stack.
+          DEMO_HOST=localhost DEMO_MAGAZIJN_STUBS=2 docker compose --profile demo \
+            -f compose.yaml \
+            -f compose.podman.yaml \
+            -f compose.podman-hostnet.yaml config --format json \
+            | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "demo-stack (hostnet-merge)"
 
   harness-scripts:
     runs-on: ubuntu-latest
