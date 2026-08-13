@@ -68,8 +68,9 @@ services:
     environment:
       PGPORT: "5433"
 
-  # Idem voor het LDV-logboek: 5434 is ook het adres dat de dev-profielen als default gebruiken,
-  # dus in een gedeelde netns vinden de services hun logboek zonder extra env.
+  # Idem voor het LDV-logboek: 5434 is ook het adres dat de dev-profielen als default gebruiken.
+  # De magazijnen loggen in hun eigen datasource en volgen dus DB_JDBC_URL; alleen de uitvraag
+  # krijgt hierboven een expliciete URL, omdat compose.yaml daar de container-DNS-naam zet.
   postgres-uitvraag:
     network_mode: host
     ports: !reset []
@@ -99,7 +100,6 @@ services:
       AANMELD_URL: http://127.0.0.1:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://127.0.0.1:18084/events
       PROFIEL_SERVICE_URL: http://127.0.0.1:8089
-      LDV_CLICKHOUSE_ENDPOINT: http://127.0.0.1:8123
 
   berichtenmagazijn-b:
     network_mode: host
@@ -114,7 +114,6 @@ services:
       AANMELD_URL: http://127.0.0.1:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://127.0.0.1:18084/events
       PROFIEL_SERVICE_URL: http://127.0.0.1:8089
-      LDV_CLICKHOUSE_ENDPOINT: http://127.0.0.1:8123
 
   berichtenuitvraag:
     network_mode: host
@@ -127,7 +126,7 @@ services:
       MAGAZIJN_A_URL: http://127.0.0.1:18090
       MAGAZIJN_B_URL: http://127.0.0.1:18091
       PROFIEL_SERVICE_URL: http://127.0.0.1:18089
-      LDV_CLICKHOUSE_ENDPOINT: http://127.0.0.1:8123
+      LDV_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5434/ldv_logging
 
   demo-console:
     network_mode: host
