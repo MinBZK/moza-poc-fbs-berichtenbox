@@ -29,7 +29,9 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/fbs-fuzz-base
+  # Kleine letters: ghcr weigert een repository-naam met hoofdletters, en de organisatienaam
+  # heeft ze (MinBZK).
+  IMAGE: ghcr.io/minbzk/fbs-fuzz-base
 
 jobs:
   build:
