@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 import io.quarkus.test.junit.QuarkusTest
-import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
@@ -23,7 +22,7 @@ import java.util.UUID
  * gedrag van [PublicatieClaimer] (Postgres-implementatie).
  */
 @QuarkusTest
-@TestProfile(PostgresPublicatieClaimerIntegrationTest.SoloDownstreamProfile::class)
+@TestProfile(SoloDownstreamProfile::class)
 class PostgresPublicatieClaimerIntegrationTest {
 
     @Inject
@@ -171,13 +170,6 @@ class PostgresPublicatieClaimerIntegrationTest {
                 volledig.contains("unique", ignoreCase = true) ||
                 volledig.contains("23505"),
             "verwachte UNIQUE-violation in causal chain, kreeg: $volledig",
-        )
-    }
-
-    class SoloDownstreamProfile : QuarkusTestProfile {
-        override fun getConfigOverrides(): Map<String, String> = mapOf(
-            "magazijn.publicatie.downstreams.aanmeld.url" to "http://localhost:1/events",
-            "quarkus.scheduler.enabled" to "false",
         )
     }
 }
