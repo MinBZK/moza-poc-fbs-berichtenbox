@@ -3,7 +3,11 @@
 # DRIE losse ZAD-projecten (deployments zijn geïsoleerd; cross-project bereik je via de
 # https-ingress-URLs `<component>-<deployment>-<projectid>.rig.prd1.gn2.quattro.rijksapps.nl`):
 #
-#   uitvraag       (mpfb-8wh)     componenten: redis + uitvraag
+#   uitvraag       (mpfb-8wh)     componenten: redis + uitvraag in de deployments
+#                                 `test`/`pr-<n>`, plus logius-fsc{pg,mgr,ctl,outway,inway,
+#                                 txlog} (FSC-peer van de uitvraag-organisatie) in de EIGEN,
+#                                 preview-loze deployment `fsc-logius` — zie
+#                                 demo/environment/logius/
 #   externe-stubs  (mpfpsm-lcl)   componenten: profiel + notificatie (WireMock-stubs)
 #   magazijnen     (mpfm-w3h)     componenten: magazijna + magazijnb in de deployments
 #                                 `test`/`pr-<n>`, plus magazijna-fsc{pg,mgr,ctl,inway,
@@ -705,6 +709,28 @@ jobs:
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
+            ]
+
+      # De FSC-peer draait in een EIGEN deployment `fsc-logius` binnen hetzelfde project, niet in
+      # `test`. Previews klonen met `clone-from: test`; een gekloonde peer zou zich met dezelfde
+      # federatie-OIN opnieuw aanmelden bij de gedeelde directory (en zonder de UI-only
+      # cert-attachments direct crashloopen). Wat niet in `test` staat, kan niet meegekloond worden.
+      # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
+      # demo/environment/logius/deploy/zad/upsert-peer.sh.
+      - name: Deploy uitvraag-project (fsc-logius — FSC-peer)
+        uses: RijksICTGilde/zad-actions/deploy@13434cd415db0cd195a2c5f12bf67645acfcb635 # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          project-id: ${{ env.PROJECT_UITVRAAG }}
+          deployment-name: fsc-logius
+          components: |
+            [
+              {"name": "logius-fscpg", "image": "docker.io/library/postgres:17"},
+              {"name": "logius-fscmgr", "image": "ghcr.io/minbzk/moza-fsc-testnet-manager-migrate:v2.5.2"},
+              {"name": "logius-fscctl", "image": "ghcr.io/minbzk/moza-fsc-testnet-controller-migrate:v2.5.2"},
+              {"name": "logius-fscoutway", "image": "docker.io/federatedserviceconnectivity/outway:v2.5.2"},
+              {"name": "logius-fscinway", "image": "docker.io/federatedserviceconnectivity/inway:v2.5.2"},
+              {"name": "logius-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"}
             ]
 
   deploy-test-externe-stubs:

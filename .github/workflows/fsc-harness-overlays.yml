@@ -1,0 +1,195 @@
+# Bewaakt dat de podman-overlays van de lokale FSC-harnessen blijven passen op hun basis.
+#
+# De hostnet-overlay spiegelt elke service uit docker-compose.yaml: `network_mode: host`,
+# `extra_hosts` en een botsvrije poort op 127.0.0.1. Drie dingen kunnen daar stil misgaan:
+#
+#  1. Iemand voegt een service aan de basis toe en vergeet de overlay. Die service vraagt dan het
+#     default-netwerk terug, en omdat de overlay dat netwerk met `!reset` weghaalt, valt de hele
+#     stack om — pas bij `up`, op de machine van de volgende gebruiker.
+#  2. Iemand voegt een listener toe die niet op loopback bindt. In een gedeelde netns staat die
+#     daarmee op élke interface van de machine, inclusief de componenten die zonder authenticatie
+#     draaien (controller met AUTHN_TYPE=none, postgres met harness-credentials).
+#  3. Iemand voegt een service toe die `/pki` leest onder een vaste UID, zonder keep-id. Die faalt
+#     onder rootless podman met `permission denied` op de privékey.
+#
+# Deze guard rendert alleen de merge (geen containers) en controleert die drie.
+# `config -q` alleen zou een halve overlay zonder morren accepteren.
+
+name: FSC-harness overlays
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
+    # zonder dat de guard zelf ooit gedraaid heeft.
+    paths: ['demo/environment/**', '.github/workflows/fsc-harness-overlays.yml']
+  push:
+    branches: [main]
+    paths: ['demo/environment/**', '.github/workflows/fsc-harness-overlays.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hostnet-overlay-past-op-de-basis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Elke service op de gedeelde netns, elke listener op loopback
+        run: |
+          set -euo pipefail
+
+          # Elke bind-vorm die niet op loopback staat: `0.0.0.0:P`, `[::]:P`, `*:P` en de kale
+          # `:P`. Een dial-adres (`https://controller…:39443`, `postgres://…@host:5432/db`) matcht
+          # niet, want daar staat vóór de dubbele punt een teken dat geen `=`, spatie of
+          # regelbegin is. Bewust op de wáárde en niet op de naam van de variabele of de vlag:
+          # `LISTEN_ADDRESS`, `--bind-address=` en een positioneel adres zijn even gevaarlijk, en
+          # de volgende die er een toevoegt verzint gegarandeerd een andere naam.
+          LEK=':[0-9]{2,5}$'
+          LEK="(^|[= ])(0\\.0\\.0\\.0|\\[::\\]|\\*)?${LEK}"
+
+          fail=0
+          peers=0
+          overlays=0
+
+          for peer in demo/environment/*/deploy/local; do
+            [ -f "$peer/docker-compose.yaml" ] || continue
+            peers=$((peers + 1))
+
+            if [ ! -f "$peer/docker-compose.podman-hostnet.yaml" ]; then
+              echo "FOUT: $peer heeft geen docker-compose.podman-hostnet.yaml — verwijderd of hernoemd?"
+              fail=1
+              continue
+            fi
+
+            overlays=$((overlays + 1))
+            peer_fail=0
+
+            # PKI_DIR/HOST_UID komen normaal uit .env (gitignored). De waarden doen er niet toe:
+            # `config` rendert alleen, het mount niets en controleert geen paden.
+            merged=$(cd "$peer" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
+              docker compose -f docker-compose.yaml \
+                             -f docker-compose.podman.yaml \
+                             -f docker-compose.podman-hostnet.yaml config --format json)
+
+            totaal=$(jq -r '.services | length' <<<"$merged")
+
+            if [ -z "$totaal" ] || [ "$totaal" -eq 0 ]; then
+              echo "FOUT: $peer levert geen services op — de merge is leeg of het JSON-schema is gewijzigd."
+              fail=1
+              continue
+            fi
+
+            # Elke jq-uitkomst via een command substitution, niet via `mapfile < <(jq …)`: de
+            # exit-status van een process substitution ontsnapt aan `set -e`, waardoor een
+            # gefaald filter als "niks gevonden" zou lezen en de guard groen zou worden.
+            geen_host=$(jq -r '.services | to_entries[]
+              | select(.value.network_mode != "host") | .key' <<<"$merged")
+
+            geen_keepid=$(jq -r '.services | to_entries[]
+              | select((.value.volumes // []) | any(.target == "/pki"))
+              | select(.value.user != null)
+              | select(.value.userns_mode != "keep-id") | .key' <<<"$merged")
+
+            # Namen die per definitie een listener zijn: die moeten expliciet op 127.0.0.1 staan,
+            # ook als het adres een andere vorm heeft dan LEK vangt (bv. een LAN-adres).
+            env_lek=$(jq -r '.services | to_entries[] | . as $s
+              | ($s.value.environment // {}) | to_entries[]
+              | select(.key | test("^(LISTEN_ADDRESS|MONITORING_ADDRESS)"))
+              | select(.value == null or ((.value | tostring | startswith("127.0.0.1")) | not))
+              | "\($s.key): \(.key)=\(.value // "<leeg: erft uit de shell van de aanroeper>")"' <<<"$merged")
+
+            # Naam-onafhankelijk: elke env-waarde en elk `command`/`entrypoint`-token dat eruitziet
+            # als een niet-loopback bind.
+            bind_lek=$(jq -r --arg re "$LEK" '.services | to_entries[] | . as $s
+              | ( ($s.value.environment // {}) | to_entries[]
+                    | select(.value != null) | "\(.key)=\(.value)" ),
+                ( (($s.value.command // []) + ($s.value.entrypoint // []))[]?
+                    | select(type == "string") )
+              | select(test($re))
+              | "\($s.key): \(.)"' <<<"$merged")
+
+            # De overlay hoort elke `ports:` uit de basis te resetten; een gepubliceerde poort in
+            # een gedeelde netns is betekenisloos en verraadt een vergeten `!reset`.
+            poorten=$(jq -r '.services | to_entries[]
+              | select(((.value.ports // []) | length) > 0) | .key' <<<"$merged")
+
+            # Een onbegrensde herstartlus verbrandt onder podman (geen backoff) een core zolang de
+            # sessie duurt.
+            ongelimiteerd=$(jq -r '.services | to_entries[]
+              | select(.value.restart == "on-failure") | .key' <<<"$merged")
+
+            # Postgres drukt zijn bind niet uit als `adres:poort`, dus LEK ziet hem niet. Zonder
+            # override zet het image zelf `listen_addresses='*'`: de DB met harness-credentials op
+            # elke interface van de machine.
+            pg_lek=$(jq -r '.services | to_entries[] | . as $s
+              | ($s.value.command // [])[]?
+              | select(type == "string") | select(test("listen_addresses="))
+              | select(test("listen_addresses=127\\.0\\.0\\.1") | not)
+              | "\($s.key): \(.)"' <<<"$merged")
+
+            pg_mist=$(jq -r '.services | to_entries[]
+              | select(.key == "postgres")
+              | select(((.value.command // []) | map(select(test("listen_addresses="))) | length) == 0)
+              | .key' <<<"$merged")
+
+            # haproxy opent zijn poort uit een gemounte configfile en ontsnapt dus aan elke
+            # controle op de compose-merge. Lees het pad uit de merge in plaats van de bestandsnaam
+            # aan te nemen: verdwijnt de `volumes`-override, dan mount de router weer de
+            # bridge-config met `bind *:443` terwijl deze check groen blijft op een ongebruikt
+            # bestand.
+            cfg=$(jq -r '.services.router.volumes[]?
+              | select(.target == "/usr/local/etc/haproxy/haproxy.cfg") | .source' <<<"$merged")
+
+            if [ -z "$cfg" ] || [ ! -f "$cfg" ]; then
+              echo "FOUT: $peer — router mount geen leesbare haproxy-config (${cfg:-<geen>})."
+              peer_fail=1
+              cfg=/dev/null
+            fi
+
+            haproxy_lek=$(grep -nE '^[[:space:]]*bind[[:space:]]' "$cfg" \
+              | grep -vE 'bind[[:space:]]+127\.0\.0\.1:' || true)
+
+            meld() {
+              [ -n "$2" ] || return 0
+              echo "FOUT: $peer — $1"
+              printf '%s\n' "$2" | sed 's/^/  /'
+              peer_fail=1
+            }
+
+            meld "zonder network_mode host in de hostnet-merge (voeg toe aan de overlay: network_mode, extra_hosts, botsvrije poort):" "$geen_host"
+            meld "leest /pki onder een vaste UID zonder keep-id (voeg toe aan docker-compose.podman.yaml):" "$geen_keepid"
+            meld "listener-env die niet op 127.0.0.1 staat:" "$env_lek"
+            meld "bind-adres dat niet op loopback staat:" "$bind_lek"
+            meld "nog een gepubliceerde poort in de merge (mist een 'ports: !reset []'):" "$poorten"
+            meld "onbegrensde 'restart: on-failure' (zet een maximum in de overlay):" "$ongelimiteerd"
+            meld "postgres luistert niet uitsluitend op 127.0.0.1:" "$pg_lek"
+            meld "postgres zonder expliciete listen_addresses (het image kiest dan '*'):" "$pg_mist"
+            meld "bind-regel in de gemounte haproxy-config die niet op 127.0.0.1 staat:" "$haproxy_lek"
+
+            if [ "$peer_fail" -eq 0 ]; then
+              echo "$peer: $totaal/$totaal services op de gedeelde netns, alle listeners op loopback."
+            else
+              fail=1
+            fi
+          done
+
+          if [ "$peers" -eq 0 ] || [ "$overlays" -ne "$peers" ]; then
+            echo "FOUT: $overlays van $peers harnessen hebben een hostnet-overlay — guard meet niet wat hij hoort te meten."
+            fail=1
+          fi
+
+          # Servicenamen en paden komen uit de PR en gaan daarom niet in een ::error-annotatie:
+          # een `%0A` daarin zou een tweede workflow-commando starten. De details staan hierboven.
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::De hostnet-overlays passen niet meer op hun basis. Zie de log hierboven."
+          fi
+
+          exit "$fail"
