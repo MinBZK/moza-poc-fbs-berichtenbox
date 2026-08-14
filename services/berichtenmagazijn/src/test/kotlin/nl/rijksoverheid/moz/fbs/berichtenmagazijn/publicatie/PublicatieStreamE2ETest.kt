@@ -19,7 +19,8 @@ import java.util.concurrent.TimeUnit
 /**
  * End-to-end-tests voor [PublicatieStream], over de volle keten:
  *  1. POST /api/v1/berichten met `publicatietijdstip=now()`
- *  2. Quarkus Scheduler polt elke 200ms (override via [DownstreamStubLifecycle])
+ *  2. Quarkus Scheduler polt elke ronde: 200ms geconfigureerd via [DownstreamStubLifecycle],
+ *     door Quarkus geclampt naar 1s
  *  3. PublicatieStream claimt deliveries, bouwt CloudEvents en levert af aan de twee
  *     embedded HTTP-servers uit [DownstreamStubLifecycle]
  *  4. De test asserteert wat er bij de stubs en in de delivery-rijen terechtkomt
@@ -51,7 +52,12 @@ class PublicatieStreamE2ETest {
     private val notificatie: DownstreamHttpServer
         get() = DownstreamStubLifecycle.server("notificatie")
 
-    /** Reset zet ook het antwoordgedrag terug op 202; elke test stelt zijn eigen pad in. */
+    /**
+     * Verwijderen vóór resetten, en beide in dezelfde transactie: de claim-transactie houdt de
+     * delivery-rij gelockt zolang de HTTP-call loopt, dus blokkeert `deleteAll` tot een lopende
+     * levering klaar is. Zo landt geen enkele call van de vorige test ná de reset — die zou de
+     * call-nummering verschuiven en bij de retry-test twee verschillende berichten vergelijken.
+     */
     @BeforeEach
     @Transactional
     fun clean() {
@@ -65,7 +71,6 @@ class PublicatieStreamE2ETest {
     fun `aangeleverd bericht wordt naar beide downstreams gepubliceerd binnen polling-window`() {
         lever(onderwerp = "E2E publicatie", inhoud = "Test inhoud voor publicatie stream")
 
-        // Polling-interval is 200ms; downstreams moeten binnen enkele rondes ontvangen.
         Awaitility.await()
             .atMost(10, TimeUnit.SECONDS)
             .pollInterval(Durations.ONE_HUNDRED_MILLISECONDS)
@@ -74,7 +79,6 @@ class PublicatieStreamE2ETest {
                 assertTrue(notificatie.aantalAanroepen >= 1, "Notificatie-stub geen events ontvangen")
             }
 
-        // Borg dat de body een CloudEvent met het juiste type bevat.
         assertTrue(
             aanmeld.bodies.first().contains("nl.rijksoverheid.fbs.bericht.gepubliceerd"),
             "Aanmeld body bevat event-type niet: ${aanmeld.bodies.firstOrNull()}",
@@ -99,8 +103,7 @@ class PublicatieStreamE2ETest {
 
         lever(onderwerp = "4xx-pad", inhoud = "Inhoud")
 
-        // Wacht tot de aanmeld-stub minstens 1× geraakt is en de delivery
-        // terminal MISLUKT is. Polling-interval 200ms (Quarkus clampt naar 1s).
+        // Wacht tot de aanmeld-stub geraakt is en de delivery terminal MISLUKT is.
         Awaitility.await()
             .atMost(15, TimeUnit.SECONDS)
             .pollInterval(Durations.ONE_HUNDRED_MILLISECONDS)
@@ -118,11 +121,8 @@ class PublicatieStreamE2ETest {
                 assertEquals(1, aanmeldRij.pogingen, "geen retry: pogingen moet 1 zijn na enkele 400")
             }
 
-        // Defense-in-depth tegen scheduler-clamp-races: `during(2s).atMost(3s)`
-        // verifieert dat de assertie 2 seconden lang ONONDERBROKEN blijft slagen.
-        // Een failure halverwege fail't de test direct (Awaitility short-circuit
-        // op de eerste mismatch — sneller dan blocking sleep). Bewijst dus
-        // "geen retry op 4xx" gedurende ~2 polling-intervals.
+        // `during(2s)` eist dat de assertie twee polling-rondes lang blijft slagen, niet
+        // alleen op één meetmoment: een late retry zou anders na de meting kunnen komen.
         val callsNaTerminal = aanmeld.aantalAanroepen
 
         Awaitility.await()
@@ -156,11 +156,15 @@ class PublicatieStreamE2ETest {
      */
     @Test
     fun `aanhoudende 500 leidt tot MISLUKT na maxPogingen retries`() {
+        assertTrue(
+            DownstreamStubLifecycle.MAX_POGINGEN > 1,
+            "het budget moet ruimte laten voor minstens één retry, anders meet deze test hetzelfde als het 4xx-pad",
+        )
+
         aanmeld.statusVoorAanroep = { _ -> 500 }
 
         lever(onderwerp = "5xx-pad", inhoud = "Inhoud")
 
-        // 500 is herstelbaar → retry tot het budget bereikt is → terminal MISLUKT.
         Awaitility.await()
             .atMost(15, TimeUnit.SECONDS)
             .pollInterval(Durations.ONE_HUNDRED_MILLISECONDS)
@@ -174,9 +178,14 @@ class PublicatieStreamE2ETest {
                     aanmeldRij.pogingen,
                     "moet exact maxPogingen pogingen hebben gedaan",
                 )
+                assertEquals(
+                    DownstreamStubLifecycle.MAX_POGINGEN,
+                    aanmeld.aantalAanroepen,
+                    "elke poging hoort een echte HTTP-call te zijn; een afwijking wijst op een lek uit een vorige test",
+                )
             }
 
-        // Na terminal MISLUKT: geen verdere claims/calls meer (status sluit re-claim uit).
+        // Een terminale status sluit re-claim uit, dus er mag niets meer bijkomen.
         val callsNaTerminal = aanmeld.aantalAanroepen
 
         Awaitility.await()
@@ -215,15 +224,12 @@ class PublicatieStreamE2ETest {
 
         lever(onderwerp = "Retry-pad", inhoud = "Inhoud")
 
-        // Aanmeld faalt eenmalig (500), daarna 202. Notificatie altijd 202.
-        // Polling-interval is 1s (Quarkus clampt sub-1s naar 1s); retry-backoff
-        // (basis 50ms) voegt nog ~100ms toe. Verwacht binnen 15s een succesvolle
-        // tweede aflevering.
+        // De retry-backoff (basis 50ms) valt binnen één polling-ronde, dus de tweede
+        // aflevering hoort ruim binnen het venster te vallen.
         Awaitility.await()
             .atMost(15, TimeUnit.SECONDS)
             .pollInterval(Durations.ONE_HUNDRED_MILLISECONDS)
             .untilAsserted {
-                // Aanmeld minstens 2 calls (1 fout + 1 succes), Notificatie 1.
                 assertTrue(
                     aanmeld.aantalAanroepen >= 2,
                     "verwacht >= 2 calls op Aanmeld (eerste 500, tweede 202), kreeg ${aanmeld.aantalAanroepen}",

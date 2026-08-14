@@ -64,7 +64,10 @@ jobs:
               echo "Gewijzigde bestanden:"
               printf '%s\n' "$files"
 
-              if ! printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
+              # Herestring in plaats van een pipe: `grep -q` sluit de pipe bij de eerste match,
+              # en met `pipefail` promoveert die SIGPIPE tot een mislukte pipeline — waarna dit
+              # filter stilzwijgend zou besluiten dat er niets te testen valt.
+              if ! grep -qvE '(^docs/|\.md$)' <<<"$files"; then
                 echo "Alleen documentatie gewijzigd — code-checks overgeslagen."
                 run=false
               fi
@@ -76,7 +79,7 @@ jobs:
               # demo-stack aansturen), dan hoeven berichtenmagazijn/berichtenuitvraag/libraries
               # niet mee gebouwd en getest te worden. Fail-safe zoals hierboven: elk onbekend of
               # breder pad → false (volledige build), nooit omgekeerd stil onder-testen.
-              if ! printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^services/demo-console/|^demo/)'; then
+              if ! grep -qvE '(^docs/|\.md$|^services/demo-console/|^demo/)' <<<"$files"; then
                 echo "Uitsluitend demo-console geraakt — tests scoped naar die module."
                 demo_only=true
               fi
@@ -85,13 +88,19 @@ jobs:
 
           # De shard-verdeling: berichtenmagazijn alleen, de rest ernaast. Die ene module kost
           # ~4,5 van de ~8 minuten reactor-tijd en vormt dus de vloer; alles bij elkaar past
-          # binnen die tijd op een tweede machine. `-am` bouwt en test in beide shards ook de
-          # gedeelde bibliotheken (~35s dubbel) — bewust, want een expliciete lijst upstream-
-          # modules gaat stilzwijgend rotten zodra de afhankelijkheden verschuiven.
+          # binnen die tijd op een tweede machine.
+          #
+          # De tweede shard is het COMPLEMENT (`!services/berichtenmagazijn`), geen opsomming:
+          # zo valt een nieuwe reactor-module er per constructie in. Met een handmatige lijst
+          # zou een module die nergens genoemd wordt én nergens upstream van is, stil ongetest
+          # blijven terwijl beide shards groen rapporteren.
+          #
+          # `-am` bouwt en test in beide shards ook de gedeelde bibliotheken (~35s dubbel);
+          # dat is goedkoper dan per shard uitzoeken welke upstream-modules erbij horen.
           if [ "$demo_only" = true ]; then
             shards='[{"id":"demo-console","modules":"services/demo-console"}]'
           else
-            shards='[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"overig","modules":"libraries/fbs-berichtensessiecache,services/berichtenuitvraag,services/demo-console"}]'
+            shards='[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"overig","modules":"!services/berichtenmagazijn"}]'
           fi
 
           {
@@ -168,6 +177,7 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           SHARDS: ${{ needs.shard.result }}
+          RUN: ${{ needs.changes.outputs.run }}
         run: |
           set -euo pipefail
 
@@ -185,6 +195,14 @@ jobs:
               echo "Alle testshards geslaagd."
               ;;
             skipped)
+              # Overslaan is alleen legitiem als de wijzigingsdetectie dat besloot. Een lege
+              # matrix levert óók 'skipped' op, en dan zou dit groen rapporteren terwijl er geen
+              # enkele test heeft gedraaid.
+              if [ "$RUN" != "false" ]; then
+                echo "::error::Shards overgeslagen terwijl er wél getest moest worden (run=$RUN) — testresultaat onbepaald."
+                exit 1
+              fi
+
               echo "::warning::Testshards overgeslagen — als OK geteld (alleen documentatie gewijzigd)."
               ;;
             *)

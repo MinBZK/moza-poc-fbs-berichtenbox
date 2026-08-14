@@ -19,9 +19,7 @@ import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
  * `getConfigOverrides`/system-properties via een TestProfile lopen achter
  * Quarkus' config-initialisatie aan en kunnen `magazijn.publicatie.downstreams.*`
  * te laat opleveren — de `@Scheduled`-bean ziet dan een lege downstream-map.
- *
- * `getTestServers()` geeft testcode toegang tot dezelfde server-instanties
- * voor body-/aanroep-assertions.
+
  */
 class DownstreamStubLifecycle : QuarkusTestResourceLifecycleManager {
 

@@ -10,9 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Lichtgewicht embedded HTTP-server voor end-to-end-tests van [PublicatieStream].
  * Vervanger voor WireMock: geen externe dep nodig, JDK-built-in.
  *
- * Per request slaat de server het body op zodat een test kan asserten op CloudEvent-
- * payload. De [statusVoorVolgendeAanroep] callback laat tests gesimuleerde
- * 5xx-responses retourneren om het retry-pad te valideren.
+ * Per request slaat de server de body op zodat een test kan asserten op de CloudEvent-payload.
  */
 class DownstreamHttpServer(
     private val pad: String = "/events",
@@ -25,7 +23,11 @@ class DownstreamHttpServer(
      * downstream-gedrag (400, 500, eerst-500-dan-202) dezelfde server en daarmee dezelfde
      * Quarkus-instantie. Een eigen server per gedrag betekende een eigen resource-manager, en
      * die dwingt een applicatie-herstart met verse database-container af.
+     *
+     * `@Volatile` omdat de testthread schrijft en de handler-threads van de HTTP-server lezen;
+     * als constructor-`val` was het veld nog veilig gepubliceerd, als `var` niet meer.
      */
+    @Volatile
     var statusVoorAanroep: (Int) -> Int = ALTIJD_GEACCEPTEERD
 
     private val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -41,10 +43,12 @@ class DownstreamHttpServer(
 
     fun start() {
         server.createContext(pad) { exchange: HttpExchange ->
-            val poging = aanroepTeller.incrementAndGet()
             val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
             ontvangenBodies.add(body)
             ontvangenHeaders.add(exchange.requestHeaders.toMap())
+            // Teller als laatste: een test die op `aantalAanroepen` wacht en daarna `bodies[n]`
+            // leest, zou anders tussen beide regels een body kunnen missen.
+            val poging = aanroepTeller.incrementAndGet()
             val status = statusVoorAanroep(poging)
             exchange.sendResponseHeaders(status, -1)
             exchange.close()

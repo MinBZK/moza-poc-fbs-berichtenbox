@@ -59,6 +59,11 @@ import java.net.ConnectException
  * opslaan; draait die ná de storingstest, dan fast-failt hij op het open validatiecircuit en
  * wordt hij groen zonder het opslagcircuit ooit te raken. Daarom: opslag eerst, dan de
  * weigering (opent niets), en als laatste de storing die het validatiecircuit opent.
+ *
+ * Die storingstest staat op `Int.MAX_VALUE` en niet op 3: JUnit geeft een methode zónder
+ * `@Order` de waarde `Integer.MAX_VALUE / 2`, dus een nieuwe test waarbij de annotatie vergeten
+ * wordt, valt vóór de storing in plaats van erna. Zonder die keuze zou zo'n test tegen een
+ * geopend circuit draaien en een verkeerd gedrag meten dat er groen uitziet.
  */
 @QuarkusTest
 @TestProfile(AanleverCircuitBreakerTest.Profile::class)
@@ -106,6 +111,13 @@ class AanleverCircuitBreakerTest {
                 .extract().statusCode()
         }
 
+        // Zonder deze voorwaarde slaagt de test ook als álle responses 503 zijn doordat een
+        // ánder circuit al openstond — dan is het opslagcircuit nooit geraakt.
+        assertTrue(
+            statusses.take(20).any { it != 503 },
+            "het opslagcircuit moet bij aanvang dicht zijn; alleen-503 betekent dat een ander circuit al open stond — reeks = $statusses",
+        )
+
         val aantal503 = statusses.count { it == 503 }
 
         assertTrue(
@@ -128,8 +140,8 @@ class AanleverCircuitBreakerTest {
     }
 
     @Test
-    @Order(3)
-    fun `een Profiel-storing opent het circuit, dus aanleveren faalt snel`() {
+    @Order(Int.MAX_VALUE)
+    fun `een Profiel-storing opent het circuit, dus validatie fast-failt`() {
         mock.antwoordSupplier = { _, _ -> throw ProcessingException(ConnectException("connection refused")) }
 
         val fouten = valideerHerhaald()
