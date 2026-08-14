@@ -4,7 +4,7 @@
 #
 # `.clusterfuzzlite/Dockerfile` pint dit image op digest. Na een bouw hier moet die pin dus
 # bijgewerkt worden; de bouw print de nieuwe digest en de job `fuzz-basis-pin` in
-# `pin-consistency.yml` faalt zolang de pin niet bij de huidige pom's hoort.
+# `pin-consistency.yml` meldt op de PR zolang de pin niet bij de huidige pom's hoort.
 name: Fuzz-basis-image
 
 on:
@@ -37,16 +37,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # De pom-hash is de identiteit van dit image: gelijke pom's = gelijke warme repository.
-      # Hij wordt als label meegebakken zodat de guard in de fuzz-workflow kan vaststellen of
-      # de gepinde digest nog bij de huidige pom's hoort.
+      # Hij wordt de image-tag, zodat `fuzz-basis-pin` in pin-consistency.yml de tag voor de
+      # huidige pom's kan opzoeken en met de gepinde digest kan vergelijken.
       - name: Bepaal de pom-hash
         id: hash
-        run: echo "poms=${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}" >> "$GITHUB_OUTPUT"
+        env:
+          POMS: ${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$POMS" ]; then
+            echo "::error::hashFiles leverde geen pom-hash op — het bestandspatroon klopt niet meer met de repo-indeling."
+            exit 1
+          fi
+
+          echo "poms=$POMS" >> "$GITHUB_OUTPUT"
 
       - name: Inloggen op ghcr
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ACTOR: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
 
       # Tag op de pom-hash: een ongewijzigde dependency-set levert dezelfde tag en overschrijft
       # zichzelf, een gewijzigde krijgt een eigen tag. Geen bewegende `latest` — de fuzz-workflow
@@ -62,12 +73,23 @@ jobs:
             --label "nl.rijksoverheid.moz.poms-hash=$POMS" \
             -t "$IMAGE:poms-$POMS" \
             .
+          # De warme repository is de enige bestaansreden van dit image. Loopt het vullen ervan
+          # stuk (ontbrekende module-pom, netwerkstoring), dan bouwt het image gewoon door en
+          # zou het gepusht worden met een lege repo: alles blijft groen en alleen de fuzz-run
+          # is weer traag. Daarom hier de postconditie, vóór de push.
+          jars=$(docker run --rm "$IMAGE:poms-$POMS" sh -c 'find /root/.m2/repository -name "*.jar" | wc -l')
+          echo "warme repository: $jars jars"
+
+          if [ "$jars" -lt 500 ]; then
+            echo "::error::maar $jars jars in de warme repository — dit image levert geen tijdwinst op, niet pushen."
+            exit 1
+          fi
+
           docker push "$IMAGE:poms-$POMS"
-          # Via imagetools, niet via `docker inspect .RepoDigests`: buildx pusht een index met
-          # de attestatie erbij, en de registry serveert de tag als díé index. RepoDigests geeft
-          # de onderliggende image-manifest — daarmee pinnen werkt wel, maar dan wijst de pin
-          # naar iets anders dan wat de registry onder deze tag kent, en kan de guard de twee
-          # niet meer tegen elkaar houden.
+          # Via imagetools, niet via `docker inspect .RepoDigests`: dat geeft de digest zoals de
+          # registry hem onder déze tag serveert, en dat is precies wat de guard tegen de pin
+          # houdt. De twee liepen in de praktijk uiteen — RepoDigests noemde een andere digest
+          # dan ghcr onder dezelfde tag teruggaf, waardoor de guard niets meer kon vergelijken.
           digest=$(docker buildx imagetools inspect "$IMAGE:poms-$POMS" --format '{{.Manifest.Digest}}')
           echo "digest=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
 

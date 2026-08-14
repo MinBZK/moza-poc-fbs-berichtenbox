@@ -75,25 +75,62 @@ jobs:
           # Zelfde bestandenset als .github/workflows/fuzz-base-image.yml gebruikt voor de tag;
           # lopen die twee uiteen, dan vindt de opzoeking hieronder niets en faalt deze job.
           VERWACHT: ${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}
-          IMAGE_PAD: minbzk/fbs-fuzz-base
         run: |
           set -euo pipefail
 
-          gepind=$(grep -oE 'sha256:[a-f0-9]{64}' .clusterfuzzlite/Dockerfile | head -1)
-          if [ -z "$gepind" ]; then
+          # Anker op de FROM-regel: een losse `sha256:`-grep pakt ook een voorbeeld-digest uit
+          # het commentaarblok erboven, en vergelijkt dan stilzwijgend de verkeerde. `|| true`
+          # omdat grep zonder match exit 1 geeft, wat met `pipefail` de eigen foutmelding
+          # hieronder zou overslaan.
+          from_regel=$(grep -oE '^FROM +[^ ]+@sha256:[a-f0-9]{64}' .clusterfuzzlite/Dockerfile || true)
+          gepind=${from_regel##*@}
+          image_pad=$(sed -E 's|^FROM +ghcr\.io/||; s|@sha256:.*||' <<<"$from_regel")
+
+          if [ -z "$gepind" ] || [ -z "$image_pad" ]; then
             # Wél hard: zonder pin kan hier niets meer gecontroleerd worden, en dat is een
             # wijziging aan de Dockerfile zelf — geen situatie die een dependency-bump veroorzaakt.
-            echo "::error::geen digest-pin gevonden in .clusterfuzzlite/Dockerfile — er valt niets meer te controleren."
+            echo "::error::geen FROM-regel met digest-pin in .clusterfuzzlite/Dockerfile — er valt niets meer te controleren."
             exit 1
           fi
 
-          # Publiek image: een anoniem pull-token volstaat, geen secret nodig.
-          token=$(curl -fsS "https://ghcr.io/token?scope=repository:${IMAGE_PAD}:pull&service=ghcr.io" | jq -r .token)
-          verwachte_digest=$(curl -fsSI \
+          if [ -z "$VERWACHT" ]; then
+            echo "::error::hashFiles leverde geen pom-hash op — het bestandspatroon in deze job klopt niet meer."
+            exit 1
+          fi
+
+          # Publiek image: een anoniem pull-token volstaat, geen secret nodig. `jq -e` zodat een
+          # antwoord zonder token niet als de string "null" doorgaat en verderop een 401 oplevert
+          # die we dan voor "image bestaat niet" zouden aanzien.
+          if ! token=$(curl -fsS "https://ghcr.io/token?scope=repository:${image_pad}:pull&service=ghcr.io" | jq -er .token); then
+            echo "::warning::Geen pull-token van ghcr — de basis-image-pin is deze run NIET gecontroleerd."
+            exit 0
+          fi
+
+          # Alleen een 404 betekent "dit image bestaat nog niet". Elke andere fout (401, 429,
+          # 5xx, DNS) zegt dat de controle zelf niet kon draaien; die mag niet als "nog niet
+          # gebouwd" gerapporteerd worden, want dan meldt de guard een oorzaak die hij nooit
+          # heeft vastgesteld en blijft hij dat eeuwig doen.
+          http=$(curl -sS -o /tmp/manifest-headers -D /tmp/manifest-headers -w '%{http_code}' -I \
             -H "Authorization: Bearer $token" \
-            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
-            "https://ghcr.io/v2/${IMAGE_PAD}/manifests/poms-${VERWACHT}" \
-            | tr -d '\r' | awk '/[Dd]ocker-[Cc]ontent-[Dd]igest/ {print $2}') || verwachte_digest=""
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/${image_pad}/manifests/poms-${VERWACHT}" || echo "000")
+
+          case "$http" in
+            200)
+              verwachte_digest=$(tr -d '\r' < /tmp/manifest-headers | awk '/[Dd]ocker-[Cc]ontent-[Dd]igest/ {print $2}')
+              if [ -z "$verwachte_digest" ]; then
+                echo "::warning::ghcr antwoordde 200 zonder Docker-Content-Digest — de pin is deze run NIET gecontroleerd."
+                exit 0
+              fi
+              ;;
+            404)
+              verwachte_digest=""
+              ;;
+            *)
+              echo "::warning::ghcr antwoordde $http — de basis-image-pin is deze run NIET gecontroleerd."
+              exit 0
+              ;;
+          esac
 
           if [ -z "$verwachte_digest" ]; then
             echo "::warning::Nog geen fuzz-basis-image voor deze pom's (tag poms-${VERWACHT})."
@@ -126,7 +163,7 @@ jobs:
               echo "Werk de pin bij naar:"
               echo
               echo '```dockerfile'
-              echo "FROM ghcr.io/${IMAGE_PAD}@${verwachte_digest}"
+              echo "FROM ghcr.io/${image_pad}@${verwachte_digest}"
               echo '```'
               echo "EOM"
             } >> "$GITHUB_OUTPUT"
@@ -138,8 +175,13 @@ jobs:
       # De annotatie hierboven staat op de run-samenvatting van een job die groen blijft — die
       # leest niemand. Deze comment staat waar de wijziging beoordeeld wordt, en wordt weer
       # opgeruimd zodra de pin klopt, zodat er geen verouderde melding blijft hangen.
+      # Alleen op een PR uit deze repo: bij een fork is GITHUB_TOKEN read-only, dus zou de
+      # comment een 403 geven en zou uitgerekend deze job — die zichzelf niet-blokkerend noemt —
+      # de deploy-gate tegenhouden. `continue-on-error` vangt de resterende API-hikken af: een
+      # gemiste melding mag nooit zwaarder wegen dan de wijziging zelf.
       - name: Meld een verouderde pin op de PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
