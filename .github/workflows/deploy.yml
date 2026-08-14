@@ -348,8 +348,11 @@ jobs:
   checks-pins:
     if: github.event_name == 'push' || github.event.action != 'closed'
     uses: ./.github/workflows/pin-consistency.yml
+    # pull-requests: write voor de melding over een verouderde fuzz-basis-image-pin; een
+    # aangeroepen workflow kan nooit meer krijgen dan de caller-job toekent.
     permissions:
       contents: read
+      pull-requests: write
 
   # ClusterFuzzLite fuzzt alleen PR's: op een push naar main is er geen basis om code-change-fuzzing
   # tegen af te zetten. Deze job wordt daar dus overgeslagen, en de gate telt dat als OK.
