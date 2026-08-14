@@ -1,0 +1,138 @@
+# Federatie-overlay voor de peer `logius`, bovenop zijn eigen drie compose-bestanden:
+#
+#   docker compose -f logius/deploy/local/docker-compose.yaml \
+#                  -f logius/deploy/local/docker-compose.podman.yaml \
+#                  -f logius/deploy/local/docker-compose.podman-hostnet.yaml \
+#                  -f federatie/compose/logius.yaml up -d
+#
+# Twee compose-projecten die béide `network_mode: host` draaien delen al één netns. De
+# federatie hoeft de bestanden dus niet samen te voegen — ze moet alleen zorgen dat de peers
+# elkaar niet in de weg zitten en dezelfde directory én group-CA gebruiken.
+#
+# logius draagt in deze opstelling twee rollen. Als GASTHEER levert hij de federatie-infra die
+# alle peers delen: postgres, de SNI-router en de directory, op 127.20.0.x. Als PEER krijgt hij,
+# net als elke andere, een eigen /24 — hier 127.20.1. Die scheiding staat in README.md.
+#
+# Elke component krijgt een eigen adres en houdt zijn STANDAARDPOORT. De hostnet-overlay eronder
+# renummerde die poorten om botsingen binnen één netns te ontwijken; met een adres per component
+# is dat niet meer nodig, dus zetten we ze hier expliciet terug. Daardoor kloppen ook de
+# kruisverwijzingen uit de basis-compose weer (`https://controller.logius…:9443`).
+#
+# Waarom élke service die TLS naar een peer-naam opzet `extra_hosts` krijgt, en niet alleen de
+# managers: de directory haalt bij het tekenen van een servicePublication-contract de JWKS op bij
+# de publicerende peer
+# (`https://<peer>/.well-known/jwks.json`). Kan hij die naam niet resolven, dan blijft dat
+# contract op CONTRACT_STATE_PROPOSED staan, is de dienst niet vindbaar, en wordt er niet
+# automatisch opnieuw geprobeerd. Eén lijst voor iedereen sluit die klasse fouten uit.
+#
+# De namen die op `:443` worden aangesproken (de peer zelf en zijn inway) wijzen naar de ROUTER,
+# niet naar de component: dat is de SNI-passthrough. De interne namen wijzen rechtstreeks naar de
+# component die erachter zit.
+x-hosts-federatie: &hosts-federatie
+  - "directory.fsc-test.local:127.20.0.1"
+  - "logius.fsc-test.local:127.20.0.1"
+  - "inway.logius.fsc-test.local:127.20.0.1"
+  - "magazijn-a.fsc-test.local:127.20.0.1"
+  - "inway.magazijn-a.fsc-test.local:127.20.0.1"
+  - "manager.logius.fsc-test.local:127.20.1.1"
+  - "controller.logius.fsc-test.local:127.20.1.2"
+  - "txlog.logius.fsc-test.local:127.20.1.3"
+  - "outway.logius.fsc-test.local:127.20.1.5"
+  - "manager.magazijn-a.fsc-test.local:127.20.2.1"
+  - "controller.magazijn-a.fsc-test.local:127.20.2.2"
+  - "txlog.magazijn-a.fsc-test.local:127.20.2.3"
+  - "postgres:127.20.0.2"
+  - "stub-upstream:127.20.1.6"
+
+services:
+  # --- Federatie-infra (gastheer-rol): 127.20.0.x --------------------------------------------
+  # De paden hieronder zijn relatief aan de PROJECT-directory — de map van het eerste
+  # `-f`-bestand, dus `logius/deploy/local/` — niet aan dit overlay-bestand. Vandaar drie
+  # niveaus omhoog naar `demo/environment/`. Hetzelfde geldt voor `PKI_DIR` in de basis.
+  postgres:
+    command: ["postgres", "-c", "listen_addresses=127.20.0.2"]
+    volumes:
+      - ../../../federatie/postgres-init.federatie.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  router:
+    volumes:
+      - ../../../federatie/haproxy.federatie.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+  manager-directory:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS_EXTERNAL: 127.20.0.3:8443
+      LISTEN_ADDRESS_INTERNAL: 127.20.0.3:9443
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 127.20.0.3:9444
+      MONITORING_ADDRESS: 127.20.0.3:8080
+
+  directory-ui:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS: 127.20.0.4:8080
+      MONITORING_ADDRESS: 127.20.0.4:8081
+
+  # --- logius als peer: 127.20.1.x -----------------------------------------------------------
+  manager-logius:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS_EXTERNAL: 127.20.1.1:8443
+      LISTEN_ADDRESS_INTERNAL: 127.20.1.1:9443
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 127.20.1.1:9444
+      MONITORING_ADDRESS: 127.20.1.1:8080
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:9443
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:9443
+
+  controller-logius:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS_UI: 127.20.1.2:8080
+      LISTEN_ADDRESS_REGISTRATION_API: 127.20.1.2:9443
+      LISTEN_ADDRESS_ADMINISTRATION_API: 127.20.1.2:9444
+      MONITORING_ADDRESS: 127.20.1.2:8081
+      MANAGER_ADDRESS_INTERNAL: https://manager.logius.fsc-test.local:9443
+
+  migrate-controller-logius:
+    extra_hosts: *hosts-federatie
+
+  migrate-logius:
+    extra_hosts: *hosts-federatie
+
+  # De migrate-job erft LISTEN/MONITORING uit het txlog-anchor van de basis; die moeten mee
+  # verhuizen, ook al opent een `migrate up` die listeners naar verwachting nooit.
+  migrate-txlog-logius:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS: 127.20.1.3:9443
+      MONITORING_ADDRESS: 127.20.1.3:8081
+
+  txlog-logius:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS: 127.20.1.3:9443
+      MONITORING_ADDRESS: 127.20.1.3:8081
+
+  inway-logius:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS: 127.20.1.4:8443
+      MONITORING_ADDRESS: 127.20.1.4:8081
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:9443
+      MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS: https://manager.logius.fsc-test.local:9444
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:9443
+
+  outway-logius:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS: 127.20.1.5:8443
+      MONITORING_ADDRESS: 127.20.1.5:8081
+      MANAGER_INTERNAL_ADDRESS: https://manager.logius.fsc-test.local:9443
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.logius.fsc-test.local:9443
+      TX_LOG_API_ADDRESS: https://txlog.logius.fsc-test.local:9443
+
+  stub-upstream:
+    extra_hosts: *hosts-federatie
+    command: ["-listen=127.20.1.6:8080", "-text=hello from logius stub-upstream"]
+
+  toolbox:
+    extra_hosts: *hosts-federatie

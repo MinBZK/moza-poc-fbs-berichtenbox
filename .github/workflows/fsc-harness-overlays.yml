@@ -1,0 +1,302 @@
+# Bewaakt dat de compose-overlays van de lokale FSC-harnessen blijven passen op hun basis.
+#
+# De hostnet-overlay spiegelt elke service uit docker-compose.yaml: `network_mode: host`,
+# `extra_hosts` en een botsvrije poort op 127.0.0.1. Drie dingen kunnen daar stil misgaan:
+#
+#  1. Iemand voegt een service aan de basis toe en vergeet de overlay. Die service vraagt dan het
+#     default-netwerk terug, en omdat de overlay dat netwerk met `!reset` weghaalt, valt de hele
+#     stack om — pas bij `up`, op de machine van de volgende gebruiker.
+#  2. Iemand voegt een listener toe die niet op loopback bindt. In een gedeelde netns staat die
+#     daarmee op élke interface van de machine, inclusief de componenten die zonder authenticatie
+#     draaien (controller met AUTHN_TYPE=none, postgres met harness-credentials).
+#  3. Iemand voegt een service toe die `/pki` leest onder een vaste UID, zonder keep-id. Die faalt
+#     onder rootless podman met `permission denied` op de privékey.
+#
+# De federatie-opstelling (demo/environment/federatie/) legt daar een VIERDE laag op die alle peers
+# in één netns zet. Die laag is de laatste en dus beslissend; wat daar geïntroduceerd wordt, is in
+# de drie-bestands-merge onzichtbaar. Vandaar twee jobs die dezelfde checks draaien — via
+# .github/scripts/merge-guard.sh, zodat hun dekking niet uiteen kan lopen — plus, in de tweede,
+# de eis die alleen in een federatie bestaat: de peers mogen elkaars poorten niet claimen.
+#
+# Beide jobs renderen alleen de merge (geen containers). `config -q` alleen zou een halve overlay
+# zonder morren accepteren.
+
+name: FSC-harness overlays
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
+    # zonder dat de guard zelf ooit gedraaid heeft.
+    paths: ['demo/environment/**', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
+  push:
+    branches: [main]
+    paths: ['demo/environment/**', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
+
+# LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
+# `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
+# PR — dat is PR-gestuurde uitvoering. Dat is alleen aanvaardbaar zolang deze workflow geen
+# schrijfrechten, geen secrets en geen cache heeft. Wijzig geen van drieën.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hostnet-overlay-past-op-de-basis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Elke service op de gedeelde netns, elke listener op loopback
+        run: |
+          set -euo pipefail
+
+          fail=0
+          peers=0
+          overlays=0
+
+          for peer in demo/environment/*/deploy/local; do
+            [ -f "$peer/docker-compose.yaml" ] || continue
+            peers=$((peers + 1))
+
+            if [ ! -f "$peer/docker-compose.podman-hostnet.yaml" ]; then
+              echo "FOUT: $peer heeft geen docker-compose.podman-hostnet.yaml — verwijderd of hernoemd?"
+              fail=1
+              continue
+            fi
+
+            overlays=$((overlays + 1))
+
+            # PKI_DIR/HOST_UID komen normaal uit .env (gitignored). De waarden doen er niet toe:
+            # `config` rendert alleen, het mount niets en controleert geen paden.
+            if ! (cd "$peer" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
+                    docker compose -f docker-compose.yaml \
+                                   -f docker-compose.podman.yaml \
+                                   -f docker-compose.podman-hostnet.yaml config --format json) \
+                 | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "$peer (hostnet-merge)" --postgres; then
+              fail=1
+            fi
+          done
+
+          if [ "$peers" -eq 0 ] || [ "$overlays" -ne "$peers" ]; then
+            echo "FOUT: $overlays van $peers harnessen hebben een hostnet-overlay — guard meet niet wat hij hoort te meten."
+            fail=1
+          fi
+
+          # Servicenamen en paden komen uit de PR en gaan daarom niet in een ::error-annotatie:
+          # een `%0A` daarin zou een tweede workflow-commando starten. De details staan hierboven.
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::De hostnet-overlays passen niet meer op hun basis. Zie de log hierboven."
+          fi
+
+          exit "$fail"
+
+  federatie-overlay-past-op-de-peers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Peer-blokken botsen niet en elke listener staat op loopback
+        run: |
+          set -euo pipefail
+
+          FED=demo/environment/federatie
+          GUARD="$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh"
+          [ -d "$FED/compose" ] || { echo "FOUT: $FED/compose ontbreekt."; exit 1; }
+
+          # shellcheck source=/dev/null
+          . "$FED/peers.env"
+
+          fail=0
+          alle=""
+          aantal_peers=0
+
+          for peer in $GASTHEER $GASTEN; do
+            lokaal="demo/environment/$peer/deploy/local"
+            overlay="$FED/compose/$peer.yaml"
+            aantal_peers=$((aantal_peers + 1))
+
+            if [ ! -f "$overlay" ]; then
+              echo "FOUT: peer '$peer' staat in peers.env maar heeft geen $overlay."
+              fail=1
+              continue
+            fi
+
+            merged=$(cd "$lokaal" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
+              docker compose -f docker-compose.yaml \
+                             -f docker-compose.podman.yaml \
+                             -f docker-compose.podman-hostnet.yaml \
+                             -f "../../../federatie/compose/$peer.yaml" config --format json)
+
+            # De gastheer draait de gedeelde postgres; bij de gasten staat die in een inactief
+            # profiel en rendert hij niet mee, dus daar mag de eis niet gelden.
+            if [ "$peer" = "$GASTHEER" ]; then
+              printf '%s' "$merged" | "$GUARD" "$peer (federatie-merge)" --postgres || fail=1
+            else
+              printf '%s' "$merged" | "$GUARD" "$peer (federatie-merge)" || fail=1
+            fi
+
+            # De adressen die deze peer in de federatie claimt, uit env én uit `command`
+            # (stub-upstream draagt zijn adres in een `-listen=`-vlag). Elke component heeft een
+            # eigen adres binnen het federatie-prefix en houdt zijn standaardpoort; het adres is
+            # dus wat de peers onderscheidt, niet de poort.
+            binds=$(jq -r --arg pre "$FED_PREFIX" '.services | to_entries[] | . as $s
+              | ( ($s.value.environment // {}) | to_entries[] | select(.value != null) | (.value | tostring) ),
+                ( (($s.value.command // []) + ($s.value.entrypoint // []))[]? | select(type == "string") )
+              | select(test("(^|=)" + ($pre | gsub("\\."; "\\.")) + "\\.[0-9]+\\.[0-9]+:[0-9]+$"))
+              | sub("^.*="; "")' <<<"$merged" | sort -u)
+
+            # Een listener die buiten het federatie-prefix valt, is een service die zijn
+            # federatie-overlay mist: die valt terug op het adres uit de hostnet-overlay
+            # (127.0.0.1) en botst daar met de gelijknamige component van elke andere peer. Dat
+            # moet hier gevangen worden en niet door de smoke: uit de gedeclareerde adressen is
+            # zo'n service juist VERDWENEN, dus daar valt hij niet op.
+            buiten_prefix=$(jq -r --arg pre "$FED_PREFIX" '.services | to_entries[] | . as $s
+              | ($s.value.environment // {}) | to_entries[]
+              | select(.key | test("^(LISTEN_ADDRESS|MONITORING_ADDRESS)"))
+              | select(.value != null and (.value | tostring) != "")
+              | select(((.value | tostring) | startswith($pre + ".")) | not)
+              | "\($s.key): \(.key)=\(.value)"' <<<"$merged")
+
+            if [ -n "$buiten_prefix" ]; then
+              echo "FOUT: $peer — listener buiten $FED_PREFIX. (mist zijn federatie-overlay):"
+              printf '%s\n' "$buiten_prefix" | sed 's/^/  /'
+              fail=1
+            fi
+
+            net_var="NET_$(printf '%s' "$peer" | tr '-' '_')"
+            net="${!net_var:-}"
+
+            if [ -z "$net" ]; then
+              echo "FOUT: geen $net_var in peers.env."
+              fail=1
+              continue
+            fi
+
+            in_net=0
+            for b in $binds; do
+              adres="${b%:*}"
+
+              # Federatie-infra draait op de GASTHEER namens iedereen, op <prefix>.0.x, en hoort bij
+              # geen peer-/24. Voor een gast is datzelfde adres per definitie een tweede router of
+              # postgres, dus daar geldt de uitzondering niet.
+              case "$adres" in
+                "$FED_PREFIX".0.*)
+                  if [ "$peer" != "$GASTHEER" ]; then
+                    echo "FOUT: $peer is gast maar claimt infra-adres $adres."
+                    fail=1
+                  fi
+                  continue
+                  ;;
+              esac
+
+              case "$adres" in
+                "$net".*) in_net=$((in_net + 1)) ;;
+                *) echo "FOUT: $peer — $b valt buiten zijn eigen $net.0/24."; fail=1 ;;
+              esac
+
+              alle="$alle $peer:$adres"
+            done
+
+            # Nul adressen betekent niet "schoon" maar "de extractie matcht niets meer" — een
+            # opmaakwijziging in de overlay zou de guard anders stilzwijgend uitschakelen.
+            if [ "$in_net" -eq 0 ]; then
+              echo "FOUT: $peer — 0 adressen uit de merge; de extractie matcht niets meer."
+              fail=1
+            else
+              echo "$peer: $in_net binds in $net.0/24."
+            fi
+          done
+
+          # Disjunctheid over de peers heen: het punt van de adresindeling. Twee peers op hetzelfde
+          # adres botsen alsnog op hun standaardpoort.
+          #
+          # `sort -u` eerst: één peer claimt zijn eigen adres meermaals, want een component heeft
+          # meerdere listeners (manager: extern, intern, intern-unauth, monitoring). Zonder de
+          # deduplicatie leest elke component met twee poorten als een botsing met zichzelf.
+          # shellcheck disable=SC2086  # bewuste word splitting: `alle` is een lijst `peer:adres`.
+          botsingen=$(printf '%s\n' $alle | sort -u | awk -F: 'NF==2 {tel[$2]=tel[$2]" "$1} END {for (p in tel) if (split(tel[p],a," ")>1) print p": "tel[p]}')
+          if [ -n "$botsingen" ]; then
+            echo "FOUT: hetzelfde adres wordt door meer dan één peer geclaimd:"
+            printf '%s\n' "$botsingen" | sed 's/^/  /'
+            fail=1
+          fi
+
+          # Disjunctheid over één peer is inhoudsloos; de guard hoort te meten wat hij belooft.
+          if [ "$aantal_peers" -lt 2 ]; then
+            echo "FOUT: peers.env levert $aantal_peers peer(s) — te weinig om botsingen op te meten."
+            fail=1
+          fi
+
+          # Spiegeling: een overlay die niet in peers.env staat wordt nergens gerenderd en zou dus
+          # ongecontroleerd meeliften zodra iemand hem handmatig meegeeft aan `docker compose`.
+          for overlay in "$FED"/compose/*.yaml; do
+            naam="$(basename "$overlay" .yaml)"
+            case " $GASTHEER $GASTEN " in
+              *" $naam "*) ;;
+              *) echo "FOUT: $overlay hoort bij geen enkele peer uit peers.env."; fail=1 ;;
+            esac
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::De federatie-overlays passen niet meer op hun peers. Zie de log hierboven."
+          fi
+
+          exit "$fail"
+
+  harness-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck + bash-unittests
+        # De harness is bash, en de bash-tests die er zijn (demo/environment/lib/test-*.sh) draaiden
+        # tot nu toe nergens automatisch. Zonder deze stap rot elke test die eraan wordt toegevoegd.
+        #
+        # `deploy/zad/*.sh` valt bewust buiten de globs: die scripts dragen bestaande
+        # SC2034-bevindingen die losstaan van de lokale harness. Ze erbij nemen vergt eerst die
+        # opruiming; anders zou deze stap rood staan op iets wat hij niet bewaakt.
+        run: |
+          set -euo pipefail
+
+          fail=0
+
+          echo "== shellcheck =="
+          # -x volgt `source`-directives, zodat de gedeelde lib meegecontroleerd wordt.
+          if ! shellcheck -x -S warning \
+                 demo/environment/lib/*.sh \
+                 demo/environment/federatie/*.sh \
+                 demo/environment/*/deploy/local/*.sh \
+                 demo/environment/*/pki/*.sh \
+                 .github/scripts/*.sh; then
+            fail=1
+          fi
+
+          echo "== bash-unittests =="
+          gedraaid=0
+          for t in demo/environment/lib/test-*.sh; do
+            [ -f "$t" ] || continue
+            gedraaid=$((gedraaid + 1))
+            echo "-- $t"
+            bash "$t" || fail=1
+          done
+
+          if [ "$gedraaid" -eq 0 ]; then
+            echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::shellcheck of een bash-unittest faalde. Zie de log hierboven."
+          fi
+
+          exit "$fail"

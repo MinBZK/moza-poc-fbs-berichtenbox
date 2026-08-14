@@ -116,6 +116,11 @@ en met precies twee peers is een gedeelde abstractie prematuur (rule of three). 
 peer zijn group-CA-materiaal (root/intermediate) met de externe `moza-fsc-testnet`-directory —
 dat blijft zo, alleen de her-issue-stap (`pki/issue.sh`) verhuist mee.
 
+**Aanvulling (2026-08-13):** met een derde peer op komst is de rule-of-three-drempel bereikt —
+`docs/plans/2026-08-13-demo-environment-gedeelde-fsc-harness-lib.md` voert alsnog een gedeelde
+`demo/environment/lib/fsc-harness.sh` in voor de `deploy/local/`-scripts (niet de `pki/`-scripts,
+die blijven vooralsnog gedupliceerd).
+
 ## CI / GitHub Actions
 
 GitHub Actions-workflows moeten aan de repo-root staan (`.github/workflows/`) — ze kunnen niet

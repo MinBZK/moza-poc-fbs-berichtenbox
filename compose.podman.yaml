@@ -1,0 +1,64 @@
+# Podman-override op compose.yaml — bridge-netwerk, dus de normale variant op een host met
+# werkende podman (Linux rootless, of podman machine op macOS/Windows).
+#
+#   docker-compose -f compose.yaml -f compose.podman.yaml --profile demo up -d
+#
+# Twee verschillen met Docker:
+#
+#  1. `localhost/`-prefix op de zelf gebouwde images. Jib laadt ze onder `localhost/...`; podman
+#     zoekt een kale `fbs-demo/...` op een registry i.p.v. lokaal.
+#  2. `:z` op elke bind-mount. Op Fedora/RHEL met SELinux enforcing krijgt de container zonder
+#     label "permission denied" op de gemounte mappings.
+#
+# De basis-images staan al volledig gekwalificeerd in compose.yaml (met de reden erbij); ze hier
+# nog eens overschrijven zou dezelfde pin op twee plekken zetten, die bij een Dependabot-bump uit
+# elkaar lopen.
+#
+# De CORS-allowlist staat óók in compose.yaml: de Berichtenbox-UI leidt de API-host af uit de
+# browser-locatie, en dat gedrag is niet podman-specifiek.
+services:
+  magazijn-a:
+    volumes:
+      - ./wiremock/magazijn-a/mappings:/home/wiremock/mappings:z
+      - ./wiremock/magazijn-a/__files:/home/wiremock/__files:z
+
+  magazijn-b:
+    volumes:
+      - ./wiremock/magazijn-b/mappings:/home/wiremock/mappings:z
+      - ./wiremock/magazijn-b/__files:/home/wiremock/__files:z
+
+  profiel-service:
+    volumes:
+      - ./wiremock/externe-stubs/mappings:/home/wiremock/mappings:z
+      - ./wiremock/demo-profiel/mappings:/home/wiremock/mappings/demo-profiel:z
+      - ./demo/generated/profiel:/home/wiremock/mappings/demo-profiel-generated:z
+
+  aanmeld-stub:
+    volumes:
+      - ./wiremock/aanmeld-stub/mappings:/home/wiremock/mappings:z
+
+  notificatie-stub:
+    volumes:
+      - ./wiremock/notificatie-stub/mappings:/home/wiremock/mappings:z
+
+  toxiproxy:
+    volumes:
+      - ./toxiproxy/proxies.json:/proxies.json:ro,z
+
+  magazijn-stubs:
+    volumes:
+      - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings:z
+
+  berichtenmagazijn-a:
+    image: localhost/fbs-demo/fbs-berichtenmagazijn:demo
+
+  berichtenmagazijn-b:
+    image: localhost/fbs-demo/fbs-berichtenmagazijn:demo
+
+  berichtenuitvraag:
+    image: localhost/fbs-demo/fbs-berichtenuitvraag:demo
+    volumes:
+      - ./demo/generated/magazijnen-stubs.properties:/demo-config/magazijnen-stubs.properties:ro,z
+
+  demo-console:
+    image: localhost/fbs-demo/fbs-demo-console:demo
