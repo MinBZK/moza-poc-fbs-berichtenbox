@@ -3,7 +3,7 @@
 # DRIE losse ZAD-projecten (deployments zijn geïsoleerd; cross-project bereik je via de
 # https-ingress-URLs `<component>-<deployment>-<projectid>.rig.prd1.gn2.quattro.rijksapps.nl`):
 #
-#   uitvraag       (mpfb-8wh)     componenten: redis + clickhouse + uitvraag in de deployments
+#   uitvraag       (mpfb-8wh)     componenten: redis + uitvraag in de deployments
 #                                 `test`/`pr-<n>`, plus logius-fsc{pg,mgr,ctl,outway,inway,
 #                                 txlog} (FSC-peer van de uitvraag-organisatie) in de EIGEN,
 #                                 preview-loze deployment `fsc-logius` — zie
@@ -158,6 +158,8 @@ jobs:
           # Het type komt van GitHub zelf (enum), niet uit door de indiener bepaalde tekst.
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
+          set -euo pipefail
+
           if [ "$EVENT" != "pull_request" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -182,12 +184,38 @@ jobs:
           echo "Gewijzigde bestanden:"
           printf '%s\n' "$files"
 
-          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Alleen documentatie gewijzigd — deploy overgeslagen."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
+          # Paden die noch de gebouwde images noch de uitrol kunnen veranderen: documentatie, de
+          # Bruno-collectie, de fuzz-configuratie en de workflows die uitsluitend toetsen. Zonder
+          # dit filter kostte een PR aan bijvoorbeeld de fuzz-configuratie tóch twee jib-builds
+          # plus drie previews — uitrollen van een image dat per definitie gelijk is aan main.
+          #
+          # deploy.yml zelf, .github/actions/ en de zad-actions staan er bewust NIET bij: die
+          # bepalen de uitrol, dus juist daar is een preview het bewijs dat de wijziging klopt.
+          # demo-console en demo/ horen erbij: die module wordt door geen enkele deploy uitgerold
+          # (de images zijn berichtenuitvraag en berichtenmagazijn), en test.yml scoopt er zijn
+          # tests al apart op.
+          niet_deploybaar='(^docs/|\.md$|^bruno/|^demo/|^services/demo-console/|^\.clusterfuzzlite/|^\.github/workflows/(test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fsc-harness-overlays|fuzz-base-image)\.yml$)'
+
+          # Herestring in plaats van een pipe: `grep -q` sluit de pipe bij de eerste match, en
+          # met `pipefail` zou die SIGPIPE als "niets te deployen" doorgaan. `grep` geeft 1 bij
+          # geen match en 2 bij een echte fout; alleen 1 mag tot overslaan leiden, want een
+          # overgeslagen deploy rapporteert `skipped` en telt als succes in de required checks.
+          rc=0
+          grep -qvE "$niet_deploybaar" <<<"$files" || rc=$?
+
+          case "$rc" in
+            0)
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+            1)
+              echo "Geen wijziging die de images of de uitrol raakt — bouwen en deployen overgeslagen."
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::warning::Filter kon niet beoordelen (grep rc=$rc) — deploy draait fail-safe."
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
 
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
   #
@@ -348,8 +376,11 @@ jobs:
   checks-pins:
     if: github.event_name == 'push' || github.event.action != 'closed'
     uses: ./.github/workflows/pin-consistency.yml
+    # pull-requests: write voor de melding over een verouderde fuzz-basis-image-pin; een
+    # aangeroepen workflow kan nooit meer krijgen dan de caller-job toekent.
     permissions:
       contents: read
+      pull-requests: write
 
   # ClusterFuzzLite fuzzt alleen PR's: op een push naar main is er geen basis om code-change-fuzzing
   # tegen af te zetten. Deze job wordt daar dus overgeslagen, en de gate telt dat als OK.

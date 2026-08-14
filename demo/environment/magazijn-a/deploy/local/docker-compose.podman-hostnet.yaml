@@ -1,0 +1,190 @@
+# Overlay op docker-compose.yaml + docker-compose.podman.yaml — vangnet voor omgevingen zonder
+# bruikbaar bridge-netwerk (podman-in-een-container: netavark kan de ipv6-sysctls van de bridge
+# niet zetten en aardvark-dns ontbreekt, dus container-DNS resolvet niet).
+#
+#   docker compose -f deploy/local/docker-compose.yaml \
+#                  -f deploy/local/docker-compose.podman.yaml \
+#                  -f deploy/local/docker-compose.podman-hostnet.yaml up -d
+#
+# Deze overlay hoort altijd bovenop docker-compose.podman.yaml: hij bestaat alleen voor podman, en
+# de keep-id-mapping die de privékeys leesbaar maakt staat daar.
+#
+# Alle containers delen de netns van de aanroeper. De `*.fsc-test.local`-namen komen daarom uit
+# `extra_hosts` in plaats van uit netwerk-aliassen. Ze blíjven nodig: de internal-mTLS-certificaten
+# dragen `manager.magazijn-a.fsc-test.local` en broertjes als SAN, dus de adressen platslaan naar
+# 127.0.0.1 zou de hostnaam-verificatie breken. Alleen de poort mag verschuiven, de naam niet.
+#
+# Vijf soorten aanpassing, en alleen deze:
+#
+#  1. `network_mode: host` + `extra_hosts`; de netwerk-aliassen en gepubliceerde poorten uit de
+#     basis worden met `!reset` weggehaald (beide zijn onverenigbaar met een gedeelde netns).
+#  2. Eén netns is één poortruimte, dus botsende listeners krijgen een uniek poortnummer en de
+#     adres-env's die ernaar wijzen volgen. Alleen wat écht botst verhuist: de manager houdt zijn
+#     interne 9443 en de controller zijn administration-API op 9444, want publish-service.sh heeft
+#     beide hard staan en smoke-discover.sh de 9443. De controller-UI verhuist van container-:8080
+#     naar :8090 en de directory-UI naar :8081 — 8090 was al de host-poort onder bridge, maar 8080
+#     kan niet vrijkomen voor de directory-UI omdat stub-upstream die poort houdt:
+#     publish-service.sh bakt `http://stub-upstream:8080` in als endpoint-URL van de dienst.
+#     Ook elke `MONITORING_ADDRESS` verhuist; die staan nergens in een adres-env.
+#  3. Alles bindt op 127.0.0.1 in plaats van 0.0.0.0. In een gedeelde netns is `0.0.0.0` élke
+#     interface van de aanroeper, terwijl de basis bewust alleen twee UI-poorten op loopback
+#     publiceerde. Zonder deze regel staan onder meer postgres (postgres/postgres) en de
+#     controller (AUTHN_TYPE=none) open op het netwerk van de machine.
+#  4. Geen postgres-healthcheck: podman draait healthchecks via systemd-timers, en juist in de
+#     omgevingen die deze overlay nodig hebben ontbreekt systemd — de status blijft dan eeuwig
+#     'starting' en `condition: service_healthy` loopt vast. De wachters worden `service_started`
+#     en pollen postgres zelf op via `restart: on-failure`. Élke `on-failure`-service krijgt hier
+#     een maximum, niet alleen die wachters: podman herstart zonder backoff, dus een structureel
+#     falende container verbrandt anders de hele sessie een core terwijl de harness er 'nog aan
+#     het opstarten' uitziet. 600 pogingen ligt ruim boven een trage `initdb` en is nog steeds
+#     eindig; raakt het budget op, dan staat de container zichtbaar op `exited`.
+#  5. De router draait op de hostnet-variant van haproxy.cfg (vaste 127.0.0.1-backends in plaats
+#     van runtime-DNS) en verliest zijn `sysctls`-regel: in een gedeelde netns mag een container
+#     die niet zetten. Dat vereist wel dat de netns van de aanroeper `ip_unprivileged_port_start`
+#     al op 0 heeft staan; zo niet, faalt de router op `bind :443`. De namen resolven dan nog
+#     wél (die komen uit extra_hosts), maar elke :443-verbinding krijgt ECONNREFUSED. Zet je
+#     die sysctl host-breed, dan mag voortaan élke
+#     onprivilegieerde gebruiker op die machine onder poort 1024 binden — een bewuste verlaging
+#     die je na afloop terugdraait (`sudo sysctl net.ipv4.ip_unprivileged_port_start=1024`).
+#
+# Deze harness en die van logius kunnen in hostnet-modus NIET tegelijk draaien: beide overlays
+# gebruiken bewust vrijwel dezelfde poortindeling, dus ze botsen op bijna elke poort — niet
+# alleen op :443. Onder bridge kan het wel, want elk compose-project krijgt een eigen netwerk.
+x-hosts: &hosts
+  - "directory.fsc-test.local:127.0.0.1"
+  - "magazijn-a.fsc-test.local:127.0.0.1"
+  - "manager.magazijn-a.fsc-test.local:127.0.0.1"
+  - "controller.magazijn-a.fsc-test.local:127.0.0.1"
+  - "txlog.magazijn-a.fsc-test.local:127.0.0.1"
+  - "inway.magazijn-a.fsc-test.local:127.0.0.1"
+  - "stub-upstream:127.0.0.1"
+  - "postgres:127.0.0.1"
+
+services:
+  postgres:
+    network_mode: host
+    healthcheck: !reset null
+    # Zonder listen_addresses bindt postgres op alle interfaces van de aanroeper; in de basis was
+    # de DB überhaupt niet van buiten het compose-netwerk bereikbaar.
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+
+  router:
+    network_mode: host
+    networks: !reset null
+    sysctls: !reset null
+    volumes:
+      - ./haproxy.podman-hostnet.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+  manager-directory:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:600
+    environment:
+      LISTEN_ADDRESS_EXTERNAL: 127.0.0.1:18443
+      LISTEN_ADDRESS_INTERNAL: 127.0.0.1:19443
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 127.0.0.1:19444
+      MONITORING_ADDRESS: 127.0.0.1:18080
+    depends_on:
+      postgres:
+        condition: service_started
+
+  migrate-magazijn-a:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:600
+    depends_on:
+      postgres:
+        condition: service_started
+
+  manager-magazijn-a:
+    network_mode: host
+    networks: !reset null
+    extra_hosts: *hosts
+    environment:
+      # LISTEN_ADDRESS_INTERNAL houdt poort 9443 uit de basis — publish-service.sh en
+      # smoke-discover.sh hebben dat adres hard staan.
+      LISTEN_ADDRESS_EXTERNAL: 127.0.0.1:28443
+      LISTEN_ADDRESS_INTERNAL: 127.0.0.1:9443
+      LISTEN_ADDRESS_INTERNAL_UNAUTHENTICATED: 127.0.0.1:29444
+      MONITORING_ADDRESS: 127.0.0.1:28080
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.magazijn-a.fsc-test.local:39443
+      TX_LOG_API_ADDRESS: https://txlog.magazijn-a.fsc-test.local:49443
+
+  stub-upstream:
+    network_mode: host
+    # De enige listener die niet uit een LISTEN_ADDRESS-env komt. `-listen=:8080` is een
+    # dual-stack wildcard-bind: die verschijnt in `ss` als `*:8080`, niet als `0.0.0.0:8080`, en
+    # ontsnapt dus aan een controle die alleen op `0.0.0.0` zoekt.
+    command: ["-listen=127.0.0.1:8080", "-text=hello from magazijn-a stub-upstream"]
+
+  inway-magazijn-a:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:600
+    environment:
+      # LISTEN_ADDRESS houdt 8443 uit de basis: dat is de backend van de :443-SNI-route, en die
+      # poort botst met niets. De monitoring-poort schuift mee naar de buur-poort.
+      LISTEN_ADDRESS: 127.0.0.1:8443
+      MONITORING_ADDRESS: 127.0.0.1:8444
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.magazijn-a.fsc-test.local:39443
+      MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS: https://manager.magazijn-a.fsc-test.local:29444
+      TX_LOG_API_ADDRESS: https://txlog.magazijn-a.fsc-test.local:49443
+
+  toolbox:
+    network_mode: host
+    extra_hosts: *hosts
+
+  directory-ui:
+    network_mode: host
+    ports: !reset []
+    extra_hosts: *hosts
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:8081
+      MONITORING_ADDRESS: 127.0.0.1:8082
+
+  migrate-controller-magazijn-a:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:600
+    depends_on:
+      postgres:
+        condition: service_started
+
+  controller-magazijn-a:
+    network_mode: host
+    networks: !reset null
+    ports: !reset []
+    extra_hosts: *hosts
+    restart: on-failure:600
+    environment:
+      # LISTEN_ADDRESS_ADMINISTRATION_API houdt 9444 en MANAGER_ADDRESS_INTERNAL blijft naar 9443
+      # wijzen; alleen de registration-API botst met de interne manager-poort.
+      LISTEN_ADDRESS_UI: 127.0.0.1:8090
+      LISTEN_ADDRESS_REGISTRATION_API: 127.0.0.1:39443
+      LISTEN_ADDRESS_ADMINISTRATION_API: 127.0.0.1:9444
+      MONITORING_ADDRESS: 127.0.0.1:38081
+
+  migrate-txlog-magazijn-a:
+    network_mode: host
+    extra_hosts: *hosts
+    restart: on-failure:600
+    # De migrate-job erft LISTEN/MONITORING uit het `x-txlog-common-env`-anchor van de basis. Die
+    # waarden (9443/8081) botsen in één netns met de manager resp. de directory-UI, dus ze moeten
+    # ook hier meeverhuizen — ook al opent een `migrate up` die listeners naar verwachting nooit.
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:49443
+      MONITORING_ADDRESS: 127.0.0.1:48081
+    depends_on:
+      postgres:
+        condition: service_started
+
+  txlog-magazijn-a:
+    network_mode: host
+    networks: !reset null
+    extra_hosts: *hosts
+    restart: on-failure:600
+    environment:
+      LISTEN_ADDRESS: 127.0.0.1:49443
+      MONITORING_ADDRESS: 127.0.0.1:48081
+
+networks: !reset null

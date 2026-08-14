@@ -49,3 +49,122 @@ jobs:
             fi
           done
           exit "$fail"
+
+  # Het fuzz-basis-image bevat een warme Maven-repository die bij de pom's van dát moment hoort.
+  # `.clusterfuzzlite/Dockerfile` pint het op digest, dus na een pom-wijziging hoort er een nieuw
+  # image gebouwd en gepind te worden.
+  #
+  # Deze job WAARSCHUWT en blokkeert niet. Een verouderde pin maakt de fuzz-build namelijk niet
+  # stuk: Maven haalt op wat er in de warme repository ontbreekt, dus het gevolg is een tragere
+  # voorbereiding, niet een foute. Blokkeren zou bovendien vastlopen — het nieuwe image wordt pas
+  # gebouwd bij een push naar main, en die push is precies wat een blokkerende check tegenhoudt.
+  # Elke dependency-bump zou dan handwerk vragen vóór hij überhaupt gemerged kan worden.
+  fuzz-basis-pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # pull-requests: write voor de melding hieronder. Een annotatie alleen is te makkelijk te
+    # missen: deze job blijft bij een verouderde pin groen, dus niemand opent hem.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Hoort de gepinde digest bij de huidige pom's
+        id: pin
+        env:
+          # Zelfde bestandenset als .github/workflows/fuzz-base-image.yml voor de tag gebruikt.
+          VERWACHT: ${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}
+        run: .github/scripts/fuzz-basis-pin.sh
+
+      - name: Beoordeel de uitkomst
+        id: oordeel
+        env:
+          STATUS: ${{ steps.pin.outputs.status }}
+          DIGEST: ${{ steps.pin.outputs.verwachte_digest }}
+          IMAGE_PAD: ${{ steps.pin.outputs.image_pad }}
+        run: |
+          set -euo pipefail
+
+          case "$STATUS" in
+            ok)
+              echo "Basis-image-pin hoort bij de huidige pom's."
+              ;;
+            ontbreekt)
+              echo "::warning::Nog geen fuzz-basis-image voor deze pom's."
+              {
+                echo "melding<<EOM"
+                echo "De dependency-declaraties zijn gewijzigd, dus het fuzz-basis-image met de warme"
+                echo "Maven-repository hoort opnieuw gebouwd te worden."
+                echo
+                echo "**Blokkeert niets.** De fuzz-controle werkt gewoon; hij haalt alleen het verschil"
+                echo "elke run opnieuw op, en is daarmee zo traag als vóór het basis-image."
+                echo
+                echo "Na de merge naar \`main\` bouwt de workflow **Fuzz-basis-image** het nieuwe image en"
+                echo "print hij de digest. Zet die in \`.clusterfuzzlite/Dockerfile\` en deze melding verdwijnt."
+                echo "EOM"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            verouderd)
+              echo "::warning::De pin hoort niet bij de huidige pom's; pin $DIGEST."
+              {
+                echo "melding<<EOM"
+                echo "Er is een fuzz-basis-image dat wél bij de huidige dependency-declaraties hoort, maar"
+                echo "\`.clusterfuzzlite/Dockerfile\` wijst nog naar een ander."
+                echo
+                echo "**Blokkeert niets**, maar de fuzz-voorbereiding is tot die tijd trager dan nodig."
+                echo
+                echo "Werk de pin bij naar:"
+                echo
+                echo '```dockerfile'
+                echo "FROM ghcr.io/${IMAGE_PAD}@${DIGEST}"
+                echo '```'
+                echo "EOM"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            oncontroleerbaar)
+              echo "::warning::De basis-image-pin is deze run NIET gecontroleerd (registry niet te bevragen)."
+              ;;
+            *)
+              # geen-pin / geen-pom-hash: geen situatie die een dependency-bump veroorzaakt, maar
+              # een wijziging aan de Dockerfile of aan deze workflow zelf. Dan valt er niets meer
+              # te controleren en is stil doorgaan het slechtste antwoord.
+              echo "::error::Basis-image-pin niet te beoordelen (status=$STATUS) — er valt niets meer te controleren."
+              exit 1
+              ;;
+          esac
+
+      # Alleen op een PR uit deze repo: bij een fork is GITHUB_TOKEN read-only, dus zou de
+      # comment een 403 geven en zou uitgerekend deze job — die zichzelf niet-blokkerend noemt —
+      # de deploy-gate tegenhouden. `continue-on-error` vangt de resterende API-hikken af: een
+      # gemiste melding mag nooit zwaarder wegen dan de wijziging zelf.
+      - name: Meld een verouderde pin op de PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          MELDING: ${{ steps.oordeel.outputs.melding }}
+          MARKER: '<!-- fuzz-basis-pin -->'
+        run: |
+          set -euo pipefail
+
+          bestaand=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq "[.[] | select(.body | contains(\"$MARKER\"))] | first | .id // empty" | head -1)
+
+          if [ -z "$MELDING" ]; then
+            if [ -n "$bestaand" ]; then
+              gh api -X DELETE "repos/$REPO/issues/comments/$bestaand"
+              echo "Pin is weer bij; melding verwijderd."
+            fi
+            exit 0
+          fi
+
+          body=$(printf '%s\n### Fuzz-basis-image loopt achter op de dependency-declaraties\n\n%s\n' "$MARKER" "$MELDING")
+
+          if [ -n "$bestaand" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$bestaand" -f body="$body" --jq .html_url
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -f body="$body" --jq .html_url
+          fi

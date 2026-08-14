@@ -69,7 +69,7 @@ De peer staat daarom in een eigen deployment `fsc-logius`: **wat niet in `test` 
 | Variabele | Default | Rol |
 |-----------|---------|-----|
 | `ZAD_API_KEY` | — (verplicht bij `apply`) | Auth tegen de ZAD v2-API; de bestaande **`ZAD_API_KEY_UITVRAAG`** (key van het gedeelde project `mpfb-8wh`) — géén aparte peer-key. **Niet** inline zetten (`export`, niet `ZAD_API_KEY=... ./upsert-peer.sh ...` — dat komt in de shell-history). |
-| `ZAD_PROJECT` | `mpfb-8wh` | Gedeeld ZAD-project van peer + app (`uitvraag`/`redis`/`clickhouse`). Bepaalt óók de namespace (`rig-prd-<project>`) in de cert-SAN's — `pki/gen-csr.sh` leest dezelfde var, dus een projectwissel is env-var-only (her-uitgeven + opnieuw uploaden). |
+| `ZAD_PROJECT` | `mpfb-8wh` | Gedeeld ZAD-project van peer + app (`uitvraag`/`redis`). Bepaalt óók de namespace (`rig-prd-<project>`) in de cert-SAN's — `pki/gen-csr.sh` leest dezelfde var, dus een projectwissel is env-var-only (her-uitgeven + opnieuw uploaden). |
 | `ZAD_DEPLOYMENT` | `fsc-logius` | Default voor het `[deployment]`-argument (het CLI-arg wint) — de eigen, preview-loze peer-deployment. Gedeeld met `pki/gen-csr.sh` zodat cert-SAN's en deploy-adressen sporen; een deployment-wissel vraagt dus om her-uitgeven + opnieuw uploaden van de certs. |
 | `ZAD_BASE` | `https://zad.rijksapp.nl` | Basis-URL van de ZAD v2 Operations Manager API. |
 | `ZAD_BASE_DOMAIN` | `rig.prd1.gn2.quattro.rijksapps.nl` | Base-domain voor de per-component mesh-hostnamen. |
@@ -85,7 +85,7 @@ De peer staat daarom in een eigen deployment `fsc-logius`: **wat niet in `test` 
 | `ZAD_PEER_CLONE_FROM` | _(leeg)_ | Optionele `cloneFrom` op `:upsert-deployment`. Leeg = geen clone (aanbevolen) — klonen van `test` zou de `uitvraag`-app-componenten meenemen. |
 
 `deploy.yml`'s `deploy-test-uitvraag`-job gebruikt voor zijn image-tag-updates het bestaande secret
-`ZAD_API_KEY_UITVRAAG` — dezelfde key als voor `uitvraag`/`redis`/`clickhouse`, geen apart secret
+`ZAD_API_KEY_UITVRAAG` — dezelfde key als voor `uitvraag`/`redis`, geen apart secret
 voor de peer. Voor een lokale `upsert-peer.sh apply`-run: `export ZAD_API_KEY=<waarde van
 ZAD_API_KEY_UITVRAAG>` (en `export ZAD_PG_PASSWORD=...`), niet inline.
 

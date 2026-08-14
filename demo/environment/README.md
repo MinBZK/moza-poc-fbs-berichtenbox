@@ -1,9 +1,9 @@
 # FSC-demo-omgeving
 
 Provider- en consumer-peers voor de FSC-federatie, co-located met de services die ze
-begeleiden. De gedeelde directory/group-CA (group-anker) draait in de externe, aparte
-repo `moza-fsc-testnet` — die verhuist bewust niet mee (org-onafhankelijke kern, door
-meerdere consumer-repo's tegelijk gebruikt).
+begeleiden. **Op ZAD** draait de gedeelde directory/group-CA (group-anker) in de externe,
+aparte repo `moza-fsc-testnet` — die verhuist bewust niet mee (org-onafhankelijke kern,
+door meerdere consumer-repo's tegelijk gebruikt).
 
 | Peer | Rol | OIN | ZAD-project / deployment |
 |------|-----|-----|--------------|
@@ -13,3 +13,15 @@ meerdere consumer-repo's tegelijk gebruikt).
 Elke peer-map bevat dezelfde indeling: `pki/` (certificaat-scripts), `deploy/local/`
 (lokale docker-compose-harness), `deploy/zad/` (ZAD-rollout-runbooks + plan/validate-
 script) en `docs/` (ontwerpachtergrond).
+
+## Lokaal: één peer of de hele federatie
+
+Elke peer-harness draait standalone een complete mini-federatie mét eigen directory en eigen
+group-CA — genoeg om díé peer te beproeven, maar twee ervan kunnen niet tegelijk draaien en
+zouden elkaar ook niet vertrouwen.
+
+Voor alles wat zich *tussen* peers afspeelt — een contract, een data-pad, service-discovery —
+zet [`federatie/`](federatie/) de peers naast elkaar in één netns, met één directory, één
+group-CA en één SNI-router. Dat is de lokale tegenhanger van de ZAD-opstelling hierboven.
+
+`lib/fsc-harness.sh` bevat de helpers die de scripts van alle peers delen.
