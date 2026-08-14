@@ -126,6 +126,56 @@ fsc_grant_hash() {
     | ($g[0] // "unknown")' 2>/dev/null || echo unknown
 }
 
+# fsc_zet_upstream <envdir> <peer> <upstream-url>: publiceer de dienst van die peer (opnieuw) met
+# deze upstream achter de inway. Idempotent — bestaat de dienst al met dezelfde upstream, dan doet
+# publish-service.sh niets.
+#
+# Elke smoke die over het data-pad iets beweert, hoort dit zelf te zetten in plaats van het als
+# voorwaarde op te schrijven: smoke-contract.sh toetst de echo van de stub, smoke-keten.sh het
+# échte magazijn, en wie ze na elkaar draait zou anders de ene de andere zien omgooien.
+fsc_zet_upstream() {
+  FSC_CONTROLLER="https://controller.$2.fsc-test.local:9444" \
+  FSC_MANAGER="https://manager.$2.fsc-test.local:9443" \
+  FSC_UPSTREAM_URL="$3" \
+    "$1/$2/deploy/local/publish-service.sh"
+}
+
+# fsc_compose_env_waarde <waarde>: waarde zoals hij in een `env_file` van docker compose moet staan.
+#
+# Compose interpoleert een env_file: `$NAAM` wordt vervangen door een variabele uit de omgeving, en
+# een onbekende naam door niets. FSC-grant-hashes hebben de vorm `$1$<n>$<base64url>`, dus het deel
+# ná de derde `$` wordt opgeslokt zodra het met een letter of underscore begint — 53 van de 64
+# base64url-tekens. Gemeten in een container: `$1$4$k4rwlWTsCM_j89Fc3nrbnQa9-KB43` komt aan als
+# `$1$4-KB43`, en de outway antwoordt dan 400 UNKNOWN_GRANT_HASH_IN_HEADER.
+#
+# Verdubbelen is compose' eigen escape voor een letterlijke `$`. Dat maakt het bestand
+# compose-specifiek: lees het niet met `set -a; . bestand`, want dan houd je de dubbele tekens.
+fsc_compose_env_waarde() {
+  printf '%s' "${1//\$/\$\$}"
+}
+
+# fsc_compose_env_lees <bestand> <naam>: de ONGE-escapete waarde van `naam` uit een compose-env_file.
+#
+# Tegenhanger van fsc_compose_env_waarde. Wie zo'n bestand met `sed`/`grep` uitleest krijgt de
+# verdubbelde dollars mee en stuurt die door — bij een grant-hash levert dat een 400 op de outway,
+# terwijl het bestand er goed uitziet. Altijd via deze functie lezen.
+fsc_compose_env_lees() {
+  local waarde
+  waarde="$(sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n1)" || return 1
+  printf '%s' "${waarde//\$\$/\$}"
+}
+
+# fsc_grant_bruikbaar <hash>: is dit een echt grant-hash?
+#
+# fsc_grant_hash levert bij een mislukking de string `unknown` in plaats van een lege waarde, zodat
+# een aanroeper die 'm alleen toont iets leesbaars afdrukt. Een kale `[ -n "$hash" ]` is daardoor
+# geen geldige controle: die slaagt óók op de sentinel, en dan reist `Fsc-Grant-Hash: unknown` mee
+# naar de outway, die er een 400 op geeft. Vandaar één predicaat in plaats van de vergelijking op
+# elke plek los over te typen.
+fsc_grant_bruikbaar() {
+  [ -n "${1:-}" ] && [ "$1" != unknown ]
+}
+
 # --- contract-matching (gedeeld door contracts/bootstrap.sh en federatie/smoke-contract.sh) ----
 # Eén matcher voor "is dit contract geldig en van toepassing op deze serviceConnection", zodat
 # beide scripts niet elk hun eigen (en dus potentieel afwijkende) criteria hanteren.
@@ -187,6 +237,24 @@ fsc_peer_waarde() {
 
 # fsc_alle_peers: gastheer + gasten uit peers.env, in opstartvolgorde.
 fsc_alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
+
+# fsc_manager_contracts <envdir> <peer> <adres>: de contracten van een peer via zijn INTERNE
+# manager-API, met het internal-cert van diezelfde peer. De naam staat niet in /etc/hosts
+# (`extra_hosts` geldt alleen binnen containers), vandaar `--resolve` op het meegegeven adres.
+#
+# Hier en niet in één van de aanroepers, omdat zowel de contract-bootstrap als de smokes deze
+# lijst nodig hebben: twee kopieën zouden uiteen kunnen lopen in cert-pad of poort, en dan meet de
+# smoke iets anders dan de bootstrap doet.
+fsc_manager_contracts() {
+  local envdir="$1" peer="$2" adres="$3" naam="manager.$2.fsc-test.local"
+
+  curl -sS --fail-with-body --noproxy '*' \
+    --resolve "${naam}:9443:${adres}" \
+    --cert "${envdir}/${peer}/pki/internal/${peer}/manager/cert.pem" \
+    --key  "${envdir}/${peer}/pki/internal/${peer}/manager/key.pem" \
+    --cacert "${envdir}/${peer}/pki/internal/${peer}/ca/root.pem" \
+    "https://${naam}:9443/v1/contracts" 2>"$ERRLOG"
+}
 
 # fsc_component_adres <net> <component>: het adres van een component binnen het /24 van een peer,
 # bv. `fsc_component_adres 127.20.2 inway` -> `127.20.2.4`. De octetten liggen vast en zijn voor

@@ -188,7 +188,14 @@ bestaande_contracten() {  # hashes van geldige, niet-ingetrokken contracten voor
     return 1
   }
 
-  fsc_grant_actief "$json" "$SERVICE_NAME" "$PROVIDER_OIN" "$CONSUMER_OIN" "$THUMB" | sort
+  # Met eigen melding: `fsc_grant_actief` eindigt op `jq … 2>/dev/null` en heeft geen
+  # fallback-waarde. Antwoordt de manager met 200 maar zonder geldige JSON (een proxy-foutpagina,
+  # een afgekapt antwoord), dan faalt deze pipeline onder `pipefail` en zou de aanroeper zonder
+  # deze tak zwijgend afbreken — de laag erboven meldt dan alleen "contract niet opgezet".
+  fsc_grant_actief "$json" "$SERVICE_NAME" "$PROVIDER_OIN" "$CONSUMER_OIN" "$THUMB" | sort || {
+    echo "FAIL: de contractenlijst van de provider is niet te lezen — geen geldige JSON?" >&2
+    return 1
+  }
 }
 
 BESTAAND="$(bestaande_contracten)" || exit 1

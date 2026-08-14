@@ -9,6 +9,17 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
 
+# Zet $HAVE_JQ; de vergelijking van de bestaande upstream leest de controller-JSON met jq.
+#
+# Meteen hard falen en niet pas bij de vergelijking: die tak wordt alleen geraakt als de dienst al
+# bestaat, dus zonder deze controle slaagt de eerste run op een machine zonder jq en faalt elke
+# volgende — een verschil dat je aan het script niet ziet.
+fsc_have_jq
+[ "$HAVE_JQ" -eq 1 ] || {
+  echo "FAIL: jq is vereist; dit script vergelijkt de bestaande upstream met de controller-JSON." >&2
+  exit 1
+}
+
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
 SERVICE_NAME="berichtenmagazijn"
@@ -19,7 +30,10 @@ GROUP_ID="moza-fbs-test"                 # = GROUP_ID env-var op de manager; als
 # overrulebaar, met de standalone-waarde als default. Geprefixt met FSC_ omdat een kale `MANAGER=`
 # in iemands shell anders stilzwijgend een mTLS-call mét het internal-cert van deze peer naar een
 # vreemd endpoint zou sturen.
-STUB_URL="${FSC_STUB_URL:-http://stub-upstream:8080}"
+# De dienst wijst naar de upstream die de inway fronter. In de kale harness is dat de
+# http-echo-stub; zodra de echte applicatie erachter hangt, is het die. FSC_STUB_URL blijft als
+# oude naam werken zodat bestaande aanroepen niet stilvallen.
+UPSTREAM_URL="${FSC_UPSTREAM_URL:-${FSC_STUB_URL:-http://stub-upstream:8080}}"
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CERT=/pki/internal/magazijn-a/manager/cert.pem
@@ -41,14 +55,14 @@ case "$MANAGER" in
   *) echo "FAIL: FSC_MANAGER moet met https:// beginnen: '${MANAGER}'" >&2; exit 2 ;;
 esac
 
-# STUB_URL gaat ongeëscaped een handgebouwde JSON-body in (CreateService, hieronder). Een
+# UPSTREAM_URL gaat ongeëscaped een handgebouwde JSON-body in (CreateService, hieronder). Een
 # aanhalingsteken zou daar uit de string breken en velden kunnen toevoegen.
-case "$STUB_URL" in
+case "$UPSTREAM_URL" in
   http://*|https://*) ;;
-  *) echo "FAIL: FSC_STUB_URL moet met http:// of https:// beginnen: '${STUB_URL}'" >&2; exit 2 ;;
+  *) echo "FAIL: FSC_UPSTREAM_URL moet met http:// of https:// beginnen: '${UPSTREAM_URL}'" >&2; exit 2 ;;
 esac
-case "$STUB_URL" in
-  *'"'*|*'\'*) echo "FAIL: FSC_STUB_URL bevat een aanhalingsteken of backslash." >&2; exit 2 ;;
+case "$UPSTREAM_URL" in
+  *'"'*|*'\'*) echo "FAIL: FSC_UPSTREAM_URL bevat een aanhalingsteken of backslash." >&2; exit 2 ;;
 esac
 
 # Vang curl-/toolbox-stderr op i.p.v. weg te gooien: een mTLS-/netwerk-/dode-container-fout
@@ -73,11 +87,28 @@ done
 echo "  inway_address=$INWAY_ADDR"
 
 echo "publish: $SERVICE_NAME aanmaken (idempotent)..."
-if fsc_tb "$CONTROLLER/v1/services" | grep -q "\"$SERVICE_NAME\""; then
-  echo "  bestaat al, skip create."
+BESTAAND="$(fsc_tb "$CONTROLLER/v1/services" || true)"
+if printf '%s' "$BESTAAND" | grep -q "\"$SERVICE_NAME\""; then
+  # Bestaat al — maar met wélke upstream? Zonder deze controle wisselt een run met een andere
+  # FSC_UPSTREAM_URL stilzwijgend niets, en blijft de inway naar de oude upstream wijzen terwijl
+  # het script "klaar" meldt. Dat kost je een half uur zoeken in de verkeerde hoek.
+  #
+  # Met jq en niet met grep: een grep-patroon over JSON breekt zodra het antwoord met spaties wordt
+  # opgemaakt, en de URL zou als regex worden gelezen (een punt matcht dan elk teken).
+  HUIDIGE_URL="$(printf '%s' "$BESTAAND" \
+    | jq -r --arg n "$SERVICE_NAME" '.services[]? | select(.name == $n) | .endpoint_url' 2>/dev/null || true)"
+
+  if [ "$HUIDIGE_URL" = "$UPSTREAM_URL" ]; then
+    echo "  bestaat al met dezelfde upstream, skip create."
+  else
+    echo "  bestaat al met upstream ${HUIDIGE_URL:-<onbekend>}; bijwerken naar ${UPSTREAM_URL}..."
+    fsc_tb -X PUT "$CONTROLLER/v1/services/$SERVICE_NAME" -H 'Content-Type: application/json' \
+       -d "{\"name\":\"$SERVICE_NAME\",\"endpoint_url\":\"$UPSTREAM_URL\",\"inway_address\":\"$INWAY_ADDR\"}"
+    echo "  bijgewerkt."
+  fi
 else
   fsc_tb -X POST "$CONTROLLER/v1/services" -H 'Content-Type: application/json' \
-     -d "{\"name\":\"$SERVICE_NAME\",\"endpoint_url\":\"$STUB_URL\",\"inway_address\":\"$INWAY_ADDR\"}"
+     -d "{\"name\":\"$SERVICE_NAME\",\"endpoint_url\":\"$UPSTREAM_URL\",\"inway_address\":\"$INWAY_ADDR\"}"
   echo "  aangemaakt."
 fi
 

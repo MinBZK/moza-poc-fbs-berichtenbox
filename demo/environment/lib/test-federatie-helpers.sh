@@ -66,6 +66,56 @@ else
   ok "component_adres faalt hard op een leeg net"
 fi
 
+# --- fsc_grant_bruikbaar ------------------------------------------------------------------------
+# De sentinel is het hele punt: fsc_grant_hash geeft `unknown` terug in plaats van leeg, en een
+# aanroeper die op leegte toetst schrijft die string door naar de Fsc-Grant-Hash-header.
+fsc_grant_bruikbaar '$1$3$abc' \
+  && ok "grant_bruikbaar accepteert een echt hash" || fout "grant_bruikbaar verwerpt een echt hash"
+
+if fsc_grant_bruikbaar unknown; then
+  fout "grant_bruikbaar accepteert de sentinel 'unknown' (die belandt dan op de header)"
+else
+  ok "grant_bruikbaar verwerpt de sentinel 'unknown'"
+fi
+
+if fsc_grant_bruikbaar ""; then
+  fout "grant_bruikbaar accepteert een lege waarde"
+else
+  ok "grant_bruikbaar verwerpt een lege waarde"
+fi
+
+if fsc_grant_bruikbaar; then
+  fout "grant_bruikbaar accepteert een ontbrekend argument"
+else
+  ok "grant_bruikbaar verwerpt een ontbrekend argument"
+fi
+
+# --- fsc_compose_env_waarde ---------------------------------------------------------------------
+# Een kale `$` in een env_file wordt door compose als variabele-verwijzing gelezen; bij een
+# grant-hash (`$1$<n>$<base64url>`) verdwijnt daardoor het hele middenstuk en antwoordt de outway
+# 400. Gemeten in een container: `$1$4$k4rw…` kwam aan als `$1$4-KB43`.
+[ "$(fsc_compose_env_waarde '$1$4$k4rwlWTsCM_j89Fc3nrbnQa9-KB43')" = '$$1$$4$$k4rwlWTsCM_j89Fc3nrbnQa9-KB43' ] \
+  && ok "compose_env_waarde verdubbelt elke dollar in een grant-hash" \
+  || fout "compose_env_waarde verdubbelt de dollars niet (compose vreet dan het hash op)"
+
+[ "$(fsc_compose_env_waarde 'geen-dollars-hier')" = 'geen-dollars-hier' ] \
+  && ok "compose_env_waarde laat een waarde zonder dollars ongemoeid" \
+  || fout "compose_env_waarde muteert een waarde zonder dollars"
+
+[ "$(fsc_compose_env_waarde '')" = '' ] \
+  && ok "compose_env_waarde levert leeg op leeg" || fout "compose_env_waarde muteert een lege waarde"
+
+# Heen en terug: wat de schrijffunctie erin zet, moet de leesfunctie er ongeschonden uit halen.
+# Zonder die symmetrie stuurt een lezer de verdubbelde dollars door en krijgt hij een 400.
+printf 'MAGAZIJN_A_GRANT_HASH=%s\n' "$(fsc_compose_env_waarde '$1$3$_AKXojkq-Nn07')" > "$WERK/grants.env"
+[ "$(fsc_compose_env_lees "$WERK/grants.env" MAGAZIJN_A_GRANT_HASH)" = '$1$3$_AKXojkq-Nn07' ] \
+  && ok "compose_env_lees haalt eruit wat compose_env_waarde erin zette" \
+  || fout "compose_env_waarde/-lees zijn niet symmetrisch (de lezer stuurt dan dubbele dollars door)"
+
+[ -z "$(fsc_compose_env_lees "$WERK/grants.env" BESTAAT_NIET)" ] \
+  && ok "compose_env_lees levert leeg voor een onbekende naam" \
+  || fout "compose_env_lees levert niet-leeg voor een onbekende naam"
+
 # --- fsc_compose_project ------------------------------------------------------------------------
 printf 'name: fsc-magazijna\nservices:\n  x: {}\n' > "$WERK/goed.yaml"
 [ "$(fsc_compose_project "$WERK/goed.yaml")" = "fsc-magazijna" ] \
