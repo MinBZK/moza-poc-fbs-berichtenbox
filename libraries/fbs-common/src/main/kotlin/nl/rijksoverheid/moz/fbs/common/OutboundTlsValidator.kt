@@ -24,7 +24,6 @@ object OutboundTlsValidator {
      */
     const val TLS_DISABLED_ALERT_TOKEN = "OUTBOUND_TLS_DISABLED"
 
-    private val PROFIELEN_ZONDER_TLS_EIS = setOf("dev", "test")
 
     /**
      * Verifieert dat [endpoint] met `https://` begint in non-dev/test-profielen.
