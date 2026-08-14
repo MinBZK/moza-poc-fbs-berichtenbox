@@ -97,7 +97,7 @@ class DownstreamClientTest {
     @Test
     fun `5xx response geeft HttpFout met herstelbaar`() {
         server.close()
-        server = DownstreamHttpServer(statusVoorAanroep = { _ -> 500 })
+        server = DownstreamHttpServer().apply { statusVoorAanroep = { _ -> 500 } }
         server.start()
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
         client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
@@ -112,7 +112,7 @@ class DownstreamClientTest {
     @Test
     fun `4xx response geeft HttpFout niet-herstelbaar`() {
         server.close()
-        server = DownstreamHttpServer(statusVoorAanroep = { _ -> 400 })
+        server = DownstreamHttpServer().apply { statusVoorAanroep = { _ -> 400 } }
         server.start()
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
         client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
