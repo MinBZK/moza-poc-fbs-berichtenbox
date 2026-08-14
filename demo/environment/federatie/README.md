@@ -175,6 +175,41 @@ de accept is een expliciete `PUT`. Landt de accept-handtekening daarna niet bij 
 push is best-effort, met begrensde backoff en zonder cron-retry), dan blijft het contract daar
 `proposed` en ziet de outway de grant nooit; het script forceert dan de her-distributie.
 
+## De FBS-applicatie door de keten
+
+Standaard front de inway een `stub-upstream` (http-echo) en praat de demo-stack rechtstreeks met de
+magazijnen. Met drie ingrepen loopt `berichtenuitvraag` bij magazijn-a écht door FSC:
+
+```bash
+# 1. de inway naar het echte magazijn laten wijzen (in plaats van de echo-stub)
+FSC_UPSTREAM_URL=http://127.0.0.1:8090 \
+  ../magazijn-a/deploy/local/publish-service.sh
+
+# 2. contract + grant-hash; schrijft demo/generated/fsc-grants.env
+./contracts/fbs-contracten.sh
+
+# 3. de demo-stack met de uitvraag door de outway van logius
+MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 ../../podman-up.sh
+
+./smoke-keten.sh
+```
+
+`smoke-keten.sh` bewijst het in drie asserts: een bericht dat alleen in magazijn-a bestaat komt via
+de uitvraag terug, er staat een **nieuwe** transactie in beide txlogs, en magazijn-b blijft
+rechtstreeks werken. Die tweede assert is de eigenlijke: zonder nulmeting zou een transactie uit een
+eerdere run de smoke groen houden terwijl het verkeer buiten de outway om ging.
+
+Drie dingen om te weten:
+
+- **`MAGAZIJN_A_URL` moet ook in `%dev` doorwerken.** De demo draait met `QUARKUS_PROFILE=dev`, en
+  een kale `%dev.magazijnen."…".url=http://localhost:8090` overrulet de omgeving. Het ophalen slaagt
+  dan gewoon — alleen langs de verkeerde weg, en het transactielogboek blijft leeg.
+- **De sessiecache maskeert de keten.** Een tweede ophaling voor dezelfde ontvanger komt uit Redis
+  en raakt het magazijn niet; `smoke-keten.sh` gebruikt daarom per run een verse, elfproef-geldige
+  BSN.
+- **`publish-service.sh` werkt een gewijzigde upstream bij**, maar het `servicePublication`-contract
+  blijft staan. Wisselt de dienst van betekenis, dan hoort daar een nieuwe publicatie bij.
+
 ## Een peer toevoegen
 
 1. **`peers.env`** — de peer aan `GASTEN` toevoegen, met zijn `OIN_<peer>` en het volgende vrije

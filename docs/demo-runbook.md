@@ -84,6 +84,30 @@ demo/podman-up.sh                        # kiest zelf de werkbare netwerkmodus
 DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-allowlist
 ```
 
+De stack luistert standaard **alleen op `127.0.0.1`**: zonder die grens staan Redis (zonder
+wachtwoord), drie PostgreSQL-instanties met demo-credentials en de WireMock-admin-API's op elke
+interface van de machine — op een kantoor- of thuisnetwerk dus voor het hele subnet.
+
+Wil je de demo aan iemand anders tonen, dan zet je hem bewust open, en heb je **beide** variabelen
+nodig: `DEMO_BIND` voor de poorten en `DEMO_HOST` voor de CORS-allowlist.
+
+```bash
+DEMO_BIND=0.0.0.0 DEMO_HOST=10.0.0.5 demo/podman-up.sh
+```
+
+`DEMO_BIND` kent maar twee waarden: `127.0.0.1` (default) en `0.0.0.0`. Een specifiek adres wordt
+geweigerd, omdat elke controle in `podman-up.sh` over 127.0.0.1 loopt en anders afloopt op een
+timeout terwijl de stack gezond draait.
+
+Twee beperkingen daarbij:
+
+- **`DEMO_BIND` geldt alleen in bridge-modus.** In `hostnet` publiceert compose geen poorten en
+  binden de containers zelf; die staan vast op loopback, want in een gedeelde netns is een
+  wildcard-bind de hele machine — en botst hij bovendien met elke specifieke bind van een
+  FSC-federatie in dezelfde netns.
+- **Het bedieningspaneel blijft altijd op loopback** (`demo-console`, poort 8095): het heeft geen
+  authenticatie en zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
+
 Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
 controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
 zijn, genereert de stub-artefacten, en controleert na elke start dat elke container draait. Redis,
@@ -101,10 +125,16 @@ Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet`
 automatisch gekozen: podman draait daar in een VM, dus de gedeelde namespace is die van de VM en
 zonder gepubliceerde poorten komt er niets door naar je werkplek.
 
-In `hostnet` delen alle containers één netwerknamespace. De zes Toxiproxy-proxy-listeners, die in
-`bridge` alleen intern bestonden, staan dan open op elk adres van de machine. Draai deze modus dus
-alleen op een vertrouwd netwerk. (De poorten die `compose.yaml` publiceert, waaronder alle drie de
-Postgres-instanties, binden ook in `bridge` al op alle interfaces.)
+In `hostnet` delen alle containers één netwerknamespace: de zes Toxiproxy-proxy-listeners, die in
+`bridge` alleen intern bestonden, zijn dan ook op de machine zelf zichtbaar. Ze binden — net als
+alle andere services in deze modus — op `127.0.0.1`, dus ze zijn niet van buiten de machine
+bereikbaar. Een CI-job (`demo-stack-op-loopback`) bewaakt dat: elke listener in de gerenderde merge
+moet op loopback staan, anders faalt de build.
+
+Dat is geen detail van deze modus maar de eis die hem werkbaar maakt. In een gedeelde namespace is
+een wildcard-bind (`0.0.0.0`) de hele machine — Redis zonder wachtwoord, drie PostgreSQL-instanties
+met demo-credentials — en botst hij bovendien met elke specifieke bind op dezelfde poort, zoals die
+van een FSC-federatie die in dezelfde namespace draait.
 
 Botst een van die poorten met iets dat al draait, dan hangt het van de poort af hoe dat zich
 uit. Een service die zelf niet kan binden stopt, en het script meldt welke container dat is mét

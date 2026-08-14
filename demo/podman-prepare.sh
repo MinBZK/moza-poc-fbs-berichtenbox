@@ -33,7 +33,12 @@ trap 'rm -f "$REGISTER.tmp" "$PROXIES.tmp"' EXIT
 # zijn eigen invoerbestand kan lezen én erin schrijven.
 sed 's|http://magazijn-stubs:8080|http://127.0.0.1:8092|g' "$REGISTER" > "$REGISTER.tmp"
 
-sed -e 's|"berichtenmagazijn-a:8090"|"127.0.0.1:8090"|' \
+# `listen` gaat mee van 0.0.0.0 naar 127.0.0.1: in een gedeelde netns bindt een wildcard op élke
+# interface van de machine, en achter deze proxies zitten Redis en de magazijn-API's. Bovendien
+# botst een wildcard-bind met elke specifieke bind op dezelfde poort — bijvoorbeeld van een
+# FSC-federatie die in dezelfde netns draait.
+sed -e 's|"listen": "0\.0\.0\.0:|"listen": "127.0.0.1:|g' \
+    -e 's|"berichtenmagazijn-a:8090"|"127.0.0.1:8090"|' \
     -e 's|"berichtenmagazijn-b:8090"|"127.0.0.1:8091"|' \
     -e 's|"redis:6379"|"127.0.0.1:6379"|' \
     -e 's|"profiel-service:8080"|"127.0.0.1:8089"|' \
@@ -87,8 +92,8 @@ fi
 # Een listen-adres op een containernaam laadt Toxiproxy niet (`Failed to populate proxies`), en dan
 # staat er een gezonde proxy-loze Toxiproxy die elke naïeve probe groen laat.
 if grep -o '"listen": *"[^"]*"' "$PROXIES.tmp" |
-   grep -vE '"listen": *"(0\.0\.0\.0|127\.0\.0\.1):[0-9]+"' >&2; then
-    echo "FOUT: bovenstaande toxiproxy-listen-adressen zijn geen IP:poort." >&2
+   grep -vE '"listen": *"127\.0\.0\.1:[0-9]+"' >&2; then
+    echo "FOUT: bovenstaande toxiproxy-listen-adressen staan niet op 127.0.0.1." >&2
     exit 1
 fi
 

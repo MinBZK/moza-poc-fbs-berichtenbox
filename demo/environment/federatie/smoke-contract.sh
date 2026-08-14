@@ -46,22 +46,20 @@ CONS_OIN="$(fsc_peer_waarde OIN "$UITVRAAG")"
 # de inway van de provider.
 OUTWAY="http://$(fsc_component_adres "$CONS_NET" outway):8443"
 
+# Ruimte voor de inway om een gewijzigde upstream op te pikken (zie de lus bij het data-pad).
+UPSTREAM_POGINGEN="${UPSTREAM_POGINGEN:-5}"
+UPSTREAM_WACHT="${UPSTREAM_WACHT:-3}"
+
 # Thumbprint van de consumer-outway — zelfde grootheid als bootstrap.sh gebruikt om een contract
 # te identificeren. Nodig om hier dezelfde matcher (fsc_grant_actief) te kunnen hergebruiken.
 CONS_OUTWAY_CERT="${ENVDIR}/${UITVRAAG}/pki/out/${UITVRAAG}/outway/cert.pem"
 CONS_THUMB="$(fsc_outway_thumbprint "$CONS_OUTWAY_CERT")" \
   || { echo "FAIL: kon de outway-thumbprint niet berekenen uit ${CONS_OUTWAY_CERT}: $(fsc_last_error)" >&2; exit 1; }
 
-# manager_json <peer> <net>: de contracten van die peer via zijn interne API. Elke manager luistert
-# op zijn eigen adres, op de standaardpoort 9443.
+# manager_json <peer> <net>: de contracten van die peer via zijn interne API, op het manager-adres
+# binnen zijn eigen /24.
 manager_json() {
-  local peer="$1" net="$2" naam="manager.$1.fsc-test.local" poort=9443
-  curl -sS --fail-with-body --noproxy '*' \
-    --resolve "${naam}:${poort}:$(fsc_component_adres "$net" manager)" \
-    --cert "${ENVDIR}/${peer}/pki/internal/${peer}/manager/cert.pem" \
-    --key  "${ENVDIR}/${peer}/pki/internal/${peer}/manager/key.pem" \
-    --cacert "${ENVDIR}/${peer}/pki/internal/${peer}/ca/root.pem" \
-    "https://${naam}:${poort}/v1/contracts" 2>"$ERRLOG"
+  fsc_manager_contracts "$ENVDIR" "$1" "$(fsc_component_adres "$2" manager)"
 }
 
 for magazijn in $MAGAZIJNEN; do
@@ -100,12 +98,35 @@ for magazijn in $MAGAZIJNEN; do
     fi
   done
 
-  if [ -z "$GRANT" ]; then
-    fout "geen grant-hash gevonden — de asserts hieronder kunnen niet draaien"
+  if ! fsc_grant_bruikbaar "$GRANT"; then
+    # Niet `[ -z "$GRANT" ]`: fsc_grant_hash levert bij een mislukking de sentinel `unknown`, en
+    # dan zou deze tak nooit vuren. De asserts hieronder draaien vervolgens met een bogus header en
+    # melden een 400 op het data-pad — wat naar het verkeerde component wijst.
+    fout "geen bruikbaar grant-hash gevonden (${GRANT:-<leeg>}) — de asserts hieronder kunnen niet draaien"
     continue
   fi
 
   # --- 2. Data-pad --------------------------------------------------------------------------------
+  # De echo-stub moet achter de inway staan: deze assert herkent het antwoord aan de tekst van die
+  # stub. smoke-keten.sh zet daar het échte magazijn neer, dus zonder deze regel hangt de uitkomst
+  # af van welke smoke er het laatst gedraaid heeft.
+  if ! fsc_zet_upstream "$ENVDIR" "$magazijn" "http://stub-upstream:8080" >/dev/null 2>"$ERRLOG"; then
+    fout "kon de stub-upstream van ${magazijn} niet zetten: $(fsc_last_error)"
+  fi
+
+  # Een gewijzigde upstream propageert asynchroon naar de inway: zonder deze lus meet de assert
+  # hieronder nog de vórige upstream. Pollen op de echo-tekst van de stub, want dát is waar de
+  # assert op matcht.
+  POGING=1
+
+  while [ "$POGING" -le "$UPSTREAM_POGINGEN" ]; do
+    curl -sS --noproxy '*' --max-time 10 "${OUTWAY}/" -H "Fsc-Grant-Hash: ${GRANT}" 2>/dev/null \
+      | grep -qF "hello from ${magazijn}" && break
+
+    [ "$POGING" -lt "$UPSTREAM_POGINGEN" ] && sleep "$UPSTREAM_WACHT"
+    POGING=$((POGING + 1))
+  done
+
   # De outway resolvet de grant-hash zelf naar dienst en inway, en haalt daarbij zijn eigen token
   # op. Dat token wordt hier dus niet nagebouwd.
   echo "== 2. data-pad =="

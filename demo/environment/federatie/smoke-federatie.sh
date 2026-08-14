@@ -226,7 +226,13 @@ done
 # De router opent zijn poort uit de gemounte haproxy-config en postgres drukt zijn bind uit als
 # `listen_addresses=` zonder poort; beide ontsnappen dus aan de extractie uit de overlays.
 VOOR_INFRA=$FOUTEN
-if ! ROUTER_BINDS="$(binds_uit "${HERE}/haproxy.federatie.cfg")" || [ -z "$ROUTER_BINDS" ]; then
+# Alleen de `bind`-regels: `binds_uit` grept élk adres in het bestand, en dat zijn ook de
+# `server s1 <adres>`-backends. Die horen bij de peers, niet bij de router — zonder dit filter zou
+# een liggende inway hier als "de router luistert niet" gemeld worden, en dubbel geteld bovenop de
+# terechte melding uit de peer-lus.
+if ! ROUTER_BINDS="$(grep -E '^[[:space:]]*bind[[:space:]]' "${HERE}/haproxy.federatie.cfg" \
+                       | grep -oE "${FED_RE#^}[0-9]+\.[0-9]+:[0-9]+" | sort -u)" \
+   || [ -z "$ROUTER_BINDS" ]; then
   fout "geen ${FED_PREFIX}-bind leesbaar uit haproxy.federatie.cfg — deze assert meet niets"
 else
   for bind in $ROUTER_BINDS; do
@@ -256,8 +262,12 @@ ok_tenzij "$VOOR_ONBEKEND" "geen onbekende luisteraar binnen ${FED_PREFIX}."
 # rood op gaan zou de assert op termijn versoepeld krijgen. TCP-only; de componenten zijn HTTP/TLS.
 VOOR_BUITEN=$FOUTEN
 # `LISTENERS` leeg is hierboven al gemeld; hier alleen de OK onderdrukken, niet dubbel tellen.
+# Regelgewijs lezen en niet `for adres in $BUITEN`: dat splitst op spaties én globt, en `ss` schrijft
+# een IPv6-wildcard als `*:8080` — bash vervangt dat dan door bestandsnamen uit de huidige map, en
+# juist deze negatieve assert zou daardoor stil verzwakken.
 BUITEN="$(printf '%s\n' "$LISTENERS" | grep -vE "$LOOPBACK_RE" || true)"
-for adres in $BUITEN; do
+while IFS= read -r adres; do
+  [ -n "$adres" ] || continue
   poort="${adres##*:}"
 
   for bind in $VERWACHT_BINDS; do
@@ -266,7 +276,10 @@ for adres in $BUITEN; do
       break
     fi
   done
-done
+done <<EOF
+$BUITEN
+EOF
+
 if [ -n "$LISTENERS" ]; then
   ok_tenzij "$VOOR_BUITEN" "geen federatie-poort luistert buiten loopback (TCP)"
 fi

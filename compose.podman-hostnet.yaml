@@ -28,36 +28,40 @@ services:
     network_mode: host
     ports: !reset []
     healthcheck: !reset null
+    # redis-stack-server start zonder bind op alle interfaces; in een gedeelde netns is dat de hele
+    # machine, en deze Redis heeft geen wachtwoord.
+    command: ["redis-stack-server", "--bind", "127.0.0.1"]
 
   magazijn-a:
     network_mode: host
     ports: !reset []
-    command: ["--port", "8081", "--verbose", "--global-response-templating"]
+    command: ["--bind-address", "127.0.0.1", "--port", "8081", "--verbose", "--global-response-templating"]
 
   magazijn-b:
     network_mode: host
     ports: !reset []
-    command: ["--port", "8082", "--verbose", "--global-response-templating"]
+    command: ["--bind-address", "127.0.0.1", "--port", "8082", "--verbose", "--global-response-templating"]
 
   profiel-service:
     network_mode: host
     ports: !reset []
-    command: ["--port", "8089", "--verbose"]
+    command: ["--bind-address", "127.0.0.1", "--port", "8089", "--verbose"]
 
   aanmeld-stub:
     network_mode: host
     ports: !reset []
-    command: ["--port", "8083", "--verbose", "--global-response-templating"]
+    command: ["--bind-address", "127.0.0.1", "--port", "8083", "--verbose", "--global-response-templating"]
 
   notificatie-stub:
     network_mode: host
     ports: !reset []
-    command: ["--port", "8084", "--verbose", "--global-response-templating"]
+    command: ["--bind-address", "127.0.0.1", "--port", "8084", "--verbose", "--global-response-templating"]
 
   postgres-a:
     network_mode: host
     ports: !reset []
     healthcheck: !reset null
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
 
   # PGPORT verplaatst zowel de server als pg_isready naar 5433; in een gedeelde netns kan de
   # tweede Postgres niet óók op 5432 luisteren.
@@ -65,6 +69,7 @@ services:
     network_mode: host
     ports: !reset []
     healthcheck: !reset null
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
     environment:
       PGPORT: "5433"
 
@@ -75,19 +80,21 @@ services:
     network_mode: host
     ports: !reset []
     healthcheck: !reset null
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
     environment:
       PGPORT: "5434"
 
   toxiproxy:
     network_mode: host
     ports: !reset []
+    command: ["-host=127.0.0.1", "-config=/proxies.json"]
     volumes:
       - ./demo/generated/proxies-host.json:/proxies.json:ro,z
 
   magazijn-stubs:
     network_mode: host
     ports: !reset []
-    command: ["--port", "8092", "--verbose"]
+    command: ["--bind-address", "127.0.0.1", "--port", "8092", "--verbose"]
 
   berichtenmagazijn-a:
     network_mode: host
@@ -96,6 +103,8 @@ services:
       postgres-a:
         condition: service_started
     environment:
+      # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
+      QUARKUS_HTTP_HOST: 127.0.0.1
       DB_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
       AANMELD_URL: http://127.0.0.1:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://127.0.0.1:18084/events
@@ -108,6 +117,8 @@ services:
       postgres-b:
         condition: service_started
     environment:
+      # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
+      QUARKUS_HTTP_HOST: 127.0.0.1
       # Beide magazijnen luisteren in de basis op 8090; b wijkt hier uit naar zijn eigen poort.
       QUARKUS_HTTP_PORT: "8091"
       DB_JDBC_URL: jdbc:postgresql://127.0.0.1:5433/berichtenmagazijn
@@ -118,12 +129,30 @@ services:
   berichtenuitvraag:
     network_mode: host
     ports: !reset []
+    # Het grant-hash per magazijn komt uit de contract-bootstrap van de federatie
+    # (demo/environment/federatie/contracts/fbs-contracten.sh). Ontbreekt het bestand — geen
+    # federatie op deze machine — dan start de stack gewoon zonder, en valt de uitvraag terug op
+    # rechtstreeks verkeer: `magazijnen."<OIN>".grantHash` leeg betekent "geen FSC-headers".
+    env_file:
+      - path: demo/generated/fsc-grants.env
+        required: false
     depends_on:
       redis:
         condition: service_started
+      # Deze overlay reset élke healthcheck (podman draait die via systemd-timers, en juist in de
+      # omgevingen die hostnet nodig hebben ontbreekt systemd). Een `condition: service_healthy`
+      # die uit de basis blijft staan, faalt dan met "has no healthcheck configured" — en omdat
+      # depends_on per sleutel gemerged wordt, moet elke wachtende sleutel hier expliciet terug.
+      postgres-uitvraag:
+        condition: service_started
     environment:
+      # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
+      QUARKUS_HTTP_HOST: 127.0.0.1
       REDIS_HOSTS: redis://127.0.0.1:16379
-      MAGAZIJN_A_URL: http://127.0.0.1:18090
+      # Default: rechtstreeks via toxiproxy, zodat de storing-knop van de demo werkt. Zet
+      # MAGAZIJN_A_URL op de outway van de federatie (http://127.20.1.5:8443) om dit magazijn via
+      # de FSC-keten te laten lopen; het grant-hash komt dan uit env_file hierboven.
+      MAGAZIJN_A_URL: ${MAGAZIJN_A_URL:-http://127.0.0.1:18090}
       MAGAZIJN_B_URL: http://127.0.0.1:18091
       PROFIEL_SERVICE_URL: http://127.0.0.1:18089
       LDV_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5434/ldv_logging
@@ -135,6 +164,8 @@ services:
       redis:
         condition: service_started
     environment:
+      # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
+      QUARKUS_HTTP_HOST: 127.0.0.1
       TOXIPROXY_ADMIN_URL: http://127.0.0.1:8474
       REDIS_HOSTS: redis://127.0.0.1:6379
       UITVRAAG_URL: http://127.0.0.1:8086
