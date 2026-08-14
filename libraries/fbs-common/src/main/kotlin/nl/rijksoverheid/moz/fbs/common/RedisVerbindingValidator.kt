@@ -165,7 +165,6 @@ class RedisVerbindingValidator(
          * @throws IllegalStateException als het profiel de eisen stelt en de verbinding er niet
          *   aan voldoet.
          */
-        @Suppress("LongParameterList")
         fun validate(
             profile: String,
             adressen: List<String>,
@@ -237,7 +236,6 @@ class RedisVerbindingValidator(
          * partij met een willekeurig geldig certificaat zich als de opslag voordoen; met
          * `trust-all` volstaat élk certificaat.
          */
-        @Suppress("LongParameterList")
         private fun transportGebrekenIn(
             adressen: List<String>,
             trustAll: Boolean,
