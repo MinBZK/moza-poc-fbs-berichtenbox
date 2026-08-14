@@ -216,7 +216,7 @@ jobs:
         if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
       - name: Coverage-rapporten ophalen
         if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: jacoco-*
           # De shards delen de gedeelde bibliotheken (`-am`), dus hun rapporten overlappen
