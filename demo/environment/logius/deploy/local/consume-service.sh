@@ -23,6 +23,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
 
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "${HERE}/docker-compose.yaml")
 
 CONSUMER_OIN="00000000000000001000"
@@ -36,9 +37,21 @@ GROUP_ID="moza-fbs-test"
 OUTWAY_CERT_HOST="${HERE}/../../pki/out/logius/outway/cert.pem"
 
 # Consumer- én provider-manager zijn hier DEZELFDE (zelfreferentieel) — internal-certs.
-MANAGER="https://manager.logius.fsc-test.local:9443"
+# Overrulebaar: in de federatie-opstelling (../../../federatie/) staat de interne manager op een
+# eigen adres. FSC_-prefix zodat een kale `MANAGER=` in de shell dit niet stil omleidt.
+MANAGER="${FSC_MANAGER:-https://manager.logius.fsc-test.local:9443}"
+
+# De adressen worden geconcateneerd tot curl's URL-argument. Een waarde die met `-` begint leest
+# curl als OPTIE — `-K/pad` maakt er een config-file-lees van — dus eisen we het https-schema.
+case "$MANAGER" in
+  https://*) ;;
+  *) echo "FAIL: FSC_MANAGER moet met https:// beginnen: '${MANAGER}'" >&2; exit 2 ;;
+esac
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CERT=/pki/internal/logius/manager/cert.pem
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 KEY=/pki/internal/logius/manager/key.pem
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CA=/pki/internal/logius/ca/root.pem
 
 SYNC_TIMEOUT=10; SYNC_INTERVAL=2

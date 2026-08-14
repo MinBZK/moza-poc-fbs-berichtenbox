@@ -9,18 +9,47 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
 
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
 SERVICE_NAME="profiel-service"
 PROVIDER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
 GROUP_ID="moza-fbs-test"
-STUB_URL="http://stub-upstream:8080"
+# De federatie-opstelling (../../../federatie/) geeft elke component een eigen adres; vandaar
+# overrulebaar, met de standalone-waarde als default. Geprefixt met FSC_ omdat een kale `MANAGER=`
+# in iemands shell anders stilzwijgend een mTLS-call mét het internal-cert van deze peer naar een
+# vreemd endpoint zou sturen.
+STUB_URL="${FSC_STUB_URL:-http://stub-upstream:8080}"
 
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CERT=/pki/internal/logius/manager/cert.pem
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 KEY=/pki/internal/logius/manager/key.pem
+# shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 CA=/pki/internal/logius/ca/root.pem
-CONTROLLER=https://controller.logius.fsc-test.local:9444
-MANAGER=https://manager.logius.fsc-test.local:9443
+CONTROLLER="${FSC_CONTROLLER:-https://controller.logius.fsc-test.local:9444}"
+MANAGER="${FSC_MANAGER:-https://manager.logius.fsc-test.local:9443}"
+
+# De adressen worden geconcateneerd tot curl's URL-argument. Een waarde die met `-` begint leest
+# curl als OPTIE — `-K/pad` maakt er een config-file-lees van — dus eisen we het https-schema.
+case "$CONTROLLER" in
+  https://*) ;;
+  *) echo "FAIL: FSC_CONTROLLER moet met https:// beginnen: '${CONTROLLER}'" >&2; exit 2 ;;
+esac
+case "$MANAGER" in
+  https://*) ;;
+  *) echo "FAIL: FSC_MANAGER moet met https:// beginnen: '${MANAGER}'" >&2; exit 2 ;;
+esac
+
+# STUB_URL gaat ongeëscaped een handgebouwde JSON-body in (CreateService, hieronder). Een
+# aanhalingsteken zou daar uit de string breken en velden kunnen toevoegen.
+case "$STUB_URL" in
+  http://*|https://*) ;;
+  *) echo "FAIL: FSC_STUB_URL moet met http:// of https:// beginnen: '${STUB_URL}'" >&2; exit 2 ;;
+esac
+case "$STUB_URL" in
+  *'"'*|*'\'*) echo "FAIL: FSC_STUB_URL bevat een aanhalingsteken of backslash." >&2; exit 2 ;;
+esac
 
 # Vang curl-/toolbox-stderr op i.p.v. weg te gooien: een mTLS-/netwerk-/dode-container-fout
 # mag niet als "nog niet klaar" maskeren (spiegelt smoke-announce.sh). Surface 'm in de loop.
