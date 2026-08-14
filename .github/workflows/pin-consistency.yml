@@ -62,119 +62,78 @@ jobs:
   fuzz-basis-pin:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # pull-requests: write voor de PR-comment hieronder. Een annotatie alleen is te makkelijk te
-    # missen: deze job blijft groen, dus niemand opent hem.
+    # pull-requests: write voor de melding hieronder. Een annotatie alleen is te makkelijk te
+    # missen: deze job blijft bij een verouderde pin groen, dus niemand opent hem.
     permissions:
       contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: De gepinde digest hoort bij de huidige pom's
+
+      - name: Hoort de gepinde digest bij de huidige pom's
         id: pin
         env:
-          # Zelfde bestandenset als .github/workflows/fuzz-base-image.yml gebruikt voor de tag;
-          # lopen die twee uiteen, dan vindt de opzoeking hieronder niets en faalt deze job.
+          # Zelfde bestandenset als .github/workflows/fuzz-base-image.yml voor de tag gebruikt.
           VERWACHT: ${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}
+        run: .github/scripts/fuzz-basis-pin.sh
+
+      - name: Beoordeel de uitkomst
+        id: oordeel
+        env:
+          STATUS: ${{ steps.pin.outputs.status }}
+          DIGEST: ${{ steps.pin.outputs.verwachte_digest }}
+          IMAGE_PAD: ${{ steps.pin.outputs.image_pad }}
         run: |
           set -euo pipefail
 
-          # Anker op de FROM-regel: een losse `sha256:`-grep pakt ook een voorbeeld-digest uit
-          # het commentaarblok erboven, en vergelijkt dan stilzwijgend de verkeerde. `|| true`
-          # omdat grep zonder match exit 1 geeft, wat met `pipefail` de eigen foutmelding
-          # hieronder zou overslaan.
-          from_regel=$(grep -oE '^FROM +[^ ]+@sha256:[a-f0-9]{64}' .clusterfuzzlite/Dockerfile || true)
-          gepind=${from_regel##*@}
-          image_pad=$(sed -E 's|^FROM +ghcr\.io/||; s|@sha256:.*||' <<<"$from_regel")
-
-          if [ -z "$gepind" ] || [ -z "$image_pad" ]; then
-            # Wél hard: zonder pin kan hier niets meer gecontroleerd worden, en dat is een
-            # wijziging aan de Dockerfile zelf — geen situatie die een dependency-bump veroorzaakt.
-            echo "::error::geen FROM-regel met digest-pin in .clusterfuzzlite/Dockerfile — er valt niets meer te controleren."
-            exit 1
-          fi
-
-          if [ -z "$VERWACHT" ]; then
-            echo "::error::hashFiles leverde geen pom-hash op — het bestandspatroon in deze job klopt niet meer."
-            exit 1
-          fi
-
-          # Publiek image: een anoniem pull-token volstaat, geen secret nodig. `jq -e` zodat een
-          # antwoord zonder token niet als de string "null" doorgaat en verderop een 401 oplevert
-          # die we dan voor "image bestaat niet" zouden aanzien.
-          if ! token=$(curl -fsS "https://ghcr.io/token?scope=repository:${image_pad}:pull&service=ghcr.io" | jq -er .token); then
-            echo "::warning::Geen pull-token van ghcr — de basis-image-pin is deze run NIET gecontroleerd."
-            exit 0
-          fi
-
-          # Alleen een 404 betekent "dit image bestaat nog niet". Elke andere fout (401, 429,
-          # 5xx, DNS) zegt dat de controle zelf niet kon draaien; die mag niet als "nog niet
-          # gebouwd" gerapporteerd worden, want dan meldt de guard een oorzaak die hij nooit
-          # heeft vastgesteld en blijft hij dat eeuwig doen.
-          http=$(curl -sS -o /tmp/manifest-headers -D /tmp/manifest-headers -w '%{http_code}' -I \
-            -H "Authorization: Bearer $token" \
-            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
-            "https://ghcr.io/v2/${image_pad}/manifests/poms-${VERWACHT}" || echo "000")
-
-          case "$http" in
-            200)
-              verwachte_digest=$(tr -d '\r' < /tmp/manifest-headers | awk '/[Dd]ocker-[Cc]ontent-[Dd]igest/ {print $2}')
-              if [ -z "$verwachte_digest" ]; then
-                echo "::warning::ghcr antwoordde 200 zonder Docker-Content-Digest — de pin is deze run NIET gecontroleerd."
-                exit 0
-              fi
+          case "$STATUS" in
+            ok)
+              echo "Basis-image-pin hoort bij de huidige pom's."
               ;;
-            404)
-              verwachte_digest=""
+            ontbreekt)
+              echo "::warning::Nog geen fuzz-basis-image voor deze pom's."
+              {
+                echo "melding<<EOM"
+                echo "De dependency-declaraties zijn gewijzigd, dus het fuzz-basis-image met de warme"
+                echo "Maven-repository hoort opnieuw gebouwd te worden."
+                echo
+                echo "**Blokkeert niets.** De fuzz-controle werkt gewoon; hij haalt alleen het verschil"
+                echo "elke run opnieuw op, en is daarmee zo traag als vóór het basis-image."
+                echo
+                echo "Na de merge naar \`main\` bouwt de workflow **Fuzz-basis-image** het nieuwe image en"
+                echo "print hij de digest. Zet die in \`.clusterfuzzlite/Dockerfile\` en deze melding verdwijnt."
+                echo "EOM"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            verouderd)
+              echo "::warning::De pin hoort niet bij de huidige pom's; pin $DIGEST."
+              {
+                echo "melding<<EOM"
+                echo "Er is een fuzz-basis-image dat wél bij de huidige dependency-declaraties hoort, maar"
+                echo "\`.clusterfuzzlite/Dockerfile\` wijst nog naar een ander."
+                echo
+                echo "**Blokkeert niets**, maar de fuzz-voorbereiding is tot die tijd trager dan nodig."
+                echo
+                echo "Werk de pin bij naar:"
+                echo
+                echo '```dockerfile'
+                echo "FROM ghcr.io/${IMAGE_PAD}@${DIGEST}"
+                echo '```'
+                echo "EOM"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            oncontroleerbaar)
+              echo "::warning::De basis-image-pin is deze run NIET gecontroleerd (registry niet te bevragen)."
               ;;
             *)
-              echo "::warning::ghcr antwoordde $http — de basis-image-pin is deze run NIET gecontroleerd."
-              exit 0
+              # geen-pin / geen-pom-hash: geen situatie die een dependency-bump veroorzaakt, maar
+              # een wijziging aan de Dockerfile of aan deze workflow zelf. Dan valt er niets meer
+              # te controleren en is stil doorgaan het slechtste antwoord.
+              echo "::error::Basis-image-pin niet te beoordelen (status=$STATUS) — er valt niets meer te controleren."
+              exit 1
               ;;
           esac
 
-          if [ -z "$verwachte_digest" ]; then
-            echo "::warning::Nog geen fuzz-basis-image voor deze pom's (tag poms-${VERWACHT})."
-            {
-              echo "melding<<EOM"
-              echo "De dependency-declaraties zijn gewijzigd, dus het fuzz-basis-image met de warme"
-              echo "Maven-repository hoort opnieuw gebouwd te worden."
-              echo
-              echo "**Blokkeert niets.** De fuzz-controle werkt gewoon; hij haalt alleen het verschil"
-              echo "elke run opnieuw op, en is daarmee zo traag als vóór het basis-image."
-              echo
-              echo "Na de merge naar \`main\` bouwt de workflow **Fuzz-basis-image** het nieuwe image en"
-              echo "print hij de digest. Zet die in \`.clusterfuzzlite/Dockerfile\` en deze melding verdwijnt."
-              echo "EOM"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          printf 'gepind:    %s\nverwacht:  %s\n' "$gepind" "$verwachte_digest"
-
-          if [ "$gepind" != "$verwachte_digest" ]; then
-            echo "::warning::De pin hoort niet bij de huidige pom's; pin ${verwachte_digest}."
-            {
-              echo "melding<<EOM"
-              echo "Er is een fuzz-basis-image dat wél bij de huidige dependency-declaraties hoort, maar"
-              echo "\`.clusterfuzzlite/Dockerfile\` wijst nog naar een ander."
-              echo
-              echo "**Blokkeert niets**, maar de fuzz-voorbereiding is tot die tijd trager dan nodig."
-              echo
-              echo "Werk de pin bij naar:"
-              echo
-              echo '```dockerfile'
-              echo "FROM ghcr.io/${image_pad}@${verwachte_digest}"
-              echo '```'
-              echo "EOM"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "Basis-image-pin hoort bij de huidige pom's."
-
-      # De annotatie hierboven staat op de run-samenvatting van een job die groen blijft — die
-      # leest niemand. Deze comment staat waar de wijziging beoordeeld wordt, en wordt weer
-      # opgeruimd zodra de pin klopt, zodat er geen verouderde melding blijft hangen.
       # Alleen op een PR uit deze repo: bij een fork is GITHUB_TOKEN read-only, dus zou de
       # comment een 403 geven en zou uitgerekend deze job — die zichzelf niet-blokkerend noemt —
       # de deploy-gate tegenhouden. `continue-on-error` vangt de resterende API-hikken af: een
@@ -186,13 +145,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          MELDING: ${{ steps.pin.outputs.melding }}
+          MELDING: ${{ steps.oordeel.outputs.melding }}
           MARKER: '<!-- fuzz-basis-pin -->'
         run: |
           set -euo pipefail
 
           bestaand=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-            --jq "[.[] | select(.body | contains(\"$MARKER\"))] | first | .id // empty")
+            --jq "[.[] | select(.body | contains(\"$MARKER\"))] | first | .id // empty" | head -1)
 
           if [ -z "$MELDING" ]; then
             if [ -n "$bestaand" ]; then
