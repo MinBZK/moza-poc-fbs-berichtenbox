@@ -80,7 +80,9 @@ grant_regel_voor() {
   fsc_grant_bruikbaar "$grant" || return 1
 
   naam="$(printf '%s' "$magazijn" | tr '[:lower:]-' '[:upper:]_')"
-  printf '%s_GRANT_HASH=%s\n' "$naam" "$grant"
+  # Escapen voor compose: een kale `$` in dit bestand wordt als variabele-verwijzing gelezen en
+  # vreet de rest van het hash op. Zie fsc_compose_env_waarde.
+  printf '%s_GRANT_HASH=%s\n' "$naam" "$(fsc_compose_env_waarde "$grant")"
 }
 
 for magazijn in $MAGAZIJNEN; do

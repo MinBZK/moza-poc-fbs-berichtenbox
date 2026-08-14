@@ -140,6 +140,31 @@ fsc_zet_upstream() {
     "$1/$2/deploy/local/publish-service.sh"
 }
 
+# fsc_compose_env_waarde <waarde>: waarde zoals hij in een `env_file` van docker compose moet staan.
+#
+# Compose interpoleert een env_file: `$NAAM` wordt vervangen door een variabele uit de omgeving, en
+# een onbekende naam door niets. FSC-grant-hashes hebben de vorm `$1$<n>$<base64url>`, dus het deel
+# ná de derde `$` wordt opgeslokt zodra het met een letter of underscore begint — 53 van de 64
+# base64url-tekens. Gemeten in een container: `$1$4$k4rwlWTsCM_j89Fc3nrbnQa9-KB43` komt aan als
+# `$1$4-KB43`, en de outway antwoordt dan 400 UNKNOWN_GRANT_HASH_IN_HEADER.
+#
+# Verdubbelen is compose' eigen escape voor een letterlijke `$`. Dat maakt het bestand
+# compose-specifiek: lees het niet met `set -a; . bestand`, want dan houd je de dubbele tekens.
+fsc_compose_env_waarde() {
+  printf '%s' "${1//\$/\$\$}"
+}
+
+# fsc_compose_env_lees <bestand> <naam>: de ONGE-escapete waarde van `naam` uit een compose-env_file.
+#
+# Tegenhanger van fsc_compose_env_waarde. Wie zo'n bestand met `sed`/`grep` uitleest krijgt de
+# verdubbelde dollars mee en stuurt die door — bij een grant-hash levert dat een 400 op de outway,
+# terwijl het bestand er goed uitziet. Altijd via deze functie lezen.
+fsc_compose_env_lees() {
+  local waarde
+  waarde="$(sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n1)" || return 1
+  printf '%s' "${waarde//\$\$/\$}"
+}
+
 # fsc_grant_bruikbaar <hash>: is dit een echt grant-hash?
 #
 # fsc_grant_hash levert bij een mislukking de string `unknown` in plaats van een lege waarde, zodat

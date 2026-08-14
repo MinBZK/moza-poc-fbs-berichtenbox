@@ -148,7 +148,9 @@ if fsc_zet_upstream "$ENVDIR" magazijn-a "${MAGAZIJN_A_UPSTREAM:-http://127.0.0.
   # De probe gaat door de outway naar `/q/health` — een pad dat het echte magazijn met JSON
   # beantwoordt en de echo-stub met zijn vaste tekst. Zo meten we de keten zelf en niet wat de
   # controller denkt te weten.
-  GRANT="$(sed -n 's/^MAGAZIJN_A_GRANT_HASH=//p' "$(cd "${ENVDIR}/.." && pwd)/generated/fsc-grants.env" 2>/dev/null || true)"
+  # Via de lib-functie en niet met een kale `sed`: het bestand draagt compose-escaping, dus de
+  # dollars staan er verdubbeld in.
+  GRANT="$(fsc_compose_env_lees "$(cd "${ENVDIR}/.." && pwd)/generated/fsc-grants.env" MAGAZIJN_A_GRANT_HASH || true)"
   OUTWAY="http://$(fsc_component_adres "$(fsc_peer_waarde NET "$UITVRAAG")" outway):8443"
   POGING=1
   DOOR=0
@@ -181,11 +183,35 @@ fi
 # dus een rij in beide txlogs. Stond de nulmeting ervóór, dan telde die rij als "nieuw" en kon
 # assert 2 nooit rood worden — ook niet als de uitvraag rechtstreeks met het magazijn praat, wat
 # precies het geval is dat deze smoke moet uitsluiten.
-if [ "$TXLOG_LEESBAAR" -eq 1 ] && VOOR="$(gedeelde_txids)"; then
-  VOOR_OK=1
-else
-  VOOR_OK=0
-  VOOR=""
+# En pas nemen als de txlogs tot stilstand zijn gekomen. De inway/outway schrijven hun record
+# out-of-band via de txlog-API, dus de rij van de probe hierboven kan ná de nulmeting landen en dan
+# als "nieuw" meetellen — dezelfde vals-groen, alleen via een race in plaats van via de ordening.
+VOOR_OK=0
+VOOR=""
+
+if [ "$TXLOG_LEESBAAR" -eq 1 ]; then
+  STABIEL=0
+  POGING=1
+
+  while [ "$POGING" -le "$KETEN_POGINGEN" ]; do
+    HUIDIG="$(gedeelde_txids)" || break
+
+    if [ "$POGING" -gt 1 ] && [ "$HUIDIG" = "$VORIG" ]; then
+      STABIEL=1
+      break
+    fi
+
+    VORIG="$HUIDIG"
+    sleep "$KETEN_WACHT"
+    POGING=$((POGING + 1))
+  done
+
+  if [ "$STABIEL" -eq 1 ]; then
+    VOOR="$HUIDIG"
+    VOOR_OK=1
+  else
+    echo "WAARSCHUWING: de txlogs kwamen niet tot stilstand binnen ${KETEN_POGINGEN} metingen" >&2
+  fi
 fi
 
 # --- 1. Data-pad ---------------------------------------------------------------------------------

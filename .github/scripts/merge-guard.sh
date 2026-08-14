@@ -109,9 +109,13 @@ bind_mist=$(jq -r '.services | to_entries[] | . as $s
     elif ($img | test("toxiproxy")) then
       (if ($cmd | test("-host=127\\.")) then empty
        else "\($s.key): toxiproxy zonder `-host=127.x` (image-default is elke interface)" end)
-    elif ($env | has("QUARKUS_HTTP_HOST")) then
+    elif ($img | test("(^|/)fbs-")) then
+      # Op de image-familie en niet op `has("QUARKUS_HTTP_HOST")`: die gate maakte de tak leeg voor
+      # precies het geval waarvoor hij bestaat — een ONTBREKENDE variabele viel dan door naar
+      # `else empty`. Onze eigen services bakken `quarkus.http.host=0.0.0.0` in hun
+      # application.properties, dus afwezigheid betekent hier een wildcard-bind.
       (if (($env.QUARKUS_HTTP_HOST // "") | tostring | test("^127\\.")) then empty
-       else "\($s.key): QUARKUS_HTTP_HOST=\($env.QUARKUS_HTTP_HOST) staat niet op 127.x" end)
+       else "\($s.key): QUARKUS_HTTP_HOST=\($env.QUARKUS_HTTP_HOST // "<niet gezet>") staat niet op 127.x" end)
     else empty end' <<<"$MERGED")
 
 # De overlay hoort elke `ports:` uit de basis te resetten; een gepubliceerde poort in een gedeelde

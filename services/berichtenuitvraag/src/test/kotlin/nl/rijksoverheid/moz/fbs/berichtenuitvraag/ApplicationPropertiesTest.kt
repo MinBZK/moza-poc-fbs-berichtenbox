@@ -60,6 +60,41 @@ class ApplicationPropertiesTest {
     }
 
     /**
+     * Een `%dev`-override mag de env-var van de basissleutel niet doodslaan.
+     *
+     * Leest de basissleutel `${VAR}` en zet `%dev` er een kale waarde tegenover, dan wint die kale
+     * waarde onder `QUARKUS_PROFILE=dev` — en dat is aan het gedrag niet te zien: de service start,
+     * het verkeer gaat alleen naar het verkeerde adres. Zo liepen de magazijn-URL's langs de
+     * FSC-outway heen en Redis/Profiel langs Toxiproxy. Deze test dekt de hele klasse: elke
+     * `%dev`-sleutel die een env-var-gestuurde basissleutel overschrijft, moet diezelfde var noemen.
+     */
+    @Test
+    fun `dev-overrides slaan de env-var van hun basissleutel niet dood`() {
+        val properties = Properties().apply {
+            File("src/main/resources/application.properties").inputStream().use { load(it) }
+        }
+
+        val envVar = Regex("""\$\{([A-Z0-9_]+)[:}]""")
+        val overtreders = properties.stringPropertyNames()
+            .filter { it.startsWith("%dev.") }
+            .mapNotNull { devSleutel ->
+                val basis = devSleutel.removePrefix("%dev.")
+                val basisVar = envVar.find(properties.getProperty(basis) ?: "")?.groupValues?.get(1)
+                    ?: return@mapNotNull null
+                val devWaarde = properties.getProperty(devSleutel) ?: ""
+
+                if (devWaarde.contains("\${$basisVar")) null else "$devSleutel (basis leest \$$basisVar)"
+            }
+            .sorted()
+
+        assertEquals(
+            emptyList<String>(),
+            overtreders,
+            "deze %dev-overrides negeren de env-var van hun basissleutel; het verkeer gaat dan stil naar het verkeerde adres",
+        )
+    }
+
+    /**
      * De `%dev`-magazijn-URL's moeten hun env-var respecteren. Stond er een kale `localhost`-waarde,
      * dan overrulet het dev-profiel de omgeving en praat de uitvraag met het magazijn naast de deur
      * terwijl `MAGAZIJN_A_URL` naar een FSC-outway wijst. Dat is aan het gedrag niet te zien: het
