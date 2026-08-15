@@ -11,8 +11,8 @@
 #   1  fout — een call mislukte, of een contract kon niet getekend worden
 #   2  configuratie deugt niet
 #   3  er is nog niets van een toegelaten consumer binnengekomen — wachten op de overkant
-#   4  er lagen contracten die de autorisatietoets niet haalden, en niets ervan mocht getekend
-#      (een eerder getekend contract dat de toets nu niet meer haalt wordt gemeld, niet geteld)
+#   4  er is niets getekend én er ligt iets dat aandacht vraagt: een contract dat de toets niet
+#      haalt, of een contract dat wij ooit tekenden en dat de toets nu niet meer haalt
 #
 # De 3 en de 4 zijn er omdat "niets gedaan" drie heel verschillende dingen kan betekenen. Zonder
 # die twee meldt een lege lijst hetzelfde als een gezonde ronde, en een verkeerd gezette allowlist
@@ -67,12 +67,12 @@ fsc_contract_manager_ok "$MANAGER" || exit 2
 
 api() { fsc_contract_api "$MANAGER" "$CERT" "$KEY" "$CA" "$ADRES" "$@"; }
 
-# De lijst is cursor-gepagineerd met een default van honderd, en bevat álles: publicatiecontracten,
-# ingetrokken en afgewezen contracten, van alle peers. In een langlevend deployment groeit dat
-# monotoon, en zodra ons eigen contract van pagina 1 valt zou de consumer elke ronde een nieuw
-# indienen. Een ruime limiet houdt de guard in fsc-contract.sh een vangrail in plaats van een
-# dagelijkse blokkade.
-CONTRACT_LIMIET="$(fsc_getal_vereist FSC_CONTRACT_LIMIET "${FSC_CONTRACT_LIMIET:-1000}")"
+# De lijst is cursor-gepagineerd met een default van honderd en een maximum van duizend, en bevat
+# álles: publicatiecontracten, ingetrokken en afgewezen contracten, van alle peers. In een langlevend
+# deployment groeit dat monotoon, en zodra ons eigen contract van pagina 1 valt zou de consumer elke
+# ronde een nieuw indienen. Een ruime limiet houdt de guard in fsc-contract.sh een vangrail in plaats
+# van een dagelijkse blokkade. Boven duizend geeft de manager een 400.
+CONTRACT_LIMIET="$(fsc_getal_hoogstens FSC_CONTRACT_LIMIET "${FSC_CONTRACT_LIMIET:-1000}" 1000)"
 
 DIENSTEN_JSON="$(fsc_lijst_naar_json FSC_DIENSTEN "$DIENSTEN")" || exit 2
 CONSUMERS_JSON="$(fsc_lijst_naar_json FSC_CONSUMERS "$CONSUMERS")" || exit 2
@@ -214,7 +214,7 @@ if [ -n "$AANDACHT" ] && [ "$GETEKEND" -eq 0 ]; then
 fi
 
 if [ "$GETEKEND" -gt 0 ]; then
-  echo "PROVIDER OK (${GETEKEND} contract(en) getekend${AFGEWEZEN:+, $(printf '%s\n' "$AFGEWEZEN" | grep -c .) geweigerd})."
+  echo "PROVIDER OK (${GETEKEND} contract(en) getekend${AFGEWEZEN:+, $(printf '%s\n' "$AFGEWEZEN" | grep -c .) geweigerd}${AANDACHT:+, $(printf '%s\n' "$AANDACHT" | grep -c .) met aandacht})."
   exit 0
 fi
 

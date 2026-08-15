@@ -56,7 +56,7 @@ api() { fsc_contract_api "$MANAGER" "$CERT" "$KEY" "$CA" "$ADRES" "$@"; }
 # monotoon, en zodra ons eigen contract van pagina 1 valt zou de consumer elke ronde een nieuw
 # indienen. Een ruime limiet houdt de guard in fsc-contract.sh een vangrail in plaats van een
 # dagelijkse blokkade.
-CONTRACT_LIMIET="$(fsc_getal_vereist FSC_CONTRACT_LIMIET "${FSC_CONTRACT_LIMIET:-1000}")"
+CONTRACT_LIMIET="$(fsc_getal_hoogstens FSC_CONTRACT_LIMIET "${FSC_CONTRACT_LIMIET:-1000}" 1000)"
 
 # --- 1. Outway-thumbprint -----------------------------------------------------------------------
 # Uit env óf uit het certificaat. Op ZAD is env de weg: het group-cert van de outway hangt daar aan
@@ -101,7 +101,7 @@ eigen_contracten() {
   }
 }
 
-# geldige_hashes <regels>: de hashes uit `<hash> <state> <getekend>`-regels die klaar zijn.
+# geldige_hashes <regels>: de hashes uit `<hash> <state> <getekend> <afgewezen>`-regels die klaar zijn.
 geldige_hashes() {
   printf '%s' "${1:-}" | awk '$2 == "contract_state_valid" && $3 == "ja" { print $1 }'
 }

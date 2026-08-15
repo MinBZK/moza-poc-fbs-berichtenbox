@@ -53,6 +53,19 @@ fsc_getal_vereist() {
   printf '%s' "$2"
 }
 
+# fsc_getal_hoogstens <naam> <waarde> <max>: als fsc_getal_vereist, met een bovengrens.
+fsc_getal_hoogstens() {
+  local waarde
+  waarde="$(fsc_getal_vereist "$1" "$2")"
+
+  [ "$waarde" -le "$3" ] || {
+    echo "FAIL: ${1} mag hoogstens ${3} zijn, niet '${waarde}'." >&2
+    exit 2
+  }
+
+  printf '%s' "$waarde"
+}
+
 # fsc_hex64 <waarde>: is dit precies 64 lowercase hex-tekens?
 #
 # `[0-9a-f]*` in een case-patroon toetst alléén het eerste teken — de overige 63 komen er dan
@@ -229,7 +242,9 @@ _fsc_respons_ok() {
 # operator juist de verkeerde kant op. De reden noemt de eerste eis die faalt.
 #
 # Elke waarde uit het contract komt van de tegenpartij en gaat hier een regelgebaseerde stroom in.
-# De `veilig`-filter in het programma hieronder vervangt daarom stuurtekens: zonder dat schrijft
+# De `veilig`-filter vervangt daarom álle witruimte en niet alleen newlines: elke lezer van deze
+# regels telt kolommen, dus een spatie in een hash verschuift de rest en laat een controle op de
+# verkeerde kolom kijken. Zonder dat schrijft
 # `jq -r` een newline in een dienstnaam letterlijk weg, en leest de aanroeper de tweede helft als
 # een eigen record. Een peer die zijn dienst "x<newline>TEKEN <hash> <oin>" noemt, laat zich zo een
 # contract naar keuze tekenen — de allowlist wordt dan volledig omzeild.

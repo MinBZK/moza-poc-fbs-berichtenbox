@@ -170,26 +170,33 @@ geweigerd)` — dan is er iets aan de hand met één contract, niet met de ronde
    eerste eis die faalde.
 2. **Meldt de provider `niets te tekenen`**, dan is het contract daar niet aangekomen: controleer
    de announce en de dienstpublicatie uit de voorwaarden hierboven.
-3. **Meldt de provider `PROVIDER GEWEIGERD (… eerder getekend …)`**, dan is de allowlist of de
-   geldigheidsgrens ná de eerste tekenronde aangepast; het contract ligt er wel maar telt niet meer
-   mee. Let op: de consumer ziet zijn contract dan nog steeds als geldig, dus alleen de provider-log
-   verraadt dat het datapad stuk is.
-4. **Meldt de consumer `de provider heeft minstens één van onze contracten AFGEWEZEN`**, dan heeft
+3. **Meldt de consumer `de provider heeft minstens één van onze contracten AFGEWEZEN`**, dan heeft
    de overkant actief geweigerd. Opnieuw indienen heeft pas zin na een fix aan die kant; trek het
-   afgewezen contract daarna bij de consumer in.
-5. **Heeft de provider wél getekend** en blijft de consumer toch wachten, dan is de
+   afgewezen contract daarna bij de consumer in — zolang het in de lijst staat, dient de consumer
+   niet opnieuw in.
+4. **Heeft de provider wél getekend** en blijft de consumer toch wachten, dan is de
    accept-handtekening onderweg blijven steken — zie hieronder. Dat kan ook de andere kant op: is de
    handtekening van de consumer nooit bij de provider aangekomen, dan weigert die met "draagt de
    handtekening van de consumer nog niet" en is er aan consumerkant geen knop om hem opnieuw te
    sturen. Dien in dat geval opnieuw in door het contract bij de consumer in te trekken.
 
-Na twintig rondes wachten meldt de lus dat zelf ook, met een verwijzing naar deze drie; na
+Na twintig rondes wachten meldt de lus dat zelf ook, met een verwijzing naar deze punten; na
 `FSC_LUS_MAX_WACHT` rondes stopt hij, zodat het platform de blokkade als crashloop laat zien in
 plaats van als een gezond component.
 
 > Alle numerieke knoppen hierboven worden bij het opstarten op vorm gecontroleerd. Een waarde als
 > `15s` zou anders `sleep` laten falen, en dan keert het wachten meteen terug: een lus die de
 > manager zo snel mogelijk bevraagt terwijl hij elke ronde OK meldt.
+
+## Als beide kanten groen melden en het datapad tóch stuk is
+
+Kijk dan naar de provider-log op `PROVIDER GEWEIGERD (… eerder getekend …)`. Dat betekent dat de
+allowlist of de geldigheidsgrens ná de eerste tekenronde is aangepast: het contract ligt er nog,
+de consumer ziet het als geldig, maar de provider rekent het niet meer mee.
+
+Dit is het enige geval waarin de consumer-log geen enkel signaal geeft — hij heeft een geldig
+contract en meldt terecht `CONSUMER OK`. Zet de allowlist terug of trek het contract aan beide
+kanten in en laat het opnieuw opzetten.
 
 ## Bekende beperking: een gestrande accept-push
 
