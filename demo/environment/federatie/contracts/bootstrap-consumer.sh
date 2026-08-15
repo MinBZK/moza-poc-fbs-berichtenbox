@@ -84,11 +84,11 @@ eigen_contracten() {
     return 1
   }
 
-  # Met eigen melding: `fsc_contract_voor_combinatie` eindigt op `jq … 2>/dev/null`. Antwoordt de
-  # manager met 200 maar zonder geldige JSON (een proxy-foutpagina, een afgekapt antwoord), dan
-  # faalt deze pipeline onder `pipefail` en zou de aanroeper zonder deze tak zwijgend afbreken.
+  # Met eigen melding, mét de reden erbij: de manager kan met 200 antwoorden en toch iets anders
+  # sturen dan een contractenlijst — een ander schema, een proxy-foutpagina, een afgekapt antwoord.
+  # "geen geldige JSON" zou daarbij vaak onwaar zijn en de operator de verkeerde kant op sturen.
   fsc_contract_voor_combinatie "$json" "$SERVICE_NAME" "$PROVIDER_OIN" "$CONSUMER_OIN" "$THUMB" | sort || {
-    echo "FAIL: de eigen contractenlijst is niet te lezen — geen geldige JSON?" >&2
+    echo "FAIL: de eigen contractenlijst is niet te lezen: $(fsc_last_error)" >&2
     return 1
   }
 }
@@ -128,6 +128,14 @@ if [ -n "$GELDIG" ]; then
     while IFS= read -r dup; do
       [ -n "$dup" ] || continue
 
+      # Het hash komt uit de respons en gaat een URL-pad in; een waarde met een schuine streep zou
+      # dat pad verleggen naar een ander endpoint.
+      if ! fsc_hash_ok "$dup"; then
+        echo "  FAIL: contract-hash met een onverwachte vorm overgeslagen: '${dup}'" >&2
+        REVOKE_FOUTEN=$((REVOKE_FOUTEN + 1))
+        continue
+      fi
+
       if uit="$(api -X PUT "${MANAGER}/v1/contracts/${dup}/revoke" -H 'Content-Type: application/json')"; then
         echo "  ingetrokken: ${dup}" >&2
       else
@@ -151,9 +159,12 @@ EOF
 fi
 
 if [ -n "$REGELS" ]; then
-  echo "consumer: contract is ingediend maar nog niet door de provider getekend:" >&2
+  # Bewust niet "de provider moet nog tekenen": de derde kolom kan `ja` zijn terwijl het contract
+  # hier nog niet geldig is — dan is de handtekening er wel maar de state nog niet, en zou die
+  # melding de operator naar de verkeerde helft sturen.
+  echo "consumer: contract is ingediend maar hier nog niet geldig:" >&2
   printf '%s\n' "$REGELS" | sed 's/^/  /' >&2
-  echo "CONSUMER WACHT (provider-helft moet nog tekenen)."
+  echo "CONSUMER WACHT (nog niet geldig bij ons)."
   exit 3
 fi
 

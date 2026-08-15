@@ -30,6 +30,24 @@ fsc_env_vereist() {
   printf '%s' "$waarde"
 }
 
+# fsc_getal_vereist <naam> <waarde>: de waarde op stdout als het een geheel getal is, anders exit 2.
+#
+# Intervallen en drempels komen op ZAD uit component-env. Een tikfout maakt daar geen fout van maar
+# iets ergers: `sleep "15s"` mislukt meteen, `pauzeer` keert direct terug en de lus wordt een hot
+# loop die de manager zo snel mogelijk bevraagt terwijl hij elke ronde OK meldt. En een niet-numerieke
+# drempel laat `[ ]` falen, waarna de vangrail die de lus zou stoppen niets meer doet. Beide falen
+# dus open; vandaar één controle bij het opstarten.
+fsc_getal_vereist() {
+  case "${2:-}" in
+    ""|*[!0-9]*)
+      echo "FAIL: ${1} moet een geheel getal zijn, niet '${2:-}'." >&2
+      exit 2
+      ;;
+  esac
+
+  printf '%s' "$2"
+}
+
 # fsc_hex64 <waarde>: is dit precies 64 lowercase hex-tekens?
 #
 # `[0-9a-f]*` in een case-patroon toetst alléén het eerste teken — de overige 63 komen er dan
@@ -39,6 +57,16 @@ fsc_hex64() {
   case "${1:-}" in
     ""|*[!0-9a-f]*) return 1 ;;
     *) [ "${#1}" -eq 64 ] ;;
+  esac
+}
+
+# fsc_hash_ok <waarde>: heeft dit contract-hash een vorm die veilig in een URL-pad past?
+#
+# FSC-hashes hebben de vorm `$1$4$<base64url>`. Een waarde met een schuine streep of witruimte zou
+# het pad verleggen — curl normaliseert `..`-segmenten — dus die valt af.
+fsc_hash_ok() {
+  case "${1:-}" in
+    ""|*[!A-Za-z0-9._~$+-]*) return 1 ;;
   esac
 }
 
@@ -85,7 +113,7 @@ fsc_contract_api() {
 # zou alles na de eerste regel geruisloos buiten de autorisatiegrens vallen. Vandaar splitsen op
 # elke witruimte, en een lege uitkomst als fout behandelen in plaats van als "niemand mag iets".
 fsc_lijst_naar_json() {
-  local naam="$1" woorden=()
+  local naam="$1" woord woorden=()
 
   # `|| [ -n "$woord" ]`: de invoer eindigt niet op een newline, en een kale `read` laat het laatste
   # stuk dan vallen — dat zou stilletjes de laatste dienst of consumer uit de allowlist halen.
@@ -126,6 +154,12 @@ _FSC_CONTRACTEN_JQ='
     if type != "object" then error("respons is geen JSON-object")
     elif has("contracts") | not then error("respons heeft geen veld \"contracts\"")
     elif (.contracts | type) != "array" then error("veld \"contracts\" is \(.contracts | type), geen array")
+    elif ((.next_cursor // "") | tostring) != "" then
+      # De lijst is cursor-gepagineerd. Alleen pagina 1 lezen zou betekenen dat de consumer zijn
+      # eigen contract niet meer ziet zodra de manager er genoeg heeft — en dan dient hij elke
+      # ronde een nieuw contract in. Afbreken tot iemand de cursor volgt; stil doorgaan is hier de
+      # gevaarlijke keuze.
+      error("de contractenlijst is gepagineerd (next_cursor gezet) en dat volgen we nog niet")
     else .contracts end;
 '
 
@@ -135,7 +169,12 @@ _FSC_CONTRACTEN_JQ='
 # er komt niets uit en de exit-status is 0. De prelude hierboven zou dat dus nooit zien, en een
 # HTTP 200 met lege body zou als "geen contracten" gelezen worden.
 _fsc_respons_ok() {
-  [ -n "${1:-}" ] && return 0
+  # Niet `[ -n ]`: jq draait óók niet op invoer die alleen witruimte is — het programma komt dan
+  # nooit aan bod, er komt niets uit en de status is 0. Vandaar toetsen op minstens één teken dat
+  # géén witruimte is.
+  case "${1:-}" in
+    *[![:space:]]*) return 0 ;;
+  esac
 
   echo 'lege respons van de manager (HTTP 200 zonder body?)' >>"$ERRLOG"
   return 1
@@ -192,38 +231,64 @@ fsc_contract_beoordeling() {
   _fsc_respons_ok "${1:-}" || return 1
   printf '%s' "$1" | jq -r \
     --arg prov "$2" --argjson diensten "$3" --argjson consumers "$4" \
-    --arg groep "${5:-}" --argjson maxgeldig "${6:-0}" "${_FSC_CONTRACTEN_JQ}"'
+    --arg groep "${5:-}" --argjson maxgeldig "${6:-0}" --argjson nu "${7:-0}" "${_FSC_CONTRACTEN_JQ}"'
     def veilig: (. // "ontbreekt") | tostring | gsub("[[:cntrl:]]"; "\u00b7");
     def weiger($ondertekend; $tekst): if $ondertekend then empty else "WEIGER \($tekst)" end;
 
     contracten[]
     | select((.has_revoked // false) == false)
     | . as $c
-    | (.content.grants // []) as $g
-    | (((.signatures.accept // {}) | has($prov))) as $ondertekend
-    | ((.content.validity.not_after // 0) - (.content.validity.not_before // 0)) as $duur
-    | if $groep != "" and .content.group_id != $groep then
-        weiger($ondertekend; "\($c.hash) hoort bij group \(.content.group_id | veilig), niet bij de onze")
-      elif .content.hash_algorithm != "HASH_ALGORITHM_SHA3_512" then
-        weiger($ondertekend; "\($c.hash) hash-algoritme \(.content.hash_algorithm | veilig) wijkt af")
-      elif (.content.validity | type) != "object" then
-        weiger($ondertekend; "\($c.hash) draagt geen geldigheidsduur")
-      elif $maxgeldig > 0 and $duur > $maxgeldig then
-        weiger($ondertekend; "\($c.hash) geldigheidsduur \($duur)s overschrijdt het maximum van \($maxgeldig)s")
-      elif ($g | length) != 1 then
-        weiger($ondertekend; "\($c.hash) draagt \($g | length) grants in plaats van precies 1")
-      elif $g[0].type != "GRANT_TYPE_SERVICE_CONNECTION" then
-        weiger($ondertekend; "\($c.hash) grant-type \($g[0].type | veilig) is geen serviceConnection")
-      elif $g[0].service.peer_id != $prov then
-        weiger($ondertekend; "\($c.hash) dienst hoort bij peer \($g[0].service.peer_id | veilig), niet bij ons")
-      elif ($diensten | index($g[0].service.name)) == null then
-        weiger($ondertekend; "\($c.hash) dienst \($g[0].service.name | veilig) bieden wij niet aan")
-      elif $g[0].outway.identification.type != "OUTWAY_IDENTIFICATION_TYPE_PUBLIC_KEY_THUMBPRINT" then
-        weiger($ondertekend; "\($c.hash) outway-identificatie \($g[0].outway.identification.type | veilig) is geen thumbprint")
-      elif ($consumers | index($g[0].outway.peer_id)) == null then
-        weiger($ondertekend; "\($c.hash) consumer \($g[0].outway.peer_id | veilig) staat niet op de lijst")
-      elif $ondertekend then "GETEKEND \($c.hash) \($g[0].outway.peer_id)"
-      else "TEKEN \($c.hash) \($g[0].outway.peer_id)" end' 2>>"$ERRLOG"
+    | ($c.hash | veilig) as $h
+
+    # Per contract afvangen. Zonder deze try sloopt één misvormde rij — `content` een string,
+    # `validity` een datumtekst, een grant die geen object is — het hele programma, en dan wordt in
+    # die ronde geen enkel legitiem contract meer getekend. Een rij die we niet kunnen lezen, tekenen
+    # we niet: dat is dezelfde veilige uitkomst als elke andere weigering.
+    | try (
+        (.content.grants // []) as $g
+        | (((.signatures.accept // {}) | has($prov))) as $ondertekend
+        | if $groep != "" and .content.group_id != $groep then
+            weiger($ondertekend; "\($h) hoort bij group \(.content.group_id | veilig), niet bij de onze")
+          elif .content.hash_algorithm != "HASH_ALGORITHM_SHA3_512" then
+            weiger($ondertekend; "\($h) hash-algoritme \(.content.hash_algorithm | veilig) wijkt af")
+          elif (.content.validity | type) != "object" then
+            weiger($ondertekend; "\($h) draagt geen geldigheidsduur")
+          elif (.content.validity.not_before | type) != "number"
+               or (.content.validity.not_after | type) != "number" then
+            # Alleen op "is een object" toetsen zou te weinig zijn: een `validity` zonder `not_after`
+            # levert een contract zonder einddatum op, en dat is juist wat de bovengrens moet vangen.
+            weiger($ondertekend; "\($h) geldigheidsduur is onvolledig (not_before/not_after ontbreekt of is geen getal)")
+          elif .content.validity.not_after <= .content.validity.not_before then
+            weiger($ondertekend; "\($h) einddatum ligt niet ná de begindatum")
+          elif $nu > 0 and .content.validity.not_after <= $nu then
+            # fsc-core eist dat not_after in de toekomst ligt. Een verlopen contract tekenen is
+            # bovendien zinloos werk dat elke ronde terugkomt.
+            weiger($ondertekend; "\($h) is al verlopen")
+          elif $nu > 0 and $maxgeldig > 0 and (.content.validity.not_after - $nu) > $maxgeldig then
+            # Gemeten vanaf NU en niet als vensterlengte: de vraag is hoe lang deze tegenpartij een
+            # claim op ons kan houden. Een venster van tien jaar dat over vijf jaar begint, is een
+            # claim tot over vijftien jaar terwijl de lengte binnen de grens valt.
+            weiger($ondertekend; "\($h) loopt nog \(.content.validity.not_after - $nu)s, meer dan het maximum van \($maxgeldig)s")
+          elif ($g | length) != 1 then
+            weiger($ondertekend; "\($h) draagt \($g | length) grants in plaats van precies 1")
+          elif $g[0].type != "GRANT_TYPE_SERVICE_CONNECTION" then
+            weiger($ondertekend; "\($h) grant-type \($g[0].type | veilig) is geen serviceConnection")
+          elif $g[0].service.peer_id != $prov then
+            weiger($ondertekend; "\($h) dienst hoort bij peer \($g[0].service.peer_id | veilig), niet bij ons")
+          elif ($diensten | index($g[0].service.name)) == null then
+            weiger($ondertekend; "\($h) dienst \($g[0].service.name | veilig) bieden wij niet aan")
+          elif $g[0].outway.identification.type != "OUTWAY_IDENTIFICATION_TYPE_PUBLIC_KEY_THUMBPRINT" then
+            weiger($ondertekend; "\($h) outway-identificatie \($g[0].outway.identification.type | veilig) is geen thumbprint")
+          elif ($consumers | index($g[0].outway.peer_id)) == null then
+            weiger($ondertekend; "\($h) consumer \($g[0].outway.peer_id | veilig) staat niet op de lijst")
+          elif ((.signatures.accept // {}) | has($g[0].outway.peer_id)) | not then
+            # fsc-core wil onder een serviceConnection de handtekening van beide kanten. Tekenen
+            # vóór de tegenpartij zich gecommitteerd heeft, is een verplichting aangaan die de ander
+            # nog niet is aangegaan.
+            weiger($ondertekend; "\($h) draagt de handtekening van de consumer nog niet")
+          elif $ondertekend then "GETEKEND \($c.hash) \($g[0].outway.peer_id)"
+          else "TEKEN \($c.hash) \($g[0].outway.peer_id)" end
+      ) catch "WEIGER \($h) is niet te beoordelen: \(. | tostring | gsub("[[:cntrl:]]"; "·"))"' 2>>"$ERRLOG"
 }
 
 # --- Wat de consumer al heeft uitstaan ----------------------------------------------------------
@@ -246,16 +311,27 @@ fsc_contract_voor_combinatie() {
   _fsc_respons_ok "${1:-}" || return 1
   printf '%s' "$1" | jq -r \
     --arg svc "$2" --arg prov "$3" --arg cons "$4" --arg thumb "$5" "${_FSC_CONTRACTEN_JQ}"'
+    def veilig: (. // "ontbreekt") | tostring | gsub("[[:cntrl:]]"; "\u00b7");
+
     contracten[]
     | select((.has_revoked // false) == false)
-    | select((.content.grants // []) | length == 1)
+    # Zelfde reden als in de beoordeling hiernaast: één misvormde rij mag de rest niet meenemen.
+    # Hier zonder melding — deze matcher zoekt ons eigen contract, en een rij van iemand anders die
+    # we niet kunnen lezen is simpelweg niet de onze. De provider-kant maakt er wél een WEIGER van,
+    # want daar is het een besluit.
+    | try (
+        select((.content.grants // []) | length == 1)
     | select(.content.grants[0]
         | .type == "GRANT_TYPE_SERVICE_CONNECTION"
           and .service.name == $svc
           and .service.peer_id == $prov
           and .outway.peer_id == $cons
           and .outway.identification.public_key_thumbprint == $thumb)
-    | "\(.hash) \((.state // "ontbreekt") | ascii_downcase) \(if ((.signatures.accept // {}) | has($prov)) then "ja" else "nee" end)"
+    # `veilig` ook op het hash: dit is net zo goed een regelgebaseerde stroom als de beoordeling
+    # hiernaast, dus een hash met een newline erin zou hier een tweede record schrijven dat de
+    # consumer-helft als eigen contract leest — en vervolgens intrekt, op een pad naar keuze.
+        | "\(.hash | veilig) \((.state // "ontbreekt") | tostring | ascii_downcase) \(if ((.signatures.accept // {}) | has($prov)) then "ja" else "nee" end)"
+      ) catch empty
     ' 2>>"$ERRLOG"
 }
 

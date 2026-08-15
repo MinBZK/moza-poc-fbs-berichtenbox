@@ -92,19 +92,31 @@ geldige_contracten() {
 # aantal_regels <tekst>: 0 voor leeg, anders het aantal niet-lege regels.
 aantal_regels() { printf '%s' "${1:-}" | grep -c . || true; }
 
-# tel_geldige <peer> <net> <provider-oin>: aantal geldige contracten, of afbreken.
+# tel_geldige <peer> <net> <provider-oin>: aantal geldige contracten op stdout, non-zero bij een
+# leesfout.
 #
 # Zonder deze tak zou een mislukte managerbevraging als "0 contracten" doorgaan. Twee mislukte
 # metingen op rij zijn dan gelijk aan elkaar, en de vergelijking "aantal ongewijzigd" wordt groen
 # op grond van twee fouten.
+#
+# De functie meldt zelf NIET: hij wordt in een commando-substitutie aangeroepen, dus een `fout`
+# hier zou `FOUTEN` in een subshell ophogen en bij terugkeer verdwenen zijn — waarna de smoke
+# alsnog groen eindigt. De aanroeper doet de melding.
 tel_geldige() {
   local regels
-  regels="$(geldige_contracten "$1" "$2" "$3")" || {
-    fout "kon de contracten van ${1} niet ophalen: $(fsc_last_error)"
-    return 1
-  }
+  regels="$(geldige_contracten "$1" "$2" "$3")" || return 1
 
   aantal_regels "$regels"
+}
+
+# meet <naam> <peer> <net> <provider-oin>: tel_geldige met de melding op de juiste plek.
+meet() {
+  local naam="$1"; shift
+
+  tel_geldige "$@" || {
+    fout "kon de contracten van ${1} niet ophalen (${naam}): $(fsc_last_error)"
+    return 1
+  }
 }
 
 for magazijn in $MAGAZIJNEN; do
@@ -114,7 +126,7 @@ for magazijn in $MAGAZIJNEN; do
 
   echo "===== ${UITVRAAG} -> ${magazijn} ====="
 
-  VOORAF="$(tel_geldige "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || continue
+  VOORAF="$(meet vooraf "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || { fout "meting vooraf mislukt"; continue; }
 
   # --- 1. Consumer dient in, alleen bij zijn eigen manager ---------------------------------------
   echo "== 1. consumer-helft =="
@@ -132,12 +144,16 @@ for magazijn in $MAGAZIJNEN; do
 
   # De helft draait onder `env -i` met uitsluitend zijn eigen adres en certificaten, dus dat hij
   # hier klaarkomt ís het bewijs dat hij de overkant niet nodig heeft.
-  if provider_helft "$magazijn" "$PROV_NET" "$PROV_OIN"; then
-    ok "provider: klaar met alleen zijn eigen manager in de omgeving"
-  else
-    fout "provider-helft brak af"
-    continue
-  fi
+  rc=0
+  provider_helft "$magazijn" "$PROV_NET" "$PROV_OIN" || rc=$?
+
+  case "$rc" in
+    0|3) ok "provider: klaar met alleen zijn eigen manager in de omgeving" ;;
+    # 4 = er lag iets dat de autorisatietoets niet haalde. Geen crash: stap 3 stelt vast of ons
+    # eigen contract er wél doorheen kwam, en dat is wat deze smoke meet.
+    4) ok "provider: klaar, met een of meer contracten buiten de allowlist" ;;
+    *) fout "provider-helft brak af met exit ${rc}"; continue ;;
+  esac
 
   # --- 3. Consumer ziet het contract geldig worden -----------------------------------------------
   echo "== 3. consumer-helft opnieuw =="
@@ -164,7 +180,7 @@ for magazijn in $MAGAZIJNEN; do
 
   # --- 4. Tweede ronde: niets erbij --------------------------------------------------------------
   echo "== 4. tweede ronde =="
-  NA_EEN="$(tel_geldige "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || continue
+  NA_EEN="$(meet na-ronde-1 "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || { fout "meting na ronde 1 mislukt"; continue; }
 
   rc=0
   consumer_helft "$PROV_OIN" || rc=$?
@@ -181,7 +197,7 @@ for magazijn in $MAGAZIJNEN; do
     *) fout "provider: herhaalde run tekende opnieuw — $(printf '%s' "$PROV_UIT" | tail -n1)" ;;
   esac
 
-  NA_TWEE="$(tel_geldige "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || continue
+  NA_TWEE="$(meet na-ronde-2 "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || { fout "meting na ronde 2 mislukt"; continue; }
 
   if [ "$NA_TWEE" -eq "$NA_EEN" ]; then
     ok "aantal geldige contracten ongewijzigd na de tweede ronde (${NA_TWEE})"

@@ -7,14 +7,15 @@
 # één grant" de eis is en waarom van de thumbprint wel het type maar niet de waarde telt.
 #
 # Uitgangen:
-#   0  klaar — alles wat mocht is getekend, of er was niets
+#   0  klaar — er is iets getekend, of alles wat ons aangaat stond er al
 #   1  fout — een call mislukte, of een contract kon niet getekend worden
 #   2  configuratie deugt niet
-#   4  er lagen contracten die de autorisatietoets niet haalden
+#   3  er is nog niets van een toegelaten consumer binnengekomen — wachten op de overkant
+#   4  er lagen contracten die de autorisatietoets niet haalden, en niets ervan mocht getekend
 #
-# De 4 is er omdat "niets gedaan" twee heel verschillende dingen kan betekenen. Zonder die uitgang
-# meldt een verkeerd gezette allowlist precies hetzelfde als een gezonde ronde, en dan wacht de
-# consumer eeuwig terwijl dit component OK zegt.
+# De 3 en de 4 zijn er omdat "niets gedaan" drie heel verschillende dingen kan betekenen. Zonder
+# die twee meldt een lege lijst hetzelfde als een gezonde ronde, en een verkeerd gezette allowlist
+# ook — waarna de aanroeper een uur gaat slapen terwijl de consumer elke vijftien seconden wacht.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -39,7 +40,7 @@ GROUP_ID="${FSC_GROUP_ID:-moza-fbs-test}"
 
 # Bovengrens op de geldigheidsduur die een tegenpartij mag voorstellen. De consumer-helft vraagt tien
 # jaar; deze grens ligt er net boven, zodat hij die doorlaat maar een contract van honderd jaar niet.
-MAX_GELDIGHEID="${FSC_MAX_GELDIGHEID_SECONDEN:-316224000}"
+MAX_GELDIGHEID="$(fsc_getal_vereist FSC_MAX_GELDIGHEID_SECONDEN "${FSC_MAX_GELDIGHEID_SECONDEN:-316224000}")"
 
 MANAGER="$(fsc_env_vereist FSC_PROVIDER_MANAGER 'https://<eigen-manager>:9443')"
 CERT="$(fsc_env_vereist FSC_PROVIDER_CERT)"
@@ -72,7 +73,8 @@ JSON="$(api "${MANAGER}/v1/contracts")" || {
 }
 
 BEOORDELING="$(fsc_contract_beoordeling \
-  "$JSON" "$PROVIDER_OIN" "$DIENSTEN_JSON" "$CONSUMERS_JSON" "$GROUP_ID" "$MAX_GELDIGHEID")" || {
+  "$JSON" "$PROVIDER_OIN" "$DIENSTEN_JSON" "$CONSUMERS_JSON" "$GROUP_ID" "$MAX_GELDIGHEID" \
+  "$(date -u +%s)")" || {
   echo "FAIL: de contractenlijst is niet te beoordelen: $(fsc_last_error)" >&2
   exit 1
 }
@@ -117,13 +119,11 @@ FOUTEN=0
 verwerk() {
   local soort="$1" hash="$2" consumer="$3" uit
 
-  case "$hash" in
-    ""|*[!A-Za-z0-9._~$+/-]*|*/*)
-      echo "  FAIL: contract-hash met een onverwachte vorm overgeslagen: '${hash}'" >&2
-      FOUTEN=$((FOUTEN + 1))
-      return
-      ;;
-  esac
+  if ! fsc_hash_ok "$hash"; then
+    echo "  FAIL: contract-hash met een onverwachte vorm overgeslagen: '${hash}'" >&2
+    FOUTEN=$((FOUTEN + 1))
+    return
+  fi
 
   case "$consumer" in
     ""|*[!0-9]*)
@@ -174,13 +174,26 @@ if [ "$FOUTEN" -gt 0 ]; then
   exit 1
 fi
 
-if [ -n "$AFGEWEZEN" ]; then
-  echo "PROVIDER GEWEIGERD ($(printf '%s\n' "$AFGEWEZEN" | grep -c .) contract(en) haalden de toets niet, ${GETEKEND} getekend)." >&2
+# Uitgang 4 alleen als er níéts getekend is. Anders was deze ronde gewoon productief en zou de
+# aanroeper hem onterecht als "beslissing, niets meer te doen" lezen — waarna één blijvend
+# onbetekenbaar contract van een oude consumer de lus permanent op het lange interval zet, en elke
+# nieuwe consumer daardoor tot een uur op zijn handtekening wacht.
+if [ -n "$AFGEWEZEN" ] && [ "$GETEKEND" -eq 0 ]; then
+  echo "PROVIDER GEWEIGERD ($(printf '%s\n' "$AFGEWEZEN" | grep -c .) contract(en) haalden de toets niet)." >&2
   exit 4
 fi
 
 if [ "$GETEKEND" -gt 0 ]; then
-  echo "PROVIDER OK (${GETEKEND} contract(en) getekend)."
-else
-  echo "PROVIDER OK (niets te tekenen)."
+  echo "PROVIDER OK (${GETEKEND} contract(en) getekend${AFGEWEZEN:+, $(printf '%s\n' "$AFGEWEZEN" | grep -c .) geweigerd})."
+  exit 0
 fi
+
+# Niets getekend en niets dat ons aangaat in de lijst: het contract van de consumer is hier nog niet.
+# Dat is wachten op de overkant en geen eindtoestand — de aanroeper hoort er kort op terug te komen
+# in plaats van naar het lange interval te gaan, anders duurt een verse bootstrap tot een uur.
+if [ -z "$(fsc_contract_regels "$BEOORDELING" GETEKEND)" ]; then
+  echo "PROVIDER WACHT (nog geen contract van een toegelaten consumer binnen)."
+  exit 3
+fi
+
+echo "PROVIDER OK (niets te tekenen)."

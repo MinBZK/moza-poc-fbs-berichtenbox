@@ -33,6 +33,9 @@ DIENSTEN="$(fsc_json_lijst "$SVC")"
 CONSUMERS="$(fsc_json_lijst "$CONS")"
 GROEP=moza-fbs-test
 MAXGELDIG=316224000
+# Vaste "nu": de geldigheidstoets meet vanaf het heden, dus zonder een gepinde klok zou de suite
+# afhangen van wanneer hij draait.
+NU=1000000000
 
 # --- fixtures ------------------------------------------------------------------------------------
 
@@ -58,11 +61,12 @@ grant() {
 contract() {
   local h="$1" st="$2" rv="$3" ondertekend="$4"; shift 4
   printf '%s\n' "$@" | jq -sc --arg h "$h" --arg st "$st" --argjson rv "$rv" \
-        --argjson sig "$ondertekend" --arg prov "$PROV" --arg cons "$CONS" --arg groep "$GROEP" '
+        --argjson sig "$ondertekend" --arg prov "$PROV" --arg cons "$CONS" --arg groep "$GROEP" \
+        --argjson nu "$NU" '
     { hash: $h, state: $st, has_revoked: $rv,
       signatures: { accept: ({($cons): true} + (if $sig then {($prov): true} else {} end)) },
       content: { group_id: $groep, hash_algorithm: "HASH_ALGORITHM_SHA3_512",
-                 validity: { not_before: 1000, not_after: (1000 + 315360000) },
+                 validity: { not_before: ($nu - 60), not_after: ($nu + 315360000) },
                  grants: . } }'
 }
 
@@ -87,7 +91,7 @@ assert_gelijk() {
 }
 
 beoordeel() {
-  fsc_contract_beoordeling "$1" "$PROV" "${2:-$DIENSTEN}" "${3:-$CONSUMERS}" "$GROEP" "$MAXGELDIG"
+  fsc_contract_beoordeling "$1" "$PROV" "${2:-$DIENSTEN}" "${3:-$CONSUMERS}" "$GROEP" "$MAXGELDIG" "$NU"
 }
 
 # assert_beoordeling <desc> <json> <soort> <verwacht> [diensten-json] [consumers-json]
@@ -168,8 +172,10 @@ BREED_C="$(fsc_json_lijst "$CONS2" "$CONS")"
 
 assert_beoordeling "tweede dienst uit een bredere lijst telt mee" \
   "$(bundel "$ANDERE_DIENST")" TEKEN "hd ${CONS}" "$BREED_D" "$CONSUMERS"
+# Let op de handtekening: een contract van CONS2 draagt de accept van CONS2, niet die van CONS.
 assert_beoordeling "tweede consumer uit een bredere lijst telt mee" \
-  "$(bundel "$(contract hb CONTRACT_STATE_PROPOSED false false "$(grant "$SVC" "$PROV" "$CONS2")")")" \
+  "$(bundel "$(contract hb CONTRACT_STATE_PROPOSED false false "$(grant "$SVC" "$PROV" "$CONS2")" \
+      | jq -c --arg c "$CONS2" '.signatures.accept = {($c): true}')")" \
   TEKEN "hb ${CONS2}" "$DIENSTEN" "$BREED_C"
 assert_beoordeling "een waarde buiten de bredere lijst blijft geweigerd" \
   "$(bundel "$VREEMDE_CONS")" TEKEN "" "$BREED_D" "$BREED_C"
@@ -229,6 +235,23 @@ assert_combinatie "een andere outway-thumbprint is een ander contract" "$(bundel
 
 assert_combinatie "een contract met twee grants hoort niet bij deze combinatie" "$(bundel "$SMOKKEL")" ""
 assert_combinatie "ingetrokken telt niet mee" "$(bundel "$INGETROKKEN")" ""
+# Ook hier mag één misvormde rij de rest niet meenemen: de consumer zou zijn eigen contract dan niet
+# meer zien en elke ronde een nieuw indienen.
+#
+# De exit-status hoort er expliciet bij. jq streamt, dus de goede regel is al uitgestuurd vóór de
+# fout op de rotte rij — alleen op de uitvoer toetsen zou dus slagen terwijl de aanroeper
+# (`eigen_contracten`, onder `pipefail`) de run juist als mislukt afbreekt.
+for rot in '{"hash":"rot","content":"x"}' \
+           '{"hash":"rot","content":{"grants":[42]}}' \
+           '{"hash":"rot","content":{"grants":42}}'; do
+  gemengd="$(printf '%s\n' "$GOED" "$rot" | jq -sc '{contracts: .}')"
+  uitkomst="$(fsc_contract_voor_combinatie "$gemengd" "$SVC" "$PROV" "$CONS" "$THUMB")" && rc=0 || rc=$?
+
+  assert_gelijk "naast $(printf '%s' "$rot" | cut -c1-34)… blijft het uitstaande contract zichtbaar" \
+    "h1 contract_state_proposed nee" "$uitkomst"
+  assert_gelijk "  en de matcher zelf slaagt (exit 0)" "0" "$rc"
+done
+
 assert_combinatie "twee uitstaande contracten komen allebei terug" \
   "$(bundel "$GOED" "$GOED2")" "h1 contract_state_proposed nee
 h2 contract_state_proposed nee"
@@ -247,14 +270,38 @@ assert_weiger_regel "afwijkend hash-algoritme: niet tekenen" \
 assert_weiger_regel "geen geldigheidsduur: niet tekenen" \
   "$(bundel "$(contract_ruw 'del(.content.validity)')")" \
   "hx draagt geen geldigheidsduur"
-assert_weiger_regel "geldigheidsduur boven het maximum: niet tekenen" \
-  "$(bundel "$(contract_ruw '.content.validity.not_after = 1000 + 999999999')")" \
-  "hx geldigheidsduur 999999999s overschrijdt het maximum van ${MAXGELDIG}s"
-
 # Precies op de grens hoort het nog wél te mogen: een off-by-one hier zou de normale
 # tienjaars-aanvraag van de consumer-helft weigeren.
-assert_beoordeling "geldigheidsduur precies op het maximum mag" \
-  "$(bundel "$(contract_ruw ".content.validity.not_after = 1000 + ${MAXGELDIG}")")" TEKEN "hx ${CONS}"
+assert_beoordeling "looptijd precies op het maximum mag" \
+  "$(bundel "$(contract_ruw ".content.validity.not_after = ${NU} + ${MAXGELDIG}")")" TEKEN "hx ${CONS}"
+
+# Gemeten vanaf nu, niet als vensterlengte: een venster van tien jaar dat pas over jaren begint, is
+# een claim die veel verder reikt dan de grens die de lengte suggereert.
+assert_weiger_regel "venster dat ver in de toekomst begint: niet tekenen" \
+  "$(bundel "$(contract_ruw ".content.validity = {not_before: (${NU} + 200000000), not_after: (${NU} + 200000000 + 315360000)}")")" \
+  "hx loopt nog 515360000s, meer dan het maximum van ${MAXGELDIG}s"
+
+assert_weiger_regel "al verlopen contract: niet tekenen" \
+  "$(bundel "$(contract_ruw ".content.validity.not_after = ${NU} - 1")")" \
+  "hx is al verlopen"
+
+assert_weiger_regel "einddatum vóór begindatum: niet tekenen" \
+  "$(bundel "$(contract_ruw ".content.validity = {not_before: (${NU} + 100), not_after: (${NU} + 50)}")")" \
+  "hx einddatum ligt niet ná de begindatum"
+
+assert_weiger_regel "lege validity: niet tekenen" \
+  "$(bundel "$(contract_ruw '.content.validity = {}')")" \
+  "hx geldigheidsduur is onvolledig (not_before/not_after ontbreekt of is geen getal)"
+
+assert_weiger_regel "validity zonder not_after: niet tekenen" \
+  "$(bundel "$(contract_ruw 'del(.content.validity.not_after)')")" \
+  "hx geldigheidsduur is onvolledig (not_before/not_after ontbreekt of is geen getal)"
+
+# fsc-core wil onder een serviceConnection de handtekening van beide kanten; tekenen vóór de
+# tegenpartij dat deed, is een verplichting aangaan die de ander nog niet is aangegaan.
+assert_weiger_regel "consumer heeft nog niet getekend: wij ook niet" \
+  "$(bundel "$(contract_ruw '.signatures.accept = {}')")" \
+  "hx draagt de handtekening van de consumer nog niet"
 
 # DOMAIN_NAME is een zwakkere binding dan een thumbprint; die hoort een provider niet te tekenen.
 assert_weiger_regel "andere outway-identificatie: niet tekenen" \
@@ -301,7 +348,10 @@ echo "== de contractenlijst moet een lijst zijn =="
 
 # Een 200 met een andere vorm mag niet als "geen contracten" doorgaan: aan consumer-kant zou dat
 # elke ronde een nieuw contract opleveren.
-for vorm in '' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502</html>'; do
+# Een gepagineerde lijst hoort ook af te vallen: alleen pagina 1 lezen zou betekenen dat de consumer
+# zijn eigen contract niet meer ziet zodra de manager er genoeg heeft, en dus elke ronde opnieuw
+# indient.
+for vorm in '' ' ' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502</html>' '{"contracts":[],"next_cursor":"abc"}'; do
   if beoordeel "$vorm" >/dev/null 2>&1; then
     echo "FAIL: respons '${vorm:-<leeg>}' werd stil als lege lijst gelezen" >&2
     fails=$((fails + 1))
@@ -311,6 +361,20 @@ for vorm in '' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502</ht
 done
 
 assert_beoordeling "een echte lege lijst is wél geldig" '{"contracts":[]}' TEKEN ""
+
+echo
+echo "== één misvormde rij mag de rest niet meenemen =="
+
+# Zonder afvangen per contract sloopt één rij met een afwijkend type het hele jq-programma, en dan
+# wordt in die ronde geen enkel legitiem contract meer getekend.
+for rot in '{"hash":"rot","content":"x"}' \
+           '{"hash":"rot","content":{"validity":"morgen"}}' \
+           '{"hash":"rot","content":{"grants":"a"}}' \
+           '{"hash":"rot","signatures":"x"}'; do
+  gemengd="$(printf '%s\n' "$GOED" "$rot" | jq -sc '{ contracts: . }')"
+  assert_gelijk "naast $(printf '%s' "$rot" | cut -c1-38)… blijft het goede contract over" \
+    "h1 ${CONS}" "$(fsc_contract_regels "$(beoordeel "$gemengd")" TEKEN)"
+done
 
 echo
 echo "== fsc_hex64 =="

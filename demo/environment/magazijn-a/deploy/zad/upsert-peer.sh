@@ -86,7 +86,10 @@ TXLOG_IMAGE="${ZAD_TXLOG_IMAGE:-ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:${
 POSTGRES_IMAGE="${ZAD_POSTGRES_IMAGE:-docker.io/library/postgres:17}"   # self-hosted DB (spiegelt deploy/local)
 # De contract-bootstrap komt uit DEZE repo (build-contract-bootstrap in deploy.yml), niet uit
 # repo A, en volgt dus niet de FSC-versietag.
-BOOTSTRAP_IMAGE="${ZAD_BOOTSTRAP_IMAGE:-ghcr.io/minbzk/fbs-fsc-contract-bootstrap:main}"
+# Geen kale `:main`-default: de deploy-workflow pusht uitsluitend `main-<sha7>` en `pr-<n>-<sha7>`,
+# dus `:main` bestaat niet en zou een ImagePullBackOff opleveren tot de eerstvolgende deploy hem
+# overschrijft. Zet de tag expliciet, of laat het component met rust — `deploy.yml` houdt hem bij.
+BOOTSTRAP_IMAGE="${ZAD_BOOTSTRAP_IMAGE:-__ZET_ZAD_BOOTSTRAP_IMAGE__}"
 
 # Concrete hostnamen voor déze (vaste) deployment — zowel voor de plan-/apply-output als, direct,
 # voor de inter-component-adressen in de env_vars-blobs. Geen $DEPLOYMENT_NAME-substitutie: de

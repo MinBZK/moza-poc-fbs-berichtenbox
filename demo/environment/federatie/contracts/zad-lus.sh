@@ -28,17 +28,27 @@ ROL="$(fsc_env_vereist FSC_ROL "'consumer' of 'provider'")"
 # peer die zijn state kwijt is — terwijl het contract zelf tien jaar geldig is. Een uur is daarvoor
 # ruim genoeg; korter pollen kost per peer honderdduizenden calls per jaar om iets te vinden dat er
 # een paar keer is.
-WACHT="${FSC_LUS_WACHT:-15}"
-HERHAAL="${FSC_LUS_HERHAAL:-3600}"
+WACHT="$(fsc_getal_vereist FSC_LUS_WACHT "${FSC_LUS_WACHT:-15}")"
+HERHAAL="$(fsc_getal_vereist FSC_LUS_HERHAAL "${FSC_LUS_HERHAAL:-3600}")"
 
 # Na dit aantal opeenvolgende mislukkingen stopt de lus. Een blijvende fout — verlopen cert, manager
 # die de client weigert — wordt door opnieuw proberen nooit beter, en een component dat eeuwig
 # doordraait ziet er op het platform gezond uit. Afbreken maakt er een zichtbare crashloop van.
-MAX_MISLUKT="${FSC_LUS_MAX_MISLUKT:-20}"
+#
+# Acht en niet twintig: met de ladder hieronder is acht pogingen ongeveer een uur, en twintig zou
+# ruim twaalf uur zijn. Een container die eens per twaalf uur afsluit, is voor het platform geen
+# crashloop maar een herstart — precies het signaal dat deze grens moet opleveren.
+MAX_MISLUKT="$(fsc_getal_vereist FSC_LUS_MAX_MISLUKT "${FSC_LUS_MAX_MISLUKT:-8}")"
 
 # Idem voor "ik wacht al heel lang op de overkant": geen fout, maar wel iets om te melden in plaats
 # van eindeloos dezelfde regel te herhalen.
-MELD_WACHT_NA="${FSC_LUS_MELD_WACHT_NA:-20}"
+MELD_WACHT_NA="$(fsc_getal_vereist FSC_LUS_MELD_WACHT_NA "${FSC_LUS_MELD_WACHT_NA:-20}")"
+
+# En een bovengrens op het wachten zelf. Een consumer die eeuwig op de provider wacht, is de enige
+# permanente blokkade die geen crashloop oplevert — terwijl de oorzaak (onze OIN staat niet in de
+# allowlist van de overkant) juist een van de waarschijnlijkste is. Zonder grens blijft het component
+# "Running" en ziet het platform niets.
+MAX_WACHT="$(fsc_getal_vereist FSC_LUS_MAX_WACHT "${FSC_LUS_MAX_WACHT:-200}")"
 
 case "$ROL" in
   consumer) HELFT="${FSC_HELFT_CONSUMER:-${HERE}/bootstrap-consumer.sh}" ;;
@@ -78,15 +88,22 @@ while [ "$STOPPEN" -eq 0 ]; do
       pauzeer "$HERHAAL"
       ;;
     3)
-      # Alleen de consumer-helft: ingediend, de provider moet nog tekenen. Geen fout — maar wel
-      # iets dat blijvend kan zijn, bijvoorbeeld als onze OIN niet in de allowlist van de provider
-      # staat. Dan hoort het te gaan opvallen in plaats van elke ronde dezelfde regel te herhalen.
+      # Wachten op de overkant: de consumer heeft ingediend en de provider moet nog tekenen, of de
+      # provider heeft nog niets binnen. Geen fout — maar wel iets dat blijvend kan zijn, bijvoorbeeld
+      # als de OIN niet in de allowlist van de overkant staat. Dan hoort het te gaan opvallen in
+      # plaats van elke ronde dezelfde regel te herhalen.
       MISLUKT=0
       GEWACHT=$((GEWACHT + 1))
 
+      if [ "$GEWACHT" -ge "$MAX_WACHT" ]; then
+        echo "FAIL: ${GEWACHT} rondes gewacht zonder dat het contract geldig werd; de lus stopt." >&2
+        echo "  Kijk aan providerkant naar de WEIGER-regels en naar FSC_DIENSTEN/FSC_CONSUMERS." >&2
+        exit 1
+      fi
+
       if [ "$GEWACHT" -eq "$MELD_WACHT_NA" ]; then
-        echo "WARN: al ${GEWACHT} rondes (~$((GEWACHT * WACHT))s) wachten op de provider-helft." >&2
-        echo "  Controleer aan die kant FSC_DIENSTEN/FSC_CONSUMERS en de WEIGER-regels in zijn log." >&2
+        echo "WARN: al ${GEWACHT} rondes (~$((GEWACHT * WACHT))s) wachten op de andere helft." >&2
+        echo "  Controleer daar FSC_DIENSTEN/FSC_CONSUMERS en de WEIGER-regels in de log." >&2
       fi
 
       # Na de melding op het lange interval verder: blijven pollen verandert er niets aan.
