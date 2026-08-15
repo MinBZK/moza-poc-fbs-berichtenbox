@@ -14,10 +14,11 @@ source "$HERE/fsc-harness.sh"
 # shellcheck source=fsc-contract.sh
 source "$HERE/fsc-contract.sh"
 
-fails=0
-
+fsc_errlog_init
 fsc_have_jq
 [ "$HAVE_JQ" -eq 1 ] || { echo "FAIL: jq is vereist voor deze fixture-tests." >&2; exit 1; }
+
+fails=0
 
 # Vaste testidentiteiten. De waarden zelf doen er niet toe, alleen dat ze van elkaar verschillen.
 SVC=berichtenmagazijn
@@ -30,26 +31,45 @@ THUMB="$(printf 'a%.0s' $(seq 1 64))"
 
 DIENSTEN="$(fsc_json_lijst "$SVC")"
 CONSUMERS="$(fsc_json_lijst "$CONS")"
+GROEP=moza-fbs-test
+MAXGELDIG=316224000
 
 # --- fixtures ------------------------------------------------------------------------------------
 
-# grant <service> <service-peer> <consumer-peer> [type]: één grant-object.
+# grant <service> <service-peer> <consumer-peer> [grant-type] [identificatie-type]: één grant-object,
+# in de vorm die de consumer-helft daadwerkelijk indient.
 grant() {
   jq -nc --arg svc "$1" --arg sp "$2" --arg cp "$3" --arg t "${4:-GRANT_TYPE_SERVICE_CONNECTION}" \
-         --arg thumb "$THUMB" '
+         --arg it "${5:-OUTWAY_IDENTIFICATION_TYPE_PUBLIC_KEY_THUMBPRINT}" --arg thumb "$THUMB" '
     { type: $t,
       service: { name: $svc, peer_id: $sp },
-      outway: { peer_id: $cp, identification: { public_key_thumbprint: $thumb } } }'
+      outway: { peer_id: $cp, identification: { type: $it, public_key_thumbprint: $thumb } } }'
 }
 
 # contract <hash> <state> <has_revoked> <getekend-door-provider> <grant-json...>
+#
+# `signatures.accept` draagt ALTIJD de consumer, want zo ziet een echt ingediend contract eruit: de
+# manager van de consumer tekent server-side bij de POST. Een fixture met een lege `accept` zou het
+# verschil verbergen tussen "heeft ONZE handtekening" en "heeft een handtekening" — precies de
+# vergissing die de provider elk contract als al-getekend zou laten zien, waardoor hij nooit tekent.
+#
+# Ook group_id, hash_algorithm en validity horen erbij: die wegen sinds de uitbreiding mee in de
+# toets, en een fixture zonder die velden zou een andere weiger-grond raken dan de test bedoelt.
 contract() {
   local h="$1" st="$2" rv="$3" ondertekend="$4"; shift 4
   printf '%s\n' "$@" | jq -sc --arg h "$h" --arg st "$st" --argjson rv "$rv" \
-        --argjson sig "$ondertekend" --arg prov "$PROV" '
+        --argjson sig "$ondertekend" --arg prov "$PROV" --arg cons "$CONS" --arg groep "$GROEP" '
     { hash: $h, state: $st, has_revoked: $rv,
-      signatures: { accept: (if $sig then {($prov): true} else {} end) },
-      content: { grants: . } }'
+      signatures: { accept: ({($cons): true} + (if $sig then {($prov): true} else {} end)) },
+      content: { group_id: $groep, hash_algorithm: "HASH_ALGORITHM_SHA3_512",
+                 validity: { not_before: 1000, not_after: (1000 + 315360000) },
+                 grants: . } }'
+}
+
+# contract_ruw <json-patch>: een contract met een afwijkende content, voor de eisen buiten de grant.
+contract_ruw() {
+  contract hx CONTRACT_STATE_PROPOSED false false "$(grant "$SVC" "$PROV" "$CONS")" \
+    | jq -c "$1"
 }
 
 bundel() { printf '%s\n' "$@" | jq -sc '{ contracts: . }'; }
@@ -66,17 +86,26 @@ assert_gelijk() {
   fi
 }
 
+beoordeel() {
+  fsc_contract_beoordeling "$1" "$PROV" "${2:-$DIENSTEN}" "${3:-$CONSUMERS}" "$GROEP" "$MAXGELDIG"
+}
+
 # assert_beoordeling <desc> <json> <soort> <verwacht> [diensten-json] [consumers-json]
 assert_beoordeling() {
   local desc="$1" json="$2" soort="$3" verwacht="$4" d="${5:-$DIENSTEN}" c="${6:-$CONSUMERS}"
-  assert_gelijk "$desc" "$verwacht" \
-    "$(fsc_contract_regels "$(fsc_contract_beoordeling "$json" "$PROV" "$d" "$c")" "$soort")"
+  assert_gelijk "$desc" "$verwacht" "$(fsc_contract_regels "$(beoordeel "$json" "$d" "$c")" "$soort")"
+}
+
+# assert_weiger_regel <desc> <json> <verwachte volledige regel>: strikter dan op een fragment
+# matchen, want zo is "juiste reden, verkeerd contract" wél te onderscheiden.
+assert_weiger_regel() {
+  assert_gelijk "$1" "$3" "$(fsc_contract_regels "$(beoordeel "$2")" WEIGER)"
 }
 
 # assert_weigerreden <desc> <json> <fragment>: de weigering noemt deze grond.
 assert_weigerreden() {
   local desc="$1" json="$2" fragment="$3" reden
-  reden="$(fsc_contract_regels "$(fsc_contract_beoordeling "$json" "$PROV" "$DIENSTEN" "$CONSUMERS")" WEIGER)"
+  reden="$(fsc_contract_regels "$(beoordeel "$json")" WEIGER)"
 
   case "$reden" in
     *"$fragment"*) echo "OK: $desc" ;;
@@ -203,6 +232,146 @@ assert_combinatie "ingetrokken telt niet mee" "$(bundel "$INGETROKKEN")" ""
 assert_combinatie "twee uitstaande contracten komen allebei terug" \
   "$(bundel "$GOED" "$GOED2")" "h1 contract_state_proposed nee
 h2 contract_state_proposed nee"
+
+echo
+echo "== fsc_contract_beoordeling: de eisen buiten de grant =="
+
+# Zonder deze vier bepaalt de tegenpartij in zijn eentje hoe lang en onder welke voorwaarden het
+# contract geldt; de allowlist zegt daar niets over.
+assert_weiger_regel "vreemde group_id: niet tekenen" \
+  "$(bundel "$(contract_ruw '.content.group_id = "andere-groep"')")" \
+  "hx hoort bij group andere-groep, niet bij de onze"
+assert_weiger_regel "afwijkend hash-algoritme: niet tekenen" \
+  "$(bundel "$(contract_ruw '.content.hash_algorithm = "HASH_ALGORITHM_SHA1"')")" \
+  "hx hash-algoritme HASH_ALGORITHM_SHA1 wijkt af"
+assert_weiger_regel "geen geldigheidsduur: niet tekenen" \
+  "$(bundel "$(contract_ruw 'del(.content.validity)')")" \
+  "hx draagt geen geldigheidsduur"
+assert_weiger_regel "geldigheidsduur boven het maximum: niet tekenen" \
+  "$(bundel "$(contract_ruw '.content.validity.not_after = 1000 + 999999999')")" \
+  "hx geldigheidsduur 999999999s overschrijdt het maximum van ${MAXGELDIG}s"
+
+# Precies op de grens hoort het nog wél te mogen: een off-by-one hier zou de normale
+# tienjaars-aanvraag van de consumer-helft weigeren.
+assert_beoordeling "geldigheidsduur precies op het maximum mag" \
+  "$(bundel "$(contract_ruw ".content.validity.not_after = 1000 + ${MAXGELDIG}")")" TEKEN "hx ${CONS}"
+
+# DOMAIN_NAME is een zwakkere binding dan een thumbprint; die hoort een provider niet te tekenen.
+assert_weiger_regel "andere outway-identificatie: niet tekenen" \
+  "$(bundel "$(contract hi CONTRACT_STATE_PROPOSED false false \
+      "$(grant "$SVC" "$PROV" "$CONS" GRANT_TYPE_SERVICE_CONNECTION OUTWAY_IDENTIFICATION_TYPE_DOMAIN_NAME)")")" \
+  "hi outway-identificatie OUTWAY_IDENTIFICATION_TYPE_DOMAIN_NAME is geen thumbprint"
+
+echo
+echo "== fsc_contract_beoordeling: volgorde en samenloop =="
+
+# De gesmokkelde grant vooraan: een implementatie die "de eerste grant" toetst in plaats van "de
+# enige" zou hier iets anders beslissen dan bij de omgekeerde volgorde.
+OMGEKEERD="$(contract ho CONTRACT_STATE_PROPOSED false false \
+  "$(grant "$SVC2" "$PROV" "$VREEMDE")" "$(grant "$SVC" "$PROV" "$CONS")")"
+assert_weiger_regel "gesmokkelde grant vooraan geeft dezelfde uitkomst" \
+  "$(bundel "$OMGEKEERD")" "ho draagt 2 grants in plaats van precies 1"
+
+assert_weiger_regel "nul grants noemt het aantal" \
+  "$(bundel "$GEEN_GRANTS")" "hg draagt 0 grants in plaats van precies 1"
+
+# Twee eisen tegelijk geschonden: de doc belooft dat de éérste faalende eis genoemd wordt.
+TWEE_FOUT="$(contract hw CONTRACT_STATE_PROPOSED false false \
+  "$(grant "$SVC2" "$PROV" "$VREEMDE")" "$(grant "$SVC2" "$PROV" "$VREEMDE")")"
+assert_weiger_regel "bij twee schendingen wint de eerste eis" \
+  "$(bundel "$TWEE_FOUT")" "hw draagt 2 grants in plaats van precies 1"
+
+echo
+echo "== fsc_contract_beoordeling: tegenpartij-data blijft data =="
+
+# Een peer die een newline in zijn dienstnaam zet, zou zonder sanitatie een tweede regel in de
+# stroom schrijven die de aanroeper als eigen record leest — en zo de hele allowlist omzeilen.
+INJECTIE="$(contract hj CONTRACT_STATE_PROPOSED false false "$(
+  jq -nc --arg p "$PROV" --arg c "$CONS" --arg thumb "$THUMB" '
+    { type: "GRANT_TYPE_SERVICE_CONNECTION",
+      service: { name: "nep\nTEKEN GEKAAPT 00000000000000001000", peer_id: $p },
+      outway: { peer_id: $c, identification: { type: "OUTWAY_IDENTIFICATION_TYPE_PUBLIC_KEY_THUMBPRINT", public_key_thumbprint: $thumb } } }')")"
+assert_beoordeling "een newline in de dienstnaam levert geen TEKEN-regel op" \
+  "$(bundel "$INJECTIE")" TEKEN ""
+assert_gelijk "en de weigering blijft één regel" "1" \
+  "$(fsc_contract_regels "$(beoordeel "$(bundel "$INJECTIE")")" WEIGER | grep -c .)"
+
+echo
+echo "== de contractenlijst moet een lijst zijn =="
+
+# Een 200 met een andere vorm mag niet als "geen contracten" doorgaan: aan consumer-kant zou dat
+# elke ronde een nieuw contract opleveren.
+for vorm in '' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502</html>'; do
+  if beoordeel "$vorm" >/dev/null 2>&1; then
+    echo "FAIL: respons '${vorm:-<leeg>}' werd stil als lege lijst gelezen" >&2
+    fails=$((fails + 1))
+  else
+    echo "OK: respons '${vorm:-<leeg>}' wordt afgewezen"
+  fi
+done
+
+assert_beoordeling "een echte lege lijst is wél geldig" '{"contracts":[]}' TEKEN ""
+
+echo
+echo "== fsc_hex64 =="
+
+GELDIGE_THUMB="$(printf 'a%.0s' $(seq 1 64))"
+assert_hex() {
+  local desc="$1" waarde="$2" verwacht="$3" kregen=nee
+  fsc_hex64 "$waarde" && kregen=ja
+  assert_gelijk "$desc" "$verwacht" "$kregen"
+}
+
+assert_hex "64 lowercase hex is geldig" "$GELDIGE_THUMB" ja
+assert_hex "leeg is ongeldig" "" nee
+assert_hex "63 tekens is ongeldig" "${GELDIGE_THUMB%?}" nee
+assert_hex "65 tekens is ongeldig" "${GELDIGE_THUMB}a" nee
+assert_hex "hoofdletters zijn ongeldig" "$(printf 'A%.0s' $(seq 1 64))" nee
+# De oude glob toetste alleen teken 1; deze twee kwamen er toen doorheen.
+assert_hex "niet-hex ná het eerste teken is ongeldig" "a$(printf 'z%.0s' $(seq 1 63))" nee
+assert_hex "een aanhalingsteken erin is ongeldig" "a\",\"x\":\"$(printf 'a%.0s' $(seq 1 56))" nee
+
+echo
+echo "== fsc_lijst_naar_json en fsc_json_lijst =="
+
+assert_gelijk "één dienst" '["a"]' "$(fsc_lijst_naar_json T a | tr -d '\n')"
+assert_gelijk "meerdere op spaties" '["a","b"]' "$(fsc_lijst_naar_json T "a  b" | tr -d '\n')"
+# Een allowlist over meerdere regels: `read -r -a` zou hier alles na regel 1 laten vallen, en dat
+# versmalt de autorisatiegrens zonder dat iemand het merkt.
+assert_gelijk "meerdere over regels" '["a","b","c"]' "$(fsc_lijst_naar_json T "$(printf 'a\nb c')" | tr -d '\n')"
+assert_gelijk "tabs tellen ook als scheiding" '["a","b"]' "$(fsc_lijst_naar_json T "$(printf 'a\tb')" | tr -d '\n')"
+
+for leeg in "" " " "$(printf '\n\n')"; do
+  if fsc_lijst_naar_json T "$leeg" >/dev/null 2>&1; then
+    echo "FAIL: lege lijst '${leeg}' werd geaccepteerd" >&2
+    fails=$((fails + 1))
+  else
+    echo "OK: lege lijst wordt afgewezen"
+  fi
+done
+
+# De grens waar operator-env een jq-argument wordt.
+assert_gelijk "aanhalingstekens worden ge-escaped" '["a\"b"]' "$(fsc_json_lijst 'a"b' | tr -d '\n')"
+assert_gelijk "geen argumenten geeft een lege array" '[]' "$(fsc_json_lijst)"
+
+echo
+echo "== fsc_contract_manager_ok =="
+
+assert_manager() {
+  local desc="$1" verwacht="$2"; shift 2
+  local kregen=nee
+  fsc_contract_manager_ok "$@" 2>/dev/null && kregen=ja
+  assert_gelijk "$desc" "$verwacht" "$kregen"
+}
+
+assert_manager "https wordt geaccepteerd" ja https://manager:9443
+assert_manager "http wordt geweigerd" nee http://manager:9443
+assert_manager "leeg wordt geweigerd" nee ""
+# De reden dat deze functie bestaat: curl leest een argument dat met `-` begint als optie, en
+# `-K/pad` maakt er een lees-je-config-uit-dit-bestand van.
+assert_manager "een curl-optie wordt geweigerd" nee -K/tmp/kwaadaardig
+# Met twee argumenten: een implementatie die na de eerste stopt, zou de tweede missen.
+assert_manager "een ongeldig tweede adres wordt ook geweigerd" nee https://manager:9443 http://andere:9443
 
 echo
 echo "== de helften kennen elkaars manager niet =="

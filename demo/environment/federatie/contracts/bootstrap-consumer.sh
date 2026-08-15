@@ -45,7 +45,7 @@ fsc_contract_manager_ok "$MANAGER" || exit 2
 [ "$HAVE_JQ" -eq 1 ] || {
   echo "FAIL: jq is vereist. De idempotentie leunt op het uitlezen van de contract-JSON; zonder jq" >&2
   echo "  zou elke run een nieuw contract aanmaken in plaats van een bestaand te herkennen." >&2
-  exit 1
+  exit 2
 }
 
 api() { fsc_contract_api "$MANAGER" "$CERT" "$KEY" "$CA" "$ADRES" "$@"; }
@@ -57,7 +57,7 @@ THUMB="${FSC_OUTWAY_THUMBPRINT:-}"
 
 if [ -z "$THUMB" ]; then
   OUTWAY_CERT="$(fsc_env_vereist FSC_OUTWAY_CERT 'of zet FSC_OUTWAY_THUMBPRINT rechtstreeks')"
-  command -v openssl >/dev/null 2>&1 || { echo "FAIL: openssl niet gevonden." >&2; exit 1; }
+  command -v openssl >/dev/null 2>&1 || { echo "FAIL: openssl niet gevonden." >&2; exit 2; }
 
   THUMB="$(fsc_outway_thumbprint "$OUTWAY_CERT")" || {
     echo "FAIL: kon de outway-thumbprint niet berekenen uit ${OUTWAY_CERT}: $(fsc_last_error)" >&2
@@ -65,12 +65,14 @@ if [ -z "$THUMB" ]; then
   }
 fi
 
-# Een meegegeven thumbprint gaat ongezien in de grant en bepaalt welke outway de dienst mag
-# afnemen; een typefout levert een contract op dat geldig heet en nooit werkt.
-case "$THUMB" in
-  [0-9a-f]*) [ "${#THUMB}" -eq 64 ] || { echo "FAIL: thumbprint is geen 64 hex-tekens: '${THUMB}'" >&2; exit 2; } ;;
-  *) echo "FAIL: thumbprint is geen 64 hex-tekens: '${THUMB}'" >&2; exit 2 ;;
-esac
+# Een meegegeven thumbprint gaat ongezien in de grant en bepaalt welke outway de dienst mag afnemen;
+# een typefout levert een contract op dat geldig heet en nooit werkt. De waarde wordt bovendien
+# ongeëscaped in de JSON-body hieronder geïnterpoleerd, dus een aanhalingsteken erin zou de
+# contract-content herschrijven — vandaar een volledige vormcontrole en niet alleen de lengte.
+fsc_hex64 "$THUMB" || {
+  echo "FAIL: thumbprint is geen 64 lowercase hex-tekens: '${THUMB}'" >&2
+  exit 2
+}
 
 echo "consumer: outway public-key-thumbprint = ${THUMB}"
 
@@ -96,8 +98,17 @@ geldige_hashes() {
   printf '%s' "${1:-}" | awk '$2 == "contract_state_valid" && $3 == "ja" { print $1 }'
 }
 
+REVOKE_FOUTEN=0
 REGELS="$(eigen_contracten)" || exit 1
 GELDIG="$(geldige_hashes "$REGELS")"
+
+# `ontbreekt` betekent dat de manager het state-veld niet meestuurde — niet dat het contract
+# ongeldig is. Stil als "nog niet klaar" lezen zou hier eeuwig wachten opleveren op iets dat er al
+# staat, dus dat geval wordt gemeld.
+if printf '%s' "$REGELS" | awk '$2 == "ontbreekt" { gevonden = 1 } END { exit !gevonden }'; then
+  echo "WARN: de manager gaf voor minstens één contract geen state terug; die tellen hier niet als geldig." >&2
+  printf '%s\n' "$REGELS" | sed 's/^/  /' >&2
+fi
 
 if [ -n "$GELDIG" ]; then
   AANTAL="$(printf '%s\n' "$GELDIG" | grep -c .)"
@@ -107,15 +118,32 @@ if [ -n "$GELDIG" ]; then
 
   if [ "$AANTAL" -gt 1 ]; then
     # Kan ontstaan doordat de existence-check en de POST niet atomair zijn: twee gelijktijdige of
-    # herhaalde runs kunnen allebei posten. De outway gebruikt er sowieso maar één — het
-    # gesorteerd-eerste hash hierboven — maar de rest ruimt zichzelf hier op, zodat een volgende
-    # run weer bij één contract uitkomt.
-    echo "  WAARSCHUWING: ${AANTAL} geldige contracten voor dezelfde combinatie; trek de overtollige in." >&2
-    printf '%s\n' "$GELDIG" | tail -n +2 | while IFS= read -r dup; do
-      api -X PUT "${MANAGER}/v1/contracts/${dup}/revoke" -H 'Content-Type: application/json' >/dev/null \
-        && echo "  ingetrokken: ${dup}" >&2 \
-        || echo "  WARN: kon duplicaat ${dup} niet intrekken: $(fsc_last_error)" >&2
-    done
+    # herhaalde runs kunnen allebei posten. Ze zijn functioneel inwisselbaar — zelfde dienst, zelfde
+    # peers, zelfde outway — dus we houden er één aan en trekken de rest in. Welke dat is doet er
+    # niet toe zolang de keuze stabiel is over runs heen; vandaar gesorteerd en dan de eerste.
+    # `fbs-contracten.sh` leidt het grant-hash voor de `Fsc-Grant-Hash`-header uit datzelfde
+    # gesorteerd-eerste contract af, dus beide kanten komen bij hetzelfde uit.
+    echo "  ${AANTAL} geldige contracten voor dezelfde combinatie; de overtollige worden ingetrokken." >&2
+
+    while IFS= read -r dup; do
+      [ -n "$dup" ] || continue
+
+      if uit="$(api -X PUT "${MANAGER}/v1/contracts/${dup}/revoke" -H 'Content-Type: application/json')"; then
+        echo "  ingetrokken: ${dup}" >&2
+      else
+        # Geteld en niet alleen gemeld: blijft dit mislukken, dan groeit het aantal geldige
+        # contracten elke ronde door en is er niets dat dat rood maakt.
+        echo "  FAIL: kon duplicaat ${dup} niet intrekken: ${uit:-<leeg>} $(fsc_last_error)" >&2
+        REVOKE_FOUTEN=$((REVOKE_FOUTEN + 1))
+      fi
+    done <<EOF
+$(printf '%s\n' "$GELDIG" | tail -n +2)
+EOF
+
+    [ "$REVOKE_FOUTEN" -eq 0 ] || {
+      echo "FAIL: ${REVOKE_FOUTEN} duplicaat/duplicaten bleven staan." >&2
+      exit 1
+    }
   fi
 
   echo "CONSUMER OK (bestaand contract ${HASH})."

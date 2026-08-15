@@ -1,0 +1,9 @@
+# Build-context voor federatie/contracts/Dockerfile is deze hele map, omdat de scripts op ../../lib
+# leunen. Sleutelmateriaal hoort daar niet in: `pki/issue.sh` laat op een ontwikkelmachine private
+# keys achter onder pki/out en pki/internal, en die zouden anders bij elke lokale build de
+# container-daemon en de build-cache in gaan. In CI bestaan ze niet (ze staan niet in git), dus daar
+# verandert dit niets.
+*/pki/out/
+*/pki/internal/
+*/pki/ca/
+*/pki/zad-upload/

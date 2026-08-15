@@ -92,6 +92,21 @@ geldige_contracten() {
 # aantal_regels <tekst>: 0 voor leeg, anders het aantal niet-lege regels.
 aantal_regels() { printf '%s' "${1:-}" | grep -c . || true; }
 
+# tel_geldige <peer> <net> <provider-oin>: aantal geldige contracten, of afbreken.
+#
+# Zonder deze tak zou een mislukte managerbevraging als "0 contracten" doorgaan. Twee mislukte
+# metingen op rij zijn dan gelijk aan elkaar, en de vergelijking "aantal ongewijzigd" wordt groen
+# op grond van twee fouten.
+tel_geldige() {
+  local regels
+  regels="$(geldige_contracten "$1" "$2" "$3")" || {
+    fout "kon de contracten van ${1} niet ophalen: $(fsc_last_error)"
+    return 1
+  }
+
+  aantal_regels "$regels"
+}
+
 for magazijn in $MAGAZIJNEN; do
   PROV_NET="$(fsc_peer_waarde NET "$magazijn")"
   PROV_OIN="$(fsc_peer_waarde OIN "$magazijn")"
@@ -99,7 +114,7 @@ for magazijn in $MAGAZIJNEN; do
 
   echo "===== ${UITVRAAG} -> ${magazijn} ====="
 
-  VOORAF="$(aantal_regels "$(geldige_contracten "$UITVRAAG" "$CONS_NET" "$PROV_OIN" || true)")"
+  VOORAF="$(tel_geldige "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || continue
 
   # --- 1. Consumer dient in, alleen bij zijn eigen manager ---------------------------------------
   echo "== 1. consumer-helft =="
@@ -115,8 +130,10 @@ for magazijn in $MAGAZIJNEN; do
   # --- 2. Provider tekent, alleen bij zijn eigen manager -----------------------------------------
   echo "== 2. provider-helft =="
 
+  # De helft draait onder `env -i` met uitsluitend zijn eigen adres en certificaten, dus dat hij
+  # hier klaarkomt ís het bewijs dat hij de overkant niet nodig heeft.
   if provider_helft "$magazijn" "$PROV_NET" "$PROV_OIN"; then
-    ok "provider: helft afgerond zonder de consumer-manager aan te raken"
+    ok "provider: klaar met alleen zijn eigen manager in de omgeving"
   else
     fout "provider-helft brak af"
     continue
@@ -147,7 +164,7 @@ for magazijn in $MAGAZIJNEN; do
 
   # --- 4. Tweede ronde: niets erbij --------------------------------------------------------------
   echo "== 4. tweede ronde =="
-  NA_EEN="$(aantal_regels "$(geldige_contracten "$UITVRAAG" "$CONS_NET" "$PROV_OIN" || true)")"
+  NA_EEN="$(tel_geldige "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || continue
 
   rc=0
   consumer_helft "$PROV_OIN" || rc=$?
@@ -155,7 +172,7 @@ for magazijn in $MAGAZIJNEN; do
     || fout "consumer: herhaalde run gaf exit ${rc} in plaats van 0"
 
   PROV_UIT="$(provider_helft "$magazijn" "$PROV_NET" "$PROV_OIN" 2>&1)" || {
-    fout "provider: herhaalde run brak af"
+    fout "provider: herhaalde run brak af — $(printf '%s' "$PROV_UIT" | tail -n1)"
     continue
   }
 
@@ -164,7 +181,7 @@ for magazijn in $MAGAZIJNEN; do
     *) fout "provider: herhaalde run tekende opnieuw — $(printf '%s' "$PROV_UIT" | tail -n1)" ;;
   esac
 
-  NA_TWEE="$(aantal_regels "$(geldige_contracten "$UITVRAAG" "$CONS_NET" "$PROV_OIN" || true)")"
+  NA_TWEE="$(tel_geldige "$UITVRAAG" "$CONS_NET" "$PROV_OIN")" || continue
 
   if [ "$NA_TWEE" -eq "$NA_EEN" ]; then
     ok "aantal geldige contracten ongewijzigd na de tweede ronde (${NA_TWEE})"

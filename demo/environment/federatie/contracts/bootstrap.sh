@@ -20,20 +20,33 @@
 #   2. provider-helft: het binnengekomen contract tekenen, na de autorisatietoets;
 #   3. consumer-helft opnieuw: vaststellen dat het contract nu geldig is.
 #
-# De eerste stap eindigt op 3 ("ingediend, nog niet getekend"); dat is de normale tussenstand en
-# geen fout. Zie de moduledocs van de twee helften voor de details per kant.
+# Bestaat het contract al, dan eindigt stap 1 meteen op 0 en zijn de andere twee niet nodig. Bij een
+# verse bootstrap eindigt hij op 3 ("ingediend, nog niet getekend") — de normale tussenstand, geen
+# fout. Zie de moduledocs van de twee helften voor de details per kant.
+#
+# Uitgangen: 0 = contract staat, 2 = configuratie deugt niet (doorgegeven uit de helft die het
+# vaststelde), 1 = al het overige.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-CONSUMER_OIN="${FSC_CONSUMER_OIN:?zet FSC_CONSUMER_OIN}"
-SERVICE_NAME="${FSC_SERVICE_NAME:?zet FSC_SERVICE_NAME}"
+HERE_LIB="${FSC_LIBDIR:-$(cd "${HERE}/../../lib" && pwd)}"
+# shellcheck source=../../lib/fsc-harness.sh
+. "${HERE_LIB}/fsc-harness.sh"
+# shellcheck source=../../lib/fsc-contract.sh
+. "${HERE_LIB}/fsc-contract.sh"
+
+CONSUMER_OIN="$(fsc_env_vereist FSC_CONSUMER_OIN 'de OIN van de afnemende peer')"
+SERVICE_NAME="$(fsc_env_vereist FSC_SERVICE_NAME 'de dienst die afgenomen wordt')"
 
 # De variabelen die de ene helft nooit mag zien. Alleen adressen en sleutelmateriaal: de OIN's zijn
 # publieke organisatienummers en beide helften hebben ze nodig om te weten waar het contract over
 # gaat.
 PROVIDER_GEHEIM=(FSC_PROVIDER_MANAGER FSC_PROVIDER_CERT FSC_PROVIDER_KEY FSC_PROVIDER_CA FSC_PROVIDER_ADRES)
-CONSUMER_GEHEIM=(FSC_CONSUMER_MANAGER FSC_CONSUMER_CERT FSC_CONSUMER_KEY FSC_CONSUMER_CA FSC_CONSUMER_ADRES)
+# Het outway-cert hoort óók bij de consumer-kant: het is het group-cert van díé peer, en de
+# provider-helft heeft er niets mee te maken.
+CONSUMER_GEHEIM=(FSC_CONSUMER_MANAGER FSC_CONSUMER_CERT FSC_CONSUMER_KEY FSC_CONSUMER_CA FSC_CONSUMER_ADRES
+                 FSC_OUTWAY_CERT FSC_OUTWAY_THUMBPRINT)
 
 # zonder <var...> -- <commando...>: draai het commando zonder die variabelen in zijn omgeving.
 zonder() {
@@ -73,10 +86,15 @@ fi
 
 # --- 2. Provider tekent ---------------------------------------------------------------------------
 echo
-provider_helft || {
-  echo "FAIL: de provider-helft brak af." >&2
-  exit 1
-}
+rc=0
+provider_helft || rc=$?
+
+# 4 = er lagen contracten die de autorisatietoets niet haalden. Die melding staat al in de log van
+# de helft zelf; hier telt alleen dat er niet getekend is, en stap 3 stelt dat vervolgens vast.
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 4 ]; then
+  echo "FAIL: de provider-helft brak af (exit ${rc})." >&2
+  exit "$rc"
+fi
 
 # --- 3. Consumer stelt vast dat het contract geldig is --------------------------------------------
 # Het wachten staat hier en niet in de consumer-helft. Die weet niet of de provider al getekend
@@ -85,6 +103,9 @@ provider_helft || {
 # lus om de helften heen dezelfde rol.
 wacht_tot_geldig() {
   local timeout="${FSC_SYNC_TIMEOUT:-20}" interval="${FSC_SYNC_INTERVAL:-2}" elapsed=0 uitkomst
+
+  # Interval 0 zou `elapsed` nooit laten groeien en er een tight loop van maken.
+  [ "$interval" -gt 0 ] || interval=1
 
   while :; do
     uitkomst=0
@@ -109,10 +130,13 @@ if [ "$rc" -eq 3 ]; then
   # zijn her-distributie voor heeft; die is al één keer gestuurd, dus hier nog eens forceren.
   echo
   echo "bootstrap: contract nog niet geldig bij de consumer; her-distributie forceren..." >&2
-  FSC_FORCEER_DISTRIBUTIE=1 provider_helft || {
-    echo "FAIL: her-distributie via de provider-helft brak af." >&2
-    exit 1
-  }
+  rc=0
+  FSC_FORCEER_DISTRIBUTIE=1 provider_helft || rc=$?
+
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 4 ]; then
+    echo "FAIL: her-distributie via de provider-helft brak af (exit ${rc})." >&2
+    exit "$rc"
+  fi
 
   echo
   rc=0
@@ -121,7 +145,7 @@ fi
 
 [ "$rc" -eq 0 ] || {
   echo "FAIL: het contract werd niet geldig bij de consumer (exit ${rc})." >&2
-  exit 1
+  exit "$rc"
 }
 
 echo "BOOTSTRAP OK."

@@ -42,7 +42,9 @@ Gemeenschappelijk (beide componenten):
 |-----------|--------|
 | `FSC_ROL` | `consumer` respectievelijk `provider` |
 | `FSC_LUS_WACHT` | optioneel, standaard `15` — interval zolang er nog iets moet gebeuren |
-| `FSC_LUS_HERHAAL` | optioneel, standaard `300` — interval als alles staat |
+| `FSC_LUS_HERHAAL` | optioneel, standaard `3600` — interval als alles staat |
+| `FSC_LUS_MAX_MISLUKT` | optioneel, standaard `20` — na zoveel mislukkingen op rij stopt de lus |
+| `FSC_GROUP_ID` | optioneel, standaard `moza-fbs-test` |
 
 `logius-fscbootstrap` (consumer):
 
@@ -62,8 +64,9 @@ Gemeenschappelijk (beide componenten):
 | Variabele | Waarde |
 |-----------|--------|
 | `FSC_PROVIDER_OIN` | `00000000000000100000` |
-| `FSC_DIENSTEN` | `berichtenmagazijn` — spaties-gescheiden lijst |
-| `FSC_CONSUMERS` | `00000000000000001000` — spaties-gescheiden lijst |
+| `FSC_DIENSTEN` | `berichtenmagazijn` — door witruimte gescheiden lijst |
+| `FSC_CONSUMERS` | `00000000000000001000` — door witruimte gescheiden lijst |
+| `FSC_MAX_GELDIGHEID_SECONDEN` | optioneel, standaard `316224000` (ruim tien jaar) — bovengrens op de looptijd die een tegenpartij mag voorstellen |
 | `FSC_PROVIDER_MANAGER` | `https://fsc-magazijna-magazijna-fscmgr:9443` |
 | `FSC_PROVIDER_CERT` | `/etc/fsc/internal/magazijn-a/bootstrap/cert.pem` |
 | `FSC_PROVIDER_KEY` | `/etc/fsc/internal/magazijn-a/bootstrap/key.pem` |
@@ -86,15 +89,22 @@ openssl x509 -in demo/environment/logius/pki/out/logius/outway/cert.pem -pubkey 
   | openssl dgst -sha256 -r | cut -d' ' -f1
 ```
 
-64 hex-tekens. De waarde is stabiel zolang het sleutelpaar dat is — een cert-rotatie binnen
-hetzelfde sleutelpaar verandert hem niet. Rouleer je het sleutelpaar wél, dan moet deze env mee en
-komt er een nieuw contract; het oude wordt door de consumer-helft opgeruimd zodra het overtollig is.
+64 lowercase hex-tekens; het component weigert elke andere vorm.
+
+De waarde is stabiel zolang het sleutelpaar dat is — een cert-rotatie binnen hetzelfde sleutelpaar
+verandert hem niet. **Rouleer je het sleutelpaar wél, dan blijft het oude contract staan.** De
+thumbprint is onderdeel van de identiteit waarop de consumer-helft matcht, dus na een rotatie valt
+het oude contract buiten die match: er komt een nieuw contract bij en het oude wordt niet
+opgeruimd. Trek het met de hand in (`PUT /v1/contracts/<hash>/revoke` op de eigen manager), anders
+blijft een grant voor een outway die niet meer bestaat geldig tot zijn einddatum.
 
 ## Cert-attachments
 
 Het component gebruikt het **internal**-cert van het `bootstrap`-endpoint als client naar de
 manager-API. Dat is een eigen cert en niet dat van een andere component: wie een cert deelt, deelt
-een identiteit, en dan is in het txlog niet meer te zien wie wat deed.
+een identiteit, en dan is in het auditlog van de manager niet meer te zien welk component welke
+contract-call deed. (Niet in het FSC-txlog — dat legt data-plane-transacties vast, gelogd door
+inway en outway; een call op de interne contract-API verschijnt daar niet.)
 
 `pki/issue.sh` geeft dit endpoint bewust **geen group-cert** — het bedient zelf geen TLS en hoort
 zich niet in de mesh als de peer te kunnen voordoen.
@@ -110,25 +120,54 @@ Attachments per bootstrap-component (UI-only; de v2-API kloont ze niet):
 Zie `deploy/zad/cert-manifest.md` bij de peer voor de algemene valkuilen (internal-pad krijgt het
 internal-cert, group-pad het group-cert inclusief intermediate).
 
+## Voorwaarden
+
+Beide peers zijn in de group geannounced en de provider heeft zijn dienst gepubliceerd
+(ServicePublicationGrant). Zonder dat laatste heeft de mesh niets om het contract naartoe te
+synchroniseren en blijft de bootstrap hangen zonder duidelijke oorzaak.
+
 ## Volgorde
 
-1. `pki/issue.sh -f` bij beide peers — geeft het nieuwe `bootstrap`-endpoint uit.
+1. `pki/issue.sh` bij beide peers — geeft het nieuwe `bootstrap`-endpoint uit. **Zonder `-f`**:
+   die vlag hergenereert de internal-CA per peer en daarmee álle bestaande certificaten, zodat
+   elke attachment op ZAD opnieuw geüpload moet worden. Het bootstrap-endpoint heeft nog geen
+   certificaat, dus een kale run geeft het al uit.
 2. `pki/zad-bundle.sh <peer>` — zet de upload-set klaar.
 3. Component éénmalig aanmaken in de ZAD-UI, in de deployment van díé peer, met de env hierboven
    en zonder inbound poort.
 4. De drie attachments koppelen.
 5. Component starten en de log volgen.
 
-Daarna houdt de `deploy-test-*`-job de image-tag bij, zoals bij de andere peer-componenten.
+Doe dit **vóór** de merge naar main: de `deploy-test-*`-job werkt daarna bij elke push de image-tag
+van dit component bij, en dat werkt alleen als het component al bestaat.
+
+> `upsert-peer.sh` noemt het bootstrap-component wel in zijn deployment-lijst — anders haalt een
+> upsert het eruit — maar zet zijn env en attachments niet. Draai je dat script na een herstel, dan
+> zijn die twee dus opnieuw handwerk.
+
+Geef het component het kleinste CPU-/geheugenprofiel dat het project toestaat. Het rekent een paar
+tientallen CPU-seconden per dag en slaapt de rest van de tijd; een standaardprofiel reserveert
+24/7 capaciteit die leeg blijft.
 
 ## Verifiëren
 
 De consumer-log meldt `CONSUMER OK`, de provider-log `PROVIDER OK (1 contract(en) getekend)` en
-daarna elke ronde `PROVIDER OK (niets te tekenen)`. Dat laatste is het idempotentie-signaal: draait
+daarna elke ronde `PROVIDER OK (niets te tekenen)`. Een `PROVIDER GEWEIGERD`-regel (uitgang 4)
+betekent dat er wél iets lag maar dat het de toets niet haalde. Dat laatste is het idempotentie-signaal: draait
 het component opnieuw of herstart de pod, dan komt er geen tweede contract bij.
 
-Blijft de consumer `CONSUMER WACHT` melden terwijl de provider niets meer te tekenen heeft, dan is
-de accept-handtekening onderweg blijven steken (zie hieronder).
+Blijft de consumer `CONSUMER WACHT` melden, kijk dan in deze volgorde:
+
+1. **De WEIGER-regels in de log van de provider.** Meldt die `PROVIDER GEWEIGERD`, dan lag het
+   contract er wél maar haalde het de autorisatietoets niet — bij een verse opstelling bijna altijd
+   een typefout in `FSC_DIENSTEN` of een OIN die niet in `FSC_CONSUMERS` staat. De regel noemt de
+   eerste eis die faalde.
+2. **Meldt de provider `niets te tekenen`**, dan is het contract daar niet aangekomen: controleer
+   de announce en de dienstpublicatie uit de voorwaarden hierboven.
+3. **Heeft de provider wél getekend** en blijft de consumer toch wachten, dan is de
+   accept-handtekening onderweg blijven steken — zie hieronder.
+
+Na twintig rondes wachten meldt de lus dat zelf ook, met een verwijzing naar deze drie.
 
 ## Bekende beperking: een gestrande accept-push
 

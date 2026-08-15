@@ -1,6 +1,6 @@
 # Contract-bootstrap op ZAD: gesplitst per peer
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 ## Context
 
@@ -40,7 +40,7 @@ De bestaande stroom valt uiteen langs de manager-grens:
 | Outway-thumbprint berekenen | — (lokaal bestand) | consumer |
 | Bestaat er al een geldig contract? | provider | **verhuist naar consumer** (zie hieronder) |
 | `POST /v1/contracts` | consumer | consumer |
-| Wachten tot het contract bij de provider staat | provider | provider (pollt zijn eigen lijst) |
+| Wachten tot het contract bij de provider staat | provider | vervalt — de provider-helft kijkt bij elke aanroep één keer in zijn eigen lijst; het herhalen zit in de aanroeper |
 | `PUT /v1/contracts/{hash}/accept` | provider | provider |
 | Her-distributie van de accept-handtekening forceren | provider | provider |
 | Wachten tot de consumer het contract geldig ziet | consumer | consumer |
@@ -54,12 +54,12 @@ van de provider. Dat kan straks niet meer, en het hoeft ook niet: hetzelfde cont
 de mesh-sync op beide managers. De consumer is bovendien de juiste kant om het aan af te
 lezen — daar haalt de outway zijn grant vandaan.
 
-Wel verandert de betekenis van een randgeval. Bij de provider zag de check alleen contracten
-die de mesh gehaald hadden; bij de consumer telt ook een contract dat net is ingediend en nog
-nergens anders bestaat. De matcher filtert daarom op geldige, niet-ingetrokken contracten —
-een net ingediend, nog niet geaccepteerd contract is niet `valid` en telt dus niet mee als
-"bestaat al". Dat is precies het gedrag dat we willen: anders zou een gestrande indiening
-elke volgende run laten denken dat het werk gedaan is.
+Wel verandert de betekenis van een randgeval. Bij de provider zag de check alleen contracten die
+de mesh gehaald hadden; bij de consumer telt ook een contract dat net is ingediend en nog nergens
+anders bestaat. De matcher geeft die bewust wél terug, met hun state erbij. Alleen op "geldig"
+filteren zou hier averechts werken: in de gesplitste opzet zit er tijd tussen indienen en tekenen,
+en in dat gat zou elke ronde er nóg een contract bij posten. De consumer-helft leest de state dus
+zelf: geldig én door de provider getekend is klaar, alles daartussen is wachten.
 
 ## De provider tekent niet blind
 
@@ -74,21 +74,35 @@ mee-ondertekenen. De regel is dus dat het contract als geheel moet kloppen.
 
 De provider tekent een contract alleen als **alle** volgende dingen gelden:
 
-1. het contract draagt **precies één** grant;
-2. die grant is van type `GRANT_TYPE_SERVICE_CONNECTION`;
-3. `grant.service.peer_id` is de **eigen** OIN;
-4. `grant.service.name` staat in de lijst diensten die deze peer aanbiedt;
-5. `grant.outway.peer_id` staat in de lijst toegestane consumer-OIN's;
-6. het contract is nog niet door ons getekend en niet ingetrokken.
+1. het contract hoort bij onze eigen group;
+2. het gebruikt het afgesproken hash-algoritme — dat bindt de content aan de handtekening;
+3. het draagt een geldigheidsduur, en die blijft onder een bovengrens;
+4. het draagt **precies één** grant;
+5. die grant is van type `GRANT_TYPE_SERVICE_CONNECTION`;
+6. `grant.service.peer_id` is de **eigen** OIN;
+7. `grant.service.name` staat in de lijst diensten die deze peer aanbiedt;
+8. de outway wordt geïdentificeerd op public-key-thumbprint en niet op domeinnaam;
+9. `grant.outway.peer_id` staat in de lijst toegestane consumer-OIN's;
+10. het contract is nog niet door ons getekend en niet ingetrokken.
 
 Faalt er één, dan laat de provider het contract met rust en meldt dat. Niet-tekenen is de
 veilige uitkomst: zonder handtekening werkt het contract niet.
 
-De thumbprint in de grant wordt **niet** getoetst. De provider kan hem niet onafhankelijk
-verifiëren — hij heeft het outway-cert van de consumer niet — en hij hoeft dat ook niet: de
-thumbprint zegt welke outway van díé consumer de dienst mag afnemen, en welke dat zijn is aan
-de consumer. Wat de provider bewaakt is dat het om zijn eigen dienst gaat en om een consumer
-die hij kent.
+De punten 1 tot en met 3 gaan niet over de grant maar over het contract eromheen. Zonder die
+drie bepaalt de allowlist wel *wie* er mag afnemen, maar bepaalt de tegenpartij in zijn eentje
+*hoe lang* en onder welke voorwaarden.
+
+De **waarde** van de thumbprint wordt niet getoetst, het **type** wel (punt 8). De waarde kan de
+provider niet onafhankelijk verifiëren — hij heeft het outway-cert van de consumer niet — en dat
+hoeft ook niet: die wordt aan zijn eigen kant cryptografisch afgedwongen op een later moment. De
+outway haalt zijn token bij de manager van de provider, die de presentatie tegen de thumbprint in
+de grant houdt, en de inway verifieert `cnf.x5t#S256` tegen het verbindingscertificaat.
+
+Twee dingen zijn geen eigenschap van het contract maar van de verwerking, en horen er toch bij.
+Elke waarde uit het contract komt van de tegenpartij en gaat een regelgebaseerde stroom in; een
+newline in een dienstnaam zou daar een tweede record schrijven dat de aanroeper als eigen regel
+leest, en zo de hele toets omzeilen. Stuurtekens worden daarom vervangen. En een hash of OIN uit
+die stroom gaat een URL-pad in, dus de vorm ervan wordt gecontroleerd voordat er een call op volgt.
 
 ## Idempotentie
 
@@ -114,9 +128,11 @@ draait, dus de bestaande federatie-smoke toetst de gesplitste implementatie in p
 variant ervan. Zonder dat zou de ZAD-code alleen op ZAD bewezen kunnen worden, en daar is de
 terugkoppeling traag.
 
-De scheiding wordt afgedwongen door constructie: elke helft krijgt alleen de variabelen van
-zijn eigen kant. Een aanroep naar de overkant kan niet per ongeluk blijven staan — er is geen
-adres, cert of CA voor.
+De scheiding wordt afgedwongen en niet alleen afgesproken: elke helft start met `env -u` op de
+adres- en certificaatvariabelen van de overkant. Een aanroep naar de overkant kan daardoor niet
+per ongeluk blijven staan — er is geen adres, cert of CA voor. Het is een denylist, dus een
+nieuwe variabele van de overkant moet er expliciet bij; de fixture-test bewaakt dat geen van
+beide helften de namen van de overkant noemt.
 
 ## ZAD-bedrading
 
@@ -125,9 +141,10 @@ bootstrap wordt dus een component met een eigen image, waarvan het entrypoint de
 leest, de lus draait en daarna blijft draaien. Een herstart is onschadelijk: de eerste ronde
 constateert dan dat het werk al gedaan is.
 
-**Image.** `fbs-fsc-contract-bootstrap`, gebouwd uit de contracts-directory: een kleine basis
-plus `bash`, `curl`, `jq` en `openssl` — dezelfde afhankelijkheden die de scripts lokaal ook
-hebben. Gebouwd en gepusht door dezelfde job-vorm als `fbs-externe-stubs`.
+**Image.** `fbs-fsc-contract-bootstrap`: een kleine basis plus `bash`, `curl`, `jq` en `openssl` —
+dezelfde afhankelijkheden die de scripts lokaal ook hebben. De build-context is
+`demo/environment/` en niet de contracts-map zelf, want de scripts leunen op `../../lib`. Gebouwd
+en gepusht door dezelfde job-vorm als `fbs-externe-stubs`.
 
 **Componenten.** Eén per peer, in de deployment van die peer, zodat de
 NetworkPolicy-voorwaarde "zelfde `deployment`-label" geldt:

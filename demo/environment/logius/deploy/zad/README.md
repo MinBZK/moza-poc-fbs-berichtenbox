@@ -42,7 +42,7 @@ De peer staat daarom in een eigen deployment `fsc-logius`: **wat niet in `test` 
 | `cert-manifest.md` | Runbook: welk cert-bestand op welk `/etc/fsc/...`-pad, per component (UI-only bijlagen). |
 | `verify-zad.md` | Runbook: announce/publiceren/discover ná een geslaagde apply, + de acceptatiecriteria. |
 | `../../../federatie/contracts/zad-runbook.md` | Runbook: het contract-bootstrap-component (`logius-fscbootstrap`, rol consumer) neerzetten — env, cert-attachments, verificatie. |
-| `../../../../../.github/workflows/deploy.yml` (root) | `deploy-test-uitvraag`-job: de DOORLOPENDE image-tag-updates (elke push naar main) — de `uitvraag`-componenten op deployment `test`, de zes `logius-fsc*`-componenten op `fsc-logius`. Niet de eenmalige creatie (die doet `upsert-peer.sh`). |
+| `../../../../../.github/workflows/deploy.yml` (root) | `deploy-test-uitvraag`-job: de DOORLOPENDE image-tag-updates (elke push naar main) — de `uitvraag`-componenten op deployment `test`, de zeven `logius-fsc*`-componenten op `fsc-logius`. Niet de eenmalige creatie (die doet `upsert-peer.sh`). |
 
 ## Volgorde
 

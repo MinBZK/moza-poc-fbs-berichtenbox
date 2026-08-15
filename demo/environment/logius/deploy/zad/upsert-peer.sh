@@ -14,6 +14,10 @@
 # Twee valkuilen die het gedrag van dit script bepalen:
 # - ZAD past component-config (env_vars/aliases) alleen bij COMPONENT-CREATIE toe, niet bij een
 #   re-POST op een bestaande component. Config wijzigen betekent de component eerst in de UI
+# LET OP: `logius-fscbootstrap` staat wel in de deployment-lijst hieronder (anders haalt een upsert hem
+# eruit) maar krijgt hier geen env en geen poorten: zijn env (FSC_ROL=consumer, allowlist) en zijn
+# cert-attachments zijn UI-werk, zie federatie/contracts/zad-runbook.md.
+#
 #   verwijderen en opnieuw applyen — de cert-attachments raak je daarmee kwijt en moeten opnieuw
 #   gemount worden.
 # - `:upsert-deployment` maakt géén NIEUW deployment aan (geeft wel HTTP 202, maar het deployment
@@ -84,6 +88,9 @@ OUTWAY_IMAGE="docker.io/federatedserviceconnectivity/outway:${IMAGE_TAG}"
 INWAY_IMAGE="docker.io/federatedserviceconnectivity/inway:${IMAGE_TAG}"
 TXLOG_IMAGE="${ZAD_TXLOG_IMAGE:-ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:${TXLOG_TAG}}"
 POSTGRES_IMAGE="${ZAD_POSTGRES_IMAGE:-docker.io/library/postgres:17}"   # self-hosted DB (spiegelt deploy/local)
+# De contract-bootstrap komt uit DEZE repo (build-contract-bootstrap in deploy.yml), niet uit
+# repo A, en volgt dus niet de FSC-versietag.
+BOOTSTRAP_IMAGE="${ZAD_BOOTSTRAP_IMAGE:-ghcr.io/minbzk/fbs-fsc-contract-bootstrap:main}"
 
 # Concrete hostnamen voor déze (vaste) deployment — zowel voor de plan-/apply-output als, direct,
 # voor de inter-component-adressen in de env_vars-blobs. Geen $DEPLOYMENT_NAME-substitutie: de
@@ -265,9 +272,9 @@ component_body() {  # $1=name $2=image $3=ports_json $4=env  [$5=services_json=[
 
 DEPLOY_BODY="$(jq -n --arg d "${DEPLOYMENT}" --arg cf "${CLONE_FROM}" \
   --arg mgr "${MANAGER_IMAGE}" --arg ctl "${CONTROLLER_IMAGE}" --arg outway "${OUTWAY_IMAGE}" \
-  --arg inway "${INWAY_IMAGE}" --arg txlog "${TXLOG_IMAGE}" --arg pg "${POSTGRES_IMAGE}" \
+  --arg inway "${INWAY_IMAGE}" --arg txlog "${TXLOG_IMAGE}" --arg pg "${POSTGRES_IMAGE}" --arg boot "${BOOTSTRAP_IMAGE}" \
   '{deploymentName:$d, domain_format:"component-deployment-project",
-    components:[{reference:"logius-fscpg", image:$pg}, {reference:"logius-fscmgr", image:$mgr}, {reference:"logius-fscctl", image:$ctl}, {reference:"logius-fscoutway", image:$outway}, {reference:"logius-fscinway", image:$inway}, {reference:"logius-fsctxlog", image:$txlog}]}
+    components:[{reference:"logius-fscpg", image:$pg}, {reference:"logius-fscmgr", image:$mgr}, {reference:"logius-fscctl", image:$ctl}, {reference:"logius-fscoutway", image:$outway}, {reference:"logius-fscinway", image:$inway}, {reference:"logius-fsctxlog", image:$txlog}, {reference:"logius-fscbootstrap", image:$boot}]}
    + (if $cf=="" then {} else {cloneFrom:$cf, forceClone:false} end)')"
 
 # Poorten per component (ports[0] = ingress). manager/controller exposen naast de ingress hun interne

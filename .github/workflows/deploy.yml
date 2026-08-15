@@ -191,17 +191,28 @@ jobs:
           #
           # deploy.yml zelf, .github/actions/ en de zad-actions staan er bewust NIET bij: die
           # bepalen de uitrol, dus juist daar is een preview het bewijs dat de wijziging klopt.
-          # demo-console en demo/ horen erbij: die module wordt door geen enkele deploy uitgerold
-          # (de images zijn berichtenuitvraag en berichtenmagazijn), en test.yml scoopt er zijn
-          # tests al apart op.
+          # demo-console en demo/ horen erbij: die mappen worden grotendeels door geen enkele deploy
+          # uitgerold, en test.yml scoopt er zijn tests al apart op. Uitzondering: de twee mappen
+          # waaruit het contract-bootstrap-image komt — zie `image_bronnen` hieronder.
           niet_deploybaar='(^docs/|\.md$|^bruno/|^demo/|^services/demo-console/|^\.clusterfuzzlite/|^\.github/workflows/(test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fsc-harness-overlays|fuzz-base-image)\.yml$)'
+
+          # Uitzondering op `^demo/`: het contract-bootstrap-image wordt uit deze twee mappen
+          # gebouwd (zie build-contract-bootstrap), dus dáár is `demo/` wél een gedeployd image.
+          # Zonder deze regel zou een PR die alleen die scripts of de Dockerfile raakt de build
+          # overslaan, en zou het image pas ná de merge naar main voor het eerst gebouwd worden.
+          image_bronnen='^demo/environment/(lib/|federatie/contracts/)'
 
           # Herestring in plaats van een pipe: `grep -q` sluit de pipe bij de eerste match, en
           # met `pipefail` zou die SIGPIPE als "niets te deployen" doorgaan. `grep` geeft 1 bij
           # geen match en 2 bij een echte fout; alleen 1 mag tot overslaan leiden, want een
           # overgeslagen deploy rapporteert `skipped` en telt als succes in de required checks.
           rc=0
-          grep -qvE "$niet_deploybaar" <<<"$files" || rc=$?
+
+          # De `.md`-uitsluiting geldt ook hier: het runbook staat in dezelfde map als de scripts,
+          # maar zit niet in het image.
+          if ! grep -E "$image_bronnen" <<<"$files" | grep -qvE '\.md$'; then
+            grep -qvE "$niet_deploybaar" <<<"$files" || rc=$?
+          fi
 
           case "$rc" in
             0)
