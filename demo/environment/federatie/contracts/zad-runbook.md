@@ -43,7 +43,7 @@ Gemeenschappelijk (beide componenten):
 | `FSC_ROL` | `consumer` respectievelijk `provider` |
 | `FSC_LUS_WACHT` | optioneel, standaard `15` — interval zolang er nog iets moet gebeuren |
 | `FSC_LUS_HERHAAL` | optioneel, standaard `3600` — interval als alles staat |
-| `FSC_LUS_MAX_MISLUKT` | optioneel, standaard `8` — na zoveel mislukkingen op rij stopt de lus (met de backoff-ladder is dat ruim een uur) |
+| `FSC_LUS_MAX_MISLUKT` | optioneel, standaard `8` — na zoveel mislukkingen op rij stopt de lus (met de backoff-ladder ongeveer 32 minuten) |
 | `FSC_LUS_MELD_WACHT_NA` | optioneel, standaard `20` — na zoveel rondes wachten volgt een waarschuwing |
 | `FSC_LUS_MAX_WACHT` | optioneel, standaard `200` — na zoveel rondes wachten op de overkant stopt de lus |
 | `FSC_GROUP_ID` | optioneel, standaard `moza-fbs-test` |
@@ -68,7 +68,7 @@ Gemeenschappelijk (beide componenten):
 | `FSC_PROVIDER_OIN` | `00000000000000100000` |
 | `FSC_DIENSTEN` | `berichtenmagazijn` — door witruimte gescheiden lijst |
 | `FSC_CONSUMERS` | `00000000000000001000` — door witruimte gescheiden lijst |
-| `FSC_MAX_GELDIGHEID_SECONDEN` | optioneel, standaard `316224000` (ruim tien jaar) — bovengrens op de looptijd die een tegenpartij mag voorstellen |
+| `FSC_MAX_GELDIGHEID_SECONDEN` | optioneel, standaard `316224000` (ruim tien jaar) — bovengrens op de RESTERENDE geldigheid (`not_after` min nu), niet op de vensterlengte |
 | `FSC_PROVIDER_MANAGER` | `https://fsc-magazijna-magazijna-fscmgr:9443` |
 | `FSC_PROVIDER_CERT` | `/etc/fsc/internal/magazijn-a/bootstrap/cert.pem` |
 | `FSC_PROVIDER_KEY` | `/etc/fsc/internal/magazijn-a/bootstrap/key.pem` |
@@ -124,9 +124,10 @@ internal-cert, group-pad het group-cert inclusief intermediate).
 
 ## Voorwaarden
 
-Beide peers zijn in de group geannounced en de provider heeft zijn dienst gepubliceerd
-(ServicePublicationGrant). Zonder dat laatste heeft de mesh niets om het contract naartoe te
-synchroniseren en blijft de bootstrap hangen zonder duidelijke oorzaak.
+Beide peers zijn in de group geannounced — daaruit kent de mesh elkaars manageradres — en de
+provider heeft zijn dienst gepubliceerd (ServicePublicationGrant). Dat laatste is niet nodig om het
+contract te synchroniseren maar wel om het te mogen tekenen: de provider toetst dat de dienst uit de
+grant ook echt door hem wordt aangeboden, en zonder publicatie geeft hij later ook geen token uit.
 
 ## Volgorde
 
@@ -168,8 +169,14 @@ geweigerd)` — dan is er iets aan de hand met één contract, niet met de ronde
    eerste eis die faalde.
 2. **Meldt de provider `niets te tekenen`**, dan is het contract daar niet aangekomen: controleer
    de announce en de dienstpublicatie uit de voorwaarden hierboven.
-3. **Heeft de provider wél getekend** en blijft de consumer toch wachten, dan is de
-   accept-handtekening onderweg blijven steken — zie hieronder.
+3. **Meldt de provider `eerder getekende contracten die de toets nu niet meer halen`**, dan is de
+   allowlist of de geldigheidsgrens ná de eerste tekenronde aangepast; het contract ligt er wel maar
+   telt niet meer mee.
+4. **Heeft de provider wél getekend** en blijft de consumer toch wachten, dan is de
+   accept-handtekening onderweg blijven steken — zie hieronder. Dat kan ook de andere kant op: is de
+   handtekening van de consumer nooit bij de provider aangekomen, dan weigert die met "draagt de
+   handtekening van de consumer nog niet" en is er aan consumerkant geen knop om hem opnieuw te
+   sturen. Dien in dat geval opnieuw in door het contract bij de consumer in te trekken.
 
 Na twintig rondes wachten meldt de lus dat zelf ook, met een verwijzing naar deze drie; na
 `FSC_LUS_MAX_WACHT` rondes stopt hij, zodat het platform de blokkade als crashloop laat zien in

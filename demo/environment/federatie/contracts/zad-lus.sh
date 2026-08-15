@@ -35,8 +35,8 @@ HERHAAL="$(fsc_getal_vereist FSC_LUS_HERHAAL "${FSC_LUS_HERHAAL:-3600}")"
 # die de client weigert — wordt door opnieuw proberen nooit beter, en een component dat eeuwig
 # doordraait ziet er op het platform gezond uit. Afbreken maakt er een zichtbare crashloop van.
 #
-# Acht en niet twintig: met de ladder hieronder is acht pogingen ongeveer een uur, en twintig zou
-# ruim twaalf uur zijn. Een container die eens per twaalf uur afsluit, is voor het platform geen
+# Acht en niet twintig: met de ladder hieronder is acht pogingen ongeveer 32 minuten, en twintig
+# zou ruim twaalf uur zijn. Een container die eens per twaalf uur afsluit, is voor het platform geen
 # crashloop maar een herstart — precies het signaal dat deze grens moet opleveren.
 MAX_MISLUKT="$(fsc_getal_vereist FSC_LUS_MAX_MISLUKT "${FSC_LUS_MAX_MISLUKT:-8}")"
 
@@ -114,10 +114,20 @@ while [ "$STOPPEN" -eq 0 ]; do
       exit 2
       ;;
     4)
-      # Provider-helft: er lagen contracten die de toets niet haalden. Dat is een beslissing en geen
-      # storing, dus niet opnieuw proberen op het korte interval — de allowlist verandert alleen
-      # doordat iemand hem aanpast.
+      # Provider-helft: er lagen contracten die de toets niet haalden en niets mocht getekend worden.
+      # Geen storing, dus niet opnieuw proberen op het korte interval — de allowlist verandert alleen
+      # doordat iemand hem aanpast. Maar het telt wél mee als wachten: anders is dit de enige
+      # permanente blokkade waarop de lus nooit escaleert, en blijft het component uren gezond ogen
+      # terwijl er niets gebeurt.
       MISLUKT=0
+      GEWACHT=$((GEWACHT + 1))
+
+      if [ "$GEWACHT" -ge "$MAX_WACHT" ]; then
+        echo "FAIL: ${GEWACHT} rondes zonder dat er iets getekend kon worden; de lus stopt." >&2
+        echo "  Kijk naar de WEIGER-regels hierboven en naar FSC_DIENSTEN/FSC_CONSUMERS." >&2
+        exit 1
+      fi
+
       pauzeer "$HERHAAL"
       ;;
     *)
@@ -141,5 +151,13 @@ while [ "$STOPPEN" -eq 0 ]; do
       ;;
   esac
 done
+
+# Alleen "op verzoek" als het ook echt zo is: viel de lus er om een andere reden uit, dan zou een
+# nulafsluiting op ZAD lezen als een component dat netjes klaar is — geen crashloop, niets rood, en
+# de bootstrap ligt stil.
+if [ "$STOPPEN" -eq 0 ]; then
+  echo "FAIL: de lus is onverwacht geëindigd." >&2
+  exit 1
+fi
 
 echo "zad-lus: gestopt op verzoek."

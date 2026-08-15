@@ -37,10 +37,15 @@ fsc_env_vereist() {
 # loop die de manager zo snel mogelijk bevraagt terwijl hij elke ronde OK meldt. En een niet-numerieke
 # drempel laat `[ ]` falen, waarna de vangrail die de lus zou stoppen niets meer doet. Beide falen
 # dus open; vandaar één controle bij het opstarten.
+# Het patroon eist een positief getal zónder voorloopnul, niet "alleen cijfers". `0` zou de guard
+# passeren en precies de hot loop opleveren waarvoor hij bestaat, en `08` wordt door bash als
+# octaal gelezen: `$((… * 08))` breekt af met "value too great for base", midden in de lus.
 fsc_getal_vereist() {
+  # Twee patronen en niet één: een case-patroon is een glob, geen reguliere expressie, dus
+  # `[1-9][0-9]*` zou ook `15s` accepteren — de `*` matcht daar willekeurige tekens.
   case "${2:-}" in
-    ""|*[!0-9]*)
-      echo "FAIL: ${1} moet een geheel getal zijn, niet '${2:-}'." >&2
+    ""|*[!0-9]*|0|0*)
+      echo "FAIL: ${1} moet een positief geheel getal zijn zonder voorloopnul, niet '${2:-}'." >&2
       exit 2
       ;;
   esac
@@ -66,7 +71,9 @@ fsc_hex64() {
 # het pad verleggen — curl normaliseert `..`-segmenten — dus die valt af.
 fsc_hash_ok() {
   case "${1:-}" in
-    ""|*[!A-Za-z0-9._~$+-]*) return 1 ;;
+    # Puur punten apart: `.` en `..` bestaan volledig uit toegestane tekens, en curl normaliseert ze
+    # weg — `/v1/contracts/../revoke` komt aan als `/v1/revoke`.
+    ""|.|..|*[!A-Za-z0-9._~$+-]*) return 1 ;;
   esac
 }
 
@@ -154,11 +161,16 @@ _FSC_CONTRACTEN_JQ='
     if type != "object" then error("respons is geen JSON-object")
     elif has("contracts") | not then error("respons heeft geen veld \"contracts\"")
     elif (.contracts | type) != "array" then error("veld \"contracts\" is \(.contracts | type), geen array")
-    elif ((.next_cursor // "") | tostring) != "" then
+    elif ((.pagination.next_cursor? // .next_cursor? // "") | tostring) != "" then
       # De lijst is cursor-gepagineerd. Alleen pagina 1 lezen zou betekenen dat de consumer zijn
-      # eigen contract niet meer ziet zodra de manager er genoeg heeft — en dan dient hij elke
-      # ronde een nieuw contract in. Afbreken tot iemand de cursor volgt; stil doorgaan is hier de
+      # eigen contract niet meer ziet zodra de manager er genoeg heeft — en dan dient hij elke ronde
+      # een nieuw contract in. Afbreken tot iemand de cursor volgt; stil doorgaan is hier de
       # gevaarlijke keuze.
+      #
+      # Twee plekken, want het veld staat genest onder `pagination` en niet op topniveau; alleen de
+      # topniveau-vorm toetsen zou een guard opleveren die nooit vuurt, en dat is slechter dan geen
+      # guard. De aanroepers vragen daarnaast expliciet een ruime `limit` op, zodat dit een vangrail
+      # blijft in plaats van een dagelijkse blokkade.
       error("de contractenlijst is gepagineerd (next_cursor gezet) en dat volgen we nog niet")
     else .contracts end;
 '
@@ -233,10 +245,28 @@ fsc_contract_beoordeling() {
     --arg prov "$2" --argjson diensten "$3" --argjson consumers "$4" \
     --arg groep "${5:-}" --argjson maxgeldig "${6:-0}" --argjson nu "${7:-0}" "${_FSC_CONTRACTEN_JQ}"'
     def veilig: (. // "ontbreekt") | tostring | gsub("[[:cntrl:]]"; "\u00b7");
-    def weiger($ondertekend; $tekst): if $ondertekend then empty else "WEIGER \($tekst)" end;
+    # Een contract dat de toets niet haalt en al onze handtekening draagt, is meestal andermans zaak
+    # (het publicatiecontract voor onze eigen dienst staat op dezelfde manager). Máár als het een
+    # serviceConnection voor onze eigen dienst is, was het ooit van ons en is het nu afgekeurd — door
+    # een gecorrigeerde allowlist, een verlopen looptijd of een verlaagde bovengrens. Dat stil laten
+    # zou de provider "nog niets binnen" laten melden terwijl het contract er wel degelijk ligt.
+    def weiger($ondertekend; $tekst):
+      if $ondertekend then
+        if (((.content.grants // [])[0].type? // "") == "GRANT_TYPE_SERVICE_CONNECTION"
+            and ((.content.grants // [])[0].service?.peer_id? // "") == $prov)
+        then "AANDACHT \($tekst)" else empty end
+      else "WEIGER \($tekst)" end;
 
     contracten[]
-    | select((.has_revoked // false) == false)
+    # Eerst het type: een rij die geen object is, laat élke veldtoets hieronder afbreken en daarmee
+    # het hele programma — dan wordt in die ronde geen enkel legitiem contract meer getekend. De
+    # `try` verderop begint pas ná deze regels en zou dat niet vangen.
+    | if type != "object" then "WEIGER <geen object> een rij in de contractenlijst is \(type), geen object"
+      else
+        # Ook `has_rejected`: een contract dat wij eerder hebben afgewezen draagt onze
+        # accept-handtekening niet, dus zonder deze regel komt het elke ronde terug als kandidaat en
+        # tekenen we alsnog wat we bewust hebben geweigerd.
+        select((.has_revoked // false) == false and (.has_rejected // false) == false)
     | . as $c
     | ($c.hash | veilig) as $h
 
@@ -277,6 +307,16 @@ fsc_contract_beoordeling() {
             weiger($ondertekend; "\($h) dienst hoort bij peer \($g[0].service.peer_id | veilig), niet bij ons")
           elif ($diensten | index($g[0].service.name)) == null then
             weiger($ondertekend; "\($h) dienst \($g[0].service.name | veilig) bieden wij niet aan")
+          elif ($g[0].service.type // "SERVICE_TYPE_SERVICE") != "SERVICE_TYPE_SERVICE" then
+            # Dezelfde klasse discriminator als het identificatietype hieronder: een
+            # DELEGATED_SERVICE zet een delegator-claim in het token en verandert welke
+            # handtekeningen vereist zijn. Wij bieden geen gedelegeerde diensten aan.
+            weiger($ondertekend; "\($h) dienst-type \($g[0].service.type | veilig) is geen gewone dienst")
+          elif (($g[0].properties // {}) | length) != 0 then
+            # `properties` schrijft claims die onze eigen manager in het access token zet en die onze
+            # inway en de dienst erachter te zien krijgen — ongesanitiseerd, door de tegenpartij
+            # opgesteld. Dat is dezelfde soort blinde ondertekening als een tweede grant.
+            weiger($ondertekend; "\($h) draagt grant-properties die wij niet ondertekenen")
           elif $g[0].outway.identification.type != "OUTWAY_IDENTIFICATION_TYPE_PUBLIC_KEY_THUMBPRINT" then
             weiger($ondertekend; "\($h) outway-identificatie \($g[0].outway.identification.type | veilig) is geen thumbprint")
           elif ($consumers | index($g[0].outway.peer_id)) == null then
@@ -288,7 +328,8 @@ fsc_contract_beoordeling() {
             weiger($ondertekend; "\($h) draagt de handtekening van de consumer nog niet")
           elif $ondertekend then "GETEKEND \($c.hash) \($g[0].outway.peer_id)"
           else "TEKEN \($c.hash) \($g[0].outway.peer_id)" end
-      ) catch "WEIGER \($h) is niet te beoordelen: \(. | tostring | gsub("[[:cntrl:]]"; "·"))"' 2>>"$ERRLOG"
+      ) catch "WEIGER \($h) is niet te beoordelen: \(. | tostring | gsub("[[:cntrl:]]"; "·"))"
+      end' 2>>"$ERRLOG"
 }
 
 # --- Wat de consumer al heeft uitstaan ----------------------------------------------------------
@@ -314,7 +355,8 @@ fsc_contract_voor_combinatie() {
     def veilig: (. // "ontbreekt") | tostring | gsub("[[:cntrl:]]"; "\u00b7");
 
     contracten[]
-    | select((.has_revoked // false) == false)
+    | select(type == "object")
+    | select((.has_revoked // false) == false and (.has_rejected // false) == false)
     # Zelfde reden als in de beoordeling hiernaast: één misvormde rij mag de rest niet meenemen.
     # Hier zonder melding — deze matcher zoekt ons eigen contract, en een rij van iemand anders die
     # we niet kunnen lezen is simpelweg niet de onze. De provider-kant maakt er wél een WEIGER van,

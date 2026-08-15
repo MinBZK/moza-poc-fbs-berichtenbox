@@ -12,6 +12,7 @@
 #   2  configuratie deugt niet
 #   3  er is nog niets van een toegelaten consumer binnengekomen — wachten op de overkant
 #   4  er lagen contracten die de autorisatietoets niet haalden, en niets ervan mocht getekend
+#      (een eerder getekend contract dat de toets nu niet meer haalt wordt gemeld, niet geteld)
 #
 # De 3 en de 4 zijn er omdat "niets gedaan" drie heel verschillende dingen kan betekenen. Zonder
 # die twee meldt een lege lijst hetzelfde als een gezonde ronde, en een verkeerd gezette allowlist
@@ -38,8 +39,11 @@ CONSUMERS="$(fsc_env_vereist FSC_CONSUMERS 'consumer-OINs die een contract mogen
 
 GROUP_ID="${FSC_GROUP_ID:-moza-fbs-test}"
 
-# Bovengrens op de geldigheidsduur die een tegenpartij mag voorstellen. De consumer-helft vraagt tien
-# jaar; deze grens ligt er net boven, zodat hij die doorlaat maar een contract van honderd jaar niet.
+# Bovengrens op de RESTERENDE geldigheid (`not_after` min nu), niet op de vensterlengte: de vraag is
+# hoe lang een tegenpartij een claim op ons kan houden. De consumer-helft vraagt tien jaar; deze
+# grens ligt er ongeveer tien dagen boven, zodat een gewone aanvraag doorkomt maar een contract van
+# honderd jaar niet. Die tien dagen zijn tegelijk het volledige budget voor klokverschil tussen de
+# twee peers — wie deze waarde richting 315360000 bijstelt, haalt dat weg.
 MAX_GELDIGHEID="$(fsc_getal_vereist FSC_MAX_GELDIGHEID_SECONDEN "${FSC_MAX_GELDIGHEID_SECONDEN:-316224000}")"
 
 MANAGER="$(fsc_env_vereist FSC_PROVIDER_MANAGER 'https://<eigen-manager>:9443')"
@@ -63,11 +67,18 @@ fsc_contract_manager_ok "$MANAGER" || exit 2
 
 api() { fsc_contract_api "$MANAGER" "$CERT" "$KEY" "$CA" "$ADRES" "$@"; }
 
+# De lijst is cursor-gepagineerd met een default van honderd, en bevat álles: publicatiecontracten,
+# ingetrokken en afgewezen contracten, van alle peers. In een langlevend deployment groeit dat
+# monotoon, en zodra ons eigen contract van pagina 1 valt zou de consumer elke ronde een nieuw
+# indienen. Een ruime limiet houdt de guard in fsc-contract.sh een vangrail in plaats van een
+# dagelijkse blokkade.
+CONTRACT_LIMIET="${FSC_CONTRACT_LIMIET:-1000}"
+
 DIENSTEN_JSON="$(fsc_lijst_naar_json FSC_DIENSTEN "$DIENSTEN")" || exit 2
 CONSUMERS_JSON="$(fsc_lijst_naar_json FSC_CONSUMERS "$CONSUMERS")" || exit 2
 
 # --- De contracten ophalen en beoordelen ---------------------------------------------------------
-JSON="$(api "${MANAGER}/v1/contracts")" || {
+JSON="$(api "${MANAGER}/v1/contracts?limit=${CONTRACT_LIMIET}")" || {
   echo "FAIL: kon de eigen contractenlijst niet ophalen: $(fsc_last_error)" >&2
   exit 1
 }
@@ -80,6 +91,16 @@ BEOORDELING="$(fsc_contract_beoordeling \
 }
 
 AFGEWEZEN="$(fsc_contract_regels "$BEOORDELING" WEIGER)"
+
+# Contracten die wij ooit tekenden en die nu de toets niet meer halen. Geen besluit meer — het staat
+# er al — maar wel iets waar een operator van moet weten: doorgaans een gecorrigeerde allowlist of
+# een looptijd die inmiddels buiten de grens valt.
+AANDACHT="$(fsc_contract_regels "$BEOORDELING" AANDACHT)"
+
+if [ -n "$AANDACHT" ]; then
+  echo "provider: eerder getekende contracten die de toets nu niet meer halen:" >&2
+  printf '%s\n' "$AANDACHT" | sed 's/^/  /' >&2
+fi
 
 if [ -n "$AFGEWEZEN" ]; then
   # Niet-tekenen is de stille uitkomst: zonder deze regels ziet een operator alleen dat er niets
@@ -191,7 +212,11 @@ fi
 # Niets getekend en niets dat ons aangaat in de lijst: het contract van de consumer is hier nog niet.
 # Dat is wachten op de overkant en geen eindtoestand — de aanroeper hoort er kort op terug te komen
 # in plaats van naar het lange interval te gaan, anders duurt een verse bootstrap tot een uur.
-if [ -z "$(fsc_contract_regels "$BEOORDELING" GETEKEND)" ]; then
+# Alleen echt "nog niets binnen": geen getekend contract van ons, en ook geen contract dat ooit van
+# ons was. Zonder die tweede voorwaarde meldt een provider met een afgekeurd eigen contract elke
+# ronde dat er niets binnen is, terwijl het er wel ligt — en stuurt de lus de operator naar
+# WEIGER-regels die er niet zijn.
+if [ -z "$(fsc_contract_regels "$BEOORDELING" GETEKEND)" ] && [ -z "$AANDACHT" ]; then
   echo "PROVIDER WACHT (nog geen contract van een toegelaten consumer binnen)."
   exit 3
 fi

@@ -163,6 +163,30 @@ VREEMDE_CONS="$(contract hc CONTRACT_STATE_PROPOSED false false "$(grant "$SVC" 
 assert_beoordeling "onbekende consumer: niet tekenen" "$(bundel "$VREEMDE_CONS")" TEKEN ""
 assert_weigerreden "en de reden noemt de consumer" "$(bundel "$VREEMDE_CONS")" "staat niet op de lijst"
 
+# Een gedelegeerde dienst zet een delegator-claim in het token en verandert welke handtekeningen
+# vereist zijn. Wij bieden die niet aan.
+assert_weiger_regel "gedelegeerde dienst: niet tekenen" \
+  "$(bundel "$(contract_ruw '.content.grants[0].service.type = "SERVICE_TYPE_DELEGATED_SERVICE"')")" \
+  "hx dienst-type SERVICE_TYPE_DELEGATED_SERVICE is geen gewone dienst"
+assert_beoordeling "een gewone dienst mag expliciet ook" \
+  "$(bundel "$(contract_ruw '.content.grants[0].service.type = "SERVICE_TYPE_SERVICE"')")" TEKEN "hx ${CONS}"
+
+# `properties` schrijft claims die onze eigen manager in het token zet en die onze inway en de dienst
+# erachter te zien krijgen — door de tegenpartij opgesteld. Blind mee-ondertekenen is dezelfde fout
+# als een tweede grant mee-ondertekenen.
+assert_weiger_regel "grant met properties: niet tekenen" \
+  "$(bundel "$(contract_ruw '.content.grants[0].properties = {"rol": "beheerder"}')")" \
+  "hx draagt grant-properties die wij niet ondertekenen"
+assert_beoordeling "een leeg properties-object is onschadelijk" \
+  "$(bundel "$(contract_ruw '.content.grants[0].properties = {}')")" TEKEN "hx ${CONS}"
+
+# Een contract dat wij eerder afwezen draagt onze accept-handtekening niet, dus zonder filter komt
+# het elke ronde terug als kandidaat en tekenen we alsnog wat we bewust weigerden.
+assert_beoordeling "een eerder afgewezen contract komt niet terug" \
+  "$(bundel "$(contract_ruw '.has_rejected = true')")" TEKEN ""
+assert_beoordeling "en levert ook geen weigering op" \
+  "$(bundel "$(contract_ruw '.has_rejected = true')")" WEIGER ""
+
 echo
 echo "== fsc_contract_beoordeling: allowlists met meer dan één waarde =="
 
@@ -417,6 +441,73 @@ done
 # De grens waar operator-env een jq-argument wordt.
 assert_gelijk "aanhalingstekens worden ge-escaped" '["a\"b"]' "$(fsc_json_lijst 'a"b' | tr -d '\n')"
 assert_gelijk "geen argumenten geeft een lege array" '[]' "$(fsc_json_lijst)"
+
+echo
+echo "== een rij die geen object is =="
+
+# Zonder aparte typecheck laat élke veldtoets zo'n rij het hele programma afbreken, en dan wordt in
+# die ronde geen enkel legitiem contract getekend.
+for rot in '"oeps"' '42' '[]' 'null'; do
+  gemengd="$(printf '%s\n' "$GOED" "$rot" | jq -sc '{contracts: .}')"
+  uitkomst="$(beoordeel "$gemengd")" && rc=0 || rc=$?
+
+  assert_gelijk "rij ${rot}: het goede contract blijft over" "h1 ${CONS}" \
+    "$(fsc_contract_regels "$uitkomst" TEKEN)"
+  assert_gelijk "  en de beoordeling zelf slaagt" "0" "$rc"
+done
+
+echo
+echo "== eerder getekend, nu afgekeurd: niet stil =="
+
+# Wordt een typefout in FSC_DIENSTEN gecorrigeerd ná de eerste tekenronde, of daalt de bovengrens,
+# dan valt een contract dat wij al tekenden buiten de toets. Dat is geen besluit meer, maar wel iets
+# waarvan de operator moet weten — anders meldt de provider "nog niets binnen" terwijl het er ligt.
+GETEKEND_VERLOPEN="$(contract hv CONTRACT_STATE_VALID false true "$(grant "$SVC" "$PROV" "$CONS")" \
+  | jq -c ".content.validity.not_after = ${NU} - 1")"
+assert_beoordeling "een verlopen eigen contract levert een AANDACHT-regel op" \
+  "$(bundel "$GETEKEND_VERLOPEN")" AANDACHT "hv is al verlopen"
+assert_beoordeling "en geen WEIGER" "$(bundel "$GETEKEND_VERLOPEN")" WEIGER ""
+
+# Het publicatiecontract voor onze eigen dienst draagt onze handtekening en haalt de toets ook niet;
+# dát hoort wél stil te blijven, anders staat de log elke ronde vol.
+assert_beoordeling "een getekend publicatiecontract blijft stil" "$(bundel "$PUBLICATIE")" AANDACHT ""
+
+echo
+echo "== fsc_getal_vereist =="
+
+assert_getal() {
+  local desc="$1" waarde="$2" verwacht="$3" kregen
+  kregen="$(fsc_getal_vereist T "$waarde" 2>/dev/null)" || kregen="(afgewezen)"
+  assert_gelijk "$desc" "$verwacht" "$kregen"
+}
+
+assert_getal "gewoon getal" 15 15
+assert_getal "meercijferig" 3600 3600
+# Nul zou de lus zonder pauze laten draaien — precies de hot loop waar de controle voor bestaat.
+assert_getal "nul wordt afgewezen" 0 "(afgewezen)"
+# Bash leest een voorloopnul als octaal; `$((x * 08))` breekt af midden in de lus.
+assert_getal "voorloopnul wordt afgewezen" 08 "(afgewezen)"
+assert_getal "eenheden erachter worden afgewezen" 15s "(afgewezen)"
+assert_getal "negatief wordt afgewezen" -- "(afgewezen)"
+assert_getal "leeg wordt afgewezen" "" "(afgewezen)"
+
+echo
+echo "== fsc_hash_ok =="
+
+assert_hash() {
+  local desc="$1" waarde="$2" verwacht="$3" kregen=nee
+  fsc_hash_ok "$waarde" && kregen=ja
+  assert_gelijk "$desc" "$verwacht" "$kregen"
+}
+
+assert_hash "een echte FSC-hash" '$1$4$k4rwlWTsCM_j89Fc3nrbnQa9-KB43' ja
+assert_hash "leeg" "" nee
+# `.` en `..` bestaan uit toegestane tekens maar verleggen het pad: curl normaliseert ze weg.
+assert_hash "een punt" "." nee
+assert_hash "twee punten" ".." nee
+assert_hash "een schuine streep" "a/b" nee
+assert_hash "witruimte" "a b" nee
+assert_hash "een newline" "$(printf 'a\nb')" nee
 
 echo
 echo "== fsc_contract_manager_ok =="
