@@ -342,6 +342,36 @@ jobs:
           docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
+  # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
+  # interne manager-API heeft daar geen route en de tenant-baseline-NetworkPolicy laat alleen
+  # verkeer binnen hetzelfde deployment toe. Eén image, twee rollen — welke, leest het entrypoint
+  # uit FSC_ROL in de component-env.
+  build-contract-bootstrap:
+    if: github.event_name == 'push' || (github.event.action != 'closed' && needs.changes.outputs.run == 'true')
+    needs: [meta, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: build-contract-bootstrap-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build + push contract-bootstrap
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          IMG="$REGISTRY/$OWNER/fbs-fsc-contract-bootstrap:$TAG"
+          # Context is demo/environment/ en niet de contracts-map: de scripts leunen op ../../lib.
+          docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
+          docker push "$IMG"
+
   # De vier toetsende workflows draaien als aangeroepen (`workflow_call`) job ín deze workflow,
   # zodat de deploy er met `needs:` aan kan hangen. Vóór #173 draaiden ze zelfstandig en wachtte
   # een `gate`-job er in een poll-lus op: ~461 s per run een runner die niets deed dan `sleep 15`.
@@ -668,9 +698,9 @@ jobs:
           # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
           # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
-          # de `build`-matrix en `build-externe-stubs`; een vergeten package laat weesversies
-          # achter.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs; do
+          # de `build`-matrix, `build-externe-stubs` en `build-contract-bootstrap`; een vergeten
+          # package laat weesversies achter.
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-fsc-contract-bootstrap; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
               fail=1
@@ -714,10 +744,11 @@ jobs:
       && needs.meta.result == 'success'
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
+      && needs.build-contract-bootstrap.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs, gate]
+    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Eén ZAD-taak tegelijk op de `test`-deployment van dit project; twee snel opeenvolgende merges
@@ -761,7 +792,8 @@ jobs:
               {"name": "logius-fscctl", "image": "ghcr.io/minbzk/moza-fsc-testnet-controller-migrate:v2.5.2"},
               {"name": "logius-fscoutway", "image": "docker.io/federatedserviceconnectivity/outway:v2.5.2"},
               {"name": "logius-fscinway", "image": "docker.io/federatedserviceconnectivity/inway:v2.5.2"},
-              {"name": "logius-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"}
+              {"name": "logius-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"},
+              {"name": "logius-fscbootstrap", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-fsc-contract-bootstrap:${{ needs.meta.outputs.tag }}"}
             ]
 
   deploy-test-externe-stubs:
@@ -804,10 +836,11 @@ jobs:
       && needs.meta.result == 'success'
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
+      && needs.build-contract-bootstrap.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs, gate]
+    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Dekt ook de tweede stap (deployment `fsc-magazijna`) — die hoort bij hetzelfde project.
@@ -847,5 +880,6 @@ jobs:
               {"name": "magazijna-fscmgr", "image": "ghcr.io/minbzk/moza-fsc-testnet-manager-migrate:v2.5.2"},
               {"name": "magazijna-fscctl", "image": "ghcr.io/minbzk/moza-fsc-testnet-controller-migrate:v2.5.2"},
               {"name": "magazijna-fscinway", "image": "docker.io/federatedserviceconnectivity/inway:v2.5.2"},
-              {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"}
+              {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"},
+              {"name": "magazijna-fscbootstrap", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-fsc-contract-bootstrap:${{ needs.meta.outputs.tag }}"}
             ]

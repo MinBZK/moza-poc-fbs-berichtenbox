@@ -34,7 +34,7 @@ PEER="magazijn-a"
 OIN="00000000000000100000"                                # = subject.serialNumber = Peer ID
 # endpoint:component-korte-naam (de ZAD-component + Service heet `<deployment>-<short>`). Volgorde
 # bepaalt de uitvoer-volgorde; spiegelt de MGZ*_SVC-namen in upsert-peer.sh.
-ENDPOINTS=( "manager:magazijna-fscmgr" "controller:magazijna-fscctl" "inway:magazijna-fscinway" "txlog:magazijna-fsctxlog" )
+ENDPOINTS=( "manager:magazijna-fscmgr" "controller:magazijna-fscctl" "inway:magazijna-fscinway" "txlog:magazijna-fsctxlog" "bootstrap:magazijna-fscbootstrap" )
 
 # Genereer per endpoint de csr.json. SAN-volgorde: peer-identiteit (alleen manager) ->
 # <endpoint>.<peer>.fsc-test.local -> externe mesh-host -> Service-kortnaam -> Service-FQDN.

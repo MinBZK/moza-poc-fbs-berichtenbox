@@ -159,21 +159,46 @@ magazijn, zodat de uitvraag-outway `berichtenmagazijn` bij elk van hen mag ophal
 ```bash
 ./federatie/contracts/fbs-contracten.sh   # één contract per magazijn uit MAGAZIJNEN
 ./federatie/smoke-contract.sh             # bewijst contract, data-pad, afdwinging en verantwoording
+./federatie/smoke-contract-split.sh       # bewijst dat de twee helften los werken en convergeren
 ```
 
 Een magazijn toevoegen is één naam in `MAGAZIJNEN`.
 
-`contracts/bootstrap.sh` eronder is generiek — alle peers, adressen en certificaten komen uit env —
-en is **idempotent zonder lokale state**. De generieke variant in `moza-fsc-testnet` onthoudt de
-content-hash in een bestand; dat werkt op een ontwikkelmachine, maar niet in een deploy waar elke
-job met een lege schijf start: daar maakt elke run er nóg een geldig contract bij. Deze variant
-leidt het bestaan af uit de contracten zelf — service, provider, consumer-outway en thumbprint
-samen vormen de identiteit — zodat een herhaalde run overal een no-op is.
+### Twee helften
+
+De bootstrap bestaat uit twee losse scripts: `contracts/bootstrap-consumer.sh` dient het contract in
+bij de manager van de consumer, `contracts/bootstrap-provider.sh` tekent het bij die van de
+provider. Elk praat met precies één manager.
+
+Dat is geen stijlkeuze. Op ZAD isoleert de tenant-baseline-NetworkPolicy per deployment en heeft de
+manager-internal-API geen route, dus één proces dat beide managers aanspreekt bestaat daar niet. Het
+contract kruist in plaats daarvan via de FSC-mesh. Zie `contracts/zad-runbook.md`.
+
+`contracts/bootstrap.sh` is de lokale aanroeper van diezelfde twee helften — niet een aparte,
+eenvoudigere variant. Wat hier lokaal getoetst wordt, is dus de code die op ZAD draait. De scheiding
+wordt daarbij afgedwongen en niet alleen afgesproken: elke helft start met `env -u` op de adres- en
+certificaat-variabelen van de overkant.
+
+De provider-helft krijgt geen hash mee maar besluit zelf of hij tekent, en dat is een
+autorisatiebesluit: hij tekent alleen een contract met **precies één** grant, van type
+`GRANT_TYPE_SERVICE_CONNECTION`, voor een eigen dienst uit `FSC_DIENSTEN` en een consumer uit
+`FSC_CONSUMERS`. De eis "precies één" staat er omdat een contract een lijst grants draagt: wie
+alleen toetst of er één passende grant in zit, tekent een meegestuurde tweede mee.
+
+### Idempotentie
+
+De bootstrap is **idempotent zonder lokale state**. De generieke variant in `moza-fsc-testnet`
+onthoudt de content-hash in een bestand; dat werkt op een ontwikkelmachine, maar niet in een deploy
+waar elke job met een lege schijf start: daar maakt elke run er nóg een geldig contract bij. Deze
+variant leidt het bestaan af uit de contracten zelf — service, provider, consumer-outway en
+thumbprint samen vormen de identiteit — zodat een herhaalde run overal een no-op is. Op ZAD is
+herhaling geen randgeval maar de normale werking: beide componenten draaien in een lus.
 
 De provider tekent niet vanzelf: `AUTO_SIGN_GRANTS` dekt alleen (delegated)servicePublication, dus
 de accept is een expliciete `PUT`. Landt de accept-handtekening daarna niet bij de consumer (die
 push is best-effort, met begrensde backoff en zonder cron-retry), dan blijft het contract daar
-`proposed` en ziet de outway de grant nooit; het script forceert dan de her-distributie.
+`proposed` en ziet de outway de grant nooit; de provider-helft stuurt daarom na elke accept één keer
+na, en `bootstrap.sh` forceert de her-distributie als het contract alsnog niet geldig wordt.
 
 ## De FBS-applicatie door de keten
 

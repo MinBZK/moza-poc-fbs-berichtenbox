@@ -43,6 +43,7 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
 | `upsert-peer.sh` | `validate`/`plan`/`apply` tegen de ZAD v2 Operations Manager API — lokaal/handmatig hulpmiddel voor de eenmalige component-creatie (env/ports/certs) en voor debugging. |
 | `cert-manifest.md` | Runbook: welk cert-bestand op welk `/etc/fsc/...`-pad, per component (UI-only bijlagen). |
 | `verify-zad.md` | Runbook: announce/publiceren/discover ná een geslaagde apply, + de acceptatiecriteria. |
+| `../../../federatie/contracts/zad-runbook.md` | Runbook: het contract-bootstrap-component (`magazijna-fscbootstrap`, rol provider) neerzetten — env, cert-attachments, verificatie. |
 | `../../../../../.github/workflows/deploy.yml` (root) | `deploy-test-magazijnen`-job: de DOORLOPENDE image-tag-updates (elke push naar main). Twee stappen — `magazijna`/`magazijnb` op deployment `test`, de vijf `magazijna-fsc*`-componenten op `fsc-magazijna`. Niet de eenmalige creatie (die doet `upsert-peer.sh`). |
 
 ## Volgorde
