@@ -50,12 +50,13 @@ fsc_contract_manager_ok "$MANAGER" || exit 2
 
 api() { fsc_contract_api "$MANAGER" "$CERT" "$KEY" "$CA" "$ADRES" "$@"; }
 
-# De lijst is cursor-gepagineerd met een default van honderd, en bevat álles: publicatiecontracten,
+# De lijst is cursor-gepagineerd met een default van honderd en een maximum van duizend, en bevat
+# álles: publicatiecontracten,
 # ingetrokken en afgewezen contracten, van alle peers. In een langlevend deployment groeit dat
 # monotoon, en zodra ons eigen contract van pagina 1 valt zou de consumer elke ronde een nieuw
 # indienen. Een ruime limiet houdt de guard in fsc-contract.sh een vangrail in plaats van een
 # dagelijkse blokkade.
-CONTRACT_LIMIET="${FSC_CONTRACT_LIMIET:-1000}"
+CONTRACT_LIMIET="$(fsc_getal_vereist FSC_CONTRACT_LIMIET "${FSC_CONTRACT_LIMIET:-1000}")"
 
 # --- 1. Outway-thumbprint -----------------------------------------------------------------------
 # Uit env óf uit het certificaat. Op ZAD is env de weg: het group-cert van de outway hangt daar aan
@@ -112,6 +113,15 @@ GELDIG="$(geldige_hashes "$REGELS")"
 # `ontbreekt` betekent dat de manager het state-veld niet meestuurde — niet dat het contract
 # ongeldig is. Stil als "nog niet klaar" lezen zou hier eeuwig wachten opleveren op iets dat er al
 # staat, dus dat geval wordt gemeld.
+# Een afgewezen contract is het antwoord van de overkant op onze aanvraag. Het blijft in de lijst
+# staan, dus we dienen niet meteen opnieuw in — maar het moet wel blijken, anders wacht de operator
+# op iets dat nooit komt.
+if printf '%s' "$REGELS" | awk '$4 == "afgewezen" { gevonden = 1 } END { exit !gevonden }'; then
+  echo "WARN: de provider heeft minstens één van onze contracten AFGEWEZEN:" >&2
+  printf '%s\n' "$REGELS" | sed 's/^/  /' >&2
+  echo "  Kijk aan providerkant naar de WEIGER-regels; opnieuw indienen heeft pas zin na een fix." >&2
+fi
+
 if printf '%s' "$REGELS" | awk '$2 == "ontbreekt" { gevonden = 1 } END { exit !gevonden }'; then
   echo "WARN: de manager gaf voor minstens één contract geen state terug; die tellen hier niet als geldig." >&2
   printf '%s\n' "$REGELS" | sed 's/^/  /' >&2

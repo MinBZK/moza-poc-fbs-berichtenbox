@@ -307,7 +307,7 @@ fsc_contract_beoordeling() {
             weiger($ondertekend; "\($h) dienst hoort bij peer \($g[0].service.peer_id | veilig), niet bij ons")
           elif ($diensten | index($g[0].service.name)) == null then
             weiger($ondertekend; "\($h) dienst \($g[0].service.name | veilig) bieden wij niet aan")
-          elif ($g[0].service.type // "SERVICE_TYPE_SERVICE") != "SERVICE_TYPE_SERVICE" then
+          elif $g[0].service.type != "SERVICE_TYPE_SERVICE" then
             # Dezelfde klasse discriminator als het identificatietype hieronder: een
             # DELEGATED_SERVICE zet een delegator-claim in het token en verandert welke
             # handtekeningen vereist zijn. Wij bieden geen gedelegeerde diensten aan.
@@ -335,7 +335,8 @@ fsc_contract_beoordeling() {
 # --- Wat de consumer al heeft uitstaan ----------------------------------------------------------
 
 # fsc_contract_voor_combinatie <json> <service> <provider_oin> <consumer_oin> <thumbprint>:
-# `<hash> <state> <provider-getekend ja|nee>` per regel, voor elk niet-ingetrokken contract dat
+# `<hash> <state> <provider-getekend ja|nee> <afgewezen|->` per regel, voor elk niet-ingetrokken
+# contract dat
 # precies deze serviceConnection draagt. De state komt lowercase terug (`contract_state_valid`), en
 # `ontbreekt` als de manager het veld niet meestuurt — dat laatste is geen synoniem voor ongeldig,
 # maar een toestand die de aanroeper hoort te melden in plaats van als "nog niet klaar" te lezen.
@@ -356,7 +357,11 @@ fsc_contract_voor_combinatie() {
 
     contracten[]
     | select(type == "object")
-    | select((.has_revoked // false) == false and (.has_rejected // false) == false)
+    # Hier bewust WÉL de afgewezen contracten erbij, anders dan in de beoordeling hiernaast. Daar is
+    # "afgewezen" een besluit van onszelf dat we niet moeten overdoen; hier is het het antwoord van
+    # de overkant op ónze aanvraag. Wegfilteren zou de consumer zijn eigen afgewezen contract niet
+    # meer laten zien, waarna hij elke ronde een nieuwe indient en de afwijzing nergens blijkt.
+    | select((.has_revoked // false) == false)
     # Zelfde reden als in de beoordeling hiernaast: één misvormde rij mag de rest niet meenemen.
     # Hier zonder melding — deze matcher zoekt ons eigen contract, en een rij van iemand anders die
     # we niet kunnen lezen is simpelweg niet de onze. De provider-kant maakt er wél een WEIGER van,
@@ -372,7 +377,7 @@ fsc_contract_voor_combinatie() {
     # `veilig` ook op het hash: dit is net zo goed een regelgebaseerde stroom als de beoordeling
     # hiernaast, dus een hash met een newline erin zou hier een tweede record schrijven dat de
     # consumer-helft als eigen contract leest — en vervolgens intrekt, op een pad naar keuze.
-        | "\(.hash | veilig) \((.state // "ontbreekt") | tostring | ascii_downcase) \(if ((.signatures.accept // {}) | has($prov)) then "ja" else "nee" end)"
+        | "\(.hash | veilig) \((.state // "ontbreekt") | tostring | ascii_downcase) \(if ((.signatures.accept // {}) | has($prov)) then "ja" else "nee" end) \(if (.has_rejected // false) then "afgewezen" else "-" end)"
       ) catch empty
     ' 2>>"$ERRLOG"
 }

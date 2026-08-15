@@ -45,7 +45,7 @@ grant() {
   jq -nc --arg svc "$1" --arg sp "$2" --arg cp "$3" --arg t "${4:-GRANT_TYPE_SERVICE_CONNECTION}" \
          --arg it "${5:-OUTWAY_IDENTIFICATION_TYPE_PUBLIC_KEY_THUMBPRINT}" --arg thumb "$THUMB" '
     { type: $t,
-      service: { name: $svc, peer_id: $sp },
+      service: { type: "SERVICE_TYPE_SERVICE", name: $svc, peer_id: $sp },
       outway: { peer_id: $cp, identification: { type: $it, public_key_thumbprint: $thumb } } }'
 }
 
@@ -168,8 +168,11 @@ assert_weigerreden "en de reden noemt de consumer" "$(bundel "$VREEMDE_CONS")" "
 assert_weiger_regel "gedelegeerde dienst: niet tekenen" \
   "$(bundel "$(contract_ruw '.content.grants[0].service.type = "SERVICE_TYPE_DELEGATED_SERVICE"')")" \
   "hx dienst-type SERVICE_TYPE_DELEGATED_SERVICE is geen gewone dienst"
-assert_beoordeling "een gewone dienst mag expliciet ook" \
-  "$(bundel "$(contract_ruw '.content.grants[0].service.type = "SERVICE_TYPE_SERVICE"')")" TEKEN "hx ${CONS}"
+# De discriminator is verplicht in de spec; een ontbrekende waarde als "gewone dienst" lezen zou
+# precies de blinde ondertekening zijn die deze check moet voorkomen.
+assert_weiger_regel "ontbrekend dienst-type: niet tekenen" \
+  "$(bundel "$(contract_ruw 'del(.content.grants[0].service.type)')")" \
+  "hx dienst-type ontbreekt is geen gewone dienst"
 
 # `properties` schrijft claims die onze eigen manager in het token zet en die onze inway en de dienst
 # erachter te zien krijgen — door de tegenpartij opgesteld. Blind mee-ondertekenen is dezelfde fout
@@ -244,9 +247,9 @@ assert_combinatie() {
 
 assert_combinatie "lege lijst levert niets op" '{"contracts":[]}' ""
 assert_combinatie "ingediend maar niet getekend telt mee als uitstaand" \
-  "$(bundel "$GOED")" "h1 contract_state_proposed nee"
+  "$(bundel "$GOED")" "h1 contract_state_proposed nee -"
 assert_combinatie "getekend en geldig komt met beide kenmerken terug" \
-  "$(bundel "$AL_GETEKEND")" "hq contract_state_valid ja"
+  "$(bundel "$AL_GETEKEND")" "hq contract_state_valid ja -"
 
 # Zonder deze regel zou de consumer een contract van een andere outway voor "het onze" aanzien en
 # nooit meer indienen, terwijl zíjn outway de grant nooit krijgt.
@@ -259,6 +262,14 @@ assert_combinatie "een andere outway-thumbprint is een ander contract" "$(bundel
 
 assert_combinatie "een contract met twee grants hoort niet bij deze combinatie" "$(bundel "$SMOKKEL")" ""
 assert_combinatie "ingetrokken telt niet mee" "$(bundel "$INGETROKKEN")" ""
+
+# Anders dan bij de beoordeling blijft een AFGEWEZEN contract hier zichtbaar. Zou het wegvallen, dan
+# ziet de consumer zijn eigen aanvraag niet meer en dient hij elke ronde een nieuwe in, terwijl de
+# afwijzing nergens blijkt.
+assert_combinatie "een afgewezen contract blijft zichtbaar, met vlag" \
+  "$(bundel "$(contract hr2 CONTRACT_STATE_REJECTED false false "$(grant "$SVC" "$PROV" "$CONS")" \
+      | jq -c '.has_rejected = true')")" \
+  "hr2 contract_state_rejected nee afgewezen"
 # Ook hier mag één misvormde rij de rest niet meenemen: de consumer zou zijn eigen contract dan niet
 # meer zien en elke ronde een nieuw indienen.
 #
@@ -272,13 +283,13 @@ for rot in '{"hash":"rot","content":"x"}' \
   uitkomst="$(fsc_contract_voor_combinatie "$gemengd" "$SVC" "$PROV" "$CONS" "$THUMB")" && rc=0 || rc=$?
 
   assert_gelijk "naast $(printf '%s' "$rot" | cut -c1-34)… blijft het uitstaande contract zichtbaar" \
-    "h1 contract_state_proposed nee" "$uitkomst"
+    "h1 contract_state_proposed nee -" "$uitkomst"
   assert_gelijk "  en de matcher zelf slaagt (exit 0)" "0" "$rc"
 done
 
 assert_combinatie "twee uitstaande contracten komen allebei terug" \
-  "$(bundel "$GOED" "$GOED2")" "h1 contract_state_proposed nee
-h2 contract_state_proposed nee"
+  "$(bundel "$GOED" "$GOED2")" "h1 contract_state_proposed nee -
+h2 contract_state_proposed nee -"
 
 echo
 echo "== fsc_contract_beoordeling: de eisen buiten de grant =="
@@ -488,7 +499,7 @@ assert_getal "nul wordt afgewezen" 0 "(afgewezen)"
 # Bash leest een voorloopnul als octaal; `$((x * 08))` breekt af midden in de lus.
 assert_getal "voorloopnul wordt afgewezen" 08 "(afgewezen)"
 assert_getal "eenheden erachter worden afgewezen" 15s "(afgewezen)"
-assert_getal "negatief wordt afgewezen" -- "(afgewezen)"
+assert_getal "negatief wordt afgewezen" -1 "(afgewezen)"
 assert_getal "leeg wordt afgewezen" "" "(afgewezen)"
 
 echo

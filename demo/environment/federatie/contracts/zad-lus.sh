@@ -152,12 +152,7 @@ while [ "$STOPPEN" -eq 0 ]; do
   esac
 done
 
-# Alleen "op verzoek" als het ook echt zo is: viel de lus er om een andere reden uit, dan zou een
-# nulafsluiting op ZAD lezen als een component dat netjes klaar is — geen crashloop, niets rood, en
-# de bootstrap ligt stil.
-if [ "$STOPPEN" -eq 0 ]; then
-  echo "FAIL: de lus is onverwacht geëindigd." >&2
-  exit 1
-fi
-
+# De lus verlaat zijn conditie alleen als STOPPEN gezet is; valt hij er om een andere reden uit, dan
+# doet `set -e` dat met een non-zero status. Een nulafsluiting hier betekent dus altijd een
+# stopverzoek.
 echo "zad-lus: gestopt op verzoek."

@@ -72,7 +72,7 @@ api() { fsc_contract_api "$MANAGER" "$CERT" "$KEY" "$CA" "$ADRES" "$@"; }
 # monotoon, en zodra ons eigen contract van pagina 1 valt zou de consumer elke ronde een nieuw
 # indienen. Een ruime limiet houdt de guard in fsc-contract.sh een vangrail in plaats van een
 # dagelijkse blokkade.
-CONTRACT_LIMIET="${FSC_CONTRACT_LIMIET:-1000}"
+CONTRACT_LIMIET="$(fsc_getal_vereist FSC_CONTRACT_LIMIET "${FSC_CONTRACT_LIMIET:-1000}")"
 
 DIENSTEN_JSON="$(fsc_lijst_naar_json FSC_DIENSTEN "$DIENSTEN")" || exit 2
 CONSUMERS_JSON="$(fsc_lijst_naar_json FSC_CONSUMERS "$CONSUMERS")" || exit 2
@@ -201,6 +201,15 @@ fi
 # nieuwe consumer daardoor tot een uur op zijn handtekening wacht.
 if [ -n "$AFGEWEZEN" ] && [ "$GETEKEND" -eq 0 ]; then
   echo "PROVIDER GEWEIGERD ($(printf '%s\n' "$AFGEWEZEN" | grep -c .) contract(en) haalden de toets niet)." >&2
+  exit 4
+fi
+
+# Ook een uitsluitend-AANDACHT-ronde is geen succes. Er ligt dan een contract dat wij ooit tekenden
+# en dat nu de toets niet meer haalt: het datapad is stuk terwijl de consumer zijn contract geldig
+# ziet. Zou dit 0 opleveren, dan zet de lus de wachtteller op nul en blijft het component eeuwig
+# groen, met één stderr-regel per uur als enige spoor.
+if [ -n "$AANDACHT" ] && [ "$GETEKEND" -eq 0 ]; then
+  echo "PROVIDER GEWEIGERD ($(printf '%s\n' "$AANDACHT" | grep -c .) eerder getekend contract(en) halen de toets niet meer)." >&2
   exit 4
 fi
 

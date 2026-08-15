@@ -47,6 +47,7 @@ Gemeenschappelijk (beide componenten):
 | `FSC_LUS_MELD_WACHT_NA` | optioneel, standaard `20` — na zoveel rondes wachten volgt een waarschuwing |
 | `FSC_LUS_MAX_WACHT` | optioneel, standaard `200` — na zoveel rondes wachten op de overkant stopt de lus |
 | `FSC_GROUP_ID` | optioneel, standaard `moza-fbs-test` |
+| `FSC_CONTRACT_LIMIET` | optioneel, standaard `1000` — paginalimiet op het ophalen van de contracten; de manager staat maximaal 1000 toe en weigert meer met een 400 |
 
 `logius-fscbootstrap` (consumer):
 
@@ -169,10 +170,14 @@ geweigerd)` — dan is er iets aan de hand met één contract, niet met de ronde
    eerste eis die faalde.
 2. **Meldt de provider `niets te tekenen`**, dan is het contract daar niet aangekomen: controleer
    de announce en de dienstpublicatie uit de voorwaarden hierboven.
-3. **Meldt de provider `eerder getekende contracten die de toets nu niet meer halen`**, dan is de
-   allowlist of de geldigheidsgrens ná de eerste tekenronde aangepast; het contract ligt er wel maar
-   telt niet meer mee.
-4. **Heeft de provider wél getekend** en blijft de consumer toch wachten, dan is de
+3. **Meldt de provider `PROVIDER GEWEIGERD (… eerder getekend …)`**, dan is de allowlist of de
+   geldigheidsgrens ná de eerste tekenronde aangepast; het contract ligt er wel maar telt niet meer
+   mee. Let op: de consumer ziet zijn contract dan nog steeds als geldig, dus alleen de provider-log
+   verraadt dat het datapad stuk is.
+4. **Meldt de consumer `de provider heeft minstens één van onze contracten AFGEWEZEN`**, dan heeft
+   de overkant actief geweigerd. Opnieuw indienen heeft pas zin na een fix aan die kant; trek het
+   afgewezen contract daarna bij de consumer in.
+5. **Heeft de provider wél getekend** en blijft de consumer toch wachten, dan is de
    accept-handtekening onderweg blijven steken — zie hieronder. Dat kan ook de andere kant op: is de
    handtekening van de consumer nooit bij de provider aangekomen, dan weigert die met "draagt de
    handtekening van de consumer nog niet" en is er aan consumerkant geen knop om hem opnieuw te
