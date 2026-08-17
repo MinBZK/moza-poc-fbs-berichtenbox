@@ -6,6 +6,15 @@ on:
   # runner bezet zonder werk te doen. Een gestapelde PR fuzzt dus nog steeds niet; die dekking
   # komt bij de PR naar main.
   workflow_call:
+    inputs:
+      fuzz-relevant:
+        description: >-
+          Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml. Leeg (de default) betekent
+          "niet meegegeven", en dan bepaalt deze workflow het zelf — zo blijft hij zelfstandig
+          bruikbaar op een gestapelde PR.
+        type: string
+        required: false
+        default: ""
 
 permissions: read-all
 
@@ -14,8 +23,15 @@ jobs:
   # zijn gewijzigd. De fuzz-job is hieraan gegate i.p.v. via een workflow-niveau paths-filter:
   # `PR` is een required status check, en een paths-filter zou de check bij niet-relevante PR's
   # (docs, bruno, workflows) nooit rapporteren en de merge eeuwig blokkeren. Een via `if`
-  # overgeslagen job telt daarentegen als 'skipped' = succes voor branch protection.
+  # overgeslagen job telt daarentegen als 'skipped' = succes voor branch protection. Om
+  # diezelfde reden gate't deploy.yml niet de aanroep van deze workflow maar geeft het de
+  # uitkomst als input door: een niet-aangeroepen workflow rapporteert helemaal niets.
+  # Draait alleen wanneer de caller de uitkomst niet meegaf; zie de toelichting in test.yml.
+  # LET OP: het patroon hieronder staat óók in de `changes`-job van deploy.yml en moet daarmee
+  # gelijk blijven. Op een PR naar main draait alleen die van deploy.yml, dus een eenzijdige
+  # wijziging hier heeft daar geen effect en valt niet op.
   changes:
+    if: inputs.fuzz-relevant == ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -40,7 +56,8 @@ jobs:
 
   PR:
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    # Sla alleen over bij een expliciete 'false'; zie de toelichting in test.yml.
+    if: "!cancelled() && needs.changes.outputs.run != 'false' && inputs.fuzz-relevant != 'false'"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
@@ -57,8 +74,10 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           keep-unaffected-fuzz-targets: true
           # De bad-build-check start elk fuzz-doel apart op (~161s, inclusief het kopiëren van
-          # de meegebundelde JDK). `run_fuzzers` draait diezelfde doelen direct daarna, dus een
-          # doel dat niet bouwt of meteen crasht valt daar alsnog om.
+          # de meegebundelde JDK). Een doel dat niet compileert komt hier sowieso niet doorheen:
+          # dan faalt de build zelf. Wat deze check extra ving is een doel dat wél compileert maar
+          # bij het starten omvalt; dat blijft hier onopgemerkt tot de wekelijkse cron, waar de
+          # check bewust wél aan staat. Die vertraging is de 161s per wijziging waard.
           bad-build-check: false
       - name: Run Fuzzers
         id: run
