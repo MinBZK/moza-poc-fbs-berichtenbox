@@ -150,6 +150,91 @@ Daarna:
 respecteert `depends_on` niet, dus dat gooit postgres tegelijk met zijn afnemers om en laat de
 managers achter op `Exited`. Voor een volledige cyclus is `down` + `up` de weg.
 
+## Contracten
+
+Een peer mag pas iets afnemen als er een wederzijds ondertekend `ServiceConnectionGrant`-contract
+ligt. `contracts/fbs-contracten.sh` zet die op voor de FBS-rollen uit `peers.env`: één contract per
+magazijn, zodat de uitvraag-outway `berichtenmagazijn` bij elk van hen mag ophalen.
+
+```bash
+./federatie/contracts/fbs-contracten.sh   # één contract per magazijn uit MAGAZIJNEN
+./federatie/smoke-contract.sh             # bewijst contract, data-pad, afdwinging en verantwoording
+./federatie/smoke-contract-split.sh       # bewijst dat de twee helften los werken en convergeren
+```
+
+Een magazijn toevoegen is één naam in `MAGAZIJNEN`.
+
+### Twee helften
+
+De bootstrap bestaat uit twee losse scripts: `contracts/bootstrap-consumer.sh` dient het contract in
+bij de manager van de consumer, `contracts/bootstrap-provider.sh` tekent het bij die van de
+provider. Elk praat met precies één manager.
+
+Dat is geen stijlkeuze. Op ZAD isoleert de tenant-baseline-NetworkPolicy per deployment en heeft de
+manager-internal-API geen route, dus één proces dat beide managers aanspreekt bestaat daar niet. Het
+contract kruist in plaats daarvan via de FSC-mesh. Zie `contracts/zad-runbook.md`.
+
+`contracts/bootstrap.sh` is de lokale aanroeper van diezelfde twee helften — niet een aparte,
+eenvoudigere variant. Wat hier lokaal getoetst wordt, is dus de code die op ZAD draait. De scheiding
+wordt daarbij afgedwongen en niet alleen afgesproken: elke helft start met `env -u` op de adres- en
+certificaat-variabelen van de overkant.
+
+De provider-helft krijgt geen hash mee maar besluit zelf of hij tekent, en dat is een
+autorisatiebesluit: hij tekent alleen een contract met **precies één** grant, van type
+`GRANT_TYPE_SERVICE_CONNECTION`, voor een eigen dienst uit `FSC_DIENSTEN` en een consumer uit
+`FSC_CONSUMERS`. De eis "precies één" staat er omdat een contract een lijst grants draagt: wie
+alleen toetst of er één passende grant in zit, tekent een meegestuurde tweede mee.
+
+### Idempotentie
+
+De bootstrap is **idempotent zonder lokale state**. De generieke variant in `moza-fsc-testnet`
+onthoudt de content-hash in een bestand; dat werkt op een ontwikkelmachine, maar niet in een deploy
+waar elke job met een lege schijf start: daar maakt elke run er nóg een geldig contract bij. Deze
+variant leidt het bestaan af uit de contracten zelf — service, provider, consumer-outway en
+thumbprint samen vormen de identiteit — zodat een herhaalde run overal een no-op is. Op ZAD is
+herhaling geen randgeval maar de normale werking: beide componenten draaien in een lus.
+
+De provider tekent niet vanzelf: `AUTO_SIGN_GRANTS` dekt alleen (delegated)servicePublication, dus
+de accept is een expliciete `PUT`. Landt de accept-handtekening daarna niet bij de consumer (die
+push is best-effort, met begrensde backoff en zonder cron-retry), dan blijft het contract daar
+`proposed` en ziet de outway de grant nooit; de provider-helft stuurt daarom na elke accept één keer
+na, en `bootstrap.sh` forceert de her-distributie als het contract alsnog niet geldig wordt.
+
+## De FBS-applicatie door de keten
+
+Standaard front de inway een `stub-upstream` (http-echo) en praat de demo-stack rechtstreeks met de
+magazijnen. Met drie ingrepen loopt `berichtenuitvraag` bij magazijn-a écht door FSC:
+
+```bash
+# 1. de inway naar het echte magazijn laten wijzen (in plaats van de echo-stub)
+FSC_UPSTREAM_URL=http://127.0.0.1:8090 \
+  ../magazijn-a/deploy/local/publish-service.sh
+
+# 2. contract + grant-hash; schrijft demo/generated/fsc-grants.env
+./contracts/fbs-contracten.sh
+
+# 3. de demo-stack met de uitvraag door de outway van logius
+MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 ../../podman-up.sh
+
+./smoke-keten.sh
+```
+
+`smoke-keten.sh` bewijst het in drie asserts: een bericht dat alleen in magazijn-a bestaat komt via
+de uitvraag terug, er staat een **nieuwe** transactie in beide txlogs, en magazijn-b blijft
+rechtstreeks werken. Die tweede assert is de eigenlijke: zonder nulmeting zou een transactie uit een
+eerdere run de smoke groen houden terwijl het verkeer buiten de outway om ging.
+
+Drie dingen om te weten:
+
+- **`MAGAZIJN_A_URL` moet ook in `%dev` doorwerken.** De demo draait met `QUARKUS_PROFILE=dev`, en
+  een kale `%dev.magazijnen."…".url=http://localhost:8090` overrulet de omgeving. Het ophalen slaagt
+  dan gewoon — alleen langs de verkeerde weg, en het transactielogboek blijft leeg.
+- **De sessiecache maskeert de keten.** Een tweede ophaling voor dezelfde ontvanger komt uit Redis
+  en raakt het magazijn niet; `smoke-keten.sh` gebruikt daarom per run een verse, elfproef-geldige
+  BSN.
+- **`publish-service.sh` werkt een gewijzigde upstream bij**, maar het `servicePublication`-contract
+  blijft staan. Wisselt de dienst van betekenis, dan hoort daar een nieuwe publicatie bij.
+
 ## Een peer toevoegen
 
 1. **`peers.env`** — de peer aan `GASTEN` toevoegen, met zijn `OIN_<peer>` en het volgende vrije

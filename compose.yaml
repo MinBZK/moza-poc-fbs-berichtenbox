@@ -2,11 +2,22 @@
 # impliciet aan, podman alleen met ingestelde `unqualified-search-registries` en faalt anders
 # non-interactief. De zelfgebouwde `fbs-demo/…`-images blijven kaal; compose.podman.yaml zet daar
 # `localhost/` voor.
+#
+# `DEMO_BIND` bepaalt op welk hostadres de stack publiceert; default `127.0.0.1`, en verder wordt
+# alleen `0.0.0.0` ondersteund — `demo/podman-up.sh` controleert elke service over 127.0.0.1 en een
+# specifiek adres laat die controles aflopen. Zonder die binding staat de hele demo op élke
+# interface van de machine: Redis zonder wachtwoord, drie PostgreSQL-instanties met
+# demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
+# aan een kantoor- of thuisnetwerk is dat het hele subnet.
+#
+# Wil je de demo aan iemand anders tonen, zet 'm dan bewust open met `DEMO_BIND=0.0.0.0`, in plaats
+# van dat het de default is. `demo-console` doet hier NIET aan mee en
+# blijft altijd op loopback; zie de toelichting daar.
 services:
   redis:
     image: docker.io/redis/redis-stack-server:7.4.0-v3
     ports:
-      - "6379:6379"
+      - "${DEMO_BIND:-127.0.0.1}:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -21,7 +32,7 @@ services:
   magazijn-a:
     image: docker.io/wiremock/wiremock:3.13.2
     ports:
-      - "8081:8080"
+      - "${DEMO_BIND:-127.0.0.1}:8081:8080"
     volumes:
       - ./wiremock/magazijn-a/mappings:/home/wiremock/mappings
       - ./wiremock/magazijn-a/__files:/home/wiremock/__files
@@ -30,7 +41,7 @@ services:
   magazijn-b:
     image: docker.io/wiremock/wiremock:3.13.2
     ports:
-      - "8082:8080"
+      - "${DEMO_BIND:-127.0.0.1}:8082:8080"
     volumes:
       - ./wiremock/magazijn-b/mappings:/home/wiremock/mappings
       - ./wiremock/magazijn-b/__files:/home/wiremock/__files
@@ -44,7 +55,7 @@ services:
   profiel-service:
     image: docker.io/wiremock/wiremock:3.13.2
     ports:
-      - "8089:8080"
+      - "${DEMO_BIND:-127.0.0.1}:8089:8080"
     volumes:
       # Gedeelde mappings met de ZAD externe-stubs-image (profiel + notificatie). WireMock
       # laadt álle mappings in deze map, dus ook notificatie-events.json (POST /events); lokaal
@@ -66,7 +77,7 @@ services:
   aanmeld-stub:
     image: docker.io/wiremock/wiremock:3.13.2
     ports:
-      - "8083:8080"
+      - "${DEMO_BIND:-127.0.0.1}:8083:8080"
     volumes:
       - ./wiremock/aanmeld-stub/mappings:/home/wiremock/mappings
     command: ["--verbose", "--global-response-templating"]
@@ -74,7 +85,7 @@ services:
   notificatie-stub:
     image: docker.io/wiremock/wiremock:3.13.2
     ports:
-      - "8084:8080"
+      - "${DEMO_BIND:-127.0.0.1}:8084:8080"
     volumes:
       - ./wiremock/notificatie-stub/mappings:/home/wiremock/mappings
     command: ["--verbose", "--global-response-templating"]
@@ -84,7 +95,7 @@ services:
   postgres-uitvraag:
     image: docker.io/library/postgres:18
     ports:
-      - "5434:5432"
+      - "${DEMO_BIND:-127.0.0.1}:5434:5432"
     environment:
       POSTGRES_USER: ldv
       POSTGRES_PASSWORD: ldv
@@ -100,7 +111,7 @@ services:
   postgres-a:
     image: docker.io/library/postgres:18
     ports:
-      - "5432:5432"
+      - "${DEMO_BIND:-127.0.0.1}:5432:5432"
     environment:
       POSTGRES_USER: berichtenmagazijn
       POSTGRES_PASSWORD: berichtenmagazijn
@@ -120,7 +131,7 @@ services:
   postgres-b:
     image: docker.io/library/postgres:18
     ports:
-      - "5433:5432"
+      - "${DEMO_BIND:-127.0.0.1}:5433:5432"
     environment:
       POSTGRES_USER: berichtenmagazijn
       POSTGRES_PASSWORD: berichtenmagazijn
@@ -152,7 +163,7 @@ services:
     image: fbs-demo/fbs-berichtenmagazijn:demo
     profiles: [demo]
     ports:
-      - "8090:8090"
+      - "${DEMO_BIND:-127.0.0.1}:8090:8090"
     depends_on:
       postgres-a:
         condition: service_healthy
@@ -185,7 +196,7 @@ services:
     image: fbs-demo/fbs-berichtenmagazijn:demo
     profiles: [demo]
     ports:
-      - "8091:8090"
+      - "${DEMO_BIND:-127.0.0.1}:8091:8090"
     depends_on:
       postgres-b:
         condition: service_healthy
@@ -211,7 +222,7 @@ services:
     image: ghcr.io/shopify/toxiproxy:2.12.0
     profiles: [demo]
     ports:
-      - "8474:8474"
+      - "${DEMO_BIND:-127.0.0.1}:8474:8474"
     volumes:
       - ./toxiproxy/proxies.json:/proxies.json:ro
     command: ["-host=0.0.0.0", "-config=/proxies.json"]
@@ -223,7 +234,7 @@ services:
     image: docker.io/wiremock/wiremock:3.13.2
     profiles: [demo]
     ports:
-      - "8092:8080"
+      - "${DEMO_BIND:-127.0.0.1}:8092:8080"
     volumes:
       - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings
     command: ["--verbose"]
@@ -232,7 +243,7 @@ services:
     image: fbs-demo/fbs-berichtenuitvraag:demo
     profiles: [demo]
     ports:
-      - "8086:8086"
+      - "${DEMO_BIND:-127.0.0.1}:8086:8086"
     depends_on:
       redis:
         condition: service_healthy
@@ -290,8 +301,8 @@ services:
       # Uitsluitend op loopback publiceren. Deze console heeft geen authenticatie en
       # POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases; op 0.0.0.0 is dat
       # vanaf het hele netwerk bereikbaar. De Berichtenbox-UI praat sowieso alleen vanaf
-      # localhost: de API-basis staat vast op localhost:8086.
-      - "127.0.0.1:8095:8095"
+      # localhost (vaste API-basis localhost:8086 plus de CORS-allowlist van de uitvraag).
+      - "127.0.0.1:8095:8095"  # NIET via DEMO_BIND: zie de toelichting hierboven
     depends_on:
       berichtenmagazijn-a:
         condition: service_started

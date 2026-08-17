@@ -46,6 +46,10 @@ fi
 # even gevaarlijk, en de volgende die er een toevoegt verzint gegarandeerd een andere naam.
 LEK=':[0-9]{2,5}$'
 LEK="(^|[= ])(0\\.0\\.0\\.0|\\[::\\]|\\*)?${LEK}"
+# Een bind-adres ZONDER poort ontsnapt aan LEK: `QUARKUS_HTTP_HOST=0.0.0.0` draagt geen `:poort`.
+# Vandaar een tweede patroon op de kale wildcard-waarde. Ook dit staat op de waarde en niet op de
+# naam, zodat een volgende service die zijn bind-adres anders noemt er evengoed onder valt.
+KAAL_LEK='(^|[= ])(0\.0\.0\.0|\[?::\]?|\*)$' 
 
 fail=0
 meld() {
@@ -77,13 +81,42 @@ env_lek=$(jq -r '.services | to_entries[] | . as $s
 
 # Naam-onafhankelijk: elke env-waarde en elk `command`/`entrypoint`-token dat eruitziet als een
 # niet-loopback bind.
-bind_lek=$(jq -r --arg re "$LEK" '.services | to_entries[] | . as $s
+bind_lek=$(jq -r --arg re "$LEK" --arg kaal "$KAAL_LEK" '.services | to_entries[] | . as $s
   | ( ($s.value.environment // {}) | to_entries[]
         | select(.value != null) | "\(.key)=\(.value)" ),
     ( (($s.value.command // []) + ($s.value.entrypoint // []))[]?
         | select(type == "string") )
-  | select(test($re))
+  | select(test($re) or test($kaal))
   | "\($s.key): \(.)"' <<<"$MERGED")
+
+# De checks hierboven toetsen een bind-adres dát er staat. Een ONTBREKENDE bind-directive ontsnapt
+# daaraan: valt `command:` weg uit de overlay, dan erft de service de image-default (`0.0.0.0`) en
+# is er niets meer om op te matchen. Per image-familie dus eisen dát de directive er is én dat hij
+# op loopback staat — dezelfde vorm als de postgres-controle hieronder, die dit al deed.
+#
+# Alleen families die in deze repo voorkomen; een service zonder van deze images valt terug op de
+# waarde-checks hierboven.
+bind_mist=$(jq -r '.services | to_entries[] | . as $s
+  | ($s.value.image // "") as $img
+  | ((($s.value.command // []) + ($s.value.entrypoint // [])) | map(select(type == "string")) | join(" ")) as $cmd
+  | ($s.value.environment // {}) as $env
+  | if ($img | test("redis")) then
+      (if ($cmd | test("--bind +127\\.")) then empty
+       else "\($s.key): redis zonder `--bind 127.x` (image-default is elke interface)" end)
+    elif ($img | test("wiremock")) then
+      (if ($cmd | test("--bind-address +127\\.")) then empty
+       else "\($s.key): wiremock zonder `--bind-address 127.x` (image-default is elke interface)" end)
+    elif ($img | test("toxiproxy")) then
+      (if ($cmd | test("-host=127\\.")) then empty
+       else "\($s.key): toxiproxy zonder `-host=127.x` (image-default is elke interface)" end)
+    elif ($img | test("(^|/)fbs-")) then
+      # Op de image-familie en niet op `has("QUARKUS_HTTP_HOST")`: die gate maakte de tak leeg voor
+      # precies het geval waarvoor hij bestaat — een ONTBREKENDE variabele viel dan door naar
+      # `else empty`. Onze eigen services bakken `quarkus.http.host=0.0.0.0` in hun
+      # application.properties, dus afwezigheid betekent hier een wildcard-bind.
+      (if (($env.QUARKUS_HTTP_HOST // "") | tostring | test("^127\\.")) then empty
+       else "\($s.key): QUARKUS_HTTP_HOST=\($env.QUARKUS_HTTP_HOST // "<niet gezet>") staat niet op 127.x" end)
+    else empty end' <<<"$MERGED")
 
 # De overlay hoort elke `ports:` uit de basis te resetten; een gepubliceerde poort in een gedeelde
 # netns is betekenisloos en verraadt een vergeten `!reset`.
@@ -108,8 +141,11 @@ pg_lek=$(jq -r '.services | to_entries[] | . as $s
 # --postgres. Die vlag stuurt alleen of postgres AANWEZIG moet zijn. Hing de eis aan de vlag, dan
 # zou een gast die zijn postgres uit het inactieve profiel haalt het image-default
 # `listen_addresses='*'` krijgen: de DB met harness-credentials op elke interface, en de guard groen.
+# Elke postgres in de merge, niet alleen een service die letterlijk `postgres` heet: de demo-stack
+# draait er drie (postgres-a, postgres-b, postgres-uitvraag). Op de naam én op de image matchen,
+# zodat een hernoemde service niet stil buiten de controle valt.
 pg_mist=$(jq -r '.services | to_entries[]
-  | select(.key == "postgres")
+  | select((.key | test("postgres")) or ((.value.image // "") | test("postgres")))
   | select(((.value.command // []) | map(select(test("listen_addresses="))) | length) == 0)
   | .key' <<<"$MERGED")
 
@@ -151,6 +187,7 @@ meld "bind-adres dat niet op loopback staat:" "$bind_lek"
 meld "nog een gepubliceerde poort in de merge (mist een 'ports: !reset []'):" "$poorten"
 meld "onbegrensde herstartlus (zet een maximum in de overlay):" "$ongelimiteerd"
 meld "postgres luistert niet uitsluitend op loopback (127.x):" "$pg_lek"
+meld "bind-directive ontbreekt of staat niet op loopback:" "$bind_mist"
 meld "postgres zonder expliciete listen_addresses (het image kiest dan '*'):" "$pg_mist"
 meld "bind-regel in de gemounte haproxy-config die niet op loopback (127.x) staat:" "$haproxy_lek"
 
