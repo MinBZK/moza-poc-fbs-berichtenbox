@@ -12,8 +12,14 @@ import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingVoltooid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenFout
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -209,10 +215,10 @@ class MagazijnContractIntegrationTest {
         val events = ophaalEvents()
 
         assertTrue(
-            events.any { it.status == MagazijnStatus.FOUT },
+            events.any { it is MagazijnBevragingMislukt && it.fout == MagazijnFoutStatus.FOUT },
             "Verwacht een FOUT-event voor het magazijn zonder berichten-veld, maar kreeg: $events",
         )
-        assertTrue(events.any { it.event == EventType.OPHALEN_GEREED })
+        assertTrue(events.any { it is OphalenGereed })
     }
 
     @Test
@@ -226,9 +232,9 @@ class MagazijnContractIntegrationTest {
 
         val events = ophaalEvents()
 
-        assertTrue(events.any { it.event == EventType.OPHALEN_GEREED })
+        assertTrue(events.any { it is OphalenGereed })
         assertFalse(
-            events.any { it.status == MagazijnStatus.FOUT || it.event == EventType.OPHALEN_FOUT },
+            events.any { it is MagazijnBevragingMislukt || it is OphalenFout },
             "Verwacht geen FOUT-event bij minimale spec-conforme magazijn-body, maar kreeg: $events",
         )
     }

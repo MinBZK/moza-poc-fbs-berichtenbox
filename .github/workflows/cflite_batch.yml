@@ -17,8 +17,10 @@ jobs:
         with:
           language: jvm
           # De bad-build-check start elk fuzz-doel apart op (~161s, inclusief het kopiëren van
-          # de meegebundelde JDK). `run_fuzzers` draait diezelfde doelen direct daarna, dus een
-          # doel dat niet bouwt of meteen crasht valt daar alsnog om.
+          # de meegebundelde JDK). Een doel dat niet compileert komt hier sowieso niet doorheen:
+          # dan faalt de build zelf. Wat deze check extra ving is een doel dat wél compileert maar
+          # bij het starten omvalt; dat blijft hier onopgemerkt tot de wekelijkse cron, waar de
+          # check bewust wél aan staat. Die vertraging is de 161s per wijziging waard.
           bad-build-check: false
       - name: Run Fuzzers
         id: run
