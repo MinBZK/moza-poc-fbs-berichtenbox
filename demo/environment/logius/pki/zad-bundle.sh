@@ -22,6 +22,10 @@ env_for() {
     out/*/cert.pem)         echo "TLS_GROUP_CERT (+ TLS_GROUP_TOKEN_CERT, TLS_GROUP_CONTRACT_CERT)" ;;
     out/*/key.pem)          echo "TLS_GROUP_KEY (+ TLS_GROUP_TOKEN_KEY, TLS_GROUP_CONTRACT_KEY)" ;;
     internal/*/ca/root.pem) echo "TLS_ROOT_CERT (+ TLS_INTERNAL_UNAUTHENTICATED_ROOT_CERT)" ;;
+    # Vóór de algemene internal-regels: het bootstrap-component is geen FSC-binary en leest geen
+    # TLS_*-variabelen, maar gebruikt hetzelfde internal-cert als client naar de manager-API.
+    internal/*/bootstrap/cert.pem) echo "FSC_{CONSUMER,PROVIDER}_CERT (client-cert contract-bootstrap)" ;;
+    internal/*/bootstrap/key.pem)  echo "FSC_{CONSUMER,PROVIDER}_KEY" ;;
     internal/*/cert.pem)    echo "TLS_CERT (+ TLS_INTERNAL_UNAUTHENTICATED_CERT)" ;;
     internal/*/key.pem)     echo "TLS_KEY (+ TLS_INTERNAL_UNAUTHENTICATED_KEY)" ;;
     *)                      echo "?" ;;

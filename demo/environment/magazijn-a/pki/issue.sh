@@ -44,12 +44,20 @@ done
 find "${BASE_DIR}/peers" -name csr.json -print0 | while IFS= read -r -d '' CSR; do
   REL="$(dirname "${CSR#"${BASE_DIR}/peers/"}")"   # <peer>/<endpoint>
   PEER="${REL%%/*}"
+  ENDPOINT="${REL##*/}"
   GROUP_OUT="${BASE_DIR}/out/${REL}"
   INT_OUT="${BASE_DIR}/internal/${REL}"
   ICA_DIR="${BASE_DIR}/internal/${PEER}/ca"
 
   # GROUP (extern, group-intermediate). Hecht intermediate aan voor de keten.
-  if [ -s "${GROUP_OUT}/cert.pem" ] && [ -s "${GROUP_OUT}/key.pem" ] && [ "${FORCE}" -eq 0 ]; then
+  #
+  # Niet voor client-only endpoints. Een group-cert is de identiteit waarmee een component zich in
+  # de mesh als deze peer voordoet; wie hem niet nodig heeft, hoort hem ook niet te krijgen. De
+  # contract-bootstrap praat alleen met de interne manager-API van zijn eigen peer en bedient zelf
+  # geen TLS, dus hij komt met het internal-cert hieronder toe.
+  if [ "${ENDPOINT}" = bootstrap ]; then
+    echo "skip group ${REL} (client-only endpoint)"
+  elif [ -s "${GROUP_OUT}/cert.pem" ] && [ -s "${GROUP_OUT}/key.pem" ] && [ "${FORCE}" -eq 0 ]; then
     echo "skip group ${REL} (geen -f)"
   else
     mkdir -p "${GROUP_OUT}"

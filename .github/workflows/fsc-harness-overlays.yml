@@ -35,8 +35,9 @@ on:
 
 # LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
 # `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
-# PR — dat is PR-gestuurde uitvoering. Dat is alleen aanvaardbaar zolang deze workflow geen
-# schrijfrechten, geen secrets en geen cache heeft. Wijzig geen van drieën.
+# PR — dat is PR-gestuurde uitvoering, net als de bash-unittests en de docker build/run in
+# `harness-scripts`. Dat is alleen aanvaardbaar zolang deze workflow geen schrijfrechten, geen
+# secrets en geen cache heeft. Wijzig geen van drieën.
 permissions:
   contents: read
 
@@ -326,3 +327,47 @@ jobs:
           fi
 
           exit "$fail"
+
+      - name: Contract-bootstrap-image bouwt en draait onder een willekeurige UID
+        # Het image draait op ZAD als component; zonder deze stap blijkt een verkeerd COPY-pad, een
+        # ontbrekend pakket of een rechtenprobleem pas daar. OpenShift start containers onder een
+        # willekeurige UID in groep 0 — dat is de aanname waar de hele opstelling op rust, dus die
+        # wordt hier expliciet uitgeoefend en niet alleen in de Dockerfile opgeschreven.
+        run: |
+          set -euo pipefail
+
+          docker build -f demo/environment/federatie/contracts/Dockerfile \
+            -t fbs-fsc-contract-bootstrap:ci demo/environment
+
+          echo "== gereedschap en leesbaarheid onder UID 12345, groep 0 =="
+          docker run --rm -u 12345:0 --entrypoint sh fbs-fsc-contract-bootstrap:ci -c '
+            set -eu
+            command -v bash curl jq openssl >/dev/null
+            test -r /opt/fsc/lib/fsc-contract.sh
+            test -r /opt/fsc/lib/fsc-harness.sh
+            test -x /opt/fsc/contracts/zad-lus.sh
+            test -x /opt/fsc/contracts/bootstrap-consumer.sh
+            test -x /opt/fsc/contracts/bootstrap-provider.sh'
+
+          # De twee scripts die met béíde managers praten horen niet in het image: op ZAD kan dat
+          # niet en een operator die ze daar aantreft, gaat ze gebruiken.
+          echo "== bootstrap.sh en fbs-contracten.sh zitten er NIET in =="
+          docker run --rm -u 12345:0 --entrypoint sh fbs-fsc-contract-bootstrap:ci -c '
+            ! test -e /opt/fsc/contracts/bootstrap.sh && ! test -e /opt/fsc/contracts/fbs-contracten.sh'
+
+          # Exit 2 = "configuratie deugt niet". Daar stopt de lus op, en dat maakt er een zichtbare
+          # crashloop van in plaats van een pod die draait en niets doet.
+          echo "== configuratiefouten eindigen op 2 =="
+          for geval in "" "FSC_ROL=onzin"; do
+            rc=0
+            if [ -n "$geval" ]; then
+              docker run --rm -u 12345:0 -e "$geval" fbs-fsc-contract-bootstrap:ci || rc=$?
+            else
+              docker run --rm -u 12345:0 fbs-fsc-contract-bootstrap:ci || rc=$?
+            fi
+
+            if [ "$rc" -ne 2 ]; then
+              echo "::error::verwachtte exit 2 voor '${geval:-<geen env>}', kreeg ${rc}"
+              exit 1
+            fi
+          done

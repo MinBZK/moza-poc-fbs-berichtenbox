@@ -38,7 +38,7 @@ ORG="Logius"
 OIN="00000000000000001000"                                # = subject.serialNumber = Peer ID
 # endpoint:component-korte-naam (de ZAD-component + Service heet `<deployment>-<short>`). Volgorde
 # bepaalt de uitvoer-volgorde; spiegelt de LOG*_SVC-namen in upsert-peer.sh.
-ENDPOINTS=( "manager:logius-fscmgr" "outway:logius-fscoutway" "inway:logius-fscinway" "controller:logius-fscctl" "txlog:logius-fsctxlog" )
+ENDPOINTS=( "manager:logius-fscmgr" "outway:logius-fscoutway" "inway:logius-fscinway" "controller:logius-fscctl" "txlog:logius-fsctxlog" "bootstrap:logius-fscbootstrap" )
 
 # Genereer per endpoint de csr.json. SAN-volgorde: peer-identiteit (alleen manager) ->
 # <endpoint>.<peer>.fsc-test.local -> externe mesh-host -> Service-kortnaam -> Service-FQDN.
