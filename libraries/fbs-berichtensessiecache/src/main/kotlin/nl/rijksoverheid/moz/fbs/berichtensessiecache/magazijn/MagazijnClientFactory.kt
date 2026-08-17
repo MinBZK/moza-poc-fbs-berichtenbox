@@ -1,8 +1,10 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
+import io.quarkus.runtime.StartupEvent
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeadersFilter
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
@@ -29,8 +31,19 @@ internal class MagazijnClientFactory(
     private lateinit var cachedClients: Map<String, MagazijnClient>
     private lateinit var cachedNamen: Map<String, String?>
 
+    /**
+     * Dwingt bean-instantiatie — en daarmee [init] met zijn validatie — af bij het opstarten.
+     * Zonder deze observer maakt ArC de bean pas aan bij het eerste gebruik, en dan komt een
+     * ongeldige timeout pas bij de eerste ophaalronde aan het licht: de pod start, readiness
+     * wordt groen, de rollout slaagt, en daarna faalt élke ophaal-request. Zelfde patroon als
+     * `ConfigMagazijnregister`.
+     */
+    fun onStartup(@Observes event: StartupEvent) = Unit
+
     @PostConstruct
     fun init() {
+        valideerTimeouts()
+
         // Het register valideert zelf fail-fast bij boot (OIN-keys, URL-geldigheid, TLS,
         // leeg register); hier resteert het bouwen van een REST-client per inschrijving.
         // magazijnId == oin.waarde — de identiteitsconventie uit het register.
@@ -40,6 +53,25 @@ internal class MagazijnClientFactory(
         cachedNamen = inschrijvingen.associate { it.oin.waarde to it.naam }
 
         log.infof("Geconfigureerde magazijnen: %s", cachedClients.keys)
+    }
+
+    /**
+     * Een timeout van 0 of lager schakelt de bescherming stil uit in plaats van hem korter te
+     * zetten: de REST-client leest 0 als "onbegrensd wachten". Een hangend magazijn houdt dan
+     * een socket en een worker-thread vast tot de andere kant iets doet. De read-timeout wordt
+     * daarnaast in [nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtensessiecacheService]
+     * tegen de query-timeout gekruisvalideerd; die check dekt de ondergrens niet.
+     */
+    internal fun valideerTimeouts() {
+        require(connectTimeoutMs > 0) {
+            "magazijn-client.connect-timeout-ms ($connectTimeoutMs) moet groter zijn dan 0; " +
+                "0 of lager betekent onbegrensd wachten op een verbinding"
+        }
+
+        require(readTimeoutMs > 0) {
+            "$READ_TIMEOUT_MS_PROPERTY ($readTimeoutMs) moet groter zijn dan 0; " +
+                "0 of lager betekent onbegrensd wachten op een respons"
+        }
     }
 
     fun getAllClients(): Map<String, MagazijnClient> = cachedClients

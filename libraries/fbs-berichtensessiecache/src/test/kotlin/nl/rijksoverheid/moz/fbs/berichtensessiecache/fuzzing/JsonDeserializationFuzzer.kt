@@ -7,7 +7,6 @@ import com.fasterxml.jackson.module.kotlin.KotlinModule
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 
 object JsonDeserializationFuzzer {
@@ -16,10 +15,12 @@ object JsonDeserializationFuzzer {
         .registerModule(JavaTimeModule())
         .registerModule(KotlinModule.Builder().build())
 
+    // De voortgangsberichten (MagazijnEvent) staan hier bewust niet tussen: die worden
+    // alleen geproduceerd, nooit ingelezen. Hun wire-kant wordt gefuzzd op serialisatie
+    // in DomainValidationFuzzer.
     private val targetTypes = arrayOf(
         Bericht::class.java,
         MagazijnBerichtenResponse::class.java,
-        MagazijnEvent::class.java,
         AggregationStatus::class.java,
         BerichtenPagina::class.java,
     )
