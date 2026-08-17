@@ -13,6 +13,11 @@ services:
       timeout: 3s
       retries: 5
 
+  # Deze twee stubs bedienen geen dev- of demo-pad: die gebruiken de echte magazijnen op
+  # 8090/8091. Het poortenpaar 8081/8082 komt wel voor als registeradres in testprofielen,
+  # onder meer in de uitvraag en de sessiecache-library. Opruimen is dus niet enkel deze
+  # services schrappen: het aanmeld-pad resolvet de afzender-OIN via het register, dus zo'n
+  # inschrijving draagt iets, ook al wordt de URL nooit gebeld.
   magazijn-a:
     image: docker.io/wiremock/wiremock:3.13.2
     ports:
@@ -164,7 +169,9 @@ services:
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
-      # Geen LDV-env: het magazijn logt onder %dev in zijn eigen datasource, dus postgres-a.
+      # Geen LDV-env: onder %dev volgt het logboek DB_JDBC_URL hierboven. LDV_POSTGRES_* hier
+      # alsnog zetten werkt niet — de %dev-regel van het magazijn leest de datasource, niet die
+      # env-var. Bij de uitvraag verderop kán het wél; die %dev-regel leest LDV_POSTGRES_URL zelf.
       # Outbox sneller laten pollen zodat storing→herstel binnen seconden zichtbaar is (default 60s),
       # en meer pogingen zodat een uitgeschakelde downstream niet terminal MISLUKT tijdens de uitleg.
       MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
@@ -193,7 +200,7 @@ services:
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
-      # Geen LDV-env: het magazijn logt onder %dev in zijn eigen datasource, dus postgres-b.
+      # Geen LDV-env: het logboek volgt DB_JDBC_URL hierboven, net als bij magazijn A.
       MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_AANMELD_MAX_POGINGEN: "50"
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_NOTIFICATIE_MAX_POGINGEN: "50"
@@ -245,18 +252,22 @@ services:
       MAGAZIJN_A_URL: http://toxiproxy:18090
       MAGAZIJN_B_URL: http://toxiproxy:18091
       PROFIEL_SERVICE_URL: http://toxiproxy:18089
-      # Het logboek moet expliciet: de %dev-default wijst naar localhost:5434, en dat is
-      # binnen een container de container zelf. Credentials staan hier naast de service
-      # die ze definieert, zodat een wijziging daar niet stil uiteenloopt.
+      # Het logboek moet expliciet: de %dev-default is een localhost-adres (bedoeld voor
+      # draaien op de host), en localhost is binnen een container de container zelf.
+      # Gebruiker, wachtwoord en databasenaam moeten gelijk blijven aan wat
+      # postgres-uitvraag hierboven zet; niets in compose bewaakt dat.
       LDV_POSTGRES_URL: jdbc:postgresql://postgres-uitvraag:5432/ldv_logging
       LDV_POSTGRES_USERNAME: ldv
       LDV_POSTGRES_PASSWORD: ldv
-      # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig. Alleen in
-      # het demo-profiel.
+      # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig, en
+      # alleen in het demo-profiel. Methods en headers blijven ongezet; die spiegelt Quarkus
+      # uit het preflight-verzoek.
       QUARKUS_HTTP_CORS_ENABLED: "true"
-      # De UI leidt de API-host af uit de browser-locatie, dus elk adres waarop de demo geopend
-      # wordt moet hier in de allowlist staan — anders blokkeert de preflight. Zet DEMO_HOST op
-      # het VM- of container-adres; de default localhost dekt de gewone lokale demo.
+      # De allowlist hoort er expliciet bij: enabled zónder origins laat Quarkus alleen
+      # same-origin door, en de UI op :8095 roept deze API op :8086 aan — dat is cross-origin
+      # en zou 403 geven. De UI leidt de API-host bovendien af uit de browser-locatie, dus elk
+      # adres waarop de demo geopend wordt moet hier staan. Zet DEMO_HOST op het VM- of
+      # container-adres; de default localhost dekt de gewone lokale demo.
       QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095"
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
@@ -279,7 +290,7 @@ services:
       # Uitsluitend op loopback publiceren. Deze console heeft geen authenticatie en
       # POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases; op 0.0.0.0 is dat
       # vanaf het hele netwerk bereikbaar. De Berichtenbox-UI praat sowieso alleen vanaf
-      # localhost (vaste API-basis localhost:8086 plus de CORS-allowlist van de uitvraag).
+      # localhost: de API-basis staat vast op localhost:8086.
       - "127.0.0.1:8095:8095"
     depends_on:
       berichtenmagazijn-a:
