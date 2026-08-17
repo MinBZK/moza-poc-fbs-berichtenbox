@@ -491,6 +491,22 @@ class DownstreamClientTest {
     }
 
     @Test
+    fun `een outway-call biedt geen h2c-upgrade aan`() {
+        // De outway proxyt hop-by-hop-headers ongewijzigd door naar de inway, en het
+        // Go-http2-transport daarachter weigert een `Upgrade: h2c` met 502. De JDK-client stuurt
+        // die upgrade standaard mee op een plain-http-doel, dus het uitblijven ervan is precies
+        // wat deze call bruikbaar maakt.
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, "hash"))
+
+        client.lever(Publicatiedoel("aanmeld"), event)
+
+        val headers = ontvangenHeaders()
+
+        assertFalse(headers.containsKey("upgrade"), "h2c-upgrade aangeboden: $headers")
+        assertFalse(headers.containsKey("http2-settings"), "h2c-upgrade aangeboden: $headers")
+    }
+
+    @Test
     fun `grant-hash met omringende whitespace gaat getrimd de header in`() {
         // Een hash komt via een env-var uit een gegenereerd bestand en krijgt makkelijk een
         // newline mee; de outway antwoordt daarop met 400 UNKNOWN_GRANT_HASH_IN_HEADER.

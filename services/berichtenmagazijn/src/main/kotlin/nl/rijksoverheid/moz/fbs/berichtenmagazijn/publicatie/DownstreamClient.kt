@@ -123,6 +123,14 @@ class DownstreamClient(
 
         if (grantHash != null) {
             FscOutwayHeaders.headers(grantHash).forEach { (naam, waarde) -> requestBuilder.header(naam, waarde) }
+
+            // De FSC-data-plane is HTTP/1.1 — dat staat zo in het publicatiecontract van elke
+            // dienst (`PROTOCOL_TCP_HTTP_1.1`). Zonder deze pin onderhandelt de JDK-client op een
+            // plain-http-doel eerst een upgrade naar h2c, en die hop-by-hop-headers proxyt de
+            // outway ongewijzigd door naar de inway; het Go-http2-transport daarachter weigert ze
+            // met "invalid Upgrade request header" en de outway antwoordt 502. Alleen op dit pad
+            // pinnen: downstreams die rechtstreeks worden aangesproken mogen wel h2 doen.
+            requestBuilder.version(HttpClient.Version.HTTP_1_1)
         }
 
         // W3C Trace Context propagatie: injecteer `traceparent` (en `tracestate`)
