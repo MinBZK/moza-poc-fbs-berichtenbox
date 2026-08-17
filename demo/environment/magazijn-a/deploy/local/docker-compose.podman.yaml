@@ -19,6 +19,9 @@ services:
   manager-magazijn-a:
     userns_mode: "keep-id"
 
+  outway-magazijn-a:
+    userns_mode: "keep-id"
+
   inway-magazijn-a:
     userns_mode: "keep-id"
 

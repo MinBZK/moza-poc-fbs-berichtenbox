@@ -187,6 +187,49 @@ services:
     image: docker.io/hashicorp/http-echo:1.0
     command: ["-listen=:8080", "-text=hello from magazijn-a stub-upstream"]
 
+  outway-magazijn-a:
+    image: docker.io/federatedserviceconnectivity/outway:${IMAGE_TAG:-v2.5.2}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # host-UID -> leest 0600-keys
+    restart: on-failure                            # boot-race met de eigen manager
+    command:
+      - /usr/local/bin/outway
+      - serve
+    environment:
+      LOG_TYPE: local
+      LOG_LEVEL: debug
+      GROUP_ID: moza-fbs-test
+      NAME: magazijn-a-outway
+      SELF_ADDRESS: https://outway.magazijn-a.fsc-test.local:443
+      LISTEN_ADDRESS: 0.0.0.0:8443
+      MONITORING_ADDRESS: 0.0.0.0:8081
+      DISABLE_CRL_CHECKS: "true"
+      # De outway registreert zich bij de controller en praat met de manager op de authenticated
+      # interne poort (:9443). fsc-outway serve eist beide.
+      MANAGER_INTERNAL_ADDRESS: https://manager.magazijn-a.fsc-test.local:9443
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.magazijn-a.fsc-test.local:9443
+      # Echte txlog-api (INTERNAL-PKI mTLS): bij egress logt de outway de transactie (direction: out).
+      TX_LOG_API_ADDRESS: https://txlog.magazijn-a.fsc-test.local:9443
+      TLS_ROOT_CERT: /pki/internal/magazijn-a/ca/root.pem
+      TLS_CERT: /pki/internal/magazijn-a/outway/cert.pem
+      TLS_KEY: /pki/internal/magazijn-a/outway/key.pem
+      TLS_GROUP_ROOT_CERT: /pki/ca/root.pem
+      TLS_GROUP_CERT: /pki/out/magazijn-a/outway/cert.pem
+      TLS_GROUP_KEY: /pki/out/magazijn-a/outway/key.pem
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
+    networks:
+      default:
+        # Alias = de internal-cert-hostnaam; géén :443-router-route (de outway is client, geen ingress).
+        aliases:
+          - outway.magazijn-a.fsc-test.local
+    depends_on:
+      manager-magazijn-a:
+        condition: service_started
+      controller-magazijn-a:
+        condition: service_started
+      txlog-magazijn-a:
+        condition: service_started
+
   inway-magazijn-a:
     image: docker.io/federatedserviceconnectivity/inway:${IMAGE_TAG:-v2.5.2}
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # host-UID -> leest 0600-keys
