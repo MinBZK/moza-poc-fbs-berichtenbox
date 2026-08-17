@@ -122,7 +122,19 @@ class DownstreamClient(
             .POST(BodyPublishers.ofByteArray(payload))
 
         if (grantHash != null) {
-            FscOutwayHeaders.headers(grantHash).forEach { (naam, waarde) -> requestBuilder.header(naam, waarde) }
+            val fscHeaders = FscOutwayHeaders.headers(grantHash)
+
+            fscHeaders.forEach { (naam, waarde) -> requestBuilder.header(naam, waarde) }
+
+            // Zonder deze transaction-id in de app-log is een mislukte aflevering niet te
+            // correleren met de rij in de outway-/inway-txlogs, die 'm ongewijzigd doorgeven —
+            // en juist dáár staat waaróm de outway 502 gaf. Alleen het doel loggen, nooit de
+            // URL: die kan een pad met persoonsgegevens dragen.
+            log.debugf(
+                "FSC-outway-aflevering naar %s: Fsc-Transaction-Id=%s",
+                doel.key,
+                fscHeaders[FscOutwayHeaders.TRANSACTION_ID_HEADER],
+            )
 
             // De FSC-data-plane is HTTP/1.1 — dat staat zo in het publicatiecontract van elke
             // dienst (`PROTOCOL_TCP_HTTP_1.1`). Zonder deze pin onderhandelt de JDK-client op een
@@ -212,7 +224,14 @@ class DownstreamClient(
     private fun bruikbareGrantHash(downstream: PublicatieConfig.Downstream): String? =
         downstream.grantHash().orElse(null)?.trim()?.takeIf { it.isNotEmpty() }
 
-    private fun valideerUrl(url: String, viaOutway: Boolean): DownstreamResultaat.ConfiguratieFout? {
+    /**
+     * Keurt een downstream-URL goed of af. `internal` zodat de scheme-, loopback- en SSRF-regels
+     * te toetsen zijn zonder een echte call te doen — een test die op een niet-routeerbaar adres
+     * moet aflopen kost een connect-timeout, en levert een ándere uitkomst op een machine die
+     * dat adres wél kan bereiken. Spiegelt [mapDeliveryException], dat om dezelfde reden
+     * rechtstreeks getest wordt.
+     */
+    internal fun valideerUrl(url: String, viaOutway: Boolean): DownstreamResultaat.ConfiguratieFout? {
         val parsed = try {
             URI.create(url)
         } catch (_: IllegalArgumentException) {

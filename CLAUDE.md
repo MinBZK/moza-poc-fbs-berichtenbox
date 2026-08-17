@@ -260,6 +260,8 @@ géén uitgeschakeld component**).
 | `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT` | `false` | Zet de TLS-/auth-eis op de berichtenopslag BEWUST uit; logt bij elke boot `REDIS_UNPROTECTED` voor alert-routing |
 | `MAGAZIJN_A_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor magazijn-a; leeg = geen `Fsc-Grant-Hash`-header, magazijn wordt dan direct/zonder outway aangeroepen |
 | `PROFIEL_SERVICE_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor de Profiel-service; leeg = geen `Fsc-Grant-Hash`-header, de Profiel-service wordt dan direct/zonder outway aangeroepen |
+| `NOTIFICATIE_URL`      | per profiel | Bestemming van de CloudEvents-push door het magazijn; wijst naar de eigen outway zodra die push door FSC loopt |
+| `NOTIFICATIE_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor de notificatiedienst; leeg = geen `Fsc-Grant-Hash`-header, de push gaat dan direct/zonder outway. Samen zetten met `NOTIFICATIE_URL`: alleen de hash stuurt FSC-headers naar de oude bestemming en schakelt daar de SSRF-controle uit, alleen de URL levert `service not found` |
 
 ## Plannen
 

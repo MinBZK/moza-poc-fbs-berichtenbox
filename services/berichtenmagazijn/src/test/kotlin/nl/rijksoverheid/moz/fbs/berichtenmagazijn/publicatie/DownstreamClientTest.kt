@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeaders
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -525,46 +526,33 @@ class DownstreamClientTest {
 
     @Test
     fun `een intern adres zonder grant-hash blijft geweigerd`() {
-        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("https://10.0.0.1:8443/events"))
-
-        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+        val resultaat = client.valideerUrl("https://10.0.0.1:8443/events", viaOutway = false)
 
         assertTrue(
-            resultaat is DownstreamResultaat.ConfiguratieFout,
+            resultaat != null && resultaat.reden.contains("SSRF"),
             "een RFC1918-adres zonder grant-hash hoort op de SSRF-blocklist te stranden, kreeg: $resultaat",
         )
-        assertTrue((resultaat as DownstreamResultaat.ConfiguratieFout).reden.contains("SSRF"))
     }
 
     @Test
     fun `een intern adres mag wel met grant-hash - het contract bepaalt de bestemming`() {
         // De outway luistert op een adres dat naar RFC1918 resolveert; de blocklist zou dat pad
-        // blokkeren terwijl het FSC-contract achter de hash de bestemming al vastlegt. Geen echte
-        // call: het adres is niet-routeerbaar, dus een netwerk-/timeoutfout bewíjst dat de
-        // validatie 'm heeft doorgelaten. Een ConfiguratieFout zou betekenen dat hij vóór het
-        // netwerk is afgekeurd.
-        every { config.downstreams() } returns
-            mapOf("aanmeld" to DownstreamStub("https://10.255.255.1:8443/events", "hash"))
+        // blokkeren terwijl het FSC-contract achter de hash de bestemming al vastlegt.
+        val resultaat = client.valideerUrl("https://10.255.255.1:8443/events", viaOutway = true)
 
-        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
-
-        assertFalse(
-            resultaat is DownstreamResultaat.ConfiguratieFout,
-            "met een grant-hash hoort de SSRF-blocklist niet te gelden, kreeg: $resultaat",
-        )
+        assertNull(resultaat, "met een grant-hash hoort de SSRF-blocklist niet te gelden")
     }
 
     @Test
     fun `de TLS-eis blijft gelden voor een outway-downstream`() {
-        // De SSRF-uitzondering is er één, niet twee: buiten loopback blijft TLS verplicht, ook met
-        // een grant-hash. Anders zou een grant-hash in de config stilzwijgend plaintext-verkeer
-        // naar een externe host toestaan.
-        every { config.downstreams() } returns
-            mapOf("aanmeld" to DownstreamStub("http://prod.example.com/events", "hash"))
+        // De uitzondering is er één, niet twee: buiten loopback blijft TLS verplicht, ook met een
+        // grant-hash. Anders zou een grant-hash in de config stilzwijgend plaintext-verkeer naar
+        // een externe host toestaan.
+        val resultaat = client.valideerUrl("http://prod.example.com/events", viaOutway = true)
 
-        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
-
-        assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout)
-        assertTrue((resultaat as DownstreamResultaat.ConfiguratieFout).reden.contains("TLS"))
+        assertTrue(
+            resultaat != null && resultaat.reden.contains("TLS"),
+            "plain http buiten loopback hoort ook met grant-hash af te vallen, kreeg: $resultaat",
+        )
     }
 }

@@ -274,6 +274,16 @@ fi
 
 # --- 3. Fire-and-forget --------------------------------------------------------------------------
 echo "== 3. één aflevering, geen retry-stapeling =="
+# Opnieuw tellen, en niet leunen op de stand uit assert 1. Die lus brak af zodra er íets binnen was,
+# dus dat getal is de momentopname van de eerste waarneming — een retry-stapeling landt per definitie
+# daarná en zou onzichtbaar blijven. Eerst een venster laten verstrijken dat ruim genoeg is voor de
+# eerste herhaling (backoff begint op een seconde).
+if [ "$AANTAL" -ge 1 ]; then
+  sleep "$PUBLICATIE_INTERVAL"
+  AANTAL="$(tel_afleveringen || true)"
+  [ -n "$AANTAL" ] || AANTAL=0
+fi
+
 if [ "$AANTAL" -eq 0 ]; then
   fout "geen aflevering gevonden voor '${MERK}' — assert 1 was al rood"
 elif [ "$AANTAL" -eq 1 ]; then

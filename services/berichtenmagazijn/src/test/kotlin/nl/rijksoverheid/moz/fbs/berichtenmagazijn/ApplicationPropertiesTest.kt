@@ -46,6 +46,7 @@ class ApplicationPropertiesTest {
         "%dev.magazijn.publicatie.organisatie.oin, MAGAZIJN_OIN",
         "%dev.magazijn.publicatie.downstreams.aanmeld.url, AANMELD_URL",
         "%dev.magazijn.publicatie.downstreams.notificatie.url, NOTIFICATIE_URL",
+        "%dev.magazijn.publicatie.downstreams.notificatie.grant-hash, NOTIFICATIE_GRANT_HASH",
         "%dev.quarkus.rest-client.profiel-service.url, PROFIEL_SERVICE_URL",
     )
     fun `dev-regels van de demo houden hun env-var-expansie`(sleutel: String, envVar: String) {
