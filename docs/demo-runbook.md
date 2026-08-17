@@ -136,6 +136,7 @@ docker compose -f compose.yaml -f compose.podman.yaml --profile demo down
 | berichtenuitvraag | 8086 | Ophalen/tonen/beheren van berichten |
 | berichtenmagazijn-a / -b | 8090 / 8091 | Twee echte magazijnen (RVO / Belastingdienst) |
 | magazijn-stubs | 8092 | Eén WireMock met n pad-gebaseerde stub-magazijnen (`/mNN`) |
+| magazijn-a / -b (WireMock) | 8081 / 8082 | Overblijfsel-stubs; starten óók zonder `--profile demo`, maar niets bevraagt ze |
 | toxiproxy | 8474 (admin) | Netwerkstoringen tussen uitvraag/magazijn en afhankelijkheden |
 | profiel-service | 8089 | Profiel-stub (welke magazijnen per persona) |
 | redis | 6379 | Sessiecache + ontdubbel-markers |
@@ -191,7 +192,7 @@ Herstellen via *Alles normaal (reset)* in de Storingen-sectie.
 | `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJN_STUBS` | Regenereer (§3) → `docker compose --profile demo up -d --force-recreate magazijn-stubs berichtenuitvraag` |
 | `compose.yaml` (env/mount) | `docker compose --profile demo up -d --force-recreate <service>` (geen rebuild) |
 | `toxiproxy/proxies.json` | `docker compose --profile demo up -d --force-recreate toxiproxy` |
-| WireMock-mappings van een echt stub-magazijn | `docker compose restart magazijn-a` (of `-b`) |
+| WireMock-mappings onder `wiremock/magazijn-a/` of `-b/` | `docker compose restart magazijn-a` (of `-b`) — raakt de demo niet; die containers worden door niets bevraagd |
 
 De uitvraag leest het stub-register uit een gemount bestand (`SMALLRYE_CONFIG_LOCATIONS`) bij boot —
 regenereren vraagt dus een uitvraag-herstart. WireMock laadt mappings alleen bij startup, dus
