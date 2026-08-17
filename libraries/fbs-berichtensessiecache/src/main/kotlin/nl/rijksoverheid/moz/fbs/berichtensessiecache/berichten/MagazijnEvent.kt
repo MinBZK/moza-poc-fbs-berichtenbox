@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonPropertyOrder
 import com.fasterxml.jackson.annotation.JsonValue
 
+/** Soort voortgangsbericht; op de lijn de discriminator in het `event`-veld. */
 enum class EventType(@get:JsonValue val value: String) {
     MAGAZIJN_BEVRAGING_GESTART("magazijn-bevraging-gestart"),
     MAGAZIJN_BEVRAGING_VOLTOOID("magazijn-bevraging-voltooid"),
