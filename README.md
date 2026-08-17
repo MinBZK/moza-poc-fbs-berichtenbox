@@ -88,140 +88,24 @@ lokale Maven-repository staat.
 | berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
 | berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/openapi.json`    |
 
-Wil je de uitvraag over méér dan één magazijn laten aggregeren, dan draai je een tweede magazijn
-op 8091. Dat is een tweede *organisatie*, dus die heeft een eigen OIN en een eigen database nodig —
-zonder die twee overrides publiceert de instantie onder de identiteit van magazijn A en deelt hij
-diens opslag:
+## Demo-stack
 
-```bash
-MAGAZIJN_OIN=00000001823288444000 \
-DB_JDBC_URL=jdbc:postgresql://localhost:5433/berichtenmagazijn \
-./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am \
-  -Dquarkus.http.port=8091 -Ddebug=5006
-```
-
-`localhost:5433` is de `postgres-b`-instantie uit `compose.yaml`; `-Ddebug=5006` voorkomt een
-conflict op de debug-poort van de eerste dev-mode. Voor meer dan twee magazijnen is de demo-stack
-handiger dan losse dev-modes.
-
-De demo-console (`http://localhost:8095`) hoort bij de demo-stack hieronder en start niet mee in
-dev-mode.
-
-## Demo-stack (alles in containers)
-
-> **Volledige runbook** — opzet, persona's, alle bedieningsknoppen, de scenario's stap voor stap
-> en de valkuilen: [`docs/demo-runbook.md`](docs/demo-runbook.md).
-
-Voor demonstraties draait de volledige keten in containers, zodat opstarten één commando
-is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
-
-```bash
-./mvnw clean package -DskipTests \
-  -pl services/berichtenmagazijn,services/berichtenuitvraag,services/demo-console -am \
-  -Dquarkus.container-image.build=true \
-  -Dquarkus.container-image.group=fbs-demo \
-  -Dquarkus.container-image.tag=demo
-```
-
-> **CORS voor de Berichtenbox-UI** is een runtime-property, uitsluitend gezet als env-var in
-> het demo-profiel van `compose.yaml` — de `application.properties` van `berichtenuitvraag`
-> bevat geen CORS-config. Enabled zónder `origins` laat alleen same-origin door en de UI op
-> `:8095` roept de API op `:8086` aan, dus de allowlist staat er in compose naast. Prod/ZAD
-> (profiel prod) krijgt geen enabled, dus die images blijven CORS-loos. Geen build-flag nodig.
-
-> **Apple Silicon / ARM:** jib bouwt standaard `linux/amd64` (de ZAD-cluster is amd64).
-> Op een ARM-host draaien die images onder emulatie — voeg
-> `-Dquarkus.jib.platforms=linux/arm64` toe voor native images. Deze flag hoort op de
-> commandoregel en niet in de config, anders wordt ook de CI-/ZAD-build arm64.
-
-Genereer daarna de stub-artefacten, start de stack en controleer de keten:
-
-```bash
-python3 demo/genereer-magazijnen.py   # vult demo/generated/ (git-ignored, dus altijd nodig)
-docker compose --profile demo up -d   # alles in containers
-./demo/smoke.sh                       # rookproef: aanleveren bij beide magazijnen + ophalen
-```
-
-Sla het generatiescript niet over: compose maakt een ontbrekend mount-pad aan als directory,
-waarna `magazijnen-stubs.properties` een map wordt en de uitvraag niet meer start.
+Voor demonstraties draait de volledige keten in containers — images bouwen met jib, stubs
+genereren, `docker compose --profile demo up -d`, en een bedieningspaneel op
+<http://localhost:8095>. Het [demo-runbook](docs/demo-runbook.md) beschrijft de opzet, de
+persona's, alle knoppen en de scenario's stap voor stap.
 
 Zónder `--profile demo` start compose alleen de infrastructuur (Redis, de drie
-Postgres-instanties en de WireMock-stubs voor magazijnen, profiel, aanmelden en
-notificaties). Gebruik die modus tijdens het ontwikkelen en draai de services met
-`quarkus:dev` zoals hierboven — in een container kost elke codewijziging een image-build.
+Postgres-instanties en de WireMock-stubs voor magazijnen, profiel, aanmelden en notificaties).
+Gebruik die modus tijdens het ontwikkelen en draai de services met `quarkus:dev` zoals hierboven —
+in een container kost elke codewijziging een image-build. De poorten zijn in beide modi gelijk,
+dus de Bruno-collectie werkt ongewijzigd; draai ze niet tegelijk, dat geeft een poortconflict.
 
-De poorten zijn in beide modi gelijk (8090, 8091, 8086), dus de Bruno-collectie en de
-omgeving `lokaal` werken ongewijzigd. Draai niet beide modi tegelijk: dat geeft een
-poortconflict.
+## Ontwikkelen
 
-De demo-console draait op <http://localhost:8095> — een kaal paneel om de magazijnen te
-legen, de basisdataset te laden en random berichten op te voeren.
-
-## Tests draaien
-
-Draai altijd `clean` vóór `test` of `verify`: een achtergebleven `target/` van een andere
-branch-state laat Surefire stale `.class`-bestanden draaien, wat misleidende fouten geeft in
-ongewijzigde code.
-
-```bash
-./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
-./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
-./mvnw clean test -pl services/demo-console -am               # pure JVM
-./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
-./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
-./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
-```
-
-`verify` draait bovendien de kwaliteitsgates — detekt (`maxIssues: 0`, zonder baseline) voor de
-hele repo, en JaCoCo met minimaal 90% line coverage voor beide services en alle libraries:
-
-```bash
-./mvnw clean verify -pl services/berichtenmagazijn -am
-./mvnw detekt:check                                           # alleen de statische analyse
-```
-
-De OpenAPI-specs valideren tegen de NL API Design Rules:
-
-```bash
-npx @stoplight/spectral-cli lint services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml \
-  --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
-npx @stoplight/spectral-cli lint services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml \
-  --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
-```
-
-## API-requests handmatig uitvoeren (Bruno)
-
-De `bruno/`-folder bevat per service een collectie van voorbeeld-requests die je
-tegen de lokale dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
-
-- `bruno/berichtenmagazijn/` — aanlever- en beheer-API
-- `bruno/berichtenuitvraag/` — frontend-facade (lijst, zoek, ophalen-SSE, detail, bijlage,
-  PATCH/DELETE) en de aanmeld-webhook
-
-Open de folder in Bruno, kies environment `lokaal` en run requests. De collectie
-spiegelt de OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een
-bijbehorende `.bru`-request.
-
-## Configuratie
-
-De belangrijkste configuratie staat in
-`services/berichtenuitvraag/src/main/resources/application.properties`. Ingekort weergegeven —
-het bestand zelf bevat per magazijn ook nog de FSC-grant-hash:
-
-```properties
-# Magazijnregister: de map-key is de afzender-OIN, de waarde het magazijn van die organisatie.
-# %dev vult de URL uit een env-var met de lokale poort als default, zodat dezelfde
-# configuratie in een container naar container-DNS wijst.
-# %dev-default van MAGAZIJN_A_URL: http://localhost:8090
-magazijnen."00000000000000100000".url=${MAGAZIJN_A_URL}
-magazijnen."00000000000000100000".naam=Magazijn A
-# %dev-default van MAGAZIJN_B_URL: http://localhost:8091
-magazijnen."00000001823288444000".url=${MAGAZIJN_B_URL}
-magazijnen."00000001823288444000".naam=Magazijn B
-```
-
-Voor productie-instellingen (TLS-eisen op Redis en het Logboek Dataverwerkingen, verplichte
-overrides) geldt de [operator-handleiding](docs/operator-handleiding.md).
+[`docs/ontwikkelen.md`](docs/ontwikkelen.md) beschrijft het lokale werk: tests per module, de
+kwaliteitsgates (JaCoCo, detekt), de OpenAPI-specs linten, een tweede magazijn draaien, de
+Bruno-collecties en de configuratie van het magazijnregister.
 
 ## Architectuur en achtergrond
 
@@ -232,8 +116,10 @@ zodra er iets in `docs/architecture/` wijzigt (per PR ook als preview).
 Verder lezen:
 
 - [Aanpak en keuzes van de PoC](docs/aanpak-en-keuzes.md) — waarom federatief, welke standaarden
+- [Ontwikkelen](docs/ontwikkelen.md) — tests, kwaliteitsgates, linting, lokale configuratie
 - [Demo-runbook](docs/demo-runbook.md) — de demo-stack en alle scenario's
 - [Operator-handleiding](docs/operator-handleiding.md) — verplichte productie-overrides
+- [`docs/operations/`](docs/operations/) — runbooks per operationele procedure (alerts, schema-bumps)
 - [Vergelijking VoRijk (Blauwe Knop) vs. FBS Berichtenbox](docs/vergelijking-fbs-vorijk.md)
 - [Analyse: architectuur voor uniforme bronontsluiting](docs/analyse-architectuur-uniforme-bronontsluiting.md)
 - [`docs/plans/`](docs/plans/) — implementatieplannen met de gemaakte ontwerpkeuzes

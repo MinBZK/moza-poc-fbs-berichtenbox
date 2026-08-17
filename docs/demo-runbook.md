@@ -71,11 +71,23 @@ Er zijn twee modi met dezelfde compose:
 > kan dat bestand daarna ook niet meer schrijven (eerst `rm -rf demo/generated/`). Het is één
 > idempotent commando; sla het niet over.
 
+Controleer de keten met een rookproef — aanleveren bij beide magazijnen en ophalen via de uitvraag:
+
+```bash
+./demo/smoke.sh
+```
+
 Openen na start:
 - **Bedieningspaneel:** <http://localhost:8095/>
 - **Berichtenbox (ondernemer):** <http://localhost:8095/berichtenbox.html>
 
 Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-volumes te wissen).
+
+> **Waarom CORS geen build-flag is:** CORS is een runtime-property en staat uitsluitend als env-var
+> in het demo-profiel van `compose.yaml`; de `application.properties` van `berichtenuitvraag` bevat
+> geen CORS-config. Enabled zónder `origins` laat alleen same-origin door, en de UI op `:8095`
+> roept de API op `:8086` aan — vandaar de allowlist ernaast in compose. Het prod-profiel zet CORS
+> niet aan, dus de ZAD-images blijven CORS-loos zonder dat de build iets hoeft te weten.
 
 ### Podman in plaats van Docker
 
