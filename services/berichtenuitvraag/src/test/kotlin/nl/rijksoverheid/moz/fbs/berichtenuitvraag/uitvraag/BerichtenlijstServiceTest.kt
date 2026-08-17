@@ -118,12 +118,12 @@ class BerichtenlijstServiceTest {
     }
 
     @Test
-    fun `cache-storing wordt 502 en cache-NogNietGevuld propageert 409`() {
+    fun `onbereikbare opslag wordt 503 en cache-NogNietGevuld propageert 409`() {
         every { sessiecache.lijst(ontvanger, null, null) } throws SessiecacheException.Onbereikbaar("cache weg")
 
         val storing = assertThrows<WebApplicationException> { service.lijst("BSN:999990019", null, null) }
 
-        assertEquals(502, storing.response.status)
+        assertEquals(503, storing.response.status)
 
         every { sessiecache.lijst(ontvanger, null, null) } throws SessiecacheException.NogNietGevuld("nog niet opgehaald")
 

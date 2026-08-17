@@ -3,14 +3,19 @@ package nl.rijksoverheid.moz.fbs.common.exception
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.InternalServerErrorException
 import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.Response
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.text.MessageFormat
 import java.util.logging.Handler
 import java.util.logging.Level
@@ -246,4 +251,47 @@ class ProblemExceptionMapperTest {
         // (urn:uuid) en dezelfde errorId in de serverlog.
         assertEquals("urn:uuid:$errorIdUitLog", problem.instance!!.toString())
     }
+
+    // --- Retry-After: alleen een eigen, begrensde waarde gaat mee ---
+
+    /**
+     * Een doorgegeven upstream-fout draagt de header van díé upstream. Zonder grens bepaalt een
+     * throttlende upstream hoe lang ónze afnemers wegblijven — een week is geen theoretische
+     * waarde, dat is wat een overbelaste dienst kan sturen.
+     */
+    @Test
+    fun `een buitensporige Retry-After van upstream gaat niet mee`() {
+        val respons = mapper.toResponse(waeMetRetryAfter(503, "604800"))
+
+        assertNull(respons.getHeaderString("Retry-After"))
+    }
+
+    @Test
+    fun `een redelijke Retry-After gaat mee`() {
+        val respons = mapper.toResponse(waeMetRetryAfter(503, "30"))
+
+        assertEquals("30", respons.getHeaderString("Retry-After"))
+    }
+
+    /**
+     * `getHeaderString` voegt gelijknamige headers samen met een komma, en RFC 9110 staat ook een
+     * HTTP-datum toe. Beide breken het `type: integer` dat de spec declareert.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["30,60", "Wed, 21 Oct 2026 07:28:00 GMT", "", "-1", "dertig"])
+    fun `een niet-numerieke of negatieve Retry-After gaat niet mee`(waarde: String) {
+        val respons = mapper.toResponse(waeMetRetryAfter(503, waarde))
+
+        assertNull(respons.getHeaderString("Retry-After"))
+    }
+
+    @Test
+    fun `een 5xx zonder Retry-After krijgt er geen`() {
+        val respons = mapper.toResponse(WebApplicationException(Response.status(503).build()))
+
+        assertNull(respons.getHeaderString("Retry-After"))
+    }
+
+    private fun waeMetRetryAfter(status: Int, waarde: String) =
+        WebApplicationException(Response.status(status).header("Retry-After", waarde).build())
 }
