@@ -57,7 +57,7 @@ class CircuitBreakerOpen503ContractTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(503)
             .contentType("application/problem+json")

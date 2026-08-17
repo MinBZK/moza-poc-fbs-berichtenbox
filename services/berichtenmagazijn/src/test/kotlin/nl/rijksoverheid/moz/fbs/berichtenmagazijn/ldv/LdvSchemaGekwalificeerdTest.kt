@@ -97,7 +97,7 @@ class LdvSchemaGekwalificeerdTest {
                 }
                 """.trimIndent(),
             )
-            .post("/api/v1/berichten")
+            .post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
         // De 201 impliceert een bevestigde logregel: span-processor=simple exporteert

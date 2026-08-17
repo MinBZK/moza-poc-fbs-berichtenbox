@@ -74,7 +74,7 @@ class OpenApiContractTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
     }
@@ -85,7 +85,7 @@ class OpenApiContractTest {
             .filter(responseOnlyFilter)
             .contentType(ContentType.JSON)
             .body("""{"afzender": "a"}""")
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
     }
@@ -109,7 +109,7 @@ class OpenApiContractTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
     }

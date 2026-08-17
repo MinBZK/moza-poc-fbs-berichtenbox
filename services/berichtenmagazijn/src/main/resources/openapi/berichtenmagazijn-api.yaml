@@ -5,13 +5,12 @@ info:
   description: |
     API van het decentrale berichtenmagazijn binnen het Federatief Berichtenstelsel (FBS).
 
-    - **Aanlever** — organisaties leveren nieuwe berichten aan via `POST /berichten`.
-    - **Ophaal** — consumers (berichtensessiecache, berichten-uitvraag-service) halen
-      berichtenlijsten, berichten en bijlagen op.
-    - **Beheer** — de berichten-uitvraag-service werkt de status van een bericht bij
-      (gelezen/map) of verwijdert een bericht.
+    - **Aanlever** — organisaties leveren nieuwe berichten aan via `POST /aanleveringen`.
+    - **Berichten** — consumers (berichtensessiecache, berichten-uitvraag-service) halen
+      berichtenlijsten, berichten en bijlagen op, werken de status van een bericht bij
+      (gelezen/map) of verwijderen een bericht.
 
-    De ontvanger van een bericht wordt op alle Ophaal- en Beheer-endpoints meegestuurd
+    De ontvanger van een bericht wordt op alle endpoints onder `/berichten` meegestuurd
     als header `X-Ontvanger` in formaat `<TYPE>:<WAARDE>` (zoals `BSN:123456782`),
     zodat persoonsgegevens niet in URL of toegangslogs verschijnen.
   contact:
@@ -33,16 +32,20 @@ servers:
   - url: /api/v1
     description: Versioned API base path
 
+# Elke tag bezit zijn eigen pad-subtree, en geen enkele tag zit onder die van een
+# andere. De code-generator laat het class-basispad van een tag vervallen zodra dat
+# pad de routes van een ándere tag zou afvangen; de operaties dragen dan hun volledige
+# pad, en Quarkus REST — dat eerst op class-basispad resolvet — beantwoordt ze met 405.
+# Aanleveren heeft daarom een eigen resource in plaats van `POST /berichten`, en alles
+# onder /berichten valt onder één tag.
 tags:
   - name: Aanlever
     description: Aanlevering van berichten aan het magazijn
-  - name: Ophaal
-    description: Berichten en bijlagen opvragen
-  - name: Beheer
-    description: Berichtstatus bijwerken en berichten verwijderen
+  - name: Berichten
+    description: Berichten en bijlagen opvragen, status bijwerken en verwijderen
 
 paths:
-  /berichten:
+  /aanleveringen:
     post:
       tags: [Aanlever]
       summary: Lever een nieuw bericht aan bij het magazijn
@@ -82,8 +85,10 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+
+  /berichten:
     get:
-      tags: [Ophaal]
+      tags: [Berichten]
       summary: Berichtenlijst ophalen voor een ontvanger
       operationId: getBerichten
       description: |
@@ -130,7 +135,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/BerichtIdPath'
     get:
-      tags: [Ophaal]
+      tags: [Berichten]
       summary: Bericht ophalen (inclusief inhoud en bijlagen-metadata)
       operationId: getBerichtById
       description: |
@@ -163,7 +168,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
     patch:
-      tags: [Beheer]
+      tags: [Berichten]
       summary: Berichtstatus bijwerken (gelezen, map)
       operationId: updateBerichtStatus
       description: |
@@ -204,7 +209,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
-      tags: [Beheer]
+      tags: [Berichten]
       summary: Bericht verwijderen (soft-delete)
       operationId: verwijderBericht
       description: |
@@ -241,7 +246,7 @@ paths:
           type: string
           format: uuid
     get:
-      tags: [Ophaal]
+      tags: [Berichten]
       summary: Bijlage ophalen (bytes)
       operationId: getBijlage
       description: |
@@ -426,7 +431,7 @@ components:
 
     BerichtResponse:
       type: object
-      description: Response op `POST /berichten` (Aanlever).
+      description: Response op `POST /aanleveringen` (Aanlever).
       required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, publicatietijdstip, _links]
       properties:
         berichtId:

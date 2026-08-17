@@ -56,7 +56,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
             .header("API-Version", `is`("0.2.0"))
@@ -90,7 +90,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
@@ -116,7 +116,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
@@ -138,7 +138,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
@@ -162,7 +162,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
@@ -194,7 +194,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
@@ -216,7 +216,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
             .extract().path("berichtId")
@@ -255,7 +255,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
             .body("berichtId", matchesRegex("[0-9a-f-]{36}"))
@@ -291,7 +291,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
             .extract().path("berichtId")
@@ -318,7 +318,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
@@ -353,7 +353,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             // Quarkus' max-body-size (40 MiB) staat de request toe; daarna pakt
             // de domein-invariant het op met 400.
@@ -375,7 +375,7 @@ class AanleverResourceIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")

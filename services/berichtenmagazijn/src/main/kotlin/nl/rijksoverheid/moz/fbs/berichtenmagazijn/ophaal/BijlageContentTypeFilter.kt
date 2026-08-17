@@ -24,7 +24,7 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.bijlage.mimeType"
  * alleen iframes — top-level navigatie naar het download-endpoint niet.
  *
  * Het filter doet niets als de property afwezig is, dus het is veilig om globaal
- * te draaien; alleen `OphaalResource.getBijlage` zet de property.
+ * te draaien; alleen `BerichtenResource.getBijlage` zet de property.
  *
  * Defense-in-depth: parse het MIME-type opnieuw via [MediaType.valueOf]. Een
  * toekomstige caller (test, ander endpoint) zou de property zonder

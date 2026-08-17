@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 
 import jakarta.ws.rs.core.UriBuilder
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusInfo
@@ -129,7 +128,6 @@ internal object BerichtDtoMapper {
 
     private fun linkVoorPagina(page: Int, pageSize: Int, afzender: String?, baseUri: UriBuilder): Link {
         var builder = baseUri.clone()
-            .path(ApiInfo.BASE_PATH)
             .path("berichten")
             .queryParam("page", page)
             .queryParam("pageSize", pageSize)
@@ -140,13 +138,11 @@ internal object BerichtDtoMapper {
     }
 
     private fun selfHrefVoorBericht(berichtId: UUID, baseUri: UriBuilder) = baseUri.clone()
-        .path(ApiInfo.BASE_PATH)
         .path("berichten")
         .path(berichtId.toString())
         .build().toString()
 
     private fun bijlageHref(berichtId: UUID, bijlageId: UUID, baseUri: UriBuilder) = baseUri.clone()
-        .path(ApiInfo.BASE_PATH)
         .path("berichten")
         .path(berichtId.toString())
         .path("bijlagen")
