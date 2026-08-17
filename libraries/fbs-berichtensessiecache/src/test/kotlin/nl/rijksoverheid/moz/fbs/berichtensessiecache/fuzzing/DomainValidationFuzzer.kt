@@ -1,12 +1,22 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.fuzzing
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.fasterxml.jackson.module.kotlin.KotlinModule
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGestart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktVoorBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import java.time.Instant
@@ -14,11 +24,15 @@ import java.util.UUID
 
 object DomainValidationFuzzer {
 
+    private val objectMapper = ObjectMapper()
+        .registerModule(JavaTimeModule())
+        .registerModule(KotlinModule.Builder().build())
+
     private val targets = arrayOf(
         ::fuzzBericht,
         ::fuzzAggregationStatus,
         ::fuzzBerichtenPagina,
-        ::fuzzMagazijnEventDomain,
+        ::fuzzMagazijnEventWire,
     )
 
     @JvmStatic
@@ -92,22 +106,76 @@ object DomainValidationFuzzer {
         check(page.totalPages >= 0) { "totalPages moet niet-negatief zijn" }
     }
 
-    private fun fuzzMagazijnEventDomain(data: FuzzedDataProvider) {
-        try {
-            MagazijnEvent(
-                event = data.pickValue(EventType.entries.toTypedArray()),
-                magazijnId = if (data.consumeBoolean()) data.consumeString(100) else null,
-                naam = if (data.consumeBoolean()) data.consumeString(100) else null,
-                status = if (data.consumeBoolean()) data.pickValue(MagazijnStatus.entries.toTypedArray()) else null,
-                aantalBerichten = if (data.consumeBoolean()) data.consumeInt() else null,
-                foutmelding = if (data.consumeBoolean()) data.consumeString(200) else null,
-                totaalBerichten = if (data.consumeBoolean()) data.consumeInt() else null,
-                geslaagd = if (data.consumeBoolean()) data.consumeInt() else null,
-                mislukt = if (data.consumeBoolean()) data.consumeInt() else null,
-                totaalMagazijnen = if (data.consumeBoolean()) data.consumeInt() else null,
+    /**
+     * De veldcombinaties per soort voortgangsbericht liggen sinds de sealed hiërarchie vast in
+     * het typesysteem; er valt geen ongeldig event meer te construeren. Wat wél variabel blijft
+     * is de tekst: de magazijnnaam en het magazijnId komen uit beheerconfiguratie en gaan
+     * ongefilterd de SSE-stroom op. Deze target bewaakt daarom de wire-invarianten onder
+     * willekeurige tekst — quotes, regeleindes, control-characters en unicode moeten als
+     * escape-sequentie op de lijn belanden en de waarde onbeschadigd laten.
+     *
+     * De veldvolgorde en de exacte JSON blijven het werk van `MagazijnEventTest`, dat de
+     * Jackson-configuratie van de service gebruikt; deze target draait op een kale mapper en
+     * kan dus geen configuratiedrift zien.
+     */
+    private fun fuzzMagazijnEventWire(data: FuzzedDataProvider) {
+        val naam = if (data.consumeBoolean()) data.consumeString(100) else null
+        val magazijnId = data.consumeString(100)
+        val tekst = data.consumeString(200)
+        val event: MagazijnEvent = when (data.pickValue(EventType.entries.toTypedArray())) {
+            EventType.MAGAZIJN_BEVRAGING_GESTART -> MagazijnBevragingGestart(magazijnId, naam)
+            EventType.MAGAZIJN_BEVRAGING_VOLTOOID -> if (data.consumeBoolean()) {
+                MagazijnBevragingGeslaagd(magazijnId, naam, aantalBerichten = data.consumeInt())
+            } else {
+                MagazijnBevragingMislukt(
+                    magazijnId,
+                    naam,
+                    fout = data.pickValue(MagazijnFoutStatus.entries.toTypedArray()),
+                    foutmelding = tekst,
+                )
+            }
+            EventType.OPHALEN_GEREED -> OphalenGereed(
+                totaalBerichten = data.consumeInt(),
+                geslaagd = data.consumeInt(),
+                mislukt = data.consumeInt(),
+                totaalMagazijnen = data.consumeInt(),
             )
-        } catch (_: IllegalArgumentException) {
-            // Verwacht bij ongeldige combinatie EventType + nullable velden
+            EventType.OPHALEN_FOUT -> if (data.consumeBoolean()) {
+                OphalenMisluktVoorBevraging(foutmelding = tekst, referentie = data.consumeString(50))
+            } else {
+                OphalenMisluktNaBevraging(
+                    foutmelding = tekst,
+                    geslaagd = data.consumeInt(),
+                    mislukt = data.consumeInt(),
+                    totaalMagazijnen = data.consumeInt(),
+                    referentie = data.consumeString(50),
+                )
+            }
+        }
+
+        val json = objectMapper.writeValueAsString(event)
+        val heringelezen = objectMapper.readTree(json)
+
+        check(heringelezen.get("event")?.asText() == event.event.value) {
+            "event-discriminator ontbreekt of wijkt af in: $json"
+        }
+
+        check(heringelezen.properties().none { (_, waarde) -> waarde.isNull }) {
+            "voortgangsbericht mag geen null-velden op de lijn zetten: $json"
+        }
+
+        // Eén regel per bericht: een rauw regeleinde zou het SSE-frame splitsen en de client
+        // een afgekapt JSON-fragment geven.
+        check(json.lines().size == 1) { "voortgangsbericht moet één regel blijven: $json" }
+
+        if (event is MagazijnBevraging) {
+            check(heringelezen.get("magazijnId")?.asText() == event.magazijnId) {
+                "magazijnId komt beschadigd terug uit: $json"
+            }
+
+            check(heringelezen.get("naam")?.asText() == event.naam) {
+                "naam komt beschadigd terug uit: $json"
+            }
         }
     }
 }
