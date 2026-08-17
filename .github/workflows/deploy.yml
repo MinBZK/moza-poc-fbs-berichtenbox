@@ -49,13 +49,10 @@
 # bij de PR naar main. Een gestapelde PR is inhoudelijk getoetst maar niet security-gescand; weeg
 # dat mee bij het reviewen ervan.
 #
-# OPRUIMEN STAAT IN cleanup-preview.yml, niet hier: dat filter mag niet op teardown drukken.
-# Een PR die ná zijn preview-deploy van main weggericht werd, sloot buiten dit filter en liet zo
-# zijn pr-<n>-deployments, ghcr-tags en omgeving achter. Die workflow triggert daarom op élk
-# sluiten, ongeacht doelbranch, en heeft een workflow_dispatch om een gemiste opruiming in te
-# halen. De omgekeerde beweging — GitHub's automatische retarget náár main bij het mergen van de
-# parent — is veilig: de checks zijn dan afwezig i.p.v. groen, en `strict: true` op main dwingt
-# sowieso een verse run af.
+# OPRUIMEN STAAT IN cleanup-preview.yml: het `branches`-filter hieronder mag niet op teardown
+# drukken (rationale daar). De omgekeerde beweging — GitHub's automatische retarget náár main bij
+# het mergen van de parent — is veilig: de checks zijn dan afwezig i.p.v. groen, en `strict: true`
+# op main dwingt sowieso een verse run af.
 #
 # TIMEOUT-MINUTES OP ELKE JOB: GitHub's default is 360 minuten. Een job die hangt (netwerkstall,
 # vastgelopen Testcontainer, een herintroduceerde wachtlus) houdt dan zes uur een runner bezet
@@ -93,8 +90,8 @@ on:
   push:
     branches: [main]
 
-# Least-privilege default voor GITHUB_TOKEN: read-only op workflow-niveau; jobs die schrijven
-# (build → packages, deploy-preview → pull-requests) declareren dat zelf.
+# Least-privilege default voor GITHUB_TOKEN: read-only op workflow-niveau; elke job die schrijft
+# declareert zijn eigen scopes.
 permissions: read-all
 
 # GEEN workflow-brede concurrency. De toetsende checks draaien sinds #173 als jobs ín deze
@@ -106,7 +103,7 @@ permissions: read-all
 #   * build/toetsing → eigen groep met cancel-in-progress: true (achterhaald werk stoppen);
 #   * deploy → eigen groep PER PROJECT + doel-deployment met cancel-in-progress: false
 #     (nooit halverwege afbreken; per project apart zodat de drie parallelle jobs elkaar niet
-#     blokkeren, wat met één gedeelde groep wél zou gebeuren). De opruim-jobs in
+#     blokkeren, wat met één gedeelde groep wél zou gebeuren). De drie project-opruim-jobs in
 #     cleanup-preview.yml zitten in dezelfde groepen.
 
 env:
@@ -134,6 +131,10 @@ env:
   # application to be created" komt daarentegen van OM zelf (Argo-Application-wait) en wordt
   # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
   PREVIEW_TASK_TIMEOUT: '900'
+  # Beide workflows geven deze header expliciet mee in plaats van op de action-default te leunen:
+  # cleanup-preview.yml zoekt de comment op deze tekst, dus drift tussen plaatsen en opruimen laat
+  # hem stil achter op een gesloten PR.
+  COMMENT_HEADER: '## 🚀 Preview Deployment'
 
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
@@ -148,10 +149,8 @@ jobs:
   # Twee gevallen rollen niet uit:
   # - Wijzigingen die de uitgerolde applicatie niet raken (docs, bruno, demo, demo-console).
   # - PR's van een bot: `zad-actions` weigert die zelf (`skip-bot-prs`, default true), dus de
-  #   preview komt er toch niet. Zonder deze uitsluiting bouwden en pushten we er wél drie
-  #   images voor die nooit een pod bereiken — en de cleanup slaat bot-PR's óók over, dus die
-  #   bleven permanent in ghcr staan (zichtbaar aan `pr-143` en `pr-167` van gesloten
-  #   Dependabot-PR's).
+  #   preview komt er toch niet. Zonder deze uitsluiting bouwden en pushten we er wél images voor
+  #   die nooit een pod bereiken.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -299,7 +298,8 @@ jobs:
   # per commit.
   #
   # Elke build krijgt zo zijn eigen tag; `cleanup-preview-images` in cleanup-preview.yml ruimt ze
-  # bij PR-sluiten allemaal op — op prefix, plus de kale `pr-<n>` van vóór deze wijziging.
+  # bij PR-sluiten allemaal op — op prefix, plus de kale `pr-<n>` uit de tijd vóór de
+  # per-commit-tags.
   meta:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -470,7 +470,8 @@ jobs:
   # De uitkomst is daarmee fail-safe — hij wordt opnieuw bepaald, niet aangenomen.
   checks-test:
     needs: changes
-    # `${{ }}` verplicht: een scalar die met `!` begint is in YAML een gereserveerde indicator.
+    # `!` mag geen plain scalar beginnen (YAML-tagindicator), vandaar `${{ }}`; een blokscalar
+    # (`>-`, zoals bij `checks-fuzz`) werkt net zo goed.
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/test.yml
     with:
@@ -618,6 +619,7 @@ jobs:
           deployment-name: pr-${{ github.event.pull_request.number }}
           clone-from: test
           comment-on-pr: 'true'
+          comment-header: ${{ env.COMMENT_HEADER }}
           wait-for-ready: 'false'
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: |

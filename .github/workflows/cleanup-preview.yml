@@ -5,20 +5,26 @@
 # DOELbranch, zodat een gestapelde PR geen preview krijgt en geen stale required checks
 # achterlaat. Datzelfde filter sloeg ook toe op het sluiten: werd een PR ná zijn preview-deploy
 # weggericht van main (base op een feature-branch gezet en daar gemerged), dan matchte het
-# close-event het filter niet, draaide de workflow niet en bleef de `pr-<n>`-deployment in alle
-# drie de projecten staan — plus de ghcr-tags, de omgeving en de comment. Zo lekten pr-188,
-# pr-195, pr-199 en pr-201. Teardown heeft dat filter niet nodig: er zijn geen checks die groen
-# kunnen komen te staan, en opruimen van iets dat niet bestaat is een no-op ("not found" is een
-# geldige uitkomst). Deze workflow triggert daarom op élk sluiten, ongeacht de doelbranch.
+# close-event het filter niet en bleef de hele preview staan. Teardown heeft dat filter niet
+# nodig: geen van deze jobs is een required context op main, dus ze kunnen geen merge vrijgeven.
+# Deze workflow triggert daarom op élk sluiten, ongeacht de doelbranch.
 #
-# `workflow_dispatch` staat erbij om een gemiste opruiming alsnog te kunnen draaien; deploy.yml
-# had die knop niet, waardoor de enige uitweg handwerk tegen de OM-API was.
+# `workflow_dispatch` staat erbij om een gemiste opruiming alsnog te kunnen draaien.
+#
+# ELKE VERWIJDERING WORDT NAGEMETEN. `zad-actions/cleanup` behandelt een mislukte delete als
+# `::warning::` en houdt de step groen (`cleanup-failures are non-fatal` in zijn eigen
+# zad-common.sh), en GitHub antwoordt op een DELETE zonder de juiste rechten met 404 in plaats van
+# 403 — beide onzichtbaar in een groene job, en precies zo groeide de lijst wees-omgevingen en
+# wees-deployments. Na elke opruimstap staat daarom een controle die de resource ópvraagt: alleen
+# een expliciete 404 geldt als "weg", een 200 als "staat er nog" en élke andere uitkomst als "niet
+# geverifieerd". Die laatste twee maken de job rood. `gh api`-exitcodes zijn hiervoor ongeschikt:
+# die zijn 1 bij 404, 403, 429, 5xx én een netwerkfout, waardoor een API-hik als "weg" zou lezen.
 #
 # DESTRUCTIEF: de deployment-DELETE draait Argo `prune` + `Delete` en, voor projecten met de
-# `postgresql-database`-service, `database_cleanup` — de databank van die deployment gaat mee. Dat
-# is precies de bedoeling voor een `pr-<n>`-preview, maar draai deze workflow NOOIT met een
-# PR-nummer dat niet bij een preview hoort. De naam is altijd `pr-<n>`; `test` en de
-# `fsc-*`-peer-deployments zijn met dit contract onbereikbaar.
+# `postgresql-database`-service, `database_cleanup` — de database van die deployment gaat mee. Voor
+# een `pr-<n>`-preview is dat de bedoeling. Vandaar de rem op de handmatige route: het nummer moet
+# een getal zijn (zodat er geen andere deployment-naam als `test` uit te construeren is) én bij een
+# PR horen die daadwerkelijk gesloten is.
 #
 # Repo-secrets (Settings → Secrets and variables → Actions):
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
@@ -27,13 +33,7 @@
 #   GH_ADMIN_TOKEN          — PAT met Administration: write op deze repo (fine-grained), of een
 #                             classic token met `repo`-scope én admin op de repo. GITHUB_TOKEN mag
 #                             omgevingen niet verwijderen, en de naam mag niet met `GITHUB_`
-#                             beginnen — die prefix is gereserveerd. Mist het token de
-#                             administration-rechten, dan antwoordt GitHub 404 (niet 403) op de
-#                             DELETE: onderscheiden van "bestond al niet" kan alleen door daarna
-#                             te controleren óf de omgeving nog bestaat. Dat doet de
-#                             verificatiestap hieronder; zonder die stap bleef het bij een
-#                             `::warning::` in een groene job en groeide de lijst omgevingen
-#                             ongemerkt door (73 stuks vóór deze workflow bestond).
+#                             beginnen — die prefix is gereserveerd.
 
 name: Cleanup ZAD preview
 
@@ -49,27 +49,28 @@ on:
         required: true
         type: string
 
-# Least-privilege default; de jobs die schrijven declareren dat zelf.
+# Least-privilege default; elke job die schrijft declareert zijn eigen scopes.
 permissions: read-all
 
 env:
   PROJECT_UITVRAAG: mpfb-8wh
   PROJECT_EXTERNE_STUBS: mpfpsm-lcl
   PROJECT_MAGAZIJNEN: mpfm-w3h
-  # De ZAD-delete duurde gemeten ~4 minuten (Argo prune + database_cleanup); de action-default van
-  # 300 s is daarvoor te krap.
+  OM_API: https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api
+  # De ZAD-delete duurt ~4 minuten (Argo prune + database_cleanup) en zit daarmee te dicht op de
+  # action-default van 300 s. 900 s is hetzelfde marge-getal als PREVIEW_TASK_TIMEOUT in deploy.yml;
+  # de job-timeout staat er ruim boven, zodat de CLI zijn eigen diagnose kan afmaken vóórdat GitHub
+  # de job afkapt.
   CLEANUP_TASK_TIMEOUT: "900"
-  # Zelfde header als waarmee de deploy-action zijn comment plaatst; anders vindt de opruiming hem
-  # niet.
+  # Beide workflows geven deze header expliciet mee in plaats van op de action-default te leunen:
+  # drift tussen plaatsende en opruimende kant laat de comment stil achter op gesloten PR's.
   COMMENT_HEADER: "## 🚀 Preview Deployment"
 
 jobs:
-  # Eén plek waar het PR-nummer vandaan komt en gevalideerd wordt, zodat de drie
-  # project-jobs en de image-sweep het niet elk apart hoeven te herleiden.
+  # Eén plek waar het PR-nummer vandaan komt en gevalideerd wordt.
   doel:
     # Een PR uit een fork krijgt geen preview: de deploy-action heeft secrets nodig en die deelt
-    # GitHub niet met fork-workflows. Er valt dan dus niets op te ruimen, en zonder deze uitsluiting
-    # zou élk sluiten van een fork-PR een rode run opleveren op een ontbrekend secret.
+    # GitHub niet met fork-workflows. Er valt dan dus niets op te ruimen.
     if: >-
       github.event_name == 'workflow_dispatch'
       || github.event.pull_request.head.repo.full_name == github.repository
@@ -82,10 +83,9 @@ jobs:
       - name: Bepaal en controleer het doel
         id: doel
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Bij een close-event komt het nummer uit het event, bij een handmatige run uit de input.
           PR_NUMMER: ${{ github.event.pull_request.number || inputs.pr }}
-          # Alleen de aanwezigheid is hier zichtbaar; de waarde blijft in de jobs die hem gebruiken.
-          ADMIN_TOKEN_AANWEZIG: ${{ secrets.GH_ADMIN_TOKEN != '' }}
         run: |
           set -euo pipefail
 
@@ -93,41 +93,76 @@ jobs:
           # ghcr-tag-prefix. Een vrij tekstveld uit `workflow_dispatch` mag daar nooit
           # ongefilterd in: alleen cijfers, zodat er geen andere deployment (bv. `test`) of
           # bredere tag-prefix uit te construeren is.
-          if ! printf '%s' "$PR_NUMMER" | grep -qE '^[0-9]+$'; then
-            echo "::error::PR-nummer '$PR_NUMMER' is geen getal — opruimen afgebroken."
+          case "$PR_NUMMER" in
+            ''|*[!0-9]*)
+              echo "::error::PR-nummer '$PR_NUMMER' is geen getal — opruimen afgebroken."
+              exit 1
+              ;;
+          esac
+
+          # Normaliseren: `0195` zou anders `pr-0195` opruimen (bestaat niet, dus een groene run
+          # die niets doet) terwijl de deploy-jobs `pr-195` gebruiken.
+          nummer=$((10#$PR_NUMMER))
+
+          if [ "$nummer" -eq 0 ]; then
+            echo "::error::PR-nummer 0 bestaat niet — opruimen afgebroken."
             exit 1
           fi
 
-          # Vroeg en luid falen: zonder dit token kan de omgeving niet verwijderd worden, en het
-          # sluiten van een PR is een moment waarop niemand meelet.
-          if [ "$ADMIN_TOKEN_AANWEZIG" != "true" ]; then
-            echo "::error::GH_ADMIN_TOKEN ontbreekt — de omgeving pr-$PR_NUMMER kan niet opgeruimd worden. Zet de repo-secret (PAT met Administration: write)."
-            exit 1
+          # Een handmatige run is de inhaalslag voor een gemiste opruiming, dus bediend door iemand
+          # met haast. Een typefout zou drie keer "not found" opleveren: een volledig groene run die
+          # niets opruimde. Erger is een bestaand nummer van een ópen PR: dat sloopt een levende
+          # preview inclusief database. Vandaar deze twee eisen; bij een close-event zijn ze
+          # per definitie al waar.
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if ! staat=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$nummer" --jq .state); then
+              echo "::error::PR $nummer bestaat niet in $GITHUB_REPOSITORY — opruimen afgebroken."
+              exit 1
+            fi
+
+            if [ "$staat" != "closed" ]; then
+              echo "::error::PR $nummer is nog $staat — opruimen zou een levende preview slopen, inclusief database. Sluit de PR eerst."
+              exit 1
+            fi
           fi
 
           {
-            echo "pr=$PR_NUMMER"
+            echo "pr=$nummer"
             # GHCR eist lowercase in de owner.
             echo "owner=${GITHUB_REPOSITORY_OWNER,,}"
           } >> "$GITHUB_OUTPUT"
 
   # Per project een eigen (parallelle) job. De GitHub-omgeving en -deployments horen bij de PR en
-  # niet bij een project, dus ruimt alleen de uitvraag-job die op — de andere twee zetten het uit.
+  # niet bij een project, dus `delete-github-env`/`delete-github-deployments` staan alleen in de
+  # uitvraag-job aan (de andere twee laten ze op de action-default `false`).
   cleanup-preview-uitvraag:
     needs: doel
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # Zelfde groep als de deploy-job van dit project + deze PR in deploy.yml: opruimen mag een
+    timeout-minutes: 20
+    # Zelfde groepsnaam als de deploy-job van dit project + deze PR in deploy.yml: opruimen mag een
     # lopende deploy niet onder handen wegtrekken. Concurrency-groepen zijn repo-breed, dus de
     # verhuizing naar een eigen workflow verandert daar niets aan — de naam moet wél gelijk blijven.
-    # `needs`-outputs mogen hier niet gebruikt worden, vandaar dezelfde expressie als in `doel`.
     concurrency:
-      group: zad-uitvraag-pr-${{ github.event.pull_request.number || inputs.pr }}
+      group: zad-uitvraag-pr-${{ needs.doel.outputs.pr }}
       cancel-in-progress: false
     permissions:
+      contents: read
       deployments: write
       pull-requests: write
     steps:
+      # Pre-flight bewust hier en niet in `doel`: alleen deze job gebruikt het token. Zat de check
+      # in `doel`, dan zou een ontbrekend of verlopen PAT ook de drie ZAD-deletes en de ghcr-sweep
+      # tegenhouden — die hebben het niet nodig, en dan blijven er pods en databases draaien om een
+      # GitHub-omgeving.
+      - name: Controleer GH_ADMIN_TOKEN aanwezig
+        env:
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$GH_ADMIN_TOKEN" ]; then
+            echo "::error::GH_ADMIN_TOKEN ontbreekt — de GitHub-omgeving kan niet opgeruimd worden. Zet de repo-secret (PAT met Administration: write)."
+            exit 1
+          fi
+
       - name: Cleanup uitvraag-project
         uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
@@ -140,41 +175,15 @@ jobs:
           delete-container: "false"
           comment-header: ${{ env.COMMENT_HEADER }}
           github-admin-token: ${{ secrets.GH_ADMIN_TOKEN }}
-
-      # De action meldt een mislukte omgeving-delete alleen als `::warning::` en houdt de job
-      # groen; bovendien is een 404 daar niet te onderscheiden van "bestond al niet". Wat de
-      # omgeving betreft is de enige betrouwbare toets: bestaat hij daarna nog?
-      - name: Verifieer dat de GitHub-omgeving weg is
-        env:
-          # Lezen kan met het automatische token; verwijderen vereist de administration-rechten.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
-          OMGEVING: pr-${{ needs.doel.outputs.pr }}
-        run: |
-          set -euo pipefail
-
-          bestaat() {
-            gh api "repos/$GITHUB_REPOSITORY/environments/$OMGEVING" --silent >/dev/null 2>&1
-          }
-
-          if ! bestaat; then
-            echo "Omgeving $OMGEVING is verwijderd."
-            exit 0
-          fi
-
-          echo "::notice::Omgeving $OMGEVING bestaat nog — tweede poging met GH_ADMIN_TOKEN."
-          GH_TOKEN="$ADMIN_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/$OMGEVING" -X DELETE || true
-
-          if bestaat; then
-            echo "::error::Omgeving $OMGEVING is niet verwijderd. GitHub antwoordt 404 op de DELETE wanneer het token de rechten mist, dus dit is vrijwel altijd een rechtenprobleem: geef GH_ADMIN_TOKEN 'Administration: write' op deze repo (fine-grained) of 'repo'-scope plus repo-admin (classic). Herdraai daarna deze workflow via workflow_dispatch met het nummer uit $OMGEVING."
-            exit 1
-          fi
-
-          echo "Omgeving $OMGEVING is bij de tweede poging verwijderd."
+          # Teardown mag niet afhangen van wie de PR opende: een preview van een bot-PR moet net zo
+          # goed weg, en op een deployment die niet bestaat is de delete een no-op. Zonder deze
+          # uitzetting slaat de action bij een bot-auteur álles over en rapporteert groen.
+          skip-bot-prs: "false"
 
       # De comment-opruiming ín de action hangt aan `github.event_name == 'pull_request'` en slaat
       # bij een handmatige run dus over. Juist dan is er iets in te halen: een gemiste opruiming
-      # laat de deploy-comment op een gesloten PR staan.
+      # laat de deploy-comment op een gesloten PR staan. Deze stap staat vóór de controles
+      # hieronder, zodat een mislukte controle hem niet overslaat.
       - name: Verwijder de deploy-comment (handmatige run)
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -183,8 +192,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # De header via `jq --arg` i.p.v. in het jq-programma interpoleren: de tekst bevat
-          # aanhalingstekens-onvriendelijke tekens (`#`, emoji) en hoort data te zijn, geen code.
+          # De header via `jq --arg` i.p.v. in het jq-programma interpoleren: `#` opent daar een
+          # comment, dus de tekst hoort data te zijn, geen code.
           ids=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMMER/comments" --paginate \
             | jq -r --arg h "$COMMENT_HEADER" '.[] | select(.body | startswith($h)) | .id')
 
@@ -198,12 +207,84 @@ jobs:
             echo "Comment $id verwijderd."
           done
 
+      - name: Controleer dat de ZAD-deployment weg is
+        # Ook draaien als een eerdere stap faalde: dan is juist de vraag wat er is blijven staan.
+        if: ${{ !cancelled() }}
+        env:
+          API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          PROJECT: ${{ env.PROJECT_UITVRAAG }}
+          DEPLOYMENT: pr-${{ needs.doel.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "X-API-Key: $API_KEY" -H 'Accept: application/json' \
+            "$OM_API/v2/projects/$PROJECT/deployments/$DEPLOYMENT")
+
+          case "$code" in
+            404) echo "Deployment $DEPLOYMENT is weg in $PROJECT." ;;
+            200)
+              echo "::error::$DEPLOYMENT bestaat nog in $PROJECT. Herdraai deze workflow via workflow_dispatch; blijft hij staan, verwijder hem dan met DELETE $OM_API/v2/projects/$PROJECT/$DEPLOYMENT."
+              exit 1
+              ;;
+            *)
+              echo "::error::Kon niet vaststellen of $DEPLOYMENT weg is in $PROJECT (HTTP $code) — de teardown is NIET geverifieerd."
+              exit 1
+              ;;
+          esac
+
+      - name: Controleer dat de GitHub-deployments weg zijn
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OMGEVING: pr-${{ needs.doel.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          # Zonder `2>/dev/null`: een mislukte read moet deze job rood maken en niet als "geen
+          # deployments" lezen. De action zelf onderdrukt die fout wél, en meldt een mislukte
+          # delete met een gewone `echo` — in de UI dus onzichtbaar.
+          aantal=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$OMGEVING" --jq 'length')
+
+          if [ "$aantal" != "0" ]; then
+            echo "::error::Er staan nog $aantal GitHub-deployments op omgeving $OMGEVING."
+            exit 1
+          fi
+
+          echo "Geen GitHub-deployments meer op $OMGEVING."
+
+      - name: Controleer dat de GitHub-omgeving weg is
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OMGEVING: pr-${{ needs.doel.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/environments/$OMGEVING")
+
+          case "$code" in
+            404) echo "Omgeving $OMGEVING is weg." ;;
+            200)
+              echo "::error::Omgeving $OMGEVING bestaat nog. GitHub antwoordt op een DELETE zonder de juiste rechten met 404, dus de action kan een rechtenprobleem niet van 'bestond al niet' onderscheiden: geef GH_ADMIN_TOKEN 'Administration: write' op deze repo (fine-grained) of 'repo'-scope plus repo-admin (classic) en herdraai deze workflow via workflow_dispatch."
+              exit 1
+              ;;
+            *)
+              echo "::error::Kon niet vaststellen of omgeving $OMGEVING weg is (HTTP $code) — de teardown is NIET geverifieerd."
+              exit 1
+              ;;
+          esac
+
   cleanup-preview-externe-stubs:
     needs: doel
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     concurrency:
-      group: zad-externe-stubs-pr-${{ github.event.pull_request.number || inputs.pr }}
+      group: zad-externe-stubs-pr-${{ needs.doel.outputs.pr }}
       cancel-in-progress: false
     steps:
       - name: Cleanup externe-stubs-project
@@ -213,19 +294,43 @@ jobs:
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
           deployment-name: pr-${{ needs.doel.outputs.pr }}
           task-timeout: ${{ env.CLEANUP_TASK_TIMEOUT }}
-          delete-github-env: "false"
           delete-container: "false"
+          skip-bot-prs: "false"
           # Zonder pull-requests: write kan deze job geen comment verwijderen; dat doet de
-          # uitvraag-job, die de rechten wél heeft. Zonder deze uitzetting zou de action hier
-          # elke run een mislukte poging loggen.
+          # uitvraag-job, die de rechten wél heeft.
           delete-pr-comment: "false"
+
+      - name: Controleer dat de ZAD-deployment weg is
+        if: ${{ !cancelled() }}
+        env:
+          API_KEY: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+          PROJECT: ${{ env.PROJECT_EXTERNE_STUBS }}
+          DEPLOYMENT: pr-${{ needs.doel.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "X-API-Key: $API_KEY" -H 'Accept: application/json' \
+            "$OM_API/v2/projects/$PROJECT/deployments/$DEPLOYMENT")
+
+          case "$code" in
+            404) echo "Deployment $DEPLOYMENT is weg in $PROJECT." ;;
+            200)
+              echo "::error::$DEPLOYMENT bestaat nog in $PROJECT. Herdraai deze workflow via workflow_dispatch; blijft hij staan, verwijder hem dan met DELETE $OM_API/v2/projects/$PROJECT/$DEPLOYMENT."
+              exit 1
+              ;;
+            *)
+              echo "::error::Kon niet vaststellen of $DEPLOYMENT weg is in $PROJECT (HTTP $code) — de teardown is NIET geverifieerd."
+              exit 1
+              ;;
+          esac
 
   cleanup-preview-magazijnen:
     needs: doel
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     concurrency:
-      group: zad-magazijnen-pr-${{ github.event.pull_request.number || inputs.pr }}
+      group: zad-magazijnen-pr-${{ needs.doel.outputs.pr }}
       cancel-in-progress: false
     steps:
       - name: Cleanup magazijnen-project
@@ -235,9 +340,34 @@ jobs:
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
           deployment-name: pr-${{ needs.doel.outputs.pr }}
           task-timeout: ${{ env.CLEANUP_TASK_TIMEOUT }}
-          delete-github-env: "false"
           delete-container: "false"
+          skip-bot-prs: "false"
           delete-pr-comment: "false"
+
+      - name: Controleer dat de ZAD-deployment weg is
+        if: ${{ !cancelled() }}
+        env:
+          API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+          PROJECT: ${{ env.PROJECT_MAGAZIJNEN }}
+          DEPLOYMENT: pr-${{ needs.doel.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "X-API-Key: $API_KEY" -H 'Accept: application/json' \
+            "$OM_API/v2/projects/$PROJECT/deployments/$DEPLOYMENT")
+
+          case "$code" in
+            404) echo "Deployment $DEPLOYMENT is weg in $PROJECT." ;;
+            200)
+              echo "::error::$DEPLOYMENT bestaat nog in $PROJECT. Herdraai deze workflow via workflow_dispatch; blijft hij staan, verwijder hem dan met DELETE $OM_API/v2/projects/$PROJECT/$DEPLOYMENT."
+              exit 1
+              ;;
+            *)
+              echo "::error::Kon niet vaststellen of $DEPLOYMENT weg is in $PROJECT (HTTP $code) — de teardown is NIET geverifieerd."
+              exit 1
+              ;;
+          esac
 
   # Ruimt ALLE images van de PR op: één ghcr-versie per commit, niet alleen de laatste. De
   # tags van deze PR zijn te herkennen aan de prefix `pr-<n>-`; het afsluitende koppelteken
@@ -249,15 +379,14 @@ jobs:
   # heeft): dat zou een preview-cleanup het hele package laten verwijderen inclusief de
   # main-images. De `main-<sha7>`-tags zorgen ervoor dat die situatie zich niet voordoet.
   #
-  # RACE bij sluiten tijdens een lopende build (~85 s venster): de build-jobs in deploy.yml zitten
-  # in hun eigen concurrency-groep (anders zouden ze elkaar blokkeren), dus deze sweep wacht niet
-  # op een nog draaiende build van een eerdere push. Sluit iemand de PR vlak na een push, dan kan
-  # de sweep vóór die push af zijn en blijft één ghcr-versie achter. Gevolg is één weesversie, geen
-  # kapotte deploy; opruimen kan door deze workflow te herdraaien via workflow_dispatch.
+  # RACE bij sluiten tijdens een lopende build: deze job serialiseert niet tegen de build-jobs in
+  # deploy.yml (die hebben elk hun eigen groep, anders blokkeren ze elkaar). Sluit iemand de PR
+  # vlak na een push, dan kan de sweep vóór die build af zijn en blijft één ghcr-versie achter.
+  # Gevolg is één weesversie, geen kapotte deploy; herdraaien via workflow_dispatch ruimt hem op.
   cleanup-preview-images:
     needs: doel
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       packages: write
     steps:
@@ -266,9 +395,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ORG: ${{ needs.doel.outputs.owner }}
           PREFIX: pr-${{ needs.doel.outputs.pr }}-
-          # Overgangsgeval: PR's die al liepen vóór de unieke tags bestonden, hebben nog een
-          # kale `pr-<n>`-versie in ghcr staan. Die valt niet onder de prefix, dus expliciet
-          # meenemen — anders blijft hij achter zodra zo'n PR sluit.
+          # Overgangsgeval: PR's uit de tijd vóór de per-commit-tags hebben nog een kale
+          # `pr-<n>`-versie in ghcr staan. Die valt niet onder de prefix, dus expliciet meenemen.
           LEGACY_TAG: pr-${{ needs.doel.outputs.pr }}
         run: |
           set -euo pipefail
