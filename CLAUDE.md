@@ -175,9 +175,13 @@ een directe `kubectl`- of live-OM-wijziging aan een draaiende deployment wordt
 teruggedraaid naar wat in Git staat. Reactiveren/schalen moet dus via OM (dat commit
 naar de Git-repo die Argo volgt), niet handmatig in de cluster of in de gerenderde repo.
 
-**Projecten (project-id = OM-project, ook in `.github/workflows/deploy.yml`-env):**
+**Projecten (project-id = OM-project; staat in de env van `.github/workflows/deploy.yml` én in de
+matrix van `.github/workflows/cleanup-preview.yml` — wijzig een id op beide plekken, anders
+verifieert de opruiming de afwezigheid in een project dat niet bestaat):**
 `berichtenuitvraag` = `mpfb-8wh`, `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`.
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
+Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
+opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 
@@ -246,6 +250,7 @@ géén uitgeschakeld component**).
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
 | `.github/workflows/`                   | CI: CodeQL security scanning, Scorecard, Architecture validatie |
+| `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
 | `.github/CODEOWNERS`                   | Code ownership (`@MinBZK/mijnoverheid-zakelijk`)                |
 
 ## Omgevingsvariabelen
