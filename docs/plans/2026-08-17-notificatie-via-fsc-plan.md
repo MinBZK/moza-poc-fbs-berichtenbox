@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Notificatie-events via FSC — implementatieplan
 

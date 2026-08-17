@@ -166,6 +166,27 @@ magazijn, zodat de uitvraag-outway `berichtenmagazijn` bij elk van hen mag ophal
 
 Een magazijn toevoegen is één naam in `MAGAZIJNEN`.
 
+`fbs-contracten.sh` zet twee soorten contract op: één per magazijn zodat de uitvraag-outway
+`berichtenmagazijn` mag ophalen, en één per pusher zodat het magazijn zijn CloudEvents kwijt kan
+bij `notificatieservice`. Die tweede loopt de andere kant op — het magazijn is daar de afnemer, en
+`logius` de aanbieder. Beide grant-hashes komen in hetzelfde `demo/generated/fsc-grants.env`.
+
+```bash
+./federatie/smoke-notificatie.sh   # bewijst de push: outway magazijn -> inway aanbieder -> stub
+```
+
+Die smoke vereist dat het magazijn zijn events door de outway stuurt:
+
+```bash
+MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 \
+  NOTIFICATIE_URL=http://127.20.2.5:8443/events demo/podman-up.sh
+```
+
+**Zet URL en grant-hash altijd samen.** Het grant-hash komt uit `fsc-grants.env` en de URL uit de
+omgeving; staat de hash wél en de URL niet op de outway, dan stuurt het magazijn FSC-headers naar
+een bestemming die er niets mee doet — en vervalt bovendien de SSRF-controle op die URL. Het
+magazijn logt bij de eerste aflevering welke downstreams zo lopen (`DOWNSTREAM_VIA_OUTWAY`).
+
 ### Twee helften
 
 De bootstrap bestaat uit twee losse scripts: `contracts/bootstrap-consumer.sh` dient het contract in

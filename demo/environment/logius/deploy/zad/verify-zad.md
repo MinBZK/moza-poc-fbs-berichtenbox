@@ -87,6 +87,25 @@ infrastructuur:
    `berichtenuitvraag`-app zetten (project `mpfb-8wh`).
 5. Een smoke voor het pad `berichtenuitvraag → logius-fscoutway → logius-fscinway → upstream`.
 
+### Inbound data-pad — notificatieservice (lokaal bewezen, ZAD-apply is handmatig vervolgwerk)
+
+Lokaal bewezen met `federatie/smoke-notificatie.sh` (zie
+`docs/plans/2026-08-17-notificatie-via-fsc-plan.md`): `logius` biedt naast `profiel-service` ook
+`notificatieservice` aan op dezelfde inway, met de notificatie-stub als upstream, en het magazijn
+pusht zijn CloudEvents daarheen door zijn eigen outway. Op ZAD moet dit nog worden herhaald tegen
+de échte infrastructuur:
+
+1. `CreateService` via de `logius-fscctl` Administration-API (`SERVICE_NAME=notificatieservice`,
+   `endpoint_url` = de echte notificatiedienst, `inway_address` = `SELF_ADDRESS` van
+   `logius-fscinway`). Eén inway kan meerdere diensten dragen; dit komt náást `profiel-service`.
+2. Het `serviceConnection`-contract met het magazijn opzetten — `bootstrap-consumer.sh` draait aan
+   magazijn-kant, `bootstrap-provider.sh` hier. Zie `federatie/contracts/zad-runbook.md`.
+3. `NOTIFICATIE_URL=https://fsc-magazijna-magazijna-fscoutway:8443/events` en
+   `NOTIFICATIE_GRANT_HASH=<grant-hash uit stap 2>` als env-vars op het gedeployde
+   `berichtenmagazijn` (project `mpfm-w3h`). Beide samen: alleen de hash zetten laat het magazijn
+   FSC-headers naar de oude bestemming sturen, alleen de URL levert `service not found`.
+4. Een smoke voor het pad `berichtenmagazijn → magazijna-fscoutway → logius-fscinway → upstream`.
+
 ## Acceptatiecriteria — afvinklijst
 
 - [ ] Peer (echte OIN) draait op ZAD: manager + controller + outway + inway + txlog + DB

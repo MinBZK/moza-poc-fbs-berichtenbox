@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Notificatie-events via FSC — ontwerp
 
@@ -172,6 +172,32 @@ grant-hash gaat door, intern adres zónder wordt geweigerd.
   ervan vereist echte ZAD-toegang en blijft — net als bij elk eerder peer-plan — handmatig
   vervolgwerk.
 - **`workspace.dsl`.** Regel 191 beschrijft dit pad al correct.
+
+## Wat de uitvoering opleverde
+
+Drie dingen kwamen pas boven water toen de keten écht draaide. Ze staan hier omdat ze het ontwerp
+raken, niet alleen de uitvoering.
+
+**De outway wil HTTP/1.1.** De JDK-`HttpClient` onderhandelt op een plain-http-doel eerst een
+upgrade naar h2c. De outway proxyt die hop-by-hop-headers ongewijzigd door naar de inway, waar het
+Go-http2-transport ze weigert; de outway antwoordt dan 502 en het magazijn blijft herproberen. Dat
+past bij het contract: elke dienstpublicatie draagt `PROTOCOL_TCP_HTTP_1.1`. De request naar een
+outway-downstream wordt daarom expliciet op HTTP/1.1 gepind — alleen dáár, zodat rechtstreekse
+downstreams h2 mogen blijven doen.
+
+**De contract-bootstrap was stuk op paginatie.** `fsc-contract.sh` brak af zodra de manager een
+`next_cursor` meestuurde, in de aanname dat een cursor betekent dat de lijst is afgekapt. OpenFSC
+v2.5.2 zet die cursor op élke pagina die rijen bevat; de volgende pagina komt leeg terug met een
+lege cursor. De bootstrap werkte daardoor alleen op een volstrekt lege manager en faalde elke run
+daarna — terwijl hij op ZAD juist in een lus draait. Opgelost door door te lezen tot de cursor leeg
+is. Dit is een defect van vóór dit werk (#782) dat hier alleen aan het licht kwam.
+
+**Grant-hash en URL horen samen.** Staat de hash wél en wijst de URL niet naar de outway, dan
+stuurt het magazijn FSC-headers naar een bestemming die er niets mee doet, en vervalt bovendien de
+SSRF-controle op die URL. De boot-waarschuwing maakt dat zichtbaar, maar hij verschijnt pas bij de
+eerste aflevering: `DownstreamClient` is `@ApplicationScoped` en dus lui geconstrueerd. Dat geldt
+net zo goed voor het al bestaande `DOWNSTREAM_URL_VALIDATIE_UIT`. Wie op deze tokens alert, moet
+dus weten dat ze aan verkeer hangen en niet aan de start van de pod.
 
 ## Openstaand
 
