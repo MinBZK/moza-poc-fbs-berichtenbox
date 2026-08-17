@@ -11,7 +11,8 @@ Proof of Concept Berichtenbox voor MijnOverheid Zakelijk (MOZa) binnen het Feder
 ## Inleiding
 
 Dit project is een Proof of Concept voor de Berichtenbox binnen het Federatief Berichtenstelsel,
-beschreven op https://www.logius.nl/onze-dienstverlening/interactie/federatief-berichten-stelsel.
+beschreven op
+<https://www.logius.nl/onze-dienstverlening/interactie/federatief-berichten-stelsel>.
 
 ## Doel
 
@@ -23,29 +24,34 @@ voor het portaal.
 - **Berichtenmagazijn** — decentrale opslag per organisatie; ontvangt aangeleverde berichten
   (Aanlever-API) en levert ze uit aan de uitvraag.
 - **Berichtenuitvraag** — frontend-API voor het portaal: bevraagt alle magazijnen van de ontvanger,
-  streamt voortgang via SSE en bedient lijst, zoeken, detail en bijlagen.
+  streamt voortgang via SSE, bedient lijst, zoeken, detail en bijlagen, en neemt aanmeldingen
+  van magazijnen aan.
 - **Demo-console** — bedieningspaneel voor demonstraties (magazijnen legen, dataset laden,
-  berichten opvoeren).
+  berichten opvoeren). Draait alleen mee in de demo-stack.
 
 De uitvraag heeft geen losse berichtensessiecache-service meer: die is opgegaan in
 `berichtenuitvraag` als in-process library, met Redis als gedeelde backing store.
-Het berichtnotificatieprofiel en de notificatiedienst zitten niet in deze repository — lokaal en op
-de testomgeving draaien die als stubs.
+De notificatievoorkeuren en toestemming van de ontvanger komen van een externe Profiel-service:
+die wordt hier wel bevraagd (`libraries/fbs-common`, package `profiel`), maar niet gebouwd —
+lokaal en op de testomgeving draait die, net als de notificatiedienst, als stub.
 
 ## Repostructuur
 
-| Pad                                | Wat                                                                        |
-|------------------------------------|----------------------------------------------------------------------------|
-| `services/berichtenmagazijn/`      | Magazijn-service (PostgreSQL + Flyway, Aanlever-API)                        |
-| `services/berichtenuitvraag/`      | Uitvraag-service (frontend-API, aggregatie, SSE)                            |
-| `services/demo-console/`           | Demo-bedieningspaneel                                                       |
-| `libraries/fbs-common/`            | Gedeelde JAX-RS filters, exception mappers, identificatienummers (BSN/RSIN/OIN) |
-| `libraries/fbs-magazijnregister/`  | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)               |
-| `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                   |
-| `bruno/`                           | Bruno-collecties met voorbeeldrequests per service                          |
-| `demo/`                            | Demo-stack: stubgenerator, smoke-test, omgevingen                           |
-| `docs/`                            | Architectuur (C4/Structurizr), runbooks, plannen, verantwoording            |
-| `wiremock/`, `toxiproxy/`          | Stubs en fault-injectie voor de lokale keten                                |
+De belangrijkste paden:
+
+| Pad                                   | Wat                                                                             |
+|---------------------------------------|---------------------------------------------------------------------------------|
+| `services/berichtenmagazijn/`         | Magazijn-service (PostgreSQL + Flyway, Aanlever-API)                             |
+| `services/berichtenuitvraag/`         | Uitvraag-service (frontend-API, aggregatie, SSE)                                 |
+| `services/demo-console/`              | Demo-bedieningspaneel                                                            |
+| `libraries/fbs-common/`               | Gedeelde JAX-RS filters, exception mappers, identificatienummers (BSN/RSIN/KvK/OIN), Profiel-client |
+| `libraries/fbs-magazijnregister/`     | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)                    |
+| `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                           |
+| `bruno/`                              | Bruno-collecties met voorbeeldrequests per service                                |
+| `demo/`                               | Demo-stack: stubgenerator, smoke-test; `demo/environment/` bevat de FSC-federatieharness |
+| `docs/`                               | Architectuur (C4/Structurizr), runbooks, plannen, verantwoording                  |
+| `wiremock/`, `toxiproxy/`             | Stubs en fault-injection voor de lokale keten                                     |
+| `compose.yaml`                        | Lokale infrastructuur en de volledige demo-stack (`--profile demo`)               |
 
 ## Vereisten
 
@@ -62,7 +68,7 @@ docker compose up -d
 ```
 
 De services draaien elk in hun eigen Quarkus-dev-mode. Start ze in **aparte terminals**
-zodat beide live-reload en de devconsole blijven werken:
+zodat elke instantie live-reload en de devconsole houdt:
 
 ```bash
 # Terminal 1 — berichtenmagazijn (poort 8090)
@@ -74,20 +80,32 @@ zodat beide live-reload en de devconsole blijven werken:
 
 De `compile`-fase vóór `quarkus:dev` zorgt dat de gedeelde modules onder `libraries/`
 (via `-am`) eerst gebouwd worden; zonder `compile` draait Maven alleen het `quarkus:dev`-goal
-en faalt de resolution van bijvoorbeeld `fbs-common-0.1.0-SNAPSHOT.jar` zolang die niet in de
+en faalt de resolution van bijvoorbeeld `fbs-common-<versie>.jar` zolang die niet in de
 lokale Maven-repository staat.
 
 | Service              | API                                              | OpenAPI                                 |
 |----------------------|--------------------------------------------------|-----------------------------------------|
 | berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
 | berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/openapi.json`    |
-| demo-console         | `http://localhost:8095`                          | —                                       |
 
-Een tweede magazijn draai je op 8091, zodat de uitvraag over meerdere magazijnen kan aggregeren:
+Wil je de uitvraag over méér dan één magazijn laten aggregeren, dan draai je een tweede magazijn
+op 8091. Dat is een tweede *organisatie*, dus die heeft een eigen OIN en een eigen database nodig —
+zonder die twee overrides publiceert de instantie onder de identiteit van magazijn A en deelt hij
+diens opslag:
 
 ```bash
-./mvnw quarkus:dev -pl services/berichtenmagazijn -Dquarkus.http.port=8091
+MAGAZIJN_OIN=00000001823288444000 \
+DB_JDBC_URL=jdbc:postgresql://localhost:5433/berichtenmagazijn \
+./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am \
+  -Dquarkus.http.port=8091 -Ddebug=5006
 ```
+
+`localhost:5433` is de `postgres-b`-instantie uit `compose.yaml`; `-Ddebug=5006` voorkomt een
+conflict op de debug-poort van de eerste dev-mode. Voor meer dan twee magazijnen is de demo-stack
+handiger dan losse dev-modes.
+
+De demo-console (`http://localhost:8095`) hoort bij de demo-stack hieronder en start niet mee in
+dev-mode.
 
 ## Demo-stack (alles in containers)
 
@@ -128,7 +146,8 @@ Sla het generatiescript niet over: compose maakt een ontbrekend mount-pad aan al
 waarna `magazijnen-stubs.properties` een map wordt en de uitvraag niet meer start.
 
 Zónder `--profile demo` start compose alleen de infrastructuur (Redis, de drie
-Postgres-instanties, WireMock). Gebruik die modus tijdens het ontwikkelen en draai de services met
+Postgres-instanties en de WireMock-stubs voor magazijnen, profiel, aanmelden en
+notificaties). Gebruik die modus tijdens het ontwikkelen en draai de services met
 `quarkus:dev` zoals hierboven — in een container kost elke codewijziging een image-build.
 
 De poorten zijn in beide modi gelijk (8090, 8091, 8086), dus de Bruno-collectie en de
@@ -138,7 +157,7 @@ poortconflict.
 De demo-console draait op <http://localhost:8095> — een kaal paneel om de magazijnen te
 legen, de basisdataset te laden en random berichten op te voeren.
 
-### Tests draaien
+## Tests draaien
 
 Draai altijd `clean` vóór `test` of `verify`: een achtergebleven `target/` van een andere
 branch-state laat Surefire stale `.class`-bestanden draaien, wat misleidende fouten geeft in
@@ -147,13 +166,14 @@ ongewijzigde code.
 ```bash
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
+./mvnw clean test -pl services/demo-console -am               # pure JVM
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
 ```
 
-`verify` draait bovendien de kwaliteitspoorten — JaCoCo (minimaal 90% line coverage) en
-detekt (`maxIssues: 0`, zonder baseline):
+`verify` draait bovendien de kwaliteitsgates — detekt (`maxIssues: 0`, zonder baseline) voor de
+hele repo, en JaCoCo met minimaal 90% line coverage voor beide services en alle libraries:
 
 ```bash
 ./mvnw clean verify -pl services/berichtenmagazijn -am
@@ -165,23 +185,28 @@ De OpenAPI-specs valideren tegen de NL API Design Rules:
 ```bash
 npx @stoplight/spectral-cli lint services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml \
   --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
+npx @stoplight/spectral-cli lint services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml \
+  --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
 ```
 
-### API-requests handmatig uitvoeren (Bruno)
+## API-requests handmatig uitvoeren (Bruno)
 
 De `bruno/`-folder bevat per service een collectie van voorbeeld-requests die je
 tegen de lokale dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
 
 - `bruno/berichtenmagazijn/` — aanlever- en beheer-API
-- `bruno/berichtenuitvraag/` — frontend-facade (lijst, zoek, ophalen-SSE, detail, bijlage, PATCH/DELETE)
+- `bruno/berichtenuitvraag/` — frontend-facade (lijst, zoek, ophalen-SSE, detail, bijlage,
+  PATCH/DELETE) en de aanmeld-webhook
 
 Open de folder in Bruno, kies environment `lokaal` en run requests. De collectie
 spiegelt de OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een
 bijbehorende `.bru`-request.
 
-### Configuratie
+## Configuratie
 
-De belangrijkste configuratie staat in `services/berichtenuitvraag/src/main/resources/application.properties`:
+De belangrijkste configuratie staat in
+`services/berichtenuitvraag/src/main/resources/application.properties`. Ingekort weergegeven —
+het bestand zelf bevat per magazijn ook nog de FSC-grant-hash:
 
 ```properties
 # Magazijnregister: de map-key is de afzender-OIN, de waarde het magazijn van die organisatie.
@@ -216,8 +241,9 @@ Verder lezen:
 ## Bijdragen
 
 Wijzigingen gaan altijd via een feature branch en een Pull Request; er wordt niet direct naar
-`main` gepusht. Elke PR draait tests met coverage-rapportage, detekt en CodeQL, en krijgt een
-eigen preview-omgeving. Zie [SUPPORT.md](SUPPORT.md) voor contact en
+`main` gepusht. Een PR die code raakt draait tests met coverage-rapportage en detekt; PR's op
+`main` draaien daarnaast CodeQL en krijgen een eigen preview-omgeving op ZAD. PR's die alleen
+documentatie wijzigen slaan die checks over. Zie [SUPPORT.md](SUPPORT.md) voor contact en
 [GOVERNANCE.md](GOVERNANCE.md) voor besluitvorming.
 
 ## Licentie

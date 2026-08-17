@@ -147,6 +147,7 @@ docker compose up -d                                             # Start Redis, 
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn
 ./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo (Docker vereist)
 ./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode (poort 8090)
+./mvnw clean test -pl services/demo-console -am                  # Tests demo-console (pure JVM)
 ```
 
 ### Build- en test-warnings nalopen
@@ -244,8 +245,9 @@ géén uitgeschakeld component**).
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
+| `services/demo-console/`               | Demo-bedieningspaneel (pure-JVM-tests, geen JaCoCo-gate)        |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
-| `.github/workflows/`                   | CI: test + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, architectuursite, ZAD-deploy en preview-cleanup |
+| `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |
 
 ## Omgevingsvariabelen
 
