@@ -8,7 +8,9 @@ peer.
 Elke peer blijft zelfstandig draaibaar; zie zijn eigen `deploy/local/README.md`. Deze map voegt
 alleen de compositie toe en verandert niets aan het standalone gedrag.
 
-Op dit moment doen `logius` (uitvraag-consumer) en `magazijn-a` (provider) mee.
+Op dit moment doen `logius` en `magazijn-a` mee. Beide dragen twee rollen: `logius` biedt
+`profiel-service` en `notificatieservice` aan en neemt `berichtenmagazijn` af, `magazijn-a` biedt
+`berichtenmagazijn` aan en pusht notificatie-events door zijn eigen outway.
 
 **Linux + podman.** De scripts gebruiken `ss` (iproute2) en `podman`; op macOS draaien ze niet.
 
