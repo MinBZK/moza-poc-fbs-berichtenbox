@@ -33,7 +33,7 @@ import java.sql.SQLException
  * met zijn eigen `skipOn`, dus die test bewaakt de skipOn-werking dáár, over de volle
  * keten tot en met de 403 die de aanleveraar ziet.
  *
- * [ValidatieCircuitBreakerTest] dekt hetzelfde circuit op bean-niveau en voegt de
+ * [AanleverCircuitBreakerTest] dekt hetzelfde circuit op bean-niveau en voegt de
  * tegenhanger toe: een Profiel-storing moet het circuit wél openen.
  */
 @QuarkusTest

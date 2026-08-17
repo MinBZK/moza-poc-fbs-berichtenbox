@@ -42,7 +42,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
             )
-            maskedServerErrorProblem(errorId = errorId, status = status, title = title)
+            metRetryAfter(exception, maskedServerErrorProblem(errorId = errorId, status = status, title = title))
         } else {
             // 4xx: gesaneerde message naar de client (`sanitizeClientDetail`), maar uit de
             // log gelaten — 4xx-message is vaak user-input en saneer dekt geen niet-numerieke
@@ -93,3 +93,31 @@ internal fun sanitizeClientDetail(message: String?): String? {
         .take(MAX_CLIENT_DETAIL_LENGTH)
     return stripped.ifBlank { null }
 }
+
+/**
+ * Neemt een `Retry-After` van de oorspronkelijke fout over. De mapper bouwt een verse response,
+ * dus zonder deze stap gaat de aanwijzing "probeer het over N seconden opnieuw" verloren — terwijl
+ * dat juist het verschil is tussen een tijdelijke en een blijvende 5xx.
+ *
+ * De waarde wordt gefilterd, niet gekopieerd. Een doorgegeven upstream-fout draagt de header van
+ * díé upstream, en die bepaalt dan hoe lang ónze afnemers wegblijven: een Profiel-service die
+ * onder load `Retry-After: 604800` stuurt, zou een aanleveraar een week stilzetten op gezag van
+ * een waarde die wij nooit gekozen hebben. Alleen een geheel aantal seconden binnen een eigen
+ * bovengrens gaat mee. Dat sluit meteen de twee vormen uit die het gedeclareerde schema
+ * (`type: integer`) breken: een HTTP-datum, en de komma-samenvoeging die `getHeaderString` maakt
+ * van twee gelijknamige headers.
+ */
+private fun metRetryAfter(exception: WebApplicationException, respons: Response): Response {
+    val seconden = exception.response?.getHeaderString("Retry-After")?.toIntOrNull() ?: return respons
+
+    if (seconden !in 0..MAX_RETRY_AFTER_SECONDEN) return respons
+
+    return Response.fromResponse(respons).header("Retry-After", seconden).build()
+}
+
+/**
+ * Bovengrens op een overgenomen `Retry-After`. Vijf minuten dekt elke tijdelijke storing waarop
+ * een client zinvol kan wachten; alles daarboven is een upstream die zijn eigen ritme oplegt aan
+ * onze afnemers.
+ */
+private const val MAX_RETRY_AFTER_SECONDEN = 300

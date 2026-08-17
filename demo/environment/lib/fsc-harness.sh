@@ -18,11 +18,22 @@ fsc_errlog_init() {
 # BSD-sed/macOS niet kent), dan zonder regelanker filteren (de banner start niet op kolom 1
 # door de ANSI-prefix), dan lege regels weggooien die overblijven na het strippen van de losse
 # ESC[0m-regel.
+# shellcheck disable=SC2120  # het bestand-argument is optioneel en defaultt op $ERRLOG; bewust
+# behouden zodat een tweede logbestand geen signatuurwijziging vergt.
 fsc_scrub_errlog() {
   local file="${1:-$ERRLOG}"
-  LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$file" \
-    | grep -v 'Executing external compose provider' \
+
+  # sed apart van de greps: `grep -v` geeft terecht 1 terug als álles weggefilterd wordt, maar dat
+  # is niet te onderscheiden van een sed die het bestand niet kon lezen. Ging dat in één pijplijn,
+  # dan zette `mv -f` een leeg bestand terug en was de reden achter elke latere FAIL-melding weg.
+  LC_ALL=C sed -e $'s/\033\\[[0-9;]*m//g' "$file" > "${file}.a" 2>/dev/null || {
+    rm -f "${file}.a"
+    return 0
+  }
+
+  grep -v 'Executing external compose provider' < "${file}.a" \
     | grep -v '^[[:space:]]*$' > "${file}.f" 2>/dev/null || :
+  rm -f "${file}.a"
   mv -f "${file}.f" "$file"
 }
 
@@ -70,11 +81,13 @@ fsc_new_iv() {
 # skew ~0, dus onschadelijk.
 fsc_validity() {
   NBF=$(( $(date -u +%s) - 60 ))
+  # shellcheck disable=SC2034  # NBF/NAF worden door de aanroepende scripts gelezen.
   NAF=$((NBF + 315360000))
 }
 
 # fsc_have_jq: zet de globale $HAVE_JQ (1/0).
 fsc_have_jq() {
+  # shellcheck disable=SC2034  # HAVE_JQ wordt door de aanroepende scripts gelezen.
   HAVE_JQ=0
   command -v jq >/dev/null 2>&1 && HAVE_JQ=1
   return 0
@@ -111,4 +124,67 @@ fsc_grant_hash() {
          | select(.service?.name == $svc and .outway?.identification?.public_key_thumbprint == $thumb)
          | .hash?] as $g
     | ($g[0] // "unknown")' 2>/dev/null || echo unknown
+}
+
+# --- federatie-helpers ------------------------------------------------------------------------
+# Gebruikt door demo/environment/federatie/. Staan hier en niet in die map omdat ze door meerdere
+# scripts én door de bash-unittests gedeeld worden.
+
+# fsc_peer_var <peer>: peernaam als variabelen-achtervoegsel. Een koppelteken mag niet in een
+# variabelenaam, dus `magazijn-a` wordt `magazijn_a`.
+fsc_peer_var() { printf '%s' "$1" | tr '-' '_'; }
+
+# fsc_peer_waarde <prefix> <peer>: leest `<prefix>_<peer>` uit peers.env, of leeg. Indirecte
+# expansie via ${!naam} — geen eval nodig, en bash 3.2 kent die vorm al.
+fsc_peer_waarde() {
+  local naam
+  naam="$1_$(fsc_peer_var "$2")"
+  printf '%s' "${!naam:-}"
+}
+
+# fsc_alle_peers: gastheer + gasten uit peers.env, in opstartvolgorde.
+fsc_alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
+
+# fsc_component_adres <net> <component>: het adres van een component binnen het /24 van een peer,
+# bv. `fsc_component_adres 127.20.2 inway` -> `127.20.2.4`. De octetten liggen vast en zijn voor
+# élke peer gelijk, zodat een adres af te lezen is zonder de overlay erbij te halen.
+#
+# Faalt hard op een onbekende component in plaats van iets aannemelijks te verzinnen: een typefout
+# zou anders een adres opleveren dat nergens luistert, en dat leest als een dode component.
+fsc_component_adres() {
+  local octet
+  case "$2" in
+    manager)       octet=1 ;;
+    controller)    octet=2 ;;
+    txlog)         octet=3 ;;
+    inway)         octet=4 ;;
+    outway)        octet=5 ;;
+    stub-upstream) octet=6 ;;
+    *) return 1 ;;
+  esac
+
+  [ -n "$1" ] || return 1
+
+  printf '%s.%s' "$1" "$octet"
+}
+
+# fsc_compose_project <compose-bestand>: de projectnaam uit het `name:`-veld. Compose leidt die
+# niet af zoals je zou raden (`magazijn-a` -> `fsc-magazijna`), dus lezen we 'm. Faalt hard bij een
+# ontbrekend bestand of een ontbrekende `name:` — een lege projectnaam maakt elk `--filter
+# label=com.docker.compose.project=` betekenisloos, en dus elke controle die daarop leunt stil.
+fsc_compose_project() {
+  local bestand="$1" naam
+  [ -r "$bestand" ] || { echo "FAIL: compose-bestand niet leesbaar: ${bestand}" >&2; return 1; }
+  naam="$(sed -n 's/^name:[[:space:]]*//p' "$bestand" | head -n1 | tr -d '"'"'"'')"
+  [ -n "$naam" ] || { echo "FAIL: geen 'name:' in ${bestand}; projectnaam niet af te leiden." >&2; return 1; }
+  printf '%s' "$naam"
+}
+
+# fsc_podman_api_dood <logbestand>: 0 als de log wijst op een onbereikbare podman-API-service.
+# Aparte functie zodat de classificatie met fixtures te pinnen is in plaats van via netwerk-timing.
+# Bewust verankerd op de bekende foutvormen van compose/podman zelf; een losse `connection refused`
+# uit een containerlog (postgres die opstart) mag NIET als API-storing tellen — dat zou de retry
+# overslaan en de gebruiker naar de verkeerde oorzaak sturen.
+fsc_podman_api_dood() {
+  grep -qE 'Cannot connect to the Docker daemon|error during connect|dial unix .*(connection refused|no such file)' "$1"
 }
