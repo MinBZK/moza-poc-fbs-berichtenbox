@@ -422,7 +422,7 @@ En ná `%prod.magazijn.publicatie.downstreams.notificatie.url=${NOTIFICATIE_URL}
 
 - [ ] **Stap 2: Demo-stack koppelen**
 
-Voeg in `compose.podman-hostnet.yaml` bij de service `berichtenmagazijn` (vóór `environment:`) hetzelfde `env_file`-blok toe dat `berichtenuitvraag` al heeft:
+Voeg in `compose.podman-hostnet.yaml` bij de service `berichtenmagazijn-a` (vóór `environment:`) hetzelfde `env_file`-blok toe dat `berichtenuitvraag` al heeft:
 
 ```yaml
     # Het grant-hash komt uit de contract-bootstrap van de federatie
@@ -443,15 +443,30 @@ En vervang in datzelfde `environment:`-blok de regel `NOTIFICATIE_URL: http://12
       NOTIFICATIE_URL: ${NOTIFICATIE_URL:-http://127.0.0.1:18084/events}
 ```
 
-Laat `berichtenmagazijn-b` ongewijzigd: die peer doet niet mee aan de federatie en moet rechtstreeks blijven werken.
+Laat `berichtenmagazijn-b` ongewijzigd: dat magazijn doet niet mee aan de federatie en moet rechtstreeks blijven werken.
 
 - [ ] **Stap 3: Verifieer de compose-syntax**
 
+Niet met `python3 -c "import yaml..."`: compose' eigen tags (`!reset`, `!override`) laat de
+YAML-parser struikelen, ook op een ongewijzigd bestand. Laat compose zelf renderen — dat toetst
+meteen de interpolatie:
+
 ```bash
-python3 -c "import yaml; yaml.safe_load(open('compose.podman-hostnet.yaml'))" && echo "YAML OK"
+docker compose --profile demo -f compose.yaml -f compose.podman.yaml -f compose.podman-hostnet.yaml \
+  config --quiet && echo "COMPOSE OK"
 ```
 
-Expected: `YAML OK`.
+Expected: `COMPOSE OK`. Controleer daarna dat de default én de override kloppen:
+
+```bash
+docker compose --profile demo -f compose.yaml -f compose.podman.yaml -f compose.podman-hostnet.yaml config \
+  | grep -A2 'NOTIFICATIE_URL'
+NOTIFICATIE_URL=http://127.20.2.5:8443/events docker compose --profile demo \
+  -f compose.yaml -f compose.podman.yaml -f compose.podman-hostnet.yaml config | grep 'NOTIFICATIE_URL'
+```
+
+Expected: zonder override de toxiproxy-URL (`http://127.0.0.1:18084/events`), mét override het
+outway-adres.
 
 - [ ] **Stap 4: Commit**
 
@@ -593,13 +608,16 @@ Voeg in het `*hosts`-anker bovenaan datzelfde bestand de regel toe:
 
 - [ ] **Stap 6: Verifieer de compose-syntax van alle drie**
 
+De drie bestanden stapelen en compose laten renderen; een losse YAML-parser struikelt over
+`!reset`/`!override`. Draai vanuit de peer-map, want `${PKI_DIR}` komt uit de `.env` daar:
+
 ```bash
-for f in demo/environment/magazijn-a/deploy/local/docker-compose*.yaml; do
-  python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" "$f" && echo "OK $f"
-done
+(cd demo/environment/magazijn-a/deploy/local && \
+ docker compose -f docker-compose.yaml -f docker-compose.podman.yaml \
+                -f docker-compose.podman-hostnet.yaml config --quiet) && echo "COMPOSE OK"
 ```
 
-Expected: drie `OK`-regels.
+Expected: `COMPOSE OK`.
 
 - [ ] **Stap 7: Commit**
 
@@ -667,13 +685,17 @@ Op dit moment doen `logius` en `magazijn-a` mee. Beide dragen twee rollen: `logi
 
 - [ ] **Stap 3: Verifieer de compose-syntax**
 
+De federatie-overlay is geen zelfstandig bestand — hij hoort bovenop de drie peer-bestanden.
+Laat compose de hele stapel renderen:
+
 ```bash
-for f in demo/environment/federatie/compose/*.yaml; do
-  python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" "$f" && echo "OK $f"
-done
+(cd demo/environment/magazijn-a/deploy/local && \
+ docker compose -f docker-compose.yaml -f docker-compose.podman.yaml \
+                -f docker-compose.podman-hostnet.yaml \
+                -f ../../../federatie/compose/magazijn-a.yaml config --quiet) && echo "COMPOSE OK"
 ```
 
-Expected: twee `OK`-regels.
+Expected: `COMPOSE OK`.
 
 - [ ] **Stap 4: Commit**
 
