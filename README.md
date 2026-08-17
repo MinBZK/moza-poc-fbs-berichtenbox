@@ -75,10 +75,11 @@ is. Bouw eerst de images met jib — opnieuw nodig na elke codewijziging:
   -Dquarkus.container-image.tag=demo
 ```
 
-> **CORS voor de Berichtenbox-UI** is een runtime-property (`quarkus.http.cors.enabled`),
-> gezet onder `%dev` in `berichtenuitvraag` én als env-var in het demo-profiel van
-> `compose.yaml`. Prod/ZAD (profiel prod) krijgt geen enabled, dus die images blijven
-> CORS-loos. Geen build-flag nodig.
+> **CORS voor de Berichtenbox-UI** is een runtime-property, uitsluitend gezet als env-var in
+> het demo-profiel van `compose.yaml` — de `application.properties` van `berichtenuitvraag`
+> bevat geen CORS-config. Enabled zónder `origins` laat alleen same-origin door en de UI op
+> `:8095` roept de API op `:8086` aan, dus de allowlist staat er in compose naast. Prod/ZAD
+> (profiel prod) krijgt geen enabled, dus die images blijven CORS-loos. Geen build-flag nodig.
 
 > **Apple Silicon / ARM:** jib bouwt standaard `linux/amd64` (de ZAD-cluster is amd64).
 > Op een ARM-host draaien die images onder emulatie — voeg
@@ -96,8 +97,8 @@ docker compose --profile demo up -d   # alles in containers
 Sla het generatiescript niet over: compose maakt een ontbrekend mount-pad aan als directory,
 waarna `magazijnen-stubs.properties` een map wordt en de uitvraag niet meer start.
 
-Zónder `--profile demo` start compose alleen de infrastructuur (Redis, Postgres, WireMock,
-ClickHouse). Gebruik die modus tijdens het ontwikkelen en draai de services met
+Zónder `--profile demo` start compose alleen de infrastructuur (Redis, de drie
+Postgres-instanties, WireMock). Gebruik die modus tijdens het ontwikkelen en draai de services met
 `quarkus:dev` zoals hierboven — in een container kost elke codewijziging een image-build.
 
 De poorten zijn in beide modi gelijk (8090, 8091, 8086), dus de Bruno-collectie en de
@@ -132,11 +133,15 @@ bijbehorende `.bru`-request.
 De belangrijkste configuratie staat in `services/berichtenuitvraag/src/main/resources/application.properties`:
 
 ```properties
-# Magazijnen waarmee de in-process sessiecache communiceert
-magazijnen.instances.magazijn-a.url=http://localhost:8081
-magazijnen.instances.magazijn-a.naam=Magazijn A
-magazijnen.instances.magazijn-b.url=http://localhost:8082
-magazijnen.instances.magazijn-b.naam=Magazijn B
+# Magazijnregister: de map-key is de afzender-OIN, de waarde het magazijn van die organisatie.
+# %dev vult de URL uit een env-var met de lokale poort als default, zodat dezelfde
+# configuratie in een container naar container-DNS wijst.
+# %dev-default van MAGAZIJN_A_URL: http://localhost:8090
+magazijnen."00000000000000100000".url=${MAGAZIJN_A_URL}
+magazijnen."00000000000000100000".naam=Magazijn A
+# %dev-default van MAGAZIJN_B_URL: http://localhost:8091
+magazijnen."00000001823288444000".url=${MAGAZIJN_B_URL}
+magazijnen."00000001823288444000".naam=Magazijn B
 ```
 
 ## Licentie

@@ -15,12 +15,17 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
- * Direct-tests op `classifyMagazijnFault` — buiten de end-to-end SSE-pipeline om.
- * Pinned alle enum-takken inclusief edge-cases (WAE met null Response, status=0,
- * status=399) en cause-walking via geneste exceptions.
+ * Direct-tests op `classifyMagazijnFault` en `isAfbreking` — buiten de end-to-end
+ * SSE-pipeline om. Pinnen alle enum-takken inclusief edge-cases (WAE met null Response,
+ * status onder 300, 3xx) en cause-walking via geneste exceptions.
  */
 @QuarkusTest
 @TestProfile(MockedDependenciesProfile::class)
@@ -48,7 +53,7 @@ class ClassifyMagazijnFaultTest {
 
     @Test
     fun `MagazijnResponseOverflow direct = OVERFLOW`() {
-        assertEquals(MagazijnFault.OVERFLOW, service.classifyMagazijnFault(MagazijnResponseOverflow("te veel")))
+        assertEquals(MagazijnFault.OVERFLOW, service.classifyMagazijnFault(MagazijnResponseOverflow()))
     }
 
     @Test
@@ -114,12 +119,26 @@ class ClassifyMagazijnFaultTest {
         assertEquals(MagazijnFault.INTERNAL_BUG, service.classifyMagazijnFault(wae))
     }
 
+    /**
+     * Een 3xx die als fout terugkomt betekent dat de client de doorverwijzing niet volgde: het
+     * magazijn staat op een ander adres dan geconfigureerd. Een eigen fault, zodat het log de
+     * werkelijke oorzaak noemt in plaats van een 4xx die er niet is.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [300, 301, 302, 307, 308, 399])
+    fun `WebApplicationException met 3xx = HTTP_3XX (magazijn staat elders, geen eigen bug)`(status: Int) {
+        assertEquals(
+            MagazijnFault.HTTP_3XX,
+            service.classifyMagazijnFault(WebApplicationException(Response.status(status).build())),
+        )
+    }
+
     @Test
-    fun `WebApplicationException status 399 (geen 4xx, geen 5xx) = INTERNAL_BUG`() {
-        // Edge: 399 valt buiten beide HTTP-bereiken → eigen-bug.
+    fun `WebApplicationException met status onder 300 = INTERNAL_BUG`() {
+        // Een 2xx die als fout terugkomt kan geen upstream-signaal zijn; dan zit de fout bij ons.
         assertEquals(
             MagazijnFault.INTERNAL_BUG,
-            service.classifyMagazijnFault(WebApplicationException(Response.status(399).build())),
+            service.classifyMagazijnFault(WebApplicationException(Response.status(299).build())),
         )
     }
 
@@ -138,5 +157,50 @@ class ClassifyMagazijnFaultTest {
         val wae = WebApplicationException(Response.status(500).build())
         val diep = RuntimeException("outer", wae)
         assertEquals(MagazijnFault.HTTP_5XX, service.classifyMagazijnFault(diep))
+    }
+
+    // --- isAfbreking: normaal gedrag mag geen storingsmelding opleveren ---
+
+    @Test
+    fun `CancellationException is een afbreking`() {
+        assertTrue(service.isAfbreking(java.util.concurrent.CancellationException("client weg")))
+    }
+
+    @Test
+    fun `InterruptedException is een afbreking`() {
+        assertTrue(service.isAfbreking(InterruptedException("pod gaat uit")))
+    }
+
+    @Test
+    fun `een diep gewrapte annulering is een afbreking`() {
+        val diep = RuntimeException("outer", RuntimeException("middle", java.util.concurrent.CancellationException("weg")))
+
+        assertTrue(service.isAfbreking(diep))
+    }
+
+    @Test
+    fun `een gewone fout is geen afbreking`() {
+        assertFalse(service.isAfbreking(IllegalStateException("redis stuk")))
+        assertFalse(service.isAfbreking(java.net.ConnectException("refused")))
+    }
+
+    // --- de bedrading van de opstartcontrole ---
+
+    /**
+     * Zonder observer maakt ArC deze bean pas bij het eerste request aan, en dan komt een
+     * ongeldige timeout-combinatie pas aan het licht als een gebruiker een ophaalronde start.
+     * De validatie zelf is elders gedekt; deze test bewaakt dat hij ook echt aan het opstarten
+     * hangt en niet pas bij het eerste request draait.
+     */
+    @Test
+    fun `de timeout-controle hangt aan het opstarten`() {
+        val observer = BerichtensessiecacheService::class.java.methods.singleOrNull { methode ->
+            methode.parameterTypes.contentEquals(arrayOf(io.quarkus.runtime.StartupEvent::class.java)) &&
+                methode.parameterAnnotations.any { annotaties ->
+                    annotaties.any { it.annotationClass == jakarta.enterprise.event.Observes::class }
+                }
+        }
+
+        assertNotNull(observer, "geen @Observes StartupEvent-methode: de validatie draait dan pas bij het eerste request")
     }
 }

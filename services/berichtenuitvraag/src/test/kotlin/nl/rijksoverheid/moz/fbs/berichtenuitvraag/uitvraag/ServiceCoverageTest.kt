@@ -339,10 +339,10 @@ class ServiceCoverageTest {
             .body("_links.prev.href", containsString("pagina=0"))
     }
 
-    // ───── lees-paden: cache-storing → 502 (niet gemaskeerd 500) ─────
+    // ───── lees-paden: de cache-uitkomst bepaalt de status, geen kale 502 ─────
 
     @Test
-    fun `bericht-detail bij cache-storing mapt naar 502`() {
+    fun `bericht-detail bij een onbereikbare opslag geeft 503`() {
         val id = UUID.randomUUID()
         sessiecache.berichtFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
@@ -351,11 +351,12 @@ class ServiceCoverageTest {
             .`when`()
             .get("/api/v1/berichten/$id")
             .then()
-            .statusCode(502)
+            .statusCode(503)
+            .contentType(containsString("application/problem+json"))
     }
 
     @Test
-    fun `bericht-detail bij cache-miss geeft 404 (geen 502)`() {
+    fun `bericht-detail bij cache-miss geeft 404 (geen storing)`() {
         // null uit de facade = niet gevonden; geen upstream-storing.
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -366,7 +367,7 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `lijst bij cache-storing mapt naar 502`() {
+    fun `lijst bij een onbereikbare opslag geeft 503`() {
         sessiecache.lijstFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
         given()
@@ -374,7 +375,9 @@ class ServiceCoverageTest {
             .`when`()
             .get("/api/v1/berichten")
             .then()
-            .statusCode(502)
+            .statusCode(503)
+            .contentType(containsString("application/problem+json"))
+            .header("Retry-After", "30")
     }
 
     @Test
@@ -392,7 +395,7 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `zoek bij cache-storing mapt naar 502`() {
+    fun `zoek bij een onbereikbare opslag geeft 503`() {
         sessiecache.zoekFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
         given()
@@ -401,7 +404,8 @@ class ServiceCoverageTest {
             .`when`()
             .get("/api/v1/berichten/_zoeken")
             .then()
-            .statusCode(502)
+            .statusCode(503)
+            .contentType(containsString("application/problem+json"))
     }
 
     // ───── multi-magazijn routing-mismatch end-to-end → 502 ─────

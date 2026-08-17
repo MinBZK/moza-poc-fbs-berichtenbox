@@ -9,12 +9,17 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingVoltooid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockBerichtenCache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -69,15 +74,22 @@ class MagazijnCircuitBreakerIntegrationTest {
         // B blijft beschikbaar.
         val events = verwerkOphalen(Bsn("999996915"))
 
-        val aVoltooid = voltooidVoor(events, WireMockMagazijnResource.OIN_A)
-        val bVoltooid = voltooidVoor(events, WireMockMagazijnResource.OIN_B)
+        val aVoltooid = assertInstanceOf(
+            MagazijnBevragingMislukt::class.java,
+            voltooidVoor(events, WireMockMagazijnResource.OIN_A),
+            "A is overgeslagen → mislukte bevraging",
+        )
 
-        assertEquals(MagazijnStatus.FOUT, aVoltooid.status, "A is overgeslagen → FOUT-status")
+        assertEquals(MagazijnFoutStatus.FOUT, aVoltooid.fout)
         assertTrue(
-            aVoltooid.foutmelding?.contains("tijdelijk niet beschikbaar") == true,
+            aVoltooid.foutmelding.contains("tijdelijk niet beschikbaar"),
             "A moet de circuit-open-melding dragen, was: ${aVoltooid.foutmelding}",
         )
-        assertEquals(MagazijnStatus.OK, bVoltooid.status, "gezond magazijn B blijft beschikbaar")
+        assertInstanceOf(
+            MagazijnBevragingGeslaagd::class.java,
+            voltooidVoor(events, WireMockMagazijnResource.OIN_B),
+            "gezond magazijn B blijft beschikbaar",
+        )
 
         // Bewijs van de snelle skip: A is precies 3× echt bevraagd (de eerste drie), de vierde
         // is overgeslagen zonder upstream-call. B is 4× bevraagd.
@@ -88,9 +100,9 @@ class MagazijnCircuitBreakerIntegrationTest {
     private fun verwerkOphalen(ontvanger: Bsn): List<MagazijnEvent> =
         sessiecache.ophalen(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
 
-    private fun voltooidVoor(events: List<MagazijnEvent>, magazijnId: String): MagazijnEvent =
+    private fun voltooidVoor(events: List<MagazijnEvent>, magazijnId: String): MagazijnBevragingVoltooid =
         requireNotNull(
-            events.firstOrNull { it.event == EventType.MAGAZIJN_BEVRAGING_VOLTOOID && it.magazijnId == magazijnId },
+            events.filterIsInstance<MagazijnBevragingVoltooid>().firstOrNull { it.magazijnId == magazijnId },
         ) { "Verwacht VOLTOOID-event voor magazijn $magazijnId in: $events" }
 
     private fun stubSucces() {

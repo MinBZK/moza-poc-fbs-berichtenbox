@@ -62,6 +62,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /berichten/_ophalen:
     get:
@@ -122,6 +123,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /berichten/{berichtId}:
     parameters:
@@ -148,6 +150,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
     patch:
       tags: [Uitvraag]
       summary: Bericht-status bijwerken / verplaatsen
@@ -237,6 +240,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /aanmeldingen:
     post:
@@ -345,8 +349,14 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     ServiceUnavailable:
       description: |
-        De cache (Redis) was tijdelijk niet bereikbaar bij het starten van een
-        ophaling; opnieuw proberen is zinvol.
+        Tijdelijk niet beschikbaar; opnieuw proberen is zinvol, na de periode uit
+        `Retry-After`. Twee oorzaken vallen hieronder: de tijdelijke berichtenopslag was
+        niet bereikbaar, of de vorige ophaalronde is gestrand — bij dat laatste is
+        `_ophalen` opnieuw aanroepen de weg vooruit.
+      headers:
+        Retry-After:
+          description: Aantal seconden waarna opnieuw proberen zinvol is.
+          schema: { type: integer }
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

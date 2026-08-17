@@ -17,11 +17,11 @@ import java.nio.charset.StandardCharsets
  * levert domein-types; deze service mapt naar de uitvraag-API-modellen en bouwt
  * de HAL-paginering-links met de uitvraag-parameternamen (`pagina`/`paginaGrootte`).
  *
- * [leesUitCache] blijft de fout-grens: een [SessiecacheException] wordt naar zijn status
- * vertaald en daarna geldt dezelfde upstream-politiek als op het magazijn — een storing
- * (cache onbereikbaar, mislukte ophaling, cache-corruptie) wordt 502, omdat de cache voor
- * de portaal-client een upstream-bron is; een 409 (cache nog niet gevuld / ophalen bezig)
- * propageert ongewijzigd.
+ * [leesUitCache] blijft de fout-grens: de cache classificeert zijn eigen uitkomst en die status
+ * gaat rechtstreeks naar de client. Een onbereikbare opslag en een mislukte ophaalronde worden
+ * 503 (opnieuw proberen heeft zin, met `Retry-After`), onleesbare cache-data 500 (dat helpt
+ * niet), en een 409 (nog niet gevuld / ophalen bezig) propageert ongewijzigd. De 502-politiek
+ * geldt alleen nog voor fouten die niet uit die classificatie komen, zoals een transport-fout.
  */
 @ApplicationScoped
 class BerichtenlijstService(

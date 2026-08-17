@@ -10,10 +10,14 @@ import io.smallrye.mutiny.Multi
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.EventType
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingVoltooid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockBerichtenCache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -85,7 +89,7 @@ class MagazijnClientWireMockTest {
 
         val events = ophaalEvents()
 
-        assertTrue(events.any { it.status == MagazijnStatus.FOUT }, "Verwacht FOUT-event in: $events")
+        assertTrue(events.any { it is MagazijnBevragingMislukt && it.fout == MagazijnFoutStatus.FOUT }, "Verwacht FOUT-event in: $events")
         // Partial failure: magazijn-a (500) faalt, magazijn-b slaagt → degradatie i.p.v.
         // totale fout. De aggregatie telt 1 geslaagd / 1 mislukt en levert het ene
         // overlevende bericht.
@@ -117,7 +121,7 @@ class MagazijnClientWireMockTest {
         val events = ophaalEvents()
 
         assertTrue(
-            events.any { it.status == MagazijnStatus.TIMEOUT },
+            events.any { it is MagazijnBevragingMislukt && it.fout == MagazijnFoutStatus.TIMEOUT },
             "Verwacht TIMEOUT-event op de geconfigureerde 2s-grens maar stream bevatte: $events",
         )
     }
@@ -225,7 +229,7 @@ class MagazijnClientWireMockTest {
 
         val events = ophaalEvents()
 
-        assertTrue(events.any { it.status == MagazijnStatus.FOUT }, "Verwacht FOUT-event in: $events")
+        assertTrue(events.any { it is MagazijnBevragingMislukt && it.fout == MagazijnFoutStatus.FOUT }, "Verwacht FOUT-event in: $events")
     }
 
     @Test
@@ -241,12 +245,12 @@ class MagazijnClientWireMockTest {
     private fun ophaalEvents(): List<MagazijnEvent> =
         sessiecache.ophalen(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
 
-    private fun gereedEvent(events: List<MagazijnEvent>): MagazijnEvent =
-        requireNotNull(events.lastOrNull { it.event == EventType.OPHALEN_GEREED }) {
+    private fun gereedEvent(events: List<MagazijnEvent>): OphalenGereed =
+        requireNotNull(events.filterIsInstance<OphalenGereed>().lastOrNull()) {
             "Verwacht OPHALEN_GEREED-event in: $events"
         }
 
-    private fun ophaalGereedEvent(): MagazijnEvent = gereedEvent(ophaalEvents())
+    private fun ophaalGereedEvent(): OphalenGereed = gereedEvent(ophaalEvents())
 
     private fun stubMagazijnSuccess(server: com.github.tomakehurst.wiremock.WireMockServer, magazijnId: String) {
         server.stubFor(
