@@ -17,6 +17,8 @@ import org.hamcrest.Matchers.notNullValue
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
+import java.util.concurrent.TimeUnit
 import java.util.Base64
 import java.util.UUID
 
@@ -322,6 +324,12 @@ class AanleverResourceIntegrationTest {
             .contentType("application/problem+json")
     }
 
+    /**
+     * SEPARATE_THREAD, niet de default: bij een hang onderbreekt SAME_THREAD niets en rapporteert
+     * pas ná afloop — precies wanneer je de grens nodig hebt. De server beantwoordt een afwijzing
+     * zonder de body te lezen, dus dit is de enige grens die een schrijvende client hier afkapt.
+     */
+    @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     @Test
     fun `POST berichten met bijlage groter dan MAX_CONTENT_BYTES wordt afgewezen`() {
         // 25 MiB + 1 byte aan synthetische content. Test borgt dat de domein-
