@@ -77,6 +77,55 @@ Openen na start:
 
 Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-volumes te wissen).
 
+### Podman in plaats van Docker
+
+```bash
+demo/podman-up.sh                        # kiest zelf de werkbare netwerkmodus
+DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-allowlist
+```
+
+Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
+controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
+zijn, genereert de stub-artefacten, en controleert na elke start dat elke container draait. Redis,
+de drie Postgres-instanties, de profiel-stub, de stub-magazijnen, Toxiproxy en de vier services
+worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
+
+Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
+
+| Modus | Wanneer | Bestand |
+|---|---|---|
+| `bridge` | normale podman: Linux rootless, of podman machine op macOS/Windows | `compose.podman.yaml` (overlay op `compose.yaml`) |
+| `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (derde bestand, bovenop de basis en de podman-overlay) |
+
+Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet` nooit
+automatisch gekozen: podman draait daar in een VM, dus de gedeelde namespace is die van de VM en
+zonder gepubliceerde poorten komt er niets door naar je werkplek.
+
+In `hostnet` delen alle containers één netwerknamespace. De zes Toxiproxy-proxy-listeners, die in
+`bridge` alleen intern bestonden, staan dan open op elk adres van de machine. Draai deze modus dus
+alleen op een vertrouwd netwerk. (De poorten die `compose.yaml` publiceert, waaronder alle drie de
+Postgres-instanties, binden ook in `bridge` al op alle interfaces.)
+
+Botst een van die poorten met iets dat al draait, dan hangt het van de poort af hoe dat zich
+uit. Een service die zelf niet kan binden stopt, en het script meldt welke container dat is mét
+het log waarin de bezette poort staat — voor de vier JVM-services duurt dat wel tot de wachttijd
+verstreken is, omdat ze pas tijdens het opstarten struikelen. Botst een Toxiproxy-listener, dan
+stopt die container níet: Toxiproxy laadt tot de mislukte proxy en draait door. Het script
+vergelijkt daarom de geladen proxies met `proxies.json` en noemt de ontbrekende bij naam. De
+overlay haalt de
+gepubliceerde poorten en de healthchecks met `!reset` weg; dat vereist compose v2.24.4 of nieuwer
+en werkt niet met `podman-compose`. Het script rendert daarom eerst de samengestelde configuratie
+en controleert dat er geen gepubliceerde poort meer in staat — een implementatie die de tag
+negeert in plaats van toepast, valt daar door de mand.
+
+Afsluiten met dezelfde socket en dezelfde overlays als het script gebruikte:
+
+```bash
+export DOCKER_HOST="unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+docker compose -f compose.yaml -f compose.podman.yaml --profile demo down
+# in hostnet: -f compose.podman-hostnet.yaml vóór --profile toevoegen
+```
+
 ---
 
 ## 5. Onderdelen en poorten

@@ -5,7 +5,11 @@
 # NB: de kolomnaam `id` + tabel `peers.peers` zijn een load-bearing schema-contract.
 set -euo pipefail
 
-COMPOSE=(docker compose -f "$(dirname "$0")/docker-compose.yaml")
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../../lib/fsc-harness.sh
+source "$HERE/../../../lib/fsc-harness.sh"
+
+COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
 PROVIDER_OIN="00000000000000100000"
 DIR_OIN="00000000000000000010"
 TIMEOUT=120
@@ -14,8 +18,7 @@ INTERVAL=5
 # Vang psql-stderr op i.p.v. weg te gooien: een persistente DB-fout (auth, ontbrekende
 # kolom/tabel, dode container) mag niet als "nog niet aangemeld" maskeren — surface 'm
 # op de FAIL-paden. Loop-stderr zelf blijft stil (transiënte boot-ruis).
-ERRLOG=$(mktemp)
-trap 'rm -f "$ERRLOG"' EXIT
+fsc_errlog_init
 
 echo "smoke: wachten tot magazijn-a ($PROVIDER_OIN) announce't bij de directory (op :443)..."
 elapsed=0
@@ -46,9 +49,10 @@ if ! "${COMPOSE[@]}" exec -T postgres psql -U postgres -d fsc_directory -tA \
        "(id/manager_address) kapot, niet de announce." >&2
 fi
 # Surface de laatste psql-stderr (leeg = schoon, dus echt geen announce).
-if [ -s "$ERRLOG" ]; then
+LAST=$(fsc_last_error 3)
+if [ -n "$LAST" ]; then
   echo "  -> laatste psql-fout:" >&2
-  tail -n 3 "$ERRLOG" >&2
+  printf '%s\n' "$LAST" >&2
 fi
 echo "Debug: logs (postgres + migrate + managers):" >&2
 "${COMPOSE[@]}" logs --tail=50 \

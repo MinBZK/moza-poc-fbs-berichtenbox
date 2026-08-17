@@ -1,6 +1,10 @@
+# Externe images volledig gekwalificeerd (`docker.io/…`, `ghcr.io/…`): Docker vult die prefix
+# impliciet aan, podman alleen met ingestelde `unqualified-search-registries` en faalt anders
+# non-interactief. De zelfgebouwde `fbs-demo/…`-images blijven kaal; compose.podman.yaml zet daar
+# `localhost/` voor.
 services:
   redis:
-    image: redis/redis-stack-server:7.4.0-v3
+    image: docker.io/redis/redis-stack-server:7.4.0-v3
     ports:
       - "6379:6379"
     healthcheck:
@@ -15,7 +19,7 @@ services:
   # services schrappen: het aanmeld-pad resolvet de afzender-OIN via het register, dus zo'n
   # inschrijving draagt iets, ook al wordt de URL nooit gebeld.
   magazijn-a:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8081:8080"
     volumes:
@@ -24,7 +28,7 @@ services:
     command: ["--verbose", "--global-response-templating"]
 
   magazijn-b:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8082:8080"
     volumes:
@@ -35,10 +39,10 @@ services:
   # MOZA Profiel Service stub voor berichtenmagazijn — simuleert het ophalen van
   # een partij (BSN/KVK/RSIN) inclusief OntvangViaBerichtenbox-voorkeur en scope
   # naar een afzender-OIN. Default mapping geeft een actieve voorkeur voor het
-  # test-OIN 00000001003214345000; voor 403-rookproef is er een mapping op BSN
+  # test-OIN 00000000000000100000 (magazijn A); voor 403-rookproef is er een mapping op BSN
   # 111222333 die een partij zonder voorkeuren teruggeeft.
   profiel-service:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8089:8080"
     volumes:
@@ -60,7 +64,7 @@ services:
   # de poller claims herproberen en stapelen de WARN/ERROR-logs zich op.
   # Tests gebruiken een embedded JDK HttpServer en hebben deze containers niet nodig.
   aanmeld-stub:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8083:8080"
     volumes:
@@ -68,7 +72,7 @@ services:
     command: ["--verbose", "--global-response-templating"]
 
   notificatie-stub:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     ports:
       - "8084:8080"
     volumes:
@@ -78,7 +82,7 @@ services:
   # LDV-logboek van de uitvraag. Elke organisatie voert een eigen verwerkingenlogboek;
   # de magazijnen schrijven daarom in hun eigen postgres-a/-b, de uitvraag hier.
   postgres-uitvraag:
-    image: postgres:18
+    image: docker.io/library/postgres:18
     ports:
       - "5434:5432"
     environment:
@@ -94,7 +98,7 @@ services:
       retries: 5
 
   postgres-a:
-    image: postgres:18
+    image: docker.io/library/postgres:18
     ports:
       - "5432:5432"
     environment:
@@ -114,7 +118,7 @@ services:
       retries: 5
 
   postgres-b:
-    image: postgres:18
+    image: docker.io/library/postgres:18
     ports:
       - "5433:5432"
     environment:
@@ -174,8 +178,9 @@ services:
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_AANMELD_MAX_POGINGEN: "50"
       MAGAZIJN_PUBLICATIE_DOWNSTREAMS_NOTIFICATIE_MAX_POGINGEN: "50"
 
-  # Beide magazijn-containers luisteren intern op 8090; alleen de gepubliceerde poort
-  # verschilt. MAGAZIJN_B_URL wijst daarom naar berichtenmagazijn-b:8090, niet naar 8091.
+  # Beide magazijn-containers luisteren intern op 8090; alleen de gepubliceerde poort verschilt.
+  # Adressering naar b loopt daarom ook op 8090 — via de Toxiproxy-proxy (18091) voor de uitvraag,
+  # rechtstreeks op berichtenmagazijn-b:8090 voor de demo-console.
   berichtenmagazijn-b:
     image: fbs-demo/fbs-berichtenmagazijn:demo
     profiles: [demo]
@@ -203,7 +208,7 @@ services:
   # Netwerk-storingssimulator tussen de uitvraag en zijn afhankelijkheden. Proxies vast uit
   # /proxies.json; de demo-console voegt runtime toxics toe via de admin-API (:8474).
   toxiproxy:
-    image: ghcr.io/shopify/toxiproxy:2.11.0
+    image: ghcr.io/shopify/toxiproxy:2.12.0
     profiles: [demo]
     ports:
       - "8474:8474"
@@ -215,7 +220,7 @@ services:
   # magazijnen (/mNN) uit demo/generated/ — draai eerst demo/genereer-magazijnen.py. De demo-console
   # zet stubs live op storing via de admin-API (:8092/__admin/mappings).
   magazijn-stubs:
-    image: wiremock/wiremock:3.13.2
+    image: docker.io/wiremock/wiremock:3.13.2
     profiles: [demo]
     ports:
       - "8092:8080"
@@ -255,12 +260,15 @@ services:
       LDV_POSTGRES_USERNAME: ldv
       LDV_POSTGRES_PASSWORD: ldv
       # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig, en
-      # alleen in het demo-profiel. De allowlist hoort erbij: enabled zónder origins laat
-      # Quarkus alleen same-origin door, en de UI op :8095 roept deze API op :8086 aan —
-      # dat is cross-origin en zou 403 geven. Methods en headers blijven ongezet; die
-      # spiegelt Quarkus uit het preflight-verzoek.
+      # alleen in het demo-profiel. Methods en headers blijven ongezet; die spiegelt Quarkus
+      # uit het preflight-verzoek.
       QUARKUS_HTTP_CORS_ENABLED: "true"
-      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095"
+      # De allowlist hoort er expliciet bij: enabled zónder origins laat Quarkus alleen
+      # same-origin door, en de UI op :8095 roept deze API op :8086 aan — dat is cross-origin
+      # en zou 403 geven. De UI leidt de API-host bovendien af uit de browser-locatie, dus elk
+      # adres waarop de demo geopend wordt moet hier staan. Zet DEMO_HOST op het VM- of
+      # container-adres; de default localhost dekt de gewone lokale demo.
+      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095"
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
       BERICHTENSESSIECACHE_TTL: PT2M
