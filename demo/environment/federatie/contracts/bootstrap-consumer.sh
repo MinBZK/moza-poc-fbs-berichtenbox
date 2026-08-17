@@ -51,11 +51,10 @@ fsc_contract_manager_ok "$MANAGER" || exit 2
 api() { fsc_contract_api "$MANAGER" "$CERT" "$KEY" "$CA" "$ADRES" "$@"; }
 
 # De lijst is cursor-gepagineerd met een default van honderd en een maximum van duizend, en bevat
-# álles: publicatiecontracten,
-# ingetrokken en afgewezen contracten, van alle peers. In een langlevend deployment groeit dat
-# monotoon, en zodra ons eigen contract van pagina 1 valt zou de consumer elke ronde een nieuw
-# indienen. Een ruime limiet houdt de guard in fsc-contract.sh een vangrail in plaats van een
-# dagelijkse blokkade.
+# álles: publicatiecontracten, ingetrokken en afgewezen contracten, van alle peers. In een
+# langlevend deployment groeit dat monotoon, en zodra ons eigen contract van pagina 1 valt zou de
+# consumer elke ronde een nieuw indienen. fsc_contracten_paginas leest daarom door tot de cursor
+# leeg is; een ruime limiet scheelt daarbij rondjes.
 CONTRACT_LIMIET="$(fsc_getal_hoogstens FSC_CONTRACT_LIMIET "${FSC_CONTRACT_LIMIET:-1000}" 1000)"
 
 # --- 1. Outway-thumbprint -----------------------------------------------------------------------
@@ -87,7 +86,7 @@ echo "consumer: outway public-key-thumbprint = ${THUMB}"
 # --- 2. Staat er al iets uit? -------------------------------------------------------------------
 eigen_contracten() {
   local json
-  json="$(api "${MANAGER}/v1/contracts?limit=${CONTRACT_LIMIET}")" || {
+  json="$(fsc_contracten_paginas api "${MANAGER}/v1/contracts?limit=${CONTRACT_LIMIET}")" || {
     echo "FAIL: kon de eigen contractenlijst niet ophalen: $(fsc_last_error)" >&2
     return 1
   }

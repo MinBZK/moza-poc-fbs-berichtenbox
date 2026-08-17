@@ -383,10 +383,7 @@ echo "== de contractenlijst moet een lijst zijn =="
 
 # Een 200 met een andere vorm mag niet als "geen contracten" doorgaan: aan consumer-kant zou dat
 # elke ronde een nieuw contract opleveren.
-# Een gepagineerde lijst hoort ook af te vallen: alleen pagina 1 lezen zou betekenen dat de consumer
-# zijn eigen contract niet meer ziet zodra de manager er genoeg heeft, en dus elke ronde opnieuw
-# indient.
-for vorm in '' ' ' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502</html>' '{"contracts":[],"next_cursor":"abc"}'; do
+for vorm in '' ' ' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502</html>'; do
   if beoordeel "$vorm" >/dev/null 2>&1; then
     echo "FAIL: respons '${vorm:-<leeg>}' werd stil als lege lijst gelezen" >&2
     fails=$((fails + 1))
@@ -396,6 +393,12 @@ for vorm in '' ' ' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502
 done
 
 assert_beoordeling "een echte lege lijst is wél geldig" '{"contracts":[]}' TEKEN ""
+
+# Een cursor is géén reden om af te wijzen. De manager zet 'm op elke pagina die rijen bevat, ook
+# als die pagina de hele lijst is; erop afbreken zou de bootstrap laten stuklopen zodra er één
+# contract bestaat. Het doorlezen zit in fsc_contracten_paginas, niet in de beoordeling.
+assert_beoordeling "een lijst mét cursor wordt gewoon beoordeeld" \
+  '{"contracts":[],"pagination":{"next_cursor":"abc"}}' TEKEN ""
 
 echo
 echo "== één misvormde rij mag de rest niet meenemen =="

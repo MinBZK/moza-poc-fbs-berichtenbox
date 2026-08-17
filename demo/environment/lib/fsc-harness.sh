@@ -261,12 +261,64 @@ fsc_alle_peers() { printf '%s %s' "$GASTHEER" "$GASTEN"; }
 fsc_manager_contracts() {
   local envdir="$1" peer="$2" adres="$3" naam="manager.$2.fsc-test.local"
 
-  curl -sS --fail-with-body --noproxy '*' \
-    --resolve "${naam}:9443:${adres}" \
-    --cert "${envdir}/${peer}/pki/internal/${peer}/manager/cert.pem" \
-    --key  "${envdir}/${peer}/pki/internal/${peer}/manager/key.pem" \
-    --cacert "${envdir}/${peer}/pki/internal/${peer}/ca/root.pem" \
-    "https://${naam}:9443/v1/contracts" 2>"$ERRLOG"
+  _fsc_haal() {
+    curl -sS --fail-with-body --noproxy '*' \
+      --resolve "${naam}:9443:${adres}" \
+      --cert "${envdir}/${peer}/pki/internal/${peer}/manager/cert.pem" \
+      --key  "${envdir}/${peer}/pki/internal/${peer}/manager/key.pem" \
+      --cacert "${envdir}/${peer}/pki/internal/${peer}/ca/root.pem" \
+      "$1" 2>"$ERRLOG"
+  }
+
+  fsc_contracten_paginas _fsc_haal "https://${naam}:9443/v1/contracts?limit=1000"
+}
+
+# fsc_contracten_paginas <ophaler> <basis-url>: alle contracten over álle pagina's, als één
+# `{"contracts":[...]}`-object op stdout. <ophaler> is de naam van een functie die één URL ophaalt
+# en de body op stdout zet.
+#
+# WAAROM PAGINEREN. De manager (OpenFSC v2.5.2) zet `pagination.next_cursor` op élke pagina die
+# rijen bevat — óók als die pagina de hele lijst is en de opgevraagde `limit` ruim gehaald wordt.
+# De cursor betekent daar "er kán meer zijn", niet "er ís meer": de volgende pagina komt leeg terug
+# mét een lege cursor. Wie de cursor als afkap-signaal leest, breekt dus af zodra er ook maar één
+# contract bestaat. Vandaar doorlezen tot de cursor leeg is, in plaats van er conclusies aan te
+# verbinden.
+#
+# De uitkomst is bewust weer een `{"contracts":[...]}`-object en geen kale array: alle jq erachter
+# (fsc_contract_beoordeling, fsc_contract_voor_combinatie, fsc_grant_actief) toetst dat veld en de
+# vorm ervan, en die controles horen te blijven gelden.
+fsc_contracten_paginas() {
+  local ophaler="$1" basis="$2" cursor="" url body pagina alle="[]" ronde=0
+
+  while :; do
+    if [ -n "$cursor" ]; then
+      url="${basis}&cursor=$(printf '%s' "$cursor" | jq -sRr @uri)"
+    else
+      url="$basis"
+    fi
+
+    body="$("$ophaler" "$url")" || return 1
+
+    # Geen jq-vangnet met `//`: een respons die geen contractenlijst is, moet hier hard stuk in
+    # plaats van als lege pagina door te glippen. De aanroepers melden dat met hun eigen tekst.
+    pagina="$(printf '%s' "$body" | jq -e '.contracts' 2>"$ERRLOG")" || return 1
+    alle="$(jq -cn --argjson a "$alle" --argjson b "$pagina" '$a + $b')" || return 1
+
+    cursor="$(printf '%s' "$body" | jq -r '.pagination.next_cursor? // .next_cursor? // ""')" || return 1
+    [ -n "$cursor" ] || break
+
+    # Bovengrens tegen een server die eindeloos een cursor blijft zetten: zonder deze rem zou een
+    # bootstrap-lus hier blijven hangen zonder ooit iets te melden. Duizend rijen per pagina maakt
+    # honderd rondes ruim genoeg voor elk realistisch deployment.
+    ronde=$((ronde + 1))
+
+    if [ "$ronde" -ge 100 ]; then
+      echo "de contractenlijst geeft na ${ronde} pagina's nog een cursor — afgebroken" >"$ERRLOG"
+      return 1
+    fi
+  done
+
+  jq -cn --argjson c "$alle" '{contracts: $c}'
 }
 
 # fsc_component_adres <net> <component>: het adres van een component binnen het /24 van een peer,
