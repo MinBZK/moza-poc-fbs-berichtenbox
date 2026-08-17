@@ -4,9 +4,11 @@ import com.fasterxml.jackson.core.JsonProcessingException
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.TimeoutException
 import io.smallrye.mutiny.Uni
+import io.quarkus.runtime.StartupEvent
 import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
@@ -91,6 +93,16 @@ internal class BerichtensessiecacheService(
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
+    /**
+     * Dwingt bean-instantiatie — en daarmee [valideerTimeouts] — af bij het opstarten. Zonder deze
+     * observer maakt ArC deze bean pas aan bij het eerste request (het enige pad ernaartoe loopt
+     * via de facade), en dan komt een ongeldige timeout-combinatie pas aan het licht wanneer een
+     * gebruiker een ophaalronde start: pod gestart, readiness groen, rollout geslaagd, en daarna
+     * faalt élke ophaalronde. De ondergrenzen in `MagazijnClientFactory` vangen dat niet — die
+     * kent de query-timeout niet, en juist de verhouding read > query is hier de invariant.
+     */
+    fun onStartup(@Observes event: StartupEvent) = Unit
+
     @PostConstruct
     fun valideerTimeouts() {
         // Outer-budget MOET groter zijn dan inner zodat de inner-timeout altijd eerst
@@ -105,7 +117,10 @@ internal class BerichtensessiecacheService(
         // De per-magazijn query-timeout (ifNoItem) MOET vóór de socket-read-timeout aanslaan,
         // anders krijgt de client een ruwe client-fout i.p.v. een net TIMEOUT-event; de
         // read-timeout blijft het vangnet als de query-timeout om welke reden dan ook niet vuurt.
-        require(magazijnReadTimeoutMs > magazijnQueryTimeoutSeconds * 1000) {
+        // In seconden vergelijken i.p.v. de query-timeout naar milliseconden te tillen: dat
+        // laatste loopt bij een absurde waarde over naar negatief en laat de check dan juist
+        // passeren — precies het stil uitzetten van een bescherming dat hier voorkomen wordt.
+        require(magazijnReadTimeoutMs / 1000 > magazijnQueryTimeoutSeconds) {
             "magazijn-client.read-timeout-ms ($magazijnReadTimeoutMs) moet groter zijn dan " +
                 "berichtensessiecache.magazijn-query-timeout-seconds × 1000 (${magazijnQueryTimeoutSeconds * 1000})"
         }
@@ -271,10 +286,13 @@ internal class BerichtensessiecacheService(
 
         return when (classifyLockAcquireError(ex)) {
             LockAcquireError.INTERRUPTED -> {
-                // Herstel interrupt-flag voor graceful pod-shutdown; 503 (transient), geen eigen-bug.
-                Thread.currentThread().interrupt()
+                // Flag wissen vóór de cleanup en daarna herstellen; zie de toelichting op het
+                // resolver-pad. Blijft hij staan, dan breekt de await in de cleanup meteen af en
+                // meldt het log ten onrechte dat de lock op zijn TTL leunt.
+                Thread.interrupted()
                 log.warnf(ex, "(errorId=%s) Lock-acquire onderbroken voor key=%s", errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId)
+                cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId, afbreking = true)
+                Thread.currentThread().interrupt()
                 WebApplicationException("Service shutdown tijdens ophaalstart", 503)
             }
             LockAcquireError.JSON_SERIALIZATION -> {
@@ -345,22 +363,26 @@ internal class BerichtensessiecacheService(
     private fun gooiResolverFout(ex: Exception, cacheKey: String): Nothing {
         // Cause-walking via causeChain() (eenmaal materialiseren) — Mutiny wrapt
         // InterruptedException/TimeoutException, directe instanceof matched niet.
-        // isInterrupted (non-destructive) — Thread.interrupted() zou de flag wissen
-        // ook in niet-interrupt-branches.
         val chain = ex.causeChain()
-        val wasInterrupted = Thread.currentThread().isInterrupted ||
-            chain.hasCauseOf(InterruptedException::class.java)
+        // Uitsluitend de fout zelf, om dezelfde reden als in isAfbreking: de interrupt-flag is
+        // thread-sticky en zou een storing op een hergebruikte worker-thread als onderbreking
+        // laten gelden — en dat oordeel stuurt hieronder de alert-onderdrukking aan.
+        val wasInterrupted = chain.hasCauseOf(InterruptedException::class.java)
         val isOuterTimeout = chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
             chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java)
 
         when {
             wasInterrupted -> {
-                // Interrupt-flag (her)bevestigen voor graceful pod-shutdown; 503 (transient).
-                Thread.currentThread().interrupt()
+                // Flag wissen vóór de cleanup en daarna herstellen: staat hij nog, dan gooit de
+                // await in de cleanup onmiddellijk en wordt de lock niet vrijgegeven terwijl het
+                // log meldt dat hij op de TTL leunt. Mutiny heeft de flag al gezet toen de await
+                // afbrak, dus dit herstelt hem, het zet hem niet voor het eerst.
+                Thread.interrupted()
                 val errorId = UUID.randomUUID()
 
                 log.warnf(ex, "(errorId=%s) Resolver-await onderbroken voor key=%s", errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId)
+                cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId, afbreking = true)
+                Thread.currentThread().interrupt()
                 throw WebApplicationException("Service shutdown tijdens ophalen", 503)
             }
             isOuterTimeout -> {
@@ -558,9 +580,12 @@ internal class BerichtensessiecacheService(
                 "Magazijn %s (%s) overschreed berichten-cap: %d > %d",
                 magazijnId, naam, response.berichten.size, maxBerichtenPerMagazijn,
             )
-            val foutMessage = "Magazijn leverde meer berichten dan toegestaan (${response.berichten.size} > $maxBerichtenPerMagazijn)"
-
-            return MagazijnResult.Failure(magazijnId, naam, MagazijnResponseOverflow(foutMessage), MagazijnFault.OVERFLOW)
+            return MagazijnResult.Failure(
+                magazijnId,
+                naam,
+                MagazijnResponseOverflow(),
+                MagazijnFault.OVERFLOW,
+            )
         }
 
         // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein
@@ -648,17 +673,18 @@ internal class BerichtensessiecacheService(
     private fun magazijnFoutStatusVoor(fault: MagazijnFault): MagazijnFoutStatus = when (fault) {
         MagazijnFault.TIMEOUT -> MagazijnFoutStatus.TIMEOUT
         MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW, MagazijnFault.HTTP_5XX,
-        MagazijnFault.HTTP_4XX, MagazijnFault.NETWORK, MagazijnFault.INTERNAL_BUG,
-        MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST,
+        MagazijnFault.HTTP_4XX, MagazijnFault.HTTP_3XX, MagazijnFault.NETWORK,
+        MagazijnFault.INTERNAL_BUG, MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST,
         -> MagazijnFoutStatus.FOUT
     }
 
-    private fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
+    internal fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
         MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
         MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
         MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
         MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
         MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
+        MagazijnFault.HTTP_3XX -> "Magazijn verwijst door naar een ander adres (configuratiefout, contact beheerder)"
         MagazijnFault.CIRCUIT_OPEN -> "Magazijn tijdelijk niet beschikbaar (herhaalde storingen)"
         MagazijnFault.OVERBELAST -> "Magazijn tijdelijk niet beschikbaar (systeem druk, probeer het later opnieuw)"
         // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
@@ -727,12 +753,24 @@ internal class BerichtensessiecacheService(
     ): Uni<MagazijnEvent> {
         val errorId = UUID.randomUUID()
         val ref = errorId.toString()
+        val afgebroken = isAfbreking(error)
 
-        log.errorf(
-            error,
-            "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
-            errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
-        )
+        // Een afbreking is geen storing. De aggregatie loopt bewust door na een client-disconnect,
+        // dus de reële trigger hier is een pod die uitgaat. Op errorf-niveau loggen zou beheer
+        // wakker maken voor normaal gedrag en echte fouten laten ondersneeuwen.
+        if (afgebroken) {
+            log.infof(
+                "(errorId=%s) Opslaan na aggregatie afgebroken (key=%s, berichten=%d); geen storing",
+                errorId, cacheKey, alleBerichten.size,
+            )
+        } else {
+            log.errorf(
+                error,
+                "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
+                errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+            )
+        }
+
         val foutStatus = AggregationStatus(
             status = OphalenStatus.FOUT,
             totaalMagazijnen = totaalMagazijnen,
@@ -744,12 +782,24 @@ internal class BerichtensessiecacheService(
             // FATAL + ALERT-marker: dubbele Redis-fout = cache effectief onbruikbaar
             // voor deze sessie. Lock blijft tot Redis-TTL hangen. Het prefix wordt
             // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
+            // Een afbreking krijgt die marker niet: beheer oppiepen voor een gesloten
+            // pagina of een herstart laat echte storingen ondersneeuwen.
+            // Bewust alleen `e`: is de eerste fout een afbreking maar de tweede een echte
+            // Redis-uitval, dan is de cache voor deze sessie wél onbruikbaar en blijft de lock
+            // op de TTL hangen — precies de conditie waarvoor de marker bestaat.
             .onFailure().invoke { e ->
-                log.fatalf(
-                    e,
-                    "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
-                    errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
-                )
+                if (isAfbreking(e)) {
+                    log.infof(
+                        "(errorId=%s) Ook de fout-status kon niet worden weggeschreven na een afbreking (key=%s); lock leunt op TTL",
+                        errorId, cacheKey,
+                    )
+                } else {
+                    log.fatalf(
+                        e,
+                        "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
+                        errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                    )
+                }
             }
             .onFailure().recoverWithNull()
             // Meld expliciet dat de eerder per-magazijn getoonde resultaten niet
@@ -779,6 +829,11 @@ internal class BerichtensessiecacheService(
         cacheKey: String,
         oorzaak: String,
         errorId: UUID = UUID.randomUUID(),
+        // De aanroeper weet of dit een afbrekingspad is; hier afleiden uit de opgevangen fout kan
+        // niet. Een gezette interrupt-flag laat de await hierónder onmiddellijk falen met een
+        // InterruptedException, óók wanneer de werkelijke oorzaak een echte storing was — dan zou
+        // de alert-marker juist bij een storing wegvallen.
+        afbreking: Boolean = false,
     ) {
         try {
             berichtenCache.storeAggregationStatus(
@@ -788,6 +843,20 @@ internal class BerichtensessiecacheService(
 
             log.warnf("Lock vrijgegeven na fout (errorId=%s) voor key=%s: %s", errorId, cacheKey, oorzaak)
         } catch (cleanupEx: Exception) {
+            // Een afbreking is ook hier geen storing: een rolling restart tijdens een lopende
+            // ophaalstart zou anders gegarandeerd een FATAL met alert-marker per onderbroken
+            // sessie opleveren.
+            if (afbreking) {
+                log.infof(
+                    "Lock-cleanup afgebroken (errorId=%s) voor key=%s: %s — lock leunt op TTL",
+                    errorId,
+                    cacheKey,
+                    oorzaak,
+                )
+
+                return
+            }
+
             // FATAL + ALERT-marker: oorspronkelijke fout PLUS cleanup-fail = lock blijft
             // tot Redis-TTL hangen, ontvanger 60s onbedienbaar. Zelfde marker als het
             // aggregatie-pad (`[ALERT cache_doublefail]`) voor uniforme alert-routing
@@ -862,6 +931,26 @@ internal class BerichtensessiecacheService(
         }
     }
 
+    /**
+     * Onderscheidt "het ophalen is afgebroken" van "er ging iets stuk". Bij een pod-herstart
+     * midden in de aggregatie levert dat een annulering of een interrupt op; dat is normaal
+     * gedrag en hoort geen storingsmelding op te leveren. [classifyMagazijnFault] herkent
+     * annulering ook, maar mapt hem op `NETWORK` — dat telt daar wél als storing voor de circuit
+     * breaker. Die keuze staat los van deze: hier gaat het om het log-niveau, daar om de vraag of
+     * een magazijn tijdelijk overgeslagen moet worden.
+     *
+     * Uitsluitend de meegegeven fout telt, niet de interrupt-flag van de huidige thread. Die
+     * flag is thread-sticky en wordt elders in deze klasse bewust gezet zonder hem ooit te
+     * wissen; komt zo'n worker-thread terug in de pool, dan zou een échte Redis-uitval daarna
+     * als afbreking gelden en zou de alert stilvallen.
+     */
+    internal fun isAfbreking(error: Throwable): Boolean {
+        val chain = error.causeChain()
+
+        return chain.hasCauseOf(java.util.concurrent.CancellationException::class.java) ||
+            chain.hasCauseOf(InterruptedException::class.java)
+    }
+
     // Internal voor directe unit-test van de classificatie-tabel (zie service-test).
     internal fun classifyMagazijnFault(error: Throwable): MagazijnFault {
         // Cause-walking eenmalig via causeChain(); meerdere instanceof-checks tegen
@@ -880,6 +969,18 @@ internal class BerichtensessiecacheService(
                 when {
                     status in 500..599 -> MagazijnFault.HTTP_5XX
                     status >= 400 -> MagazijnFault.HTTP_4XX
+                    // Een 3xx die als fout terugkomt betekent dat de client de doorverwijzing
+                    // niet volgde: het magazijn staat op een ander adres dan wij kennen. Een
+                    // eigen fault i.p.v. HTTP_4XX, zodat het log de werkelijke oorzaak noemt —
+                    // een beheerder die dit ziet moet naar de magazijn-URL kijken, niet naar
+                    // een 4xx die er niet is.
+                    //
+                    // LET OP: de REST-client maakt vandaag pas een WebApplicationException vanaf
+                    // status 400, dus via het echte magazijn-pad komt een 301 hier niet aan — die
+                    // strandt eerder op het parsen van de redirect-body en wordt MALFORMED. Deze
+                    // tak is de vangnet-kant van de classificatie; hem sluitend maken vraagt een
+                    // eigen ResponseExceptionMapper op MagazijnClient. TODO(MinBZK/MijnOverheidZakelijk#870)
+                    status in 300..399 -> MagazijnFault.HTTP_3XX
                     // WAE zonder status = raw WAE("oeps") zonder Response → eigen-bug.
                     else -> MagazijnFault.INTERNAL_BUG
                 }
@@ -909,6 +1010,10 @@ internal class BerichtensessiecacheService(
                 log.warnf(error, "Magazijn %s (%s) 5xx", magazijnId, naam)
             MagazijnFault.HTTP_4XX ->
                 log.errorf(error, "Magazijn %s (%s) 4xx — configuratie/auth-fout", magazijnId, naam)
+            // Eigen tak, niet samengevoegd met 4xx: wie dit ziet moet de magazijn-URL in het
+            // register nakijken, niet naar rechten of een verkeerd pad zoeken.
+            MagazijnFault.HTTP_3XX ->
+                log.errorf(error, "Magazijn %s (%s) verwijst door — geconfigureerde URL wijst niet naar het magazijn", magazijnId, naam)
             MagazijnFault.NETWORK ->
                 log.warnf(error, "Magazijn %s (%s) niet bereikbaar (network/processing)", magazijnId, naam)
             // Bewust overgeslagen door de circuit breaker — geen echte call-fout. Het CIRCUIT_OPEN-

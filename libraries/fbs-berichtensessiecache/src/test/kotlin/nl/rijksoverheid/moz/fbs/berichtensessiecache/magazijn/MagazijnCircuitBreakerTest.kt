@@ -3,6 +3,8 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.api.Test
 
 /**
@@ -167,5 +169,29 @@ class MagazijnCircuitBreakerTest {
         org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
             MagazijnCircuitBreaker(drempel = 3, openSeconds = 0L).valideerConfig()
         }
+    }
+
+    /**
+     * Uitputtend over de enum in plaats van een handmatige lijst: een handmatige lijst laat een
+     * nieuwe fault stilzwijgend met de verkeerde circuit-actie meeliften. Zou HTTP_3XX ooit als
+     * storing gaan tellen, dan opent een redirect-misconfiguratie circuits — dat hoort een
+     * bewuste wijziging te zijn, geen neveneffect.
+     */
+    @ParameterizedTest
+    @EnumSource(MagazijnFault::class)
+    internal fun `elke fault heeft een expliciete circuit-actie`(fault: MagazijnFault) {
+        val verwacht = when (fault) {
+            MagazijnFault.TIMEOUT, MagazijnFault.HTTP_5XX, MagazijnFault.NETWORK -> CircuitActie.MELD_FOUT
+            MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST -> CircuitActie.MELD_ONBESLIST
+            MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW, MagazijnFault.HTTP_4XX,
+            MagazijnFault.HTTP_3XX, MagazijnFault.INTERNAL_BUG,
+            -> CircuitActie.MELD_SUCCES
+        }
+
+        assertEquals(
+            verwacht,
+            circuitActieVoor(MagazijnResult.Failure("magazijn-a", "A", RuntimeException("x"), fault)),
+            "circuit-actie voor $fault",
+        )
     }
 }
