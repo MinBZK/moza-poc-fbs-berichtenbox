@@ -5,7 +5,10 @@ set -euo pipefail
 BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 CONFIG="${BASE_DIR}/config.json"
 CA_DIR="${BASE_DIR}/ca"
+# 700: hier ligt de group-root-key. De bestanden zelf zijn 0600 (cfssljson), maar een 0755-map
+# geeft elke lokale gebruiker een listing van het CA-materiaal.
 mkdir -p "${CA_DIR}"
+chmod 700 "${CA_DIR}"
 
 # Root: self-signed CA
 cfssl genkey -initca "${BASE_DIR}/ca.json" | cfssljson -bare "${CA_DIR}/root"

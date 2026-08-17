@@ -38,6 +38,7 @@ jobs:
     outputs:
       run: ${{ steps.filter.outputs.run }}
       demo-only: ${{ steps.filter.outputs.demo-only }}
+      shards: ${{ steps.filter.outputs.shards }}
     steps:
       - name: Detecteer niet-documentatie wijzigingen
         id: filter
@@ -47,56 +48,89 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          if [ "$EVENT" != "pull_request" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "demo-only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), draai
-          # de code-checks dan TÓCH i.p.v. ze stil over te slaan. Een overslaan-op-fout zou als
-          # 'skipped' (= succes) doortellen in de deploy-gate en ongeteste code laten deployen.
-          if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
-            echo "::warning::Kon gewijzigde bestanden niet ophalen — code-checks draaien fail-safe."
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "demo-only=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          set -euo pipefail
+          # Defaults = de veiligste uitkomst: alles draaien. Elke tak hieronder kan ze
+          # versmallen, geen enkele kan een run stil overslaan bij een onverwachte situatie.
+          run=true
+          demo_only=false
+
+          if [ "$EVENT" = "pull_request" ]; then
+            # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), draai
+            # de code-checks dan TÓCH i.p.v. ze stil over te slaan. Een overslaan-op-fout zou als
+            # 'skipped' (= succes) doortellen in de deploy-gate en ongeteste code laten deployen.
+            if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
+              echo "::warning::Kon gewijzigde bestanden niet ophalen — code-checks draaien fail-safe."
+            else
+              echo "Gewijzigde bestanden:"
+              printf '%s\n' "$files"
+
+              # Herestring in plaats van een pipe: `grep -q` sluit de pipe bij de eerste match,
+              # en met `pipefail` promoveert die SIGPIPE tot een mislukte pipeline — waarna dit
+              # filter stilzwijgend zou besluiten dat er niets te testen valt.
+              if ! grep -qvE '(^docs/|\.md$)' <<<"$files"; then
+                echo "Alleen documentatie gewijzigd — code-checks overgeslagen."
+                run=false
+              fi
+
+              # demo-console heeft bewust geen afhankelijkheid op fbs-common of een andere
+              # reactor-module (zie services/demo-console/pom.xml) — het enige blad in de
+              # module-graaf zonder koppeling. Raakt de PR verder niets buiten
+              # services/demo-console/ en demo/ (de Python-generator + smoke.sh, die alleen de
+              # demo-stack aansturen), dan hoeven berichtenmagazijn/berichtenuitvraag/libraries
+              # niet mee gebouwd en getest te worden. Fail-safe zoals hierboven: elk onbekend of
+              # breder pad → false (volledige build), nooit omgekeerd stil onder-testen.
+              if ! grep -qvE '(^docs/|\.md$|^services/demo-console/|^demo/)' <<<"$files"; then
+                echo "Uitsluitend demo-console geraakt — tests scoped naar die module."
+                demo_only=true
+              fi
+            fi
           fi
 
-          echo "Gewijzigde bestanden:"
-          printf '%s\n' "$files"
-          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+          # De shard-verdeling: berichtenmagazijn alleen, de rest ernaast. Die ene module kost
+          # ~4,5 van de ~8 minuten reactor-tijd en vormt dus de vloer; alles bij elkaar past
+          # binnen die tijd op een tweede machine.
+          #
+          # De tweede shard is het COMPLEMENT (`!services/berichtenmagazijn`), geen opsomming:
+          # zo valt een nieuwe reactor-module er per constructie in. Met een handmatige lijst
+          # zou een module die nergens genoemd wordt én nergens upstream van is, stil ongetest
+          # blijven terwijl beide shards groen rapporteren.
+          #
+          # `-am` bouwt en test in beide shards ook de gedeelde bibliotheken (~35s dubbel);
+          # dat is goedkoper dan per shard uitzoeken welke upstream-modules erbij horen.
+          if [ "$demo_only" = true ]; then
+            shards='[{"id":"demo-console","modules":"services/demo-console"}]'
           else
-            echo "Alleen documentatie gewijzigd — code-checks overgeslagen."
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            shards='[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"overig","modules":"!services/berichtenmagazijn"}]'
           fi
 
-          # demo-console heeft bewust geen afhankelijkheid op fbs-common of een andere
-          # reactor-module (zie services/demo-console/pom.xml) — het enige blad in de
-          # module-graaf zonder koppeling. Raakt de PR verder niets buiten
-          # services/demo-console/ en demo/ (de Python-generator + smoke.sh, die alleen de
-          # demo-stack aansturen), dan hoeven berichtenmagazijn/berichtenuitvraag/libraries
-          # niet mee gebouwd en getest te worden. Fail-safe zoals hierboven: elk onbekend of
-          # breder pad → false (volledige build), nooit omgekeerd stil onder-testen.
-          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$|^services/demo-console/|^demo/)'; then
-            echo "demo-only=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Uitsluitend demo-console geraakt — test-job scoped naar die module."
-            echo "demo-only=true" >> "$GITHUB_OUTPUT"
-          fi
+          {
+            echo "run=$run"
+            echo "demo-only=$demo_only"
+            echo "shards=$shards"
+          } >> "$GITHUB_OUTPUT"
 
-  test:
+  # De modules draaiden achter elkaar in één reactor: 8 minuten, waarvan berichtenmagazijn
+  # alleen al 4,5. Dat maakte deze controle de traagste van de keten en daarmee de wachttijd
+  # per wijziging. Over twee machines verdeeld bepaalt die ene module nog wel de vloer, maar
+  # loopt de rest ernaast in plaats van erna. De dekking blijft gelijk: elke module wordt
+  # precies zo getest als eerst, alleen niet meer op dezelfde machine.
+  shard:
     needs: changes
     if: needs.changes.outputs.run == 'true'
+    name: test-${{ matrix.shard.id }}
+    strategy:
+      # Een gevallen shard mag de andere niet afkappen: anders is na een fout maar de helft
+      # van de tests gedraaid en volgt de rest pas na een tweede push.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # pull-requests: write voor de coverage-PR-comment (madrapps/jacoco-report).
     permissions:
       contents: read
-      pull-requests: write
     # Quarkus Dev Services (Testcontainers) start Redis Stack + WireMock voor integratietests.
     # Geen `services:` block nodig — alle tests draaien in de `test` Maven-phase
-    # (JaCoCo coverage-check incluis), dus `mvnw test` op root volstaat.
+    # (JaCoCo coverage-check incluis), dus `mvnw test` volstaat.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -104,16 +138,90 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
-      # demo-only (changes-job): scope naar de ene module zonder reactor-koppeling i.p.v. ook
-      # berichtenmagazijn/berichtenuitvraag/libraries en hun Testcontainers-integratietests te
-      # bouwen voor een wijziging die ze niet raakt.
       - name: Test
+        env:
+          MODULES: ${{ matrix.shard.modules }}
+        run: ./mvnw -B test -pl "$MODULES" -am
+      # De rapporten gaan naar de `test`-job, die er één coverage-comment van maakt; los per
+      # shard zou elke shard zijn eigen halve comment plaatsen. Retentie kort: ze zijn na die
+      # ene comment nergens meer voor nodig.
+      - name: Coverage-rapporten bewaren
+        if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jacoco-${{ matrix.shard.id }}
+          path: |
+            services/*/target/site/jacoco/jacoco.xml
+            libraries/*/target/site/jacoco/jacoco.xml
+          if-no-files-found: error
+          retention-days: 1
+
+  # Eén check-run voor alle shards samen. De naam `test` blijft: branch protection op main pint
+  # op de context `checks-test / test`, en een required context die nooit meer verschijnt
+  # blokkeert elke merge. Deze job toetst zelf niets — hij bundelt het shard-resultaat en
+  # plaatst de coverage-comment over de rapporten van alle shards.
+  test:
+    needs: [changes, shard]
+    # `!cancelled()` i.p.v. de impliciete success(): bij een docs-only wijziging slaan de shards
+    # zichzelf over, en de check moet dan alsnog groen rapporteren i.p.v. mee te vallen in
+    # 'skipped'. Bij een geannuleerde run valt er niets te oordelen.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # pull-requests: write voor de coverage-PR-comment (madrapps/jacoco-report).
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Beoordeel de shards
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          SHARDS: ${{ needs.shard.result }}
+          RUN: ${{ needs.changes.outputs.run }}
         run: |
-          if [ "${{ needs.changes.outputs.demo-only }}" = "true" ]; then
-            ./mvnw -B test -pl services/demo-console
-          else
-            ./mvnw -B test
+          set -euo pipefail
+
+          # Zonder deze check zou een gevallen `changes`-job de shards overslaan en hier stil
+          # als groen doortellen — precies het gat dat de fail-safe hierboven dicht wil houden.
+          if [ "$CHANGES" != "success" ]; then
+            echo "::error::De wijzigingsdetectie eindigde als '$CHANGES' — testresultaat onbepaald."
+            exit 1
           fi
+
+          # Bij een matrix is dit het resultaat van alle shards samen: 'success' alleen als
+          # elke shard slaagde.
+          case "$SHARDS" in
+            success)
+              echo "Alle testshards geslaagd."
+              ;;
+            skipped)
+              # Overslaan is alleen legitiem als de wijzigingsdetectie dat besloot. Een lege
+              # matrix levert óók 'skipped' op, en dan zou dit groen rapporteren terwijl er geen
+              # enkele test heeft gedraaid.
+              if [ "$RUN" != "false" ]; then
+                echo "::error::Shards overgeslagen terwijl er wél getest moest worden (run=$RUN) — testresultaat onbepaald."
+                exit 1
+              fi
+
+              echo "::warning::Testshards overgeslagen — als OK geteld (alleen documentatie gewijzigd)."
+              ;;
+            *)
+              echo "::error::Een testshard eindigde als '$SHARDS'."
+              exit 1
+              ;;
+          esac
+      # Vóór het ophalen van de artefacten: checkout schoont de workspace, en zou de rapporten
+      # er anders weer uit vegen.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
+      - name: Coverage-rapporten ophalen
+        if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: jacoco-*
+          # De shards delen de gedeelde bibliotheken (`-am`), dus hun rapporten overlappen
+          # daar; samenvoegen op pad houdt één exemplaar per module over.
+          merge-multiple: true
       # Coverage-zichtbaarheid op PR-niveau. Bewust GitHub-native (madrapps/jacoco-report)
       # i.p.v. Codecov: geen externe SaaS, geen upload-token, geen extra supply-chain-
       # oppervlak (Codecov kende in 2021 een uploader-compromittering). JaCoCo levert al een
@@ -135,7 +243,7 @@ jobs:
       # demo-only-run bestaat er nergens een jacoco.xml — de comment-stap zou dan niets te
       # rapporteren hebben.
       - name: JaCoCo coverage als PR-comment
-        if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true'
+        if: github.event_name == 'pull_request' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
         uses: madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920 # v1.8.0
         with:
           paths: |

@@ -255,6 +255,9 @@ géén uitgeschakeld component**).
 | `LDV_DBMS`             | `postgresql` | Backend voor het Logboek Dataverwerkingen (`postgresql` of `clickhouse`) |
 | `LDV_POSTGRES_URL`     | per profiel | JDBC-URL van het logboek; buiten dev/test TLS-verplicht |
 | `LDV_POSTGRES_USERNAME`, `LDV_POSTGRES_PASSWORD` | per profiel | LDV-credentials |
+| `REDIS_HOSTS`          | per profiel | Adres van de tijdelijke berichtenopslag; buiten dev/test `rediss://` verplicht (`RedisVerbindingValidator`) |
+| `REDIS_PASSWORD`       | per profiel | Wachtwoord van de berichtenopslag; buiten dev/test verplicht |
+| `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT` | `false` | Zet de TLS-/auth-eis op de berichtenopslag BEWUST uit; logt bij elke boot `REDIS_UNPROTECTED` voor alert-routing |
 | `MAGAZIJN_A_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor magazijn-a; leeg = geen `Fsc-Grant-Hash`-header, magazijn wordt dan direct/zonder outway aangeroepen |
 | `PROFIEL_SERVICE_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor de Profiel-service; leeg = geen `Fsc-Grant-Hash`-header, de Profiel-service wordt dan direct/zonder outway aangeroepen |
 
