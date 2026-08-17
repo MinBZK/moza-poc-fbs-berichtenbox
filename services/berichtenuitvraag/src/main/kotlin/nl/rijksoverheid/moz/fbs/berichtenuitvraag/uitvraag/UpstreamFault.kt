@@ -10,7 +10,7 @@ import org.jboss.logging.Logger
  * Uniforme upstream-fout-mapping voor calls naar de sessiecache-facade én het magazijn.
  *
  * Allowlist: alleen een echte client-/contract-`4xx` (400..499) propageert 1-op-1
- * (bv. 404 cache-miss of 409 cache-nog-niet-gevuld); al het andere — geen response
+ * (bv. een 404 of 409 van het magazijn); al het andere — geen response
  * (transport-storing) en elke non-4xx-status (1xx/3xx/5xx) — wordt 502. Rationale:
  * voor een server-naar-server client is een lekkende non-4xx geen begrijpelijk
  * contract, dus telt als upstream-storing. Zo blijft "502 = upstream-fout, niet onze
@@ -89,25 +89,49 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
  * cache-library breekt hier de build i.p.v. stil verkeerd bij de gebruiker te landen.
  *
  * Bewust géén 502-mapping hier: deze functie levert puur de status die per cache-foutgeval
- * hoort. De per-consumer transportpolitiek (lees-pad → [mapUpstreamFout] dat 5xx naar 502
- * maakt; aanmeld-pad → status-behoudend) blijft daar belegd.
+ * hoort. Het lees-pad geeft die status rechtstreeks door ([leesUitCache]); het aanmeld-pad is
+ * status-behoudend. De 502-politiek van [mapUpstreamFout] geldt voor fouten die niet uit deze
+ * classificatie komen.
  */
 internal fun SessiecacheException.naApiFout(): WebApplicationException = when (this) {
     is SessiecacheException.NogNietGevuld -> WebApplicationException(message, this, Response.Status.CONFLICT)
     is SessiecacheException.OphalenBezig -> WebApplicationException(message, this, Response.Status.CONFLICT)
-    is SessiecacheException.OphalenMislukt -> WebApplicationException(message, this, Response.Status.INTERNAL_SERVER_ERROR)
-    is SessiecacheException.Onbereikbaar -> WebApplicationException(message, this, Response.Status.SERVICE_UNAVAILABLE)
+    // Een mislukte ophaalronde is geen defect maar een toestand: het ophalen strandde (bv. de
+    // voorkeurenbron gaf een serverfout) en opnieuw ophalen is de weg vooruit. 503 zegt dat,
+    // en het is dezelfde status die `_ophalen` in precies deze situatie al geeft; 500 zou de
+    // client naar een bug bij ons wijzen.
+    is SessiecacheException.OphalenMislukt -> tijdelijkNietBeschikbaar(message, this)
+    is SessiecacheException.Onbereikbaar -> tijdelijkNietBeschikbaar(message, this)
     is SessiecacheException.Onleesbaar -> WebApplicationException(message, this, Response.Status.INTERNAL_SERVER_ERROR)
     is SessiecacheException.OngeldigeInvoer -> WebApplicationException(message, this, Response.Status.BAD_REQUEST)
     is SessiecacheException.GeenActieveSessie -> WebApplicationException(message, this, Response.Status.NOT_FOUND)
 }
 
 /**
- * Lees-pad-grens voor cache-facade-calls: vertaalt een [SessiecacheException] eerst
- * naar zijn status ([naApiFout]) en past daarna dezelfde upstream-politiek
- * toe als op het magazijn ([mapUpstreamFout]) — een 5xx wordt 502, een 4xx (409 cache-
- * nog-niet-gevuld) propageert ongewijzigd. Zo geldt "502 = upstream-fout" ook voor
- * de in-process cache.
+ * Een 503 waar opnieuw proberen zin heeft, met dezelfde `Retry-After` als de profiel-mapper op
+ * zijn retry-bare 503 zet. Zonder die header staat de aanwijzing alleen in proza en moet een
+ * client zelf een interval verzinnen.
+ */
+private fun tijdelijkNietBeschikbaar(message: String?, oorzaak: SessiecacheException) =
+    WebApplicationException(
+        message,
+        oorzaak,
+        Response.status(Response.Status.SERVICE_UNAVAILABLE).header("Retry-After", RETRY_AFTER_SECONDEN).build(),
+    )
+
+/** Gelijk aan wat de profiel-mapper hanteert; één waarde zodat clients niet per endpoint hoeven te leren wachten. */
+private const val RETRY_AFTER_SECONDEN = "30"
+
+/**
+ * Lees-pad-grens voor cache-facade-calls. De cache classificeert zijn eigen uitkomst al
+ * precies ([SessiecacheException]); die status gaat daarom rechtstreeks naar de client via
+ * [naApiFout] en wordt níét nog eens door de upstream-politiek gehaald. Dat laatste maakte
+ * er eerder een 502 van, waarmee "de vorige ophaalronde is mislukt, haal opnieuw op" voor de
+ * client niet meer te onderscheiden was van een infrastructuurstoring — precies het signaal
+ * dat hij nodig heeft om te weten wat hem te doen staat.
+ *
+ * [mapUpstreamFout] blijft eromheen staan voor fouten die niet uit de cache-classificatie
+ * komen: een transport-fout of een onverwachte upstream-status verdient nog steeds een 502.
  *
  * De lees-facademethoden (`lijst`/`zoek`/`bericht`) produceren alleen storing-fouten en de
  * 409-gating ([SessiecacheException.NogNietGevuld]/[SessiecacheException.OphalenBezig]); de
@@ -115,10 +139,26 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
  * ontstaan uitsluitend op de schrijfpaden en bereiken deze grens dus niet.
  */
 internal inline fun <T> leesUitCache(log: Logger, context: String, block: () -> T): T =
-    mapUpstreamFout(log, context) {
-        try {
-            block()
-        } catch (e: SessiecacheException) {
-            throw e.naApiFout()
-        }
+    try {
+        mapUpstreamFout(log, context, block)
+    } catch (e: SessiecacheException) {
+        throw logEnVertaal(log, context, e)
     }
+
+/**
+ * Logt de cache-uitkomst en levert de bijbehorende fout. Eén plek, zodat de vertaling maar één
+ * keer gebeurt en het logniveau bij de uitkomst past: de 409-gating is het normale verloop — een
+ * client die leest vóór of tijdens het ophalen krijgt hem standaard — en die op
+ * waarschuwingsniveau loggen zou het signaal verwateren dat voor de echte storingen bedoeld is.
+ */
+internal fun logEnVertaal(log: Logger, context: String, e: SessiecacheException): WebApplicationException {
+    val fout = e.naApiFout()
+
+    if (e.isStoring()) {
+        log.warnf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, fout.response.status)
+    } else {
+        log.debugf("%s: cache-uitkomst %s → status %d", context, e.javaClass.simpleName, fout.response.status)
+    }
+
+    return fout
+}
