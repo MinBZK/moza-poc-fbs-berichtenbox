@@ -6,13 +6,18 @@ import io.mockk.every
 import io.mockk.mockk
 import io.opentelemetry.api.OpenTelemetry
 import jakarta.enterprise.inject.Instance
+import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeaders
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.NullSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
+import java.util.Optional
 import java.util.UUID
 
 /**
@@ -26,8 +31,12 @@ import java.util.UUID
  */
 class DownstreamClientTest {
 
-    private class DownstreamStub(private val u: String) : PublicatieConfig.Downstream {
+    private class DownstreamStub(
+        private val u: String,
+        private val hash: String? = null,
+    ) : PublicatieConfig.Downstream {
         override fun url(): String = u
+        override fun grantHash(): Optional<String> = Optional.ofNullable(hash)
         override fun maxPogingen(): Int = 5
         override fun backoff(): PublicatieConfig.Backoff = object : PublicatieConfig.Backoff {
             override fun basis(): java.time.Duration = java.time.Duration.ofSeconds(1)
@@ -430,5 +439,116 @@ class DownstreamClientTest {
         // Doel-assertie: tracestate is niet aanwezig (case-insensitive header-keys).
         val tracestateAanwezig = headers.keys.any { it.equals("tracestate", ignoreCase = true) }
         assertFalse(tracestateAanwezig, "tracestate header lekt naar downstream: $headers")
+    }
+
+    /**
+     * Headers van de embedded server, met kleine-letter-sleutels. `HttpExchange` normaliseert
+     * headernamen naar `Capitalized-Case`, dus zoeken op de exacte constante zou missen.
+     */
+    private fun ontvangenHeaders(): Map<String, List<String>> {
+        org.awaitility.Awaitility.await()
+            .atMost(2, java.util.concurrent.TimeUnit.SECONDS)
+            .until { server.aantalAanroepen >= 1 }
+
+        return server.headers.single().mapKeys { (naam, _) -> naam.lowercase() }
+    }
+
+    @ParameterizedTest(name = "grant-hash [{0}] levert geen FSC-headers")
+    @NullSource
+    @ValueSource(strings = ["", "   "])
+    fun `zonder bruikbare grant-hash gaan er geen FSC-headers mee`(hash: String?) {
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, hash))
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertEquals(DownstreamResultaat.Geslaagd, resultaat)
+
+        val headers = ontvangenHeaders()
+
+        assertFalse(headers.containsKey(FscOutwayHeaders.GRANT_HASH_HEADER.lowercase()))
+        assertFalse(headers.containsKey(FscOutwayHeaders.TRANSACTION_ID_HEADER.lowercase()))
+    }
+
+    @Test
+    fun `met grant-hash gaan beide FSC-outway-headers mee`() {
+        val hash = "\$1\$4\$k4rwlWTsCM_j89Fc3nrbnQa9-KB43"
+
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, hash))
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertEquals(DownstreamResultaat.Geslaagd, resultaat)
+
+        val headers = ontvangenHeaders()
+
+        assertEquals(hash, headers.getValue(FscOutwayHeaders.GRANT_HASH_HEADER.lowercase()).single())
+
+        val transactionId = UUID.fromString(
+            headers.getValue(FscOutwayHeaders.TRANSACTION_ID_HEADER.lowercase()).single(),
+        )
+
+        assertEquals(7, transactionId.version(), "de outway weigert een transaction-id die geen UUID v7 is")
+    }
+
+    @Test
+    fun `grant-hash met omringende whitespace gaat getrimd de header in`() {
+        // Een hash komt via een env-var uit een gegenereerd bestand en krijgt makkelijk een
+        // newline mee; de outway antwoordt daarop met 400 UNKNOWN_GRANT_HASH_IN_HEADER.
+        every { config.downstreams() } returns
+            mapOf("aanmeld" to DownstreamStub(server.baseUrl, "  hash-met-ruimte  "))
+
+        client.lever(Publicatiedoel("aanmeld"), event)
+
+        val headers = ontvangenHeaders()
+
+        assertEquals(
+            "hash-met-ruimte",
+            headers.getValue(FscOutwayHeaders.GRANT_HASH_HEADER.lowercase()).single(),
+        )
+    }
+
+    @Test
+    fun `een intern adres zonder grant-hash blijft geweigerd`() {
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("https://10.0.0.1:8443/events"))
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(
+            resultaat is DownstreamResultaat.ConfiguratieFout,
+            "een RFC1918-adres zonder grant-hash hoort op de SSRF-blocklist te stranden, kreeg: $resultaat",
+        )
+        assertTrue((resultaat as DownstreamResultaat.ConfiguratieFout).reden.contains("SSRF"))
+    }
+
+    @Test
+    fun `een intern adres mag wel met grant-hash - het contract bepaalt de bestemming`() {
+        // De outway luistert op een adres dat naar RFC1918 resolveert; de blocklist zou dat pad
+        // blokkeren terwijl het FSC-contract achter de hash de bestemming al vastlegt. Geen echte
+        // call: het adres is niet-routeerbaar, dus een netwerk-/timeoutfout bewíjst dat de
+        // validatie 'm heeft doorgelaten. Een ConfiguratieFout zou betekenen dat hij vóór het
+        // netwerk is afgekeurd.
+        every { config.downstreams() } returns
+            mapOf("aanmeld" to DownstreamStub("https://10.255.255.1:8443/events", "hash"))
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertFalse(
+            resultaat is DownstreamResultaat.ConfiguratieFout,
+            "met een grant-hash hoort de SSRF-blocklist niet te gelden, kreeg: $resultaat",
+        )
+    }
+
+    @Test
+    fun `de TLS-eis blijft gelden voor een outway-downstream`() {
+        // De SSRF-uitzondering is er één, niet twee: buiten loopback blijft TLS verplicht, ook met
+        // een grant-hash. Anders zou een grant-hash in de config stilzwijgend plaintext-verkeer
+        // naar een externe host toestaan.
+        every { config.downstreams() } returns
+            mapOf("aanmeld" to DownstreamStub("http://prod.example.com/events", "hash"))
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout)
+        assertTrue((resultaat as DownstreamResultaat.ConfiguratieFout).reden.contains("TLS"))
     }
 }

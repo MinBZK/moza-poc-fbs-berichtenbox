@@ -9,6 +9,7 @@ import jakarta.annotation.PreDestroy
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Instance
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
+import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeaders
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.io.IOException
@@ -60,6 +61,20 @@ class DownstreamClient(
                 profiel,
             )
         }
+
+        val viaOutway = config.downstreams()
+            .filterValues { bruikbareGrantHash(it) != null }
+            .keys
+
+        if (viaOutway.isNotEmpty()) {
+            // Een SSRF-uitzondering hoort niet stil te zijn: zonder deze regel is aan een draaiende
+            // pod niet te zien welke downstreams buiten de blocklist vallen.
+            log.warnf(
+                "%s: downstream(s) %s lopen door de eigen FSC-outway; de SSRF-blocklist geldt daar niet.",
+                OUTWAY_SSRF_ALERT_TOKEN,
+                viaOutway.joinToString(", "),
+            )
+        }
     }
 
     private val http: HttpClient = HttpClient.newBuilder()
@@ -87,7 +102,8 @@ class DownstreamClient(
             )
 
         val url = downstream.url()
-        val urlValidatie = valideerUrl(url)
+        val grantHash = bruikbareGrantHash(downstream)
+        val urlValidatie = valideerUrl(url, viaOutway = grantHash != null)
         if (urlValidatie != null) return urlValidatie
 
         val payload = try {
@@ -104,6 +120,10 @@ class DownstreamClient(
             .timeout(config.client().requestTimeout())
             .header("Content-Type", "application/cloudevents+json")
             .POST(BodyPublishers.ofByteArray(payload))
+
+        if (grantHash != null) {
+            FscOutwayHeaders.headers(grantHash).forEach { (naam, waarde) -> requestBuilder.header(naam, waarde) }
+        }
 
         // W3C Trace Context propagatie: injecteer `traceparent` (en `tracestate`)
         // uit de huidige OpenTelemetry-context, zodat de keten cross-organisatie
@@ -176,7 +196,15 @@ class DownstreamClient(
         }
     }
 
-    private fun valideerUrl(url: String): DownstreamResultaat.ConfiguratieFout? {
+    /**
+     * De grant-hash van [downstream], of `null` als er geen bruikbare staat. Trimmen omdat een
+     * hash die via een env-var uit een gegenereerd bestand komt makkelijk een spatie of newline
+     * meekrijgt, en de outway daarop `400 UNKNOWN_GRANT_HASH_IN_HEADER` antwoordt.
+     */
+    private fun bruikbareGrantHash(downstream: PublicatieConfig.Downstream): String? =
+        downstream.grantHash().orElse(null)?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun valideerUrl(url: String, viaOutway: Boolean): DownstreamResultaat.ConfiguratieFout? {
         val parsed = try {
             URI.create(url)
         } catch (_: IllegalArgumentException) {
@@ -214,7 +242,13 @@ class DownstreamClient(
         // SSRF-blocklist ([blokkeerIntern]): zonder dit kan een operator met
         // config-toegang de magazijn-pod als proxy naar interne services gebruiken.
         // Loopback is hierboven al toegestaan voor dev-stubs (WireMock/embedded HTTP).
-        if (!isLoopback) {
+        //
+        // Een downstream met een grant-hash valt erbuiten: die gaat door de eigen, co-located
+        // outway, en dáár bepaalt het FSC-contract achter de hash de bestemming — een URL naar een
+        // ander intern adres levert dan geen verkeer maar een fout. Zonder deze uitzondering is het
+        // pad onbruikbaar: een outway-ClusterIP resolveert naar RFC1918. De TLS-eis hierboven
+        // blijft wél gelden, en een actieve uitzondering logt bij boot [OUTWAY_SSRF_ALERT_TOKEN].
+        if (!isLoopback && !viaOutway) {
             val ssrfFout = blokkeerIntern(host)
             if (ssrfFout != null) return ssrfFout
         }
@@ -306,6 +340,13 @@ class DownstreamClient(
          * mag niet wijzigen zonder die alert mee te verhuizen.
          */
         const val VALIDATIE_UIT_ALERT_TOKEN = "DOWNSTREAM_URL_VALIDATIE_UIT"
+
+        /**
+         * Greppable marker voor downstreams die door de eigen outway lopen en daarmee buiten de
+         * SSRF-blocklist vallen. Zelfde afspraak als [VALIDATIE_UIT_ALERT_TOKEN]: ops hangt hier
+         * een alert-regel aan, dus de waarde wijzigt niet zonder die alert mee te verhuizen.
+         */
+        const val OUTWAY_SSRF_ALERT_TOKEN = "DOWNSTREAM_VIA_OUTWAY"
 
         /**
          * Laat alleen W3C `traceparent` door; `tracestate` (vendor-routing/sampling)
