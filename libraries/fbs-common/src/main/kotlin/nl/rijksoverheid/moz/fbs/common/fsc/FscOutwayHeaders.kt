@@ -20,11 +20,20 @@ object FscOutwayHeaders {
 
     private val log = Logger.getLogger(FscOutwayHeaders::class.java)
 
-    fun zet(requestContext: ClientRequestContext, grantHash: String) {
-        val transactionId = UuidV7.generate()
+    /**
+     * Het headerpaar voor één outway-call. Losgetrokken van het transport omdat niet elke caller
+     * een JAX-RS-client is: de downstream-aflevering van CloudEvents gebruikt
+     * `java.net.http.HttpClient` en zou het contract anders moeten dupliceren.
+     */
+    fun headers(grantHash: String): Map<String, String> = mapOf(
+        GRANT_HASH_HEADER to grantHash,
+        TRANSACTION_ID_HEADER to UuidV7.generate().toString(),
+    )
 
-        requestContext.headers.putSingle(GRANT_HASH_HEADER, grantHash)
-        requestContext.headers.putSingle(TRANSACTION_ID_HEADER, transactionId.toString())
+    fun zet(requestContext: ClientRequestContext, grantHash: String) {
+        val paar = headers(grantHash)
+
+        paar.forEach { (naam, waarde) -> requestContext.headers.putSingle(naam, waarde) }
 
         // Zonder deze transaction-id in de app-log is een call niet terug te vinden in de
         // outway-/inway-logs, die 'm ongewijzigd doorgeven. Log alleen de host, nooit het
@@ -34,7 +43,7 @@ object FscOutwayHeaders {
         log.debugf(
             "FSC-outway-call naar %s: Fsc-Transaction-Id=%s",
             requestContext.uri.host,
-            transactionId,
+            paar[TRANSACTION_ID_HEADER],
         )
     }
 }
