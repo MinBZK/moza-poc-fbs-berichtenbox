@@ -43,7 +43,7 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
-- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag`. Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`). `services/berichtenlijst/` bestaat als directory maar is niet actief.
+- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag` en `services/demo-console` (bedieningspaneel voor demo's). Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`).
 - **Magazijnregister:** één magazijn per deelnemende organisatie; het `magazijnId` dat door DTO's/SSE stroomt ís de afzender-OIN (publiek, geen PII). Config-conventie: `magazijnen."<OIN>".{url,naam}` — de map-key is de OIN, dus dubbele OIN's zijn structureel onmogelijk. `ConfigMagazijnregister` valideert keys/URLs fail-fast bij boot (https-eis buiten dev/test). Consumers (sessiecache-aggregatie, `MagazijnRouter`-routering) lezen uitsluitend de `Magazijnregister`-facade; database-opslag + beheer-interface volgen later.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
@@ -240,13 +240,12 @@ géén uitgeschakeld component**).
 | `libraries/fbs-berichtensessiecache/`  | In-process sessiecache-library (`Sessiecache`-facade, Redis)    |
 | `services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml` | OpenAPI spec frontend-API |
 | `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
-| `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, H2, JPA, Fault Tolerance)        |
+| `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
-| `.github/workflows/`                   | CI: CodeQL security scanning, Scorecard, Architecture validatie |
-| `.github/CODEOWNERS`                   | Code ownership (`@MinBZK/mijnoverheid-zakelijk`)                |
+| `.github/workflows/`                   | CI: test + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, architectuursite, ZAD-deploy en preview-cleanup |
 
 ## Omgevingsvariabelen
 
