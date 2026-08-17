@@ -99,6 +99,13 @@ services:
   berichtenmagazijn-a:
     network_mode: host
     ports: !reset []
+    # Het grant-hash voor de notificatie-push komt uit de contract-bootstrap van de federatie
+    # (demo/environment/federatie/contracts/fbs-contracten.sh). Ontbreekt het bestand — geen
+    # federatie op deze machine — dan start de stack gewoon zonder, en levert dit magazijn zijn
+    # events rechtstreeks af: een lege grant-hash betekent "geen FSC-headers".
+    env_file:
+      - path: demo/generated/fsc-grants.env
+        required: false
     depends_on:
       postgres-a:
         condition: service_started
@@ -107,7 +114,10 @@ services:
       QUARKUS_HTTP_HOST: 127.0.0.1
       DB_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
       AANMELD_URL: http://127.0.0.1:18086/api/v1/aanmeldingen
-      NOTIFICATIE_URL: http://127.0.0.1:18084/events
+      # Default: rechtstreeks via toxiproxy, zodat de storing-knop van de demo werkt. Zet
+      # NOTIFICATIE_URL op de outway van magazijn-a (http://127.20.2.5:8443/events) om deze push
+      # via de FSC-keten te laten lopen; het grant-hash komt dan uit env_file hierboven.
+      NOTIFICATIE_URL: ${NOTIFICATIE_URL:-http://127.0.0.1:18084/events}
       PROFIEL_SERVICE_URL: http://127.0.0.1:8089
 
   berichtenmagazijn-b:
