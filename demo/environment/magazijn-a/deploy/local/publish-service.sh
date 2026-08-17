@@ -22,7 +22,8 @@ fsc_have_jq
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
-SERVICE_NAME="berichtenmagazijn"
+# Overrulebaar, symmetrisch met de andere peers: één inway kan meer dan één dienst dragen.
+SERVICE_NAME="${FSC_SERVICE_NAME:-berichtenmagazijn}"
 PROVIDER_OIN="00000000000000100000"
 DIR_OIN="00000000000000000010"
 GROUP_ID="moza-fbs-test"                 # = GROUP_ID env-var op de manager; als de manager een directory-adres verwacht, gebruik DIRECTORY_MANAGER_ADDRESS

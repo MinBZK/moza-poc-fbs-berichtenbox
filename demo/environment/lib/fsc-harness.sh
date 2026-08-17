@@ -126,18 +126,31 @@ fsc_grant_hash() {
     | ($g[0] // "unknown")' 2>/dev/null || echo unknown
 }
 
-# fsc_zet_upstream <envdir> <peer> <upstream-url>: publiceer de dienst van die peer (opnieuw) met
-# deze upstream achter de inway. Idempotent — bestaat de dienst al met dezelfde upstream, dan doet
-# publish-service.sh niets.
+# fsc_zet_upstream <envdir> <peer> <upstream-url> [dienst]: publiceer een dienst van die peer
+# (opnieuw) met deze upstream achter de inway. Zonder [dienst] gaat het om de standaarddienst van
+# de peer. Idempotent — bestaat de dienst al met dezelfde upstream, dan doet publish-service.sh
+# niets.
 #
 # Elke smoke die over het data-pad iets beweert, hoort dit zelf te zetten in plaats van het als
 # voorwaarde op te schrijven: smoke-contract.sh toetst de echo van de stub, smoke-keten.sh het
 # échte magazijn, en wie ze na elkaar draait zou anders de ene de andere zien omgooien.
 fsc_zet_upstream() {
-  FSC_CONTROLLER="https://controller.$2.fsc-test.local:9444" \
-  FSC_MANAGER="https://manager.$2.fsc-test.local:9443" \
-  FSC_UPSTREAM_URL="$3" \
-    "$1/$2/deploy/local/publish-service.sh"
+  local envdir="$1" peer="$2" upstream="$3" dienst="${4:-}"
+
+  (
+    export FSC_CONTROLLER="https://controller.${peer}.fsc-test.local:9444"
+    export FSC_MANAGER="https://manager.${peer}.fsc-test.local:9443"
+    export FSC_UPSTREAM_URL="$upstream"
+
+    # Zonder vierde argument publiceert de peer zijn eigen standaarddienst — de default in zijn
+    # publish-service.sh. Niet hier een naam verzinnen: dan zou deze functie moeten weten welke
+    # peer welke dienst draagt.
+    if [ -n "$dienst" ]; then
+      export FSC_SERVICE_NAME="$dienst"
+    fi
+
+    "${envdir}/${peer}/deploy/local/publish-service.sh"
+  )
 }
 
 # fsc_compose_env_waarde <waarde>: waarde zoals hij in een `env_file` van docker compose moet staan.
