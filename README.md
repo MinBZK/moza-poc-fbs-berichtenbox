@@ -1,7 +1,9 @@
 # PoC MOZa Berichtenbox
 
 ![Project Status](https://img.shields.io/badge/life_cycle-pre_alpha-red)
-[![CI](https://github.com/ericwout-overheid/moza-fbs-berichtenbox/actions/workflows/ci.yml/badge.svg)](https://github.com/ericwout-overheid/moza-fbs-berichtenbox/actions/workflows/ci.yml)
+[![Test](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/actions/workflows/test.yml/badge.svg)](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/actions/workflows/test.yml)
+[![detekt](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/actions/workflows/detekt.yml/badge.svg)](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/actions/workflows/detekt.yml)
+[![CodeQL](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/actions/workflows/codeql.yml/badge.svg)](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/actions/workflows/codeql.yml)
 ![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/MinBZK/moza-poc-fbs-berichtenbox/badge)
 
 Proof of Concept Berichtenbox voor MijnOverheid Zakelijk (MOZa) binnen het Federatief Berichtenstelsel (FBS).
@@ -13,19 +15,44 @@ beschreven op https://www.logius.nl/onze-dienstverlening/interactie/federatief-b
 
 ## Doel
 
-Dit Open Source project is opgezet als PoC voor het ontvangen, opslaan en ophalen van berichten binnen MijnOverheid Zakelijk.
-De Berichtenbox bestaat uit de volgende onderdelen:
+Dit Open Source project is opgezet als PoC voor het ontvangen, opslaan en ophalen van berichten
+binnen MijnOverheid Zakelijk. Het stelsel is federatief: elke deelnemende organisatie houdt haar
+eigen berichten in haar eigen magazijn, en de uitvraag haalt ze bij een sessie op en aggregeert ze
+voor het portaal.
 
-- **Berichtensessiecache** - Ophalen en weergeven van berichten
-- **Berichtenmagazijn** - Opslaan van berichten
-- **Berichten Uitvraag Service** - Frontend-API voor het portaal (aggregeert sessiecache + magazijn)
-- **Berichtnotificatieprofiel** - Beheer van notificatievoorkeuren
+- **Berichtenmagazijn** — decentrale opslag per organisatie; ontvangt aangeleverde berichten
+  (Aanlever-API) en levert ze uit aan de uitvraag.
+- **Berichtenuitvraag** — frontend-API voor het portaal: bevraagt alle magazijnen van de ontvanger,
+  streamt voortgang via SSE en bedient lijst, zoeken, detail en bijlagen.
+- **Demo-console** — bedieningspaneel voor demonstraties (magazijnen legen, dataset laden,
+  berichten opvoeren).
+
+De uitvraag heeft geen losse berichtensessiecache-service meer: die is opgegaan in
+`berichtenuitvraag` als in-process library, met Redis als gedeelde backing store.
+Het berichtnotificatieprofiel en de notificatiedienst zitten niet in deze repository — lokaal en op
+de testomgeving draaien die als stubs.
+
+## Repostructuur
+
+| Pad                                | Wat                                                                        |
+|------------------------------------|----------------------------------------------------------------------------|
+| `services/berichtenmagazijn/`      | Magazijn-service (PostgreSQL + Flyway, Aanlever-API)                        |
+| `services/berichtenuitvraag/`      | Uitvraag-service (frontend-API, aggregatie, SSE)                            |
+| `services/demo-console/`           | Demo-bedieningspaneel                                                       |
+| `libraries/fbs-common/`            | Gedeelde JAX-RS filters, exception mappers, identificatienummers (BSN/RSIN/OIN) |
+| `libraries/fbs-magazijnregister/`  | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)               |
+| `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                   |
+| `bruno/`                           | Bruno-collecties met voorbeeldrequests per service                          |
+| `demo/`                            | Demo-stack: stubgenerator, smoke-test, omgevingen                           |
+| `docs/`                            | Architectuur (C4/Structurizr), runbooks, plannen, verantwoording            |
+| `wiremock/`, `toxiproxy/`          | Stubs en fault-injectie voor de lokale keten                                |
 
 ## Vereisten
 
 - Java 21+
 - Maven 3.9+ (of gebruik de meegeleverde Maven wrapper `./mvnw`)
 - Docker (voor lokale services: Redis, WireMock, PostgreSQL)
+- Python 3 (alleen voor het genereren van de demo-magazijnstubs)
 
 ## Snel starten
 
@@ -45,23 +72,26 @@ zodat beide live-reload en de devconsole blijven werken:
 ./mvnw compile quarkus:dev -pl services/berichtenuitvraag -am
 ```
 
-De `compile`-fase vóór `quarkus:dev` zorgt dat de gedeelde module `libraries/fbs-common`
-(via `-am`) eerst gebouwd wordt; zonder `compile` draait Maven alleen het `quarkus:dev`-goal
-en faalt de resolution van `fbs-common-0.1.0-SNAPSHOT.jar` zolang die niet in de lokale
-Maven-repository staat.
+De `compile`-fase vóór `quarkus:dev` zorgt dat de gedeelde modules onder `libraries/`
+(via `-am`) eerst gebouwd worden; zonder `compile` draait Maven alleen het `quarkus:dev`-goal
+en faalt de resolution van bijvoorbeeld `fbs-common-0.1.0-SNAPSHOT.jar` zolang die niet in de
+lokale Maven-repository staat.
 
 | Service              | API                                              | OpenAPI                                 |
 |----------------------|--------------------------------------------------|-----------------------------------------|
 | berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
 | berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/openapi.json`    |
+| demo-console         | `http://localhost:8095`                          | —                                       |
 
-De vroegere losse berichtensessiecache-service is opgegaan in `berichtenuitvraag`
-als in-process library (`libraries/fbs-berichtensessiecache`) met Redis als
-gedeelde backing store.
+Een tweede magazijn draai je op 8091, zodat de uitvraag over meerdere magazijnen kan aggregeren:
+
+```bash
+./mvnw quarkus:dev -pl services/berichtenmagazijn -Dquarkus.http.port=8091
+```
 
 ## Demo-stack (alles in containers)
 
-> **Volledige runbook** — opzet, persona's, alle bedieningsknoppen, de 14 scenario's stap voor stap
+> **Volledige runbook** — opzet, persona's, alle bedieningsknoppen, de scenario's stap voor stap
 > en de valkuilen: [`docs/demo-runbook.md`](docs/demo-runbook.md).
 
 Voor demonstraties draait de volledige keten in containers, zodat opstarten één commando
@@ -110,10 +140,31 @@ legen, de basisdataset te laden en random berichten op te voeren.
 
 ### Tests draaien
 
+Draai altijd `clean` vóór `test` of `verify`: een achtergebleven `target/` van een andere
+branch-state laat Surefire stale `.class`-bestanden draaien, wat misleidende fouten geeft in
+ongewijzigde code.
+
 ```bash
-./mvnw test -pl libraries/fbs-berichtensessiecache -am
-./mvnw test -pl services/berichtenmagazijn -am
-./mvnw test -pl services/berichtenuitvraag -am
+./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
+./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
+./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
+./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
+./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
+```
+
+`verify` draait bovendien de kwaliteitspoorten — JaCoCo (minimaal 90% line coverage) en
+detekt (`maxIssues: 0`, zonder baseline):
+
+```bash
+./mvnw clean verify -pl services/berichtenmagazijn -am
+./mvnw detekt:check                                           # alleen de statische analyse
+```
+
+De OpenAPI-specs valideren tegen de NL API Design Rules:
+
+```bash
+npx @stoplight/spectral-cli lint services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml \
+  --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
 ```
 
 ### API-requests handmatig uitvoeren (Bruno)
@@ -143,6 +194,31 @@ magazijnen."00000000000000100000".naam=Magazijn A
 magazijnen."00000001823288444000".url=${MAGAZIJN_B_URL}
 magazijnen."00000001823288444000".naam=Magazijn B
 ```
+
+Voor productie-instellingen (TLS-eisen op Redis en het Logboek Dataverwerkingen, verplichte
+overrides) geldt de [operator-handleiding](docs/operator-handleiding.md).
+
+## Architectuur en achtergrond
+
+Het C4-model staat als Structurizr DSL in [`docs/architecture/`](docs/architecture/) en wordt
+gepubliceerd op <https://minbzk.github.io/moza-poc-fbs-berichtenbox/>; die site wordt ververst
+zodra er iets in `docs/architecture/` wijzigt (per PR ook als preview).
+
+Verder lezen:
+
+- [Aanpak en keuzes van de PoC](docs/aanpak-en-keuzes.md) — waarom federatief, welke standaarden
+- [Demo-runbook](docs/demo-runbook.md) — de demo-stack en alle scenario's
+- [Operator-handleiding](docs/operator-handleiding.md) — verplichte productie-overrides
+- [Vergelijking VoRijk (Blauwe Knop) vs. FBS Berichtenbox](docs/vergelijking-fbs-vorijk.md)
+- [Analyse: architectuur voor uniforme bronontsluiting](docs/analyse-architectuur-uniforme-bronontsluiting.md)
+- [`docs/plans/`](docs/plans/) — implementatieplannen met de gemaakte ontwerpkeuzes
+
+## Bijdragen
+
+Wijzigingen gaan altijd via een feature branch en een Pull Request; er wordt niet direct naar
+`main` gepusht. Elke PR draait tests met coverage-rapportage, detekt en CodeQL, en krijgt een
+eigen preview-omgeving. Zie [SUPPORT.md](SUPPORT.md) voor contact en
+[GOVERNANCE.md](GOVERNANCE.md) voor besluitvorming.
 
 ## Licentie
 
