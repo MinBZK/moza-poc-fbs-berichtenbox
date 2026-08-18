@@ -136,19 +136,25 @@ class Voorbeeld {
 > laat Surefire stale `.class`-bestanden draaien → misleidende `NoSuchMethodError`/
 > "Failed to start quarkus"-fouten in ongewijzigde code. `mvn clean ...` voorkomt dit.
 
+De volledige ontwikkelgids (tests per module, gates, linting, tweede magazijn, configuratie) staat
+in `docs/ontwikkelen.md`; houd dat bestand leidend en werk het bij als deze commando's wijzigen.
+
 ```bash
 docker compose up -d                                             # Start Redis, WireMock, PostgreSQL
+./mvnw clean test -pl libraries/fbs-common -am                   # Tests fbs-common (pure JVM)
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
-./mvnw compile -pl services/berichtenuitvraag -am                # Compileren berichtenuitvraag
-./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
-./mvnw quarkus:dev -pl services/berichtenuitvraag                # Dev mode (poort 8086)
-./mvnw compile -pl services/berichtenmagazijn -am                # Compileren berichtenmagazijn
-./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn
-./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo (Docker vereist)
-./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode (poort 8090)
 ./mvnw clean test -pl services/demo-console -am                  # Tests demo-console (pure JVM)
+./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
+./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
+./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo + detekt
+./mvnw compile quarkus:dev -pl services/berichtenuitvraag -am    # Dev mode (poort 8086)
+./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am    # Dev mode (poort 8090)
 ```
+
+`compile` en `-am` horen bij `quarkus:dev`: zonder die twee draait Maven alleen het dev-goal en
+faalt de resolution van de `libraries/`-jars die nog niet in de lokale Maven-repository staan.
+De JaCoCo-90%-gate hangt aan de fase `test`, detekt aan `verify`.
 
 ### Build- en test-warnings nalopen
 
@@ -241,12 +247,12 @@ géén uitgeschakeld component**).
 | `libraries/fbs-berichtensessiecache/`  | In-process sessiecache-library (`Sessiecache`-facade, Redis)    |
 | `services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml` | OpenAPI spec frontend-API |
 | `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
+| `services/demo-console/`               | Demo-bedieningspaneel (pure-JVM-tests, geen JaCoCo-gate)        |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
 | `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, configuratie |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
-| `services/demo-console/`               | Demo-bedieningspaneel (pure-JVM-tests, geen JaCoCo-gate)        |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
 | `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |
 

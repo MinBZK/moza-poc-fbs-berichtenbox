@@ -4,6 +4,21 @@ Alles wat je lokaal nodig hebt om te bouwen, testen en handmatig tegen de API's 
 Voor het opzetten van de demo-stack: [`demo-runbook.md`](demo-runbook.md). Voor draaien in
 productie: [`operator-handleiding.md`](operator-handleiding.md).
 
+## Een endpoint wijzigen: OpenAPI-first
+
+De OpenAPI-spec per service is de bron van waarheid, niet de Kotlin-code. De volgorde is daarom
+altijd dezelfde:
+
+1. Wijzig de spec — `services/<service>/src/main/resources/openapi/<service>-api.yaml`.
+2. Bouw. De `openapi-generator-maven-plugin` genereert met `jaxrs-spec` en `interfaceOnly=true`
+   JAX-RS-interfaces plus DTO's naar `target/generated-sources/openapi/`. Die map nooit met de
+   hand aanpassen: elke build overschrijft hem.
+3. Pas de Kotlin-resource aan die de interface implementeert. Wijkt je implementatie af van de
+   spec, dan faalt de compilatie — dat is de bedoelde vangrail.
+4. Voeg een `.bru`-request toe aan de bijbehorende Bruno-collectie, zodat die de spec blijft
+   spiegelen.
+5. Lint de spec (zie hieronder) en draai de tests.
+
 ## Tests draaien
 
 Draai altijd `clean` vóór `test` of `verify`: een achtergebleven `target/` van een andere
@@ -24,13 +39,17 @@ De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Servic
 
 ## Kwaliteitsgates
 
-`verify` draait naast de tests de gates die ook in CI staan: detekt (`maxIssues: 0`, zonder
-baseline) voor de hele repo, en JaCoCo met minimaal 90% line coverage voor beide services en alle
-libraries. De demo-console heeft geen coverage-gate.
+Er zijn twee gates, en ze slaan op verschillende fases toe:
+
+- **JaCoCo, minimaal 90% line coverage** — hangt aan de fase `test`, dus de commando's hierboven
+  handhaven hem al. Geldt voor beide services en alle libraries; de demo-console heeft geen
+  coverage-gate.
+- **detekt, `maxIssues: 0` zonder baseline** — hangt aan de fase `verify`, dus die zie je pas bij
+  `verify` of via het losse goal.
 
 ```bash
-./mvnw clean verify -pl services/berichtenmagazijn -am
-./mvnw detekt:check                                           # alleen de statische analyse
+./mvnw clean verify -pl services/berichtenmagazijn -am   # tests + coverage + detekt op die module
+./mvnw detekt:check                                      # alleen detekt, repo-breed
 ```
 
 Een detekt-bevinding faalt de build en hoort echt opgelost te worden; een bewuste, onvermijdelijke
@@ -80,24 +99,22 @@ OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een bijbehorende `.bru`
 
 ## Configuratie
 
-De belangrijkste configuratie staat in
-`services/berichtenuitvraag/src/main/resources/application.properties`. Ingekort weergegeven —
-het bestand zelf bevat per magazijn ook nog de FSC-grant-hash:
+Het magazijnregister staat in
+`services/berichtenuitvraag/src/main/resources/application.properties` (zoek op `magazijnen."`).
+Per deelnemende organisatie zijn er drie sleutels — `url`, `naam` en `grantHash` — met de
+afzender-OIN als map-key:
 
 ```properties
-# Magazijnregister: de map-key is de afzender-OIN, de waarde het magazijn van die organisatie.
-# %dev vult de URL uit een env-var met de lokale poort als default, zodat dezelfde
-# configuratie in een container naar container-DNS wijst.
-# %dev-default van MAGAZIJN_A_URL: http://localhost:8090
 magazijnen."00000000000000100000".url=${MAGAZIJN_A_URL}
 magazijnen."00000000000000100000".naam=Magazijn A
-# %dev-default van MAGAZIJN_B_URL: http://localhost:8091
-magazijnen."00000001823288444000".url=${MAGAZIJN_B_URL}
-magazijnen."00000001823288444000".naam=Magazijn B
+magazijnen."00000000000000100000".grantHash=${MAGAZIJN_A_GRANT_HASH:}
 ```
 
-Omdat de map-key de OIN is, zijn dubbele OIN's structureel onmogelijk; `ConfigMagazijnregister`
-valideert keys en URL's bij het opstarten en weigert buiten dev/test een niet-https-adres.
+Omdat de map-key de OIN is, zijn dubbele OIN's structureel onmogelijk. `ConfigMagazijnregister`
+valideert keys en URL's bij het opstarten en weigert buiten dev/test een niet-https-adres. In `%dev`
+staan de URL's op `http://localhost:8090` en `:8091` als default, zodat dezelfde configuratie in een
+container naar container-DNS wijst zonder de basisregels te hoeven overschrijven. Een lege
+`grantHash` betekent: geen FSC-outway, roep het magazijn rechtstreeks aan.
 
 Voor productie-instellingen — TLS-eisen op Redis en het Logboek Dataverwerkingen, verplichte
 overrides, tuning en monitoring — geldt de [operator-handleiding](operator-handleiding.md).

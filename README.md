@@ -48,7 +48,7 @@ De belangrijkste paden:
 | `libraries/fbs-magazijnregister/`     | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)                    |
 | `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                           |
 | `bruno/`                              | Bruno-collecties met voorbeeldrequests per service                                |
-| `demo/`                               | Demo-stack: stubgenerator, smoke-test; `demo/environment/` bevat de FSC-federatieharness |
+| `demo/`                               | Demo-stack: stubgenerator, rookproef; `demo/environment/` bevat de FSC-federatieharness |
 | `docs/`                               | Architectuur (C4/Structurizr), runbooks, plannen, verantwoording                  |
 | `wiremock/`, `toxiproxy/`             | Stubs en fault-injection voor de lokale keten                                     |
 | `compose.yaml`                        | Lokale infrastructuur en de volledige demo-stack (`--profile demo`)               |
@@ -58,7 +58,7 @@ De belangrijkste paden:
 - Java 21+
 - Maven 3.9+ (of gebruik de meegeleverde Maven wrapper `./mvnw`)
 - Docker (voor lokale services: Redis, WireMock, PostgreSQL)
-- Python 3 (alleen voor het genereren van de demo-magazijnstubs)
+- Python 3 — alleen voor de demo-stack (genereert de magazijn-stubs)
 
 ## Snel starten
 
@@ -88,6 +88,10 @@ lokale Maven-repository staat.
 | berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
 | berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/openapi.json`    |
 
+De uitvraag verwacht in dev óók een magazijn B op 8091. Draai je alleen A, dan meldt het ophalen
+een gedeeltelijke storing — dat is correct gedrag, geen defect. Zie
+[een tweede magazijn draaien](docs/ontwikkelen.md#een-tweede-magazijn-draaien).
+
 ## Demo-stack
 
 Voor demonstraties draait de volledige keten in containers — images bouwen met jib, stubs
@@ -116,7 +120,6 @@ zodra er iets in `docs/architecture/` wijzigt (per PR ook als preview).
 Verder lezen:
 
 - [Aanpak en keuzes van de PoC](docs/aanpak-en-keuzes.md) — waarom federatief, welke standaarden
-- [Ontwikkelen](docs/ontwikkelen.md) — tests, kwaliteitsgates, linting, lokale configuratie
 - [Demo-runbook](docs/demo-runbook.md) — de demo-stack en alle scenario's
 - [Operator-handleiding](docs/operator-handleiding.md) — verplichte productie-overrides
 - [`docs/operations/`](docs/operations/) — runbooks per operationele procedure (alerts, schema-bumps)
@@ -127,9 +130,11 @@ Verder lezen:
 ## Bijdragen
 
 Wijzigingen gaan altijd via een feature branch en een Pull Request; er wordt niet direct naar
-`main` gepusht. Een PR die code raakt draait tests met coverage-rapportage en detekt; PR's op
-`main` draaien daarnaast CodeQL en krijgen een eigen preview-omgeving op ZAD. PR's die alleen
-documentatie wijzigen slaan die checks over. Zie [SUPPORT.md](SUPPORT.md) voor contact en
+`main` gepusht. Een PR die code raakt draait tests met coverage-rapportage en detekt, en krijgt een
+eigen preview-omgeving op ZAD; wijzigt een PR alleen documentatie, dan slaat hij die over. CodeQL
+draait bewust wél op élke PR, ook documentatie-only — het analyseert de hele snapshot en niet de
+diff, en de OpenSSF-Scorecard telt een overgeslagen analyse als een ongedekte PR. Zie
+[SUPPORT.md](SUPPORT.md) voor contact en
 [GOVERNANCE.md](GOVERNANCE.md) voor besluitvorming.
 
 ## Licentie

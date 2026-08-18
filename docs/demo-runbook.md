@@ -5,7 +5,8 @@ Compose. Alle demo-bediening zit in de **wegwerp `demo-console`** (poort 8095); 
 bevatten géén demo-logica.
 
 Ontwerp en achtergrond: `docs/plans/2026-07-21-demo-platform-design.md` (overkoepelend) en de fase-
-documenten `docs/plans/2026-07-2*-demo-platform-fase-*.md`.
+documenten `docs/plans/2026-07-2*-demo-platform-fase-*.md`. Wil je niet demonstreren maar
+ontwikkelen — tests, gates, linting, de services in dev-mode — zie [`ontwikkelen.md`](ontwikkelen.md).
 
 ---
 
