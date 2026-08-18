@@ -25,7 +25,7 @@ import java.time.Instant
 import java.util.UUID
 
 @QuarkusTest
-class OphaalResourceIntegrationTest {
+class BerichtenOphalenIntegrationTest {
 
     @Inject lateinit var berichtRepository: BerichtRepository
     @Inject lateinit var bijlageRepository: BijlageRepository

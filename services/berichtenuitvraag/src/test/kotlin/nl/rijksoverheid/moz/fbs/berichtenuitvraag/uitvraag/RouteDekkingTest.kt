@@ -39,7 +39,7 @@ class RouteDekkingTest {
     companion object {
         private const val SPEC = "openapi/berichtenuitvraag-api.yaml"
 
-        /** Gelijk aan `servers.url` in de spec; de resources dragen dit voorvoegsel via `ApiInfo.BASE_PATH`. */
+        /** Gelijk aan `servers.url` in de spec; de resources dragen dit voorvoegsel via `quarkus.rest.path`. */
         private const val BASIS_PAD = "/api/v1"
 
         /** Vastgelegd zodat een verdwenen pad door een halve spec-parse niet stil de dekking verkleint. */
