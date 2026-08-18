@@ -140,7 +140,8 @@ De volledige ontwikkelgids (tests per module, gates, linting, tweede magazijn, c
 in `docs/ontwikkelen.md`; houd dat bestand leidend en werk het bij als deze commando's wijzigen.
 
 ```bash
-docker compose up -d                                             # Start Redis, WireMock, PostgreSQL
+# Tests draaien hun eigen infra via Dev Services; compose is voor dev-mode.
+docker compose up -d                                             # Redis, WireMock, PostgreSQL (dev-mode)
 ./mvnw clean test -pl libraries/fbs-common -am                   # Tests fbs-common (pure JVM)
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)

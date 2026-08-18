@@ -99,11 +99,11 @@ genereren, `docker compose --profile demo up -d`, en een bedieningspaneel op
 <http://localhost:8095>. Het [demo-runbook](docs/demo-runbook.md) beschrijft de opzet, de
 persona's, alle knoppen en de scenario's stap voor stap.
 
-Zónder `--profile demo` start compose alleen de infrastructuur (Redis, de drie
-Postgres-instanties en de WireMock-stubs voor magazijnen, profiel, aanmelden en notificaties).
-Gebruik die modus tijdens het ontwikkelen en draai de services met `quarkus:dev` zoals hierboven —
-in een container kost elke codewijziging een image-build. De poorten zijn in beide modi gelijk,
-dus de Bruno-collectie werkt ongewijzigd; draai ze niet tegelijk, dat geeft een poortconflict.
+Zónder `--profile demo` start compose alleen de infrastructuur (Redis, de drie Postgres-instanties
+en de WireMock-stubs voor de externe diensten). Gebruik die modus tijdens het ontwikkelen en draai
+de services zelf met `quarkus:dev` zoals hierboven — in een container kost elke codewijziging een
+image-build. Draai de twee modi niet tegelijk: dat geeft een poortconflict. Het runbook zet beide
+modi naast elkaar in [§4](docs/demo-runbook.md).
 
 ## Ontwikkelen
 
@@ -130,11 +130,12 @@ Verder lezen:
 ## Bijdragen
 
 Wijzigingen gaan altijd via een feature branch en een Pull Request; er wordt niet direct naar
-`main` gepusht. Een PR die code raakt draait tests met coverage-rapportage en detekt, en krijgt een
-eigen preview-omgeving op ZAD; wijzigt een PR alleen documentatie, dan slaat hij die over. CodeQL
-draait bewust wél op élke PR, ook documentatie-only — het analyseert de hele snapshot en niet de
-diff, en de OpenSSF-Scorecard telt een overgeslagen analyse als een ongedekte PR. Zie
-[SUPPORT.md](SUPPORT.md) voor contact en
+`main` gepusht. Een PR die code raakt draait tests met coverage-rapportage en detekt; wijzigt hij
+alleen documentatie, dan slaat hij die over. Is `main` de doelbranch, dan komen daar CodeQL en een
+eigen preview-omgeving op ZAD bij — een gestapelde PR op een andere branch wordt dus wél getoetst,
+maar niet geanalyseerd of uitgerold. CodeQL draait daarbij bewust ook op documentatie-only PR's:
+het analyseert de hele snapshot in plaats van de diff, en de OpenSSF-Scorecard telt een
+overgeslagen analyse als een ongedekte PR. Zie [SUPPORT.md](SUPPORT.md) voor contact en
 [GOVERNANCE.md](GOVERNANCE.md) voor besluitvorming.
 
 ## Licentie

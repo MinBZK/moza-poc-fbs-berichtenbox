@@ -14,8 +14,10 @@ ontwikkelen — tests, gates, linting, de services in dev-mode — zie [`ontwikk
 
 - **Docker** + Docker Compose.
 - **JDK 21** (de Maven-wrapper `./mvnw` regelt de rest). Geen lokale Maven nodig.
-- **Apple Silicon (arm64):** jib bouwt standaard `amd64`. Voeg aan élk image-build-commando
-  `-Dquarkus.jib.platforms=linux/arm64` toe, anders start de container niet (of traag via emulatie).
+- **Apple Silicon (arm64):** jib bouwt standaard `amd64`, want de ZAD-cluster is amd64. Voeg aan
+  élk image-build-commando `-Dquarkus.jib.platforms=linux/arm64` toe, anders start de container
+  niet (of traag via emulatie). Zet die flag op de commandoregel en **niet** in de POM: vanuit de
+  config maak je ook de CI- en ZAD-images arm64, en die draaien dan nergens.
 - **Altijd `clean`** bij Maven-builds (we wisselen van branch op een bind-mount; stale `target/`
   geeft misleidende fouten).
 
