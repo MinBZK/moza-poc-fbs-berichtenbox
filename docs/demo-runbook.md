@@ -5,7 +5,8 @@ Compose. Alle demo-bediening zit in de **wegwerp `demo-console`** (poort 8095); 
 bevatten géén demo-logica.
 
 Ontwerp en achtergrond: `docs/plans/2026-07-21-demo-platform-design.md` (overkoepelend) en de fase-
-documenten `docs/plans/2026-07-2*-demo-platform-fase-*.md`.
+documenten `docs/plans/2026-07-2*-demo-platform-fase-*.md`. Wil je niet demonstreren maar
+ontwikkelen — tests, gates, linting, de services in dev-mode — zie [`ontwikkelen.md`](ontwikkelen.md).
 
 ---
 
@@ -13,8 +14,10 @@ documenten `docs/plans/2026-07-2*-demo-platform-fase-*.md`.
 
 - **Docker** + Docker Compose.
 - **JDK 21** (de Maven-wrapper `./mvnw` regelt de rest). Geen lokale Maven nodig.
-- **Apple Silicon (arm64):** jib bouwt standaard `amd64`. Voeg aan élk image-build-commando
-  `-Dquarkus.jib.platforms=linux/arm64` toe, anders start de container niet (of traag via emulatie).
+- **Apple Silicon (arm64):** jib bouwt standaard `amd64`, want de ZAD-cluster is amd64. Voeg aan
+  élk image-build-commando `-Dquarkus.jib.platforms=linux/arm64` toe, anders start de container
+  niet (of traag via emulatie). Zet die flag op de commandoregel en **niet** in de POM: vanuit de
+  config maak je ook de CI- en ZAD-images arm64, en die draaien dan nergens.
 - **Altijd `clean`** bij Maven-builds (we wisselen van branch op een bind-mount; stale `target/`
   geeft misleidende fouten).
 
@@ -71,11 +74,23 @@ Er zijn twee modi met dezelfde compose:
 > kan dat bestand daarna ook niet meer schrijven (eerst `rm -rf demo/generated/`). Het is één
 > idempotent commando; sla het niet over.
 
+Controleer de keten met een rookproef — aanleveren bij beide magazijnen en ophalen via de uitvraag:
+
+```bash
+./demo/smoke.sh
+```
+
 Openen na start:
 - **Bedieningspaneel:** <http://localhost:8095/>
 - **Berichtenbox (ondernemer):** <http://localhost:8095/berichtenbox.html>
 
 Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-volumes te wissen).
+
+> **Waarom CORS geen build-flag is:** CORS is een runtime-property en staat uitsluitend als env-var
+> in het demo-profiel van `compose.yaml`; de `application.properties` van `berichtenuitvraag` bevat
+> geen CORS-config. Enabled zónder `origins` laat alleen same-origin door, en de UI op `:8095`
+> roept de API op `:8086` aan — vandaar de allowlist ernaast in compose. Het prod-profiel zet CORS
+> niet aan, dus de ZAD-images blijven CORS-loos zonder dat de build iets hoeft te weten.
 
 ### Podman in plaats van Docker
 
