@@ -620,6 +620,41 @@ jobs:
   # DIAGNOSTIEK (gaat er weer uit): dumpt de volledige needs-context vanuit een job met exact de
   # vijf `needs` van de preview-jobs. Daarmee is zichtbaar wat die jobs lezen — resultaat én
   # outputs per need — in plaats van het te moeten afleiden uit wie wel en niet draaide.
+  # DIAGNOSTIEK (gaat er weer uit): vier keer dezelfde conditie, alleen de `needs`-verzameling
+  # verschilt. `build` (matrix) en `gate` zijn de kandidaten: draait P3 wel en P2 niet, dan
+  # vergiftigt de matrix-job de evaluatie; draait P4 wel en P2 niet, dan doet `gate` dat.
+  diagnose-p1-alleen-changes:
+    if: needs.changes.outputs.deploy == 'true'
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "P1 (needs=[changes]) gedraaid"
+
+  diagnose-p2-vijf-needs:
+    if: needs.changes.outputs.deploy == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "P2 (vijf needs) gedraaid"
+
+  diagnose-p3-zonder-matrixjob:
+    if: needs.changes.outputs.deploy == 'true'
+    needs: [meta, build-externe-stubs, gate, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "P3 (zonder build-matrix) gedraaid"
+
+  diagnose-p4-zonder-gate:
+    if: needs.changes.outputs.deploy == 'true'
+    needs: [meta, build, build-externe-stubs, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "P4 (zonder gate) gedraaid"
+
   diagnose-needs-context:
     if: always()
     needs: [meta, build, build-externe-stubs, gate, changes]
