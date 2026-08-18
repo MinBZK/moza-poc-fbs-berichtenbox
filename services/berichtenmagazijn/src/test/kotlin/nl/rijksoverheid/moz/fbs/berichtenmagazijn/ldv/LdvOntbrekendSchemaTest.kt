@@ -64,7 +64,7 @@ class LdvOntbrekendSchemaTest {
                 }
                 """.trimIndent(),
             )
-            .post("/api/v1/berichten")
+            .post("/api/v1/aanleveringen")
             .then()
             // Geen 201: zonder logregel telt de verwerking niet als uitgevoerd.
             .statusCode(500)

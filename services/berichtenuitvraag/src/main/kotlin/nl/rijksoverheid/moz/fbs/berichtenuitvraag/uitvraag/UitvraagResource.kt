@@ -1,12 +1,10 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.Path
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
-import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.UitvraagApi
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
@@ -19,8 +17,11 @@ import java.util.UUID
  * [UitvraagApi]-interface en delegeert per endpoint naar de bijbehorende
  * service. SSE-endpoint `_ophalen` valt buiten codegen (tag `Ophalen`) en
  * wordt door [OphalenSseResource] afgehandeld.
+ *
+ * Bewust géén eigen `@Path`: de paden komen uit [UitvraagApi], de `/api/v1`-prefix
+ * uit `quarkus.rest.path`. Een class-`@Path` hier zou botsen met de pad-verdeling
+ * die de generator zelf over class- en methode-niveau maakt.
  */
-@Path(ApiInfo.BASE_PATH + "/berichten")
 @ApplicationScoped
 class UitvraagResource(
     private val lijstService: BerichtenlijstService,

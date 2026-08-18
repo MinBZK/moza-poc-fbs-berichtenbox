@@ -58,7 +58,7 @@ class LdvPostgresIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .post("/api/v1/berichten")
+            .post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
 

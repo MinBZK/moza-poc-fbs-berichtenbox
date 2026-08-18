@@ -61,7 +61,7 @@ class DbConstraintViolation409ContractTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(409)
             .contentType("application/problem+json")

@@ -19,7 +19,9 @@ import java.util.UUID
 
 class BerichtDtoMapperTest {
 
-    private fun baseUri() = UriBuilder.fromUri("https://magazijn.example.com")
+    // Spiegelt `uriInfo.baseUri` at runtime: die bevat de `/api/v1`-prefix uit
+    // `quarkus.rest.path` al, dus de mapper voegt hem niet nog eens toe.
+    private fun baseUri() = UriBuilder.fromUri("https://magazijn.example.com/api/v1")
 
     private fun bericht(
         bijlagen: List<BijlageMetadata> = emptyList(),

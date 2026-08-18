@@ -20,25 +20,27 @@ data class StatusPatch(val gelezen: Boolean)
  * Minimale client voor de magazijn-API. De base-URI wordt per magazijn programmatisch gezet
  * (zie AanleverService), zodat de console met een variabel aantal magazijnen overweg kan.
  */
-@Path("/api/v1/berichten")
+@Path("/api/v1")
 interface MagazijnAanleverClient {
 
     @POST
+    @Path("/aanleveringen")
     @Consumes(MediaType.APPLICATION_JSON)
     fun leverAan(verzoek: AanleverVerzoek): Response
 
     // Rauwe JSON-body zodat de demo-console volledig ongeldige payloads kan sturen (scenario
     // 'foutieve aanlevering'); de getypeerde leverAan kan niet elke ongeldigheid uitdrukken.
-    // Twee @POST op hetzelfde interface-@Path mag voor een rest-client: elke methode is een losse
+    // Twee @POST op hetzelfde pad mag voor een rest-client: elke methode is een losse
     // invocatie, geen server-routering.
     @POST
+    @Path("/aanleveringen")
     @Consumes(MediaType.APPLICATION_JSON)
     fun leverRuwAan(payload: String): Response
 
     // Zet de leesstatus rechtstreeks op het magazijn (geen sessiecache nodig). X-Ontvanger is
     // TYPE:WAARDE; body is merge-patch met een boolean `gelezen`.
     @PATCH
-    @Path("/{berichtId}")
+    @Path("/berichten/{berichtId}")
     @Consumes("application/merge-patch+json")
     fun markeer(
         @PathParam("berichtId") berichtId: String,

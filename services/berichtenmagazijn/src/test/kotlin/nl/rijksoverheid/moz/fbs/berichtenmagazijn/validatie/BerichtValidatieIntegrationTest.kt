@@ -69,7 +69,7 @@ class BerichtValidatieIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
     }
@@ -93,7 +93,7 @@ class BerichtValidatieIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
@@ -126,7 +126,7 @@ class BerichtValidatieIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(403)
             .contentType("application/problem+json")
@@ -156,7 +156,7 @@ class BerichtValidatieIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(403)
             .contentType("application/problem+json")
@@ -185,7 +185,7 @@ class BerichtValidatieIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(403)
             .contentType("application/problem+json")
@@ -206,7 +206,7 @@ class BerichtValidatieIntegrationTest {
                 }
                 """.trimIndent(),
             )
-            .`when`().post("/api/v1/berichten")
+            .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
     }

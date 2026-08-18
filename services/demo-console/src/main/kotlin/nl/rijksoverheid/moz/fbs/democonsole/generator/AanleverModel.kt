@@ -7,7 +7,7 @@ data class OntvangerDto(val type: String, val waarde: String)
 data class BijlageDto(val naam: String, val mimeType: String, val inhoud: String)
 
 /**
- * Body voor `POST /api/v1/berichten` op het magazijn. `afzender` is een kale OIN-string
+ * Body voor `POST /api/v1/aanleveringen` op het magazijn. `afzender` is een kale OIN-string
  * (20 cijfers); alleen `ontvanger` is getypeerd. Velden matchen BerichtAanleverenRequest.
  */
 data class AanleverVerzoek(

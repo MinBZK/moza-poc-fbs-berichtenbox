@@ -15,7 +15,7 @@
   "apis": [
     {
       "name": "FBS Berichtenmagazijn — Aanlever API",
-      "description": "Aanlevering van berichten aan het decentrale magazijn (POST /api/v1/berichten). Onderdeel van het Federatief Berichtenstelsel.",
+      "description": "Aanlevering van berichten aan het decentrale magazijn (POST /api/v1/aanleveringen). Onderdeel van het Federatief Berichtenstelsel.",
       "image": "https://www.rijksoverheid.nl/img/logo-rijksoverheid.svg",
       "humanURL": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox",
       "baseURL": "/api/v1",

@@ -1,8 +1,7 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
+package nl.rijksoverheid.moz.fbs.berichtenmagazijn.berichten
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.InternalServerErrorException
-import jakarta.ws.rs.Path
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.MediaType
@@ -10,31 +9,45 @@ import jakarta.ws.rs.core.UriInfo
 import org.jboss.logging.Logger
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.OphaalApi
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.BerichtenApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.beheer.BerichtBeheerService
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BIJLAGE_MIME_TYPE_PROPERTY
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtDtoMapper
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtOphaalService
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusPatch as BerichtStatusPatchDto
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch as BerichtStatusPatchDomain
 
 /**
- * Resource voor de Ophaal-API. Implementeert de gegenereerde [OphaalApi]
- * interface en mapt domeinobjecten naar de API-modellen via [BerichtDtoMapper].
+ * Resource voor alle operaties onder `/berichten`: lijst, detail, bijlage, status-PATCH
+ * en soft-delete. Ophalen en beheren delen één instappunt omdat één tag in de spec één
+ * gegenereerde interface oplevert, en die door precies één class geïmplementeerd wordt.
+ * Ze moeten dezelfde tag delen omdat ze hetzelfde pad delen — `GET` en `PATCH`/`DELETE`
+ * op `/berichten/{berichtId}` — en twee tags onder dezelfde pad-root elkaars routes
+ * onbereikbaar maken. De logica zelf blijft gescheiden in [BerichtOphaalService] en
+ * [BerichtBeheerService]; alleen de HTTP-laag komt hier samen.
  *
- * Voor `getBijlage` wordt het werkelijke MIME-type van de bijlage in de
- * `Content-Type` response-header gezet via [BijlageContentTypeFilter]; de
- * resource zet het MIME-type op een request-attribute zodat het filter het
- * vlak voor het schrijven van de body kan toepassen.
+ * Bewust géén eigen `@Path`: de paden komen uit [BerichtenApi], de `/api/v1`-prefix uit
+ * `quarkus.rest.path`. Een class-`@Path` hier zou botsen met de pad-verdeling die de
+ * generator zelf over class- en methode-niveau maakt.
+ *
+ * Voor `getBijlage` wordt het werkelijke MIME-type van de bijlage in de `Content-Type`
+ * response-header gezet via `BijlageContentTypeFilter`; de resource zet het MIME-type op
+ * een request-attribute zodat het filter het vlak voor het schrijven van de body kan
+ * toepassen.
  */
-@Path(ApiInfo.BASE_PATH + "/berichten")
 @ApplicationScoped
-class OphaalResource(
+class BerichtenResource(
     private val ophaalService: BerichtOphaalService,
+    private val beheerService: BerichtBeheerService,
     private val logboekContext: LogboekContext,
     @param:Context private val uriInfo: UriInfo,
     @param:Context private val request: ContainerRequestContext,
-) : OphaalApi {
+) : BerichtenApi {
 
     @Logboek(
         name = "ophalen-berichtenlijst",
@@ -54,6 +67,7 @@ class OphaalResource(
             page = page ?: 0,
             pageSize = pageSize ?: DEFAULT_PAGE_SIZE,
         )
+
         return BerichtDtoMapper.toBerichtenLijst(pagina, afzender, uriInfo.baseUriBuilder)
     }
 
@@ -65,6 +79,7 @@ class OphaalResource(
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
         registreerLdvSubject(ontvanger)
         val bericht = ophaalService.haalBerichtOp(berichtId, ontvanger)
+
         return BerichtDtoMapper.toBericht(bericht, uriInfo.baseUriBuilder)
     }
 
@@ -92,11 +107,47 @@ class OphaalResource(
                 )
             }
             .getOrNull()
+
         if (mediaType == null) {
             throw InternalServerErrorException("Ongeldig MIME-type in bijlage")
         }
+
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mediaType.toString())
+
         return bijlage.content
+    }
+
+    @Logboek(
+        name = "bijwerken-bericht-status",
+        processingActivityId = ProcessingActivities.MAGAZIJN_BEHEER,
+    )
+    override fun updateBerichtStatus(
+        berichtId: UUID,
+        xOntvanger: String,
+        berichtStatusPatch: BerichtStatusPatchDto,
+    ): Bericht {
+        val ontvanger = Identificatienummer.fromHeader(xOntvanger)
+        registreerLdvSubject(ontvanger)
+        val bericht = beheerService.wijzigStatus(
+            berichtId = berichtId,
+            ontvanger = ontvanger,
+            patch = BerichtStatusPatchDomain(
+                gelezen = berichtStatusPatch.gelezen,
+                map = berichtStatusPatch.map,
+            ),
+        )
+
+        return BerichtDtoMapper.toBericht(bericht, uriInfo.baseUriBuilder)
+    }
+
+    @Logboek(
+        name = "verwijderen-bericht",
+        processingActivityId = ProcessingActivities.MAGAZIJN_BEHEER,
+    )
+    override fun verwijderBericht(berichtId: UUID, xOntvanger: String) {
+        val ontvanger = Identificatienummer.fromHeader(xOntvanger)
+        registreerLdvSubject(ontvanger)
+        beheerService.verwijder(berichtId, ontvanger)
     }
 
     private fun registreerLdvSubject(ontvanger: Identificatienummer) {
@@ -109,7 +160,7 @@ class OphaalResource(
     }
 
     private companion object {
-        private val log: Logger = Logger.getLogger(OphaalResource::class.java)
+        private val log: Logger = Logger.getLogger(BerichtenResource::class.java)
 
         // Default voor `pageSize` als de query-param ontbreekt. De gegenereerde
         // interface levert `pageSize` als `Int?`; Quarkus REST dwingt de

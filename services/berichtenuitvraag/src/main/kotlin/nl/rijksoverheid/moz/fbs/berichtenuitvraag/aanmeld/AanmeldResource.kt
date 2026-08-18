@@ -7,7 +7,6 @@ import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.core.Response
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
-import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 
 /**
@@ -34,7 +33,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
  * aanname te vervallen, dan is payload-encryptie (NL GOV CloudEvents: JWE of
  * `dataref`/claim-check) vereist.
  */
-@Path(ApiInfo.BASE_PATH + "/aanmeldingen")
+@Path("/aanmeldingen")
 @ApplicationScoped
 class AanmeldResource(
     private val service: AanmeldService,
