@@ -43,7 +43,7 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
 - **Monorepo structuur:** `services/<service-naam>/` als Maven module
-- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag`. Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`). `services/berichtenlijst/` bestaat als directory maar is niet actief.
+- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag` en `services/demo-console` (bedieningspaneel voor demo's). Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`).
 - **Magazijnregister:** één magazijn per deelnemende organisatie; het `magazijnId` dat door DTO's/SSE stroomt ís de afzender-OIN (publiek, geen PII). Config-conventie: `magazijnen."<OIN>".{url,naam}` — de map-key is de OIN, dus dubbele OIN's zijn structureel onmogelijk. `ConfigMagazijnregister` valideert keys/URLs fail-fast bij boot (https-eis buiten dev/test). Consumers (sessiecache-aggregatie, `MagazijnRouter`-routering) lezen uitsluitend de `Magazijnregister`-facade; database-opslag + beheer-interface volgen later.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
@@ -136,18 +136,26 @@ class Voorbeeld {
 > laat Surefire stale `.class`-bestanden draaien → misleidende `NoSuchMethodError`/
 > "Failed to start quarkus"-fouten in ongewijzigde code. `mvn clean ...` voorkomt dit.
 
+De volledige ontwikkelgids (tests per module, gates, linting, tweede magazijn, configuratie) staat
+in `docs/ontwikkelen.md`; houd dat bestand leidend en werk het bij als deze commando's wijzigen.
+
 ```bash
-docker compose up -d                                             # Start Redis, WireMock, PostgreSQL
+# Tests draaien hun eigen infra via Dev Services; compose is voor dev-mode.
+docker compose up -d                                             # Redis, WireMock, PostgreSQL (dev-mode)
+./mvnw clean test -pl libraries/fbs-common -am                   # Tests fbs-common (pure JVM)
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
-./mvnw compile -pl services/berichtenuitvraag -am                # Compileren berichtenuitvraag
+./mvnw clean test -pl services/demo-console -am                  # Tests demo-console (pure JVM)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
-./mvnw quarkus:dev -pl services/berichtenuitvraag                # Dev mode (poort 8086)
-./mvnw compile -pl services/berichtenmagazijn -am                # Compileren berichtenmagazijn
-./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn
-./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo (Docker vereist)
-./mvnw quarkus:dev -pl services/berichtenmagazijn                # Dev mode (poort 8090)
+./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
+./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo + detekt
+./mvnw compile quarkus:dev -pl services/berichtenuitvraag -am    # Dev mode (poort 8086)
+./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am    # Dev mode (poort 8090)
 ```
+
+`compile` en `-am` horen bij `quarkus:dev`: zonder die twee draait Maven alleen het dev-goal en
+faalt de resolution van de `libraries/`-jars die nog niet in de lokale Maven-repository staan.
+De JaCoCo-90%-gate hangt aan de fase `test`, detekt aan `verify`.
 
 ### Build- en test-warnings nalopen
 
@@ -244,14 +252,16 @@ géén uitgeschakeld component**).
 | `libraries/fbs-berichtensessiecache/`  | In-process sessiecache-library (`Sessiecache`-facade, Redis)    |
 | `services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml` | OpenAPI spec frontend-API |
 | `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
-| `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, H2, JPA, Fault Tolerance)        |
+| `services/demo-console/`               | Demo-bedieningspaneel (pure-JVM-tests, geen JaCoCo-gate)        |
+| `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
+| `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, configuratie |
+| `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
-| `.github/workflows/`                   | CI: CodeQL security scanning, Scorecard, Architecture validatie |
+| `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
-| `.github/CODEOWNERS`                   | Code ownership (`@MinBZK/mijnoverheid-zakelijk`)                |
 
 ## Omgevingsvariabelen
 
