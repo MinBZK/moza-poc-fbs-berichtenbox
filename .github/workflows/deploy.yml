@@ -286,6 +286,30 @@ jobs:
             echo "fuzz=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # DIAGNOSTIEK (gaat er weer uit): de preview-jobs slaan over terwijl `build` op dezelfde
+      # uitkomst draait. Dit maakt de gelezen waarden zichtbaar, inclusief eventuele onzichtbare
+      # tekens, zodat de `if`-evaluatie niet geraden hoeft te worden.
+      - name: Rapporteer de uitkomst
+        env:
+          RUN: ${{ steps.filter.outputs.run }}
+          DEPLOY: ${{ steps.filter.outputs.deploy }}
+          DEMO_ONLY: ${{ steps.filter.outputs.demo-only }}
+          FUZZ: ${{ steps.filter.outputs.fuzz }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "### changes-uitkomst"
+            echo ''
+            echo '```'
+            printf 'run=[%s]\ndeploy=[%s]\ndemo-only=[%s]\nfuzz=[%s]\n' "$RUN" "$DEPLOY" "$DEMO_ONLY" "$FUZZ"
+            printf 'event_name=[%s]\nevent.action=[%s]\npr.number=[%s]\n' "$EVENT_NAME" "$EVENT_ACTION" "$PR_NUMBER"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
   #
   # De PR-tag draagt de head-sha en is dus UNIEK per commit — dat is de kern van de
@@ -588,6 +612,37 @@ jobs:
   # /q/health/ready (smallrye-health), maar deze deployments mengen niet-HTTP-componenten
   # (redis) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
+  # DIAGNOSTIEK (gaat er weer uit): twee jobs met exact de `if` en `needs` van de preview-jobs,
+  # die alleen in de `environment:`-sleutel verschillen. Draait de eerste en slaat de tweede over,
+  # dan zit de oorzaak in de environment-sleutel (bv. een deployment-branch-policy) en niet in de
+  # conditie. Slaan beide over terwijl `build` op dezelfde uitkomst draaide, dan liegt de
+  # uitkomst — en dan staat in de run-samenvatting welke waarde de jobs lazen.
+  diagnose-if-zonder-environment:
+    if: github.event_name == 'pull_request' && needs.changes.outputs.deploy == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          DEPLOY: ${{ needs.changes.outputs.deploy }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          echo "zonder environment gedraaid; deploy=[$DEPLOY] event_name=[$EVENT_NAME]" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  diagnose-if-met-environment:
+    if: github.event_name == 'pull_request' && needs.changes.outputs.deploy == 'true'
+    needs: [meta, build, build-externe-stubs, gate, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: pr-${{ github.event.pull_request.number }}
+    steps:
+      - env:
+          DEPLOY: ${{ needs.changes.outputs.deploy }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          echo "met environment gedraaid; deploy=[$DEPLOY] event_name=[$EVENT_NAME]" | tee -a "$GITHUB_STEP_SUMMARY"
+
   deploy-preview-uitvraag:
     if: github.event_name == 'pull_request' && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
