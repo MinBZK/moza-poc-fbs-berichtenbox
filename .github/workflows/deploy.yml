@@ -617,6 +617,27 @@ jobs:
   # dan zit de oorzaak in de environment-sleutel (bv. een deployment-branch-policy) en niet in de
   # conditie. Slaan beide over terwijl `build` op dezelfde uitkomst draaide, dan liegt de
   # uitkomst — en dan staat in de run-samenvatting welke waarde de jobs lazen.
+  # DIAGNOSTIEK (gaat er weer uit): dumpt de volledige needs-context vanuit een job met exact de
+  # vijf `needs` van de preview-jobs. Daarmee is zichtbaar wat die jobs lezen — resultaat én
+  # outputs per need — in plaats van het te moeten afleiden uit wie wel en niet draaide.
+  diagnose-needs-context:
+    if: always()
+    needs: [meta, build, build-externe-stubs, gate, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEPLOY_DIRECT: ${{ needs.changes.outputs.deploy }}
+        run: |
+          set -euo pipefail
+
+          echo "event_name=[$EVENT_NAME]"
+          echo "needs.changes.outputs.deploy=[$DEPLOY_DIRECT]"
+          echo "volledige needs-context:"
+          printf '%s\n' "$NEEDS"
+
   diagnose-if-zonder-environment:
     if: github.event_name == 'pull_request' && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes]
