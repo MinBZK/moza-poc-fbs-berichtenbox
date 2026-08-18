@@ -187,8 +187,40 @@ Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-fr
 | `argo-applications` → `odcn-production/<project-id>/` | Eén `*-<deployment>-argocd-application.yaml` per deployment. Toont `spec.source.repoURL`/`path`/`targetRevision` + `syncPolicy` (bevestigt `selfHeal`/`prune`). |
 | `rig-cluster-application-test` → `odcn-production/<project-id>/<deployment>/` | **Gerenderde k8s-manifests die Argo daadwerkelijk synct.** Hier staat de échte image-tag én `replicas` per component (bv. `test/uitvraag-deployment.yaml`). Dit is de grond-waarheid bij elk pull-/schaal-probleem. |
 
-**OM-API** (per-project `X-API-Key`, secrets `ZAD_API_KEY_UITVRAAG`/`_MAGAZIJNEN`/`_PROFIEL`):
-basis `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api`, spec op `/openapi.json`.
+**ZAD CLI (`zadctl`) — eerste ingang, boven handmatige OM-API-calls.**
+[RijksICTGilde/zad-cli](https://github.com/RijksICTGilde/zad-cli) (EUPL-1.2) dekt hetzelfde
+OM-API-oppervlak plus ontdekbaarheid, JSON-output en exitcodes; `zadctl logs` is het
+belangrijkste dat we met de hand nooit gebruikten. Val terug op rauwe OM-calls voor wat de
+CLI niet aanbiedt.
+
+```bash
+mkdir -p ~/.local/bin && curl -fsSL -o /tmp/zadctl.tgz \
+  https://github.com/RijksICTGilde/zad-cli/releases/latest/download/zadctl_linux_amd64.tar.gz
+tar -xzf /tmp/zadctl.tgz -C ~/.local/bin zadctl && zadctl --version   # `zad` = tweede naam
+zadctl login                    # SSO (Keycloak); de ZAD_API_KEY_*-secrets zijn niet lokaal leesbaar
+zadctl project use mpfb-8wh     # of mpfm-w3h / mpfpsm-lcl; schrijft .env.zadctl (0600, gitignored)
+```
+
+| Commando | Waarvoor |
+|----------|----------|
+| `zadctl logs <deployment> -c <component> -n 200 --since 1h` | Pod-logs (API-equivalent: `GET /api/logs/{project}?deployment=&component=&lines=`, max 1000) |
+| `zadctl deployment list` / `describe <d>` / `url <d> -c <c>` | Deployments, component-images, publieke adressen |
+| `zadctl deployment update-image` / `refresh <d>` | Image zetten / reconcilen — **reactiveert géén uitgeschakeld component** (zie deadlock hieronder) |
+| `zadctl deployment delete <d>` → `create <d> …` | De delete+upsert-herstelroute; **destructief**, lees eerst de waarschuwing onderaan |
+| `zadctl resource tune` / `sanitize` | Auto-tune CPU/geheugen op werkelijk gebruik; kapotte deployments detecteren |
+| `zadctl project pending` / `refresh` | Wat is opgeslagen maar nog niet uitgerold, en alles alsnog uitrollen |
+| `zadctl guide [--section <naam>]` | Volledige uitleg, zonder credentials; `--output json` voor agent-gebruik |
+
+Voor scripts en agents: `-o json` op elk commando (data naar stdout, diagnostiek naar
+stderr), `--dry-run` toont de request zonder te sturen, `--yes` beantwoordt de
+bevestigingsprompts (alleen `delete`/`remove`/`clear`/`unset`/`restore` vragen), `--strict`
+maakt "gelukt maar degraded" non-zero. Exitcodes: `1` = eigen input/config/app, `2` =
+platform/netwerk (retry zinvol), `3` = niet te attribueren. CI blijft `zad-actions`
+gebruiken; de CLI is voor handwerk en debuggen.
+
+**OM-API rechtstreeks** — vanuit CI, of waar de CLI niets voor heeft (per-project
+`X-API-Key`, secrets `ZAD_API_KEY_UITVRAAG`/`_MAGAZIJNEN`/`_PROFIEL`): basis
+`https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api`, spec op `/openapi.json`.
 Handig (v2, read-only tenzij anders): `GET /projects/{p}/deployments` (lijst),
 `GET …/deployments/{d}` (detail incl. component-images), `PUT …/deployments/{d}/image`
 (zet image per component), `POST …/deployments/{d}/:refresh` (reconcile — **reactiveert
