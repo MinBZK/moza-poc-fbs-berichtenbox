@@ -2,7 +2,8 @@
 
 Alles wat je lokaal nodig hebt om te bouwen, testen en handmatig tegen de API's aan te praten.
 Voor het opzetten van de demo-stack: [`demo-runbook.md`](demo-runbook.md). Voor draaien in
-productie: [`operator-handleiding.md`](operator-handleiding.md).
+productie is er een operator-handleiding per service:
+[magazijn](operator-handleiding.md) en [uitvraag](operator-handleiding-uitvraag.md).
 
 ## Een endpoint wijzigen: OpenAPI-first
 
@@ -39,13 +40,13 @@ De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Servic
 
 ## Kwaliteitsgates
 
-Er zijn twee gates, en ze slaan op verschillende fases toe:
+Er zijn twee gates, elk gebonden aan een andere Maven-fase:
 
-- **JaCoCo, minimaal 90% line coverage** — hangt aan de fase `test`, dus de commando's hierboven
-  handhaven hem al. Geldt voor beide services en alle libraries; de demo-console heeft geen
+- **JaCoCo, minimaal 90% line coverage** — draait in de fase `test`, dus de commando's hierboven
+  bewaken hem al. Geldt voor beide services en alle libraries; de demo-console heeft geen
   coverage-gate.
-- **detekt, `maxIssues: 0` zonder baseline** — hangt aan de fase `verify`, dus die zie je pas bij
-  `verify` of via het losse goal.
+- **detekt, `maxIssues: 0` zonder baseline** — draait pas in de fase `verify`, of los via het
+  eigen goal.
 
 ```bash
 ./mvnw clean verify -pl services/berichtenmagazijn -am   # tests + coverage + detekt op die module
