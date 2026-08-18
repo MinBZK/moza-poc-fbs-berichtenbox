@@ -121,7 +121,8 @@ Verder lezen:
 
 - [Aanpak en keuzes van de PoC](docs/aanpak-en-keuzes.md) — waarom federatief, welke standaarden
 - [Demo-runbook](docs/demo-runbook.md) — de demo-stack en alle scenario's
-- [Operator-handleiding](docs/operator-handleiding.md) — verplichte productie-overrides
+- [Operator-handleiding magazijn](docs/operator-handleiding.md) — verplichte productie-overrides, LDV, outbox
+- [Operator-handleiding uitvraag](docs/operator-handleiding-uitvraag.md) — sessiecache-TLS, timeout-invarianten, cache-TTL's
 - [`docs/operations/`](docs/operations/) — runbooks per operationele procedure (alerts, schema-bumps)
 - [Vergelijking VoRijk (Blauwe Knop) vs. FBS Berichtenbox](docs/vergelijking-fbs-vorijk.md)
 - [Analyse: architectuur voor uniforme bronontsluiting](docs/analyse-architectuur-uniforme-bronontsluiting.md)

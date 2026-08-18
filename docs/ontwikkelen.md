@@ -116,7 +116,7 @@ staan de URL's op `http://localhost:8090` en `:8091` als default, zodat dezelfde
 container naar container-DNS wijst zonder de basisregels te hoeven overschrijven. Een lege
 `grantHash` betekent: geen FSC-outway, roep het magazijn rechtstreeks aan.
 
-Voor het in productie draaien van het magazijn — verplichte overrides, TLS op het Logboek
-Dataverwerkingen, tuning en monitoring — geldt de [operator-handleiding](operator-handleiding.md).
-De uitvraag bewaakt zijn eigen productie-eisen bij het opstarten: buiten dev en test weigert
-`RedisVerbindingValidator` te starten zonder `rediss://`-adres en wachtwoord op de berichtenopslag.
+Voor productie is er per service een operator-handleiding:
+[magazijn](operator-handleiding.md) (verplichte overrides, LDV-TLS, outbox, monitoring) en
+[uitvraag](operator-handleiding-uitvraag.md) (sessiecache-TLS, timeout-invarianten, cache-TTL's).
+Beide beschrijven ook de bewust-onveilige kleppen en de alert-regels die daarbij horen.

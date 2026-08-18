@@ -4,7 +4,8 @@ Deze handleiding beschrijft de **verplichte productie-overrides** en
 operationele aandachtspunten voor het Berichtenmagazijn. Ontwikkelaars die
 lokaal of in tests draaien hebben deze niet allemaal nodig — defaults zijn
 veilig voor dev/CI maar **niet** voor productie; voor het lokale werk geldt
-[`ontwikkelen.md`](ontwikkelen.md).
+[`ontwikkelen.md`](ontwikkelen.md). De Berichtenuitvraag heeft een eigen
+handleiding: [`operator-handleiding-uitvraag.md`](operator-handleiding-uitvraag.md).
 
 ## Verplichte productie-overrides
 
