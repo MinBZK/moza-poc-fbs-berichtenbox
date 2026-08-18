@@ -201,6 +201,17 @@ zadctl login                    # SSO (Keycloak); de ZAD_API_KEY_*-secrets zijn 
 zadctl project use mpfb-8wh     # of mpfm-w3h / mpfpsm-lcl; schrijft .env.zadctl (0600, gitignored)
 ```
 
+**Inloggen vanuit een container** (onze dev-omgeving): `zadctl login` zet een loopback-listener
+op in de container, terwijl de browser op de host draait — `http://127.0.0.1:<poort>/callback`
+komt daar nooit aan, en de device-flow is op de Keycloak-client `zad-cli` uitgeschakeld
+(*"The flow is disabled for the client"*). Werkende route: start `zadctl login --browser
+--no-open` op de achtergrond, open de geprinte URL in de browser, en stuur na het inloggen de
+volledige — in de browser falende — callback-URL uit de adresbalk vanuit de container naar de
+wachtende listener met `curl -s "<callback-url>"`. Dat moet hetzelfde login-proces zijn (het
+houdt `state` en de PKCE-verifier vast) en de `code` verloopt binnen ~1 minuut. Het
+geschreven `.env.zadctl` hoort bij de directory waar je de login draaide en wordt nergens
+anders gelezen: kopieer hem mee naar de werkmap van waaruit je de CLI gebruikt.
+
 | Commando | Waarvoor |
 |----------|----------|
 | `zadctl logs <deployment> -c <component> -n 200 --since 1h` | Pod-logs (API-equivalent: `GET /api/logs/{project}?deployment=&component=&lines=`, max 1000) |
