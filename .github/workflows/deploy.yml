@@ -103,8 +103,10 @@ permissions: read-all
 #   * build/toetsing → eigen groep met cancel-in-progress: true (achterhaald werk stoppen);
 #   * deploy → eigen groep PER PROJECT + doel-deployment met cancel-in-progress: false
 #     (nooit halverwege afbreken; per project apart zodat de drie parallelle jobs elkaar niet
-#     blokkeren, wat met één gedeelde groep wél zou gebeuren). De drie project-opruim-jobs in
-#     cleanup-preview.yml zitten in dezelfde groepen.
+#     blokkeren, wat met één gedeelde groep wél zou gebeuren). De drie legs van de opruim-matrix in
+#     cleanup-preview.yml zitten in dezelfde groepen; de opruim-job voor de GitHub-kant deelt de
+#     uitvraag-groep en draait daarom ná die matrix, zodat er nooit twee wachtenden in één groep
+#     staan (GitHub annuleert dan de eerst-wachtende).
 
 env:
   REGISTRY: ghcr.io
@@ -450,9 +452,10 @@ jobs:
   # De vier toetsende workflows draaien als aangeroepen (`workflow_call`) job ín deze workflow,
   # zodat de deploy er met `needs:` aan kan hangen. Vóór #173 draaiden ze zelfstandig en wachtte
   # een `gate`-job er in een poll-lus op: ~461 s per run een runner die niets deed dan `sleep 15`.
-  # Hun eigen `pull_request`-trigger staat nu op `branches-ignore: [main]` — het complement van de
-  # `branches: [main]` hierboven — zodat een gestapelde PR ze zelfstandig draait en een PR naar
-  # main ze precies één keer draait, hier.
+  # De eerste drie (test, detekt, pin-consistency) dragen daarnaast hun eigen `pull_request`-trigger
+  # op `branches-ignore: [main]` — het complement van de `branches: [main]` hierboven — zodat een
+  # gestapelde PR ze zelfstandig draait en een PR naar main ze precies één keer draait, hier.
+  # `cflite_pr.yml` heeft géén eigen trigger en draait uitsluitend als aangeroepen workflow.
   #
   # LET OP: door de aanroep krijgen de check-runs het caller-job-voorvoegsel: `checks-test / test`
   # in plaats van `test`. Branch protection op main pint op die namen; wijzig je hier een job-id,
@@ -580,12 +583,25 @@ jobs:
 
           echo "Alle verplichte checks groen — deploy vrijgegeven."
 
+  # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
+  # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
+  # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready staat UIT: de
+  # zad-action doet geen k8s-readinessprobe maar curlt vanaf de runner ELKE component-URL op
+  # één health-endpoint (input `health-endpoint`, default '/'). De services bieden nu wél
+  # /q/health/ready (smallrye-health), maar deze deployments mengen niet-HTTP-componenten
+  # (redis) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
+  # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
     # Expliciete statusfunctie i.p.v. de impliciete success(), om dezelfde reden als bij
     # deploy-test-*: die kijkt transitief door naar de needs van `gate`, en `checks-fuzz` is
-    # 'skipped' zodra de PR niets fuzz-relevants raakt. Dat overgeslagen kleinkind sloeg de
-    # previews over terwijl `gate` zelf groen was — een preview die stil uitblijft terwijl de
-    # required check als 'skipped' meetelt.
+    # 'skipped' zodra de PR niets fuzz-relevants raakt. Die overgeslagen grootouder in de
+    # needs-keten sloeg de previews over terwijl `gate` zelf groen was — een preview die stil
+    # uitblijft terwijl de required check als 'skipped' meetelt.
+    #
+    # GitHub documenteert de impliciete vorm als "alle directe needs geslaagd"; dat de evaluatie
+    # transitief doorwerkt is hier waargenomen, niet gedocumenteerd. Vereenvoudig dit dus niet
+    # terug naar `github.event_name == 'pull_request' && needs.changes.outputs.deploy == 'true'`,
+    # ook al lijkt dat gelijkwaardig.
     if: >-
       !cancelled()
       && needs.meta.result == 'success'

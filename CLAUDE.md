@@ -185,7 +185,7 @@ naar de Git-repo die Argo volgt), niet handmatig in de cluster of in de gerender
 
 **Projecten (project-id = OM-project; staat in de env van `.github/workflows/deploy.yml` én in de
 matrix van `.github/workflows/cleanup-preview.yml` — wijzig een id op beide plekken, anders
-verifieert de opruiming de afwezigheid in een project dat niet bestaat):**
+ruimt en verifieert de opruiming in het verkeerde project: groene run, preview blijft staan):**
 `berichtenuitvraag` = `mpfb-8wh`, `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`.
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
