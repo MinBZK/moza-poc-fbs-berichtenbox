@@ -6,8 +6,9 @@
 # achterlaat. Datzelfde filter sloeg ook toe op het sluiten: werd een PR ná zijn preview-deploy
 # weggericht van main (base op een feature-branch gezet en daar gemerged), dan matchte het
 # close-event het filter niet en bleef de hele preview staan. Teardown heeft dat filter niet
-# nodig zolang geen van deze jobs een required context op main is — voeg ze daar dus niet aan toe,
-# anders kan een overgeslagen teardown een merge vrijgeven.
+# nodig zolang geen van deze jobs een required context op main is — voeg ze daar dus niet aan toe:
+# deze workflow draait alleen bij het sluiten van een PR, dus zo'n context verschijnt op een open PR
+# nooit en zou elke merge voorgoed blokkeren.
 #
 # WAAROM `pull_request_target` EN NIET `pull_request`: dat laatste draait niet als de PR een
 # merge-conflict heeft (GitHub voert de workflow uit op de merge-ref, en die is er dan niet) — en
@@ -17,18 +18,20 @@
 # `pull_request_target` (fork-code met secrets) geldt hier niet: er wordt geen enkele PR-inhoud
 # uitgecheckt of uitgevoerd; deze workflow gebruikt alleen het PR-NUMMER.
 #
-# ELKE VERWIJDERING DIE OP DE ACTION LEUNDE, WORDT NAGEMETEN. Annotaties (`::warning::`,
+# ELKE VERWIJDERING WAARVAN DE EXITCODE GEEN BEWIJS IS, WORDT NAGEMETEN. Annotaties (`::warning::`,
 # `::error::`) laten een step niet falen: `zad-actions/cleanup` meldt een mislukte deployment-delete
-# als `::warning::` ("cleanup failures are non-fatal" in zijn zad-common.sh), en zijn
-# GitHub-deployments-stap zelfs met een gewone `echo` zónder annotatie. De job blijft dan groen, en
-# zo groeide de lijst wees-deployments en wees-omgevingen. Na elke opruimstap staat daarom een
-# controle die de resource ópvraagt en alleen een aantoonbare afwezigheid als "weg" accepteert. Die controles vragen de LIJST
-# op in plaats van het item: een 404 op een item-URL betekent óók "onbekend project" of "verkeerd
-# pad", dus dan zou een typefout of een API-versiewissel als "opgeruimd" lezen. Een lijst die met
-# HTTP 200 terugkomt zónder onze naam erin is positief bewijs.
+# als `::warning::` ("cleanup failures are non-fatal" in zijn zad-common.sh). De job blijft dan
+# groen, en zo groeide de lijst wees-deployments. Bij de omgeving speelt iets anders: GitHub
+# antwoordt 404 zowel bij "bestond al niet" als bij te weinig rechten, dus ook een eigen DELETE zegt
+# daar niets. Na die stappen staat daarom een controle die de resource ópvraagt en alleen een
+# aantoonbare afwezigheid als "weg" accepteert. Die controles vragen de LIJST op in plaats van het
+# item: een 404 op een item-URL betekent óók "onbekend project" of "verkeerd pad", dus dan zou een
+# typefout of een API-versiewissel als "opgeruimd" lezen. Een lijst die met HTTP 200 terugkomt,
+# aantoonbaar het juiste project beschrijft en onze naam niet bevat, is positief bewijs.
 #
-# De ghcr-sweep en de deploy-comment verwijderen we zelf, dus daar telt de exitcode van onze eigen
-# delete: per mislukte versie een waarschuwing, en de job eindigt rood via de aggregatie onderaan.
+# De deploy-comment en de ghcr-versies verwijderen we zelf, en daar telt de exitcode van onze eigen
+# delete wél: bij de comment breekt de stap direct af, bij de ghcr-sweep levert elke mislukte versie
+# een waarschuwing en eindigt de job rood via de aggregatie onderaan die stap.
 #
 # DESTRUCTIEF: de deployment-DELETE draait Argo `prune` + `Delete` en, voor projecten met de
 # `postgresql-database`-service, `database_cleanup` — de database van die deployment gaat mee. Voor
@@ -224,13 +227,23 @@ jobs:
             exit 1
           fi
 
-          # `deployments` is in het OM-schema optioneel (een leeg project levert de sleutel niet).
           # `jq -r` met drie expliciete takken i.p.v. `jq -e` in een `if`: die laatste maakt een
           # parsefout niet te onderscheiden van 'false', dus een HTTP 200 met een niet-JSON body
           # (proxy-pagina, afgekapt antwoord) zou als "deployment weg" lezen.
-          # `|| aanwezig=onleesbaar` zodat een jq-parsefout in de `*`-tak landt met een leesbare
+          #
+          # De vorm van het antwoord wordt afgedwongen in plaats van aangenomen: `null | .x` is in
+          # jq geen fout maar `null`, dus een `200 null` of een `deployments` die geen array is zou
+          # anders als "weg" lezen. Elk OM-project houdt permanent de baseline-deployment `test`
+          # (push naar main rolt die uit), dus een lijst zonder `test` is geen leeg project maar een
+          # kapotte meting — dezelfde canary-gedachte als de lege-lijst-guard bij de omgevingen.
+          #
+          # `|| aanwezig=onleesbaar` zodat een jq-fout in de `*`-tak landt met een leesbare
           # annotatie, in plaats van de stap via `set -e` af te breken op jq's eigen stderr.
-          aanwezig=$(printf '%s' "$lijst" | jq -r --arg d "$DEPLOYMENT" '(.deployments // []) | any(.name == $d)') || aanwezig=onleesbaar
+          aanwezig=$(printf '%s' "$lijst" | jq -r --arg d "$DEPLOYMENT" '
+            if type != "object" then error("antwoord is geen object")
+            elif (.deployments | type) != "array" then error("deployments ontbreekt of is geen array")
+            elif ([.deployments[].name] | index("test")) == null then error("baseline test ontbreekt")
+            else (.deployments | any(.name == $d)) end') || aanwezig=onleesbaar
 
           case "$aanwezig" in
             true)
@@ -259,9 +272,12 @@ jobs:
     # dezelfde groep staan te wachten, annuleert GitHub de eerst-wachtende zodra er een nieuwe
     # bijkomt — `cancel-in-progress: false` beschermt alleen de lópende job. Parallel gequeued zou
     # een bezette groep (een lopende deploy van dezelfde PR) dus stil één van de twee teardowns
-    # opeten. `!cancelled()` zodat een mislukte ZAD-teardown de GitHub-kant niet overslaat.
+    # opeten. `!cancelled()` zodat een mislukte ZAD-teardown de GitHub-kant niet overslaat; de eis
+    # op `doel` blijft er expliciet bij staan, want een statusfunctie in `if:` zet de impliciete
+    # needs-poort volledig uit — zonder die eis draait deze job na een afgekeurd PR-nummer met een
+    # leeg nummer en meet hij de afwezigheid van `pr-`.
     needs: [doel, cleanup-preview-zad]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.doel.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # De omgeving hoort bij de uitvraag-deploy (die draagt `environment: pr-<n>`), dus dezelfde
@@ -282,6 +298,14 @@ jobs:
           PR_NUMMER: ${{ needs.doel.outputs.pr }}
         run: |
           set -euo pipefail
+
+          # Bretels naast de `needs.doel`-eis: met een leeg nummer wordt de URL
+          # `/issues//comments`, en dát pad levert bij GitHub de comments van de HÉLE repo — één
+          # routing-wijziging en de lus eronder zou elke deploy-comment in de repo verwijderen.
+          if [ -z "$PR_NUMMER" ]; then
+            echo "::error::Leeg PR-nummer — opruimen afgebroken."
+            exit 1
+          fi
 
           # Zelf doen i.p.v. via de action: die comment-stap draait alleen op `pull_request` en dus
           # nooit onder deze triggers, en pagineert niet — op een PR met veel comments valt de
@@ -330,8 +354,12 @@ jobs:
 
           echo "Verwijderd: $verwijderd."
 
-          resterend=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$OMGEVING&per_page=100" \
-            --paginate --jq '.[].id' | wc -l)
+          # Eerst lezen (een leesfout is dan rood via `set -e`), dan tellen met `grep -c`: `wc -l`
+          # telt een laatste regel zonder afsluitende newline niet mee en zou één resterend record
+          # als "weg" lezen.
+          rest=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=$OMGEVING&per_page=100" \
+            --paginate --jq '.[].id')
+          resterend=$(printf '%s' "$rest" | grep -c . || true)
 
           if [ "$resterend" -ne 0 ]; then
             echo "::error::Er staan nog $resterend GitHub-deployments op omgeving $OMGEVING."
@@ -369,8 +397,9 @@ jobs:
           #
           # Eerst lezen in een variabele, dan beoordelen. In één pipeline (`gh ... | grep -qxF`) is de
           # exitcode dubbelzinnig: een mislukte read geeft lege uitvoer en `grep` exit 1, wat als
-          # "afwezig" zou lezen, en `grep -q` sluit de pipe bij de eerste match waardoor `gh` op
-          # SIGPIPE sterft en `pipefail` diezelfde false-negatieve uitkomst oplevert.
+          # "afwezig" zou lezen, en `grep -q` sluit de pipe bij de eerste match — heeft `gh` dan nog
+          # uitvoer te schrijven (een lijst die niet in de pipe-buffer past), dan sterft het op
+          # SIGPIPE en levert `pipefail` diezelfde false-negatieve uitkomst.
           namen=$(gh api "repos/$GITHUB_REPOSITORY/environments?per_page=100" --paginate \
             --jq '.environments[].name')
 
@@ -381,14 +410,26 @@ jobs:
             exit 1
           fi
 
-          if grep -qxF "$OMGEVING" <<<"$namen"; then
-            echo "::error::Omgeving $OMGEVING bestaat nog (DELETE gaf HTTP $code). Geef GH_ADMIN_TOKEN 'Administration: write' op deze repo (fine-grained) of 'repo'-scope plus repo-admin (classic) en herdraai deze workflow via workflow_dispatch."
-            exit 1
-          fi
+          # Drie takken i.p.v. een `if`: daarin zou `grep` exit 2 (een echte fout) als "niet
+          # gevonden" doorgaan.
+          status=0
+          grep -qxF "$OMGEVING" <<<"$namen" || status=$?
 
-          echo "Omgeving $OMGEVING staat niet meer in de lijst."
+          case "$status" in
+            0)
+              echo "::error::Omgeving $OMGEVING bestaat nog (DELETE gaf HTTP $code). Geef GH_ADMIN_TOKEN 'Administration: write' op deze repo (fine-grained) of 'repo'-scope plus repo-admin (classic) en herdraai deze workflow via workflow_dispatch."
+              exit 1
+              ;;
+            1) echo "Omgeving $OMGEVING staat niet meer in de lijst." ;;
+            *)
+              echo "::error::Kon de omgevingslijst niet beoordelen (grep gaf $status) — de teardown van $OMGEVING is NIET geverifieerd."
+              exit 1
+              ;;
+          esac
 
-  # Ruimt ALLE images van de PR op: één ghcr-versie per commit, niet alleen de laatste. De
+  # Ruimt alle GETAGDE versies van de PR op: één ghcr-versie per commit, niet alleen de laatste.
+  # Ongetagde child-manifests (multi-arch, attestations) vallen per definitie buiten een tag-prefix
+  # en blijven staan; die horen bij het opruimen op termijn. De
   # tags van deze PR zijn te herkennen aan de prefix `pr-<n>-`; het afsluitende koppelteken
   # is essentieel, anders zou het sluiten van PR 16 de images van PR 168 meenemen.
   #
@@ -433,9 +474,18 @@ jobs:
               continue
             fi
 
+            # Exit 0 met een lege of niet-array body (204, proxy-pagina) zou anders als "geen
+            # versies van deze PR" lezen in plaats van als mislukte meting.
+            if ! printf '%s' "$versions" | jq -e 'type == "array" and length > 0' >/dev/null; then
+              echo "::warning::Versielijst van $pkg is leeg of geen array — images van deze PR blijven mogelijk staan."
+              fail=1
+              continue
+            fi
+
             # De filter in een losse `jq` i.p.v. via `--jq`, omdat `gh api --jq` geen `--arg` kent
             # en de prefix data hoort te zijn, geen code. `// []` voor een versie zonder tags:
-            # anders zou één zo'n versie de lus afbreken en de resterende packages overslaan.
+            # anders faalt jq op zo'n versie en blijven de PR-versies van dít package staan, met
+            # alleen een waarschuwing.
             if ! ids=$(printf '%s' "$versions" | jq -r --arg p "$PREFIX" --arg legacy "$LEGACY_TAG" \
               '.[] | select((.metadata.container.tags // []) | any(startswith($p) or . == $legacy)) | .id'); then
               echo "::warning::Kon de versies van $pkg niet beoordelen — images van deze PR blijven mogelijk staan."

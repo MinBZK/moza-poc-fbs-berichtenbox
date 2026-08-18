@@ -105,8 +105,8 @@ permissions: read-all
 #     (nooit halverwege afbreken; per project apart zodat de drie parallelle jobs elkaar niet
 #     blokkeren, wat met één gedeelde groep wél zou gebeuren). De drie legs van de opruim-matrix in
 #     cleanup-preview.yml zitten in dezelfde groepen; de opruim-job voor de GitHub-kant deelt de
-#     uitvraag-groep en draait daarom ná die matrix, zodat er nooit twee wachtenden in één groep
-#     staan (GitHub annuleert dan de eerst-wachtende).
+#     uitvraag-groep en draait daarom ná die matrix, zodat die twee teardowns nooit samen in de
+#     wachtrij van één groep staan (GitHub annuleert dan de eerst-wachtende).
 
 env:
   REGISTRY: ghcr.io
@@ -589,7 +589,7 @@ jobs:
   # zad-action doet geen k8s-readinessprobe maar curlt vanaf de runner ELKE component-URL op
   # één health-endpoint (input `health-endpoint`, default '/'). De services bieden nu wél
   # /q/health/ready (smallrye-health), maar deze deployments mengen niet-HTTP-componenten
-  # (redis) die op dat pad nooit 2xx geven → de wachtlus zou timen out. Aanzetten
+  # (redis) die op dat pad nooit een geaccepteerde status geven → de wachtlus zou timen out. Aanzetten
   # kan pas met een per-component health-endpoint of een Quarkus-only deployment; tot dan 'false'.
   deploy-preview-uitvraag:
     # Expliciete statusfunctie i.p.v. de impliciete success(), om dezelfde reden als bij
