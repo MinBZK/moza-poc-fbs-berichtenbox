@@ -143,39 +143,38 @@ draait tussen build en analyse, zodat een onvolledige build de analyse niet eens
 
 ## Resultaat
 
-Gemeten op run `32259136441` (de PR draait de gewijzigde workflow op zichzelf), naast de
-baseline-run `32250085413`:
+Medianen over 15 baseline-runs (oude workflow, alle van 19-08-2026, dus dezelfde codebase) en
+5 runs op de nieuwe workflow:
 
-| Stap | Vooraf geschat | Baseline | Gemeten |
+| | Baseline (n=15) | Nieuw (n=5) | Verschil |
 |---|---|---|---|
-| Set up + checkout | 3 s | 3 s | 4 s |
-| setup-java + cache | 3 s | — | 6 s |
-| Init CodeQL | 18 s | 18 s | 19 s |
-| Build | ~167 s | 278 s | **172 s** |
-| Controle op classes | — | — | 0 s |
-| Analyse | ~40 s | 65 s | **61 s** |
-| Overig | 4 s | 4 s | 6 s |
-| **Totaal** | **~3:55** | **6:08** | **4:28** |
+| Totaal | **362 s** (276–373) | **261 s** (260–284) | −101 s (−28%) |
+| Build | **268 s** (200–282) | **179 s** (172–189) | −89 s (−33%) |
+| Analyse | **66 s** (53–70) | **59 s** (58–64) | −7 s (−11%) |
+
+Oftewel **6:02 → 4:21** op de mediaan.
 
 Onderliggend bewijs uit het build-log:
 
-| | Baseline | Gemeten |
+| | Baseline | Nieuw |
 |---|---|---|
 | Downloads | 1962 | **0** (volledige cache-hit, 94 MB) |
 | Reactor-tijd | 4:27 | **2:49** |
 | `test-compile` / `jandex` / `jar` / `quarkus:build` | aanwezig | **afwezig** |
 
-De build-stap kwam op 172 s uit tegen een schatting van 167 s. De analyse-stap bleef staan waar
-hij stond — zie de correctie bij oorzaak 3.
+De build-stap kwam uit op de schatting (179 s tegen ~167 s geschat). De analyse-stap zakte 7 s
+— binnen de spreiding van de baseline en ver van de ~25 s die verwacht was; zie de correctie
+bij oorzaak 3.
 
-**Het acceptatiecriterium van maximaal 4 minuten wordt hiermee nog niet gehaald** (4:28). De
-resterende stap is de parallelle reactor: de build-stap is nu 172 s, waarvan het kritieke pad
-`fbs-common` (30 s) → `berichtenmagazijn` (104 s) is. Parallel zou dat richting ~135 s kunnen,
-wat het totaal onder de 4 minuten brengt.
+Kanttekening bij de spreiding: de baseline is duidelijk tweetoppig (drie runs rond 280 s, de
+rest rond 360 s) door runner-variatie. Vier van de vijf nieuwe metingen zijn herhalingen van
+dezelfde run, dus die vijf onderschatten mogelijk de runner-variatie. De build-vergelijking
+staat los daarvan: 0 tegen 1962 downloads is geen ruis.
 
-Let op bij het beoordelen: dit is één run tegen een baseline die 4:36–6:10 spreidde. De
-build-stap is een harde vergelijking (172 s tegen 278 s, met 0 tegen 1962 downloads), het
-totaal niet. Voor het issue-criterium blijft de mediaan over ≥5 runs nodig.
+**Het acceptatiecriterium van maximaal 4 minuten wordt hiermee niet gehaald** (4:21 mediaan).
+De resterende stap is de parallelle reactor: het kritieke pad in de build is `fbs-common`
+(30 s) → `berichtenmagazijn` (104 s), dus parallel zou richting ~135 s kunnen en het totaal
+onder de 4 minuten brengen.
 
 ## Lokale validatie vooraf
 

@@ -115,19 +115,29 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          archief="$RUNNER_TEMP/codeql_databases/java/src"
+          database="$RUNNER_TEMP/codeql_databases/java"
 
-          if [ ! -d "$archief" ]; then
-            echo "::error::Geen source-archive op $archief — de database is niet gevuld."
+          # `database finalize` pakt het archief in tot src.zip; vóór dat moment is het een map.
+          # Beide vormen accepteren, zodat de stap niet omvalt op een CodeQL-versie die het
+          # anders oplevert.
+          if [ -f "$database/src.zip" ]; then
+            bestanden=$(zipinfo -1 "$database/src.zip" | grep -E '\.(kt|java)$' || true)
+          elif [ -d "$database/src" ]; then
+            bestanden=$(find "$database/src" -type f \( -name '*.kt' -o -name '*.java' \) || true)
+          else
+            echo "::error::Geen source-archive in $database — de database is niet gevuld."
+            ls -la "$database" || true
             exit 1
           fi
 
-          echo "| Module | Geëxtraheerde bronbestanden |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "| Module | Geëxtraheerde bronbestanden |"
+            echo "|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           for module in libraries/* services/*; do
             [ -f "$module/pom.xml" ] || continue
-            aantal=$(find "$archief" -path "*/$module/*" \( -name '*.kt' -o -name '*.java' \) | wc -l)
+            aantal=$(grep -cF "/$module/" <<<"$bestanden" || true)
             echo "| $module | $aantal |" >> "$GITHUB_STEP_SUMMARY"
 
             if [ "$aantal" -eq 0 ]; then
@@ -136,5 +146,4 @@ jobs:
             fi
           done
 
-          totaal=$(find "$archief" \( -name '*.kt' -o -name '*.java' \) | wc -l)
-          echo "| **Totaal** | **$totaal** |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Totaal** | **$(grep -c . <<<"$bestanden" || true)** |" >> "$GITHUB_STEP_SUMMARY"
