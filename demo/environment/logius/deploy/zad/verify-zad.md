@@ -17,6 +17,9 @@
    cluster-interne Service-naam mag aanroepen: uitgaande endpoints moeten buiten dev/test
    https zijn.
 
+   Het omzetten van de app naar dat interne adres is een cutover met een eigen draaiboek:
+   [`cutover-interne-outway.md`](cutover-interne-outway.md).
+
    De outway heeft daarnaast sinds 2026-08-13 een eigen "Publicatie op het web"
    (`tls: standard`, geen passthrough). Die stamt uit de periode dat de per-deployment
    tenant-baseline-NetworkPolicy `test` en `fsc-logius` van elkaar isoleerde — elke deployment
