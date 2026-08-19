@@ -115,10 +115,22 @@ Gedaan:
 - `docker compose config` rendert `LISTEN_HTTPS: "false"` zonder env en `"true"` met
   `OUTWAY_LISTEN_HTTPS=true` — de default zet geen bestaande route om.
 
-Nog te doen bij de uitrol:
+Op ZAD uitgevoerd (2026-08-19), volgens `cutover-interne-outway.md`:
 
-- De ZAD-apply zelf, en daarna de smoke over het interne pad
-  (`berichtenuitvraag → logius-fscoutway → logius-fscinway → magazijn-a`).
+- `LISTEN_HTTPS` + server-cert op `logius-fscoutway`, CA-bijlage en de twee env-vars op
+  `uitvraag`, en de URL's van `test` omgezet naar het interne adres.
+- Netwerktoegang via `cross-domain-access`: outbound bij `test`, inbound bij `fsc-logius`, beide
+  gerenderd als NetworkPolicy en elkaars spiegelbeeld op poort 8443.
+- **Het ophalen-endpoint werkt over de interne route** (met Bruno tegen `test`). Daarmee is de
+  keten `berichtenuitvraag → logius-fscoutway → logius-fscinway → magazijn-a` bewezen zonder dat
+  het verkeer het cluster nog verlaat.
+
+Nog open:
+
+- De publieke "Publicatie op het web" van `logius-fscoutway` intrekken; die is nu ongebruikt
+  oppervlak. UI-werk, zie stap 5 van het draaiboek.
+- De PR-previews staan nog op de ingress-URL; ze hebben elk een eigen inbound-regel nodig zodra
+  ze mee verhuizen.
 - De bestaande lokale smokes (`smoke-federatie.sh`, `smoke-contract.sh`, `smoke-keten.sh`) een
   keer draaien tegen een verse federatie; ze raken deze wijziging niet (default blijft http),
   maar de bevestiging staat nog open.
