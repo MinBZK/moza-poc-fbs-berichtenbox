@@ -28,10 +28,10 @@ on:
     types: [opened, synchronize, reopened]
     # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
     # zonder dat de guard zelf ooit gedraaid heeft.
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/**']
   push:
     branches: [main]
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/**']
 
 # LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
 # `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
@@ -310,7 +310,10 @@ jobs:
 
           echo "== bash-unittests =="
           gedraaid=0
-          for t in demo/environment/lib/test-*.sh; do
+          # .github/scripts/ hoort erbij omdat het al mee-shellcheckt hierboven én omdat de
+          # wijzigingsdetectie die de hele CI-keten aanstuurt daar staat; zonder deze glob zou die
+          # test nergens draaien.
+          for t in demo/environment/lib/test-*.sh .github/scripts/test-*.sh; do
             [ -f "$t" ] || continue
             gedraaid=$((gedraaid + 1))
             echo "-- $t"

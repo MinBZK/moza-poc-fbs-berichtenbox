@@ -36,14 +36,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De detekt-gate is hieraan
+  # Bepaalt of er iets buiten documentatie en repo-meta is gewijzigd. De detekt-gate is hieraan
   # gegate, maar de workflow zelf draait wél door — zo wordt de required status check ook bij een
   # docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes voor
   # branch protection.
   # Draait alleen wanneer de caller de uitkomst niet meegaf; zie de toelichting in test.yml.
-  # LET OP: het patroon hieronder staat óók in de `changes`-job van deploy.yml en moet daarmee
-  # gelijk blijven. Op een PR naar main draait alleen die van deploy.yml, dus een eenzijdige
-  # wijziging hier heeft daar geen effect en valt niet op.
   changes:
     if: inputs.wijzigingen-relevant == ''
     runs-on: ubuntu-latest
@@ -51,35 +48,24 @@ jobs:
     outputs:
       run: ${{ steps.filter.outputs.run }}
     steps:
-      - name: Detecteer niet-documentatie wijzigingen
+      # Dezelfde beoordeling als in deploy.yml, uit hetzelfde script: de patronen stonden hier in
+      # kopie, en op een PR naar main draait alleen die van deploy.yml — een eenzijdige wijziging
+      # hier had daar dus geen effect en viel niet op. Sparse: alleen de scripts zijn nodig.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      # Uitkomsten staan op stdout, diagnostiek op stderr. Het script levert er vier; deze
+      # workflow declareert alleen `run` als job-output en gebruikt de rest niet.
+      - name: Detecteer wijzigingen die de code raken
         id: filter
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-        run: |
-          if [ "$EVENT" != "pull_request" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), draai
-          # de code-checks dan TÓCH i.p.v. ze stil over te slaan. Een overslaan-op-fout zou als
-          # 'skipped' (= succes) doortellen in de deploy-gate en ongeteste code laten deployen.
-          if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
-            echo "::warning::Kon gewijzigde bestanden niet ophalen — code-checks draaien fail-safe."
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "Gewijzigde bestanden:"
-          printf '%s\n' "$files"
-          if printf '%s\n' "$files" | grep -qvE '(^docs/|\.md$)'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Alleen documentatie gewijzigd — code-checks overgeslagen."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+        run: .github/scripts/wijzigingsfilter.sh >> "$GITHUB_OUTPUT"
 
   detekt:
     needs: changes
