@@ -11,18 +11,22 @@
    interne mTLS-poorten een cluster-Service (`fsc-logius-logius-<comp>:<poort>`) krijgen.
 2. Cert-attachments gemount (zie `cert-manifest.md`) + "Publicatie op het web"
    (passthrough-TLS, modus 2) op logius-fscmgr **en** logius-fscinway ingesteld in de ZAD-UI. De
-   outway logius-fscoutway blijft functioneel egress-only richting de mesh, maar heeft sinds
-   2026-08-13 óók een eigen "Publicatie op het web" (`tls: standard`, geen passthrough — dit is
-   niet de mesh-SNI-route, maar de lokale serve-poort `8443` waarop de `berichtenuitvraag`-app
-   'm aanroept). Reden: de per-deployment tenant-baseline-NetworkPolicy in ZAD isoleert de
-   `test`- en `fsc-logius`-deployment van elkaar (elke deployment mag alleen naar zichzelf +
-   platform-namespaces, ongeacht dat ze in hetzelfde project/dezelfde namespace zitten); de
-   ClusterIP-service `fsc-logius-logius-fscoutway:8443` is daardoor vanuit `test` onbereikbaar,
-   terwijl verkeer via de ingress-controller wél is toegestaan. Nog te verifiëren: of `tls:
-   standard` hier volstaat, of dat de serve-poort — net als manager/inway — passthrough (eigen
-   cert) nodig heeft. Herzie deze publicatie zodra ZAD een manier biedt om gericht een
-   NetworkPolicy-uitzondering tussen deployments binnen hetzelfde project te configureren; dan
-   kan de outway weer zuiver intern (zonder publieke ingress) bereikt worden.
+   outway logius-fscoutway is functioneel egress-only richting de mesh; zijn serve-poort `8443`
+   is de lokale ingang waarop de `berichtenuitvraag`-app hem aanroept. Die poort draait TLS met
+   het interne cert (`LISTEN_HTTPS=true`, zie `upsert-peer.sh`), zodat de app hem op zijn
+   cluster-interne Service-naam mag aanroepen: uitgaande endpoints moeten buiten dev/test
+   https zijn.
+
+   Het omzetten van de app naar dat interne adres is een cutover met een eigen draaiboek:
+   [`cutover-interne-outway.md`](cutover-interne-outway.md).
+
+   De outway is verder egress-only en heeft **geen** publicatie op het web. Tussen 2026-08-13 en
+   2026-08-19 had hij die wel (`tls: standard`, geen passthrough), omdat de per-deployment
+   tenant-baseline-NetworkPolicy `test` en `fsc-logius` van elkaar isoleerde — elke deployment
+   mag alleen naar zichzelf + platform-namespaces, ongeacht dat ze in hetzelfde project en
+   dezelfde namespace zitten — waardoor de ClusterIP-service vanuit `test` onbereikbaar was en
+   alleen de ingress-route overbleef. Met een gerichte NetworkPolicy-uitzondering (de
+   platform-service `cross-domain-access`) verviel die omweg, en is de publicatie ingetrokken.
 3. Componenten herstart en boot-logs foutloos (zie `cert-manifest.md`, laatste sectie) — in het
    bijzonder GEEN `x509: certificate signed by unknown authority` meer op de controller: die
    bereikt de manager nu intern op `fsc-logius-logius-fscmgr:9443` (interne-PKI) i.p.v. de `:443`-group-ingress.
@@ -59,10 +63,19 @@ data-pad (`logius-fscoutway → inway → berichtenmagazijn`) bewijs je op ZAD t
 draaiende magazijn-a-peer (`demo/environment/magazijn-a/`). Dat vereist een geaccepteerd
 afnemer-contract (ServiceConnectionGrant) — nog niet onderdeel van dit ontwerp.
 
-`berichtenuitvraag`'s `MAGAZIJN_A_URL` wijst dan naar `https://fsc-logius-logius-fscoutway:8443`
-(cluster-interne Service-DNS, zie `LISTEN_ADDRESS`/poort in `upsert-peer.sh`): peer en app delen
-het project `mpfb-8wh` en dus de namespace, en de ingress-URL-variant vervalt omdat de outway
-bewust niet op het web gepubliceerd is (zie stap 2 hierboven).
+`berichtenuitvraag`'s `MAGAZIJN_A_URL` wijst dan naar
+`https://fsc-logius-logius-fscoutway.rig-prd-mpfb-8wh.svc.cluster.local:8443` (cluster-interne
+Service-DNS; de Service heet `<deployment>-<component>` en de namespace is `rig-prd-<project>`).
+Twee dingen moeten daarvoor staan, en beide horen bij elkaar:
+
+- de outway serveert TLS op die poort (`LISTEN_HTTPS=true`, stap 2);
+- de app kent het anker: `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` wijst naar het mount-pad
+  `/etc/fsc/internal/logius/ca/root.pem`, een bijlage op het `uitvraag`-component (zo heet het
+  component in ZAD; `berichtenuitvraag` is de applicatie). Zonder dat anker
+  faalt de handshake — de interne CA staat niet in de JVM-default trust-store. Voor de
+  profiel-service-client hoort daar
+  `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME=outway` bij; de magazijn-clients
+  pakken de configuratie zelf op zodra hij bestaat.
 
 ### Inbound data-pad — profiel-service (lokaal bewezen, ZAD-apply is handmatig vervolgwerk)
 
@@ -82,9 +95,11 @@ infrastructuur:
 3. Het zelfreferentiële `serviceConnection`-contract opnieuw opzetten tegen de ZAD-manager
    (zelfde POST+PUT-stroom als `consume-service.sh`, met de ZAD-groep-cert-thumbprint van
    `logius-fscoutway`).
-4. `PROFIEL_SERVICE_URL=https://fsc-logius-logius-fscoutway:8443` en
-   `PROFIEL_SERVICE_GRANT_HASH=<content_hash uit stap 3>` als env-vars op de gedeployde
-   `berichtenuitvraag`-app zetten (project `mpfb-8wh`).
+4. `PROFIEL_SERVICE_URL=https://fsc-logius-logius-fscoutway.rig-prd-mpfb-8wh.svc.cluster.local:8443`,
+   `PROFIEL_SERVICE_GRANT_HASH=<content_hash uit stap 3>` en
+   `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME=outway` als env-vars op de
+   gedeployde `berichtenuitvraag`-app zetten (project `mpfb-8wh`), naast het anker uit
+   sectie (b).
 5. Een smoke voor het pad `berichtenuitvraag → logius-fscoutway → logius-fscinway → upstream`.
 
 ## Acceptatiecriteria — afvinklijst

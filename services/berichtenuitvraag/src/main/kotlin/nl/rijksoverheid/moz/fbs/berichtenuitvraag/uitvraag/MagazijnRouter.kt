@@ -1,13 +1,17 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
+import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
+import io.quarkus.tls.TlsConfiguration
+import io.quarkus.tls.TlsConfigurationRegistry
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeadersFilter
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
-import org.eclipse.microprofile.rest.client.RestClientBuilder
+import nl.rijksoverheid.moz.fbs.magazijnregister.OutwayTls
 import org.jboss.logging.Logger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -27,10 +31,16 @@ import java.util.concurrent.TimeUnit
  * Fail-fast bij boot (leeg register, ongeldige OIN-key of URL) is belegd in
  * de register-library zelf; deze router hoeft alleen nog te routeren.
  */
+// @Inject op de constructor: het laatste argument heeft een default-waarde, en Kotlin genereert
+// daarvoor een tweede (synthetische) constructor. Zonder deze annotatie ziet ArC er twee en
+// weigert het de bean met "does not declare a valid bean constructor".
 @ApplicationScoped
-class MagazijnRouter(
+class MagazijnRouter @Inject constructor(
     private val register: Magazijnregister,
     private val config: MagazijnRouterConfig,
+    // Levert het anker voor een magazijn achter een outway die zijn eigen interne PKI serveert.
+    // Default null zodat unit-tests de router zonder CDI kunnen bouwen; CDI vult 'm altijd.
+    private val tlsRegistry: TlsConfigurationRegistry? = null,
 ) {
 
     private val clients = ConcurrentHashMap<String, MagazijnClient>()
@@ -47,12 +57,13 @@ class MagazijnRouter(
             // LinkageError) moeten omhoog propageren naar het JVM-vangnet, niet als
             // upstream-storing gemaskeerd worden.
             try {
-                val builder = RestClientBuilder.newBuilder()
+                val builder = QuarkusRestClientBuilder.newBuilder()
                     .baseUri(inschrijving.url)
                     .connectTimeout(config.connectTimeout().toMillis(), TimeUnit.MILLISECONDS)
                     .readTimeout(config.readTimeout().toMillis(), TimeUnit.MILLISECONDS)
 
                 fscFilterVoor(inschrijving)?.let { builder.register(it) }
+                outwayTlsConfiguratie()?.let { builder.tlsConfiguration(it) }
 
                 builder.build(MagazijnClient::class.java)
             } catch (e: Exception) {
@@ -88,11 +99,19 @@ class MagazijnRouter(
         }
     }
 
+    /**
+     * Het trust-anker voor magazijnen achter de eigen outway, of `null` als er geen
+     * geconfigureerd is — dan geldt de JVM-default trust-store. Losgetrokken van
+     * [forMagazijn] zodat de keuze testbaar is zonder de REST-client-builder.
+     */
+    internal fun outwayTlsConfiguratie(): TlsConfiguration? =
+        tlsRegistry?.get(OutwayTls.CONFIG_NAAM)?.orElse(null)
+
     companion object {
         private val log: Logger = Logger.getLogger(MagazijnRouter::class.java)
 
         // Losgetrokken van forMagazijn() zodat de registratie-beslissing unit-testbaar is
-        // zonder de RestClientBuilder (die buiten CDI-context een proxy-klasse genereert).
+        // zonder de REST-client-builder (die buiten CDI-context een proxy-klasse genereert).
         // Niet elk magazijn draait al achter een FSC-outway; grantHash blijft optioneel
         // totdat de volledige federatie is overgestapt.
         internal fun fscFilterVoor(inschrijving: Magazijninschrijving): FscOutwayHeadersFilter? =
