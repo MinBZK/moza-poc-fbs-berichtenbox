@@ -11,6 +11,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenR
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockMagazijnResource
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.testTlsRegistry
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
@@ -25,6 +26,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
     MockMagazijnregister(),
     connectTimeoutMs = 2000L,
     readTimeoutMs = 12000L,
+    tlsRegistry = testTlsRegistry(),
 ) {
 
     companion object {

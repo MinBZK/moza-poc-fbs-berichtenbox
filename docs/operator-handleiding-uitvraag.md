@@ -108,8 +108,17 @@ aanroeper de timeout-classificatie.
   ingress bereikt wordt. Een mislukt anker herken je aan een TLS-handshake-fout richting het
   outway-adres, niet aan een FSC-foutcode: de outway komt er dan niet eens aan te pas.
 
-  **Het anker vervángt de JVM-default trust-store voor magazijn-verkeer, het vult die niet aan.**
-  Zodra de configuratie bestaat gebruiken álle magazijn-clients hem, ook die naar een adres met
-  een publiek vertrouwd certificaat wijzen — en die valideren dan tegen de interne CA en falen.
-  Zet het anker daarom in dezelfde stap als de URL's die erdoor gedekt worden, en scope het per
-  deployment zolang niet elke deployment op de interne route zit.
+  **Het anker geldt alleen voor magazijnen die door de outway lopen** — dat wil zeggen: met een
+  `grantHash` in de configuratie. Een magazijn zonder grant-hash wordt rechtstreeks aangeroepen,
+  presenteert een publiek certificaat en houdt de JVM-default trust-store. Dat onderscheid zit in
+  de code en hoeft dus niet per omgeving geregeld te worden; een named TLS-configuratie vervángt
+  de default trust-store namelijk en vult die niet aan.
+
+  **Bij elke boot staat in het log welke modus geldt**, met de gevonden configuratienamen erbij.
+  Dat is de plek om te kijken als de handshake faalt: een verkeerd gespelde variabele levert een
+  volledig geldige, maar ongebruikte TLS-configuratie op, en die zie je hier terug naast de naam
+  die de applicatie zoekt.
+
+  | Variabele | Waarde | Effect |
+  |-----------|--------|--------|
+  | `FBS_OUTWAY_UNSAFE_ALLOW_UNVERIFIED_TLS` | `false` (default) | Weigert bij boot een `outway`-configuratie met `trust-all` of hostnaam-verificatie `NONE`. Op `true` mag het, en logt elke boot `OUTWAY_TLS_UNVERIFIED` voor alert-routing. |

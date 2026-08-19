@@ -1,21 +1,25 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 import java.util.UUID
 
 /**
- * De outway op ZAD serveert zijn poort met een certificaat uit de interne PKI van de peer,
- * en die CA kent de JVM niet. Deze test zet precies die situatie neer: een magazijn achter
- * TLS met een vers, zelf-ondertekend certificaat, en `quarkus.tls.outway.*` als enige anker.
+ * De outway op ZAD serveert zijn poort met een certificaat uit de interne PKI van de peer, en
+ * die CA kent de JVM niet. Deze test zet precies die situatie neer: een magazijn achter TLS met
+ * een vers, zelf-ondertekend certificaat, en `quarkus.tls.outway.*` als enige anker.
  *
  * Dat de aanroep slaagt ís het bewijs. Zou [MagazijnRouter] de TLS-configuratie niet aan de
  * client meegeven, dan viel de handshake terug op de JVM-default trust-store en faalde hij —
@@ -29,9 +33,15 @@ class MagazijnRouterTlsTest {
     @Inject
     lateinit var router: MagazijnRouter
 
+    @Inject
+    lateinit var register: Magazijnregister
+
     @Test
-    fun `de outway-TLS-configuratie wordt gevonden zodra hij geconfigureerd is`() {
-        assertNotNull(router.outwayTlsConfiguratie())
+    fun `een magazijn met grant-hash krijgt de outway-TLS-configuratie`() {
+        val inschrijving = register.voorOin(Oin(HttpsMagazijnResource.OIN))
+
+        assertNotNull(inschrijving)
+        assertNotNull(router.outwayTlsConfiguratie(inschrijving!!))
     }
 
     @Test
@@ -48,5 +58,12 @@ class MagazijnRouterTlsTest {
             .bijlage("BSN:999993653", berichtId, bijlageId)
 
         assertEquals(200, respons.status)
+
+        // De FSC-header hoort over diezelfde TLS-verbinding aan te komen: op ZAD dragen TLS en
+        // grant-hash altijd samen, en ze worden op dezelfde builder geregistreerd.
+        HttpsMagazijnResource.magazijn.verify(
+            getRequestedFor(urlPathMatching("/api/v1/berichten/.*/bijlagen/.*"))
+                .withHeader("Fsc-Grant-Hash", equalTo(HttpsMagazijnResource.GRANT_HASH)),
+        )
     }
 }

@@ -3,24 +3,29 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 import io.mockk.mockk
 import io.quarkus.tls.TlsConfiguration
 import io.quarkus.tls.TlsConfigurationRegistry
+import nl.rijksoverheid.moz.fbs.common.fsc.OutwayTls
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
-import nl.rijksoverheid.moz.fbs.magazijnregister.OutwayTls
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
-import java.util.Optional
+import java.net.URI
 
 /**
- * De keuze "wel of geen eigen trust-anker voor de outway". Zonder configuratie moet het
- * verkeer op de JVM-default trust-store blijven leunen — dat is het gedrag van elke omgeving
- * die de outway via een publiek vertrouwde ingress bereikt, en dat mag deze knop niet stiekem
- * omzetten.
+ * Wie krijgt het outway-anker mee. Twee assen die onafhankelijk moeten werken: is er een
+ * configuratie onder die naam, en loopt dít magazijn eigenlijk wel door de outway.
+ *
+ * De tweede as is de kern. Een magazijn zonder grant-hash wordt rechtstreeks aangeroepen en
+ * presenteert een publiek certificaat; omdat een named TLS-configuratie de JVM-default
+ * trust-store vervángt, zou het anker die verbinding juist breken.
  */
 class MagazijnClientFactoryOutwayTlsTest {
 
     private val configuratie = mockk<TlsConfiguration>()
 
-    private fun factoryMet(registry: TlsConfigurationRegistry?) =
+    private fun factoryMet(registry: TlsConfigurationRegistry) =
         MagazijnClientFactory(
             register = mockk<Magazijnregister>(relaxed = true),
             connectTimeoutMs = 2000L,
@@ -28,40 +33,50 @@ class MagazijnClientFactoryOutwayTlsTest {
             tlsRegistry = registry,
         )
 
-    @Test
-    fun `zonder registry blijft het bij de JVM-default trust-store`() {
-        assertNull(factoryMet(null).outwayTlsConfiguratie())
-    }
+    private fun inschrijving(grantHash: String?) = Magazijninschrijving(
+        oin = Oin("00000001003214345000"),
+        url = URI.create("https://magazijn.test"),
+        naam = null,
+        grantHash = grantHash,
+    )
 
     @Test
     fun `een registry zonder configuratie onder die naam levert niets op`() {
-        val registry = registryMet(emptyMap())
+        val factory = factoryMet(testTlsRegistry())
 
-        assertNull(factoryMet(registry).outwayTlsConfiguratie())
+        assertNull(factory.outwayTlsConfiguratie(inschrijving(grantHash = "abc123")))
     }
 
     @Test
     fun `een andere naam in de registry telt niet mee`() {
-        val registry = registryMet(mapOf("iets-anders" to configuratie))
+        val factory = factoryMet(testTlsRegistry("iets-anders" to configuratie))
 
-        assertNull(factoryMet(registry).outwayTlsConfiguratie())
+        assertNull(factory.outwayTlsConfiguratie(inschrijving(grantHash = "abc123")))
     }
 
     @Test
-    fun `de configuratie onder de outway-naam wordt gebruikt`() {
-        val registry = registryMet(mapOf(OutwayTls.CONFIG_NAAM to configuratie))
+    fun `een magazijn met grant-hash krijgt de configuratie onder de outway-naam`() {
+        val factory = factoryMet(testTlsRegistry(OutwayTls.CONFIG_NAAM to configuratie))
 
-        assertSame(configuratie, factoryMet(registry).outwayTlsConfiguratie())
+        assertSame(configuratie, factory.outwayTlsConfiguratie(inschrijving(grantHash = "abc123")))
     }
 
-    private fun registryMet(configuraties: Map<String, TlsConfiguration>) =
-        object : TlsConfigurationRegistry {
-            override fun get(naam: String): Optional<TlsConfiguration> =
-                Optional.ofNullable(configuraties[naam])
+    @Test
+    fun `een magazijn zonder grant-hash krijgt het anker niet, ook al is het geconfigureerd`() {
+        val factory = factoryMet(testTlsRegistry(OutwayTls.CONFIG_NAAM to configuratie))
 
-            override fun getDefault(): Optional<TlsConfiguration> = Optional.empty()
+        assertNull(factory.outwayTlsConfiguratie(inschrijving(grantHash = null)))
+    }
 
-            override fun register(naam: String, configuratie: TlsConfiguration) =
-                throw UnsupportedOperationException("test-registry is read-only")
-        }
+    /**
+     * De naam is een contract met omgevingsvariabelen buiten de codebase
+     * (`QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS`,
+     * `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME=outway`). Alle andere tests
+     * verwijzen naar de constante en zouden een hernoeming dus niet merken, terwijl elke
+     * gedeployde omgeving stilvalt.
+     */
+    @Test
+    fun `de configuratienaam ligt vast`() {
+        assertEquals("outway", OutwayTls.CONFIG_NAAM)
+    }
 }
