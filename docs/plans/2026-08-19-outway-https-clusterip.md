@@ -52,7 +52,7 @@ vertrouwen.
 ## Ontwerpkeuzes
 
 **Eén TLS-configuratie met de naam `outway`.** Zowel het magazijn-verkeer als de profiel-service
-lopen door dezelfde outway en dus achter hetzelfde interne CA-anker. Eén named Quarkus-TLS-config
+lopen door dezelfde outway en dus achter hetzelfde interne CA als trust anchor. Eén named Quarkus-TLS-config
 (`quarkus.tls.outway.*`) dekt beide; de naam staat als constante in `fbs-magazijnregister` zodat
 de twee modules die 'm gebruiken niet uiteen kunnen lopen.
 
@@ -70,7 +70,7 @@ bouwen beide plekken hun client op dezelfde manier.
 `@RegisterRestClient(configKey = "profiel-service")`, dus
 `quarkus.rest-client.profiel-service.tls-configuration-name=outway` volstaat — geen code. Die
 regel staat bewust **niet** in `application.properties`: een `tls-configuration-name` die naar een
-niet-bestaande configuratie wijst laat de client falen, en dan gaat elke omgeving zónder anker
+niet-bestaande configuratie wijst laat de client falen, en dan gaat elke omgeving zónder anchor
 stuk op een knop die ze niet gebruikt. De koppeling gaat daarom per omgeving mee als env-var,
 naast de trust-store zelf.
 
@@ -112,7 +112,7 @@ Gedaan:
   De test hangt dus aan de koppeling en niet aan een toevallig vertrouwd certificaat.
 - **De outway-kant, met een wegwerp-outway naast de draaiende federatie**: met `LISTEN_HTTPS=true`
   en het interne cert als server-cert logt hij `starting HTTPS server`, en een aanroep over https
-  met `internal/logius/ca/root.pem` als anker levert HTTP 200 uit magazijn-a, JWT ongewijzigd.
+  met `internal/logius/ca/root.pem` als anchor levert HTTP 200 uit magazijn-a, JWT ongewijzigd.
 - Beide CI-guards uit `.github/workflows/fsc-harness-overlays.yml` lokaal gedraaid op de
   gewijzigde compose (hostnet-merge én federatie-merge): 14/14 services, alle listeners op
   loopback.
@@ -157,4 +157,4 @@ Nog open:
 - De ZAD-uitrol (apply + herstart) blijft handmatig vervolgwerk, net als bij de vorige
   peer-wijzigingen.
 - `TODO(#552)` (expliciete trust-store voor PKIoverheid-validatie richting publieke endpoints)
-  blijft open: dit plan regelt alleen het anker voor de eigen outway.
+  blijft open: dit plan regelt alleen het anchor voor de eigen outway.

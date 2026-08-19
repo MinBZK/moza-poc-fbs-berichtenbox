@@ -14,12 +14,12 @@ import org.junit.jupiter.api.Test
 import java.net.URI
 
 /**
- * Wie krijgt het outway-anker mee. Twee assen die onafhankelijk moeten werken: is er een
+ * Wie krijgt het outway-anchor mee. Twee assen die onafhankelijk moeten werken: is er een
  * configuratie onder die naam, en loopt dít magazijn eigenlijk wel door de outway.
  *
  * De tweede as is de kern. Een magazijn zonder grant-hash wordt rechtstreeks aangeroepen en
  * presenteert een publiek certificaat; omdat een named TLS-configuratie de JVM-default
- * trust-store vervángt, zou het anker die verbinding juist breken.
+ * trust-store vervángt, zou het anchor die verbinding juist breken.
  */
 class MagazijnClientFactoryOutwayTlsTest {
 
@@ -62,7 +62,7 @@ class MagazijnClientFactoryOutwayTlsTest {
     }
 
     @Test
-    fun `een magazijn zonder grant-hash krijgt het anker niet, ook al is het geconfigureerd`() {
+    fun `een magazijn zonder grant-hash krijgt het anchor niet, ook al is het geconfigureerd`() {
         val factory = factoryMet(testTlsRegistry(OutwayTls.CONFIG_NAAM to configuratie))
 
         assertNull(factory.outwayTlsConfiguratie(inschrijving(grantHash = null)))

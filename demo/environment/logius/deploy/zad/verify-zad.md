@@ -69,9 +69,9 @@ Service-DNS; de Service heet `<deployment>-<component>` en de namespace is `rig-
 Twee dingen moeten daarvoor staan, en beide horen bij elkaar:
 
 - de outway serveert TLS op die poort (`LISTEN_HTTPS=true`, stap 2);
-- de app kent het anker: `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` wijst naar het mount-pad
+- de app kent het anchor: `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` wijst naar het mount-pad
   `/etc/fsc/internal/logius/ca/root.pem`, een bijlage op het `uitvraag`-component (zo heet het
-  component in ZAD; `berichtenuitvraag` is de applicatie). Zonder dat anker
+  component in ZAD; `berichtenuitvraag` is de applicatie). Zonder dat anchor
   faalt de handshake — de interne CA staat niet in de JVM-default trust-store. Voor de
   profiel-service-client hoort daar
   `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME=outway` bij; de magazijn-clients
@@ -98,7 +98,7 @@ infrastructuur:
 4. `PROFIEL_SERVICE_URL=https://fsc-logius-logius-fscoutway.rig-prd-mpfb-8wh.svc.cluster.local:8443`,
    `PROFIEL_SERVICE_GRANT_HASH=<content_hash uit stap 3>` en
    `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME=outway` als env-vars op de
-   gedeployde `berichtenuitvraag`-app zetten (project `mpfb-8wh`), naast het anker uit
+   gedeployde `berichtenuitvraag`-app zetten (project `mpfb-8wh`), naast het anchor uit
    sectie (b).
 5. Een smoke voor het pad `berichtenuitvraag → logius-fscoutway → logius-fscinway → upstream`.
 

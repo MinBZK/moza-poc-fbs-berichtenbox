@@ -105,11 +105,11 @@ internal class MagazijnClientFactory(
     }
 
     /**
-     * Het trust-anker voor dit magazijn, of `null` wanneer het niet van toepassing is.
+     * Het trust anchor voor dit magazijn, of `null` wanneer het niet van toepassing is.
      *
      * Alleen een inschrijving mét grant-hash loopt door de outway en heeft dus de interne PKI
      * van de peer als tegenpartij; een magazijn dat rechtstreeks wordt aangeroepen presenteert
-     * een publiek certificaat en zou tegen dat anker juist stukvallen — een named
+     * een publiek certificaat en zou tegen dat anchor juist stukvallen — een named
      * TLS-configuratie vervangt de JVM-default trust-store en vult die niet aan. Dezelfde
      * discriminator als [fscFilterVoor], zodat beide beslissingen op dezelfde vlag rusten.
      *

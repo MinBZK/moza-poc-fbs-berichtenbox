@@ -12,12 +12,12 @@ import java.util.concurrent.TimeUnit
 /**
  * Een magazijn achter TLS met een certificaat dat de JVM-default trust-store níét kent — de
  * situatie op ZAD, waar de FSC-outway zijn poort serveert met een cert uit de interne PKI van de
- * peer. Bewijst dat het anker uit `quarkus.tls.<naam>.*` daadwerkelijk tot een geslaagde
+ * peer. Bewijst dat het anchor uit `quarkus.tls.<naam>.*` daadwerkelijk tot een geslaagde
  * handshake leidt, en niet alleen tot een aangeroepen setter.
  *
  * De inschrijving krijgt een grant-hash, want dat is de combinatie die op ZAD bestaat: hetzelfde
  * outway-adres draagt TLS én de FSC-headers, en de grant-hash is tegelijk de vlag waarop het
- * anker geselecteerd wordt. De tegenhanger — een magazijn zónder grant-hash krijgt het anker niet
+ * anchor geselecteerd wordt. De tegenhanger — een magazijn zónder grant-hash krijgt het anchor niet
  * — is niet met een echte handshake te tonen (dat vraagt een publiek vertrouwd certificaat) en
  * staat daarom als unit-test in `MagazijnClientFactoryOutwayTlsTest`.
  *

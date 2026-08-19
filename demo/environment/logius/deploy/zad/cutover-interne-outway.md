@@ -22,9 +22,9 @@ Twee dingen maken dat de stappen in één venster horen en niet los uitgerold ku
 naar poort 8443; er staat geen `backend-protocol: HTTPS`-annotatie op. Zet je `LISTEN_HTTPS=true`,
 dan spreekt de pod TLS en levert de publieke route 502.
 
-**Het trust-anker vervangt de JVM-default trust-store, het vult die niet aan.** Zodra
+**Het trust anchor vervangt de JVM-default trust-store, het vult die niet aan.** Zodra
 `quarkus.tls.outway` bestaat valideert élk magazijn-endpoint tegen de interne CA — ook een
-endpoint dat nog op de publieke ingress staat, met een publiek certificaat. Vandaar dat het anker
+endpoint dat nog op de publieke ingress staat, met een publiek certificaat. Vandaar dat het anchor
 per deployment gaat zolang niet elke deployment mee is.
 
 ## Voorwaarden
@@ -104,7 +104,7 @@ zadctl attachment assign logius-internal-ca-root-cert uitvraag \
   --mount-path /etc/fsc/internal/logius/ca/root.pem
 ```
 
-**3. De uitvraag krijgt het anker en de URL's, in één stap.**
+**3. De uitvraag krijgt het anchor en de URL's, in één stap.**
 
 Per deployment, zodat de PR-previews op hun eigen (nog publieke) adres blijven werken tot ze mee
 verhuizen:

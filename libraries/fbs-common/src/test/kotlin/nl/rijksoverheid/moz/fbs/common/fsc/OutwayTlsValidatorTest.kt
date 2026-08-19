@@ -31,7 +31,7 @@ class OutwayTlsValidatorTest {
     }
 
     @Test
-    fun `een geldig anker wordt geaccepteerd`() {
+    fun `een geldig anchor wordt geaccepteerd`() {
         assertDoesNotThrow {
             valideer(paren = arrayOf("quarkus.tls.outway.trust-store.pem.certs" to "/etc/ca.pem"))
         }
@@ -39,7 +39,7 @@ class OutwayTlsValidatorTest {
 
     /**
      * De diagnose bij een typefout: de operator moet zijn eigen spelling terugzien naast de naam
-     * die de applicatie zoekt. Zonder die opsomming leest "geen anker" als "niets geconfigureerd",
+     * die de applicatie zoekt. Zonder die opsomming leest "geen anchor" als "niets geconfigureerd",
      * terwijl er een volledig gevalideerde bucket onder een andere naam staat.
      */
     @Test
@@ -54,7 +54,7 @@ class OutwayTlsValidatorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["quarkus.tls.outway.trust-all", "quarkus.tls.trust-all"])
-    fun `trust-all op het anker of op de default wordt geweigerd`(sleutel: String) {
+    fun `trust-all op het anchor of op de default wordt geweigerd`(sleutel: String) {
         val fout = assertThrows<IllegalStateException> {
             valideer(paren = arrayOf("quarkus.tls.outway.trust-store.pem.certs" to "/etc/ca.pem", sleutel to "true"))
         }
@@ -91,7 +91,7 @@ class OutwayTlsValidatorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["dev", "test"])
-    fun `dev en test mogen een ongeverifieerd anker houden`(profile: String) {
+    fun `dev en test mogen een ongeverifieerd anchor houden`(profile: String) {
         assertDoesNotThrow {
             valideer(
                 profile = profile,

@@ -7,7 +7,7 @@ import java.util.Optional
 /**
  * Een `TlsConfigurationRegistry` zonder Quarkus eromheen, zodat tests die de factory buiten CDI
  * bouwen niet alsnog een container nodig hebben. Leeg meegeven is het normale geval: dat is de
- * omgeving waarin geen outway-anker geconfigureerd is.
+ * omgeving waarin geen outway-anchor geconfigureerd is.
  */
 internal fun testTlsRegistry(vararg configuraties: Pair<String, TlsConfiguration>): TlsConfigurationRegistry {
     val perNaam = configuraties.toMap()

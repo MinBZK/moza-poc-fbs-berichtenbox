@@ -1,18 +1,18 @@
-# Het outway-trust-anker: gericht toepassen en zichtbaar maken
+# Het trust anchor voor de outway: gericht toepassen en zichtbaar maken
 
 **Status:** Concept
 
 Gestapeld op `feature/outway-https-clusterip` (PR #219). Dat werk gaf `berichtenuitvraag` een
-trust-anker voor de interne PKI van de eigen FSC-outway. Een review daarop leverde drie
+trust anchor voor de interne PKI van de eigen FSC-outway. Een review daarop leverde drie
 bevindingen op die allemaal dezelfde vorm hebben: **het risico is netjes opgeschreven waar deze
 codebase het elders afdwingt.**
 
 ## De drie bevindingen
 
-**Het anker gaat naar élke magazijn-client.** De regel erboven discrimineert wel:
+**Het anchor gaat naar élke magazijn-client.** De regel erboven discrimineert wel:
 `fscFilterVoor(inschrijving)` schakelt op `inschrijving.grantHash`, en dat veld ís de "loopt via de
 outway"-vlag. Een magazijn zonder grant-hash wordt rechtstreeks met een publiek certificaat
-gebeld en krijgt met de huidige code toch de interne CA als enig anker. Omdat een named
+gebeld en krijgt met de huidige code toch de interne CA als enig anchor. Omdat een named
 TLS-configuratie de JVM-default trust-store vervángt, klapt zo'n magazijn op `PKIX path building
 failed`. Die valkuil staat nu als waarschuwing op vier plekken; de conditie staat één regel hoger.
 
@@ -35,7 +35,7 @@ niet.
 ## Ontwerpkeuzes
 
 **Gate op de inschrijving, niet op de deployment.** `grantHash != null` betekent al "loopt via de
-outway". Daarmee wordt het anker per magazijn correct in plaats van per omgeving, en vervalt de
+outway". Daarmee wordt het anchor per magazijn correct in plaats van per omgeving, en vervalt de
 operationele afspraak ("scope het per deployment") die nu in twee documenten staat en een
 herschepping niet overleeft.
 
@@ -47,11 +47,11 @@ zitten — op een toevallig neveneffect leunen is geen ontwerp — maar wel de r
 boot-validatie hieronder in dezelfde wijziging hoort.
 
 **Valideer de config-keys, niet de registry-uitkomst.** Alleen zo is het verschil zichtbaar tussen
-"geen anker geconfigureerd" en "anker geconfigureerd onder een andere naam". `registry.get()` kan
+"geen anchor geconfigureerd" en "anchor geconfigureerd onder een andere naam". `registry.get()` kan
 die twee niet onderscheiden; `config.propertyNames` wel — dezelfde aanpak als
 `RedisVerbindingValidator.valideerAlleClients`.
 
-**Het anker verhuist naar `fbs-common`.** De constante staat nu in `fbs-magazijnregister` omdat dat
+**Het anchor verhuist naar `fbs-common`.** De constante staat nu in `fbs-magazijnregister` omdat dat
 de laagste module was die beide magazijn-consumers zien. Maar de profiel-service-client woont in
 `fbs-common`, en `fbs-common` kan `fbs-magazijnregister` niet importeren — de afhankelijkheid
 loopt andersom. Daardoor kan juist de derde consument de constante niet bereiken. In
@@ -59,7 +59,7 @@ loopt andersom. Daardoor kan juist de derde consument de constante niet bereiken
 hij thematisch goed: dit is FSC-transportkennis, geen registerkennis.
 
 **De registry wordt niet-nullable.** De nullable parameter bestond zodat unit-tests de bean zonder
-CDI konden bouwen, maar de lege `Optional` uit `get()` modelleert "geen anker" al volledig. Dat
+CDI konden bouwen, maar de lege `Optional` uit `get()` modelleert "geen anchor" al volledig. Dat
 haalt tegelijk de `@Inject constructor`-workaround weg, en de twee identieke commentaarblokken die
 'm uitleggen.
 
@@ -70,11 +70,11 @@ haalt tegelijk de `@Inject constructor`-workaround weg, en de twee identieke com
    beide takken welke modus geldt, en weigert buiten dev/test een `outway`-bucket met `trust-all`
    of hostname-verificatie `NONE` — tenzij een expliciete klep aan staat, en dan luid, met een
    stabiel alert-token.
-3. `MagazijnRouter` en `MagazijnClientFactory`: anker alleen bij `grantHash != null`, registry
+3. `MagazijnRouter` en `MagazijnClientFactory`: anchor alleen bij `grantHash != null`, registry
    niet-nullable, `@Inject constructor` en de bijbehorende comments weg.
 4. Tests: een `@QuarkusTest` met echte TLS in `fbs-berichtensessiecache` (het eager boot-pad van de
    factory, dat nu alleen een mock-registry kent), een tweede magazijn zonder grant-hash dat
-   bewijst dat het anker hem niet raakt, de letterlijke waarde van de configuratie-naam pinnen, en
+   bewijst dat het anchor hem niet raakt, de letterlijke waarde van de configuratie-naam pinnen, en
    de validator zelf.
 5. De testfixture harden: timeout op `keytool`, opruimen bij een falende `start()`, en de
    ongebruikte plaintext-listener uit.
@@ -86,7 +86,7 @@ haalt tegelijk de `@Inject constructor`-workaround weg, en de twee identieke com
 
 - `./mvnw clean verify` groen voor de drie geraakte modules.
 - De roundtrip-test blijft falen als de koppeling wordt uitgezet (negatieve controle uit #219).
-- Een tweede magazijn zonder grant-hash blijft bereikbaar terwijl het anker geconfigureerd is —
+- Een tweede magazijn zonder grant-hash blijft bereikbaar terwijl het anchor geconfigureerd is —
   dat is de bevinding die deze PR structureel wegneemt.
 
 ## Buiten scope
@@ -96,4 +96,4 @@ haalt tegelijk de `@Inject constructor`-workaround weg, en de twee identieke com
 - De cross-check tussen de trust-store-env-var en `tls-configuration-name` op de
   profiel-service-client.
 - `berichtenmagazijn` heeft dezelfde outway-constructie richting de profiel-service en zal
-  hetzelfde anker nodig hebben zodra magazijn-a's outway TLS spreekt.
+  hetzelfde anchor nodig hebben zodra magazijn-a's outway TLS spreekt.

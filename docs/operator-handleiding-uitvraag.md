@@ -92,7 +92,7 @@ aanroeper de timeout-classificatie.
   één bericht van 1 MiB; de rest is envelope-overhead.
 - **Certificaat-validatie richting de Profiel-service** leunt nu op de JVM-default trust-store.
   Een expliciete trust-store voor PKIoverheid-validatie staat nog open als `TODO(#552)`.
-- **Uitgaand verkeer door de eigen FSC-outway heeft een eigen trust-anker nodig.** De outway
+- **Uitgaand verkeer door de eigen FSC-outway heeft een eigen trust anchor nodig.** De outway
   serveert zijn poort met een certificaat uit de interne PKI van de peer, en die CA staat niet in
   de JVM-default trust-store. Wijs `MAGAZIJN_A_URL` of `PROFIEL_SERVICE_URL` naar de
   cluster-interne outway, dan horen daar deze variabelen bij:
@@ -100,15 +100,15 @@ aanroeper de timeout-classificatie.
   | Variabele | Waarde | Effect |
   |-----------|--------|--------|
   | `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` | het mount-pad van de interne CA, bv. `/etc/fsc/internal/logius/ca/root.pem` | maakt de TLS-configuratie `outway`; de magazijn-clients pakken 'm automatisch op |
-  | `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME` | `outway` | koppelt de profiel-service-client aan datzelfde anker |
+  | `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME` | `outway` | koppelt de profiel-service-client aan datzelfde anchor |
 
   Zet de tweede variabele **niet** zonder de eerste: een `tls-configuration-name` die naar een
   niet-bestaande configuratie wijst laat de client falen. Zijn beide leeg, dan geldt de
   JVM-default trust-store — het juiste gedrag zolang de outway via een publiek vertrouwde
-  ingress bereikt wordt. Een mislukt anker herken je aan een TLS-handshake-fout richting het
+  ingress bereikt wordt. Een mislukt anchor herken je aan een TLS-handshake-fout richting het
   outway-adres, niet aan een FSC-foutcode: de outway komt er dan niet eens aan te pas.
 
-  **Het anker geldt alleen voor magazijnen die door de outway lopen** — dat wil zeggen: met een
+  **Het anchor geldt alleen voor magazijnen die door de outway lopen** — dat wil zeggen: met een
   `grantHash` in de configuratie. Een magazijn zonder grant-hash wordt rechtstreeks aangeroepen,
   presenteert een publiek certificaat en houdt de JVM-default trust-store. Dat onderscheid zit in
   de code en hoeft dus niet per omgeving geregeld te worden; een named TLS-configuratie vervángt

@@ -11,7 +11,7 @@ import java.util.logging.Logger
 
 /**
  * Maakt bij boot zichtbaar of het uitgaande verkeer door de eigen FSC-outway een eigen
- * trust-anker heeft, en weigert een anker dat certificaatvalidatie juist opheft.
+ * trust anchor heeft, en weigert een anchor dat certificaatvalidatie juist opheft.
  *
  * Twee dingen maken dit nodig, en beide volgen uit hoe Quarkus deze configuratie behandelt.
  *
@@ -21,10 +21,10 @@ import java.util.logging.Logger
  * wordt geopend en gelezen — terwijl niemand hem opvraagt. Het verkeer valt dan terug op de
  * JVM-default trust-store en de handshake faalt later met een certificaatfout die als
  * netwerkstoring leest. Vandaar dat deze validator naar de CONFIG-SLEUTELS kijkt en niet naar
- * de uitkomst van [io.quarkus.tls.TlsConfigurationRegistry]: alleen zo is "geen anker" te
- * onderscheiden van "anker onder een andere naam".
+ * de uitkomst van [io.quarkus.tls.TlsConfigurationRegistry]: alleen zo is "geen anchor" te
+ * onderscheiden van "anchor onder een andere naam".
  *
- * **Aanwezigheid van de bucket is de schakelaar, maar niet elke bucket ís een anker.**
+ * **Aanwezigheid van de bucket is de schakelaar, maar niet elke bucket ís een anchor.**
  * `trust-all` en een hostnaam-verificatie van `NONE` maken de configuratie net zo goed
  * aanwezig, terwijl ze het vertrouwen opheffen in plaats van het te richten. Over dit verkeer
  * lopen berichten van burgers en ondernemers; wie dat tijdens een incident aanzet om een route
@@ -46,7 +46,7 @@ class OutwayTlsValidator(
         const val UNSAFE_KEY = "fbs.outway.unsafe-allow-unverified-tls"
 
         /**
-         * Stabiel, greppable token vooraan de waarschuwing bij een outway-anker dat het
+         * Stabiel, greppable token vooraan de waarschuwing bij een outway-anchor dat het
          * certificaat niet verifieert. Ops koppelt hier een alert-regel aan; de waarde mag
          * nooit wijzigen zonder die regel mee te verhuizen, anders valt de detectie stil.
          */
@@ -64,12 +64,12 @@ class OutwayTlsValidator(
          * de gekozen modus na elke rollout op de eerste logregels staat in plaats van pas bij
          * de eerste mislukte handshake.
          *
-         * [unsafeAllowUnverified] laat een outway-anker toe dat certificaten niet verifieert.
+         * [unsafeAllowUnverified] laat een outway-anchor toe dat certificaten niet verifieert.
          * Dat is alleen verantwoord wanneer er geen echte persoonsgegevens door de mesh gaan;
          * bij gebruik wordt bij elke boot een WARNING gelogd met [ONGEVERIFIEERD_ALERT_TOKEN].
          * Default false (fail-closed) zodat het nooit per ongeluk aan staat.
          *
-         * @throws IllegalStateException als het profiel verificatie vereist, het anker die
+         * @throws IllegalStateException als het profiel verificatie vereist, het anchor die
          *   opheft, en de onveilige override niet expliciet aan staat.
          */
         fun valideer(profile: String, config: Config, unsafeAllowUnverified: Boolean) {
@@ -86,7 +86,7 @@ class OutwayTlsValidator(
             if (gebreken.isEmpty()) {
                 log.info(
                     "Uitgaand outway-verkeer gebruikt de TLS-configuratie " +
-                        "'${OutwayTls.CONFIG_NAAM}' als trust-anker.",
+                        "'${OutwayTls.CONFIG_NAAM}' als trust anchor.",
                 )
 
                 return
@@ -118,7 +118,7 @@ class OutwayTlsValidator(
         }
 
         /**
-         * Meldt dat er geen anker is, en noemt de wél aanwezige bucket-namen. Die opsomming ís
+         * Meldt dat er geen anchor is, en noemt de wél aanwezige bucket-namen. Die opsomming ís
          * de diagnose bij een typefout: de operator ziet dan zijn eigen spelling terug naast de
          * naam die de applicatie zoekt.
          */
@@ -159,7 +159,7 @@ class OutwayTlsValidator(
                 .toSet()
 
         /**
-         * De knoppen die het anker ontkrachten, zowel op de bucket zelf als op de
+         * De knoppen die het anchor ontkrachten, zowel op de bucket zelf als op de
          * default-configuratie: `quarkus.tls.trust-all` geldt ook voor een named bucket die
          * hem niet zelf zet, dus alleen de bucket lezen zou die vlag missen.
          */
