@@ -19,40 +19,55 @@ on:
 permissions: read-all
 
 jobs:
-  # Bepaalt of er fuzz-relevante bronnen (libraries/, services/, pom.xml, .clusterfuzzlite/)
-  # zijn gewijzigd. De fuzz-job is hieraan gegate i.p.v. via een workflow-niveau paths-filter:
-  # `PR` is een required status check, en een paths-filter zou de check bij niet-relevante PR's
-  # (docs, bruno, workflows) nooit rapporteren en de merge eeuwig blokkeren. Een via `if`
-  # overgeslagen job telt daarentegen als 'skipped' = succes voor branch protection. Om
-  # diezelfde reden gate't deploy.yml niet de aanroep van deze workflow maar geeft het de
-  # uitkomst als input door: een niet-aangeroepen workflow rapporteert helemaal niets.
+  # Bepaalt of er fuzz-relevante bronnen zijn gewijzigd. De fuzz-job is hieraan gegate i.p.v. via
+  # een workflow-niveau paths-filter: `PR` is een required status check, en een paths-filter zou de
+  # check bij niet-relevante PR's (docs, bruno, workflows) nooit rapporteren en de merge eeuwig
+  # blokkeren. Een via `if` overgeslagen job telt daarentegen als 'skipped' = succes voor branch
+  # protection. Om diezelfde reden gate't deploy.yml niet de aanroep van deze workflow maar geeft
+  # het de uitkomst als input door: een niet-aangeroepen workflow rapporteert helemaal niets.
   # Draait alleen wanneer de caller de uitkomst niet meegaf; zie de toelichting in test.yml.
-  # LET OP: het patroon hieronder staat óók in de `changes`-job van deploy.yml en moet daarmee
-  # gelijk blijven. Op een PR naar main draait alleen die van deploy.yml, dus een eenzijdige
-  # wijziging hier heeft daar geen effect en valt niet op.
   changes:
     if: inputs.fuzz-relevant == ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      run: ${{ steps.filter.outputs.run }}
+      run: ${{ steps.filter.outputs.fuzz }}
     steps:
+      # Faalt de checkout, dan ontbreekt het script en valt de stap hieronder terug op alles
+      # draaien. Zonder `continue-on-error` zou de job rood worden, en dan slaat de `PR`-job over
+      # — wat als 'skipped' (= succes) doortelt in de required checks.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      # Deze detectie was een kopie van het fuzz-patroon uit deploy.yml, zonder de fail-safe die
+      # daar wél stond: een gefaalde `gh api` of een grep-fout leverde `run=false`, en de required
+      # check `PR` sloeg dan stil over. Nu hetzelfde script als de overige workflows.
       - name: Detecteer fuzz-relevante wijzigingen
         id: filter
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
-          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
-          echo "Gewijzigde bestanden:"
-          printf '%s\n' "$files"
-          if printf '%s\n' "$files" | grep -qE '(^libraries/|^services/|^pom\.xml$|^\.clusterfuzzlite/)'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Geen fuzz-relevante wijzigingen — fuzzing overgeslagen."
-            echo "run=false" >> "$GITHUB_OUTPUT"
+          set -uo pipefail
+
+          # Bufferen en tellen in plaats van rechtstreeks doorsluizen: zie de toelichting bij
+          # dezelfde stap in deploy.yml.
+          uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
+
+          if [ "$(grep -cE '^[a-z-]+=(true|false)$' <<<"$uitkomsten")" != 4 ]; then
+            echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
+            uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
           fi
+
+          printf '%s\n' "$uitkomsten" >> "$GITHUB_OUTPUT"
 
   PR:
     needs: changes

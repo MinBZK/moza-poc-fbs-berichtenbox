@@ -47,16 +47,22 @@ jobs:
     timeout-minutes: 5
     outputs:
       run: ${{ steps.filter.outputs.run }}
+    # Alleen lezen, en expliciet in plaats van de workflow-brede rechten: deze job checkt de PR uit
+    # en voert er een script uit. Zo erft hij niet stilzwijgend mee wanneer de workflow er ooit een
+    # schrijfrecht bij krijgt.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      # Dezelfde beoordeling als in deploy.yml, uit hetzelfde script: de patronen stonden hier in
-      # kopie, en op een PR naar main draait alleen die van deploy.yml — een eenzijdige wijziging
-      # hier had daar dus geen effect en viel niet op. Sparse: alleen de scripts zijn nodig.
+      # Faalt de checkout, dan ontbreekt het script en valt de stap hieronder terug op alles
+      # draaien. Zonder `continue-on-error` zou de job rood worden, en dan slaan de deploy-jobs
+      # over — wat als 'skipped' (= succes) doortelt in de required checks.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
         with:
           persist-credentials: false
           sparse-checkout: .github/scripts
-      # Uitkomsten staan op stdout, diagnostiek op stderr. Het script levert er vier; deze
-      # workflow declareert alleen `run` als job-output en gebruikt de rest niet.
+      # De ongebruikte sleutels landen wel in $GITHUB_OUTPUT, maar zijn hier geen job-output.
       - name: Detecteer wijzigingen die de code raken
         id: filter
         env:
@@ -65,7 +71,22 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
-        run: .github/scripts/wijzigingsfilter.sh >> "$GITHUB_OUTPUT"
+        run: |
+          set -uo pipefail
+
+          # Bufferen en tellen in plaats van rechtstreeks doorsluizen: een script dat halverwege
+          # afbreekt (of ontbreekt doordat de checkout faalde) zou anders een halve set outputs
+          # publiceren. GitHub leest $GITHUB_OUTPUT ook na een gefaalde stap, en een ontbrekende
+          # `deploy` leest als leeg — wat in deploy.yml "niet uitrollen" betekent, stil en groen.
+          # Vandaar dat elke onvolledige uitkomst hier terugvalt op alles draaien.
+          uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
+
+          if [ "$(grep -cE '^[a-z-]+=(true|false)$' <<<"$uitkomsten")" != 4 ]; then
+            echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
+            uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
+          fi
+
+          printf '%s\n' "$uitkomsten" >> "$GITHUB_OUTPUT"
 
   detekt:
     needs: changes

@@ -28,10 +28,10 @@ on:
     types: [opened, synchronize, reopened]
     # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
     # zonder dat de guard zelf ooit gedraaid heeft.
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/**']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
   push:
     branches: [main]
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/**']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
 
 # LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
 # `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
@@ -296,7 +296,9 @@ jobs:
           fail=0
 
           echo "== shellcheck =="
-          # -x volgt `source`-directives, zodat de gedeelde lib meegecontroleerd wordt.
+          # -x volgt `source`-directives, zodat de gedeelde lib meegecontroleerd wordt. De
+          # overige scripts onder .github/scripts/ hebben hun eigen workflow (ci-scripts.yml);
+          # merge-guard.sh staat hier omdat de jobs hierboven hem aanroepen.
           if ! shellcheck -x -S warning \
                  demo/environment/lib/*.sh \
                  demo/environment/federatie/*.sh \
@@ -304,16 +306,13 @@ jobs:
                  demo/environment/*/deploy/local/*.sh \
                  demo/environment/*/pki/*.sh \
                  demo/*.sh \
-                 .github/scripts/*.sh; then
+                 .github/scripts/merge-guard.sh; then
             fail=1
           fi
 
           echo "== bash-unittests =="
           gedraaid=0
-          # .github/scripts/ hoort erbij omdat het al mee-shellcheckt hierboven én omdat de
-          # wijzigingsdetectie die de hele CI-keten aanstuurt daar staat; zonder deze glob zou die
-          # test nergens draaien.
-          for t in demo/environment/lib/test-*.sh .github/scripts/test-*.sh; do
+          for t in demo/environment/lib/test-*.sh; do
             [ -f "$t" ] || continue
             gedraaid=$((gedraaid + 1))
             echo "-- $t"

@@ -163,16 +163,21 @@ jobs:
       demo-only: ${{ steps.filter.outputs.demo-only }}
       fuzz: ${{ steps.filter.outputs.fuzz }}
     # Alleen lezen, en expliciet in plaats van de `read-all` van de workflow: deze job checkt de
-    # PR uit en voert er een script uit. Dat is aanvaardbaar zolang er geen schrijfrechten en geen
-    # andere secrets dan de GITHUB_TOKEN in zitten.
+    # PR uit en voert er een script uit. De uitkomst stuurt de build- en deploy-jobs aan, dus de
+    # PR bepaalt hier mede wat er daarna draait. Dat is aanvaardbaar omdat de trigger
+    # `pull_request` is (geen `pull_request_target`): een fork krijgt een read-only token en komt
+    # niet aan de secrets van de deploy-jobs.
     permissions:
       contents: read
       pull-requests: read
     steps:
-      # De beoordeling zelf staat in .github/scripts/wijzigingsfilter.sh. test.yml en detekt.yml
-      # doen op een gestapelde PR hun eigen detectie en draaien hetzelfde script, zodat de
-      # patronen niet in drie kopieën uiteen kunnen lopen. Sparse: alleen de scripts zijn nodig.
+      # De beoordeling zelf staat in .github/scripts/wijzigingsfilter.sh; test.yml, detekt.yml en
+      # cflite_pr.yml draaien op een gestapelde PR hetzelfde script.
+      # Faalt de checkout, dan ontbreekt het script en valt de stap hieronder terug op alles
+      # draaien. Zonder `continue-on-error` zou de job rood worden, en dan slaan de deploy-jobs
+      # over — wat als 'skipped' (= succes) doortelt in de required checks.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
         with:
           persist-credentials: false
           sparse-checkout: .github/scripts
@@ -180,9 +185,6 @@ jobs:
       # workflows stelden dezelfde vraag elk apart; dat kostte per PR vier runner-allocaties
       # voor hetzelfde antwoord. Zij krijgen de uitkomst nu als input en slaan hun eigen
       # detectie over.
-      #
-      # Uitkomsten staan op stdout, diagnostiek op stderr — vandaar dat stdout rechtstreeks aan
-      # $GITHUB_OUTPUT hangt.
       - name: Bepaal wat er moet draaien
         id: filter
         env:
@@ -190,9 +192,23 @@ jobs:
           EVENT: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          # Het type komt van GitHub zelf (enum), niet uit door de indiener bepaalde tekst.
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
-        run: .github/scripts/wijzigingsfilter.sh >> "$GITHUB_OUTPUT"
+        run: |
+          set -uo pipefail
+
+          # Bufferen en tellen in plaats van rechtstreeks doorsluizen: een script dat halverwege
+          # afbreekt (of ontbreekt doordat de checkout faalde) zou anders een halve set outputs
+          # publiceren. GitHub leest $GITHUB_OUTPUT ook na een gefaalde stap, en een ontbrekende
+          # `deploy` leest als leeg — wat in deploy.yml "niet uitrollen" betekent, stil en groen.
+          # Vandaar dat elke onvolledige uitkomst hier terugvalt op alles draaien.
+          uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
+
+          if [ "$(grep -cE '^[a-z-]+=(true|false)$' <<<"$uitkomsten")" != 4 ]; then
+            echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
+            uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
+          fi
+
+          printf '%s\n' "$uitkomsten" >> "$GITHUB_OUTPUT"
 
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
   #
@@ -437,7 +453,7 @@ jobs:
     # `!cancelled()` i.p.v. de impliciete success(): een overgeslagen `checks-fuzz` (push naar main)
     # zou deze job anders meeslepen in 'skipped' en de deploy stilzwijgend blokkeren. Bij een
     # geannuleerde run hoeft de poort juist niet meer te oordelen.
-    # Niet wanneer `changes` de keten heeft uitgesloten (docs-only of bot-PR) — dan valt er niets
+    # Niet wanneer `changes` de keten heeft uitgesloten (documentatie/repo-meta of bot-PR) — dan valt er niets
     # te bewaken.
     if: >-
       !cancelled()
