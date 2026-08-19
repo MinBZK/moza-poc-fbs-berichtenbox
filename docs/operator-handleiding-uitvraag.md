@@ -107,3 +107,9 @@ aanroeper de timeout-classificatie.
   JVM-default trust-store — het juiste gedrag zolang de outway via een publiek vertrouwde
   ingress bereikt wordt. Een mislukt anker herken je aan een TLS-handshake-fout richting het
   outway-adres, niet aan een FSC-foutcode: de outway komt er dan niet eens aan te pas.
+
+  **Het anker vervángt de JVM-default trust-store voor magazijn-verkeer, het vult die niet aan.**
+  Zodra de configuratie bestaat gebruiken álle magazijn-clients hem, ook die naar een adres met
+  een publiek vertrouwd certificaat wijzen — en die valideren dan tegen de interne CA en falen.
+  Zet het anker daarom in dezelfde stap als de URL's die erdoor gedekt worden, en scope het per
+  deployment zolang niet elke deployment op de interne route zit.

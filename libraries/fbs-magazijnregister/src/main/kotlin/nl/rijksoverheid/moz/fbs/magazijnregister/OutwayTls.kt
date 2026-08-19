@@ -20,6 +20,10 @@ package nl.rijksoverheid.moz.fbs.magazijnregister
  * **Aanwezigheid is de schakelaar.** Is er geen configuratie met deze naam, dan valt het
  * verkeer terug op de JVM-default trust-store: precies het gedrag van vóór deze knop, en het
  * juiste gedrag voor een outway die via een publiek vertrouwde ingress bereikt wordt.
+ *
+ * Let op dat het anker de default trust-store **vervangt** en niet aanvult: bestaat de
+ * configuratie, dan valideert élk magazijn-endpoint tegen deze CA, ook een endpoint met een
+ * publiek certificaat. Configureer 'm dus samen met de adressen die erdoor gedekt worden.
  */
 object OutwayTls {
     const val CONFIG_NAAM = "outway"
