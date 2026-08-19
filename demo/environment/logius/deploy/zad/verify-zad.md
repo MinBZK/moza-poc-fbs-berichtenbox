@@ -20,14 +20,13 @@
    Het omzetten van de app naar dat interne adres is een cutover met een eigen draaiboek:
    [`cutover-interne-outway.md`](cutover-interne-outway.md).
 
-   De outway heeft daarnaast sinds 2026-08-13 een eigen "Publicatie op het web"
-   (`tls: standard`, geen passthrough). Die stamt uit de periode dat de per-deployment
+   De outway is verder egress-only en heeft **geen** publicatie op het web. Tussen 2026-08-13 en
+   2026-08-19 had hij die wel (`tls: standard`, geen passthrough), omdat de per-deployment
    tenant-baseline-NetworkPolicy `test` en `fsc-logius` van elkaar isoleerde — elke deployment
    mag alleen naar zichzelf + platform-namespaces, ongeacht dat ze in hetzelfde project en
    dezelfde namespace zitten — waardoor de ClusterIP-service vanuit `test` onbereikbaar was en
-   alleen de ingress-route overbleef. Met een gerichte NetworkPolicy-uitzondering is die omweg
-   niet meer nodig; trek de publicatie in zodra de interne route bewezen is, zodat de outway
-   geen publiek adres houdt dat niemand gebruikt.
+   alleen de ingress-route overbleef. Met een gerichte NetworkPolicy-uitzondering (de
+   platform-service `cross-domain-access`) verviel die omweg, en is de publicatie ingetrokken.
 3. Componenten herstart en boot-logs foutloos (zie `cert-manifest.md`, laatste sectie) — in het
    bijzonder GEEN `x509: certificate signed by unknown authority` meer op de controller: die
    bereikt de manager nu intern op `fsc-logius-logius-fscmgr:9443` (interne-PKI) i.p.v. de `:443`-group-ingress.
@@ -70,8 +69,9 @@ Service-DNS; de Service heet `<deployment>-<component>` en de namespace is `rig-
 Twee dingen moeten daarvoor staan, en beide horen bij elkaar:
 
 - de outway serveert TLS op die poort (`LISTEN_HTTPS=true`, stap 2);
-- de app kent het anker: `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` wijst naar
-  `internal/logius/ca/root.pem` als bijlage op de `berichtenuitvraag`-component. Zonder dat
+- de app kent het anker: `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` wijst naar het mount-pad
+  `/etc/fsc/internal/logius/ca/root.pem`, een bijlage op het `uitvraag`-component (zo heet het
+  component in ZAD; `berichtenuitvraag` is de applicatie). Zonder dat anker
   faalt de handshake — de interne CA staat niet in de JVM-default trust-store. Voor de
   profiel-service-client hoort daar
   `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME=outway` bij; de magazijn-clients

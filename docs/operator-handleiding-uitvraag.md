@@ -99,7 +99,7 @@ aanroeper de timeout-classificatie.
 
   | Variabele | Waarde | Effect |
   |-----------|--------|--------|
-  | `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` | pad naar `internal/<peer>/ca/root.pem` | maakt de TLS-configuratie `outway`; de magazijn-clients pakken 'm automatisch op |
+  | `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` | het mount-pad van de interne CA, bv. `/etc/fsc/internal/logius/ca/root.pem` | maakt de TLS-configuratie `outway`; de magazijn-clients pakken 'm automatisch op |
   | `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME` | `outway` | koppelt de profiel-service-client aan datzelfde anker |
 
   Zet de tweede variabele **niet** zonder de eerste: een `tls-configuration-name` die naar een

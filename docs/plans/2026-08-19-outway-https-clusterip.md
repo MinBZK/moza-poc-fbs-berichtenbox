@@ -66,9 +66,13 @@ niets toe.
 kent geen `tlsConfiguration(...)`. `MagazijnClientFactory` gebruikt de Quarkus-variant al; hiermee
 bouwen beide plekken hun client op dezelfde manier.
 
-**De profiel-service is config-only.** Die client is `@RegisterRestClient(configKey =
-"profiel-service")`, dus `quarkus.rest-client.profiel-service.tls-configuration-name=outway`
-volstaat — geen code.
+**De profiel-service is config-only, maar per omgeving.** Die client is
+`@RegisterRestClient(configKey = "profiel-service")`, dus
+`quarkus.rest-client.profiel-service.tls-configuration-name=outway` volstaat — geen code. Die
+regel staat bewust **niet** in `application.properties`: een `tls-configuration-name` die naar een
+niet-bestaande configuratie wijst laat de client falen, en dan gaat elke omgeving zónder anker
+stuk op een knop die ze niet gebruikt. De koppeling gaat daarom per omgeving mee als env-var,
+naast de trust-store zelf.
 
 **Lokaal blijft http de default.** De harness draait in `dev`/`test`, waar de TLS-eis niet geldt,
 en alle smokes bellen `http://127.20.1.5:8443`. De compose krijgt `LISTEN_HTTPS` als env met
@@ -86,8 +90,8 @@ default `false`, zodat het https-pad reproduceerbaar is zonder de bestaande smok
 4. **`fbs-magazijnregister`** — constante voor de TLS-configuratienaam.
 5. **`MagazijnClientFactory`** en **`MagazijnRouter`** — de configuratie opvragen bij de
    `TlsConfigurationRegistry` en toepassen wanneer aanwezig.
-6. **`application.properties` (uitvraag)** — `tls-configuration-name` voor de profiel-service-client
-   en een toelichting bij de `quarkus.tls.outway.*`-config.
+6. **`application.properties` (uitvraag)** — toelichting bij de `quarkus.tls.outway.*`-config en
+   bij de env-var die de profiel-service-client eraan koppelt; geen property zetten.
 7. **Tests** — de tak "configuratie aanwezig → toegepast" dekken, plus een roundtrip over echte
    TLS zodat het niet bij een aangeroepen setter blijft.
 8. **`logius/deploy/zad/verify-zad.md`** — het draaiboek bijwerken: de interne https-URL wordt de
@@ -138,8 +142,10 @@ Nog open:
   zonder foutmelding, zonder transactielogboek, zonder contractcontrole. De alias omzetten kan
   niet gericht (aliases bestaan alleen op componentniveau), en raakt dus ook de PR-previews, die
   geen inbound-regel en geen grant-hash hebben. Belegd in MinBZK/MijnOverheidZakelijk#953.
-- De PR-previews staan nog op de ingress-URL; ze hebben elk een eigen inbound-regel nodig zodra
-  ze mee verhuizen.
+- De PR-previews bellen magazijn-a nog rechtstreeks op zijn eigen ingress in `mpfm-w3h` (de
+  component-alias met `$DEPLOYMENT_NAME`), dus buiten de outway om. Dat is een andere ingress dan
+  die van de outway en staat los van het intrekken daarvan: de previews zijn er niet door geraakt.
+  Willen ze mee verhuizen, dan heeft elk van hen een eigen inbound-regel én een grant-hash nodig.
 - De bestaande lokale smokes (`smoke-federatie.sh`, `smoke-contract.sh`, `smoke-keten.sh`) een
   keer draaien tegen een verse federatie; ze raken deze wijziging niet (default blijft http),
   maar de bevestiging staat nog open.

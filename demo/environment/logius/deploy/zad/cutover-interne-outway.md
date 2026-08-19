@@ -146,19 +146,25 @@ handshake-probleem zoekt: dat komt van het adres van de uitvraag-pod en staat aa
 `PKIX path building failed`.
 
 Daarna de functionele smoke: een ophaal-request door de keten
-`berichtenuitvraag → logius-fscoutway → logius-fscinway → magazijn-a`, met een verse BSN zodat de
-sessiecache de keten niet maskeert. Een nieuwe transactie in beide txlogs is het bewijs dat het
-verkeer écht door de outway liep.
+`berichtenuitvraag → logius-fscoutway → magazijna-fscinway → berichtenmagazijn`, met een verse BSN
+zodat de sessiecache de keten niet maskeert. Let op dat de inway aan de overkant die van
+**magazijn-a** is (project `mpfm-w3h`, deployment `fsc-magazijna`): magazijn-a is een eigen peer.
+`logius-fscinway` is de ingang voor de diensten die logius zélf publiceert, zoals de
+profiel-service, en komt in dit pad niet voor. Een nieuwe transactie in beide txlogs is het bewijs
+dat het verkeer écht door de outway liep.
 
-**5. De publieke ingress intrekken.**
+**5. De publieke ingress intrekken — punt van geen terugkeer.**
 
 Werkt de interne route, haal dan "Publicatie op het web" van `logius-fscoutway` weg in de ZAD-UI.
 Hij is dan niet meer in gebruik, en een outway met een publiek adres is oppervlak dat niemand
 nodig heeft. Werk `verify-zad.md` bij als dit gebeurd is.
 
+Doe deze stap pas als je de terugrol niet meer nodig denkt te hebben: het korte recept hieronder
+leunt op precies dat adres.
+
 ## Terugrollen
 
-Stap 1 en 3 zijn elkaars tegenhanger; draai ze samen terug:
+**Vóór stap 5.** Stap 1 en 3 zijn elkaars tegenhanger; draai ze samen terug:
 
 ```bash
 zadctl env unset -c logius-fscoutway LISTEN_HTTPS TLS_SERVER_CERT TLS_SERVER_KEY
@@ -168,6 +174,15 @@ zadctl env set -c uitvraag --deployment test \
   MAGAZIJN_A_URL=https://logius-fscoutway-fsc-logius-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl \
   PROFIEL_SERVICE_URL=https://logius-fscoutway-fsc-logius-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl
 ```
+
+**Ná stap 5 werkt dat recept niet meer.** Die ingress-URL bestaat dan niet, dus je rolt terug naar
+een dood adres — en een terugrol draai je onder tijdsdruk. Zet in dat geval eerst "Publicatie op
+het web" op `logius-fscoutway` weer aan (ZAD-UI, `tls: standard`) en wacht tot de route antwoordt;
+pas daarna de commando's hierboven. Wil je die omweg vermijden, dan is de snellere terugval de
+env-vars leeghalen en `MAGAZIJN_A_URL`/`PROFIEL_SERVICE_URL` helemaal `unset`-en: de app valt dan
+terug op de component-aliassen, die rechtstreeks naar magazijn-a en de profiel-stub wijzen. Dat
+werkt zonder ingress, maar levert verkeer buiten de mesh om — zonder transactielogboek en zonder
+contractcontrole.
 
 De bijlage uit stap 2 mag blijven hangen: zonder de env-var uit stap 3 doet een gemount
 CA-bestand niets. Laat 'm staan, dan is een tweede poging één commando korter.
