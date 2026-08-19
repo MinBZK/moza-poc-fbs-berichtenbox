@@ -78,9 +78,13 @@ src/test:  196 bestanden, 27.282 regels Kotlin
 ```
 
 Door bij `compile` te stoppen verdwijnt niet alleen de 45 s compilatie, maar ook ~67% van de
-bestanden uit de CodeQL-database. De analyse-stap (53–70 s) schaalt met die omvang, dus daar
-valt de tweede helft van de winst. Die winst is beredeneerd, niet gemeten — de verificatie
-hieronder toetst hem expliciet.
+bestanden uit de CodeQL-database.
+
+**Verwachting weerlegd door de meting.** Vooraf was de aanname dat de analyse-stap met die
+omvang mee zou schalen en richting ~40 s zou zakken. Run `32259136441` laat 61 s zien, tegen
+53/65/70 s in de baseline: geen meetbaar verschil. De analyse-stap wordt kennelijk gedomineerd
+door het evalueren van de query-suite, niet door het aantal bronbestanden. De winst van deze
+wijziging zit dus volledig in de build-stap.
 
 ## Ontwerpkeuzes
 
@@ -97,9 +101,11 @@ verificatie hieronder.
 **`-T 1C` (parallelle reactor) nu niet.** De module-graaf is breed: alleen `fbs-common` is
 upstream van de rest, dus het kritieke pad zou van ~200 s naar ~135 s kunnen. Maar de
 CodeQL-extractor traceert compiler-processen, en of die tracing onder een parallelle reactor
-volledig blijft, moet gemeten worden — niet aangenomen. Eerst de basiswinst meten. Landt de
-mediaan boven 4 minuten, dan is dit de volgende stap, met een expliciete controle op het
-aantal bevindingen per module.
+volledig blijft, moet gemeten worden — niet aangenomen. Eerst de basiswinst meten.
+
+De meting (zie Resultaat) landt op 4:28, dus dit ís de volgende stap. Voorwaarde bij die
+vervolgstap: expliciet controleren dat het aantal bevindingen per module gelijk blijft, zodat
+parallelle tracing geen stille gaten in de extractie slaat.
 
 **`clean` blijft staan.** Op een verse runner is het een no-op (gemeten: 0 s). Het staat er
 zodat het commando ook lokaal doet wat de naam belooft.
@@ -135,19 +141,41 @@ draait tussen build en analyse, zodat een onvolledige build de analyse niet eens
 7. Build-output nalopen op nieuwe waarschuwingen. Bekende baseline: twee Kotlin-waarschuwingen
    in `BerichtStatusRepository.kt:72` over `java.lang.Boolean`. Die stonden er al.
 
-## Projectie
+## Resultaat
 
-| Stap | Nu | Na deze wijziging |
+Gemeten op run `32259136441` (de PR draait de gewijzigde workflow op zichzelf), naast de
+baseline-run `32250085413`:
+
+| Stap | Vooraf geschat | Baseline | Gemeten |
+|---|---|---|---|
+| Set up + checkout | 3 s | 3 s | 4 s |
+| setup-java + cache | 3 s | — | 6 s |
+| Init CodeQL | 18 s | 18 s | 19 s |
+| Build | ~167 s | 278 s | **172 s** |
+| Controle op classes | — | — | 0 s |
+| Analyse | ~40 s | 65 s | **61 s** |
+| Overig | 4 s | 4 s | 6 s |
+| **Totaal** | **~3:55** | **6:08** | **4:28** |
+
+Onderliggend bewijs uit het build-log:
+
+| | Baseline | Gemeten |
 |---|---|---|
-| Set up + checkout | 3 s | 3 s |
-| setup-java + cache | — | 3 s |
-| Init CodeQL | 18 s | 18 s |
-| Build | 278 s | ~167 s |
-| Analyse | 65 s | ~40 s (aanname) |
-| Overig | 4 s | 4 s |
-| **Totaal** | **6:08** | **~3:55** |
+| Downloads | 1962 | **0** (volledige cache-hit, 94 MB) |
+| Reactor-tijd | 4:27 | **2:49** |
+| `test-compile` / `jandex` / `jar` / `quarkus:build` | aanwezig | **afwezig** |
 
-Zonder de analyse-winst landt het op ~4:20. Dan is `-T 1C` alsnog nodig.
+De build-stap kwam op 172 s uit tegen een schatting van 167 s. De analyse-stap bleef staan waar
+hij stond — zie de correctie bij oorzaak 3.
+
+**Het acceptatiecriterium van maximaal 4 minuten wordt hiermee nog niet gehaald** (4:28). De
+resterende stap is de parallelle reactor: de build-stap is nu 172 s, waarvan het kritieke pad
+`fbs-common` (30 s) → `berichtenmagazijn` (104 s) is. Parallel zou dat richting ~135 s kunnen,
+wat het totaal onder de 4 minuten brengt.
+
+Let op bij het beoordelen: dit is één run tegen een baseline die 4:36–6:10 spreidde. De
+build-stap is een harde vergelijking (172 s tegen 278 s, met 0 tegen 1962 downloads), het
+totaal niet. Voor het issue-criterium blijft de mediaan over ≥5 runs nodig.
 
 ## Lokale validatie vooraf
 

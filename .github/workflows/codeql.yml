@@ -62,8 +62,10 @@ jobs:
       # De extractie leest van dat alles niets.
       #
       # `compile` stopt vóór de testfasen. Dat haalt behalve die 61 s ook ~67% van de Kotlin-
-      # bronnen uit de database (27.282 regels testcode tegen 13.437 regels applicatiecode),
-      # wat de analyse-stap zelf verkort.
+      # bronnen uit de database (27.282 regels testcode tegen 13.437 regels applicatiecode).
+      # Dat laatste levert géén tijdwinst op: de analyse-stap bleef gemeten op 61 s staan tegen
+      # 53–70 s ervoor. Die stap wordt gedomineerd door het evalueren van de query-suite, niet
+      # door het aantal bronbestanden — verwacht hier dus niets van bij een volgende ingreep.
       #
       # BEWUSTE INPERKING: bevindingen in testcode vervallen hiermee. Verdedigbaar omdat detekt
       # testcode al uitsluit en testcode niet in productie draait; een hardcoded credential in
