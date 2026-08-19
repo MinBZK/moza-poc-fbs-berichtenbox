@@ -19,6 +19,7 @@ dist/
 # Environment
 .env
 .env.local
+.env.zadctl
 *.local
 
 # Logs
