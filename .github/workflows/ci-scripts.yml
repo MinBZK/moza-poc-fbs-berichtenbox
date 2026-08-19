@@ -1,20 +1,25 @@
 # De scripts onder .github/scripts/ beslissen wát de rest van de CI doet: wijzigingsfilter.sh
-# bepaalt welke jobs draaien, merge-guard.sh bewaakt de compose-overlays. Een fout daarin is stil
-# — een overgeslagen job rapporteert 'skipped' en dat telt als succes voor branch protection.
-# Vandaar een eigen, lichte workflow: shellcheck plus de bash-unittests, zonder de docker build
-# van de FSC-harness.
+# bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
+# merge-guard.sh bewaakt de compose-overlays. Een fout daarin is stil — een overgeslagen job
+# rapporteert 'skipped' en dat telt als succes voor branch protection. Vandaar een eigen, lichte
+# workflow: shellcheck, actionlint en de bash-unittests, zonder de docker build van de
+# FSC-harness.
 name: CI-scripts
 
-# Bewust ZONDER pad-filter, op élke PR. Deze check hoort een required context te zijn, en een
+# Op een PR bewust ZONDER pad-filter. Deze check hoort een required context te zijn, en een
 # required check achter een workflow-niveau `paths`-filter wordt bij een niet-matchende PR nooit
-# gerapporteerd — die blijft dan eeuwig 'expected' en blokkeert de merge voorgoed. De job kost
-# een halve minuut (shellcheck plus bash-unittests, geen build), dus altijd draaien is goedkoper
-# dan die valkuil.
+# gerapporteerd — die blijft dan eeuwig 'expected' en blokkeert de merge voorgoed. De job doet
+# alleen linting en unittests (geen build), dus altijd draaien is goedkoper dan die valkuil.
+#
+# Op een push naar main speelt dat niet: required contexts worden alleen op PR's beoordeeld, en
+# met `strict: true` op main draaide de PR al op dezelfde inhoud. Daar blijft het pad-filter dus
+# staan, anders is elke merge een herhaling van werk dat al gedaan is.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
+    paths: ['.github/scripts/**', '.github/workflows/**']
 
 permissions:
   contents: read
@@ -25,13 +30,36 @@ concurrency:
 
 jobs:
   scripts:
+    # Expliciete naam, want dit is de status-check-context in branch protection. Alleen
+    # aangeroepen workflows krijgen een `<caller-job> / <job>`-prefix; een standalone workflow
+    # levert de kale job-id als context op, en `scripts` is daarvoor te generiek.
+    name: ci-scripts
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: actionlint
+        env:
+          # Vaste versie plus checksum in plaats van een action van derden: dezelfde
+          # pin-discipline als de SHA-gepinde actions elders, met één partij minder in de keten.
+          ACTIONLINT_VERSIE: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+
+          curl -fsSL --max-time 60 --retry 3 --retry-connrefused -o /tmp/actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSIE}/actionlint_${ACTIONLINT_VERSIE}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+
+          # Vangt onder meer een `needs.<job>.result` die verwijst naar een job die niet in
+          # `needs:` staat: die levert stilzwijgend een lege string op in plaats van een fout.
+          /tmp/actionlint
       - name: shellcheck + bash-unittests
+        # Ook draaien als actionlint viel: twee losse signalen zijn in één run meer waard dan één.
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
 

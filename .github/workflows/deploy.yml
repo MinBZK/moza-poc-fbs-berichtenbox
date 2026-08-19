@@ -203,7 +203,13 @@ jobs:
           # Vandaar dat elke onvolledige uitkomst hier terugvalt op alles draaien.
           uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
 
-          if [ "$(grep -cE '^[a-z-]+=(true|false)$' <<<"$uitkomsten")" != 4 ]; then
+          # Op sleutel controleren, niet op aantal: vier geldige regels waarvan er één dubbel is
+          # en `deploy` ontbreekt, zou anders passeren en een lege `deploy`-output opleveren bij
+          # een groene job.
+          geldig=$(grep -cE '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten")
+          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .)
+
+          if [ "$geldig" != 4 ] || [ "$sleutels" != 4 ]; then
             echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
             uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
           fi
@@ -794,14 +800,16 @@ jobs:
               {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"},
               {"name": "magazijna-fscbootstrap", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-fsc-contract-bootstrap:${{ needs.meta.outputs.tag }}"}
             ]
-  # De required check die niet stil kan overslaan. `gate` en de uitrol-jobs hangen allemaal aan
-  # `needs.changes.outputs.deploy`; levert `changes` geen uitkomst, dan is die leeg, vallen ze
-  # allemaal weg als 'skipped', en telt dat als succes voor branch protection. De PR is dan groen
-  # terwijl er niets is uitgerold en de poort niets heeft bewaakt.
+
+  # De required check die niet stil kan overslaan. `gate` en de uitrol-jobs mogen zichzelf
+  # legitiem overslaan, en 'skipped' telt als succes voor branch protection — dus zonder een job
+  # die het tegendeel moet bewijzen is een run groen en samenvoegbaar terwijl er niets is
+  # uitgerold. Deze job draait daarom altijd en verklaart een uitgebleven uitrol alleen geldig
+  # wanneer de detectie dat besloot.
   #
-  # Deze job draait daarom altijd en oordeelt expliciet: overslaan is alleen goed als de detectie
-  # dat besloot. Hij hoort in de required contexts te staan in plaats van de drie
-  # `deploy-preview-*` — die kunnen namelijk wél legitiem overgeslagen worden.
+  # Het oordeel staat in .github/scripts/uitrol-poort.sh, met unittests ernaast: als inline
+  # `run:`-blok zou de logica die de merge bewaakt zelf ongetoetst zijn, en deze workflow draait
+  # niet op een gestapelde PR.
   uitrol-poort:
     needs:
       - changes
@@ -812,66 +820,29 @@ jobs:
       - deploy-test-uitvraag
       - deploy-test-externe-stubs
       - deploy-test-magazijnen
-    # `!cancelled()` i.p.v. de impliciete success(): juist de gevallen waarin een van de needs
-    # faalt of overgeslagen wordt, moet deze job beoordelen.
-    if: ${{ !cancelled() }}
+    # `always()` i.p.v. `!cancelled()` of de impliciete success(): juist de gevallen waarin een
+    # need faalt, overslaat of geannuleerd wordt, moet deze job beoordelen. Met `!cancelled()`
+    # zou een geannuleerde run deze check op 'skipped' (= succes) zetten en dus certificeren dat
+    # er is uitgerold terwijl er niets gedraaid heeft.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
       - name: Beoordeel de uitrol
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           CHANGES: ${{ needs.changes.result }}
           DEPLOY: ${{ needs.changes.outputs.deploy }}
           GATE: ${{ needs.gate.result }}
-          PREVIEWS: >-
-            ${{ needs.deploy-preview-uitvraag.result }}
-            ${{ needs.deploy-preview-externe-stubs.result }}
-            ${{ needs.deploy-preview-magazijnen.result }}
-          TESTDEPLOYS: >-
-            ${{ needs.deploy-test-uitvraag.result }}
-            ${{ needs.deploy-test-externe-stubs.result }}
-            ${{ needs.deploy-test-magazijnen.result }}
-        run: |
-          set -euo pipefail
-
-          # `changes` heeft geen `if`, dus hij draait altijd. Elke andere uitkomst dan 'success'
-          # betekent dat de rest van de keten op een lege uitkomst is weggevallen.
-          if [ "$CHANGES" != success ]; then
-            echo "::error::De wijzigingsdetectie eindigde als '$CHANGES' — uitrol onbepaald, niet stil overgeslagen."
-            exit 1
-          fi
-
-          if [ "$EVENT" = push ]; then
-            uitrol=$TESTDEPLOYS
-          else
-            uitrol=$PREVIEWS
-          fi
-
-          # Niets uitrollen is een geldige uitkomst, maar alleen wanneer de detectie dat besloot.
-          if [ "$DEPLOY" != true ]; then
-            for resultaat in $uitrol; do
-              if [ "$resultaat" != skipped ]; then
-                echo "::error::Een uitrol-job eindigde als '$resultaat' terwijl deploy=$DEPLOY — uitkomst inconsistent."
-                exit 1
-              fi
-            done
-
-            echo "Geen uitrolbare wijziging (deploy=$DEPLOY) — geen uitrol verwacht."
-            exit 0
-          fi
-
-          if [ "$GATE" != success ]; then
-            echo "::error::De kwaliteitspoort eindigde als '$GATE' — er is niet uitgerold."
-            exit 1
-          fi
-
-          for resultaat in $uitrol; do
-            if [ "$resultaat" != success ]; then
-              echo "::error::Een uitrol-job eindigde als '$resultaat'."
-              exit 1
-            fi
-          done
-
-          echo "Alle uitrol-jobs geslaagd."
+          # De uitrol-resultaten komen uit het needs-object zelf, niet uit zes overgetypte
+          # expressies: een hernoemde of toegevoegde uitrol-job zou anders stil buiten de
+          # beoordeling vallen (`needs.<onbekend>.result` levert leeg, geen fout).
+          NEEDS: ${{ toJSON(needs) }}
+        run: .github/scripts/uitrol-poort.sh
