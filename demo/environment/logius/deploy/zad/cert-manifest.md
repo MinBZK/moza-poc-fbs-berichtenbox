@@ -76,8 +76,17 @@ de eigen manager op de internal-PKI) — vandaar geen `out/logius/controller/*`-
 | `out/logius/outway/cert.pem` | `out/logius/outway/cert.pem` | `TLS_GROUP_CERT` |
 | `out/logius/outway/key.pem` | `out/logius/outway/key.pem` | `TLS_GROUP_KEY` |
 | `internal/logius/ca/root.pem` | `internal/logius/ca/root.pem` | `TLS_ROOT_CERT` |
-| `internal/logius/outway/cert.pem` | `internal/logius/outway/cert.pem` | `TLS_CERT` |
-| `internal/logius/outway/key.pem` | `internal/logius/outway/key.pem` | `TLS_KEY` |
+| `internal/logius/outway/cert.pem` | `internal/logius/outway/cert.pem` | `TLS_CERT`, `TLS_SERVER_CERT` |
+| `internal/logius/outway/key.pem` | `internal/logius/outway/key.pem` | `TLS_KEY`, `TLS_SERVER_KEY` |
+
+Het interne cert-paar draagt twee rollen op de outway: als client richting manager, controller en
+txlog (`TLS_CERT`/`TLS_KEY`), en als server-cert op de serve-poort `:8443` waar `berichtenuitvraag`
+binnenkomt (`TLS_SERVER_CERT`/`TLS_SERVER_KEY`, actief door `LISTEN_HTTPS=true`). Geen extra
+bijlage nodig: het is hetzelfde bestand, en de Service-namen staan al als SAN in het cert.
+
+De afnemende kant moet `internal/logius/ca/root.pem` als anker hebben — op de
+`berichtenuitvraag`-app via `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS`, zie
+`docs/operator-handleiding-uitvraag.md`.
 
 ## logius-fscinway (inway)
 
