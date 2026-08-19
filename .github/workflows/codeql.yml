@@ -10,7 +10,7 @@ on:
 
 permissions: read-all
 
-# Een opvolgende push maakt de vorige analyse achterhaald: die draait ~6 minuten door voor een
+# Een opvolgende push maakt de vorige analyse achterhaald: die draait minutenlang door voor een
 # uitkomst die niemand meer leest. Alleen voor PR's annuleren — op main is elke analyse de
 # baseline van dát commit, en de Scorecard-SAST-check kijkt of een gemergede PR een CodeQL-upload
 # had. Die upload komt van de laatste run op de PR, en die wordt hier nooit geannuleerd.
@@ -44,12 +44,55 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Zonder cache haalde deze workflow per run 1962 artefacten opnieuw van Maven Central —
+      # ~68 seconden wachten op bytes die test.yml, detekt.yml en deploy.yml al hergebruiken.
+      # De cache is ~94 MB en herstelt in ruim een seconde.
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
       - name: Initialize CodeQL
         uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           languages: ${{ matrix.language }}
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+      # Eigen bouwstap in plaats van `autobuild`. Die draait `clean package -DskipTests`, en
+      # `-DskipTests` slaat alleen de surefire-UITVOERING over: `kotlin:test-compile` draait
+      # gewoon door (45 s over alle modules), plus `jandex`, `jar` en `quarkus:build` (16 s).
+      # De extractie leest van dat alles niets.
+      #
+      # `compile` stopt vóór de testfasen. Dat haalt behalve die 61 s ook ~67% van de Kotlin-
+      # bronnen uit de database (27.282 regels testcode tegen 13.437 regels applicatiecode),
+      # wat de analyse-stap zelf verkort.
+      #
+      # BEWUSTE INPERKING: bevindingen in testcode vervallen hiermee. Verdedigbaar omdat detekt
+      # testcode al uitsluit en testcode niet in productie draait; een hardcoded credential in
+      # een test hoort bij secret scanning, niet bij een SAST-tool.
+      #
+      # `build-mode: none` is geen alternatief — buildless extractie ondersteunt Kotlin niet.
+      # De reactor blijft met `compile` werken: downstream-modules lezen `target/classes` van
+      # upstream in plaats van geïnstalleerde jars.
+      #
+      # `-Dmaven.test.skip=true` is bij `compile` strikt genomen overbodig (die fasen worden
+      # niet bereikt) en staat er als vangrail: wie de fase ooit optrekt, krijgt de
+      # testcompilatie dan niet ongemerkt terug.
+      - name: Build
+        run: ./mvnw -B -ntp -e clean compile -Dmaven.test.skip=true
+      # Een reactor die stilletjes minder bouwt, eindigt groen: CodeQL uploadt dan een vrijwel
+      # lege SARIF en de PR oogt veilig terwijl er niets is gekeken. De CodeQL-actie vangt
+      # alleen "nul bestanden" af, niet "één module in plaats van zes". Deze controle staat
+      # vóór de analyse, zodat een onvolledige build die niet eens haalt.
+      - name: Controleer dat elke module classes opleverde
+        run: |
+          set -euo pipefail
+          for module in libraries/* services/*; do
+            [ -f "$module/pom.xml" ] || continue
+
+            if [ -z "$(find "$module/target/classes" -name '*.class' -print -quit 2>/dev/null)" ]; then
+              echo "::error::$module leverde geen classes op — de analyse zou onvolledig zijn."
+              exit 1
+            fi
+          done
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
