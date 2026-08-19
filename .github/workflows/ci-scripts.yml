@@ -5,16 +5,16 @@
 # van de FSC-harness.
 name: CI-scripts
 
+# Bewust ZONDER pad-filter, op élke PR. Deze check hoort een required context te zijn, en een
+# required check achter een workflow-niveau `paths`-filter wordt bij een niet-matchende PR nooit
+# gerapporteerd — die blijft dan eeuwig 'expected' en blokkeert de merge voorgoed. De job kost
+# een halve minuut (shellcheck plus bash-unittests, geen build), dus altijd draaien is goedkoper
+# dan die valkuil.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    # De aanroepende workflows staan in het filter omdat zij het contract met het script vormen
-    # (de outputs die ze lezen, de `run:`-vangnetregel). Wijzigt dat contract, dan moeten de
-    # tests draaien, ook al bleef het script zelf ongemoeid.
-    paths: ['.github/scripts/**', '.github/workflows/ci-scripts.yml', '.github/workflows/deploy.yml', '.github/workflows/test.yml', '.github/workflows/detekt.yml', '.github/workflows/cflite_pr.yml']
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.github/workflows/ci-scripts.yml', '.github/workflows/deploy.yml', '.github/workflows/test.yml', '.github/workflows/detekt.yml', '.github/workflows/cflite_pr.yml']
 
 permissions:
   contents: read
