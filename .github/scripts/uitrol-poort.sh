@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 # Beoordeelt na afloop van een deploy-run of er is uitgerold, óf dat de uitrol terecht uitbleef.
 #
-# Bestaat omdat `gate` en de uitrol-jobs zichzelf legitiem mogen overslaan: een overgeslagen job
-# rapporteert 'skipped' en dat telt als succes voor branch protection. Valt de wijzigingsdetectie
-# om, dan vallen ze allemaal weg als 'skipped' en is de run groen en samenvoegbaar terwijl er
-# niets is uitgerold en niets bewaakt. Deze ene beoordeling mag daarom nooit stil overslaan en
-# nooit stil slagen: elke onbepaalde uitkomst is een fout, geen stilte.
+# Bestaat omdat `gate` en de uitrol-jobs zichzelf legitiem mogen overslaan: valt de
+# wijzigingsdetectie om, dan slaan ze allemaal over en is de run groen zonder dat er iets is
+# uitgerold. Elke onbepaalde uitkomst is hier daarom een fout, geen stilte.
 #
 # Contract: alle invoer via de omgeving, diagnostiek op stdout, de exitcode is het oordeel.
-#   EVENT   github.event_name
-#   REF     github.ref
-#   CHANGES resultaat van de job `changes`
-#   DEPLOY  output `deploy` van die job
-#   GATE    resultaat van de job `gate`
-#   NEEDS   toJSON(needs) — de uitrol-resultaten worden hieruit afgeleid in plaats van per job
-#           overgetypt, zodat een hernoemde of toegevoegde uitrol-job niet buiten de beoordeling
-#           valt zonder dat iemand het merkt.
-set -euo pipefail
+#   EVENT     github.event_name
+#   REF       github.ref
+#   CANCELLED github.cancelled() — of de RUN is afgebroken
+#   CHANGES   resultaat van de job `changes`
+#   DEPLOY    output `deploy` van die job
+#   GATE      resultaat van de job `gate`
+#   NEEDS     toJSON(needs) — de resultaten van de bouw- en uitrol-jobs worden hieruit afgeleid,
+#             zodat er één plek is die synchroon moet blijven met de needs-lijst in plaats van
+#             een handgeschreven expressie per job.
+set -Eeuo pipefail
 
 # Aantal uitrol-jobs per as: drie previews op een PR, drie test-deployments op een push. Vast
 # getal zodat een verdwenen job een fout oplevert in plaats van een kortere lus die groen meldt
@@ -29,7 +28,53 @@ fout() {
   exit 1
 }
 
+# Vangnet voor alles wat niet via `fout` loopt: een ontbrekende variabele, een omgevallen jq of
+# grep. Zonder dit eindigt zo'n afbreking wel non-zero maar zonder annotatie, en dus zonder
+# aanwijzing in de checks-samenvatting.
+onverwacht() {
+  echo "::error::uitrol-poort.sh brak af op regel $2 met exitcode $1 — het oordeel is onbepaald."
+
+  exit "$1"
+}
+
+# Resultaten per voorvoegsel, als regels `jobnaam=resultaat`. Faalt jq, dan is het needs-object
+# onbruikbaar en mag dat niet als "geen jobs gevonden" doorgaan.
+resultaten() {
+  jq -r --arg p "$1" 'to_entries[] | select(.key | startswith($p)) | "\(.key)=\(.value.result)"' \
+    <<<"$NEEDS" || fout "NEEDS is geen bruikbare toJSON(needs)-uitvoer."
+}
+
+telling() {
+  [ -n "$1" ] || { echo 0; return; }
+
+  grep -c . <<<"$1"
+}
+
+# Alle jobs op de gekozen as moeten hetzelfde resultaat hebben; de eerste afwijking is fataal.
+eis_as() {
+  local regels=$1 verwacht=$2 toelichting=$3 naam resultaat
+
+  local aantal
+  aantal=$(telling "$regels")
+
+  if [ "$aantal" -ne "$VERWACHT_AANTAL" ]; then
+    fout "$aantal uitrol-jobs gevonden in plaats van $VERWACHT_AANTAL — de needs van de poort lopen uit de pas met deploy.yml."
+  fi
+
+  while IFS='=' read -r naam resultaat; do
+    [ "$resultaat" = "$verwacht" ] \
+      || fout "Uitrol-job '$naam' eindigde als '$resultaat' terwijl '$verwacht' verwacht was$toelichting."
+  done <<<"$regels"
+}
+
 beoordeel() {
+  # Een afgebroken run bewijst niets, en is aan de job-resultaten niet te herkennen: `gate` en de
+  # uitrol-jobs dragen zelf `!cancelled()`, dus bij een annulering vóór hun start rapporteren ze
+  # 'skipped' — niet te onderscheiden van de legitieme "niets uit te rollen"-uitkomst.
+  if [ "$CANCELLED" != false ]; then
+    fout "De run is afgebroken — deze run bewijst niets over de uitrol."
+  fi
+
   # `changes` draait onvoorwaardelijk; elke andere uitkomst dan success betekent dat de keten
   # erachter is weggevallen zonder dat iemand dat besloot.
   if [ "$CHANGES" != success ]; then
@@ -44,78 +89,73 @@ beoordeel() {
     *) fout "De uitrol-uitkomst is '$DEPLOY' in plaats van true/false — detectie onbepaald." ;;
   esac
 
-  local voorvoegsel
+  local as stille_as
 
   case "$EVENT" in
     push)
       [ "$REF" = refs/heads/main ] \
         || fout "Push op '$REF' terwijl alleen main de test-deployments uitrolt."
 
-      # De deploy-test-jobs raadplegen de detectie niet — hun `if` toetst alleen event en ref.
-      # Op een push hoort de detectie dus onvoorwaardelijk true te geven; doet ze dat niet, dan
-      # is ze omgevallen en bewijst een uitgebleven uitrol niets.
+      # De detectie valt op elk niet-PR-event terug op alles-aan, dus `deploy=false` betekent
+      # hier dat ze is omgevallen — en dan bewijst een uitgebleven uitrol niets.
       [ "$DEPLOY" = true ] \
         || fout "Op een push hoort de detectie deploy=true te geven, niet '$DEPLOY' — detectie omgevallen."
 
-      voorvoegsel=deploy-test-
+      as=deploy-test-
+      stille_as=deploy-preview-
       ;;
     pull_request)
-      voorvoegsel=deploy-preview-
+      as=deploy-preview-
+      stille_as=deploy-test-
       ;;
     *)
       fout "Onbekend event '$EVENT' — de poort kan niet bepalen welke uitrol-jobs hoorden te draaien."
       ;;
   esac
 
+  # De andere as hoort volledig stil te zijn. Draaide daar tóch iets, dan matcht de `if` van die
+  # jobs breder dan bedoeld en rolt een event uit dat dat niet hoort te doen.
+  eis_as "$(resultaten "$stille_as")" skipped " op de as die bij dit event niet hoort te draaien"
+
   local uitrol
-  uitrol=$(jq -r --arg p "$voorvoegsel" \
-    'to_entries[] | select(.key | startswith($p)) | "\(.key)=\(.value.result)"' <<<"$NEEDS")
-
-  local aantal
-  aantal=$(grep -c . <<<"$uitrol" || true)
-
-  if [ "$aantal" -ne "$VERWACHT_AANTAL" ]; then
-    fout "$aantal uitrol-jobs met voorvoegsel '$voorvoegsel' gevonden in plaats van $VERWACHT_AANTAL — de needs van de poort lopen uit de pas met deploy.yml."
-  fi
-
-  # Een afgebroken run heeft niets bewezen: handmatig geannuleerd, of een job die door zijn
-  # concurrency-groep wijkt voor een nieuwere commit. Groen melden zou liegen; de opvolgende run
-  # oordeelt opnieuw.
-  case "$GATE $uitrol" in
-    *cancelled*) fout "Een job is geannuleerd — deze run is afgebroken en bewijst niets." ;;
-  esac
-
-  local verwacht
+  uitrol=$(resultaten "$as")
 
   if [ "$DEPLOY" = true ]; then
     [ "$GATE" = success ] \
       || fout "De kwaliteitspoort eindigde als '$GATE' — er is niet uitgerold."
 
-    verwacht=success
+    # De bouw-jobs staan niet op de uitrol-as, maar zijn wél de gebruikelijke oorzaak van een
+    # overgeslagen uitrol: valt een build om of wijkt hij voor een nieuwere commit, dan slaan de
+    # uitrol-jobs over via hun eigen `if`. Zonder hun stand wijst de melding naar het gevolg.
+    local bouw
+    bouw=$(resultaten build)
+
+    eis_as "$uitrol" success " (bouw: $(tr '\n' ' ' <<<"$bouw"))"
+
+    echo "Alle $VERWACHT_AANTAL uitrol-jobs geslaagd."
   else
     # Zonder uitrol slaat `gate` zichzelf over. Draaide hij tóch en viel hij om, dan is dat een
     # fout — ook al hoefde er niets uitgerold te worden.
     [ "$GATE" = skipped ] || [ "$GATE" = success ] \
       || fout "De kwaliteitspoort eindigde als '$GATE'."
 
-    verwacht=skipped
-  fi
+    eis_as "$uitrol" skipped " (deploy=$DEPLOY)"
 
-  local naam resultaat
-
-  while IFS='=' read -r naam resultaat; do
-    [ "$resultaat" = "$verwacht" ] \
-      || fout "Uitrol-job '$naam' eindigde als '$resultaat' terwijl '$verwacht' verwacht was (deploy=$DEPLOY)."
-  done <<<"$uitrol"
-
-  if [ "$verwacht" = skipped ]; then
     echo "Geen uitrolbare wijziging (deploy=$DEPLOY) — geen uitrol verwacht, en er draaide er ook geen."
-  else
-    echo "Alle $aantal uitrol-jobs geslaagd."
   fi
 }
 
-# Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.
+# Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen. De trap
+# hangt aan die tak, zodat sourcen de aanroeper niet omver trekt.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  trap 'onverwacht "$?" "$LINENO"' ERR
+
+  # `set -u` beëindigt de shell op een ontbrekende variabele zónder de ERR-trap te draaien, dus
+  # zonder annotatie. Het contract met de workflow wordt daarom expliciet gecontroleerd.
+  for naam in EVENT REF CANCELLED CHANGES DEPLOY GATE NEEDS; do
+    [ -n "${!naam+gezet}" ] \
+      || fout "Omgevingsvariabele $naam ontbreekt — het contract met deploy.yml is verbroken."
+  done
+
   beoordeel
 fi
