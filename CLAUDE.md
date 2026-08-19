@@ -207,9 +207,18 @@ belangrijkste dat we met de hand nooit gebruikten. Val terug op rauwe OM-calls v
 CLI niet aanbiedt.
 
 ```bash
+# Linux (Intel/AMD; ARM: linux_arm64)
 mkdir -p ~/.local/bin && curl -fsSL -o /tmp/zadctl.tgz \
   https://github.com/RijksICTGilde/zad-cli/releases/latest/download/zadctl_linux_amd64.tar.gz
 tar -xzf /tmp/zadctl.tgz -C ~/.local/bin zadctl && zadctl --version   # `zad` = tweede naam
+
+# macOS (Apple Silicon; Intel-Mac: darwin_amd64)
+mkdir -p ~/.local/bin && curl -fsSL -o /tmp/zadctl.tgz \
+  https://github.com/RijksICTGilde/zad-cli/releases/latest/download/zadctl_darwin_arm64.tar.gz
+tar -xzf /tmp/zadctl.tgz -C ~/.local/bin zadctl
+xattr -d com.apple.quarantine ~/.local/bin/zadctl 2>/dev/null || true   # zonder dit weigert Gatekeeper de ongesigneerde binary
+zadctl --version
+
 zadctl login                    # SSO (Keycloak); de ZAD_API_KEY_*-secrets zijn niet lokaal leesbaar
 zadctl project use mpfb-8wh     # of mpfm-w3h / mpfpsm-lcl; schrijft .env.zadctl (0600, gitignored)
 ```
