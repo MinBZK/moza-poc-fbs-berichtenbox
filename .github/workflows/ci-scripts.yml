@@ -73,41 +73,61 @@ jobs:
           # `find` in plaats van een glob: een script in een toekomstige submap zou anders
           # stilzwijgend ongecontroleerd blijven. -x volgt `source`-directives, zodat een test
           # zijn script meegecontroleerd krijgt.
-          if ! find .github/scripts -name '*.sh' -print0 | xargs -0 shellcheck -x -S warning; then
+          scripts=$(find .github/scripts -name '*.sh' | wc -l)
+
+          # `xargs -r` draait shellcheck niet bij een lege lijst; zonder deze guard zou die stilte
+          # dan als geslaagd tellen in plaats van als "niets gemeten".
+          if [ "$scripts" -eq 0 ]; then
+            echo "FOUT: geen enkel script onder .github/scripts/ — deze stap meet niets."
+            fail=1
+          elif ! find .github/scripts -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
             fail=1
           fi
 
           echo "== bash-unittests =="
           gedraaid=0
-          geslaagd=0
 
-          for t in $(find .github/scripts -name 'test-*.sh' | sort); do
+          # Per suite het aantal asserties dat er minimaal uit moet komen. De suite rapporteert dat
+          # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
+          # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
+          declare -A VERWACHTE_ASSERTIES=(
+            [.github/scripts/test-wijzigingsfilter.sh]=70
+          )
+
+          while IFS= read -r t; do
             gedraaid=$((gedraaid + 1))
             echo "-- $t"
 
-            if uitvoer=$(bash "$t"); then
-              printf '%s\n' "$uitvoer"
-              geslaagd=$((geslaagd + $(grep -c '^OK: ' <<<"$uitvoer" || true)))
-            else
+            if ! uitvoer=$(bash "$t" 2>&1); then
               printf '%s\n' "$uitvoer"
               fail=1
+              continue
             fi
-          done
 
-          # Zonder deze guard meldt de stap groen zodra een test hernoemd of verplaatst wordt:
-          # de glob levert dan niets op en er wordt niets gemeten.
+            printf '%s\n' "$uitvoer"
+
+            gemeten=$(sed -n 's/^ASSERTIES=//p' <<<"$uitvoer" | tail -1)
+            verwacht=${VERWACHTE_ASSERTIES[$t]:-}
+
+            if [ -z "$verwacht" ]; then
+              echo "FOUT: $t staat niet in VERWACHTE_ASSERTIES — voeg het verwachte aantal toe."
+              fail=1
+            elif [ -z "$gemeten" ]; then
+              echo "FOUT: $t rapporteert geen ASSERTIES=-regel; het aantal is niet te bewaken."
+              fail=1
+            elif [ "$gemeten" -lt "$verwacht" ]; then
+              echo "FOUT: $t leverde $gemeten asserties, verwacht minstens $verwacht."
+              fail=1
+            fi
+          done < <(find .github/scripts -name 'test-*.sh' | sort)
+
+          # Zonder deze guard meldt de stap groen zodra er geen `test-*.sh` meer onder
+          # .github/scripts/ staat — verwijderd, of buiten dat pad of die naamvorm gebracht.
           if [ "$gedraaid" -eq 0 ]; then
             echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."
             fail=1
           fi
 
-          # En een tweede vloer op het aantal asserties: een suite waaruit de asserties wegvallen
-          # eindigt namelijk óók groen. De vloer ligt bewust ruim onder het huidige aantal, zodat
-          # hij alleen aanslaat bij een instorting en niet bij normaal onderhoud.
-          if [ "$geslaagd" -lt 40 ]; then
-            echo "FOUT: slechts $geslaagd geslaagde asserties — de suite meet vrijwel niets meer."
-            fail=1
-          fi
 
           if [ "$fail" -ne 0 ]; then
             echo "::error::shellcheck of een bash-unittest faalde. Zie de log hierboven."

@@ -25,35 +25,34 @@ set -euo pipefail
 # niets over op; review is daar de maatregel.
 NIET_CODE='^docs/|\.md$|^\.claude/|^\.github/ISSUE_TEMPLATE/|^\.github/dependabot\.yml$|^\.editorconfig$|^\.gitignore$|^LICENSE$|^apis\.json$'
 
-# De workflows die uitsluitend toetsen. Los van NIET_DEPLOYBAAR omdat de unittests deze lijst
-# tegen de schijf kruiscontroleren: elke naam moet bestaan, en elke workflow op schijf moet óf
-# hier staan óf in UITROL_RELEVANT. Zo dwingt een nieuwe workflow een expliciete keuze af in
-# plaats van stilzwijgend drie previews per PR te kosten.
-TOETS_WORKFLOWS='test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fsc-harness-overlays|fuzz-base-image|ci-scripts|cleanup-preview'
+# Workflows waarvoor een preview geen bewijs oplevert. Los van NIET_DEPLOYBAAR omdat de unittests
+# deze lijst tegen de schijf kruiscontroleren: elke naam moet bestaan, en elke workflow op schijf
+# moet óf hier staan óf in UITROL_RELEVANT. Zo dwingt een nieuwe workflow een expliciete keuze af
+# in plaats van stilzwijgend drie previews per PR te kosten.
+#
+# cleanup-preview.yml hoort hier omdat zijn PR-versie nóóit draait: die workflow hangt aan
+# `pull_request_target` en gebruikt dus altijd de versie op de default branch. deploy.yml hoort er
+# juist NIET bij — dat bestand bepaalt de uitrol zelf, dus daar is de preview het enige bewijs dat
+# de wijziging klopt (een pin-bump van de zad-actions is een wijziging aan dát bestand).
+GEEN_PREVIEW_WORKFLOWS='test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fsc-harness-overlays|fuzz-base-image|ci-scripts|cleanup-preview'
 
-# Bepalen zélf de uitrol, dus daar is een preview het bewijs dat de wijziging klopt. Alleen
-# gebruikt door de kruiscontrole in de tests; het filter hieronder werkt met de uitsluiting.
 # shellcheck disable=SC2034  # alleen door de kruiscontrole in test-wijzigingsfilter.sh gelezen
 UITROL_RELEVANT='deploy'
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.
-# Uitgesloten: de Bruno-collectie, de demo-stack, demo-console, de fuzz-configuratie, de
-# CI-scripts en de workflows die uitsluitend toetsen. Zonder dat filter kostte een PR aan bijvoorbeeld de
+# Uitgesloten: de Bruno-collectie, de demo-stack, demo-console, de fuzz-configuratie, de CI-scripts
+# en de workflows uit GEEN_PREVIEW_WORKFLOWS. Zonder dat filter kostte een PR aan bijvoorbeeld de
 # fuzz-configuratie tóch twee jib-builds plus drie previews — uitrollen van een image dat per
 # definitie gelijk is aan main. demo-console zit in geen enkel uitgerold image: het staat niet in
 # de build-matrix van deploy.yml en heeft geen ZAD-component.
-#
-# cleanup-preview.yml staat bij de toets-workflows omdat een preview daar niets bewijst: die code
-# draait pas bij het sluiten van een PR, tegen de basisbranch. deploy.yml staat er juist NIET bij
-# (een pin-bump van de zad-actions is een wijziging aan dát bestand).
 #
 # Het contract-bootstrap-image komt óók uit demo/, maar hangt in deploy.yml aan `run`, niet aan
 # `deploy` — een demo/-wijziging bouwt het dus nog steeds. Uitrollen gebeurt alleen op push naar
 # main; op een PR beproeft fsc-harness-overlays.yml het image. Een uitzondering hier zou de hele
 # deploy-keten (twee jib-images, de stubs en drie previews) openzetten voor een wijziging die daar
 # niets mee te maken heeft.
-NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|^demo/|^services/demo-console/|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($TOETS_WORKFLOWS)\.yml\$"
+NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|^demo/|^services/demo-console/|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
 
 # demo-console heeft bewust geen afhankelijkheid op fbs-common of een andere reactor-module (zie
 # services/demo-console/pom.xml) — het enige blad in de module-graaf zonder koppeling. Raakt de PR
