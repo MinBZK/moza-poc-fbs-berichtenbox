@@ -121,14 +121,23 @@ Op ZAD uitgevoerd (2026-08-19), volgens `cutover-interne-outway.md`:
   `uitvraag`, en de URL's van `test` omgezet naar het interne adres.
 - Netwerktoegang via `cross-domain-access`: outbound bij `test`, inbound bij `fsc-logius`, beide
   gerenderd als NetworkPolicy en elkaars spiegelbeeld op poort 8443.
-- **Het ophalen-endpoint werkt over de interne route** (met Bruno tegen `test`). Daarmee is de
-  keten `berichtenuitvraag → logius-fscoutway → logius-fscinway → magazijn-a` bewezen zonder dat
-  het verkeer het cluster nog verlaat.
+- **Het ophalen-endpoint werkt over de interne route.** Bewezen aan het log van de outway tijdens
+  een handmatige aanroep — `received request` gevolgd door `forwarding API request` — en niet aan
+  een geslaagde respons: die zegt niets, want het rechtstreekse pad naar magazijn-a werkt ook. Het
+  ene milliseconde-verschil tussen die twee regels zegt bovendien dat de grant-hash geaccepteerd
+  is; bij een onbekende hash stopt de outway daar met een 400.
+- De publieke "Publicatie op het web" van `logius-fscoutway` is ingetrokken; die route bestaat
+  niet meer.
 
 Nog open:
 
-- De publieke "Publicatie op het web" van `logius-fscoutway` intrekken; die is nu ongebruikt
-  oppervlak. UI-werk, zie stap 5 van het draaiboek.
+- **De route hangt aan een deployment-env die een herschepping niet overleeft.**
+  `MAGAZIJN_A_URL` en `PROFIEL_SERVICE_URL` staan in de projectspec als component-alias naar de
+  publieke ingressen; het interne adres staat als `user-env-var` op deployment-niveau bij `test`
+  en wint daarvan. Valt die env weg, dan gaat het verkeer weer rechtstreeks naar magazijn-a —
+  zonder foutmelding, zonder transactielogboek, zonder contractcontrole. De alias omzetten kan
+  niet gericht (aliases bestaan alleen op componentniveau), en raakt dus ook de PR-previews, die
+  geen inbound-regel en geen grant-hash hebben. Belegd in MinBZK/MijnOverheidZakelijk#953.
 - De PR-previews staan nog op de ingress-URL; ze hebben elk een eigen inbound-regel nodig zodra
   ze mee verhuizen.
 - De bestaande lokale smokes (`smoke-federatie.sh`, `smoke-contract.sh`, `smoke-keten.sh`) een
