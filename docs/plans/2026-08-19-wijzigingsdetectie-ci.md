@@ -31,8 +31,9 @@ echte fout; alleen de 1 mag tot overslaan leiden.
 
 **De aanroeper valideert de uitkomst.** De workflows bufferen de uitvoer, filteren op de vier
 sleutelnamen en eisen vier unieke sleutels vóór ze publiceren. Zonder die controle publiceert een
-script dat halverwege afbreekt een halve set; een ontbrekende `deploy` leest dan als leeg, en
-`deploy.yml` leest die als `== 'true'` — dus niet uitrollen, stil en groen.
+script dat halverwege afbreekt een halve set; een ontbrekende `deploy` leest als leeg, en
+`deploy.yml` toetst met `== 'true'` — een lege waarde betekent daar dus "niet uitrollen", stil en
+groen.
 
 **Wat wel en niet uitgerold wordt.** `deploy.yml` staat bewust níét in de uitsluiting: dat bestand
 bepaalt de uitrol, dus daar is een preview het bewijs dat de wijziging klopt. `cleanup-preview.yml`
@@ -40,10 +41,10 @@ staat er wél in, want die code draait pas bij het sluiten van een PR, tegen de 
 preview bewijst daar niets. `.github/scripts/` valt eveneens buiten de uitrol: die scripts zitten
 in geen enkel image.
 
-**Documentatie en repo-meta tellen niet als code.** Naast `docs/` en `*.md` ook `.gitignore`,
-`.editorconfig`, `LICENSE`, `apis.json`, `.github/ISSUE_TEMPLATE/`, `.github/dependabot.yml` en
-`.claude/`. Dat laatste bevat uitvoerbare hooks, maar die draaien op een ontwikkelmachine en geen
-enkele check in deze keten dekt ze.
+**Documentatie en repo-meta tellen niet als code.** De patronen staan in `NIET_CODE`; ze dekken
+naast documentatie ook de repo-meta zonder eigen categorie. `.claude/` hoort daar ondanks de
+uitvoerbare hooks bij: die draaien op een ontwikkelmachine en geen enkele check in deze keten dekt
+ze, dus draaien levert er niets over op.
 
 **De patronen dragen kennis over bestanden buiten het script.** De lijst met toets-workflows
 verwijst naar bestandsnamen in `.github/workflows/`. Wie er een hernoemt of toevoegt, raakt dat
@@ -53,11 +54,14 @@ heeft `ci-scripts.yml` geen pad-filter — anders vuurt die controle op de verke
 
 ## Verificatie
 
-- 57 assertions in `test-wijzigingsfilter.sh`; mutatiescore ging in twee reviewrondes van 56% naar
-  77% en daarna omhoog met de ankering-, paginering- en entrypoint-gevallen.
+- Handmatige mutatie-analyse (patronen ontankeren, `--paginate` en het `--jq`-filter wijzigen, het
+  uitvoerbaar-bit wissen, de `EVENT`-tak weghalen, de validatie in één workflow laten afwijken):
+  geen van die mutaties overleeft de suite nog.
 - `shellcheck -x -S warning` schoon, `actionlint` schoon.
-- Effect gemeten op een gelijkwaardige PR ná de wijziging: 5 draaiende jobs, 26 runner-seconden,
-  nul images, nul previews.
+- Wat de uitkomst `run=false, deploy=false` in de praktijk kost, is te zien op een PR die alleen
+  documentatie raakte (run 32239200150): 5 draaiende jobs, 26 runner-seconden, nul images, nul
+  previews. Die PR viel onder het oude filter al weg via `\.md$`; repo-meta valt sinds deze
+  wijziging in diezelfde klasse. Op een gemergde PR is het effect nog niet gemeten.
 
 ## Bekend restrisico
 
@@ -71,6 +75,7 @@ opgepakt met de altijd-rapporterende `uitrol-poort` plus een aanpassing van de r
 - CodeQL mist `cache: maven`; `Autobuild` is daardoor 278 van 365 seconden.
 - Previews hebben geen TTL en worden pas bij het sluiten van de PR opgeruimd.
 - De fuzz-job bouwt 338 seconden om 60 seconden te fuzzen.
-- `bruno/` en `.github/scripts/` kosten nog een volledige Maven-testronde terwijl geen build- of
-  teststap ze leest. Pas verbreden nadat `ci-scripts` een required check is, anders merget een
+- `bruno/` en `.github/scripts/` kosten nog een volledige Maven-testronde terwijl geen enkele
+  Maven-build- of teststap ze leest (`ci-scripts.yml` dekt de scripts al apart). Pas verbreden
+  nadat `ci-scripts` een required check is, anders merget een
   scripts-only PR met vrijwel niets als poortwachter.

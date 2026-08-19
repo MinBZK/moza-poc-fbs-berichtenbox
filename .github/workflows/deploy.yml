@@ -174,12 +174,13 @@ jobs:
       # De beoordeling zelf staat in .github/scripts/wijzigingsfilter.sh; test.yml en detekt.yml
       # draaien op een gestapelde PR hetzelfde script. cflite_pr.yml deelt het script ook, maar
       # heeft alleen `workflow_call` als trigger en draait daar dus niet.
-      # Faalt de checkout, dan ontbreekt het script — of staat het er juist compleet, want
-      # checkout kan ook ná het uitpakken struikelen. Beide gevallen zijn afgedekt: de stap
-      # hieronder valt bij een onvolledige uitkomst terug op alles draaien. `continue-on-error`
-      # houdt de job daarbij groen, want de deploy-jobs hieronder hebben géén statusfunctie in hun
-      # `if` — een rode `changes` zou ze laten overslaan, en dat telt als succes in de required
-      # checks.
+      # Een gestruikelde checkout laat het script ontbreken of staat het er juist compleet — dat
+      # laatste kan ook, want checkout kan ná het uitpakken nog falen. Beide gevallen zijn afgedekt:
+      # de stap hieronder valt bij elke onvolledige uitkomst terug op alles draaien.
+      # `continue-on-error` houdt de job daarbij groen, want bij een rode `changes` blijven de
+      # outputs leeg: `build*` slaat dan over op de impliciete success(), `gate` op een `deploy` die
+      # niet 'true' is, en de previews op een `gate` die niet 'success' is. Alle drie rapporteren
+      # 'skipped', en dat telt als succes in de required checks — de uitrol verdwijnt stil.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         continue-on-error: true
         with:
@@ -200,10 +201,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Filteren op de vier sleutels bij naam, niet op de vórm: `^[a-z-]+=` telde ook vier
-          # regels wanneer `deploy` ontbrak of `run` er twee keer stond, en liet ruis mee het
-          # outputbestand in — dat weigert de runner ("Invalid format"), waarna de stap faalt, de
-          # outputs leeg zijn en de uitrol-jobs stil overslaan.
+          # Op sleutelnaam filteren, niet op vorm: alleen deze vier sleutels met true/false horen
+          # in $GITHUB_OUTPUT. Een regel in een andere vorm laat de runner het hele outputbestand
+          # weigeren ("Invalid format"); de stap faalt, alle outputs blijven leeg en de uitrol-jobs
+          # slaan stil over.
           #
           # Bufferen in plaats van rechtstreeks doorsluizen om dezelfde reden: een script dat
           # halverwege afbreekt of ontbreekt (checkout gefaald) publiceert anders een halve set.

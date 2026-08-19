@@ -68,11 +68,12 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      # Faalt de checkout, dan ontbreekt het script — of staat het er juist compleet en correct,
-      # want checkout kan ook ná het uitpakken struikelen. Beide gevallen zijn afgedekt: de stap
-      # hieronder valt bij een onvolledige uitkomst terug op alles draaien. `continue-on-error`
-      # houdt de job daarbij groen, zodat de uitkomst leeg blijft en de aangeroepen workflow zijn
-      # eigen detectie weer aanzet in plaats van op een half antwoord te varen.
+      # Een gestruikelde checkout laat het script ontbreken of staat het er juist compleet — dat
+      # laatste kan ook, want checkout kan ná het uitpakken nog falen. Beide gevallen zijn afgedekt:
+      # de stap hieronder valt bij elke onvolledige uitkomst terug op alles draaien.
+      # `continue-on-error` houdt deze job daarbij groen, want een rode `changes` maakt de conclusie
+      # van deze workflow — en daarmee de required check die eraan hangt — rood, terwijl het vangnet
+      # de keten al veilig heeft gezet.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         continue-on-error: true
         with:
@@ -95,8 +96,6 @@ jobs:
           uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
           uitkomsten=$(grep -E '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten" | sort -u) || true
 
-          # Tellen op unieke sleutels, niet op regels: `run=true` én `run=false` zijn twee regels
-          # maar één sleutel, en zouden een ontbrekende `deploy` anders maskeren.
           sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .) || true
 
           if [ "$(grep -c . <<<"$uitkomsten")" != 4 ] || [ "$sleutels" != 4 ]; then

@@ -13,7 +13,8 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 source "$HERE/wijzigingsfilter.sh"
 
 fails=0
-ok()   { echo "OK: $1"; }
+geslaagd=0
+ok()   { geslaagd=$((geslaagd + 1)); echo "OK: $1"; }
 fout() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
 
 vergelijk() {
@@ -57,7 +58,7 @@ deploy=true
 demo-only=false
 fuzz=true'
 
-TOETS_WORKFLOW='run=true
+GEEN_PREVIEW='run=true
 deploy=false
 demo-only=false
 fuzz=false'
@@ -109,6 +110,12 @@ verwacht "een bronbestand met een meta-naam in de bestandsnaam is code" 'service
 # `^docs/` de suite, en koopt een wijziging aan het C4-model de volledige keten.
 verwacht "het C4-model onder docs/ is geen code" 'docs/architecture/workspace.dsl' "$ALLES_UIT"
 
+verwacht "een resource met een meta-naam binnen een module" 'services/berichtenmagazijn/src/main/resources/apis.json' "$ALLES_AAN"
+
+verwacht "een fixture met .md middenin de naam is geen documentatie" 'services/berichtenuitvraag/src/test/resources/voorbeeld.md.json' "$ALLES_AAN"
+
+verwacht "een .claude-map binnen een module" 'services/berichtenmagazijn/.claude/hook.kt' "$ALLES_AAN"
+
 # --- code -----------------------------------------------------------------------------------
 verwacht "productiecode" 'services/berichtenmagazijn/src/main/kotlin/Bericht.kt' "$ALLES_AAN"
 
@@ -122,9 +129,9 @@ verwacht "hetzelfde bestand dubbel" 'README.md
 README.md' "$ALLES_UIT"
 
 # --- wel toetsen, niet uitrollen ------------------------------------------------------------
-verwacht "de Bruno-collectie" 'bruno/berichtenmagazijn/ophalen.bru' "$TOETS_WORKFLOW"
+verwacht "de Bruno-collectie" 'bruno/berichtenmagazijn/ophalen.bru' "$GEEN_PREVIEW"
 
-verwacht "de CI-scripts zelf" '.github/scripts/wijzigingsfilter.sh' "$TOETS_WORKFLOW"
+verwacht "de CI-scripts zelf" '.github/scripts/wijzigingsfilter.sh' "$GEEN_PREVIEW"
 
 verwacht "de fuzz-configuratie — wel toetsen en fuzzen, niet uitrollen" '.clusterfuzzlite/build.sh' 'run=true
 deploy=false
@@ -134,8 +141,8 @@ fuzz=true'
 # Uit de lijst zelf gegenereerd: één handmatig gekozen voorbeeld liet vijf van de namen ongedekt,
 # waardoor ze zonder rode test uit het patroon konden verdwijnen.
 while IFS= read -r w; do
-  verwacht "toets-workflow $w kost geen uitrol" ".github/workflows/$w.yml" "$TOETS_WORKFLOW"
-done <<<"${TOETS_WORKFLOWS//|/$'\n'}"
+  verwacht "workflow $w kost geen uitrol" ".github/workflows/$w.yml" "$GEEN_PREVIEW"
+done <<<"${GEEN_PREVIEW_WORKFLOWS//|/$'\n'}"
 
 # deploy.yml bepaalt de uitrol zelf: juist daar is een preview het bewijs dat de wijziging klopt.
 verwacht "deploy.yml zelf" '.github/workflows/deploy.yml' 'run=true
@@ -182,7 +189,7 @@ fuzz=true' true
 # Een ongeldige ERE dwingt grep naar exit 2. Dat is de enige reden dat grep_fail_safe bestaat, en
 # de tak bleef ongetest. In een `if`-conditie, anders breekt de van het script geërfde `set -e`
 # de test af in plaats van hem te laten falen.
-if grep_fail_safe 'willekeurig' -E '['; then
+if grep_fail_safe 'willekeurig' -E '[' 2>/dev/null; then
   ok "een grep-fout (rc=2) valt terug op draaien"
 else
   fout "een grep-fout (rc=2) leidt tot overslaan"
@@ -224,17 +231,30 @@ deploy=false
 demo-only=false
 fuzz=true'
 
-# `--paginate` ís het contract met de GitHub-API: zonder die vlag levert de aanroep alleen de
-# eerste 30 bestanden. Een PR van 40 bestanden waarvan de eerste 30 documentatie zijn, zou dan
-# `run=false` opleveren — alle checks 'skipped', wat als succes doortelt.
-verwacht_main "de bestandenlijst wordt gepagineerd opgehaald" \
-  'gh() { case " $* " in *" --paginate "*) echo services/a/A.kt ;; *) echo README.md ;; esac; }' \
-  pull_request '' "$ALLES_AAN"
+# De hele aanroep is het contract met de GitHub-API, niet alleen de vlag: zonder `--paginate`
+# levert hij de eerste 30 bestanden (een PR met documentatie vooraan geeft dan `run=false` — alle
+# checks 'skipped', wat als succes doortelt), en een verkeerd endpoint of jq-filter classificeert
+# op de verkeerde gegevens. Vandaar de volledige argumentenvector.
+argv_bestand=$(mktemp)
+trap 'rm -f "$argv_bestand"' EXIT
+gh() { printf '%s' "$*" >"$argv_bestand"; echo services/a/A.kt; }
+EVENT=pull_request PR_AUTHOR_TYPE='' REPO=o/r PR=42 main >/dev/null 2>&1
+unset -f gh
+vergelijk "de gh-aanroep haalt gepagineerd de bestandsnamen van déze PR op" \
+  "$(cat "$argv_bestand")" "api --paginate repos/o/r/pulls/42/files --jq .[].filename"
+
+# De EVENT-tak: met een bereikbare `gh` moet een push de PR-lijst helemaal niet raadplegen. De
+# stub hieronder zou anders documentatie teruggeven en `run=false` opleveren.
+verwacht_main "push raadpleegt de PR-lijst niet" \
+  'gh() { echo README.md; }' push '' "$ALLES_AAN"
+
+verwacht_main "workflow_dispatch raadpleegt de PR-lijst niet" \
+  'gh() { echo README.md; }' workflow_dispatch '' "$ALLES_AAN"
 
 # --- entrypoint --------------------------------------------------------------------------------
-# De workflows draaien `.github/scripts/wijzigingsfilter.sh` zonder `bash` ervoor, en tot nu toe
-# riep geen enkele test het script als subproces aan: een verloren uitvoerbaar-bit of een kapotte
-# `BASH_SOURCE`-guard was een stille degradatie naar "alles draait, elke PR de volle prijs".
+# De workflows draaien `.github/scripts/wijzigingsfilter.sh` zonder `bash` ervoor. Een verloren
+# uitvoerbaar-bit of een kapotte `BASH_SOURCE`-guard degradeert stil naar "alles draait, elke PR
+# de volle prijs" — vandaar een aanroep als subproces.
 if [ -x "$HERE/wijzigingsfilter.sh" ]; then
   ok "wijzigingsfilter.sh is uitvoerbaar"
 else
@@ -271,8 +291,8 @@ kruis_fouten=$fails
 
 while IFS= read -r w; do
   [ -f "$REPO_ROOT/.github/workflows/$w.yml" ] \
-    || fout "de toets-lijst noemt $w.yml, dat bestaat niet"
-done <<<"${TOETS_WORKFLOWS//|/$'\n'}"
+    || fout "de lijst noemt $w.yml, dat bestaat niet"
+done <<<"${GEEN_PREVIEW_WORKFLOWS//|/$'\n'}"
 
 # Ook .yaml: GitHub honoreert beide extensies, terwijl NIET_DEPLOYBAAR alleen op `\.yml$` ankert.
 for f in "$REPO_ROOT"/.github/workflows/*.yml "$REPO_ROOT"/.github/workflows/*.yaml; do
@@ -280,7 +300,7 @@ for f in "$REPO_ROOT"/.github/workflows/*.yml "$REPO_ROOT"/.github/workflows/*.y
 
   n=$(basename "$f" | sed 's/\.ya\?ml$//')
 
-  case "|$TOETS_WORKFLOWS|$UITROL_RELEVANT|" in
+  case "|$GEEN_PREVIEW_WORKFLOWS|$UITROL_RELEVANT|" in
     *"|$n|"*) ;;
     *) fout "workflow $n is nergens ingedeeld — kost nu stilzwijgend drie previews per PR" ;;
   esac
@@ -292,9 +312,61 @@ done
 [ -f "$REPO_ROOT/docs/architecture/workspace.dsl" ] \
   || fout "docs/architecture/workspace.dsl bestaat niet meer; de ^docs/-fixture is dode letter"
 
-# Voorwaardelijk: de melding stond eerder onvoorwaardelijk en printte OK ná een echte FAIL.
+# Alleen OK melden als de kruiscontrole zélf niets vond; anders volgt er een OK ná een FAIL, en
+# telt die bovendien mee in de assertie-ondergrens van ci-scripts.yml.
 [ "$fails" -ne "$kruis_fouten" ] \
   || ok "kruiscontrole van de patronen met de bestanden op schijf"
+
+# --- de suite bewaakt zichzelf ------------------------------------------------------------------
+# Zonder deze zelftest blijft een suite waaruit de vergelijking is weggevallen groen mét het volle
+# aantal OK-regels: de teller in ci-scripts.yml telt dan geprinte regels, geen vergelijkingen.
+if (fails=0; vergelijk zelftest a b >/dev/null 2>&1; [ "$fails" -eq 1 ]); then
+  ok "vergelijk merkt een afwijking op"
+else
+  fout "vergelijk meldt geen afwijking meer; de suite meet niets"
+fi
+
+# --- het contract met de workflows --------------------------------------------------------------
+# De hele wijziging bestaat om vier gekopieerde detecties te vervangen door één script. Wie er een
+# terugdraait naar inline logica, maakt zonder deze controle geen enkele test rood.
+for wf in deploy test detekt cflite_pr; do
+  grep -q '\.github/scripts/wijzigingsfilter\.sh' "$REPO_ROOT/.github/workflows/$wf.yml" \
+    && ok "$wf.yml roept het gedeelde filter aan" \
+    || fout "$wf.yml roept het gedeelde filter niet meer aan — de detectie is teruggedreven"
+done
+
+# Het vangnet dat de uitkomst valideert staat noodgedwongen in de workflows zelf (het moet ook
+# werken als het script ontbreekt) en is daarmee vatbaar voor exact de drift die dit script
+# wegneemt. Vandaar een vingerafdruk over de vier blokken.
+vingers=$(for wf in deploy test detekt cflite_pr; do
+  sed -n '/uitkomsten=\$(\.github/,/^ *fi$/p' "$REPO_ROOT/.github/workflows/$wf.yml" \
+    | sed 's/^ *//;/^#/d;/^$/d' | md5sum | cut -d' ' -f1
+done)
+
+if [ "$(sort -u <<<"$vingers" | grep -c .)" = 1 ]; then
+  ok "de vier workflows valideren de uitkomst identiek"
+else
+  fout "de validatie van de uitkomst is tussen de workflows uiteengelopen"
+fi
+
+# De workflows lezen steps.filter.outputs.<sleutel>. Hernoem één kant en de andere leest leeg —
+# bij `deploy` betekent leeg "niet uitrollen", stil en groen.
+gelezen=$(grep -rho 'steps\.filter\.outputs\.[a-z-]*' "$REPO_ROOT"/.github/workflows/*.yml \
+          | sed 's/.*outputs\.//' | sort -u)
+geleverd=$(alles_aan | cut -d= -f1 | sort -u)
+
+if [ "$gelezen" = "$geleverd" ]; then
+  ok "de workflows lezen exact de sleutels die het script levert"
+else
+  fout "sleutelnamen in de workflows en het script lopen uiteen"
+fi
+
+# --- sourcen mag main niet uitvoeren ------------------------------------------------------------
+if [ -z "$(bash -c "source '$HERE/wijzigingsfilter.sh'" 2>/dev/null)" ]; then
+  ok "sourcen voert main niet uit"
+else
+  fout "sourcen voert main uit; de BASH_SOURCE-guard is weg"
+fi
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails test(s) gefaald." >&2
@@ -302,3 +374,4 @@ if [ "$fails" -ne 0 ]; then
 fi
 
 echo "Alle tests geslaagd."
+echo "ASSERTIES=$geslaagd"

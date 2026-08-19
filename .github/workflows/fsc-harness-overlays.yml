@@ -297,8 +297,9 @@ jobs:
 
           echo "== shellcheck =="
           # -x volgt `source`-directives, zodat de gedeelde lib meegecontroleerd wordt. De
-          # overige scripts onder .github/scripts/ hebben hun eigen workflow (ci-scripts.yml);
-          # merge-guard.sh staat hier omdat de jobs hierboven hem aanroepen.
+          # ci-scripts.yml shellcheckt alles onder .github/scripts/; merge-guard.sh staat hier
+          # bewust óók, zodat een wijziging aan de guard niet ongecontroleerd blijft wanneer
+          # alleen deze overlay-workflow draait.
           if ! shellcheck -x -S warning \
                  demo/environment/lib/*.sh \
                  demo/environment/federatie/*.sh \
