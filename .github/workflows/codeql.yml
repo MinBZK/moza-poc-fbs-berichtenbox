@@ -99,3 +99,42 @@ jobs:
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           category: "/language:${{ matrix.language }}"
+      # De repo heeft nul CodeQL-bevindingen, dus het aantal bevindingen kan niet aantonen dat
+      # de extractie volledig blijft — nul is de uitkomst met én zonder complete database. Het
+      # source-archive van de database is dat wel: daarin staat precies wat er geëxtraheerd is.
+      #
+      # Dat maakt het de enige harde controle op de bouwstap hierboven, en de meetlat voor
+      # toekomstige ingrepen daarin (bijvoorbeeld een parallelle reactor): blijft het aantal per
+      # module gelijk, dan is er niets uit beeld geraakt. De telling gaat naar de job-samenvatting
+      # zodat twee runs zonder logs uit te pluizen te vergelijken zijn.
+      #
+      # Aanvullend op de classes-controle vóór de analyse, niet in plaats daarvan: die faalt
+      # meteen bij een gekrompen reactor, deze vangt code die wél compileert maar niet in de
+      # database belandt.
+      - name: Tel geëxtraheerde bronbestanden
+        if: always()
+        run: |
+          set -euo pipefail
+          archief="$RUNNER_TEMP/codeql_databases/java/src"
+
+          if [ ! -d "$archief" ]; then
+            echo "::error::Geen source-archive op $archief — de database is niet gevuld."
+            exit 1
+          fi
+
+          echo "| Module | Geëxtraheerde bronbestanden |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          for module in libraries/* services/*; do
+            [ -f "$module/pom.xml" ] || continue
+            aantal=$(find "$archief" -path "*/$module/*" \( -name '*.kt' -o -name '*.java' \) | wc -l)
+            echo "| $module | $aantal |" >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$aantal" -eq 0 ]; then
+              echo "::error::Geen bronbestanden van $module in de database — die code is niet geanalyseerd."
+              exit 1
+            fi
+          done
+
+          totaal=$(find "$archief" \( -name '*.kt' -o -name '*.java' \) | wc -l)
+          echo "| **Totaal** | **$totaal** |" >> "$GITHUB_STEP_SUMMARY"
