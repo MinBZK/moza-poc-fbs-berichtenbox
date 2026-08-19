@@ -183,9 +183,14 @@ een directe `kubectl`- of live-OM-wijziging aan een draaiende deployment wordt
 teruggedraaid naar wat in Git staat. Reactiveren/schalen moet dus via OM (dat commit
 naar de Git-repo die Argo volgt), niet handmatig in de cluster of in de gerenderde repo.
 
-**Projecten (project-id = OM-project, ook in `.github/workflows/deploy.yml`-env):**
+**Projecten (project-id = OM-project; staat in de env van `.github/workflows/deploy.yml` én in de
+matrix van `.github/workflows/cleanup-preview.yml` — wijzig een id op beide plekken, anders
+ruimt de opruiming een ánder project op en verifieert ze daar: zolang dat project bestaat is de
+run groen en blijft de preview staan):**
 `berichtenuitvraag` = `mpfb-8wh`, `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`.
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
+Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
+opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 
@@ -195,8 +200,60 @@ Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-fr
 | `argo-applications` → `odcn-production/<project-id>/` | Eén `*-<deployment>-argocd-application.yaml` per deployment. Toont `spec.source.repoURL`/`path`/`targetRevision` + `syncPolicy` (bevestigt `selfHeal`/`prune`). |
 | `rig-cluster-application-test` → `odcn-production/<project-id>/<deployment>/` | **Gerenderde k8s-manifests die Argo daadwerkelijk synct.** Hier staat de échte image-tag én `replicas` per component (bv. `test/uitvraag-deployment.yaml`). Dit is de grond-waarheid bij elk pull-/schaal-probleem. |
 
-**OM-API** (per-project `X-API-Key`, secrets `ZAD_API_KEY_UITVRAAG`/`_MAGAZIJNEN`/`_PROFIEL`):
-basis `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api`, spec op `/openapi.json`.
+**ZAD CLI (`zadctl`) — eerste ingang, boven handmatige OM-API-calls.**
+[RijksICTGilde/zad-cli](https://github.com/RijksICTGilde/zad-cli) (EUPL-1.2) dekt hetzelfde
+OM-API-oppervlak plus ontdekbaarheid, JSON-output en exitcodes; `zadctl logs` is het
+belangrijkste dat we met de hand nooit gebruikten. Val terug op rauwe OM-calls voor wat de
+CLI niet aanbiedt.
+
+```bash
+# Linux (Intel/AMD; ARM: linux_arm64)
+mkdir -p ~/.local/bin && curl -fsSL -o /tmp/zadctl.tgz \
+  https://github.com/RijksICTGilde/zad-cli/releases/latest/download/zadctl_linux_amd64.tar.gz
+tar -xzf /tmp/zadctl.tgz -C ~/.local/bin zadctl && zadctl --version   # `zad` = tweede naam
+
+# macOS (Apple Silicon; Intel-Mac: darwin_amd64)
+mkdir -p ~/.local/bin && curl -fsSL -o /tmp/zadctl.tgz \
+  https://github.com/RijksICTGilde/zad-cli/releases/latest/download/zadctl_darwin_arm64.tar.gz
+tar -xzf /tmp/zadctl.tgz -C ~/.local/bin zadctl
+xattr -d com.apple.quarantine ~/.local/bin/zadctl 2>/dev/null || true   # zonder dit weigert Gatekeeper de ongesigneerde binary
+zadctl --version
+
+zadctl login                    # SSO (Keycloak); de ZAD_API_KEY_*-secrets zijn niet lokaal leesbaar
+zadctl project use mpfb-8wh     # of mpfm-w3h / mpfpsm-lcl; schrijft .env.zadctl (0600, gitignored)
+```
+
+**Inloggen vanuit een container** (onze dev-omgeving): `zadctl login` zet een loopback-listener
+op in de container, terwijl de browser op de host draait — `http://127.0.0.1:<poort>/callback`
+komt daar nooit aan, en de device-flow is op de Keycloak-client `zad-cli` uitgeschakeld
+(*"The flow is disabled for the client"*). Werkende route: start `zadctl login --browser
+--no-open` op de achtergrond, open de geprinte URL in de browser, en stuur na het inloggen de
+volledige — in de browser falende — callback-URL uit de adresbalk vanuit de container naar de
+wachtende listener met `curl -s "<callback-url>"`. Dat moet hetzelfde login-proces zijn (het
+houdt `state` en de PKCE-verifier vast) en de `code` verloopt binnen ~1 minuut. Het
+geschreven `.env.zadctl` hoort bij de directory waar je de login draaide en wordt nergens
+anders gelezen: kopieer hem mee naar de werkmap van waaruit je de CLI gebruikt.
+
+| Commando | Waarvoor |
+|----------|----------|
+| `zadctl logs <deployment> -c <component> -n 200 --since 1h` | Pod-logs (API-equivalent: `GET /api/logs/{project}?deployment=&component=&lines=`, max 1000) |
+| `zadctl deployment list` / `describe <d>` / `url <d> -c <c>` | Deployments, component-images, publieke adressen |
+| `zadctl deployment update-image` / `refresh <d>` | Image zetten / reconcilen — **reactiveert géén uitgeschakeld component** (zie deadlock hieronder) |
+| `zadctl deployment delete <d>` → `create <d> …` | De delete+upsert-herstelroute; **destructief**, lees eerst de waarschuwing onderaan |
+| `zadctl resource tune` / `sanitize` | Auto-tune CPU/geheugen op werkelijk gebruik; kapotte deployments detecteren |
+| `zadctl project pending` / `refresh` | Wat is opgeslagen maar nog niet uitgerold, en alles alsnog uitrollen |
+| `zadctl guide [--section <naam>]` | Volledige uitleg, zonder credentials; `--output json` voor agent-gebruik |
+
+Voor scripts en agents: `-o json` op elk commando (data naar stdout, diagnostiek naar
+stderr), `--dry-run` toont de request zonder te sturen, `--yes` beantwoordt de
+bevestigingsprompts (alleen `delete`/`remove`/`clear`/`unset`/`restore` vragen), `--strict`
+maakt "gelukt maar degraded" non-zero. Exitcodes: `1` = eigen input/config/app, `2` =
+platform/netwerk (retry zinvol), `3` = niet te attribueren. CI blijft `zad-actions`
+gebruiken; de CLI is voor handwerk en debuggen.
+
+**OM-API rechtstreeks** — vanuit CI, of waar de CLI niets voor heeft (per-project
+`X-API-Key`, secrets `ZAD_API_KEY_UITVRAAG`/`_MAGAZIJNEN`/`_PROFIEL`): basis
+`https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api`, spec op `/openapi.json`.
 Handig (v2, read-only tenzij anders): `GET /projects/{p}/deployments` (lijst),
 `GET …/deployments/{d}` (detail incl. component-images), `PUT …/deployments/{d}/image`
 (zet image per component), `POST …/deployments/{d}/:refresh` (reconcile — **reactiveert
@@ -257,6 +314,7 @@ géén uitgeschakeld component**).
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
 | `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |
+| `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
 
 ## Omgevingsvariabelen
 
@@ -284,6 +342,7 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 - **Nooit direct pushen naar `main`.** Alle wijzigingen gaan via een feature branch en een Pull Request.
 - Branch naming: `feature/`, `fix/`, `chore/` prefix.
 - Bij aanmaken van een pull request **nooit** een reviewer toevoegen.
+- **Een PR die Claude aanmaakt, staat altijd op draft** (`gh pr create --draft`). De opdrachtgever doet eerst zelf een review; pas daarna wordt de PR handmatig ready for review gezet voor de rest van het team. Claude haalt een PR nooit uit draft op eigen initiatief.
 
 ## Issues / tickets
 
