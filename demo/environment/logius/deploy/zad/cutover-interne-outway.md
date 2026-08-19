@@ -29,11 +29,50 @@ per deployment gaat zolang niet elke deployment mee is.
 
 ## Voorwaarden
 
-- De NetworkPolicy-uitzondering tussen de `test`- en `fsc-logius`-deployment staat; zonder die
-  uitzondering is het interne adres onbereikbaar en helpt geen van onderstaande stappen.
 - `ZAD_API_KEY` voor project `mpfb-8wh` staat in de omgeving (`.env.zadctl`); `zadctl deployment
   list` werkt.
 - De wijziging is uitgerold, zodat de app de TLS-configuratie kent.
+
+## Stap 0 — netwerktoegang tussen de twee deployments
+
+Deployments van hetzelfde project mogen elkaar standaard niet bereiken. De platform-service
+`cross-domain-access` heft dat gericht op, en vraagt **twee** regels: een `outbound` bij de
+bellende kant en een `inbound` bij de gebelde kant. Eén van de twee is niet genoeg — de ontvanger
+geeft de toestemming.
+
+`zadctl service config set` schrijft het hele document; een veld dat je niet noemt wordt
+verwijderd. Lees dus eerst wat er staat (`zadctl --json service config get cross-domain-access`)
+en stuur het complete beeld terug:
+
+```yaml
+# cross-domain-access.yaml
+inbound:
+  - name: uitvraag-naar-logius-fscoutway
+    from: { project: mpfb-8wh, deployment: test, component: uitvraag }
+    to:   { component: logius-fscoutway, port: 8443 }
+outbound:
+  - name: uitvraag-naar-logius-fscoutway
+    from: { component: uitvraag }
+    to:   { project: mpfb-8wh, deployment: fsc-logius, component: logius-fscoutway, port: 8443 }
+```
+
+```bash
+zadctl service config set cross-domain-access --target project -f cross-domain-access.yaml --dry-run
+zadctl service config set cross-domain-access --target project -f cross-domain-access.yaml
+```
+
+**`from.deployment` op de inbound-regel is niet optioneel in de praktijk.** Het schema zegt dat je
+'m open mag laten, en de API accepteert dat ook — maar er verschijnt dan géén NetworkPolicy voor
+de ontvangende kant, zonder waarschuwing. Logisch achteraf: de renderer bouwt een `podSelector`
+op het label `app: <deployment>-<component>`, en zonder deployment valt dat label niet te maken.
+Elke bellende deployment heeft dus zijn eigen inbound-regel nodig; PR-previews die ook op de
+interne route moeten, komen er los bij.
+
+Controleer de uitkomst aan de gerenderde manifests, niet aan de API-respons: onder
+`rig-cluster-application-test/odcn-production/mpfb-8wh/` horen nu
+`test/test-cross-domain-access-uitvraag-network-policy.yaml` (Egress) én
+`fsc-logius/fsc-logius-cross-domain-access-logius-fscoutway-network-policy.yaml` (Ingress) te
+staan, elkaars spiegelbeeld op poort 8443.
 
 ## Stappen
 
@@ -89,9 +128,22 @@ je ze stapelen en daarna één keer `zadctl deployment refresh test` doen.
 **4. Verifiëren.**
 
 ```bash
-zadctl logs test -c logius-fscoutway | grep -i "HTTPS server"   # verwacht: starting HTTPS server
-zadctl logs test -c uitvraag | grep -iE "handshake|PKIX|SSL"    # verwacht: niets
+zadctl logs fsc-logius -c logius-fscoutway | grep -i "HTTPS server"   # verwacht: starting HTTPS server
+zadctl logs test -c uitvraag | grep -iE "PKIX|SSLHandshake"           # verwacht: niets
 ```
+
+**De outway logt vanaf nu elke twee seconden een TLS-fout, en dat hoort zo.** De readinessProbe
+is een `tcpSocket`-probe op 8443 met `periodSeconds: 2`; die opent een verbinding en sluit 'm
+meteen, wat een TLS-server als een afgebroken handshake ziet:
+
+```
+ERROR ... "http: TLS handshake error from 10.x.x.x:39xxx: EOF"
+```
+
+De probe slaagt gewoon (hij toetst alleen of de poort verbindingen aanneemt) en de deployment
+blijft Healthy. Filter erop bij het lezen van deze logs, en trap er niet in als je een écht
+handshake-probleem zoekt: dat komt van het adres van de uitvraag-pod en staat aan die kant als
+`PKIX path building failed`.
 
 Daarna de functionele smoke: een ophaal-request door de keten
 `berichtenuitvraag → logius-fscoutway → logius-fscinway → magazijn-a`, met een verse BSN zodat de
