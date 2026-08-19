@@ -20,6 +20,9 @@ set -euo pipefail
 # Meta-bestanden zonder eigen categorie horen hier net zo goed als documentatie: zonder
 # `^\.gitignore$` kocht een PR met alleen die regel plus wat documentatie de volledige keten —
 # twee testruns, detekt, vier images en drie previews.
+# `.claude/` hoort hier ondanks dat het uitvoerbare hooks bevat: die draaien op een
+# ontwikkelmachine, niet in CI, en geen enkele check in deze keten dekt ze. Draaien levert er dus
+# niets over op; review is daar de maatregel.
 NIET_CODE='^docs/|\.md$|^\.claude/|^\.github/ISSUE_TEMPLATE/|^\.github/dependabot\.yml$|^\.editorconfig$|^\.gitignore$|^LICENSE$|^apis\.json$'
 
 # De workflows die uitsluitend toetsen. Los van NIET_DEPLOYBAAR omdat de unittests deze lijst

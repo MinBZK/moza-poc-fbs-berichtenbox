@@ -68,9 +68,11 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      # Faalt de checkout, dan ontbreekt het script en valt de stap hieronder terug op alles
-      # draaien. Zonder `continue-on-error` zou de job rood worden, en dan slaan de deploy-jobs
-      # over — wat als 'skipped' (= succes) doortelt in de required checks.
+      # Faalt de checkout, dan ontbreekt het script — of staat het er juist compleet en correct,
+      # want checkout kan ook ná het uitpakken struikelen. Beide gevallen zijn afgedekt: de stap
+      # hieronder valt bij een onvolledige uitkomst terug op alles draaien. `continue-on-error`
+      # houdt de job daarbij groen, zodat de uitkomst leeg blijft en de aangeroepen workflow zijn
+      # eigen detectie weer aanzet in plaats van op een half antwoord te varen.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         continue-on-error: true
         with:
@@ -86,16 +88,18 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
-          # Bufferen en tellen in plaats van rechtstreeks doorsluizen: een script dat halverwege
-          # afbreekt (of ontbreekt doordat de checkout faalde) zou anders een halve set outputs
-          # publiceren. GitHub leest $GITHUB_OUTPUT ook na een gefaalde stap, en een ontbrekende
-          # `deploy` leest als leeg — wat in deploy.yml "niet uitrollen" betekent, stil en groen.
-          # Vandaar dat elke onvolledige uitkomst hier terugvalt op alles draaien.
+          # Bufferen, op de vier sleutels filteren en pas dan publiceren: zie de toelichting bij
+          # dezelfde stap in deploy.yml.
           uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
+          uitkomsten=$(grep -E '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten" | sort -u) || true
 
-          if [ "$(grep -cE '^[a-z-]+=(true|false)$' <<<"$uitkomsten")" != 4 ]; then
+          # Tellen op unieke sleutels, niet op regels: `run=true` én `run=false` zijn twee regels
+          # maar één sleutel, en zouden een ontbrekende `deploy` anders maskeren.
+          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .) || true
+
+          if [ "$(grep -c . <<<"$uitkomsten")" != 4 ] || [ "$sleutels" != 4 ]; then
             echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
             uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
           fi
@@ -154,6 +158,8 @@ jobs:
     # (JaCoCo coverage-check incluis), dus `mvnw test` volstaat.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -247,6 +253,8 @@ jobs:
       # Vóór het ophalen van de artefacten: checkout schoont de workspace, en zou de rapporten
       # er anders weer uit vegen.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
         if: github.event_name == 'pull_request' && inputs.demo-only != 'true' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
       - name: Coverage-rapporten ophalen
         if: github.event_name == 'pull_request' && inputs.demo-only != 'true' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
@@ -300,5 +308,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: compose.yaml valideren
         run: docker compose --profile demo config -q

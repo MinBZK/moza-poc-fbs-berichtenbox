@@ -148,7 +148,29 @@ verwacht_poort "vier uitrol-jobs in needs blokkeert" 1 \
 verwacht_poort "nul uitrol-jobs blokkeert ook op de niets-verwacht-tak" 1 \
   pull_request "$PR_REF" success false skipped "$(testdeploys skipped)"
 
-# --- H. kruiscontrole met deploy.yml -----------------------------------------------------------
+# --- H. entrypoint -----------------------------------------------------------------------------
+# De workflow draait `.github/scripts/uitrol-poort.sh` zonder `bash` ervoor, en sourcen dekt de
+# aanroep-as niet: een verloren uitvoerbaar-bit of een kapotte BASH_SOURCE-guard laat de poort
+# nooit oordelen.
+if [ -x "$HERE/uitrol-poort.sh" ]; then
+  ok "uitrol-poort.sh is uitvoerbaar"
+else
+  mislukt "uitrol-poort.sh is niet uitvoerbaar; de workflow roept hem zonder 'bash' aan"
+fi
+
+rc=0
+uitvoer=$(
+  EVENT=pull_request REF="$PR_REF" CHANGES=success DEPLOY=true GATE=success \
+    NEEDS="$(maak_needs "$(beide success skipped)")" "$HERE/uitrol-poort.sh" 2>&1
+) || rc=$?
+
+if [ "$rc" = 0 ]; then
+  ok "directe uitvoering oordeelt"
+else
+  mislukt "directe uitvoering gaf exitcode $rc: $(tr '\n' ' ' <<<"$uitvoer")"
+fi
+
+# --- I. kruiscontrole met deploy.yml -----------------------------------------------------------
 # De poort leidt zijn resultaten af uit `needs`, dus een uitrol-job die niet in die lijst staat
 # valt buiten de beoordeling. Een fixture-test ziet dat nooit: die kennis staat in deploy.yml.
 DEPLOY_YML="$REPO_ROOT/.github/workflows/deploy.yml"

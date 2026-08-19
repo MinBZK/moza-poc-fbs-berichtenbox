@@ -171,11 +171,15 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      # De beoordeling zelf staat in .github/scripts/wijzigingsfilter.sh; test.yml, detekt.yml en
-      # cflite_pr.yml draaien op een gestapelde PR hetzelfde script.
-      # Faalt de checkout, dan ontbreekt het script en valt de stap hieronder terug op alles
-      # draaien. Zonder `continue-on-error` zou de job rood worden, en dan slaan de deploy-jobs
-      # over — wat als 'skipped' (= succes) doortelt in de required checks.
+      # De beoordeling zelf staat in .github/scripts/wijzigingsfilter.sh; test.yml en detekt.yml
+      # draaien op een gestapelde PR hetzelfde script. cflite_pr.yml deelt het script ook, maar
+      # heeft alleen `workflow_call` als trigger en draait daar dus niet.
+      # Faalt de checkout, dan ontbreekt het script — of staat het er juist compleet, want
+      # checkout kan ook ná het uitpakken struikelen. Beide gevallen zijn afgedekt: de stap
+      # hieronder valt bij een onvolledige uitkomst terug op alles draaien. `continue-on-error`
+      # houdt de job daarbij groen, want de deploy-jobs hieronder hebben géén statusfunctie in hun
+      # `if` — een rode `changes` zou ze laten overslaan, en dat telt als succes in de required
+      # checks.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         continue-on-error: true
         with:
@@ -194,22 +198,24 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
-          # Bufferen en tellen in plaats van rechtstreeks doorsluizen: een script dat halverwege
-          # afbreekt (of ontbreekt doordat de checkout faalde) zou anders een halve set outputs
-          # publiceren. GitHub leest $GITHUB_OUTPUT ook na een gefaalde stap, en een ontbrekende
-          # `deploy` leest als leeg — wat in deploy.yml "niet uitrollen" betekent, stil en groen.
-          # Vandaar dat elke onvolledige uitkomst hier terugvalt op alles draaien.
+          # Filteren op de vier sleutels bij naam, niet op de vórm: `^[a-z-]+=` telde ook vier
+          # regels wanneer `deploy` ontbrak of `run` er twee keer stond, en liet ruis mee het
+          # outputbestand in — dat weigert de runner ("Invalid format"), waarna de stap faalt, de
+          # outputs leeg zijn en de uitrol-jobs stil overslaan.
+          #
+          # Bufferen in plaats van rechtstreeks doorsluizen om dezelfde reden: een script dat
+          # halverwege afbreekt of ontbreekt (checkout gefaald) publiceert anders een halve set.
+          # Elke onvolledige uitkomst valt hier terug op alles draaien.
           uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
+          uitkomsten=$(grep -E '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten" | sort -u) || true
 
-          # Op sleutel controleren, niet op aantal: vier geldige regels waarvan er één dubbel is
-          # en `deploy` ontbreekt, zou anders passeren en een lege `deploy`-output opleveren bij
-          # een groene job.
-          geldig=$(grep -cE '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten")
-          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .)
+          # Tellen op unieke sleutels, niet op regels: `run=true` én `run=false` zijn twee regels
+          # maar één sleutel, en zouden een ontbrekende `deploy` anders maskeren.
+          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .) || true
 
-          if [ "$geldig" != 4 ] || [ "$sleutels" != 4 ]; then
+          if [ "$(grep -c . <<<"$uitkomsten")" != 4 ] || [ "$sleutels" != 4 ]; then
             echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
             uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
           fi
@@ -286,6 +292,8 @@ jobs:
         service: [berichtenuitvraag, berichtenmagazijn]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -335,6 +343,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build + push externe-stubs
         env:
           OWNER: ${{ needs.meta.outputs.owner }}
@@ -364,6 +374,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build + push contract-bootstrap
         env:
           OWNER: ${{ needs.meta.outputs.owner }}

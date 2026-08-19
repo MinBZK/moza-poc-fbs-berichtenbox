@@ -6,14 +6,18 @@
 # FSC-harness.
 name: CI-scripts
 
-# Op een PR bewust ZONDER pad-filter. Deze check hoort een required context te zijn, en een
-# required check achter een workflow-niveau `paths`-filter wordt bij een niet-matchende PR nooit
-# gerapporteerd — die blijft dan eeuwig 'expected' en blokkeert de merge voorgoed. De job doet
-# alleen linting en unittests (geen build), dus altijd draaien is goedkoper dan die valkuil.
+# Op een PR bewust ZONDER pad-filter. Twee redenen. Ten eerste kruiscontroleren de unittests de
+# workflow-namen in wijzigingsfilter.sh tegen .github/workflows/ op schijf; met een pad-filter
+# vuurde die controle op de verkeerde PR — niet op de PR die een workflow toevoegt, maar op de
+# volgende die toevallig een script aanraakt. Ten tweede hoort deze check een required context te
+# zijn, en een required check achter een workflow-niveau `paths`-filter wordt bij een
+# niet-matchende PR nooit gerapporteerd: die blijft eeuwig 'expected' en blokkeert de merge
+# voorgoed. De job kost enkele seconden (linting plus bash-unittests, geen build).
 #
-# Op een push naar main speelt dat niet: required contexts worden alleen op PR's beoordeeld, en
-# met `strict: true` op main draaide de PR al op dezelfde inhoud. Daar blijft het pad-filter dus
-# staan, anders is elke merge een herhaling van werk dat al gedaan is.
+# Op een push naar main gelden beide redenen niet: required contexts worden alleen op PR's
+# beoordeeld, en de kruiscontrole heeft daar al op de PR gevuurd. Met `strict: true` op main
+# draaide de PR bovendien op dezelfde inhoud, dus een filterloze run herhaalt gedaan werk. Daar
+# blijft het pad-filter dus staan.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -66,25 +70,42 @@ jobs:
           fail=0
 
           echo "== shellcheck =="
-          # -x volgt `source`-directives, zodat een test zijn script meegecontroleerd krijgt.
-          if ! shellcheck -x -S warning .github/scripts/*.sh; then
+          # `find` in plaats van een glob: een script in een toekomstige submap zou anders
+          # stilzwijgend ongecontroleerd blijven. -x volgt `source`-directives, zodat een test
+          # zijn script meegecontroleerd krijgt.
+          if ! find .github/scripts -name '*.sh' -print0 | xargs -0 shellcheck -x -S warning; then
             fail=1
           fi
 
           echo "== bash-unittests =="
           gedraaid=0
+          geslaagd=0
 
-          for t in .github/scripts/test-*.sh; do
-            [ -f "$t" ] || continue
+          for t in $(find .github/scripts -name 'test-*.sh' | sort); do
             gedraaid=$((gedraaid + 1))
             echo "-- $t"
-            bash "$t" || fail=1
+
+            if uitvoer=$(bash "$t"); then
+              printf '%s\n' "$uitvoer"
+              geslaagd=$((geslaagd + $(grep -c '^OK: ' <<<"$uitvoer" || true)))
+            else
+              printf '%s\n' "$uitvoer"
+              fail=1
+            fi
           done
 
           # Zonder deze guard meldt de stap groen zodra een test hernoemd of verplaatst wordt:
           # de glob levert dan niets op en er wordt niets gemeten.
           if [ "$gedraaid" -eq 0 ]; then
             echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."
+            fail=1
+          fi
+
+          # En een tweede vloer op het aantal asserties: een suite waaruit de asserties wegvallen
+          # eindigt namelijk óók groen. De vloer ligt bewust ruim onder het huidige aantal, zodat
+          # hij alleen aanslaat bij een instorting en niet bij normaal onderhoud.
+          if [ "$geslaagd" -lt 40 ]; then
+            echo "FOUT: slechts $geslaagd geslaagde asserties — de suite meet vrijwel niets meer."
             fail=1
           fi
 
