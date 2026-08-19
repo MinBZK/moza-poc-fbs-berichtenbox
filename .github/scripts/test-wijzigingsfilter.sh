@@ -96,6 +96,19 @@ deploy=true
 demo-only=false
 fuzz=false'
 
+# De uitsluitingen zijn op `^` verankerd. Zonder deze drie overleeft een ontankerde variant de
+# suite, en dat is de dure kant: `demo/` ergens in een pad zou de tests wegscopen, `bruno/` de
+# preview, en een bronbestand met een meta-naam de code-checks.
+verwacht "een 'demo'-map bínnen een module scopet de tests niet weg" 'services/berichtenuitvraag/src/test/resources/demo/payload.json' "$ALLES_AAN"
+
+verwacht "een 'bruno'-map bínnen een module blijft uitrol-relevant" 'services/berichtenmagazijn/src/test/bruno/Contract.kt' "$ALLES_AAN"
+
+verwacht "een bronbestand met een meta-naam in de bestandsnaam is code" 'services/berichtenmagazijn/src/main/kotlin/GitignoreParser.kt' "$ALLES_AAN"
+
+# Het enige niet-markdown-bestand onder docs/; zonder deze fixture overleeft het weghalen van
+# `^docs/` de suite, en koopt een wijziging aan het C4-model de volledige keten.
+verwacht "het C4-model onder docs/ is geen code" 'docs/architecture/workspace.dsl' "$ALLES_UIT"
+
 # --- code -----------------------------------------------------------------------------------
 verwacht "productiecode" 'services/berichtenmagazijn/src/main/kotlin/Bericht.kt' "$ALLES_AAN"
 
@@ -211,6 +224,26 @@ deploy=false
 demo-only=false
 fuzz=true'
 
+# `--paginate` ís het contract met de GitHub-API: zonder die vlag levert de aanroep alleen de
+# eerste 30 bestanden. Een PR van 40 bestanden waarvan de eerste 30 documentatie zijn, zou dan
+# `run=false` opleveren — alle checks 'skipped', wat als succes doortelt.
+verwacht_main "de bestandenlijst wordt gepagineerd opgehaald" \
+  'gh() { case " $* " in *" --paginate "*) echo services/a/A.kt ;; *) echo README.md ;; esac; }' \
+  pull_request '' "$ALLES_AAN"
+
+# --- entrypoint --------------------------------------------------------------------------------
+# De workflows draaien `.github/scripts/wijzigingsfilter.sh` zonder `bash` ervoor, en tot nu toe
+# riep geen enkele test het script als subproces aan: een verloren uitvoerbaar-bit of een kapotte
+# `BASH_SOURCE`-guard was een stille degradatie naar "alles draait, elke PR de volle prijs".
+if [ -x "$HERE/wijzigingsfilter.sh" ]; then
+  ok "wijzigingsfilter.sh is uitvoerbaar"
+else
+  fout "wijzigingsfilter.sh is niet uitvoerbaar; de workflows roepen hem zonder 'bash' aan"
+fi
+
+vergelijk "directe uitvoering levert de vier uitkomsten" \
+  "$(EVENT=push "$HERE/wijzigingsfilter.sh" 2>/dev/null)" "$ALLES_AAN"
+
 # --- vorm van de uitkomsten --------------------------------------------------------------------
 # De workflows lezen steps.filter.outputs.<sleutel>; een onbekende of ontbrekende sleutel leest
 # als lege string, en juist bij `deploy` betekent leeg "niet uitrollen" — stil, en groen.
@@ -234,13 +267,18 @@ done
 # --- kruiscontrole met de schijf ---------------------------------------------------------------
 # NIET_DEPLOYBAAR draagt kennis over bestanden buiten dit script. Wie een workflow hernoemt of
 # toevoegt, raakt .github/workflows/ en niet dit script — een fixture-test ziet dat nooit.
+kruis_fouten=$fails
+
 while IFS= read -r w; do
   [ -f "$REPO_ROOT/.github/workflows/$w.yml" ] \
     || fout "de toets-lijst noemt $w.yml, dat bestaat niet"
 done <<<"${TOETS_WORKFLOWS//|/$'\n'}"
 
-for f in "$REPO_ROOT"/.github/workflows/*.yml; do
-  n=$(basename "$f" .yml)
+# Ook .yaml: GitHub honoreert beide extensies, terwijl NIET_DEPLOYBAAR alleen op `\.yml$` ankert.
+for f in "$REPO_ROOT"/.github/workflows/*.yml "$REPO_ROOT"/.github/workflows/*.yaml; do
+  [ -e "$f" ] || continue
+
+  n=$(basename "$f" | sed 's/\.ya\?ml$//')
 
   case "|$TOETS_WORKFLOWS|$UITROL_RELEVANT|" in
     *"|$n|"*) ;;
@@ -251,7 +289,12 @@ done
 [ -d "$REPO_ROOT/services/demo-console" ] \
   || fout "services/demo-console/ bestaat niet meer; BUITEN_DEMO_CONSOLE is dode letter"
 
-ok "kruiscontrole van de patronen met de bestanden op schijf"
+[ -f "$REPO_ROOT/docs/architecture/workspace.dsl" ] \
+  || fout "docs/architecture/workspace.dsl bestaat niet meer; de ^docs/-fixture is dode letter"
+
+# Voorwaardelijk: de melding stond eerder onvoorwaardelijk en printte OK ná een echte FAIL.
+[ "$fails" -ne "$kruis_fouten" ] \
+  || ok "kruiscontrole van de patronen met de bestanden op schijf"
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails test(s) gefaald." >&2
