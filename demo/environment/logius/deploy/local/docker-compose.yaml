@@ -206,6 +206,19 @@ services:
       TLS_GROUP_ROOT_CERT: /pki/ca/root.pem
       TLS_GROUP_CERT: /pki/out/logius/outway/cert.pem
       TLS_GROUP_KEY: /pki/out/logius/outway/key.pem
+      # TLS op de serve-poort waar de afnemende app binnenkomt. Op ZAD staat dit aan (zie
+      # deploy/zad/upsert-peer.sh): de app weigert daar een http-endpoint. Lokaal default uit,
+      # want de harness draait in dev/test — waar die eis niet geldt — en de smokes bellen de
+      # outway over http, op 8443 in de federatie-overlay en op 58443 in de hostnet-overlay.
+      #
+      # OUTWAY_LISTEN_HTTPS=true speelt het ZAD-pad na, met pki/internal/logius/ca/root.pem als
+      # anker. Bel 'm dan op de naam outway.logius.fsc-test.local en niet op zijn IP: het interne
+      # cert draagt alleen DNS-SANs (pki/gen-csr.sh), dus een IP faalt op hostnaam-verificatie.
+      # Onder de overlays luistert hij op een IP, dus daar hoort een --resolve of een extra_hosts
+      # bij; de smokes zelf zijn hier niet op ingericht.
+      LISTEN_HTTPS: "${OUTWAY_LISTEN_HTTPS:-false}"
+      TLS_SERVER_CERT: /pki/internal/logius/outway/cert.pem
+      TLS_SERVER_KEY: /pki/internal/logius/outway/key.pem
     volumes:
       - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro"
     networks:

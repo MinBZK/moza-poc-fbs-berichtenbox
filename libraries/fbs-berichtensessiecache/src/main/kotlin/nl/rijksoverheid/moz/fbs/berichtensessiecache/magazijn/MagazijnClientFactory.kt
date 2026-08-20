@@ -2,19 +2,26 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import io.quarkus.runtime.StartupEvent
+import io.quarkus.tls.TlsConfiguration
+import io.quarkus.tls.TlsConfigurationRegistry
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
+import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeadersFilter
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
+import nl.rijksoverheid.moz.fbs.magazijnregister.OutwayTls
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.util.concurrent.TimeUnit
 
+// @Inject op de constructor: het laatste argument heeft een default-waarde, en Kotlin genereert
+// daarvoor een tweede (synthetische) constructor. Zonder deze annotatie ziet ArC er twee en
+// weigert het de bean met "does not declare a valid bean constructor".
 @ApplicationScoped
-internal class MagazijnClientFactory(
+internal class MagazijnClientFactory @Inject constructor(
     private val register: Magazijnregister,
     // Connect/read-timeout op de magazijn-client: zonder read-timeout blokkeert een hangend
     // magazijn de socket onbegrensd (de Mutiny `ifNoItem` faalt de Uni maar interrupt de
@@ -26,6 +33,9 @@ internal class MagazijnClientFactory(
     private val connectTimeoutMs: Long,
     @param:ConfigProperty(name = READ_TIMEOUT_MS_PROPERTY, defaultValue = READ_TIMEOUT_MS_DEFAULT)
     private val readTimeoutMs: Long,
+    // Levert het anker voor een magazijn achter een outway die zijn eigen interne PKI serveert.
+    // Default null zodat unit-tests de factory zonder CDI kunnen bouwen; CDI vult 'm altijd.
+    private val tlsRegistry: TlsConfigurationRegistry? = null,
 ) {
     private val log = Logger.getLogger(MagazijnClientFactory::class.java)
     private lateinit var cachedClients: Map<String, MagazijnClient>
@@ -95,9 +105,18 @@ internal class MagazijnClientFactory(
             .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
 
         fscFilterVoor(inschrijving)?.let { builder.register(it) }
+        outwayTlsConfiguratie()?.let { builder.tlsConfiguration(it) }
 
         return builder.build(MagazijnClient::class.java)
     }
+
+    /**
+     * Het trust-anker voor magazijnen achter de eigen outway, of `null` als er geen
+     * geconfigureerd is — dan geldt de JVM-default trust-store. Losgetrokken van
+     * [createClient] zodat de keuze testbaar is zonder de REST-client-builder.
+     */
+    internal fun outwayTlsConfiguratie(): TlsConfiguration? =
+        tlsRegistry?.get(OutwayTls.CONFIG_NAAM)?.orElse(null)
 
     companion object {
         // Gedeeld met BerichtensessiecacheService.valideerTimeouts(), dat read > query

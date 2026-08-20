@@ -76,8 +76,23 @@ de eigen manager op de internal-PKI) — vandaar geen `out/logius/controller/*`-
 | `out/logius/outway/cert.pem` | `out/logius/outway/cert.pem` | `TLS_GROUP_CERT` |
 | `out/logius/outway/key.pem` | `out/logius/outway/key.pem` | `TLS_GROUP_KEY` |
 | `internal/logius/ca/root.pem` | `internal/logius/ca/root.pem` | `TLS_ROOT_CERT` |
-| `internal/logius/outway/cert.pem` | `internal/logius/outway/cert.pem` | `TLS_CERT` |
-| `internal/logius/outway/key.pem` | `internal/logius/outway/key.pem` | `TLS_KEY` |
+| `internal/logius/outway/cert.pem` | `internal/logius/outway/cert.pem` | `TLS_CERT`, `TLS_SERVER_CERT` |
+| `internal/logius/outway/key.pem` | `internal/logius/outway/key.pem` | `TLS_KEY`, `TLS_SERVER_KEY` |
+
+Het interne cert-paar draagt twee rollen op de outway: als client richting manager, controller en
+txlog (`TLS_CERT`/`TLS_KEY`), en als server-cert op de serve-poort `:8443` waar `berichtenuitvraag`
+binnenkomt (`TLS_SERVER_CERT`/`TLS_SERVER_KEY`, actief door `LISTEN_HTTPS=true`). Geen extra
+bijlage nodig: het is hetzelfde bestand, en de Service-namen staan al als SAN in het cert.
+
+De afnemende kant heeft datzelfde CA-anker nodig. Op het `uitvraag`-component (deployment `test`)
+is dat een bijlage met dezelfde bron en hetzelfde pad als hierboven:
+
+| Bijlage-pad (`/etc/fsc/...`) | Bronbestand (`pki/...`) | Env-var op uitvraag |
+|-------------------------------|-------------------------------------------|--------------------|
+| `internal/logius/ca/root.pem` | `internal/logius/ca/root.pem` | `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` (absoluut: `/etc/fsc/internal/logius/ca/root.pem`) |
+
+De bijlage-id's zelf staan niet in dit document — `zadctl attachment list` is daarvoor de bron van
+waarheid. Zie verder `docs/operator-handleiding-uitvraag.md` en `cutover-interne-outway.md`.
 
 ## logius-fscinway (inway)
 

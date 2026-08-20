@@ -132,7 +132,7 @@ Verder lezen:
 
 Wijzigingen gaan altijd via een feature branch en een Pull Request; er wordt niet direct naar
 `main` gepusht. Een PR die code raakt draait tests met coverage-rapportage en detekt; wijzigt hij
-alleen documentatie, dan slaat hij die over. Is `main` de doelbranch, dan komen daar CodeQL en een
+alleen documentatie of repo-bestanden zoals `.gitignore` en `LICENSE`, dan slaat hij die over. Is `main` de doelbranch, dan komen daar CodeQL en een
 eigen preview-omgeving op ZAD bij — een gestapelde PR op een andere branch wordt dus wél getoetst,
 maar niet geanalyseerd of uitgerold. CodeQL draait daarbij bewust ook op documentatie-only PR's:
 het analyseert de hele snapshot in plaats van de diff, en de OpenSSF-Scorecard telt een
