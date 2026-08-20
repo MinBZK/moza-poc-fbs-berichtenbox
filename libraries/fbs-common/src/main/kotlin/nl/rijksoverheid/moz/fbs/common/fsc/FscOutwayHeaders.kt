@@ -9,9 +9,17 @@ import org.jboss.logging.Logger
  * UUID-v7-vorm; zonder deze headers antwoordt de outway met "service not found" resp.
  * "invalid uuid version, must be v7".
  *
- * Meerdere clients sturen deze headers (magazijn-calls per inschrijving, de Profiel-call),
- * elk met een eigen manier om aan hun grant-hash te komen. Die herkomst verschilt; het
- * contract niet — daarom staat het hier en niet in de afzonderlijke filters.
+ * **Dat zijn eisen van OpenFSC, niet van de FSC-standaard.** fsc-core kent op de data-plane
+ * alleen `Fsc-Authorization`, `Fsc-Transaction-Id` en `Fsc-Error-Code`; dienstselectie gaat daar
+ * via het pad (`{inway_url}/{service_name}/{path}`) en de grant-hash zit in de token-aanvraag als
+ * scope, en de spec stelt geen UUID-versie-eis. Elke caller hieronder is daarmee aan een
+ * OpenFSC-outway gebonden: tegen een spec-conforme outway die op het pad routeert werken deze
+ * headers niet, en dan verhuist de dienstkeuze naar de URL van de caller.
+ *
+ * Meerdere clients sturen deze headers (magazijn-calls per inschrijving, de Profiel-call, de
+ * downstream-aflevering van CloudEvents), elk met een eigen manier om aan hun grant-hash te
+ * komen. Die herkomst verschilt; het contract niet — daarom staat het hier en niet in de
+ * afzonderlijke filters.
  */
 object FscOutwayHeaders {
 

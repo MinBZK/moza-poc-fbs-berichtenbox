@@ -115,10 +115,18 @@ de échte infrastructuur:
    `logius-fscinway`). Eén inway kan meerdere diensten dragen; dit komt náást `profiel-service`.
 2. Het `serviceConnection`-contract met het magazijn opzetten — `bootstrap-consumer.sh` draait aan
    magazijn-kant, `bootstrap-provider.sh` hier. Zie `federatie/contracts/zad-runbook.md`.
-3. `NOTIFICATIE_URL=https://fsc-magazijna-magazijna-fscoutway:8443/events` en
-   `NOTIFICATIE_GRANT_HASH=<grant-hash uit stap 2>` als env-vars op het gedeployde
-   `berichtenmagazijn` (project `mpfm-w3h`). Beide samen: alleen de hash zetten laat het magazijn
-   FSC-headers naar de oude bestemming sturen, alleen de URL levert `service not found`.
+3. Drie env-vars samen op het gedeployde `berichtenmagazijn` (project `mpfm-w3h`) — het volledige
+   Service-adres, zie `cutover-interne-outway.md` voor de vorm `<deployment>-<component>` in
+   namespace `rig-prd-<project>`:
+   - `NOTIFICATIE_URL=https://fsc-magazijna-magazijna-fscoutway.rig-prd-mpfm-w3h.svc.cluster.local:8443/events`
+   - `NOTIFICATIE_GRANT_HASH=<grant-hash uit stap 2>`
+   - `OUTWAY_HOST=fsc-magazijna-magazijna-fscoutway.rig-prd-mpfm-w3h.svc.cluster.local`
+
+   Alle drie of geen: alleen de hash laat het magazijn FSC-headers naar de oude bestemming sturen,
+   alleen de URL levert `service not found`, en zonder `OUTWAY_HOST` weigert het magazijn de
+   aflevering met een configuratiefout — die host is wat de SSRF-uitzondering op de URL
+   rechtvaardigt. Voorwaarde vooraf: `cross-domain-access` tussen de twee deployments en
+   `LISTEN_HTTPS` op de outway, beide beschreven in `cutover-interne-outway.md`.
 4. Een smoke voor het pad `berichtenmagazijn → magazijna-fscoutway → logius-fscinway → upstream`.
 
 ## Acceptatiecriteria — afvinklijst

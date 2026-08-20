@@ -20,6 +20,8 @@ direct opvalt; enkele hebben geen default en laten de service falen-te-starten
 | `magazijn.publicatie.verwerkingsregister-publiceren` | `application.properties` | AVG art. 30-register-URI voor publicatie-activiteit; wordt aan elke LDV-context gekoppeld | Bean Validation `@URL` + `@NotBlank` |
 | `magazijn.publicatie.verwerkingsregister-aanleveren` | `application.properties` | AVG art. 30-register-URI voor aanlever-activiteit | Bean Validation `@URL` + `@NotBlank` |
 | `magazijn.publicatie.downstreams.<key>.url` | `application.properties` | Eén entry per downstream (Aanmeld, Notificatie, ...). Service faalt-te-starten zonder ≥1 downstream | `PublicatieOutbox.valideerStartConfiguratie` |
+| `magazijn.publicatie.downstreams.<key>.grant-hash` | env var (bv. `NOTIFICATIE_GRANT_HASH`) | FSC-grant-hash voor een downstream die door de eigen outway loopt; gezet ⇒ de call krijgt `Fsc-Grant-Hash` + `Fsc-Transaction-Id` mee. Leeg of afwezig ⇒ rechtstreeks verkeer | Geen boot-faalwijze; een hash die niet in een HTTP-header past of alleen witruimte bevat maakt de aflevering terminal MISLUKT met de reden in de outbox |
+| `magazijn.publicatie.outway.host` | env var `OUTWAY_HOST` | Hostnaam van de eigen FSC-outway. Hoort bij de grant-hash hierboven: alleen een downstream-URL met exact deze host mag de SSRF-blocklist passeren | Geen boot-faalwijze; ontbreekt hij terwijl er een grant-hash staat, dan faalt elke aflevering van die downstream met een configuratiefout |
 | `LDV_DBMS` | env var | Backend voor het logboek: `postgresql` (default) of `clickhouse` | Onbekende waarde = startup-fout |
 | `LDV_POSTGRES_URL` | env var | JDBC-URL van het logboek; buiten dev/test verplicht `ssl=true` of `sslmode=require`/`verify-ca`/`verify-full` conform BIO 13.2.1 | Geen default in `%prod`: ontbreekt de env var, dan faalt de expressie-expansie bij boot. Versleutelt de URL niet, dan gooit `LdvEndpointValidator` — **tenzij `fbs.ldv.unsafe-allow-plaintext-endpoint=true`** staat (zie hieronder); dan start de service wél en gaat het BSN in `dpl.core.data_subject_id` plaintext over de lijn |
 | `LDV_POSTGRES_USERNAME`, `LDV_POSTGRES_PASSWORD` | env var | LDV-credentials; geen prod-defaults | Ontbreekt = de wrapper faalt bij de eerste logregel (hij leest de credentials pas bij gebruik), en fail-closed maakt van die verwerking een 500 |
@@ -88,7 +90,8 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
 3. **Geen interne IP's**: SSRF-blocklist weert RFC1918, IPv6 link-local,
    IPv6 ULA (`fc00::/7`) en cloud-metadata-IPs (`169.254.169.254`,
    `fd00:ec2::254`). Hosts die naar deze ranges resolven worden bij
-   request-tijd geweigerd.
+   request-tijd geweigerd — met één uitzondering: een downstream met een
+   grant-hash die de eigen FSC-outway aanwijst (zie hieronder).
 4. **DNS-rebinding caveat**: SSRF-check resolveert de naam, `http.send()`
    resolveert hem opnieuw. Een korte-TTL DNS-record kan tussen de twee
    resoluties van extern naar intern wisselen. Mitigatie zou DNS-pinning
@@ -96,6 +99,19 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
    uit gefixeerde config komen en niet user-supplied zijn. Bij het
    productiseren overwegen: zelf socket openen op gevalideerd IP +
    `Host`-header zetten.
+5. **Verkeer door de eigen outway**: een downstream met
+   `magazijn.publicatie.downstreams.<key>.grant-hash` gaat door de eigen
+   FSC-outway, en dáár bepaalt het FSC-contract achter die hash de
+   bestemming — niet onze URL. Voor die downstream vervalt regel 3, want
+   een outway-ClusterIP resolveert naar RFC1918. De uitzondering geldt
+   alleen als de URL-host exact gelijk is aan
+   `magazijn.publicatie.outway.host` (env var `OUTWAY_HOST`); zonder die
+   host, of bij een andere host, faalt de aflevering met een
+   configuratiefout in plaats van dat de blocklist stilzwijgend opengaat.
+   **Regel 1 (TLS) blijft onverkort gelden.** Bij boot logt elke actieve
+   uitzondering een WARNING met het stabiele token `DOWNSTREAM_VIA_OUTWAY`
+   en de betrokken downstreams en outway-host; hang daar een alert-regel
+   aan, zoals bij `OUTBOUND_TLS_DISABLED`.
 
 ## Outbox-monitoring
 

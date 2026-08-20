@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.opentelemetry.api.OpenTelemetry
 import io.opentelemetry.context.Context
 import io.opentelemetry.context.propagation.TextMapSetter
+import io.quarkus.runtime.StartupEvent
 import jakarta.annotation.PreDestroy
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import jakarta.enterprise.inject.Instance
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeaders
@@ -48,7 +50,14 @@ class DownstreamClient(
 
     private val log = Logger.getLogger(DownstreamClient::class.java)
 
-    init {
+    /**
+     * Laat bij boot een spoor na van elke actieve uitzondering op de URL-controles. Een
+     * `StartupEvent`-observer en niet een `init`-blok: deze bean is lui `@ApplicationScoped`, dus
+     * een init-blok draait pas bij de eerste publicatieronde — tot een pollinterval later, en op
+     * een moment dat niet met de boot correleert. [PublicatieConfigValidator] en [PublicatieOutbox]
+     * doen het om dezelfde reden zo.
+     */
+    fun meldActieveUitzonderingen(@Observes startup: StartupEvent) {
         // De bypass zet méér uit dan een TLS-uitzondering — ook de SSRF-blocklist vervalt — dus
         // laat hij een spoor achter, zoals OutboundTlsValidator dat voor de kleinere TLS-only
         // override doet. Draait een instantie ooit onbedoeld onder dev (de demo-compose zet dat
@@ -62,17 +71,38 @@ class DownstreamClient(
             )
         }
 
-        val viaOutway = config.downstreams()
+        val outwayHost = outwayHost()
+        val (viaOutway, buitenOutway) = config.downstreams()
             .filterValues { bruikbareGrantHash(it) != null }
-            .keys
+            .entries
+            .partition { (_, downstream) -> outwayHost != null && urlHost(downstream.url()) == outwayHost }
+            .let { (binnen, buiten) -> binnen.map { it.key } to buiten.map { it.key } }
 
         if (viaOutway.isNotEmpty()) {
             // Een SSRF-uitzondering hoort niet stil te zijn: zonder deze regel is aan een draaiende
-            // pod niet te zien welke downstreams buiten de blocklist vallen.
+            // pod niet te zien welke downstreams buiten de blocklist vallen. De host hoort erbij en
+            // niet alleen de key — een alert op het token moet kunnen zien wáárvoor de blocklist
+            // vervalt, en dat is precies de bestemming. Een hostnaam is geen persoonsgegeven.
             log.warnf(
-                "%s: downstream(s) %s lopen door de eigen FSC-outway; de SSRF-blocklist geldt daar niet.",
+                "%s: downstream(s) %s lopen door de eigen FSC-outway op '%s'; de SSRF-blocklist " +
+                    "geldt daar niet.",
                 OUTWAY_SSRF_ALERT_TOKEN,
                 viaOutway.joinToString(", "),
+                outwayHost,
+            )
+        }
+
+        if (buitenOutway.isNotEmpty()) {
+            // Een grant-hash op een downstream die de outway niet aanwijst is altijd een vergissing:
+            // de header komt bij een partij terecht die er niets mee doet, en het contract dat de
+            // aflevering hoort te verantwoorden blijft ongebruikt. Buiten dev faalt zo'n aflevering
+            // met een configuratiefout; in dev gaat ze rechtstreeks. Beide keren is "wat er staat"
+            // niet wat er gebeurt, dus dat hoort in de log — niet pas bij de eerste aflevering.
+            log.warnf(
+                "Downstream(s) %s dragen een grant-hash maar hun URL wijst niet naar " +
+                    "magazijn.publicatie.outway.host (%s); hun verkeer gaat niet door de outway.",
+                buitenOutway.joinToString(", "),
+                outwayHost ?: "niet gezet",
             )
         }
     }
@@ -103,7 +133,15 @@ class DownstreamClient(
 
         val url = downstream.url()
         val grantHash = bruikbareGrantHash(downstream)
+
+        if (grantHash != null) {
+            val hashFout = vormfout(grantHash)
+
+            if (hashFout != null) return hashFout
+        }
+
         val urlValidatie = valideerUrl(url, viaOutway = grantHash != null)
+
         if (urlValidatie != null) return urlValidatie
 
         val payload = try {
@@ -121,28 +159,36 @@ class DownstreamClient(
             .header("Content-Type", "application/cloudevents+json")
             .POST(BodyPublishers.ofByteArray(payload))
 
-        if (grantHash != null) {
+        val transactionId = if (grantHash != null) {
             val fscHeaders = FscOutwayHeaders.headers(grantHash)
 
             fscHeaders.forEach { (naam, waarde) -> requestBuilder.header(naam, waarde) }
 
-            // Zonder deze transaction-id in de app-log is een mislukte aflevering niet te
-            // correleren met de rij in de outway-/inway-txlogs, die 'm ongewijzigd doorgeven —
-            // en juist dáár staat waaróm de outway 502 gaf. Alleen het doel loggen, nooit de
-            // URL: die kan een pad met persoonsgegevens dragen.
+            // Een geslaagde aflevering hoeft alleen terugvindbaar te zijn, vandaar DEBUG. Bij een
+            // mislukking gaat dezelfde id via [faalreden] mee in het resultaat, dat op ERROR/WARN
+            // gelogd én in de outbox bewaard wordt. Alleen het doel loggen, nooit de URL: die kan
+            // een pad met persoonsgegevens dragen.
             log.debugf(
                 "FSC-outway-aflevering naar %s: Fsc-Transaction-Id=%s",
                 doel.key,
                 fscHeaders[FscOutwayHeaders.TRANSACTION_ID_HEADER],
             )
 
-            // De FSC-data-plane is HTTP/1.1 — dat staat zo in het publicatiecontract van elke
-            // dienst (`PROTOCOL_TCP_HTTP_1.1`). Zonder deze pin onderhandelt de JDK-client op een
-            // plain-http-doel eerst een upgrade naar h2c, en die hop-by-hop-headers proxyt de
-            // outway ongewijzigd door naar de inway; het Go-http2-transport daarachter weigert ze
-            // met "invalid Upgrade request header" en de outway antwoordt 502. Alleen op dit pad
-            // pinnen: downstreams die rechtstreeks worden aangesproken mogen wel h2 doen.
+            // De JDK-client onderhandelt op een plain-http-doel eerst een upgrade naar h2c. Die
+            // hop-by-hop-headers proxyt de outway ongewijzigd door naar de inway; het
+            // Go-http2-transport daarachter weigert ze met "invalid Upgrade request header" en de
+            // outway antwoordt 502. Vandaar HTTP/1.1 op deze hop.
+            //
+            // Niet omdat de spec het eist: fsc-core noemt HTTP/1.1 als minimum en staat HTTP/2
+            // uitdrukkelijk toe, en `PROTOCOL_TCP_HTTP_1.1` in een publicatiecontract beschrijft
+            // de upstream áchter de inway. Deze hop — app naar de eigen outway — valt buiten de
+            // FSC-spec; wat 'm pint is het gedrag van de OpenFSC-proxyketen. Alleen hier pinnen:
+            // downstreams die rechtstreeks worden aangesproken mogen wel h2 doen.
             requestBuilder.version(HttpClient.Version.HTTP_1_1)
+
+            fscHeaders[FscOutwayHeaders.TRANSACTION_ID_HEADER]
+        } else {
+            null
         }
 
         // W3C Trace Context propagatie: injecteer `traceparent` (en `tracestate`)
@@ -157,7 +203,7 @@ class DownstreamClient(
                 else -> DownstreamResultaat.HttpFout(
                     statusCode = status,
                     retryAfter = leesRetryAfter(response.headers().firstValue("Retry-After").orElse(null)),
-                    reden = "HTTP $status van ${doel.key}",
+                    reden = faalreden(status, doel, transactionId, response.body()),
                 )
             }
         } catch (ex: IOException) {
@@ -169,6 +215,25 @@ class DownstreamClient(
             log.warnf(ex, "Interrupted bij downstream-aflevering: doel=%s", doel)
             DownstreamResultaat.NetwerkFout("Interrupted naar $doel")
         }
+    }
+
+    /**
+     * De reden bij een niet-2xx-antwoord. Een kale "HTTP 404 van notificatie" laat een eigen
+     * configuratiefout niet onderscheiden van een fout van de bestemming, terwijl beide terminal
+     * zijn en het bericht dus definitief niet aankomt. Dat onderscheid staat juist in de body
+     * (`UNKNOWN_GRANT_HASH_IN_HEADER`, "service not found"), en op het outway-pad kan een 502 van
+     * de outway, de router óf de inway komen — vandaar ook de transaction-id, want die is de enige
+     * sleutel naar de rij in de txlogs van outway en inway, die 'm ongewijzigd doorgeven.
+     *
+     * Het fragment is kort en gesaneerd: `reden` wordt in de outbox bewaard en gelogd, en een
+     * antwoordbody is untrusted invoer.
+     */
+    private fun faalreden(status: Int, doel: Publicatiedoel, transactionId: String?, body: String?): String {
+        val basis = "HTTP $status van ${doel.key}"
+        val transactie = transactionId?.let { " (Fsc-Transaction-Id=$it)" } ?: ""
+        val fragment = FoutBeschrijving.saneer(body?.trim(), maxLengte = MAX_FAALREDEN_BODY).trim()
+
+        return if (fragment.isEmpty()) basis + transactie else "$basis$transactie: $fragment"
     }
 
     /**
@@ -217,19 +282,67 @@ class DownstreamClient(
     }
 
     /**
-     * De grant-hash van [downstream], of `null` als er geen bruikbare staat. Trimmen omdat een
-     * hash die via een env-var uit een gegenereerd bestand komt makkelijk een spatie of newline
-     * meekrijgt, en de outway daarop `400 UNKNOWN_GRANT_HASH_IN_HEADER` antwoordt.
+     * De grant-hash van [downstream], of `null` als er geen staat. Trimmen omdat een hash die via
+     * een env-var uit een gegenereerd bestand komt makkelijk een spatie of newline meekrijgt, en
+     * de outway daarop `400 UNKNOWN_GRANT_HASH_IN_HEADER` antwoordt.
+     *
+     * Afwezig of leeg betekent "geen outway, rechtstreeks verkeer" — dat is het gedocumenteerde
+     * gedrag van een niet-gezette `*_GRANT_HASH`-env-var. Een waarde die alleen uit witruimte
+     * bestaat valt daar niet onder: dat is een typfout, geen keuze, en levert via
+     * [vormfout] een [DownstreamResultaat.ConfiguratieFout].
      */
     private fun bruikbareGrantHash(downstream: PublicatieConfig.Downstream): String? =
-        downstream.grantHash().orElse(null)?.trim()?.takeIf { it.isNotEmpty() }
+        downstream.grantHash().orElse(null)?.takeIf { it.isNotEmpty() }?.trim()
 
     /**
-     * Keurt een downstream-URL goed of af. `internal` zodat de scheme-, loopback- en SSRF-regels
-     * te toetsen zijn zonder een echte call te doen — een test die op een niet-routeerbaar adres
-     * moet aflopen kost een connect-timeout, en levert een ándere uitkomst op een machine die
-     * dat adres wél kan bereiken. Spiegelt [mapDeliveryException], dat om dezelfde reden
-     * rechtstreeks getest wordt.
+     * De geconfigureerde outway-host, genormaliseerd voor vergelijking met [urlHost].
+     */
+    private fun outwayHost(): String? =
+        config.outway().host().orElse(null)?.trim()?.takeIf { it.isNotEmpty() }?.lowercase()
+
+    /**
+     * De host uit [url], of `null` als die er niet uit te halen is. Slikt de syntaxfout omdat de
+     * enige caller een boot-logregel is: een onbruikbare URL hoort de aflevering te laten falen
+     * met de melding van [valideerUrl], niet de service te laten weigeren te starten.
+     */
+    private fun urlHost(url: String): String? =
+        runCatching { URI.create(url).host?.lowercase() }.getOrNull()
+
+    /**
+     * Keurt een grant-hash af die niet als headerwaarde kan dienen. Zonder deze controle gooit
+     * `HttpRequest.Builder.header` een [IllegalArgumentException] langs [lever] heen: de claim komt
+     * dan ongewijzigd terug in `TE_PUBLICEREN` zonder dat `pogingen` oploopt, en struikelt elke
+     * ronde opnieuw — één foutieve configwaarde legt de outbox permanent stil.
+     *
+     * Getoetst wordt de vorm van een headerwaarde (printable US-ASCII, geen witruimte binnenin) en
+     * niet een hash-formaat: dat laatste ligt bij de FSC-implementatie en kan wijzigen. Dat is
+     * strenger dan wat de builder zelf nog accepteert — die laat alles tot U+00FF door — maar een
+     * grant-hash die tekens buiten dit bereik draagt is hoe dan ook een configuratiefout, en de
+     * outway antwoordt erop met `400 UNKNOWN_GRANT_HASH_IN_HEADER`.
+     */
+    private fun vormfout(grantHash: String): DownstreamResultaat.ConfiguratieFout? {
+        if (grantHash.isBlank()) {
+            return DownstreamResultaat.ConfiguratieFout("Grant-hash bestaat alleen uit witruimte")
+        }
+
+        if (grantHash.any { it.code !in 0x21..0x7E }) {
+            return DownstreamResultaat.ConfiguratieFout(
+                "Grant-hash bevat een teken dat niet in een HTTP-header past",
+            )
+        }
+
+        return null
+    }
+
+    /**
+     * Keurt een downstream-URL goed of af. [viaOutway] betekent "deze downstream draagt een
+     * grant-hash"; of die aanspraak op de blocklist-uitzondering ook opgaat wordt hier bepaald,
+     * niet door de caller.
+     *
+     * `internal` zodat de scheme-, loopback-, outway- en SSRF-regels te toetsen zijn zonder een
+     * echte call te doen — een test die op een niet-routeerbaar adres moet aflopen kost een
+     * connect-timeout, en levert een ándere uitkomst op een machine die dat adres wél kan
+     * bereiken. Spiegelt [mapDeliveryException], dat om dezelfde reden rechtstreeks getest wordt.
      */
     internal fun valideerUrl(url: String, viaOutway: Boolean): DownstreamResultaat.ConfiguratieFout? {
         val parsed = try {
@@ -266,19 +379,48 @@ class DownstreamClient(
             )
         }
 
+        if (viaOutway) return toetsOutwayBestemming(host)
+
         // SSRF-blocklist ([blokkeerIntern]): zonder dit kan een operator met
         // config-toegang de magazijn-pod als proxy naar interne services gebruiken.
         // Loopback is hierboven al toegestaan voor dev-stubs (WireMock/embedded HTTP).
-        //
-        // Een downstream met een grant-hash valt erbuiten: die gaat door de eigen, co-located
-        // outway, en dáár bepaalt het FSC-contract achter de hash de bestemming — een URL naar een
-        // ander intern adres levert dan geen verkeer maar een fout. Zonder deze uitzondering is het
-        // pad onbruikbaar: een outway-ClusterIP resolveert naar RFC1918. De TLS-eis hierboven
-        // blijft wél gelden, en een actieve uitzondering logt bij boot [OUTWAY_SSRF_ALERT_TOKEN].
-        if (!isLoopback && !viaOutway) {
+        if (!isLoopback) {
             val ssrfFout = blokkeerIntern(host)
             if (ssrfFout != null) return ssrfFout
         }
+        return null
+    }
+
+    /**
+     * Toetst of [host] de eigen outway is, en daarmee of deze downstream de SSRF-blocklist mag
+     * passeren.
+     *
+     * Een downstream met een grant-hash valt buiten die blocklist: zijn verkeer gaat de eigen
+     * outway in, en dáár bepaalt het FSC-contract achter de hash de bestemming — niet onze URL.
+     * Zonder die uitzondering is het pad onbruikbaar, want een outway-ClusterIP resolveert naar
+     * RFC1918.
+     *
+     * Die redenering geldt alleen als de URL de outway ook echt aanwijst, dus dat wordt hier
+     * afgedwongen in plaats van aangenomen: anders opent één grant-hash in de config de blocklist
+     * voor een willekeurig intern adres, en is de magazijn-pod een proxy. Fail-closed en met de
+     * werkelijke reden, want een stille bypass is van buitenaf niet te onderscheiden van een
+     * werkende configuratie. De TLS-eis in [valideerUrl] blijft onverkort gelden, en een actieve
+     * uitzondering logt bij boot [OUTWAY_SSRF_ALERT_TOKEN].
+     */
+    private fun toetsOutwayBestemming(host: String): DownstreamResultaat.ConfiguratieFout? {
+        val outwayHost = outwayHost()
+            ?: return DownstreamResultaat.ConfiguratieFout(
+                "Downstream heeft een grant-hash maar magazijn.publicatie.outway.host ontbreekt",
+            )
+
+        // Alleen de verwachte host in de melding: de downstream-URL kan een pad met
+        // persoonsgegevens dragen en `reden` belandt in de outbox en in de logs.
+        if (host != outwayHost) {
+            return DownstreamResultaat.ConfiguratieFout(
+                "Downstream met grant-hash wijst niet naar de eigen outway ($outwayHost)",
+            )
+        }
+
         return null
     }
 
@@ -374,6 +516,13 @@ class DownstreamClient(
          * een alert-regel aan, dus de waarde wijzigt niet zonder die alert mee te verhuizen.
          */
         const val OUTWAY_SSRF_ALERT_TOKEN = "DOWNSTREAM_VIA_OUTWAY"
+
+        /**
+         * Hoeveel van een foutbody in [DownstreamResultaat.Mislukt.reden] meegaat. Ruim genoeg
+         * voor een FSC-foutcode of een `problem+json`-titel, kort genoeg om een HTML-foutpagina
+         * van een tussenliggende proxy niet in de outbox te laten belanden.
+         */
+        private const val MAX_FAALREDEN_BODY = 200
 
         /**
          * Laat alleen W3C `traceparent` door; `tracestate` (vendor-routing/sampling)

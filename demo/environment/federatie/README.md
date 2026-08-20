@@ -178,14 +178,18 @@ bij `notificatieservice`. Die tweede loopt de andere kant op — het magazijn is
 Die smoke vereist dat het magazijn zijn events door de outway stuurt:
 
 ```bash
+set -a; . demo/generated/fsc-grants.env; set +a     # levert NOTIFICATIE_GRANT_HASH
 MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 \
-  NOTIFICATIE_URL=http://127.20.2.5:8443/events demo/podman-up.sh
+  NOTIFICATIE_URL=http://127.20.2.5:8443/events OUTWAY_HOST=127.20.2.5 demo/podman-up.sh
 ```
 
-**Zet URL en grant-hash altijd samen.** Het grant-hash komt uit `fsc-grants.env` en de URL uit de
-omgeving; staat de hash wél en de URL niet op de outway, dan stuurt het magazijn FSC-headers naar
-een bestemming die er niets mee doet — en vervalt bovendien de SSRF-controle op die URL. Het
-magazijn logt bij de eerste aflevering welke downstreams zo lopen (`DOWNSTREAM_VIA_OUTWAY`).
+**Zet URL, grant-hash en outway-host altijd samen.** De hash komt uit `fsc-grants.env`, de andere
+twee uit de omgeving. Staat de hash wél en wijst de URL niet naar de outway, dan stuurt het
+magazijn FSC-headers naar een bestemming die er niets mee doet, en blijft het contract dat de
+aflevering hoort te verantwoorden ongebruikt. Buiten `dev` faalt zo'n aflevering met een
+configuratiefout — de SSRF-controle vervalt uitsluitend voor een URL op `OUTWAY_HOST`. Het magazijn
+logt bij boot welke downstreams door de outway lopen (`DOWNSTREAM_VIA_OUTWAY`) en welke een
+grant-hash dragen zonder dat hun URL erbij past.
 
 ### Twee helften
 

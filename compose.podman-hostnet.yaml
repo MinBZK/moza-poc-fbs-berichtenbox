@@ -99,13 +99,11 @@ services:
   berichtenmagazijn-a:
     network_mode: host
     ports: !reset []
-    # Het grant-hash voor de notificatie-push komt uit de contract-bootstrap van de federatie
-    # (demo/environment/federatie/contracts/fbs-contracten.sh). Ontbreekt het bestand — geen
-    # federatie op deze machine — dan start de stack gewoon zonder, en levert dit magazijn zijn
-    # events rechtstreeks af: een lege grant-hash betekent "geen FSC-headers".
-    env_file:
-      - path: demo/generated/fsc-grants.env
-        required: false
+    # Bewust géén env_file met demo/generated/fsc-grants.env: dat zou de grant-hash ook aanhangen
+    # bij de standaard-URL hieronder, die rechtstreeks naar toxiproxy gaat. De aflevering droeg dan
+    # een FSC-header naar een partij die er niets mee doet, terwijl het contract dat haar hoort te
+    # verantwoorden ongebruikt blijft. De drie waarden horen samen gezet te worden — zie de
+    # instructie bij NOTIFICATIE_URL en federatie/README.md.
     depends_on:
       postgres-a:
         condition: service_started
@@ -114,10 +112,14 @@ services:
       QUARKUS_HTTP_HOST: 127.0.0.1
       DB_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
       AANMELD_URL: http://127.0.0.1:18086/api/v1/aanmeldingen
-      # Default: rechtstreeks via toxiproxy, zodat de storing-knop van de demo werkt. Zet
-      # NOTIFICATIE_URL op de outway van magazijn-a (http://127.20.2.5:8443/events) om deze push
-      # via de FSC-keten te laten lopen; het grant-hash komt dan uit env_file hierboven.
+      # Default: rechtstreeks via toxiproxy, zodat de storing-knop van de demo werkt. Om deze push
+      # via de FSC-keten te laten lopen zet je alle drie:
+      #   NOTIFICATIE_URL=http://127.20.2.5:8443/events   (de outway van magazijn-a)
+      #   OUTWAY_HOST=127.20.2.5
+      #   NOTIFICATIE_GRANT_HASH=<uit demo/generated/fsc-grants.env>
       NOTIFICATIE_URL: ${NOTIFICATIE_URL:-http://127.0.0.1:18084/events}
+      NOTIFICATIE_GRANT_HASH: ${NOTIFICATIE_GRANT_HASH:-}
+      OUTWAY_HOST: ${OUTWAY_HOST:-}
       PROFIEL_SERVICE_URL: http://127.0.0.1:8089
 
   berichtenmagazijn-b:

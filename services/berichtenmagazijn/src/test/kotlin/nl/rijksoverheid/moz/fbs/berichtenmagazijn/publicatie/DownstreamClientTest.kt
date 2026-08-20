@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import io.opentelemetry.api.OpenTelemetry
+import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.inject.Instance
 import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeaders
 import org.junit.jupiter.api.AfterEach
@@ -46,6 +47,11 @@ class DownstreamClientTest {
     }
 
     private class SimuleerdeJsonFout(msg: String) : JsonProcessingException(msg)
+
+    private companion object {
+        /** Waar [DownstreamHttpServer] op bindt, en daarmee de outway-host in deze tests. */
+        const val SERVER_HOST = "127.0.0.1"
+    }
 
     private lateinit var server: DownstreamHttpServer
     private lateinit var config: PublicatieConfig
@@ -89,7 +95,16 @@ class DownstreamClientTest {
             every { connectTimeout() } returns java.time.Duration.ofSeconds(5)
             every { requestTimeout() } returns java.time.Duration.ofSeconds(10)
         }
+        // De embedded server ís hier de outway: zonder deze koppeling valt elke downstream met een
+        // grant-hash af op "wijst niet naar de eigen outway".
+        stelOutwayIn(SERVER_HOST)
         client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+    }
+
+    private fun stelOutwayIn(host: String?) {
+        every { config.outway() } returns object : PublicatieConfig.Outway {
+            override fun host(): Optional<String> = Optional.ofNullable(host)
+        }
     }
 
     @AfterEach
@@ -432,6 +447,7 @@ class DownstreamClientTest {
         assertEquals(DownstreamResultaat.Geslaagd, resultaat)
         // Wacht tot de server de request verwerkt heeft.
         org.awaitility.Awaitility.await()
+            .pollDelay(java.time.Duration.ZERO)
             .atMost(2, java.util.concurrent.TimeUnit.SECONDS)
             .until { server.aantalAanroepen >= 1 }
         val headers = server.headers.first()
@@ -447,17 +463,26 @@ class DownstreamClientTest {
      * headernamen naar `Capitalized-Case`, dus zoeken op de exacte constante zou missen.
      */
     private fun ontvangenHeaders(): Map<String, List<String>> {
+        // `pollDelay` op nul: `http.send` is blokkerend en de teller loopt vóór het antwoord op,
+        // dus de default van 100 ms is puur wachttijd — over alle aanroepen heen een halve seconde
+        // per testrun.
         org.awaitility.Awaitility.await()
+            .pollDelay(java.time.Duration.ZERO)
             .atMost(2, java.util.concurrent.TimeUnit.SECONDS)
             .until { server.aantalAanroepen >= 1 }
 
         return server.headers.single().mapKeys { (naam, _) -> naam.lowercase() }
     }
 
+    /**
+     * Alleen afwezig en leeg: dát is het gedocumenteerde gedrag van een niet-gezette
+     * `*_GRANT_HASH`-env-var. Een waarde van alleen witruimte hoort níet stil terug te vallen op
+     * verkeer buiten de mesh en heeft een eigen test.
+     */
     @ParameterizedTest(name = "grant-hash [{0}] levert geen FSC-headers")
     @NullSource
-    @ValueSource(strings = ["", "   "])
-    fun `zonder bruikbare grant-hash gaan er geen FSC-headers mee`(hash: String?) {
+    @ValueSource(strings = [""])
+    fun `zonder grant-hash gaan er geen FSC-headers mee`(hash: String?) {
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, hash))
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
@@ -535,12 +560,257 @@ class DownstreamClientTest {
     }
 
     @Test
-    fun `een intern adres mag wel met grant-hash - het contract bepaalt de bestemming`() {
+    fun `een intern adres mag wel als het de eigen outway is - het contract bepaalt de bestemming`() {
         // De outway luistert op een adres dat naar RFC1918 resolveert; de blocklist zou dat pad
         // blokkeren terwijl het FSC-contract achter de hash de bestemming al vastlegt.
+        stelOutwayIn("10.255.255.1")
+
         val resultaat = client.valideerUrl("https://10.255.255.1:8443/events", viaOutway = true)
 
-        assertNull(resultaat, "met een grant-hash hoort de SSRF-blocklist niet te gelden")
+        assertNull(resultaat, "een downstream op de eigen outway hoort de blocklist te passeren")
+    }
+
+    @Test
+    fun `een grant-hash opent de blocklist niet voor een ander intern adres`() {
+        // De rechtvaardiging voor de uitzondering is dat het FSC-contract de bestemming bepaalt, en
+        // dat geldt alleen voor verkeer dat de outway ook echt binnengaat. Zonder deze grens maakt
+        // één grant-hash in de config van de magazijn-pod een proxy naar elk intern adres.
+        stelOutwayIn("10.255.255.1")
+
+        val resultaat = client.valideerUrl("https://10.0.0.1:8443/interne-dienst", viaOutway = true)
+
+        assertTrue(
+            resultaat != null && resultaat.reden.contains("outway"),
+            "een grant-hash bij een andere host dan de outway hoort te stranden, kreeg: $resultaat",
+        )
+    }
+
+    @Test
+    fun `een grant-hash zonder geconfigureerde outway-host levert een configuratiefout`() {
+        // Fail-closed en met de werkelijke reden: een stille bypass is van buitenaf niet te
+        // onderscheiden van een werkende configuratie.
+        stelOutwayIn(null)
+
+        val resultaat = client.valideerUrl("https://10.255.255.1:8443/events", viaOutway = true)
+
+        assertTrue(
+            resultaat != null && resultaat.reden.contains("outway.host"),
+            "zonder outway-host hoort de hash de blocklist niet te openen, kreeg: $resultaat",
+        )
+    }
+
+    @Test
+    fun `de outway-host wordt hoofdletterongevoelig vergeleken`() {
+        // `URI.getHost()` geeft de host terug zoals hij in de URL staat; DNS is
+        // hoofdletterongevoelig, dus een verschil in schrijfwijze mag geen aflevering kosten.
+        stelOutwayIn("Outway.Intern.Example")
+
+        val resultaat = client.valideerUrl("https://outway.intern.EXAMPLE:8443/events", viaOutway = true)
+
+        assertNull(resultaat, "een verschil in hoofdletters hoort de host-match niet te breken")
+    }
+
+    @Test
+    fun `met meerdere downstreams gaat de hash van het aangeroepen doel mee, niet die van een buur`() {
+        // Met een map van één entry is "kiest de juiste downstream" niet te onderscheiden van
+        // "pakt de enige": een refactor naar `values.first()` zou dan groen blijven terwijl een
+        // geldige grant-hash naar de verkeerde partij vertrekt.
+        every { config.downstreams() } returns mapOf(
+            "aanmeld" to DownstreamStub(server.baseUrl, "hash-van-aanmeld"),
+            "notificatie" to DownstreamStub(server.baseUrl, "hash-van-notificatie"),
+            "archief" to DownstreamStub(server.baseUrl, "hash-van-archief"),
+        )
+
+        val resultaat = client.lever(Publicatiedoel("notificatie"), event)
+
+        assertEquals(DownstreamResultaat.Geslaagd, resultaat)
+
+        val headers = ontvangenHeaders()
+
+        assertEquals(
+            "hash-van-notificatie",
+            headers.getValue(FscOutwayHeaders.GRANT_HASH_HEADER.lowercase()).single(),
+        )
+    }
+
+    @Test
+    fun `een downstream zonder hash naast een downstream met hash krijgt geen FSC-headers`() {
+        // De keerzijde van de vorige test: een grant-hash mag niet naar een buur uitlekken die
+        // rechtstreeks verkeer hoort te krijgen — die zou hem doorgeven aan een partij zonder
+        // contract.
+        every { config.downstreams() } returns mapOf(
+            "aanmeld" to DownstreamStub(server.baseUrl),
+            "notificatie" to DownstreamStub(server.baseUrl, "hash-van-notificatie"),
+        )
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertEquals(DownstreamResultaat.Geslaagd, resultaat)
+
+        val headers = ontvangenHeaders()
+
+        assertFalse(headers.containsKey(FscOutwayHeaders.GRANT_HASH_HEADER.lowercase()))
+        assertFalse(headers.containsKey(FscOutwayHeaders.TRANSACTION_ID_HEADER.lowercase()))
+    }
+
+    @ParameterizedTest(name = "grant-hash met teken {0} levert een configuratiefout")
+    @ValueSource(strings = ["hash\nmet-newline", "hash\u0000met-nul", "hash-mét-accent", "hash met spatie"])
+    fun `een hash die niet in een header past faalt als configuratiefout`(hash: String) {
+        // `HttpRequest.Builder.header` gooit hierop een IllegalArgumentException. Die zou langs
+        // lever() heen lopen zonder `pogingen` op te hogen: de claim komt ongewijzigd terug in
+        // TE_PUBLICEREN en struikelt elke ronde opnieuw, dus één configwaarde legt de outbox stil.
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, hash))
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(
+            resultaat is DownstreamResultaat.ConfiguratieFout,
+            "een onbruikbare hash hoort een terminale configuratiefout te geven, kreeg: $resultaat",
+        )
+        assertFalse((resultaat as DownstreamResultaat.Mislukt).herstelbaar, "retryen helpt hier niet")
+        assertEquals(0, server.aantalAanroepen, "er hoort geen request de deur uit te gaan")
+    }
+
+    @Test
+    fun `een hash van alleen witruimte valt niet stil terug op verkeer buiten de mesh`() {
+        // Leeg betekent "bewust geen outway"; alleen witruimte is een typfout. Stil rechtstreeks
+        // afleveren zou de verantwoording in de txlogs kosten zonder dat iets dat meldt.
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, "   "))
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(
+            resultaat is DownstreamResultaat.ConfiguratieFout && resultaat.reden.contains("witruimte"),
+            "een hash van alleen witruimte hoort te stranden, kreeg: $resultaat",
+        )
+    }
+
+    @Test
+    fun `de faalreden draagt het antwoord van de bestemming en de transaction-id`() {
+        // Een kale "HTTP 400 van aanmeld" laat een eigen configuratiefout niet onderscheiden van
+        // een fout van de bestemming, terwijl beide terminal zijn. Het onderscheid staat in de
+        // body, en de transaction-id is de enige sleutel naar de rij in de txlogs.
+        server.close()
+        server = DownstreamHttpServer().apply {
+            statusVoorAanroep = { _ -> 400 }
+            antwoordBody = "UNKNOWN_GRANT_HASH_IN_HEADER"
+        }
+        server.start()
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, "hash"))
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        val reden = (resultaat as DownstreamResultaat.HttpFout).reden
+
+        assertTrue(reden.contains("UNKNOWN_GRANT_HASH_IN_HEADER"), "body ontbreekt in de reden: $reden")
+        assertTrue(reden.contains(FscOutwayHeaders.TRANSACTION_ID_HEADER), "transaction-id ontbreekt: $reden")
+    }
+
+    @Test
+    fun `een rechtstreekse downstream krijgt geen transaction-id in zijn faalreden`() {
+        // Zonder outway is er geen txlog om naar te verwijzen; een id in de reden zou suggereren
+        // dat die correlatie bestaat.
+        server.close()
+        server = DownstreamHttpServer().apply { statusVoorAanroep = { _ -> 500 } }
+        server.start()
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        val reden = (resultaat as DownstreamResultaat.HttpFout).reden
+
+        assertFalse(reden.contains(FscOutwayHeaders.TRANSACTION_ID_HEADER), "onterechte transaction-id: $reden")
+    }
+
+    @ParameterizedTest(name = "{0} downstream(s) met grant-hash")
+    @ValueSource(ints = [0, 1, 3])
+    fun `de boot-melding noemt elke downstream die door de outway loopt`(aantal: Int) {
+        // Het token draagt een alert-regel bij ops: valt hij niet, dan is aan een draaiende pod
+        // niet te zien dat de SSRF-blocklist voor een deel van het verkeer vervalt.
+        val downstreams = (1..aantal).associate { "doel-$it" to DownstreamStub(server.baseUrl, "hash-$it") }
+
+        every { config.downstreams() } returns downstreams
+
+        val regels = vangLogregels { client.meldActieveUitzonderingen(StartupEvent()) }
+        val melding = regels.singleOrNull { it.contains(DownstreamClient.OUTWAY_SSRF_ALERT_TOKEN) }
+
+        if (aantal == 0) {
+            assertNull(melding, "zonder outway-downstream hoort het token niet te vallen")
+        } else {
+            assertTrue(melding != null && melding.contains(SERVER_HOST), "outway-host ontbreekt: $melding")
+            downstreams.keys.forEach { key ->
+                assertTrue(melding!!.contains(key), "downstream '$key' ontbreekt in de melding: $melding")
+            }
+        }
+    }
+
+    @Test
+    fun `een grant-hash bij een andere host dan de outway wordt bij boot gemeld`() {
+        // Die combinatie is altijd een vergissing: de header komt bij een partij die er niets mee
+        // doet, en het contract dat de aflevering verantwoordt blijft ongebruikt.
+        every { config.downstreams() } returns mapOf(
+            "notificatie" to DownstreamStub("https://ergens-anders.example/events", "hash"),
+        )
+
+        val regels = vangLogregels { client.meldActieveUitzonderingen(StartupEvent()) }
+
+        assertTrue(
+            regels.any { it.contains("wijst niet naar") && it.contains("notificatie") },
+            "een hash zonder passende outway-host hoort gemeld te worden: $regels",
+        )
+        assertTrue(
+            regels.none { it.contains(DownstreamClient.OUTWAY_SSRF_ALERT_TOKEN) },
+            "het SSRF-token hoort hier niet te vallen: $regels",
+        )
+    }
+
+    @Test
+    fun `de outway-aflevering logt het doel maar nooit de URL`() {
+        // De downstream-URL kan een pad met persoonsgegevens dragen. `FscOutwayHeadersTest` pint
+        // dezelfde invariant aan de JAX-RS-kant; zonder deze test kan hij hier stil wegvallen.
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, "hash"))
+
+        val regels = vangLogregels { client.lever(Publicatiedoel("aanmeld"), event) }
+
+        assertTrue(regels.any { it.contains("aanmeld") }, "het doel hoort in de log: $regels")
+        assertTrue(regels.none { it.contains(server.baseUrl) }, "de URL lekt naar de log: $regels")
+    }
+
+    /**
+     * De logregels die [actie] op [DownstreamClient] produceert, als geformatteerde tekst.
+     * `Level.ALL` omdat de aflevering op DEBUG logt en de uitzonderingen op WARN.
+     */
+    private fun vangLogregels(actie: () -> Unit): List<String> {
+        val julLogger = java.util.logging.Logger.getLogger(DownstreamClient::class.java.name)
+        val records = mutableListOf<java.util.logging.LogRecord>()
+        val handler = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) {
+                records.add(record)
+            }
+            override fun flush() {}
+            override fun close() {}
+        }
+        val oudNiveau = julLogger.level
+
+        julLogger.addHandler(handler)
+        julLogger.level = java.util.logging.Level.ALL
+
+        try {
+            actie()
+        } finally {
+            julLogger.removeHandler(handler)
+            julLogger.level = oudNiveau
+        }
+
+        // JBoss' `warnf`/`debugf` geven de format-string als message door en de argumenten los;
+        // asserten op de uiteindelijke regel vraagt dus om ze hier samen te voegen.
+        return records.map { record ->
+            val parameters = record.parameters
+
+            if (parameters.isNullOrEmpty()) record.message else String.format(record.message, *parameters)
+        }
     }
 
     @Test

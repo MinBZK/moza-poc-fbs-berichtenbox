@@ -65,8 +65,16 @@ Sinds de notificatie-push heeft deze peer ook een outway (`magazijna-fscoutway`)
 niet alleen aanbieder van `berichtenmagazijn` maar ook afnemer van `notificatieservice`, en dat
 verkeer gaat uit door zijn eigen outway. Het component is nieuw op ZAD en moet daar nog aangemaakt
 worden: opnemen in de projectspec, certificaten uit `pki/peers/magazijn-a/outway/` uitgeven en de
-bijlagen koppelen zoals `cert-manifest.md` dat voor de andere componenten beschrijft. De outway is
-egress-only en heeft geen ingress-route nodig.
+bijlagen koppelen zoals `cert-manifest.md` dat voor de andere componenten beschrijft.
+
+De outway heeft geen route vanaf het publieke internet nodig — het mesh-verkeer gaat eruit, niet
+erin. De hop ervóór is dat wél: het magazijn draait in deployment `test`/`pr-<n>` en de outway in
+`fsc-magazijna`, en de tenant-baseline-NetworkPolicy isoleert per deployment. Zonder toestemming is
+`https://fsc-magazijna-magazijna-fscoutway...:8443/events` vanuit de app-pods dus onbereikbaar. Dat
+regel je met `cross-domain-access` — **twee** regels, een `outbound` bij het magazijn en een
+`inbound` bij de outway — precies zoals `logius/deploy/zad/cutover-interne-outway.md` dat voor
+`berichtenuitvraag → logius-fscoutway` beschrijft. Neem dat draaiboek als voorbeeld: daar staat ook
+waarom de outway `LISTEN_HTTPS` krijgt en waarom het trust-anker per deployment gaat.
 
 Het component kan vooruitlopend worden uitgerold zonder gedrag te veranderen: zolang
 `NOTIFICATIE_GRANT_HASH` op het magazijn leeg is, blijft de aflevering rechtstreeks lopen.
