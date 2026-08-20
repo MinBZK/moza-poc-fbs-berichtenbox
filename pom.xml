@@ -58,7 +58,9 @@
              voor CVE-2026-54515 (case-insensitive deserialisatie omzeilt @JsonIgnoreProperties per
              property) en CVE-2026-59889 (@JsonView omzeild bij @JsonUnwrapped-containers). Beide zijn
              verholpen vanaf 2.22.1. Verwijder deze pin zodra de Quarkus-BOM zelf 2.22.1 of hoger
-             meelevert. -->
+             meelevert. Controleer dat bij ELKE quarkus.platform.version-bump: de pin wint ook
+             neerwaarts, dus hij trekt een nieuwere jackson uit een latere Quarkus-BOM stil terug
+             — de build blijft daarbij groen, dus niets anders signaleert het. -->
         <jackson-bom.version>2.22.2</jackson-bom.version>
     </properties>
 
