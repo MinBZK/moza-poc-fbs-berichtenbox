@@ -54,10 +54,25 @@
              https://github.com/atlassian/openapi-request-validator/pull/24 -->
         <json-schema-validator.version>2.0.4</json-schema-validator.version>
         <awaitility.version>4.3.0</awaitility.version>
+        <!-- Los van de Quarkus-BOM beheerd: die pint jackson-databind op 2.22.0, dat kwetsbaar is
+             voor CVE-2026-54515 (case-insensitive deserialisatie omzeilt @JsonIgnoreProperties per
+             property) en CVE-2026-59889 (@JsonView omzeild bij @JsonUnwrapped-containers). Beide zijn
+             verholpen vanaf 2.22.1. Verwijder deze pin zodra de Quarkus-BOM zelf 2.22.1 of hoger
+             meelevert. -->
+        <jackson-bom.version>2.22.2</jackson-bom.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Vóór de Quarkus-BOM: bij twee geïmporteerde BOM's wint de eerst gedeclareerde, dus
+                 alleen op deze plek overschrijft de jackson-BOM de jackson-versies van Quarkus. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson-bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>io.quarkus.platform</groupId>
                 <artifactId>quarkus-bom</artifactId>
