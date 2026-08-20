@@ -98,14 +98,11 @@ verificatie hieronder.
 
 **Geen `build-mode: none`.** Buildless extractie ondersteunt Kotlin niet.
 
-**`-T 1C` (parallelle reactor) nu niet.** De module-graaf is breed: alleen `fbs-common` is
-upstream van de rest, dus het kritieke pad zou van ~200 s naar ~135 s kunnen. Maar de
-CodeQL-extractor traceert compiler-processen, en of die tracing onder een parallelle reactor
-volledig blijft, moet gemeten worden — niet aangenomen. Eerst de basiswinst meten.
-
-De meting (zie Resultaat) landt op 4:28, dus dit ís de volgende stap. Voorwaarde bij die
-vervolgstap: expliciet controleren dat het aantal bevindingen per module gelijk blijft, zodat
-parallelle tracing geen stille gaten in de extractie slaat.
+**`-T 1C` (parallelle reactor), maar pas na meting.** De module-graaf is breed: alleen
+`fbs-common` is upstream van de rest. De volgorde was bewust: eerst de bouwstap alleen meten
+(landde op 4:21, boven de grens), dán pas parallelliseren. De CodeQL-extractor traceert
+compiler-processen, en of die tracing onder een parallelle reactor volledig blijft, is niet iets
+om aan te nemen — zie de telling onder Resultaat, die het bevestigt.
 
 **`clean` blijft staan.** Op een verse runner is het een no-op (gemeten: 0 s). Het staat er
 zodat het commando ook lokaal doet wat de naam belooft.
@@ -118,28 +115,37 @@ de testcompilatie terug.
 compilatie 6 s (gemeten in test-run `32255054287`); de overige 84 s ís de extractie. Dat is de
 harde vloer van deze analyse en geen doelwit voor optimalisatie.
 
-## Vangrail tegen stil minder analyseren
+## Twee vangrails tegen stil minder analyseren
 
 Een reactor die per ongeluk minder bouwt, eindigt groen — CodeQL uploadt dan een vrijwel lege
-SARIF en de PR ziet er veilig uit terwijl er niets is gekeken. De CodeQL-actie vangt alleen
-het geval "nul bestanden" af, niet "één module in plaats van zes".
+SARIF en de PR ziet er veilig uit terwijl er niets is gekeken. De CodeQL-actie vangt alleen het
+geval "nul bestanden" af, niet "één module in plaats van zes".
 
-Daarom controleert een stap ná de build dat elke module `.class`-bestanden opleverde. Die
-draait tussen build en analyse, zodat een onvolledige build de analyse niet eens bereikt.
+**Vóór de analyse:** een stap die faalt als een module geen `.class`-bestanden opleverde. Die
+kapt een gekrompen reactor af vóór er 60 s analyse in gaat.
 
-## Verificatie
+**Na de analyse:** een stap die per module telt hoeveel bronbestanden er in het source-archive
+van de database staan, en faalt bij nul. Die vangt het geval dat wél compileert maar niet in de
+database belandt — precies het risico van parallelle tracing.
 
-1. Baseline: mediaan van 5 CodeQL-runs op ongewijzigde `main` (nu: ~6:05).
-2. Baseline-SARIF vastleggen, gesplitst naar `src/main` en `src/test`, per module.
-3. Na de wijziging 5 runs op een triviale wijziging.
-4. Vergelijken: mediaan totaaltijd, build-stap, **analyse-stap apart** (toetst de aanname uit
-   oorzaak 3), aantal downloads, aantal geëxtraheerde bestanden.
-5. De `src/main`-bevindingen moeten identiek zijn aan de baseline. Elk verschil daar is een
-   regressie, geen winst.
-6. Bevestigen dat secret scanning met push protection aanstaat — dat dekt de enige
-   bevindingsklasse die door deze wijziging echt wegvalt.
-7. Build-output nalopen op nieuwe waarschuwingen. Bekende baseline: twee Kotlin-waarschuwingen
-   in `BerichtStatusRepository.kt:72` over `java.lang.Boolean`. Die stonden er al.
+Waarom een telling en niet het aantal bevindingen: de repo heeft **nul** CodeQL-bevindingen
+(`results_count: 0`). Nul komt er dus uit met én zonder complete database; als signaal is dat
+waardeloos. De bestandstelling is dat wel, en is bovendien de meetlat voor toekomstige ingrepen
+in de bouwstap.
+
+## Verificatie — uitgevoerd
+
+1. **Baseline:** medianen over 15 runs van de oude workflow, alle van 19-08-2026 (dezelfde
+   codebase). Niet één vóór/ná-paar: de runner-spreiding is ~25%.
+2. **Na de wijziging:** 7 runs met alleen de bouwstap, daarna 5 runs met `-T 1C`.
+3. **Vergeleken:** totaaltijd, build-stap en analyse-stap apart, aantal downloads, aantal
+   geëxtraheerde bronbestanden per module. Zie Resultaat.
+4. **Extractie identiek:** 188 bestanden, per module gelijk, in alle parallelle runs.
+5. **Nog te doen door het team:** bevestigen dat secret scanning met push protection aanstaat —
+   dat dekt de enige bevindingsklasse die door deze wijziging echt wegvalt. De repo heeft geen
+   eigen gitleaks-achtige workflow.
+6. **Build-waarschuwingen:** geen nieuwe. Bekende baseline: twee Kotlin-waarschuwingen in
+   `BerichtStatusRepository.kt:72` over `java.lang.Boolean`. Die stonden er al.
 
 ## Resultaat
 
@@ -171,10 +177,45 @@ rest rond 360 s) door runner-variatie. Vier van de vijf nieuwe metingen zijn her
 dezelfde run, dus die vijf onderschatten mogelijk de runner-variatie. De build-vergelijking
 staat los daarvan: 0 tegen 1962 downloads is geen ruis.
 
-**Het acceptatiecriterium van maximaal 4 minuten wordt hiermee niet gehaald** (4:21 mediaan).
-De resterende stap is de parallelle reactor: het kritieke pad in de build is `fbs-common`
-(30 s) → `berichtenmagazijn` (104 s), dus parallel zou richting ~135 s kunnen en het totaal
-onder de 4 minuten brengen.
+### Parallelle reactor
+
+Met alleen de bouwstap bleef de mediaan op 4:21 steken, boven de zelfgestelde grens. Daarom
+draait de reactor parallel (`-T 1C`). Medianen over 5 runs:
+
+| Variant | n | Totaal | Build | Analyse |
+|---|---|---|---|---|
+| `autobuild` (baseline) | 15 | 362 s (276–373) | 268 s (200–282) | 66 s (53–70) |
+| `compile` + cache | 7 | 261 s (204–284) | 177 s (130–189) | 59 s (51–64) |
+| `compile` + cache + `-T 1C` | 5 | **235 s** (187–251) | **155 s** (119–160) | 59 s (46–61) |
+
+**6:02 → 3:55 op de mediaan, een winst van 127 s (35%).** Daarmee haalt de analyse het
+criterium van maximaal 4 minuten.
+
+De parallelle winst (22 s op de build) is kleiner dan de ~44 s die het kritieke pad suggereert.
+Verklaring: de extractie is CPU-gebonden en de runner heeft 4 vCPU's, dus modules die naast
+elkaar draaien concurreren om dezelfde kernen. Wat overlapt zijn vooral de korte modules en de
+I/O, niet het rekenwerk van berichtenmagazijn.
+
+### Extractie blijft volledig
+
+Het risico van parallelle tracing — stil code kwijtraken uit de database — is gemeten, niet
+aangenomen. De telling van geëxtraheerde bronbestanden is in vier parallelle runs identiek aan
+de sequentiële referentie (run `32343961951`), tot op de module:
+
+| Module | Sequentieel | `-T 1C` (4 runs) |
+|---|---|---|
+| libraries/fbs-common | 36 | 36 |
+| libraries/fbs-berichtensessiecache | 20 | 20 |
+| libraries/fbs-magazijnregister | 4 | 4 |
+| services/berichtenmagazijn | 63 | 63 |
+| services/berichtenuitvraag | 38 | 38 |
+| services/demo-console | 27 | 27 |
+| **Totaal** | **188** | **188** |
+
+Kanttekening bij de tijdmetingen: de runner-vloot is duidelijk tweetoppig (één op de vijf runs
+is ~25% sneller), en de reruns binnen een set kunnen daardoor correleren. De medianen boven
+gaan over sets waarin die snelle runner in beide gevallen precies één keer voorkomt. De
+bestandstelling heeft dat probleem niet — die is deterministisch.
 
 ## Lokale validatie vooraf
 
