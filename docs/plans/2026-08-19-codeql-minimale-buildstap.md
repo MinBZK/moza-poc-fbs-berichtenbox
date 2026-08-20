@@ -141,9 +141,16 @@ in de bouwstap.
 3. **Vergeleken:** totaaltijd, build-stap en analyse-stap apart, aantal downloads, aantal
    geëxtraheerde bronbestanden per module. Zie Resultaat.
 4. **Extractie identiek:** 188 bestanden, per module gelijk, in alle parallelle runs.
-5. **Nog te doen door het team:** bevestigen dat secret scanning met push protection aanstaat —
-   dat dekt de enige bevindingsklasse die door deze wijziging echt wegvalt. De repo heeft geen
-   eigen gitleaks-achtige workflow.
+5. **Compenserende maatregel bevestigd, met één kanttekening.** Secret scanning en push
+   protection staan aan (`secret_scanning` en `secret_scanning_push_protection`: `enabled`).
+   Maar `secret_scanning_non_provider_patterns` staat **uit**, en dat is juist de categorie die
+   hier telt: provider-patronen herkennen tokens met een vaste vorm (AWS, GitHub, Stripe),
+   non-provider-patronen de generieke geheimen — private keys, connection strings, wachtwoorden
+   in auth-headers. Een Redis-wachtwoord of JDBC-URL in een test valt in die tweede groep.
+
+   De compensatie voor het uitsluiten van testcode is daarmee zwakker dan gedacht. Overweging
+   voor het team: non-provider-patronen aanzetten. Dat is een repo-instelling, geen
+   codewijziging, en valt buiten deze PR.
 6. **Build-waarschuwingen:** geen nieuwe. Bekende baseline: twee Kotlin-waarschuwingen in
    `BerichtStatusRepository.kt:72` over `java.lang.Boolean`. Die stonden er al.
 
