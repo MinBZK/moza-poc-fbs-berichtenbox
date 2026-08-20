@@ -9,7 +9,7 @@ on:
       wijzigingen-relevant:
         description: >-
           Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml: 'false' wanneer de PR
-          alleen documentatie raakt. Leeg (de default) betekent "niet meegegeven", en dan
+          alleen documentatie of repo-meta raakt. Leeg (de default) betekent "niet meegegeven", en dan
           bepaalt deze workflow het zelf. Het overslaan gebeurt hier, in de job — niet bij de
           caller: die overslaan zou deze workflow helemaal niet draaien, waardoor de required
           check-run nooit verschijnt en de merge voorgoed blokkeert.
@@ -47,16 +47,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Bepaalt of er iets buiten documentatie (docs/, *.md) is gewijzigd. De zware test-job is
+  # Bepaalt of er iets buiten documentatie en repo-meta is gewijzigd. De zware test-job is
   # hieraan gegate, maar de workflow zelf draait wél door — zo wordt de required status check ook
   # bij een docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes
   # voor branch protection. Een workflow-niveau paths-filter zou de check juist nooit rapporteren
   # en de PR eeuwig blokkeren.
   # Draait alleen wanneer de caller de uitkomst niet meegaf; anders is dit dezelfde vraag
   # voor de tweede keer, en dat kostte per PR een runner-allocatie voor een bekend antwoord.
-  # LET OP: het patroon hieronder staat óók in de `changes`-job van deploy.yml en moet daarmee
-  # gelijk blijven. Op een PR naar main draait alleen die van deploy.yml, dus een eenzijdige
-  # wijziging hier heeft daar geen effect en valt niet op.
   changes:
     if: inputs.wijzigingen-relevant == ''
     runs-on: ubuntu-latest
@@ -64,57 +61,49 @@ jobs:
     outputs:
       run: ${{ steps.filter.outputs.run }}
       demo-only: ${{ steps.filter.outputs.demo-only }}
+    # Alleen lezen, en expliciet in plaats van de workflow-brede rechten: deze job checkt de PR uit
+    # en voert er een script uit. Zo erft hij niet stilzwijgend mee wanneer de workflow er ooit een
+    # schrijfrecht bij krijgt.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - name: Detecteer niet-documentatie wijzigingen
+      # Een gestruikelde checkout laat het script ontbreken of staat het er juist compleet — dat
+      # laatste kan ook, want checkout kan ná het uitpakken nog falen. Beide gevallen zijn afgedekt:
+      # de stap hieronder valt bij elke onvolledige uitkomst terug op alles draaien.
+      # `continue-on-error` houdt deze job daarbij groen, want een rode `changes` maakt de conclusie
+      # van deze workflow — en daarmee de required check die eraan hangt — rood, terwijl het vangnet
+      # de keten al veilig heeft gezet.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      # De ongebruikte sleutels landen wel in $GITHUB_OUTPUT, maar zijn hier geen job-output.
+      - name: Detecteer wijzigingen die de code raken
         id: filter
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
           set -euo pipefail
-          # Defaults = de veiligste uitkomst: alles draaien. Elke tak hieronder kan ze
-          # versmallen, geen enkele kan een run stil overslaan bij een onverwachte situatie.
-          run=true
-          demo_only=false
 
-          if [ "$EVENT" = "pull_request" ]; then
-            # Fail-safe: kan de bestandenlijst niet opgehaald worden (API-hik, rate-limit), draai
-            # de code-checks dan TÓCH i.p.v. ze stil over te slaan. Een overslaan-op-fout zou als
-            # 'skipped' (= succes) doortellen in de deploy-gate en ongeteste code laten deployen.
-            if ! files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename'); then
-              echo "::warning::Kon gewijzigde bestanden niet ophalen — code-checks draaien fail-safe."
-            else
-              echo "Gewijzigde bestanden:"
-              printf '%s\n' "$files"
+          # Bufferen, op de vier sleutels filteren en pas dan publiceren: zie de toelichting bij
+          # dezelfde stap in deploy.yml.
+          uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
+          uitkomsten=$(grep -E '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten" | sort -u) || true
 
-              # Herestring in plaats van een pipe: `grep -q` sluit de pipe bij de eerste match,
-              # en met `pipefail` promoveert die SIGPIPE tot een mislukte pipeline — waarna dit
-              # filter stilzwijgend zou besluiten dat er niets te testen valt.
-              if ! grep -qvE '(^docs/|\.md$)' <<<"$files"; then
-                echo "Alleen documentatie gewijzigd — code-checks overgeslagen."
-                run=false
-              fi
+          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .) || true
 
-              # demo-console heeft bewust geen afhankelijkheid op fbs-common of een andere
-              # reactor-module (zie services/demo-console/pom.xml) — het enige blad in de
-              # module-graaf zonder koppeling. Raakt de PR verder niets buiten
-              # services/demo-console/ en demo/ (de Python-generator + smoke.sh, die alleen de
-              # demo-stack aansturen), dan hoeven berichtenmagazijn/berichtenuitvraag/libraries
-              # niet mee gebouwd en getest te worden. Fail-safe zoals hierboven: elk onbekend of
-              # breder pad → false (volledige build), nooit omgekeerd stil onder-testen.
-              if ! grep -qvE '(^docs/|\.md$|^services/demo-console/|^demo/)' <<<"$files"; then
-                echo "Uitsluitend demo-console geraakt — tests scoped naar die module."
-                demo_only=true
-              fi
-            fi
+          if [ "$(grep -c . <<<"$uitkomsten")" != 4 ] || [ "$sleutels" != 4 ]; then
+            echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
+            uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
           fi
 
-          {
-            echo "run=$run"
-            echo "demo-only=$demo_only"
-          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$uitkomsten" >> "$GITHUB_OUTPUT"
 
   # De modules draaiden achter elkaar in één reactor: 8 minuten, waarvan berichtenmagazijn
   # alleen al 4,5. Dat maakte deze controle de traagste van de keten en daarmee de wachttijd
@@ -168,6 +157,8 @@ jobs:
     # (JaCoCo coverage-check incluis), dus `mvnw test` volstaat.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -251,7 +242,7 @@ jobs:
                 exit 1
               fi
 
-              echo "::warning::Testshards overgeslagen — als OK geteld (alleen documentatie gewijzigd)."
+              echo "::warning::Testshards overgeslagen — als OK geteld (alleen documentatie of repo-meta gewijzigd)."
               ;;
             *)
               echo "::error::Een testshard eindigde als '$SHARDS'."
@@ -261,6 +252,8 @@ jobs:
       # Vóór het ophalen van de artefacten: checkout schoont de workspace, en zou de rapporten
       # er anders weer uit vegen.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
         if: github.event_name == 'pull_request' && inputs.demo-only != 'true' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
       - name: Coverage-rapporten ophalen
         if: github.event_name == 'pull_request' && inputs.demo-only != 'true' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
@@ -314,5 +307,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: compose.yaml valideren
         run: docker compose --profile demo config -q
