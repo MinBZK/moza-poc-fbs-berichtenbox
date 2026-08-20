@@ -130,15 +130,18 @@ jobs:
             exit 1
           fi
 
+          # Naar stdout én naar de samenvatting: de samenvatting is prettig leesbaar maar niet
+          # via de API op te halen, dus zonder de logregels is een run niet te vergelijken met
+          # een vorige — precies waar deze telling voor bedoeld is.
           {
             echo "| Module | Geëxtraheerde bronbestanden |"
             echo "|---|---|"
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
           for module in libraries/* services/*; do
             [ -f "$module/pom.xml" ] || continue
             aantal=$(grep -cF "/$module/" <<<"$bestanden" || true)
-            echo "| $module | $aantal |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| $module | $aantal |" | tee -a "$GITHUB_STEP_SUMMARY"
 
             if [ "$aantal" -eq 0 ]; then
               echo "::error::Geen bronbestanden van $module in de database — die code is niet geanalyseerd."
@@ -146,4 +149,4 @@ jobs:
             fi
           done
 
-          echo "| **Totaal** | **$(grep -c . <<<"$bestanden" || true)** |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Totaal** | **$(grep -c . <<<"$bestanden" || true)** |" | tee -a "$GITHUB_STEP_SUMMARY"
