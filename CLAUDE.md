@@ -347,14 +347,65 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 - **Nooit direct pushen naar `main`.** Alle wijzigingen gaan via een feature branch en een Pull Request.
 - Branch naming: `feature/`, `fix/`, `chore/` prefix.
 - Bij aanmaken van een pull request **nooit** een reviewer toevoegen.
+- **Koppel een PR aan zijn issue, als dat issue er is.** Zet een sluitregel in de PR-body: `Closes MinBZK/MijnOverheidZakelijk#<n>` — cross-repo, dus mét `owner/repo`-prefix, want een kaal `#<n>` wijst naar een PR in déze repo. GitHub registreert die regel als development-referentie: het issue staat als *linked issue* op de PR, de PR als *linked pull request* op het issue, en het issue sluit automatisch bij het mergen. Handmatig koppelen via de Development-zijbalk werkt niet tussen repo's; de sluitregel is daar de enige route. **Geen issue is geen blokkade** — hoort er wel één bij maar is die er nog niet, vraag dat dan na bij de opdrachtgever in plaats van er zelf een aan te maken.
 - **Een PR die Claude aanmaakt, staat altijd op draft** (`gh pr create --draft`). De opdrachtgever doet eerst zelf een review; pas daarna wordt de PR handmatig ready for review gezet voor de rest van het team. Claude haalt een PR nooit uit draft op eigen initiatief.
 
 ## Issues / tickets
 
+- **Issues staan in `MinBZK/MijnOverheidZakelijk`, niet in deze repo.** Deze repo bevat alleen code en PR's. Aanmaken: `gh issue create --repo MinBZK/MijnOverheidZakelijk ...`.
 - **Titel en inleiding zijn functioneel en niet-technisch.** De Product Owner leest mee en moet aanleiding, effect voor gebruikers, wenselijk gedrag en acceptatiecriteria kunnen volgen zonder Kotlin/Quarkus/Redis-kennis. Geen klasse-namen, file:line-verwijzingen, framework-jargon in het bovenste deel van het issue.
 - **Technische details horen in een aparte sectie verderop** (bv. "Technische context", "Oplossingsrichtingen"). Daar mogen wel code-locaties, klasse-namen, libraries en concrete refactor-opties.
 - **Acceptatiecriteria functioneel formuleren** in termen van gedrag voor de gebruiker of het systeem (latency-grenzen, foutgedrag, beschikbaarheid), niet in termen van implementatie ("gebruik X-pattern").
 - Koppel een issue aan zijn parent via de GitHub-issue-relatie (onderlinge link), niet via een `> Onderdeel van #N.`-regel in de tekst.
+
+### Labels
+
+Elk nieuw issue krijgt drie labels:
+
+| Label | Waarom |
+|-------|--------|
+| `Lovelace` | Teamlabel — zonder dit label komt het issue niet in het bord van ons team terecht. |
+| `Story` **of** `Taak` | `Story` = een wens/gedragsverandering vanuit de gebruiker of het systeem; `Taak` = uitvoerend of ondersteunend werk (uitzoeken, afstemmen, opruimen, CI). Precies één van de twee. |
+| `refine` | Het issue is nog niet met het team gerefined. Blijft staan tot de refinement het eraf haalt — Claude verwijdert het label niet zelf. |
+
+`feature` is géén label voor nieuwe issues: dat is voorbehouden aan de groep-issues hieronder.
+
+### Project
+
+Toekennen aan project **MijnOverheid Zakelijk** ([`orgs/MinBZK/projects/40`](https://github.com/orgs/MinBZK/projects/40)) via `--project "MijnOverheid Zakelijk"`. Dat vraagt de `project`-scope op het token (`gh auth refresh -s project`); zonder die scope faalt het commando met een scope-melding en moet het issue met de hand aan het project worden gehangen. Controleer na het aanmaken dat het issue er echt in staat:
+
+```bash
+gh issue view <n> --repo MinBZK/MijnOverheidZakelijk --json projectItems
+```
+
+De overige projectvelden (Status, Priority, Size, Werkstroom) zet het team tijdens de refinement, niet Claude.
+
+### Plek in de issue-boom
+
+Alles wat we bouwen hangt onder de epic [#238 Federatief Berichten Stelsel](https://github.com/MinBZK/MijnOverheidZakelijk/issues/238). Daaronder zitten groep-issues (label `feature`); kies de groep waar het werk bij hoort en hang het issue daaronder, niet rechtstreeks onder de epic:
+
+| Groep-issue | Waarvoor |
+|-------------|----------|
+| [#349 PoC opzetten federatief berichtenstelsel](https://github.com/MinBZK/MijnOverheidZakelijk/issues/349) | Standaardkeuze: al het werk aan de PoC zelf — services, keten, CI/CD, deploy, documentatie. |
+| [#552 Authenticatie en autorisatie voor het FBS](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552) | AuthN/AuthZ over de keten: FSC, OIDC, BSNk, AuthZEN. |
+| [#787 Simulatie engine voor PoC FBS bouwen](https://github.com/MinBZK/MijnOverheidZakelijk/issues/787) | Simulatie/demo-gereedschap. |
+| [#947 PoC FBS via Model AppManager (Blauw Knop)](https://github.com/MinBZK/MijnOverheidZakelijk/issues/947) | Uitrol via Model AppManager. |
+
+Past het bij geen enkele groep, hang het dan rechtstreeks onder #238 en meld dat expliciet bij het opleveren, zodat het team kan besluiten of er een groep bij moet.
+
+Koppelen gaat via de sub-issue-relatie. De `gh`-versie in deze omgeving kent daar geen commando voor; gebruik de GraphQL-mutatie (`node-id`s ophalen, dan koppelen):
+
+```bash
+PARENT=$(gh api graphql -f query='{repository(owner:"MinBZK",name:"MijnOverheidZakelijk"){issue(number:349){id}}}' --jq '.data.repository.issue.id')
+CHILD=$(gh api graphql -f query='{repository(owner:"MinBZK",name:"MijnOverheidZakelijk"){issue(number:<n>){id}}}' --jq '.data.repository.issue.id')
+gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){subIssue{number}}}' -f p="$PARENT" -f c="$CHILD"
+```
+
+Verifiëren:
+
+```bash
+gh api graphql -f query='{repository(owner:"MinBZK",name:"MijnOverheidZakelijk"){issue(number:<n>){parent{number title}}}}'
+```
 
 ## Teststrategie
 
