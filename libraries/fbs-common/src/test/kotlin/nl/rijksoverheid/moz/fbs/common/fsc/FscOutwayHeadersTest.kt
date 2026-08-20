@@ -71,6 +71,28 @@ class FscOutwayHeadersTest {
     }
 
     @Test
+    fun `headers levert de grant-hash ongewijzigd en een verse transaction-id`() {
+        val headers = FscOutwayHeaders.headers("\$1\$4\$k4rwlWTsCM_j89Fc3nrbnQa9-KB43")
+
+        assertEquals("\$1\$4\$k4rwlWTsCM_j89Fc3nrbnQa9-KB43", headers[FscOutwayHeaders.GRANT_HASH_HEADER])
+
+        val transactionId = UUID.fromString(headers.getValue(FscOutwayHeaders.TRANSACTION_ID_HEADER))
+
+        assertEquals(7, transactionId.version(), "de outway weigert een transaction-id die geen UUID v7 is")
+    }
+
+    @Test
+    fun `headers levert bij elke aanroep een andere transaction-id`() {
+        val eerste = FscOutwayHeaders.headers("abc123")
+        val tweede = FscOutwayHeaders.headers("abc123")
+
+        assertNotEquals(
+            eerste[FscOutwayHeaders.TRANSACTION_ID_HEADER],
+            tweede[FscOutwayHeaders.TRANSACTION_ID_HEADER],
+        )
+    }
+
+    @Test
     fun `twee invocaties leveren twee verschillende transaction-ids`() {
         val eerste = zetHeaders("abc123")
         val tweede = zetHeaders("abc123")

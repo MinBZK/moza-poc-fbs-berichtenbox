@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Pattern
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.hibernate.validator.constraints.URL
 import java.time.Duration
+import java.util.Optional
 
 /**
  * Type-safe configuratie voor de Publicatie Stream.
@@ -36,6 +37,7 @@ interface PublicatieConfig {
     fun polling(): Polling
     fun opschonen(): Opschonen
     fun client(): Client
+    fun outway(): Outway
 
     @WithDefault("50")
     @Min(1)
@@ -124,6 +126,21 @@ interface PublicatieConfig {
         fun requestTimeout(): Duration
     }
 
+    interface Outway {
+        /**
+         * Hostnaam van de eigen FSC-outway, zoals die in de URL van een downstream-met-grant-hash
+         * staat. Een downstream mag alleen buiten de SSRF-blocklist vallen als zijn URL déze host
+         * aanwijst: de rechtvaardiging voor die uitzondering is dat het FSC-contract achter de
+         * grant-hash de bestemming bepaalt, en dat geldt uitsluitend voor verkeer dat de outway
+         * ook echt binnengaat. Zonder deze koppeling zou één grant-hash in de config elke interne
+         * bestemming bereikbaar maken via de magazijn-pod.
+         *
+         * Afwezig ⇒ geen downstream mag de blocklist passeren; een grant-hash levert dan een
+         * [DownstreamResultaat.ConfiguratieFout] met die reden in plaats van stil verkeer.
+         */
+        fun host(): Optional<String>
+    }
+
     interface Downstream {
         /**
          * Volledige URL waar het CloudEvent met `POST` heen moet. Bean Validation weert
@@ -134,6 +151,18 @@ interface PublicatieConfig {
         @NotBlank
         @URL(regexp = "^https?://.*")
         fun url(): String
+
+        /**
+         * FSC-grant-hash voor een downstream die door de eigen outway loopt. Aanwezig ⇒ de call
+         * krijgt `Fsc-Grant-Hash` en `Fsc-Transaction-Id` mee, en de SSRF-blocklist geldt er niet:
+         * de outway kiest de bestemming op het contract achter deze hash, niet op onze URL. Dat
+         * laatste geldt alleen zolang de URL ook echt de outway aanwijst, dus dit veld werkt
+         * uitsluitend samen met [Outway.host] — wijst de URL ergens anders heen, dan is het
+         * resultaat een [DownstreamResultaat.ConfiguratieFout] en geen verkeer.
+         *
+         * Afwezig of leeg ⇒ rechtstreeks verkeer, met alle URL-controles onverkort.
+         */
+        fun grantHash(): Optional<String>
 
         /** Max afleverpogingen voordat de delivery terminal MISLUKT wordt. Per downstream,
          *  zodat een trage/onbetrouwbare doel meer pogingen kan krijgen dan een snelle. */

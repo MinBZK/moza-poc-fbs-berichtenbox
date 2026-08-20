@@ -40,6 +40,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
 
     private class DownstreamStub(private val u: String, private val max: Int = 3) : PublicatieConfig.Downstream {
         override fun url(): String = u
+        override fun grantHash(): java.util.Optional<String> = java.util.Optional.empty()
         override fun maxPogingen(): Int = max
         override fun backoff(): PublicatieConfig.Backoff = object : PublicatieConfig.Backoff {
             override fun basis(): Duration = Duration.ofSeconds(1)

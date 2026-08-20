@@ -30,6 +30,14 @@ class DownstreamHttpServer(
     @Volatile
     var statusVoorAanroep: (Int) -> Int = ALTIJD_GEACCEPTEERD
 
+    /**
+     * Antwoordbody, of `null` voor een leeg antwoord. Bestaat voor de tests op de faalreden: juist
+     * bij een fout draagt de body het onderscheid (`UNKNOWN_GRANT_HASH_IN_HEADER`, "service not
+     * found") dat een statuscode alleen niet geeft.
+     */
+    @Volatile
+    var antwoordBody: String? = null
+
     private val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
     private val ontvangenBodies = ConcurrentLinkedQueue<String>()
     private val ontvangenHeaders = ConcurrentLinkedQueue<Map<String, List<String>>>()
@@ -50,7 +58,15 @@ class DownstreamHttpServer(
             // leest, zou anders tussen beide regels een body kunnen missen.
             val poging = aanroepTeller.incrementAndGet()
             val status = statusVoorAanroep(poging)
-            exchange.sendResponseHeaders(status, -1)
+            val antwoord = antwoordBody?.toByteArray(Charsets.UTF_8)
+
+            if (antwoord == null) {
+                exchange.sendResponseHeaders(status, -1)
+            } else {
+                exchange.sendResponseHeaders(status, antwoord.size.toLong())
+                exchange.responseBody.use { it.write(antwoord) }
+            }
+
             exchange.close()
         }
         server.start()
@@ -66,6 +82,7 @@ class DownstreamHttpServer(
         ontvangenHeaders.clear()
         aanroepTeller.set(0)
         statusVoorAanroep = ALTIJD_GEACCEPTEERD
+        antwoordBody = null
     }
 
     override fun close() {

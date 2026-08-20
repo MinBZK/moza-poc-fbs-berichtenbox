@@ -8,7 +8,9 @@ peer.
 Elke peer blijft zelfstandig draaibaar; zie zijn eigen `deploy/local/README.md`. Deze map voegt
 alleen de compositie toe en verandert niets aan het standalone gedrag.
 
-Op dit moment doen `logius` (uitvraag-consumer) en `magazijn-a` (provider) mee.
+Op dit moment doen `logius` en `magazijn-a` mee. Beide dragen twee rollen: `logius` biedt
+`profiel-service` en `notificatieservice` aan en neemt `berichtenmagazijn` af, `magazijn-a` biedt
+`berichtenmagazijn` aan en pusht notificatie-events door zijn eigen outway.
 
 **Linux + podman.** De scripts gebruiken `ss` (iproute2) en `podman`; op macOS draaien ze niet.
 
@@ -163,6 +165,37 @@ magazijn, zodat de uitvraag-outway `berichtenmagazijn` bij elk van hen mag ophal
 ```
 
 Een magazijn toevoegen is één naam in `MAGAZIJNEN`.
+
+`fbs-contracten.sh` zet twee soorten contract op: één per magazijn zodat de uitvraag-outway
+`berichtenmagazijn` mag ophalen, en één per pusher zodat het magazijn zijn CloudEvents kwijt kan
+bij `notificatieservice`. Die tweede loopt de andere kant op — het magazijn is daar de afnemer, en
+`logius` de aanbieder. Beide grant-hashes komen in hetzelfde `demo/generated/fsc-grants.env`.
+
+```bash
+./federatie/smoke-notificatie.sh   # bewijst de push: outway magazijn -> inway aanbieder -> stub
+```
+
+Die smoke vereist dat het magazijn zijn events door de outway stuurt:
+
+```bash
+# fsc-grants.env is een compose-env_file: de dollars in de hash staan er verdubbeld in. Lees hem
+# daarom met de helper en niet met `set -a; . bestand` of een kale sed — die geven de `$$` door
+# (of laten de shell er zijn PID in expanderen), en de outway antwoordt op zo'n gemangelde hash
+# met `400 UNKNOWN_GRANT_HASH`.
+. demo/environment/lib/fsc-harness.sh
+export NOTIFICATIE_GRANT_HASH="$(fsc_compose_env_lees demo/generated/fsc-grants.env NOTIFICATIE_GRANT_HASH)"
+
+MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 \
+  NOTIFICATIE_URL=http://127.20.2.5:8443/events OUTWAY_HOST=127.20.2.5 demo/podman-up.sh
+```
+
+**Zet URL, grant-hash en outway-host altijd samen.** De hash komt uit `fsc-grants.env`, de andere
+twee uit de omgeving. Staat de hash wél en wijst de URL niet naar de outway, dan stuurt het
+magazijn FSC-headers naar een bestemming die er niets mee doet, en blijft het contract dat de
+aflevering hoort te verantwoorden ongebruikt. Buiten `dev` faalt zo'n aflevering met een
+configuratiefout — de SSRF-controle vervalt uitsluitend voor een URL op `OUTWAY_HOST`. Het magazijn
+logt bij boot welke downstreams door de outway lopen (`DOWNSTREAM_VIA_OUTWAY`) en welke een
+grant-hash dragen zonder dat hun URL erbij past.
 
 ### Twee helften
 

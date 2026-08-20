@@ -112,6 +112,33 @@ infrastructuur:
    sectie (b).
 5. Een smoke voor het pad `berichtenuitvraag → logius-fscoutway → logius-fscinway → upstream`.
 
+### Inbound data-pad — notificatieservice (lokaal bewezen, ZAD-apply is handmatig vervolgwerk)
+
+Lokaal bewezen met `federatie/smoke-notificatie.sh` (zie
+`docs/plans/2026-08-17-notificatie-via-fsc-plan.md`): `logius` biedt naast `profiel-service` ook
+`notificatieservice` aan op dezelfde inway, met de notificatie-stub als upstream, en het magazijn
+pusht zijn CloudEvents daarheen door zijn eigen outway. Op ZAD moet dit nog worden herhaald tegen
+de échte infrastructuur:
+
+1. `CreateService` via de `logius-fscctl` Administration-API (`SERVICE_NAME=notificatieservice`,
+   `endpoint_url` = de echte notificatiedienst, `inway_address` = `SELF_ADDRESS` van
+   `logius-fscinway`). Eén inway kan meerdere diensten dragen; dit komt náást `profiel-service`.
+2. Het `serviceConnection`-contract met het magazijn opzetten — `bootstrap-consumer.sh` draait aan
+   magazijn-kant, `bootstrap-provider.sh` hier. Zie `federatie/contracts/zad-runbook.md`.
+3. Drie env-vars samen op het gedeployde `berichtenmagazijn` (project `mpfm-w3h`) — het volledige
+   Service-adres, zie `cutover-interne-outway.md` voor de vorm `<deployment>-<component>` in
+   namespace `rig-prd-<project>`:
+   - `NOTIFICATIE_URL=https://fsc-magazijna-magazijna-fscoutway.rig-prd-mpfm-w3h.svc.cluster.local:8443/events`
+   - `NOTIFICATIE_GRANT_HASH=<grant-hash uit stap 2>`
+   - `OUTWAY_HOST=fsc-magazijna-magazijna-fscoutway.rig-prd-mpfm-w3h.svc.cluster.local`
+
+   Alle drie of geen: alleen de hash laat het magazijn FSC-headers naar de oude bestemming sturen,
+   alleen de URL levert `service not found`, en zonder `OUTWAY_HOST` weigert het magazijn de
+   aflevering met een configuratiefout — die host is wat de SSRF-uitzondering op de URL
+   rechtvaardigt. Voorwaarde vooraf: `cross-domain-access` tussen de twee deployments en
+   `LISTEN_HTTPS` op de outway, beide beschreven in `cutover-interne-outway.md`.
+4. Een smoke voor het pad `berichtenmagazijn → magazijna-fscoutway → logius-fscinway → upstream`.
+
 ## Acceptatiecriteria — afvinklijst
 
 - [ ] Peer (echte OIN) draait op ZAD: manager + controller + outway + inway + txlog + DB
