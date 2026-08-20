@@ -84,7 +84,7 @@ txlog (`TLS_CERT`/`TLS_KEY`), en als server-cert op de serve-poort `:8443` waar 
 binnenkomt (`TLS_SERVER_CERT`/`TLS_SERVER_KEY`, actief door `LISTEN_HTTPS=true`). Geen extra
 bijlage nodig: het is hetzelfde bestand, en de Service-namen staan al als SAN in het cert.
 
-De afnemende kant heeft datzelfde CA-anker nodig. Op het `uitvraag`-component (deployment `test`)
+De afnemende kant heeft datzelfde CA als trust anchor nodig. Op het `uitvraag`-component (deployment `test`)
 is dat een bijlage met dezelfde bron en hetzelfde pad als hierboven:
 
 | Bijlage-pad (`/etc/fsc/...`) | Bronbestand (`pki/...`) | Env-var op uitvraag |
