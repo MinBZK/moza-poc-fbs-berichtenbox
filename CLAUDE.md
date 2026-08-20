@@ -347,14 +347,23 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 - **Nooit direct pushen naar `main`.** Alle wijzigingen gaan via een feature branch en een Pull Request.
 - Branch naming: `feature/`, `fix/`, `chore/` prefix.
 - Bij aanmaken van een pull request **nooit** een reviewer toevoegen.
+- **Koppel een PR aan zijn issue, als dat issue er is.** Sluitregel in de PR-body: `Closes MinBZK/MijnOverheidZakelijk#<n>` — mét `owner/repo`, want een kaal `#<n>` wijst naar een PR in déze repo. Cross-repo sluit dat het issue bij het mergen, maar het legt géén development-link: tot die merge staat er op het issue alleen een vermelding. Wil je die link wél vooraf, maak de branch dan aan vanuit het issue — `gh issue develop <n> --repo MinBZK/MijnOverheidZakelijk --branch-repo MinBZK/moza-poc-fbs-berichtenbox --base main --name <branch>` — en open de PR vanaf die branch. Geen issue is geen blokkade: hoort er wel één bij maar bestaat die nog niet, vraag dat dan na bij de opdrachtgever in plaats van er zelf een aan te maken.
 - **Een PR die Claude aanmaakt, staat altijd op draft** (`gh pr create --draft`). De opdrachtgever doet eerst zelf een review; pas daarna wordt de PR handmatig ready for review gezet voor de rest van het team. Claude haalt een PR nooit uit draft op eigen initiatief.
 
 ## Issues / tickets
 
+- **Issues staan in `MinBZK/MijnOverheidZakelijk`**, niet in deze repo: `gh issue create --repo MinBZK/MijnOverheidZakelijk ...`. Ze komen vanzelf in project [MijnOverheid Zakelijk (#40)](https://github.com/orgs/MinBZK/projects/40); de projectvelden (Status, Priority, Size, Werkstroom) zet het team bij de refinement.
+- **Labels:** `Lovelace` (teambord) + precies één van `Story` (wens of gedragsverandering) of `Taak` (uitvoerend, ondersteunend werk) + `refine` (blijft staan tot de refinement het eraf haalt). `feature` is voorbehouden aan de groep-issues hieronder.
 - **Titel en inleiding zijn functioneel en niet-technisch.** De Product Owner leest mee en moet aanleiding, effect voor gebruikers, wenselijk gedrag en acceptatiecriteria kunnen volgen zonder Kotlin/Quarkus/Redis-kennis. Geen klasse-namen, file:line-verwijzingen, framework-jargon in het bovenste deel van het issue.
 - **Technische details horen in een aparte sectie verderop** (bv. "Technische context", "Oplossingsrichtingen"). Daar mogen wel code-locaties, klasse-namen, libraries en concrete refactor-opties.
 - **Acceptatiecriteria functioneel formuleren** in termen van gedrag voor de gebruiker of het systeem (latency-grenzen, foutgedrag, beschikbaarheid), niet in termen van implementatie ("gebruik X-pattern").
-- Koppel een issue aan zijn parent via de GitHub-issue-relatie (onderlinge link), niet via een `> Onderdeel van #N.`-regel in de tekst.
+- **Alles hangt onder epic [#238](https://github.com/MinBZK/MijnOverheidZakelijk/issues/238)**, en daarbinnen onder de groep-issue waar het werk bij hoort: [#349](https://github.com/MinBZK/MijnOverheidZakelijk/issues/349) PoC (standaardkeuze — services, keten, CI/CD, deploy, documentatie), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552) authenticatie/autorisatie, [#787](https://github.com/MinBZK/MijnOverheidZakelijk/issues/787) simulatie-engine, [#947](https://github.com/MinBZK/MijnOverheidZakelijk/issues/947) Model AppManager. Past het bij geen enkele groep: rechtstreeks onder #238, en meld dat bij het opleveren. Koppel via de sub-issue-relatie, niet via een `> Onderdeel van #N.`-regel in de tekst — `gh` (2.46) kent daar geen commando voor, dus via GraphQL:
+
+```bash
+issue_id() { gh api graphql -f query="{repository(owner:\"MinBZK\",name:\"MijnOverheidZakelijk\"){issue(number:$1){id}}}" --jq '.data.repository.issue.id'; }
+gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){subIssue{number}}}' \
+  -f p="$(issue_id 349)" -f c="$(issue_id <n>)"
+```
 
 ## Teststrategie
 
