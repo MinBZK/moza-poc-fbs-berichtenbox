@@ -38,6 +38,11 @@ NOTIFICATIE_UPSTREAM="${NOTIFICATIE_UPSTREAM:-http://127.0.0.1:8084}"
 # niemand draait. Vandaar een bovengrens in plaats van een vaste wachttijd.
 PUBLICATIE_TIMEOUT="${PUBLICATIE_TIMEOUT:-150}"
 PUBLICATIE_INTERVAL="${PUBLICATIE_INTERVAL:-5}"
+# Venster van assert 3. Een tweede aflevering kán alleen van de outbox-poller komen, dus dit moet
+# over een volle pollronde heen; met het meet-interval van 5s als venster is die assert structureel
+# groen, ook als het magazijn wél in de retry-lus zit. Verlagen maakt hem sneller én blind.
+OUTBOX_INTERVAL="${OUTBOX_INTERVAL:-60}"
+RETRY_VENSTER="${RETRY_VENSTER:-$((OUTBOX_INTERVAL + 10))}"
 PROBE_POGINGEN="${PROBE_POGINGEN:-5}"
 PROBE_WACHT="${PROBE_WACHT:-3}"
 
@@ -61,9 +66,10 @@ nieuwe_bsn() {
     cijfers=""; som=0
 
     for i in 9 8 7 6 5 4 3 2; do
-      # Eerste cijfer nooit 0: een BSN met een voorloopnul is negen tekens lang maar wordt door
-      # sommige parsers als achtcijferig gelezen.
-      if [ "$i" -eq 9 ]; then c=$((RANDOM % 9 + 1)); else c=$((RANDOM % 10)); fi
+      # Eerste cijfer vast op 9: RvIG reserveert 9xxxxxxxx voor testnummers, dus een gegenereerde
+      # BSN kan nooit samenvallen met een uitgegeven nummer. Meteen ook geen voorloopnul, die een
+      # negencijferige BSN door sommige parsers als achtcijferig laat lezen.
+      if [ "$i" -eq 9 ]; then c=9; else c=$((RANDOM % 10)); fi
       cijfers="${cijfers}${c}"
       som=$((som + c * i))
     done
@@ -210,10 +216,13 @@ fi
 # --- 1. Data-pad --------------------------------------------------------------------------------
 echo "== 1. de CloudEvent van magazijn ${PUSHER} komt bij de stub aan =="
 AANTAL=0
-CODE="$(curl -sS -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 20 \
-          -X POST "${MAGAZIJN_A_DIRECT}/berichten" -H 'Content-Type: application/json' \
-          -d "{\"afzender\":\"${PUSHER_OIN}\",\"ontvanger\":{\"type\":\"BSN\",\"waarde\":\"${BSN}\"},\"onderwerp\":\"${MERK}\",\"inhoud\":\"${MERK}\"}" \
-          2>"$ERRLOG" || true)"
+# De BSN gaat via stdin de curl in en niet als argument: een commandoregel is voor elke gebruiker
+# op de machine zichtbaar in `ps`.
+CODE="$(printf '%s' \
+          "{\"afzender\":\"${PUSHER_OIN}\",\"ontvanger\":{\"type\":\"BSN\",\"waarde\":\"${BSN}\"},\"onderwerp\":\"${MERK}\",\"inhoud\":\"${MERK}\"}" \
+        | curl -sS -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 20 \
+          -X POST "${MAGAZIJN_A_DIRECT}/aanleveringen" -H 'Content-Type: application/json' \
+          --data @- 2>"$ERRLOG" || true)"
 
 if [ "$CODE" != "201" ] && [ "$CODE" != "200" ]; then
   fout "aanleveren bij ${PUSHER} gaf HTTP ${CODE:-<geen>}: $(fsc_last_error) — draait de demo-stack?"
@@ -276,10 +285,11 @@ fi
 echo "== 3. één aflevering, geen retry-stapeling =="
 # Opnieuw tellen, en niet leunen op de stand uit assert 1. Die lus brak af zodra er íets binnen was,
 # dus dat getal is de momentopname van de eerste waarneming — een retry-stapeling landt per definitie
-# daarná en zou onzichtbaar blijven. Eerst een venster laten verstrijken dat ruim genoeg is voor de
-# eerste herhaling (backoff begint op een seconde).
+# daarná en zou onzichtbaar blijven. De backoff begint weliswaar op een seconde, maar verstuurd
+# wordt er pas in de volgende pollronde van de outbox: het venster hangt dus aan die ronde.
 if [ "$AANTAL" -ge 1 ]; then
-  sleep "$PUBLICATIE_INTERVAL"
+  echo "  ${RETRY_VENSTER}s wachten op een eventuele tweede aflevering (één outbox-ronde)..."
+  sleep "$RETRY_VENSTER"
   AANTAL="$(tel_afleveringen || true)"
   [ -n "$AANTAL" ] || AANTAL=0
 fi
