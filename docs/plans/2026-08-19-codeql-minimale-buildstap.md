@@ -148,9 +148,16 @@ in de bouwstap.
    non-provider-patronen de generieke geheimen — private keys, connection strings, wachtwoorden
    in auth-headers. Een Redis-wachtwoord of JDBC-URL in een test valt in die tweede groep.
 
-   De compensatie voor het uitsluiten van testcode is daarmee zwakker dan gedacht. Overweging
-   voor het team: non-provider-patronen aanzetten. Dat is een repo-instelling, geen
-   codewijziging, en valt buiten deze PR.
+   De compensatie voor het uitsluiten van testcode is daarmee zwakker dan gedacht, en
+   aanzetten kan niet op repo-niveau: een `PATCH` op `secret_scanning_non_provider_patterns`
+   geeft **HTTP 200 en verandert niets** — GitHub negeert het stilzwijgend in plaats van te
+   weigeren, dus lees na een wijziging altijd terug. Alle MinBZK-repo's die uitleesbaar zijn
+   staan op `disabled`; het vraagt een Secret Protection-entitlement op org- of
+   enterprise-niveau.
+
+   Route zolang dat er niet is: een eigen scanner (`gitleaks`, `trufflehog`) als CI-stap. Die
+   dekt precies de generieke categorie, vraagt geen licentie en kost seconden per PR. Aparte
+   afweging met een eigen ticket; valt buiten deze PR.
 6. **Build-waarschuwingen:** geen nieuwe. Bekende baseline: twee Kotlin-waarschuwingen in
    `BerichtStatusRepository.kt:72` over `java.lang.Boolean`. Die stonden er al.
 
