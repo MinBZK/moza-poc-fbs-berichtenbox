@@ -83,7 +83,8 @@ jobs:
       # upstream van de rest — dus het kritieke pad loopt via `fbs-common` naar het zwaarste
       # component, in plaats van via de som van alle modules. De winst blijft beperkt doordat
       # de extractie CPU-gebonden is en de runner weinig kernen heeft: modules die naast elkaar
-      # draaien concurreren om dezelfde kernen.
+      # draaien concurreren om dezelfde kernen. Om diezelfde reden helpt een hogere waarde dan
+      # `1C` niet: die overschrijft de kernen alleen verder. Gemeten, zie het plan.
       #
       # Het risico is dat de extractor compiler-processen traceert: als parallelle builds die
       # tracing zouden verstoren, verdwijnt er stil code uit de database. Daarom telt de stap na
@@ -94,7 +95,7 @@ jobs:
       # docs/plans/2026-08-19-codeql-minimale-buildstap.md. Bewust niet hier: getallen in
       # commentaar verouderen zonder dat iemand het merkt.
       - name: Build
-        run: ./mvnw -B -ntp -e -T 2C clean compile -Dmaven.test.skip=true
+        run: ./mvnw -B -ntp -e -T 1C clean compile -Dmaven.test.skip=true
       # Een reactor die stilletjes minder bouwt, eindigt groen: CodeQL uploadt dan een vrijwel
       # lege SARIF en de PR oogt veilig terwijl er niets is gekeken. De CodeQL-actie vangt
       # alleen "nul bestanden" af, niet "één module in plaats van zes". Deze controle staat

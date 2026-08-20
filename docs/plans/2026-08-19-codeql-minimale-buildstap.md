@@ -196,6 +196,35 @@ Verklaring: de extractie is CPU-gebonden en de runner heeft 4 vCPU's, dus module
 elkaar draaien concurreren om dezelfde kernen. Wat overlapt zijn vooral de korte modules en de
 I/O, niet het rekenwerk van berichtenmagazijn.
 
+### Waarom `1C` en niet meer
+
+`-T 2C` gemeten over 3 runs: build-mediaan 158 s, totaal 245 s — tegen 155 s en 235 s bij `1C`.
+Geen verbetering, binnen de ruis zelfs iets slechter. Dat past bij de verklaring hierboven: de
+extractie is CPU-gebonden en de runner heeft 4 vCPU's, dus meer threads dan kernen levert alleen
+context-switches op. De bestandstelling bleef ook hier 188.
+
+### Waarom geen sharding over meerdere jobs
+
+De test- en fuzz-workflows sharden wel, dus de vraag ligt voor de hand. Doorgerekend op de
+gemeten modultijden pakt het hier slecht uit, omdat één module (`berichtenmagazijn`, 104 s van de
+169 s reactor) de vloer bepaalt en elke extra job opnieuw init én analyse betaalt (~74 s vast):
+
+| Shard | Build | Job totaal |
+|---|---|---|
+| `fbs-common` + `berichtenmagazijn` | 144 s | 229 s |
+| overige modules (`fbs-common` dubbel gebouwd) | 73 s | 158 s |
+
+Wandkloktijd = de traagste shard = 229 s, tegen 235 s nu: **6 seconden winst voor 65% meer
+runnertijd** (387 s tegen 235 s). In een wijziging die overbodig rekenwerk wil wegnemen is dat de
+verkeerde ruil. Sharding werkt bij de tests omdat het werk daar écht deelbaar is en de vaste
+kosten per job klein zijn ten opzichte van de looptijd; hier is precies het omgekeerde waar.
+
+Daar komt bij dat twee shards twee SARIF-uploads met eigen `category` betekenen, met gevolgen
+voor de alert-deduplicatie en de Scorecard-SAST-check.
+
+Wie de wandkloktijd verder omlaag wil, moet bij de 84 s extractor-overhead op
+`berichtenmagazijn` zijn. Sharding raakt die niet — die zit binnen één module.
+
 ### Extractie blijft volledig
 
 Het risico van parallelle tracing — stil code kwijtraken uit de database — is gemeten, niet
