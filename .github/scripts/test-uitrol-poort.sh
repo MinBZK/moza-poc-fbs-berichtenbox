@@ -312,6 +312,29 @@ done
 [ "$fails" -ne "$kruis_fouten" ] \
   || ok "kruiscontrole van de needs met deploy.yml"
 
+# Een stap draait niet meer zodra de run is afgebroken, tenzij zijn `if:` `always()` of
+# `cancelled()` noemt. Blijft het oordeel daardoor liggen, dan eindigt de job groen — de job-brede
+# `always()` houdt alleen de runner aan, niet de stappen erin.
+stap_fouten=$fails
+
+while IFS=$'\t' read -r stap bewaakt; do
+  [ "$bewaakt" = 1 ] \
+    || mislukt "stap '$stap' van uitrol-poort mist always()/cancelled() en wordt bij een afbreking overgeslagen"
+done < <(awk '
+  /^  uitrol-poort:/            { job = 1 }
+  job && /^    steps:$/         { stappen = 1; next }
+  stappen && /^  [a-z]/         { stappen = 0 }
+  stappen && /^      - / {
+    if (label != "") print label "\t" bewaakt
+    label = $0; bewaakt = 0; next
+  }
+  stappen && /^        if:/ && /(always|cancelled)\(\)/ { bewaakt = 1 }
+  END { if (label != "") print label "\t" bewaakt }
+' "$DEPLOY_YML")
+
+[ "$fails" -ne "$stap_fouten" ] \
+  || ok "elke stap van uitrol-poort overleeft een afbreking"
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails test(s) gefaald." >&2
   exit 1

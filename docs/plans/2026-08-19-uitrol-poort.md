@@ -21,6 +21,12 @@ dus met `!cancelled()` zou een handmatig afgebroken run deze check op `skipped` 
 en daarmee certificeren dat er is uitgerold. Prijs: bij zo'n afbreking start de job alsnog een
 runner.
 
+**De stappen dragen `always()` opnieuw.** De job-brede `always()` houdt bij een afbreking alleen
+de runner aan; een stap zonder `always()`/`cancelled()` in zijn eigen `if:` wordt dan alsnog
+overgeslagen. Zonder die herhaling blijft bij een annulering enkel de `CANCELLED`-stap over, blijft
+het oordeel liggen en eindigt de job groen — het gat dat `CANCELLED` juist moet dichten. De
+kruiscontrole met `deploy.yml` bewaakt dit per stap, dus ook voor stappen die er later bij komen.
+
 **Annulering komt als expliciete invoer binnen, niet uit de job-resultaten.** `gate` en de
 uitrol-jobs dragen zelf `!cancelled()`. Wordt de run afgebroken vóórdat ze starten, dan
 rapporteren ze `skipped` — dezelfde vorm als de legitieme "niets uit te rollen"-uitkomst. Zonder
@@ -57,7 +63,7 @@ shellcheck en onder de bash-unittests, en die draaien via `ci-scripts.yml` op é
   verdwijnen.
 - Onbruikbare invoer (`NEEDS` leeg, geen JSON, `null`, een array) en ontbrekende
   omgevingsvariabelen eindigen non-zero mét `::error::`-annotatie.
-- `shellcheck -x -S warning` schoon, `actionlint` schoon, beide suites groen (62 + 70 asserties).
+- `shellcheck -x -S warning` schoon, `actionlint` schoon, beide suites groen (63 + 70 asserties).
 - De job zelf draait niet op deze PR: `deploy.yml` komt niet op een gestapelde PR. Zijn oordeel
   wordt hier wél uitgevoerd, via de unittests.
 

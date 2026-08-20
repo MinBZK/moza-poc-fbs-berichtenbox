@@ -849,7 +849,11 @@ jobs:
       # zet deze waarde om zodra de run is afgebroken.
       CANCELLED: 'false'
     steps:
+      # De stappen dragen hun eigen `always()`: zonder die conditie draait een stap niet meer zodra
+      # de run is afgebroken, en dan blijft alleen de stap hieronder over — de job eindigt groen en
+      # certificeert een uitrol die nooit gedraaid heeft.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ always() }}
         with:
           persist-credentials: false
           sparse-checkout: .github/scripts
@@ -860,6 +864,7 @@ jobs:
         if: ${{ cancelled() }}
         run: echo "CANCELLED=true" >> "$GITHUB_ENV"
       - name: Beoordeel de uitrol
+        if: ${{ always() }}
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
