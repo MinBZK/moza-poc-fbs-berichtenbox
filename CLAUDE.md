@@ -372,13 +372,15 @@ Elk nieuw issue krijgt drie labels:
 
 ### Project
 
-Toekennen aan project **MijnOverheid Zakelijk** ([`orgs/MinBZK/projects/40`](https://github.com/orgs/MinBZK/projects/40)) via `--project "MijnOverheid Zakelijk"`. Dat vraagt de `project`-scope op het token (`gh auth refresh -s project`); zonder die scope faalt het commando met een scope-melding en moet het issue met de hand aan het project worden gehangen. Controleer na het aanmaken dat het issue er echt in staat:
+Issues in `MinBZK/MijnOverheidZakelijk` komen vanzelf in project **MijnOverheid Zakelijk** ([`orgs/MinBZK/projects/40`](https://github.com/orgs/MinBZK/projects/40)) terecht: het project haalt ze automatisch binnen. Zelf toevoegen is dus meestal niet nodig — wél controleren:
 
 ```bash
 gh issue view <n> --repo MinBZK/MijnOverheidZakelijk --json projectItems
 ```
 
-De overige projectvelden (Status, Priority, Size, Werkstroom) zet het team tijdens de refinement, niet Claude.
+Staat het issue er niet in, dan moet het met de hand in het projectbord. Beide CLI-routes vallen af: `gh issue create --project` werkt niet met de `gh` in deze omgeving (2.46 gebruikt de opgeheven Projects-classic-API en faalt met een deprecation-melding), en de GraphQL-mutatie `addProjectV2ItemById` vraagt de `project`-scope die ons token niet heeft (alleen `read:project`).
+
+De projectvelden (Status, Priority, Size, Werkstroom) zet het team tijdens de refinement, niet Claude.
 
 ### Plek in de issue-boom
 
