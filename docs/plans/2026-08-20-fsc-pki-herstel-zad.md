@@ -101,7 +101,6 @@ subject/geldigheid van de CA die er staat, zodat zichtbaar is wát er weggegooid
 - `uitvraag` herstart schoon op het vervangen trust anchor
   (`Uitgaand outway-verkeer gebruikt de TLS-configuratie 'outway' als trust anchor`).
 - Beide deployments `Healthy`, 0 pending changes.
-
 - **Autorisatieketen bewezen zonder de applicatie aan te raken:** met het outway-group-cert een
   token opgevraagd bij de manager van de provider (`POST /v1/token`, client-credentials, scope = de
   grant-hash). Die geeft een `RS512`-token uit voor dienst `berichtenmagazijn`, met de inway als
@@ -114,26 +113,32 @@ subject/geldigheid van de CA die er staat, zodat zichtbaar is wát er weggegooid
 > de manager-API als waarheid (`GET /v1/contracts` op poort 443 van de manager-ingress, met een
 > group-cert als client-cert) in plaats van de log.
 
+## Afgerond na het herstel
+
+Een sleutelrotatie raakt méér dan de peer zelf: een grant bindt aan de publieke sleutel van de
+outway, dus élk contract dat naar de oude thumbprint (`28ff98f0…`) wees was dood. Voor
+`berichtenmagazijn` loste de bootstrap dat vanzelf op door een nieuw contract in te dienen; voor
+alles zonder bootstrap was het handwerk. Diezelfde dag afgehandeld op de omgeving:
+
+- Dienst `berichtenmagazijn` gepubliceerd op de magazijna-controller. Die stap is nergens
+  geautomatiseerd — niet in `upsert-peer.sh`, niet in CI — en was bij de hernoeming vanaf
+  `berichtenmagazijn-a` blijven liggen. Zonder publicatie geeft de provider geen token uit, dus een
+  geldig contract alleen is niet genoeg. De directory tekent de publicatie automatisch.
+- De drie `berichtenmagazijn-a`-contracten (twee connection-grants plus de publicatie) ingetrokken.
+  Zolang die stonden eindigde elke provider-ronde op uitgang 4, wat als wachten telt: na
+  `FSC_LUS_MAX_WACHT` rondes op het uurinterval was het component in crashloop gegaan.
+- Nieuw `profieldienst`-contract aangemaakt op de huidige outway-thumbprint; het oude is verdwenen
+  bij de manager. `MAGAZIJN_A_GRANT_HASH` en `PROFIEL_SERVICE_GRANT_HASH` op de `test`-deployment
+  wijzen naar de nieuwe grants — een grant-hash (`$1$3$…`) is iets anders dan een contract-hash
+  (`$1$1$…`).
+- De achtergebleven service `berichtenmagazijn-a` uit de magazijna-controller verwijderd. Beide
+  peers bieden nu precies aan wat er in de directory staat.
+
 ## Open punten
 
-- **Het datapad werkt nog niet.** De directory publiceert alleen `profieldienst` (Logius) en
-  `berichtenmagazijn-a` (magazijn-a) — de hele gepagineerde lijst nagelopen. De dienst waar het nu
-  geldige contract naar wijst, `berichtenmagazijn`, staat er niet bij. Zonder publicatie geeft de
-  provider geen token uit, dus een geldig contract is hier niet genoeg. Publiceren is stap (b) in
-  `demo/environment/magazijn-a/deploy/zad/verify-zad.md`, handwerk op de magazijna-controller.
-- **Met een termijn:** twee eerder getekende `SERVICE_CONNECTION`-contracten voor `berichtenmagazijn-a`
-  halen de autorisatietoets niet meer (`FSC_DIENSTEN=berichtenmagazijn`):
-
-      $1$1$61o_IYA1UZAdYYry0IyE1is3Ntzlv9CUVPNI2MJWQPma6GZldC4_XUcza0E2RBYiMo5cRjKT09aQTGbA8UKhbQ
-      $1$1$GAY9QHGnNrbOSUbHCRVjoaCntLBF8dmG938Pt-_HmSfz7FWXttEwnbmMjWAjBKGKMgHVQcs2PhoHmsfuhxyeNw
-
-  Beide van 7 augustus, getekend door logius én magazijn-a, met de outway-thumbprint van vóór de
-  rotatie (`28ff98f0…`). Elke ronde eindigt daardoor op uitgang 4, en die telt mee als wachten: na
-  `FSC_LUS_MAX_WACHT` (200) rondes op het uurinterval stopt de lus en toont het platform een
-  crashloop — ruwweg over acht dagen. Daarnaast staat er een `SERVICE_PUBLICATION` voor diezelfde
-  oude naam; die houdt `berichtenmagazijn-a` in de directory. Intrekken gaat via de controller-UI
-  per peer: de interne manager-API (`PUT /v1/contracts/<hash>/revoke`) heeft van buiten geen route,
-  en de externe poort kent de revoke-operatie niet.
 - Lokaal en cluster lopen weer gelijk, maar niets bewáákt dat. Een `verify.sh`-variant die de
   fingerprint van het lokale group-cert vergelijkt met wat de manager-ingress serveert, zou deze
   storing binnen een dag zichtbaar hebben gemaakt in plaats van na twee weken.
+- De dienstpublicatie is handwerk zonder herinnering. Ze viel hier stil weg bij een hernoeming en
+  bleef twee weken onopgemerkt, omdat een ontbrekende publicatie pas zichtbaar wordt op het moment
+  dat er verkeer komt. `upsert-peer.sh` zou 'm kunnen zetten, of `verify.sh` kunnen toetsen.
