@@ -813,3 +813,62 @@ jobs:
               {"name": "magazijna-fsctxlog", "image": "ghcr.io/minbzk/moza-fsc-testnet-txlog-migrate:v2.5.2"},
               {"name": "magazijna-fscbootstrap", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-fsc-contract-bootstrap:${{ needs.meta.outputs.tag }}"}
             ]
+
+  # De check die niet stil kan overslaan — bedoeld als required context op main, naast (niet in
+  # plaats van) de bestaande. `gate` en de uitrol-jobs mogen zichzelf legitiem overslaan; deze job
+  # bewijst dat een uitgebleven uitrol een besluit van de detectie was en geen storing.
+  #
+  # Het oordeel staat in .github/scripts/uitrol-poort.sh, met unittests ernaast. Die draaien via
+  # ci-scripts.yml óók op een gestapelde PR, waar deze workflow niet komt — als inline `run:`-blok
+  # zou de logica hier pas ná de merge naar main voor het eerst uitgevoerd worden.
+  uitrol-poort:
+    needs:
+      - changes
+      - gate
+      - build
+      - build-externe-stubs
+      - build-contract-bootstrap
+      - deploy-preview-uitvraag
+      - deploy-preview-externe-stubs
+      - deploy-preview-magazijnen
+      - deploy-test-uitvraag
+      - deploy-test-externe-stubs
+      - deploy-test-magazijnen
+    # `always()` i.p.v. de impliciete success(), die deze job zou overslaan zodra een need faalt —
+    # precies wat hij moet beoordelen. Ook niet `!cancelled()`: `cancelled()` is run-breed, dus
+    # bij een handmatig afgebroken run zou deze check op 'skipped' (= succes) komen te staan en
+    # daarmee certificeren dat er is uitgerold terwijl er niets gedraaid heeft. Prijs: zo'n
+    # afbreking start hier alsnog een runner.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      # `cancelled()` mag alleen in een `if:` staan, niet in een env-expressie; de stap hieronder
+      # zet deze waarde om zodra de run is afgebroken.
+      CANCELLED: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      # Een annulering is niet uit de job-resultaten af te leiden: `gate` en de uitrol-jobs dragen
+      # zelf `!cancelled()`, dus bij een afbreking vóór hun start rapporteren ze 'skipped' — niet
+      # te onderscheiden van de legitieme "niets uit te rollen"-uitkomst.
+      - name: Merk een afgebroken run
+        if: ${{ cancelled() }}
+        run: echo "CANCELLED=true" >> "$GITHUB_ENV"
+      - name: Beoordeel de uitrol
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          CHANGES: ${{ needs.changes.result }}
+          DEPLOY: ${{ needs.changes.outputs.deploy }}
+          GATE: ${{ needs.gate.result }}
+          # De bouw- en uitrol-resultaten komen uit het needs-object zelf in plaats van uit negen
+          # overgetypte expressies: dat is één plek die synchroon moet blijven met de needs-lijst
+          # hierboven. Dat die lijst zélf compleet is, bewaakt de kruiscontrole in
+          # test-uitrol-poort.sh.
+          NEEDS: ${{ toJSON(needs) }}
+        run: .github/scripts/uitrol-poort.sh
