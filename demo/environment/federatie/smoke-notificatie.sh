@@ -257,7 +257,11 @@ else
       fout "${MET_HEADER} van ${AANTAL} afleveringen droeg het cloudevents-Content-Type"
     fi
   else
-    fout "de stub ontving geen event voor '${MERK}' binnen ${PUBLICATIE_TIMEOUT}s"
+    # De reden staat in de magazijn-log en niet hier: de outbox rapporteert per poging waaróm een
+    # aflevering strandde. `400 UNKNOWN_GRANT_HASH` betekent daar dat de container een andere hash
+    # draagt dan dit script las — meestal omdat de waarde uit `fsc-grants.env` zonder
+    # `fsc_compose_env_lees` is overgenomen en de verdubbelde dollars mee zijn gereisd.
+    fout "de stub ontving geen event voor '${MERK}' binnen ${PUBLICATIE_TIMEOUT}s — kijk in de log van het magazijn naar 'Bericht-publicatie definitief mislukt'"
   fi
 fi
 

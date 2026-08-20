@@ -178,7 +178,13 @@ bij `notificatieservice`. Die tweede loopt de andere kant op — het magazijn is
 Die smoke vereist dat het magazijn zijn events door de outway stuurt:
 
 ```bash
-set -a; . demo/generated/fsc-grants.env; set +a     # levert NOTIFICATIE_GRANT_HASH
+# fsc-grants.env is een compose-env_file: de dollars in de hash staan er verdubbeld in. Lees hem
+# daarom met de helper en niet met `set -a; . bestand` of een kale sed — die geven de `$$` door
+# (of laten de shell er zijn PID in expanderen), en de outway antwoordt op zo'n gemangelde hash
+# met `400 UNKNOWN_GRANT_HASH`.
+. demo/environment/lib/fsc-harness.sh
+export NOTIFICATIE_GRANT_HASH="$(fsc_compose_env_lees demo/generated/fsc-grants.env NOTIFICATIE_GRANT_HASH)"
+
 MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 \
   NOTIFICATIE_URL=http://127.20.2.5:8443/events OUTWAY_HOST=127.20.2.5 demo/podman-up.sh
 ```
