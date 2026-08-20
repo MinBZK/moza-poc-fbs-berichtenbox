@@ -57,10 +57,13 @@ class MagazijnRouterTlsTest {
                 .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "text/plain").withBody("ok")),
         )
 
+        // Sluiten: de entity-stream houdt anders een connection uit de pool vast tot de GC 'm
+        // opruimt, en dat is precies het soort lek dat pas opvalt zodra iemand deze test in een
+        // lus kopieert.
         val respons = router.forMagazijn(HttpsMagazijnResource.OIN)
             .bijlage("BSN:999993653", berichtId, bijlageId)
 
-        assertEquals(200, respons.status)
+        respons.use { assertEquals(200, it.status) }
 
         // De FSC-header hoort over diezelfde TLS-verbinding aan te komen: op ZAD dragen TLS en
         // grant-hash altijd samen, en ze worden op dezelfde builder geregistreerd.

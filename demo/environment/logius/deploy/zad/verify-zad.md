@@ -12,21 +12,31 @@
 2. Cert-attachments gemount (zie `cert-manifest.md`) + "Publicatie op het web"
    (passthrough-TLS, modus 2) op logius-fscmgr **en** logius-fscinway ingesteld in de ZAD-UI. De
    outway logius-fscoutway is functioneel egress-only richting de mesh; zijn serve-poort `8443`
-   is de lokale ingang waarop de `berichtenuitvraag`-app hem aanroept. Die poort draait TLS met
-   het interne cert (`LISTEN_HTTPS=true`, zie `upsert-peer.sh`), zodat de app hem op zijn
-   cluster-interne Service-naam mag aanroepen: uitgaande endpoints moeten buiten dev/test
-   https zijn.
+   is de lokale ingang waarop de `berichtenuitvraag`-app hem aanroept. Die poort hóórt TLS te
+   draaien met het interne cert (`LISTEN_HTTPS=true`), zodat de app hem op zijn cluster-interne
+   Service-naam mag aanroepen: uitgaande endpoints moeten buiten dev/test https zijn.
+
+   **Let op: `upsert-peer.sh` zet dit niet op een bestaande component.** ZAD past `env_vars` uit
+   een component-body alleen toe bij component-*creatie*, dus het script draagt de sleutel wel
+   maar een re-apply verandert niets aan de draaiende outway. Zet 'm met `zadctl env add`
+   (stap 1 van het cutover-draaiboek) en controleer de boot-log op `starting HTTPS server` —
+   ontbreekt die regel, dan luistert de poort nog plain HTTP.
 
    Het omzetten van de app naar dat interne adres is een cutover met een eigen draaiboek:
    [`cutover-interne-outway.md`](cutover-interne-outway.md).
 
-   De outway is verder egress-only en heeft **geen** publicatie op het web. Tussen 2026-08-13 en
-   2026-08-19 had hij die wel (`tls: standard`, geen passthrough), omdat de per-deployment
+   De outway is verder egress-only en heeft sinds 2026-08-13 een publicatie op het web
+   (`tls: standard`, geen passthrough). Die was nodig omdat de per-deployment
    tenant-baseline-NetworkPolicy `test` en `fsc-logius` van elkaar isoleerde — elke deployment
    mag alleen naar zichzelf + platform-namespaces, ongeacht dat ze in hetzelfde project en
    dezelfde namespace zitten — waardoor de ClusterIP-service vanuit `test` onbereikbaar was en
    alleen de ingress-route overbleef. Met een gerichte NetworkPolicy-uitzondering (de
-   platform-service `cross-domain-access`) verviel die omweg, en is de publicatie ingetrokken.
+   platform-service `cross-domain-access`) vervalt die omweg.
+
+   **Het intrekken van die publicatie is stap 5 van het cutover-draaiboek en gebeurt met de
+   hand.** Zolang die stap niet gezet is, bestaat het publieke adres nog — en het terugrolpad
+   vóór stap 5 leunt er ook op. Werk deze alinea bij zodra de publicatie er echt af is, zodat
+   de checklist niet vooruitloopt op de werkelijkheid.
 3. Componenten herstart en boot-logs foutloos (zie `cert-manifest.md`, laatste sectie) — in het
    bijzonder GEEN `x509: certificate signed by unknown authority` meer op de controller: die
    bereikt de manager nu intern op `fsc-logius-logius-fscmgr:9443` (interne-PKI) i.p.v. de `:443`-group-ingress.

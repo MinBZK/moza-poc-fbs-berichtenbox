@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.common.fsc
 
+import io.smallrye.config.EnvConfigSource
 import io.smallrye.config.SmallRyeConfigBuilder
 import org.eclipse.microprofile.config.Config
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -130,6 +131,29 @@ class OutwayTlsValidatorTest {
         org.junit.jupiter.api.Assertions.assertEquals(
             "OUTWAY_TLS_UNVERIFIED",
             OutwayTlsValidator.ONGEVERIFIEERD_ALERT_TOKEN,
+        )
+    }
+
+    /**
+     * De operatordocumentatie schrijft overal de env-var-vorm voor
+     * (`QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS`), terwijl deze validator bucketnamen uit de
+     * *property*-namen leest. Die vertaalslag is de enige schakel in de keten waar niets anders
+     * bewijs voor levert: `quarkus.tls.<naam>.*` is map-shaped, dus een naam die er niet uit
+     * komt rollen levert geen configuratiefout op maar een stille terugval op de JVM-default
+     * trust-store. Deze test zet de env-var door een echte [EnvConfigSource] en eist dat
+     * `outway` er als bucket uit komt.
+     */
+    @Test
+    fun `de env-var-vorm landt als bucket outway`() {
+        val config = SmallRyeConfigBuilder()
+            .withSources(EnvConfigSource(mapOf("QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS" to "/etc/ca.pem"), 300))
+            .build()
+
+        val meldingen = vangLogs { OutwayTlsValidator.valideer("prod", config, false) }
+
+        assertTrue(
+            meldingen.any { it.contains("gebruikt de TLS-configuratie 'outway'") },
+            "verwachtte dat de env-var als bucket 'outway' herkend werd, kreeg: $meldingen",
         )
     }
 

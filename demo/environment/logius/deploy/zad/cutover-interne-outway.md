@@ -107,8 +107,8 @@ zadctl attachment assign logius-internal-ca-root-cert uitvraag \
 
 **3. De uitvraag krijgt het anchor en de URL's, in één stap.**
 
-Per deployment, zodat de PR-previews op hun eigen (nog publieke) adres blijven werken tot ze mee
-verhuizen:
+Per deployment, zodat de previews die op dit moment draaien op hun eigen (nog publieke) adres
+blijven werken tot ze mee verhuizen:
 
 ```bash
 OUTWAY=https://fsc-logius-logius-fscoutway.rig-prd-mpfb-8wh.svc.cluster.local:8443
@@ -125,6 +125,22 @@ zadctl env set -c uitvraag --deployment test \
 `add` voor de twee nieuwe sleutels, `set` voor de twee die al bestaan — `add` op een bestaande
 sleutel is een conflict, geen overschrijving. Beide rollen standaard uit; met `--no-rollout` kun
 je ze stapelen en daarna één keer `zadctl deployment refresh test` doen.
+
+**"Per deployment" beschermt bestaande previews, geen nieuwe.** Een preview wordt aangemaakt met
+`clone-from: test` en erft zijn runtime-env op dát moment. Elke preview die ná deze stap ontstaat
+krijgt dus het anchor én de interne `MAGAZIJN_A_URL`/`PROFIEL_SERVICE_URL` mee — en juist die URL
+draagt geen `$DEPLOYMENT_NAME`, dus hij wijst naar de outway van `fsc-logius` en niet naar een
+eigen buur. Zonder eigen `cross-domain-access`-inbound-regel (die is per deployment, zie hierboven)
+blokkeert de NetworkPolicy dat verkeer, en ná stap 5 is er geen publiek adres meer om op terug te
+vallen. Kies dus bewust één van twee, en leg de keuze vast:
+
+- **Previews mee op de interne route** — voeg per preview een inbound-regel toe met
+  `from.deployment: pr-<n>`. Dat is handwerk bij elke nieuwe PR zolang het niet in
+  `deploy.yml` zit.
+- **Previews op de publieke route houden** — overschrijf na het aanmaken op de preview zelf:
+  `zadctl env unset -c uitvraag --deployment pr-<n> QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS
+  QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME` plus `env set` van de twee URL's
+  terug naar de ingress-vorm. Dat kan alleen zolang stap 5 niet gezet is.
 
 **Magazijn B staat er bewust niet bij.** Het heeft geen FSC-contract en dus geen
 `MAGAZIJN_B_GRANT_HASH`, wordt daarom rechtstreeks op zijn publieke ingress aangeroepen, en
