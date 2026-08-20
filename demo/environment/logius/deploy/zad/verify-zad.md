@@ -12,21 +12,31 @@
 2. Cert-attachments gemount (zie `cert-manifest.md`) + "Publicatie op het web"
    (passthrough-TLS, modus 2) op logius-fscmgr **en** logius-fscinway ingesteld in de ZAD-UI. De
    outway logius-fscoutway is functioneel egress-only richting de mesh; zijn serve-poort `8443`
-   is de lokale ingang waarop de `berichtenuitvraag`-app hem aanroept. Die poort draait TLS met
-   het interne cert (`LISTEN_HTTPS=true`, zie `upsert-peer.sh`), zodat de app hem op zijn
-   cluster-interne Service-naam mag aanroepen: uitgaande endpoints moeten buiten dev/test
-   https zijn.
+   is de lokale ingang waarop de `berichtenuitvraag`-app hem aanroept. Die poort hóórt TLS te
+   draaien met het interne cert (`LISTEN_HTTPS=true`), zodat de app hem op zijn cluster-interne
+   Service-naam mag aanroepen: uitgaande endpoints moeten buiten dev/test https zijn.
+
+   **Let op: `upsert-peer.sh` zet dit niet op een bestaande component.** ZAD past `env_vars` uit
+   een component-body alleen toe bij component-*creatie*, dus het script draagt de sleutel wel
+   maar een re-apply verandert niets aan de draaiende outway. Zet 'm met `zadctl env add`
+   (stap 1 van het cutover-draaiboek) en controleer de boot-log op `starting HTTPS server` —
+   ontbreekt die regel, dan luistert de poort nog plain HTTP.
 
    Het omzetten van de app naar dat interne adres is een cutover met een eigen draaiboek:
    [`cutover-interne-outway.md`](cutover-interne-outway.md).
 
-   De outway is verder egress-only en heeft **geen** publicatie op het web. Tussen 2026-08-13 en
-   2026-08-19 had hij die wel (`tls: standard`, geen passthrough), omdat de per-deployment
+   De outway is verder egress-only en heeft sinds 2026-08-13 een publicatie op het web
+   (`tls: standard`, geen passthrough). Die was nodig omdat de per-deployment
    tenant-baseline-NetworkPolicy `test` en `fsc-logius` van elkaar isoleerde — elke deployment
    mag alleen naar zichzelf + platform-namespaces, ongeacht dat ze in hetzelfde project en
    dezelfde namespace zitten — waardoor de ClusterIP-service vanuit `test` onbereikbaar was en
    alleen de ingress-route overbleef. Met een gerichte NetworkPolicy-uitzondering (de
-   platform-service `cross-domain-access`) verviel die omweg, en is de publicatie ingetrokken.
+   platform-service `cross-domain-access`) vervalt die omweg.
+
+   **Het intrekken van die publicatie is stap 5 van het cutover-draaiboek en gebeurt met de
+   hand.** Zolang die stap niet gezet is, bestaat het publieke adres nog — en het terugrolpad
+   vóór stap 5 leunt er ook op. Werk deze alinea bij zodra de publicatie er echt af is, zodat
+   de checklist niet vooruitloopt op de werkelijkheid.
 3. Componenten herstart en boot-logs foutloos (zie `cert-manifest.md`, laatste sectie) — in het
    bijzonder GEEN `x509: certificate signed by unknown authority` meer op de controller: die
    bereikt de manager nu intern op `fsc-logius-logius-fscmgr:9443` (interne-PKI) i.p.v. de `:443`-group-ingress.
@@ -69,9 +79,9 @@ Service-DNS; de Service heet `<deployment>-<component>` en de namespace is `rig-
 Twee dingen moeten daarvoor staan, en beide horen bij elkaar:
 
 - de outway serveert TLS op die poort (`LISTEN_HTTPS=true`, stap 2);
-- de app kent het anker: `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` wijst naar het mount-pad
+- de app kent het anchor: `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` wijst naar het mount-pad
   `/etc/fsc/internal/logius/ca/root.pem`, een bijlage op het `uitvraag`-component (zo heet het
-  component in ZAD; `berichtenuitvraag` is de applicatie). Zonder dat anker
+  component in ZAD; `berichtenuitvraag` is de applicatie). Zonder dat anchor
   faalt de handshake — de interne CA staat niet in de JVM-default trust-store. Voor de
   profiel-service-client hoort daar
   `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME=outway` bij; de magazijn-clients
@@ -98,9 +108,36 @@ infrastructuur:
 4. `PROFIEL_SERVICE_URL=https://fsc-logius-logius-fscoutway.rig-prd-mpfb-8wh.svc.cluster.local:8443`,
    `PROFIEL_SERVICE_GRANT_HASH=<content_hash uit stap 3>` en
    `QUARKUS_REST_CLIENT_PROFIEL_SERVICE_TLS_CONFIGURATION_NAME=outway` als env-vars op de
-   gedeployde `berichtenuitvraag`-app zetten (project `mpfb-8wh`), naast het anker uit
+   gedeployde `berichtenuitvraag`-app zetten (project `mpfb-8wh`), naast het anchor uit
    sectie (b).
 5. Een smoke voor het pad `berichtenuitvraag → logius-fscoutway → logius-fscinway → upstream`.
+
+### Inbound data-pad — notificatieservice (lokaal bewezen, ZAD-apply is handmatig vervolgwerk)
+
+Lokaal bewezen met `federatie/smoke-notificatie.sh` (zie
+`docs/plans/2026-08-17-notificatie-via-fsc-plan.md`): `logius` biedt naast `profiel-service` ook
+`notificatieservice` aan op dezelfde inway, met de notificatie-stub als upstream, en het magazijn
+pusht zijn CloudEvents daarheen door zijn eigen outway. Op ZAD moet dit nog worden herhaald tegen
+de échte infrastructuur:
+
+1. `CreateService` via de `logius-fscctl` Administration-API (`SERVICE_NAME=notificatieservice`,
+   `endpoint_url` = de echte notificatiedienst, `inway_address` = `SELF_ADDRESS` van
+   `logius-fscinway`). Eén inway kan meerdere diensten dragen; dit komt náást `profiel-service`.
+2. Het `serviceConnection`-contract met het magazijn opzetten — `bootstrap-consumer.sh` draait aan
+   magazijn-kant, `bootstrap-provider.sh` hier. Zie `federatie/contracts/zad-runbook.md`.
+3. Drie env-vars samen op het gedeployde `berichtenmagazijn` (project `mpfm-w3h`) — het volledige
+   Service-adres, zie `cutover-interne-outway.md` voor de vorm `<deployment>-<component>` in
+   namespace `rig-prd-<project>`:
+   - `NOTIFICATIE_URL=https://fsc-magazijna-magazijna-fscoutway.rig-prd-mpfm-w3h.svc.cluster.local:8443/events`
+   - `NOTIFICATIE_GRANT_HASH=<grant-hash uit stap 2>`
+   - `OUTWAY_HOST=fsc-magazijna-magazijna-fscoutway.rig-prd-mpfm-w3h.svc.cluster.local`
+
+   Alle drie of geen: alleen de hash laat het magazijn FSC-headers naar de oude bestemming sturen,
+   alleen de URL levert `service not found`, en zonder `OUTWAY_HOST` weigert het magazijn de
+   aflevering met een configuratiefout — die host is wat de SSRF-uitzondering op de URL
+   rechtvaardigt. Voorwaarde vooraf: `cross-domain-access` tussen de twee deployments en
+   `LISTEN_HTTPS` op de outway, beide beschreven in `cutover-interne-outway.md`.
+4. Een smoke voor het pad `berichtenmagazijn → magazijna-fscoutway → logius-fscinway → upstream`.
 
 ## Acceptatiecriteria — afvinklijst
 

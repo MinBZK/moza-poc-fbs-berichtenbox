@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test
 import java.net.URI
 import java.time.Duration
 
-// @QuarkusTest zodat de rest-client-runtime aanwezig is; `RestClientBuilder.build`
+// @QuarkusTest zodat de rest-client-runtime aanwezig is; `QuarkusRestClientBuilder.build`
 // heeft die nodig om een client-proxy op te bouwen. Mock-profiel: zonder profiel zou
 // de (inactieve) Redis-client de boot laten falen nu de testsuite geen
 // quarkus.redis.hosts meer zet (dat zou Dev Services voor de keten-E2E onderdrukken).
@@ -42,6 +42,7 @@ class MagazijnRouterTest {
                 override fun connectTimeout(): Duration = Duration.ofSeconds(2)
                 override fun readTimeout(): Duration = Duration.ofSeconds(10)
             },
+            tlsRegistry = testTlsRegistry(),
         )
 
     @Test
@@ -85,7 +86,7 @@ class MagazijnRouterTest {
         assertEquals(502, ex.response.status)
     }
 
-    // NB: de `getOrElse`-tak in forMagazijn (RestClientBuilder.build() faalt → 502) is
+    // NB: de catch-tak in forMagazijn (QuarkusRestClientBuilder.build() faalt → 502) is
     // defense-in-depth en bewust niet los getest: `build()` is lui en gooit niet op een
     // syntactisch geldige-maar-kromme URL. Zo'n URL surfacet pas bij de echte HTTP-call als
     // ProcessingException → 502 via mapUpstreamFout (gedekt in de service-faulttests). De

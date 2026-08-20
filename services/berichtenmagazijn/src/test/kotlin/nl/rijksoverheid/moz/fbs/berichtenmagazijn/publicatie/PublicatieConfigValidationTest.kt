@@ -115,6 +115,45 @@ class PublicatieConfigValidationTest {
         assertEquals(java.time.Duration.ofSeconds(30), overschreven.requestTimeout())
     }
 
+    /**
+     * De sleutel is `grant-hash`, niet `grantHash`. SmallRye leidt de naam kebab-case af uit de
+     * methodenaam, en `MagazijnregisterConfig` gebruikt voor hetzelfde begrip juist
+     * `@WithName("grantHash")`. Twee conventies naast elkaar is precies de situatie waarin een
+     * hernoeming stil misgaat: de mapping levert dan `Optional.empty()`, er gaan geen FSC-headers
+     * mee, de outway antwoordt "service not found" — en geen enkele test die de config omzeilt
+     * merkt het.
+     */
+    @Test
+    fun `de configsleutel grant-hash bindt op Downstream grantHash`() {
+        val downstream = bouwConfigMetMinimaal(
+            mapOf("magazijn.publicatie.downstreams.aanmeld.grant-hash" to "\$1\$4\$k4rwlWTsCM"),
+        ).getConfigMapping(PublicatieConfig::class.java).downstreams().getValue("aanmeld")
+
+        assertEquals("\$1\$4\$k4rwlWTsCM", downstream.grantHash().orElse(null))
+    }
+
+    @Test
+    fun `zonder grant-hash blijft Downstream grantHash leeg`() {
+        val downstream = bouwConfigMetMinimaal(emptyMap())
+            .getConfigMapping(PublicatieConfig::class.java).downstreams().getValue("aanmeld")
+
+        assertTrue(downstream.grantHash().isEmpty, "een niet-gezette sleutel hoort leeg te binden")
+    }
+
+    @Test
+    fun `de configsleutel outway host bindt en blijft leeg als hij niet gezet is`() {
+        val gezet = bouwConfigMetMinimaal(
+            mapOf("magazijn.publicatie.outway.host" to "outway.intern.example"),
+        ).getConfigMapping(PublicatieConfig::class.java).outway()
+
+        assertEquals("outway.intern.example", gezet.host().orElse(null))
+
+        val leeg = bouwConfigMetMinimaal(emptyMap())
+            .getConfigMapping(PublicatieConfig::class.java).outway()
+
+        assertTrue(leeg.host().isEmpty, "zonder outway-host hoort de binding leeg te zijn")
+    }
+
     /** Eenvoudige in-memory ConfigSource zodat we niet afhankelijk zijn van system-properties of yaml. */
     private class InMemoryConfigSource(private val props: Map<String, String>) : ConfigSource {
         override fun getProperties(): Map<String, String> = props

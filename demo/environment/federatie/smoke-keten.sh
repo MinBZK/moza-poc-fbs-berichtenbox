@@ -82,10 +82,13 @@ command -v curl >/dev/null 2>&1 || { echo "FAIL: 'curl' is vereist." >&2; exit 1
 MERK="ketensmoke-$$-$(od -An -N4 -tu4 < /dev/urandom | tr -d ' ')"
 
 aanleveren() {  # <magazijn-basis-url> <onderwerp>
-  curl -sS -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 20 \
-    -X POST "$1/berichten" -H 'Content-Type: application/json' \
-    -d "{\"afzender\":\"${AFZENDER_OIN}\",\"ontvanger\":{\"type\":\"BSN\",\"waarde\":\"${BSN}\"},\"onderwerp\":\"$2\",\"inhoud\":\"$2\"}" \
-    2>"$ERRLOG"
+  # De BSN gaat via stdin de curl in en niet als argument: een commandoregel is voor elke gebruiker
+  # op de machine zichtbaar in `ps`.
+  printf '%s' \
+    "{\"afzender\":\"${AFZENDER_OIN}\",\"ontvanger\":{\"type\":\"BSN\",\"waarde\":\"${BSN}\"},\"onderwerp\":\"$2\",\"inhoud\":\"$2\"}" \
+  | curl -sS -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 20 \
+    -X POST "$1/aanleveringen" -H 'Content-Type: application/json' \
+    --data @- 2>"$ERRLOG"
 }
 
 # ophalen: vult de sessiecache van de uitvraag uit de magazijnen. Dit is de call die door de outway

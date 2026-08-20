@@ -169,22 +169,18 @@ fsc_json_lijst() {
 # fout die hier het signaal is. Een 200 met een ander lijstveld, met `null`, of met een lege body
 # levert dan 0 regels op — niet te onderscheiden van "er zijn geen contracten". Aan consumer-kant
 # betekent dat elke ronde een nieuw contract indienen, en op ZAD draait die ronde elke 15 seconden.
+#
+# Géén controle op `next_cursor`. De cursor is bij OpenFSC v2.5.2 geen afkap-signaal: de manager
+# zet 'm op élke pagina die rijen bevat, ook als die pagina de hele lijst is en de opgevraagde
+# `limit` ruim gehaald wordt; de vólgende pagina komt dan leeg terug met een lege cursor. Erop
+# afbreken betekent dus stuklopen zodra er ook maar één contract bestaat. Het doorlezen gebeurt
+# vóór dit punt, in fsc_contracten_paginas (fsc-harness.sh) — wat hier binnenkomt is de
+# samengevoegde lijst.
 _FSC_CONTRACTEN_JQ='
   def contracten:
     if type != "object" then error("respons is geen JSON-object")
     elif has("contracts") | not then error("respons heeft geen veld \"contracts\"")
     elif (.contracts | type) != "array" then error("veld \"contracts\" is \(.contracts | type), geen array")
-    elif ((.pagination.next_cursor? // .next_cursor? // "") | tostring) != "" then
-      # De lijst is cursor-gepagineerd. Alleen pagina 1 lezen zou betekenen dat de consumer zijn
-      # eigen contract niet meer ziet zodra de manager er genoeg heeft — en dan dient hij elke ronde
-      # een nieuw contract in. Afbreken tot iemand de cursor volgt; stil doorgaan is hier de
-      # gevaarlijke keuze.
-      #
-      # Twee plekken, want het veld staat genest onder `pagination` en niet op topniveau; alleen de
-      # topniveau-vorm toetsen zou een guard opleveren die nooit vuurt, en dat is slechter dan geen
-      # guard. De aanroepers vragen daarnaast expliciet een ruime `limit` op, zodat dit een vangrail
-      # blijft in plaats van een dagelijkse blokkade.
-      error("de contractenlijst is gepagineerd (next_cursor gezet) en dat volgen we nog niet")
     else .contracts end;
 '
 

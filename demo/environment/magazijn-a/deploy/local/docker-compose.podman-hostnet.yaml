@@ -57,6 +57,7 @@ x-hosts: &hosts
   - "controller.magazijn-a.fsc-test.local:127.0.0.1"
   - "txlog.magazijn-a.fsc-test.local:127.0.0.1"
   - "inway.magazijn-a.fsc-test.local:127.0.0.1"
+  - "outway.magazijn-a.fsc-test.local:127.0.0.1"
   - "stub-upstream:127.0.0.1"
   - "postgres:127.0.0.1"
 
@@ -116,6 +117,18 @@ services:
     # dual-stack wildcard-bind: die verschijnt in `ss` als `*:8080`, niet als `0.0.0.0:8080`, en
     # ontsnapt dus aan een controle die alleen op `0.0.0.0` zoekt.
     command: ["-listen=127.0.0.1:8080", "-text=hello from magazijn-a stub-upstream"]
+
+  outway-magazijn-a:
+    network_mode: host
+    networks: !reset null
+    extra_hosts: *hosts
+    restart: on-failure:600
+    environment:
+      # MANAGER_INTERNAL_ADDRESS blijft naar 9443 wijzen — die poort verhuist niet.
+      LISTEN_ADDRESS: 127.0.0.1:58443
+      MONITORING_ADDRESS: 127.0.0.1:58081
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.magazijn-a.fsc-test.local:39443
+      TX_LOG_API_ADDRESS: https://txlog.magazijn-a.fsc-test.local:49443
 
   inway-magazijn-a:
     network_mode: host

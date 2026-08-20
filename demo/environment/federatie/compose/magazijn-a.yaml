@@ -30,6 +30,7 @@ x-hosts-federatie: &hosts-federatie
   - "manager.magazijn-a.fsc-test.local:127.20.2.1"
   - "controller.magazijn-a.fsc-test.local:127.20.2.2"
   - "txlog.magazijn-a.fsc-test.local:127.20.2.3"
+  - "outway.magazijn-a.fsc-test.local:127.20.2.5"
   - "postgres:127.20.0.2"
   - "stub-upstream:127.20.2.6"
 
@@ -98,6 +99,15 @@ services:
       MONITORING_ADDRESS: 127.20.2.4:8081
       CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.magazijn-a.fsc-test.local:9443
       MANAGER_INTERNAL_UNAUTHENTICATED_ADDRESS: https://manager.magazijn-a.fsc-test.local:9444
+      TX_LOG_API_ADDRESS: https://txlog.magazijn-a.fsc-test.local:9443
+
+  outway-magazijn-a:
+    extra_hosts: *hosts-federatie
+    environment:
+      LISTEN_ADDRESS: 127.20.2.5:8443
+      MONITORING_ADDRESS: 127.20.2.5:8081
+      CONTROLLER_REGISTRATION_API_ADDRESS: https://controller.magazijn-a.fsc-test.local:9443
+      MANAGER_INTERNAL_ADDRESS: https://manager.magazijn-a.fsc-test.local:9443
       TX_LOG_API_ADDRESS: https://txlog.magazijn-a.fsc-test.local:9443
 
   stub-upstream:

@@ -22,7 +22,9 @@ fsc_have_jq
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
-SERVICE_NAME="profiel-service"
+# Overrulebaar omdat één inway meer dan één dienst kan dragen: logius biedt naast profiel-service
+# ook notificatieservice aan. Dezelfde variabelenaam als smoke-discover.sh gebruikt.
+SERVICE_NAME="${FSC_SERVICE_NAME:-profiel-service}"
 PROVIDER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
 GROUP_ID="moza-fbs-test"

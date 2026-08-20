@@ -327,8 +327,12 @@ géén uitgeschakeld component**).
 | `REDIS_HOSTS`          | per profiel | Adres van de tijdelijke berichtenopslag; buiten dev/test `rediss://` verplicht (`RedisVerbindingValidator`) |
 | `REDIS_PASSWORD`       | per profiel | Wachtwoord van de berichtenopslag; buiten dev/test verplicht |
 | `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT` | `false` | Zet de TLS-/auth-eis op de berichtenopslag BEWUST uit; logt bij elke boot `REDIS_UNPROTECTED` voor alert-routing |
+| `FBS_OUTWAY_UNSAFE_ALLOW_UNVERIFIED_TLS` | `false` | Staat een `outway`-TLS-configuratie toe die certificaten niet verifieert (`trust-all`, hostnaam-verificatie `NONE`); logt bij elke boot `OUTWAY_TLS_UNVERIFIED` voor alert-routing |
+| `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` | leeg | Trust anchor voor uitgaand verkeer door de eigen FSC-outway; leeg = JVM-default trust-store |
 | `MAGAZIJN_A_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor magazijn-a; leeg = geen `Fsc-Grant-Hash`-header, magazijn wordt dan direct/zonder outway aangeroepen |
 | `PROFIEL_SERVICE_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor de Profiel-service; leeg = geen `Fsc-Grant-Hash`-header, de Profiel-service wordt dan direct/zonder outway aangeroepen |
+| `NOTIFICATIE_URL`      | per profiel | Bestemming van de CloudEvents-push door het magazijn; wijst naar de eigen outway zodra die push door FSC loopt |
+| `NOTIFICATIE_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor de notificatiedienst; leeg = geen `Fsc-Grant-Hash`-header, de push gaat dan direct/zonder outway. Samen zetten met `NOTIFICATIE_URL`: alleen de hash stuurt FSC-headers naar de oude bestemming en schakelt daar de SSRF-controle uit, alleen de URL levert `service not found` |
 
 ## Plannen
 

@@ -41,6 +41,7 @@ x-hosts-federatie: &hosts-federatie
   - "manager.magazijn-a.fsc-test.local:127.20.2.1"
   - "controller.magazijn-a.fsc-test.local:127.20.2.2"
   - "txlog.magazijn-a.fsc-test.local:127.20.2.3"
+  - "outway.magazijn-a.fsc-test.local:127.20.2.5"
   - "postgres:127.20.0.2"
   - "stub-upstream:127.20.1.6"
 

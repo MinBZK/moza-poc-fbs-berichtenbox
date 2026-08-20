@@ -9,9 +9,17 @@ import org.jboss.logging.Logger
  * UUID-v7-vorm; zonder deze headers antwoordt de outway met "service not found" resp.
  * "invalid uuid version, must be v7".
  *
- * Meerdere clients sturen deze headers (magazijn-calls per inschrijving, de Profiel-call),
- * elk met een eigen manier om aan hun grant-hash te komen. Die herkomst verschilt; het
- * contract niet — daarom staat het hier en niet in de afzonderlijke filters.
+ * **Dat zijn eisen van OpenFSC, niet van de FSC-standaard.** fsc-core kent op de data-plane
+ * alleen `Fsc-Authorization`, `Fsc-Transaction-Id` en `Fsc-Error-Code`; dienstselectie gaat daar
+ * via het pad (`{inway_url}/{service_name}/{path}`) en de grant-hash zit in de token-aanvraag als
+ * scope, en de spec stelt geen UUID-versie-eis. Elke caller hieronder is daarmee aan een
+ * OpenFSC-outway gebonden: tegen een spec-conforme outway die op het pad routeert werken deze
+ * headers niet, en dan verhuist de dienstkeuze naar de URL van de caller.
+ *
+ * Meerdere clients sturen deze headers (magazijn-calls per inschrijving, de Profiel-call, de
+ * downstream-aflevering van CloudEvents), elk met een eigen manier om aan hun grant-hash te
+ * komen. Die herkomst verschilt; het contract niet — daarom staat het hier en niet in de
+ * afzonderlijke filters.
  */
 object FscOutwayHeaders {
 
@@ -20,11 +28,20 @@ object FscOutwayHeaders {
 
     private val log = Logger.getLogger(FscOutwayHeaders::class.java)
 
-    fun zet(requestContext: ClientRequestContext, grantHash: String) {
-        val transactionId = UuidV7.generate()
+    /**
+     * Het headerpaar voor één outway-call. Losgetrokken van het transport omdat niet elke caller
+     * een JAX-RS-client is: de downstream-aflevering van CloudEvents gebruikt
+     * `java.net.http.HttpClient` en zou het contract anders moeten dupliceren.
+     */
+    fun headers(grantHash: String): Map<String, String> = mapOf(
+        GRANT_HASH_HEADER to grantHash,
+        TRANSACTION_ID_HEADER to UuidV7.generate().toString(),
+    )
 
-        requestContext.headers.putSingle(GRANT_HASH_HEADER, grantHash)
-        requestContext.headers.putSingle(TRANSACTION_ID_HEADER, transactionId.toString())
+    fun zet(requestContext: ClientRequestContext, grantHash: String) {
+        val paar = headers(grantHash)
+
+        paar.forEach { (naam, waarde) -> requestContext.headers.putSingle(naam, waarde) }
 
         // Zonder deze transaction-id in de app-log is een call niet terug te vinden in de
         // outway-/inway-logs, die 'm ongewijzigd doorgeven. Log alleen de host, nooit het
@@ -34,7 +51,7 @@ object FscOutwayHeaders {
         log.debugf(
             "FSC-outway-call naar %s: Fsc-Transaction-Id=%s",
             requestContext.uri.host,
-            transactionId,
+            paar[TRANSACTION_ID_HEADER],
         )
     }
 }

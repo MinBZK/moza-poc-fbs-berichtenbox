@@ -50,6 +50,7 @@ class ProfielMagazijnResolverTest {
         register = stubRegister(oinA, oinB),
         connectTimeoutMs = 2000L,
         readTimeoutMs = 12000L,
+        tlsRegistry = testTlsRegistry(),
     ) {
         override fun createClient(inschrijving: Magazijninschrijving): MagazijnClient = mockk()
     }.also { it.init() }

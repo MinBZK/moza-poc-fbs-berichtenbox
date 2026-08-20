@@ -383,10 +383,7 @@ echo "== de contractenlijst moet een lijst zijn =="
 
 # Een 200 met een andere vorm mag niet als "geen contracten" doorgaan: aan consumer-kant zou dat
 # elke ronde een nieuw contract opleveren.
-# Een gepagineerde lijst hoort ook af te vallen: alleen pagina 1 lezen zou betekenen dat de consumer
-# zijn eigen contract niet meer ziet zodra de manager er genoeg heeft, en dus elke ronde opnieuw
-# indient.
-for vorm in '' ' ' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502</html>' '{"contracts":[],"next_cursor":"abc"}'; do
+for vorm in '' ' ' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502</html>'; do
   if beoordeel "$vorm" >/dev/null 2>&1; then
     echo "FAIL: respons '${vorm:-<leeg>}' werd stil als lege lijst gelezen" >&2
     fails=$((fails + 1))
@@ -396,6 +393,12 @@ for vorm in '' ' ' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502
 done
 
 assert_beoordeling "een echte lege lijst is wél geldig" '{"contracts":[]}' TEKEN ""
+
+# Een cursor is géén reden om af te wijzen. De manager zet 'm op elke pagina die rijen bevat, ook
+# als die pagina de hele lijst is; erop afbreken zou de bootstrap laten stuklopen zodra er één
+# contract bestaat. Het doorlezen zit in fsc_contracten_paginas, niet in de beoordeling.
+assert_beoordeling "een lijst mét cursor wordt gewoon beoordeeld" \
+  '{"contracts":[],"pagination":{"next_cursor":"abc"}}' TEKEN ""
 
 echo
 echo "== één misvormde rij mag de rest niet meenemen =="
@@ -564,6 +567,108 @@ assert_geen_verwijzing() {
   fi
 }
 
+echo
+echo "== fsc_contracten_paginas =="
+
+# De lus die de guard verving. Hij is expliciet testbaar gemaakt met een injecteerbare ophaler:
+# die krijgt de URL en zet een body op stdout, dus een gescripte manager past hier in.
+#
+# PAGINAS is een newline-gescheiden lijst van bodies; de ophaler geeft er per aanroep één terug.
+# Zo is niet alleen de samengevoegde uitkomst te toetsen, maar ook hóéveel pagina's er nodig waren.
+#
+# De teller staat in een bestand en niet in een variabele: de lus vangt haar uitvoer op in een
+# command substitution, en een ophoging binnen die subshell zou hier nooit aankomen — de ophaler
+# zou dan elke ronde dezelfde pagina teruggeven en de rem laten afgaan.
+TELLER_BESTAND="$(mktemp)"
+
+pagina_ophaler() {
+  local n
+  n=$(( $(cat "$TELLER_BESTAND") + 1 ))
+  printf '%s' "$n" >"$TELLER_BESTAND"
+  printf '%s\n' "$PAGINAS" | sed -n "${n}p"
+}
+
+paginas_geteld() {
+  cat "$TELLER_BESTAND"
+}
+
+assert_paginas() {  # <omschrijving> <verwachte-hashes> <verwacht-aantal-aanroepen> <body>...
+  local desc="$1" verwacht="$2" aanroepen="$3"
+
+  shift 3
+  PAGINAS="$(printf '%s\n' "$@")"
+  printf '0' >"$TELLER_BESTAND"
+
+  local uit gevonden geteld
+  uit="$(fsc_contracten_paginas pagina_ophaler "https://manager/v1/contracts?limit=1000")" || {
+    echo "FAIL: $desc — de lus brak af: $(fsc_last_error)" >&2
+    fails=$((fails + 1))
+    return
+  }
+  gevonden="$(printf '%s' "$uit" | jq -r '[.contracts[].hash] | join(",")')"
+  geteld="$(paginas_geteld)"
+
+  if [ "$gevonden" = "$verwacht" ] && [ "$geteld" -eq "$aanroepen" ]; then
+    echo "OK: $desc"
+  else
+    echo "FAIL: $desc — hashes '${gevonden}' (verwacht '${verwacht}'), ${geteld} aanroep(en) (verwacht ${aanroepen})" >&2
+    fails=$((fails + 1))
+  fi
+}
+
+# Nul rijen: één aanroep, lege uitkomst, en geen tweede pagina omdat er geen cursor is.
+assert_paginas "een lege lijst kost één aanroep" "" 1 '{"contracts":[],"pagination":{"next_cursor":""}}'
+
+# Dít is het geval waar de oude guard op stukliep: de manager zet een cursor op élke pagina die
+# rijen bevat, ook als die pagina de hele lijst ís. Doorlezen levert dan een lege slotpagina.
+assert_paginas "één pagina mét cursor leest door tot de lege slotpagina" "h1" 2 \
+  '{"contracts":[{"hash":"h1"}],"pagination":{"next_cursor":"c1"}}' \
+  '{"contracts":[],"pagination":{"next_cursor":""}}'
+
+# Meerdere pagina's horen samengevoegd te worden, in volgorde: een bootstrap die alleen de eerste
+# pagina ziet, dient elke ronde opnieuw een contract in dat al bestaat.
+assert_paginas "drie pagina's worden samengevoegd in volgorde" "h1,h2,h3" 4 \
+  '{"contracts":[{"hash":"h1"}],"pagination":{"next_cursor":"c1"}}' \
+  '{"contracts":[{"hash":"h2"}],"pagination":{"next_cursor":"c2"}}' \
+  '{"contracts":[{"hash":"h3"}],"pagination":{"next_cursor":"c3"}}' \
+  '{"contracts":[],"pagination":{"next_cursor":""}}'
+
+# Een pagina zonder cursorveld is óók een eindpunt: niet elke manager zet `pagination`.
+assert_paginas "een pagina zonder cursorveld sluit de lus" "h1" 1 '{"contracts":[{"hash":"h1"}]}'
+
+# Een respons die geen contractenlijst is moet hard stuk, niet als lege pagina doorglippen.
+PAGINAS='<html>502</html>'
+printf '0' >"$TELLER_BESTAND"
+
+if fsc_contracten_paginas pagina_ophaler "https://manager/v1/contracts" >/dev/null 2>&1; then
+  echo "FAIL: een niet-JSON respons werd stil als lege pagina gelezen" >&2
+  fails=$((fails + 1))
+else
+  echo "OK: een niet-JSON respons breekt de lus af"
+fi
+
+# De rem tegen een manager die eindeloos een cursor blijft zetten. Zonder die rem hangt een
+# bootstrap-lus hier zonder ooit iets te melden.
+eeuwige_ophaler() {
+  printf '%s' "$(( $(cat "$TELLER_BESTAND") + 1 ))" >"$TELLER_BESTAND"
+  printf '%s' '{"contracts":[{"hash":"h"}],"pagination":{"next_cursor":"altijd-meer"}}'
+}
+
+printf '0' >"$TELLER_BESTAND"
+
+if fsc_contracten_paginas eeuwige_ophaler "https://manager/v1/contracts" >/dev/null 2>&1; then
+  echo "FAIL: een eindeloze cursor werd niet afgebroken" >&2
+  fails=$((fails + 1))
+elif [ "$(paginas_geteld)" -gt 200 ]; then
+  echo "FAIL: de rem greep pas na $(paginas_geteld) aanroepen in" >&2
+  fails=$((fails + 1))
+else
+  echo "OK: een eindeloze cursor wordt na $(paginas_geteld) pagina's afgebroken"
+fi
+
+rm -f "$TELLER_BESTAND"
+
+echo
 assert_geen_verwijzing "de consumer-helft noemt de provider-manager nergens" \
   "${CONTRACTS_DIR}/bootstrap-consumer.sh" 'FSC_PROVIDER_(MANAGER|CERT|KEY|CA|ADRES)'
 assert_geen_verwijzing "de provider-helft noemt de consumer-manager nergens" \
