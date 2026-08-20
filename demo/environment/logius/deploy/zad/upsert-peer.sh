@@ -183,6 +183,13 @@ LOGCTL_ALIASES=""
 # AUTHENTICATED interne poort (:9443) — `fsc-outway serve` eist beide (manager-internal-address +
 # controller-registration-api-address). Bewust anders dan de inway hieronder, die de
 # internal-UNAUTHENTICATED poort (:9444) gebruikt. Geen upstream: de outway is de afnemende kant.
+#
+# LISTEN_HTTPS zet TLS op de serve-poort (:8443) waarop `berichtenuitvraag` de outway aanroept.
+# Zonder dat is die poort plain HTTP en weigert de app het cluster-interne adres, want uitgaande
+# endpoints moeten buiten dev/test https zijn (BIO 13.2.1). Het serveert het INTERNE cert, niet
+# het group-cert: het group-cert is de mesh-identiteit richting andere peers, deze poort is de
+# lokale ingang voor onze eigen app. Datzelfde interne cert draagt al de Service-namen als SAN
+# (zie gen-csr.sh), dus zowel `fsc-logius-logius-fscoutway` als de FQDN valideren.
 LOGOUTWAY_ENV="$(printf '%s\n' \
   "LOG_TYPE=live" "LOG_LEVEL=info" \
   "NAME=logius-outway" \
@@ -196,6 +203,9 @@ LOGOUTWAY_ENV="$(printf '%s\n' \
   "TLS_ROOT_CERT=/etc/fsc/internal/logius/ca/root.pem" \
   "TLS_CERT=/etc/fsc/internal/logius/outway/cert.pem" \
   "TLS_KEY=/etc/fsc/internal/logius/outway/key.pem" \
+  "LISTEN_HTTPS=true" \
+  "TLS_SERVER_CERT=/etc/fsc/internal/logius/outway/cert.pem" \
+  "TLS_SERVER_KEY=/etc/fsc/internal/logius/outway/key.pem" \
   "SELF_ADDRESS=https://${LOGOUTWAY_HOST_DISPLAY}:443" \
   "MANAGER_INTERNAL_ADDRESS=https://${LOGMGR_SVC}:9443" \
   "CONTROLLER_REGISTRATION_API_ADDRESS=https://${LOGCTL_SVC}:9443" \
