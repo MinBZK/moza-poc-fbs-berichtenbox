@@ -32,6 +32,14 @@ class HttpsMagazijnResource : QuarkusTestResourceLifecycleManager {
         const val OIN = WireMockBackendsResource.OIN_A
         const val GRANT_HASH = "\$1\$3\$test-grant-hash"
 
+        /**
+         * Hetzelfde endpoint als [OIN], alleen ingeschreven zónder grant-hash — de stand-in
+         * voor een magazijn dat rechtstreeks op een publiek certificaat wordt aangeroepen.
+         * Dat het exact dezelfde poort is, is het punt: als het enige verschil de grant-hash
+         * is, kan een geslaagde handshake alleen van het anchor komen.
+         */
+        const val OIN_ZONDER_GRANT_HASH = WireMockBackendsResource.OIN_B
+
         private const val WACHTWOORD = "changeit"
         private const val KEYTOOL_TIMEOUT_SECONDEN = 30L
 
@@ -91,9 +99,12 @@ class HttpsMagazijnResource : QuarkusTestResourceLifecycleManager {
         server = gestart
         magazijn = gestart
 
+        val endpoint = "https://localhost:${gestart.httpsPort()}"
+
         return mapOf(
-            "magazijnen.\"$OIN\".url" to "https://localhost:${gestart.httpsPort()}",
+            "magazijnen.\"$OIN\".url" to endpoint,
             "magazijnen.\"$OIN\".grantHash" to GRANT_HASH,
+            "magazijnen.\"$OIN_ZONDER_GRANT_HASH\".url" to endpoint,
             "quarkus.tls.${OutwayTls.CONFIG_NAAM}.trust-store.pem.certs" to certPem.toString(),
         )
     }

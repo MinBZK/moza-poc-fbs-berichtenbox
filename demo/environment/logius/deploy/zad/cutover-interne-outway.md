@@ -22,10 +22,11 @@ Twee dingen maken dat de stappen in één venster horen en niet los uitgerold ku
 naar poort 8443; er staat geen `backend-protocol: HTTPS`-annotatie op. Zet je `LISTEN_HTTPS=true`,
 dan spreekt de pod TLS en levert de publieke route 502.
 
-**Het trust anchor vervangt de JVM-default trust-store, het vult die niet aan.** Zodra
-`quarkus.tls.outway` bestaat valideert élk magazijn-endpoint tegen de interne CA — ook een
-endpoint dat nog op de publieke ingress staat, met een publiek certificaat. Vandaar dat het anchor
-per deployment gaat zolang niet elke deployment mee is.
+**Het trust anchor vervangt de JVM-default trust-store, het vult die niet aan.** Een client die
+het anchor meekrijgt vertrouwt alleen nog de interne CA; een endpoint met een publiek certificaat
+zou daar juist op stukvallen. Daarom krijgt niet elke magazijn-client het: de grant-hash is de
+discriminator, dus alleen een magazijn dat door de outway loopt. Toch gaat het anchor per
+deployment, want de URL's eronder verhuizen ook per deployment.
 
 ## Voorwaarden
 
@@ -124,6 +125,15 @@ zadctl env set -c uitvraag --deployment test \
 `add` voor de twee nieuwe sleutels, `set` voor de twee die al bestaan — `add` op een bestaande
 sleutel is een conflict, geen overschrijving. Beide rollen standaard uit; met `--no-rollout` kun
 je ze stapelen en daarna één keer `zadctl deployment refresh test` doen.
+
+**Magazijn B staat er bewust niet bij.** Het heeft geen FSC-contract en dus geen
+`MAGAZIJN_B_GRANT_HASH`, wordt daarom rechtstreeks op zijn publieke ingress aangeroepen, en
+houdt de JVM-default trust-store — precies wat zijn publieke certificaat nodig heeft. Ging het
+anchor naar élke magazijn-client, dan viel B hier om met `PKIX path building failed`. Verhuist B
+later ook, dan horen `MAGAZIJN_B_URL`, `MAGAZIJN_B_GRANT_HASH` en een eigen
+`cross-domain-access`-regel in één stap mee: alleen de URL omzetten geeft een handshake tegen de
+interne PKI zonder anchor, alleen de grant-hash zetten stuurt FSC-headers naar een endpoint dat
+er niets mee doet.
 
 **4. Verifiëren.**
 
