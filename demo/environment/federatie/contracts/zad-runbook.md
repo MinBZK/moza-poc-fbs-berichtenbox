@@ -94,6 +94,12 @@ openssl x509 -in demo/environment/logius/pki/out/logius/outway/cert.pem -pubkey 
 
 64 lowercase hex-tekens; het component weigert elke andere vorm.
 
+Die berekening klopt alleen als je hem uitrekent over dezelfde `pki/` waarmee de peer op ZAD is
+geleverd. De cluster heeft geen leesbare kopie: de outway-ingress termineert op het
+rig-wildcard en de OM-API kent alleen `POST`/`PUT`/`DELETE` op attachments, geen `GET`. Wijkt je
+lokale outway-cert af van dat van de cluster, dan is de juiste waarde dus nergens meer op te vragen
+en is her-uitgifte van het outway-group-cert de enige uitweg.
+
 De waarde is stabiel zolang het sleutelpaar dat is — een cert-rotatie binnen hetzelfde sleutelpaar
 verandert hem niet. **Rouleer je het sleutelpaar wél, dan blijft het oude contract staan.** De
 thumbprint is onderdeel van de identiteit waarop de consumer-helft matcht, dus na een rotatie valt
@@ -112,7 +118,8 @@ inway en outway; een call op de interne contract-API verschijnt daar niet.)
 `pki/issue.sh` geeft dit endpoint bewust **geen group-cert** — het bedient zelf geen TLS en hoort
 zich niet in de mesh als de peer te kunnen voordoen.
 
-Attachments per bootstrap-component (UI-only; de v2-API kloont ze niet):
+Attachments per bootstrap-component. Een `clone-from`-deployment krijgt ze niet mee, dus koppel ze
+zelf — met `zadctl attachment add` + `assign`, of in de UI:
 
 | Bestand uit `pki/zad-upload/<peer>/` | Pod-pad |
 |--------------------------------------|---------|
@@ -132,15 +139,18 @@ grant ook echt door hem wordt aangeboden, en zonder publicatie geeft hij later o
 
 ## Volgorde
 
+0. Controleer dat `pki/ca/` de group-CA van fsc-testnet bevat en draai `init-ca.sh` daar níét — dat
+   maakt een verse, vreemde CA waarnaar de draaiende mesh niet ketent, en de oude sleutel is dan
+   weg. Het script weigert een bestaande CA te overschrijven; forceer dat niet.
 1. `pki/issue.sh` bij beide peers — geeft het nieuwe `bootstrap`-endpoint uit. **Zonder `-f`**:
    die vlag hergenereert de internal-CA per peer en daarmee álle bestaande certificaten, zodat
    elke attachment op ZAD opnieuw geüpload moet worden. Het bootstrap-endpoint heeft nog geen
    certificaat, dus een kale run geeft het al uit.
 2. `pki/zad-bundle.sh <peer>` — zet de upload-set klaar.
-3. Component éénmalig aanmaken in de ZAD-UI, in de deployment van díé peer, met de env hierboven
-   en zonder inbound poort.
-4. De drie attachments koppelen.
-5. Component starten en de log volgen.
+3. Component éénmalig aanmaken in de deployment van díé peer, met de env hierboven en zonder
+   inbound poort: `zadctl component add`, daarna `zadctl attachment add` + `assign` voor de
+   attachments. De ZAD-UI kan het ook, maar is niet meer de enige weg.
+4. Component starten en de log volgen.
 
 Doe dit **vóór** de merge naar main: de `deploy-test-*`-job werkt daarna bij elke push de image-tag
 van dit component bij, en dat werkt alleen als het component al bestaat.
