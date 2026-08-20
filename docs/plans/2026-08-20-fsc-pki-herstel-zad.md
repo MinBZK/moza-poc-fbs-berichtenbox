@@ -13,20 +13,20 @@ error:0A000418:SSL routines::tlsv1 alert unknown ca
 ```
 
 De aanname bij de overdracht was dat het bootstrap-cert uit de verkeerde werkkopie kwam en dat
-`pki/issue.sh` zonder `-f` in de "juiste" boom het zou oplossen. Die boom bestaat niet.
+`pki/issue.sh` zonder `-f` in de "juiste" werkkopie het zou oplossen. Die werkkopie bestaat niet.
 
 ## Wat er werkelijk aan de hand was
 
 De manager-ingress draait TLS-passthrough, dus het cert dat de cluster serveert is van buiten af
 leesbaar. Dat gaf de doorslag:
 
-| | cluster serveert | elke lokale boom |
+| | cluster serveert | elke lokale `pki/` |
 |---|---|---|
 | group-cert logius-manager | `notBefore Aug 6 13:30`, `91:DC:70…` | `Aug 17 06:15`, `CF:C2:6E…` |
 | group-cert magazijna-manager | `Aug 5 07:51`, `6C:45:A9…` | idem her-uitgegeven op 17 aug |
 
 Een scan over álle `*.pem` onder `/home/claude` en `/tmp` vond de cluster-certs nergens. Op
-17 augustus is in beide peer-bomen de PKI opnieuw gegenereerd; de internal-CA-sleutel die de
+17 augustus is de `pki/` van beide peers opnieuw gegenereerd; de internal-CA-sleutel die de
 draaiende manager-, controller-, inway-, outway- en txlog-certs tekende bestond niet meer. Er viel
 dus geen bootstrap-cert uit te geven dat de manager zou accepteren — geen pad- of configfout maar
 verloren sleutelmateriaal.
@@ -35,7 +35,7 @@ Daaronder lag een tweede fout. In `demo/environment/{logius,magazijn-a}/pki/ca/`
 zelfgemaakte group-CA van 17 augustus, terwijl de cluster én de directory (`dirmgr-test-mft-tp9`)
 ketenen naar de group-root van het testnet (2 juli, `EB:EE:D6…`, geverifieerd met `openssl verify`).
 Iemand had `init-ca.sh` gedraaid, wat `pki/README.md` en `deploy/zad/cert-manifest.md` expliciet
-verbieden voor een peer die op de fsc-testnet-directory is aangesloten. Elke `issue.sh` in die boom
+verbieden voor een peer die op de fsc-testnet-directory is aangesloten. Elke `issue.sh` daar
 produceerde vanaf dat moment group-certs die de directory afwijst.
 
 Dat de group-CA weg was, maakte ook de tweede blokkade onoplosbaar-op-zichzelf:

@@ -94,8 +94,8 @@ openssl x509 -in demo/environment/logius/pki/out/logius/outway/cert.pem -pubkey 
 
 64 lowercase hex-tekens; het component weigert elke andere vorm.
 
-Die berekening klopt alleen als de boom waaruit je hem haalt óók de boom is die de peer op ZAD
-heeft geleverd. De cluster heeft geen leesbare kopie: de outway-ingress termineert op het
+Die berekening klopt alleen als je hem uitrekent over dezelfde `pki/` waarmee de peer op ZAD is
+geleverd. De cluster heeft geen leesbare kopie: de outway-ingress termineert op het
 rig-wildcard en de OM-API kent alleen `POST`/`PUT`/`DELETE` op attachments, geen `GET`. Wijkt je
 lokale outway-cert af van dat van de cluster, dan is de juiste waarde dus nergens meer op te vragen
 en is her-uitgifte van het outway-group-cert de enige uitweg.
