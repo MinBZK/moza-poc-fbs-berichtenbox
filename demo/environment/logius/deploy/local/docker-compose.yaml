@@ -212,7 +212,7 @@ services:
       # outway over http, op 8443 in de federatie-overlay en op 58443 in de hostnet-overlay.
       #
       # OUTWAY_LISTEN_HTTPS=true speelt het ZAD-pad na, met pki/internal/logius/ca/root.pem als
-      # anker. Bel 'm dan op de naam outway.logius.fsc-test.local en niet op zijn IP: het interne
+      # anchor. Bel 'm dan op de naam outway.logius.fsc-test.local en niet op zijn IP: het interne
       # cert draagt alleen DNS-SANs (pki/gen-csr.sh), dus een IP faalt op hostnaam-verificatie.
       # Onder de overlays luistert hij op een IP, dus daar hoort een --resolve of een extra_hosts
       # bij; de smokes zelf zijn hier niet op ingericht.

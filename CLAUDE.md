@@ -314,6 +314,7 @@ géén uitgeschakeld component**).
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
 | `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |
+| `.github/scripts/wijzigingsfilter.sh`  | Bepaalt per PR wat er moet draaien (code-checks, deploy, test-scope, fuzz); deploy.yml, test.yml, detekt.yml en cflite_pr.yml delen dit script. Unittests ernaast in `test-wijzigingsfilter.sh`, gedraaid door `ci-scripts.yml` |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
 
 ## Omgevingsvariabelen
@@ -326,6 +327,8 @@ géén uitgeschakeld component**).
 | `REDIS_HOSTS`          | per profiel | Adres van de tijdelijke berichtenopslag; buiten dev/test `rediss://` verplicht (`RedisVerbindingValidator`) |
 | `REDIS_PASSWORD`       | per profiel | Wachtwoord van de berichtenopslag; buiten dev/test verplicht |
 | `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT` | `false` | Zet de TLS-/auth-eis op de berichtenopslag BEWUST uit; logt bij elke boot `REDIS_UNPROTECTED` voor alert-routing |
+| `FBS_OUTWAY_UNSAFE_ALLOW_UNVERIFIED_TLS` | `false` | Staat een `outway`-TLS-configuratie toe die certificaten niet verifieert (`trust-all`, hostnaam-verificatie `NONE`); logt bij elke boot `OUTWAY_TLS_UNVERIFIED` voor alert-routing |
+| `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` | leeg | Trust anchor voor uitgaand verkeer door de eigen FSC-outway; leeg = JVM-default trust-store |
 | `MAGAZIJN_A_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor magazijn-a; leeg = geen `Fsc-Grant-Hash`-header, magazijn wordt dan direct/zonder outway aangeroepen |
 | `PROFIEL_SERVICE_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor de Profiel-service; leeg = geen `Fsc-Grant-Hash`-header, de Profiel-service wordt dan direct/zonder outway aangeroepen |
 | `NOTIFICATIE_URL`      | per profiel | Bestemming van de CloudEvents-push door het magazijn; wijst naar de eigen outway zodra die push door FSC loopt |

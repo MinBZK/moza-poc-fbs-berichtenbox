@@ -18,7 +18,7 @@ import org.junit.jupiter.params.provider.ValueSource
 class MagazijnClientFactoryTimeoutTest {
 
     private fun factory(connectTimeoutMs: Long = 2000, readTimeoutMs: Long = 12000) =
-        MagazijnClientFactory(mockk<Magazijnregister>(relaxed = true), connectTimeoutMs, readTimeoutMs)
+        MagazijnClientFactory(mockk<Magazijnregister>(relaxed = true), connectTimeoutMs, readTimeoutMs, testTlsRegistry())
 
     @ParameterizedTest
     @ValueSource(longs = [0, -1, -2000, Long.MIN_VALUE])

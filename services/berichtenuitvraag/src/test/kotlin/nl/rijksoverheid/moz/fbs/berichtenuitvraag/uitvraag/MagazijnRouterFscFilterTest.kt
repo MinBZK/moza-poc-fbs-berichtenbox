@@ -9,7 +9,7 @@ import java.net.URI
 
 /**
  * Dekt alleen de registratie-beslissing (`fscFilterVoor`), niet `forMagazijn` zelf: die
- * bouwt via `RestClientBuilder`, wat buiten CDI-context een proxy-klasse genereert.
+ * bouwt via `QuarkusRestClientBuilder`, wat buiten CDI-context een proxy-klasse genereert.
  */
 class MagazijnRouterFscFilterTest {
 

@@ -3,39 +3,70 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
+import nl.rijksoverheid.moz.fbs.common.fsc.OutwayTls
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.TimeUnit
 
 /**
- * Een magazijn achter TLS, met een certificaat dat de JVM-default trust-store níét kent —
- * de situatie op ZAD, waar de FSC-outway zijn poort serveert met een cert uit de interne PKI
- * van de peer. Bewijst dat het anker uit `quarkus.tls.outway.*` daadwerkelijk tot een
- * geslaagde handshake leidt, en niet alleen tot een aangeroepen setter.
+ * Een magazijn achter TLS met een certificaat dat de JVM-default trust-store níét kent — de
+ * situatie op ZAD, waar de FSC-outway zijn poort serveert met een cert uit de interne PKI van de
+ * peer. Bewijst dat het anchor uit `quarkus.tls.<naam>.*` daadwerkelijk tot een geslaagde
+ * handshake leidt, en niet alleen tot een aangeroepen setter.
+ *
+ * De inschrijving krijgt een grant-hash, want dat is de combinatie die op ZAD bestaat: hetzelfde
+ * outway-adres draagt TLS én de FSC-headers, en de grant-hash is tegelijk de vlag waarop het
+ * anchor geselecteerd wordt. De tegenhanger — een magazijn zónder grant-hash krijgt het anchor niet
+ * — is niet met een echte handshake te tonen (dat vraagt een publiek vertrouwd certificaat) en
+ * staat daarom als unit-test in `MagazijnClientFactoryOutwayTlsTest`.
  *
  * Het sleutelmateriaal wordt bij elke run vers gemaakt met `keytool` uit de draaiende JDK, in
- * plaats van als fixture in de repo te staan. Twee redenen: een ingecheckte private sleutel is
- * er één die scanners en lezers moeten leren negeren, en een ingecheckt certificaat verloopt
- * ooit — precies lang genoeg na nu om de build op een willekeurige dag te breken.
+ * plaats van als fixture in de repo te staan. Twee redenen: een ingecheckte private sleutel is er
+ * één die scanners en lezers moeten leren negeren, en een ingecheckt certificaat verloopt ooit —
+ * precies lang genoeg na nu om de build op een willekeurige dag te breken.
  */
 class HttpsMagazijnResource : QuarkusTestResourceLifecycleManager {
 
     companion object {
         const val OIN = WireMockBackendsResource.OIN_A
+        const val GRANT_HASH = "\$1\$3\$test-grant-hash"
+
+        /**
+         * Hetzelfde endpoint als [OIN], alleen ingeschreven zónder grant-hash — de stand-in
+         * voor een magazijn dat rechtstreeks op een publiek certificaat wordt aangeroepen.
+         * Dat het exact dezelfde poort is, is het punt: als het enige verschil de grant-hash
+         * is, kan een geslaagde handshake alleen van het anchor komen.
+         */
+        const val OIN_ZONDER_GRANT_HASH = WireMockBackendsResource.OIN_B
 
         private const val WACHTWOORD = "changeit"
+        private const val KEYTOOL_TIMEOUT_SECONDEN = 30L
 
         lateinit var magazijn: WireMockServer
     }
 
     private var server: WireMockServer? = null
-    private lateinit var werkmap: Path
+    private var werkmap: Path? = null
 
     override fun start(): Map<String, String> {
-        werkmap = Files.createTempDirectory("outway-tls-test")
+        val map = Files.createTempDirectory("outway-tls-test")
+        werkmap = map
 
-        val keystore = werkmap.resolve("magazijn.p12")
-        val certPem = werkmap.resolve("magazijn.pem")
+        // Opruimen bij een mislukte start: anders blijft er sleutelmateriaal achter, want stop()
+        // wordt niet aangeroepen als start() gooit.
+        return try {
+            startMet(map)
+        } catch (fout: Exception) {
+            opruimen()
+
+            throw fout
+        }
+    }
+
+    private fun startMet(map: Path): Map<String, String> {
+        val keystore = map.resolve("magazijn.p12")
+        val certPem = map.resolve("magazijn.pem")
 
         // CN + SAN op localhost: de REST-client verifieert de hostnaam, dus een cert zonder
         // passende SAN zou hier falen op iets anders dan waar deze test over gaat.
@@ -52,9 +83,11 @@ class HttpsMagazijnResource : QuarkusTestResourceLifecycleManager {
             "-file", certPem.toString(),
         )
 
+        // httpDisabled: zonder plaintext-poort kan de call niet alsnog buiten TLS om slagen,
+        // wat de bewijskracht van deze fixture is.
         val gestart = WireMockServer(
             wireMockConfig()
-                .dynamicPort()
+                .httpDisabled(true)
                 .dynamicHttpsPort()
                 .keystorePath(keystore.toString())
                 .keystorePassword(WACHTWOORD)
@@ -66,18 +99,24 @@ class HttpsMagazijnResource : QuarkusTestResourceLifecycleManager {
         server = gestart
         magazijn = gestart
 
+        val endpoint = "https://localhost:${gestart.httpsPort()}"
+
         return mapOf(
-            "magazijnen.\"$OIN\".url" to "https://localhost:${gestart.httpsPort()}",
-            "quarkus.tls.outway.trust-store.pem.certs" to certPem.toString(),
+            "magazijnen.\"$OIN\".url" to endpoint,
+            "magazijnen.\"$OIN\".grantHash" to GRANT_HASH,
+            "magazijnen.\"$OIN_ZONDER_GRANT_HASH\".url" to endpoint,
+            "quarkus.tls.${OutwayTls.CONFIG_NAAM}.trust-store.pem.certs" to certPem.toString(),
         )
     }
 
     override fun stop() {
         server?.stop()
+        opruimen()
+    }
 
-        if (::werkmap.isInitialized) {
-            werkmap.toFile().deleteRecursively()
-        }
+    private fun opruimen() {
+        werkmap?.toFile()?.deleteRecursively()
+        werkmap = null
     }
 
     /**
@@ -91,8 +130,16 @@ class HttpsMagazijnResource : QuarkusTestResourceLifecycleManager {
             .redirectErrorStream(true)
             .start()
 
+        // Met timeout: een keytool die op een trage entropiebron blijft hangen zou de build
+        // anders zonder enig signaal laten staan tot de CI-job zelf afkapt.
+        if (!proces.waitFor(KEYTOOL_TIMEOUT_SECONDEN, TimeUnit.SECONDS)) {
+            proces.destroyForcibly()
+
+            error("keytool ${args.first()} reageerde niet binnen $KEYTOOL_TIMEOUT_SECONDEN seconden")
+        }
+
         val uitvoer = proces.inputStream.bufferedReader().readText()
 
-        check(proces.waitFor() == 0) { "keytool ${args.first()} faalde: $uitvoer" }
+        check(proces.exitValue() == 0) { "keytool ${args.first()} faalde: $uitvoer" }
     }
 }
