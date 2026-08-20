@@ -78,8 +78,18 @@ jobs:
       # `-Dmaven.test.skip=true` is bij `compile` strikt genomen overbodig (die fasen worden
       # niet bereikt) en staat er als vangrail: wie de fase ooit optrekt, krijgt de
       # testcompilatie dan niet ongemerkt terug.
+      #
+      # `-T 1C` draait de reactor parallel. De module-graaf is breed — alleen `fbs-common` is
+      # upstream van de rest — dus het kritieke pad is `fbs-common` (30 s) → `berichtenmagazijn`
+      # (104 s) in plaats van de som van alle modules. Zonder dit bleef de analyse op ~4:21
+      # steken, boven de grens van 4 minuten die we onszelf stelden.
+      #
+      # Het risico is dat de extractor compiler-processen traceert: als parallelle builds die
+      # tracing zouden verstoren, verdwijnt er stil code uit de database. Daarom telt de stap na
+      # de analyse de geëxtraheerde bronbestanden per module — die telling moet gelijk blijven
+      # aan die van een sequentiële build.
       - name: Build
-        run: ./mvnw -B -ntp -e clean compile -Dmaven.test.skip=true
+        run: ./mvnw -B -ntp -e -T 1C clean compile -Dmaven.test.skip=true
       # Een reactor die stilletjes minder bouwt, eindigt groen: CodeQL uploadt dan een vrijwel
       # lege SARIF en de PR oogt veilig terwijl er niets is gekeken. De CodeQL-actie vangt
       # alleen "nul bestanden" af, niet "één module in plaats van zes". Deze controle staat
