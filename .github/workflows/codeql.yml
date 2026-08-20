@@ -10,7 +10,7 @@ on:
 
 permissions: read-all
 
-# Een opvolgende push maakt de vorige analyse achterhaald: die draait ~6 minuten door voor een
+# Een opvolgende push maakt de vorige analyse achterhaald: die draait minutenlang door voor een
 # uitkomst die niemand meer leest. Alleen voor PR's annuleren — op main is elke analyse de
 # baseline van dát commit, en de Scorecard-SAST-check kijkt of een gemergede PR een CodeQL-upload
 # had. Die upload komt van de laatste run op de PR, en die wordt hier nooit geannuleerd.
@@ -44,13 +44,125 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Zonder cache haalde deze workflow de volledige dependency-boom bij élke run opnieuw op,
+      # terwijl test.yml, detekt.yml en deploy.yml diezelfde artefacten al hergebruiken. Het
+      # herstellen van de cache kost een fractie van wat dat downloaden kostte.
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
       - name: Initialize CodeQL
         uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           languages: ${{ matrix.language }}
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+      # Eigen bouwstap in plaats van `autobuild`. Die draait `clean package -DskipTests`, en
+      # `-DskipTests` slaat alleen de surefire-UITVOERING over: `kotlin:test-compile` draait
+      # gewoon door, plus `jandex`, `jar` en `quarkus:build`. De extractie leest van dat alles
+      # niets.
+      #
+      # `compile` stopt vóór de testfasen. Dat scheelt die compilatie, en haalt de testbronnen
+      # — het grootste deel van de Kotlin in deze repo — uit de database. Let op: dat laatste
+      # levert géén tijdwinst op. De analyse-stap wordt gedomineerd door het evalueren van de
+      # query-suite, niet door het aantal bronbestanden; verwacht daar dus niets van bij een
+      # volgende ingreep.
+      #
+      # BEWUSTE INPERKING: bevindingen in testcode vervallen hiermee. Verdedigbaar omdat detekt
+      # testcode al uitsluit en testcode niet in productie draait; een hardcoded credential in
+      # een test hoort bij secret scanning, niet bij een SAST-tool.
+      #
+      # `build-mode: none` is geen alternatief — buildless extractie ondersteunt Kotlin niet.
+      # De reactor blijft met `compile` werken: downstream-modules lezen `target/classes` van
+      # upstream in plaats van geïnstalleerde jars.
+      #
+      # `-Dmaven.test.skip=true` is bij `compile` strikt genomen overbodig (die fasen worden
+      # niet bereikt) en staat er als vangrail: wie de fase ooit optrekt, krijgt de
+      # testcompilatie dan niet ongemerkt terug.
+      #
+      # `-T` draait de reactor parallel. De module-graaf is breed — alleen `fbs-common` is
+      # upstream van de rest — dus het kritieke pad loopt via `fbs-common` naar het zwaarste
+      # component, in plaats van via de som van alle modules. De winst blijft beperkt doordat
+      # de extractie CPU-gebonden is en de runner weinig kernen heeft: modules die naast elkaar
+      # draaien concurreren om dezelfde kernen. Om diezelfde reden helpt een hogere waarde dan
+      # `1C` niet: die overschrijft de kernen alleen verder. Gemeten, zie het plan.
+      #
+      # Het risico is dat de extractor compiler-processen traceert: als parallelle builds die
+      # tracing zouden verstoren, verdwijnt er stil code uit de database. Daarom telt de stap na
+      # de analyse de geëxtraheerde bronbestanden per module — die telling moet gelijk blijven
+      # aan die van een sequentiële build.
+      #
+      # De metingen achter bovenstaande keuzes staan, mét datum en runs, in
+      # docs/plans/2026-08-19-codeql-minimale-buildstap.md. Bewust niet hier: getallen in
+      # commentaar verouderen zonder dat iemand het merkt.
+      - name: Build
+        run: ./mvnw -B -ntp -e -T 1C clean compile -Dmaven.test.skip=true
+      # Een reactor die stilletjes minder bouwt, eindigt groen: CodeQL uploadt dan een vrijwel
+      # lege SARIF en de PR oogt veilig terwijl er niets is gekeken. De CodeQL-actie vangt
+      # alleen "nul bestanden" af, niet "één module in plaats van zes". Deze controle staat
+      # vóór de analyse, zodat een onvolledige build die niet eens haalt.
+      - name: Controleer dat elke module classes opleverde
+        run: |
+          set -euo pipefail
+          for module in libraries/* services/*; do
+            [ -f "$module/pom.xml" ] || continue
+
+            if [ -z "$(find "$module/target/classes" -name '*.class' -print -quit 2>/dev/null)" ]; then
+              echo "::error::$module leverde geen classes op — de analyse zou onvolledig zijn."
+              exit 1
+            fi
+          done
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           category: "/language:${{ matrix.language }}"
+      # De repo heeft nul CodeQL-bevindingen, dus het aantal bevindingen kan niet aantonen dat
+      # de extractie volledig blijft — nul is de uitkomst met én zonder complete database. Het
+      # source-archive van de database is dat wel: daarin staat precies wat er geëxtraheerd is.
+      #
+      # Dat maakt het de enige harde controle op de bouwstap hierboven, en de meetlat voor
+      # toekomstige ingrepen daarin (bijvoorbeeld een parallelle reactor): blijft het aantal per
+      # module gelijk, dan is er niets uit beeld geraakt. De telling gaat naar de job-samenvatting
+      # zodat twee runs zonder logs uit te pluizen te vergelijken zijn.
+      #
+      # Aanvullend op de classes-controle vóór de analyse, niet in plaats daarvan: die faalt
+      # meteen bij een gekrompen reactor, deze vangt code die wél compileert maar niet in de
+      # database belandt.
+      - name: Tel geëxtraheerde bronbestanden
+        if: always()
+        run: |
+          set -euo pipefail
+          database="$RUNNER_TEMP/codeql_databases/java"
+
+          # `database finalize` pakt het archief in tot src.zip; vóór dat moment is het een map.
+          # Beide vormen accepteren, zodat de stap niet omvalt op een CodeQL-versie die het
+          # anders oplevert.
+          if [ -f "$database/src.zip" ]; then
+            bestanden=$(zipinfo -1 "$database/src.zip" | grep -E '\.(kt|java)$' || true)
+          elif [ -d "$database/src" ]; then
+            bestanden=$(find "$database/src" -type f \( -name '*.kt' -o -name '*.java' \) || true)
+          else
+            echo "::error::Geen source-archive in $database — de database is niet gevuld."
+            ls -la "$database" || true
+            exit 1
+          fi
+
+          # Naar stdout én naar de samenvatting: de samenvatting is prettig leesbaar maar niet
+          # via de API op te halen, dus zonder de logregels is een run niet te vergelijken met
+          # een vorige — precies waar deze telling voor bedoeld is.
+          {
+            echo "| Module | Geëxtraheerde bronbestanden |"
+            echo "|---|---|"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          for module in libraries/* services/*; do
+            [ -f "$module/pom.xml" ] || continue
+            aantal=$(grep -cF "/$module/" <<<"$bestanden" || true)
+            echo "| $module | $aantal |" | tee -a "$GITHUB_STEP_SUMMARY"
+
+            if [ "$aantal" -eq 0 ]; then
+              echo "::error::Geen bronbestanden van $module in de database — die code is niet geanalyseerd."
+              exit 1
+            fi
+          done
+
+          echo "| **Totaal** | **$(grep -c . <<<"$bestanden" || true)** |" | tee -a "$GITHUB_STEP_SUMMARY"
