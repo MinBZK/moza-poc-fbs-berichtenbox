@@ -44,9 +44,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Zonder cache haalde deze workflow per run 1962 artefacten opnieuw van Maven Central —
-      # ~68 seconden wachten op bytes die test.yml, detekt.yml en deploy.yml al hergebruiken.
-      # De cache is ~94 MB en herstelt in ruim een seconde.
+      # Zonder cache haalde deze workflow de volledige dependency-boom bij élke run opnieuw op,
+      # terwijl test.yml, detekt.yml en deploy.yml diezelfde artefacten al hergebruiken. Het
+      # herstellen van de cache kost een fractie van wat dat downloaden kostte.
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -58,14 +58,14 @@ jobs:
           languages: ${{ matrix.language }}
       # Eigen bouwstap in plaats van `autobuild`. Die draait `clean package -DskipTests`, en
       # `-DskipTests` slaat alleen de surefire-UITVOERING over: `kotlin:test-compile` draait
-      # gewoon door (45 s over alle modules), plus `jandex`, `jar` en `quarkus:build` (16 s).
-      # De extractie leest van dat alles niets.
+      # gewoon door, plus `jandex`, `jar` en `quarkus:build`. De extractie leest van dat alles
+      # niets.
       #
-      # `compile` stopt vóór de testfasen. Dat haalt behalve die 61 s ook ~67% van de Kotlin-
-      # bronnen uit de database (27.282 regels testcode tegen 13.437 regels applicatiecode).
-      # Dat laatste levert géén tijdwinst op: de analyse-stap bleef gemeten op 61 s staan tegen
-      # 53–70 s ervoor. Die stap wordt gedomineerd door het evalueren van de query-suite, niet
-      # door het aantal bronbestanden — verwacht hier dus niets van bij een volgende ingreep.
+      # `compile` stopt vóór de testfasen. Dat scheelt die compilatie, en haalt de testbronnen
+      # — het grootste deel van de Kotlin in deze repo — uit de database. Let op: dat laatste
+      # levert géén tijdwinst op. De analyse-stap wordt gedomineerd door het evalueren van de
+      # query-suite, niet door het aantal bronbestanden; verwacht daar dus niets van bij een
+      # volgende ingreep.
       #
       # BEWUSTE INPERKING: bevindingen in testcode vervallen hiermee. Verdedigbaar omdat detekt
       # testcode al uitsluit en testcode niet in productie draait; een hardcoded credential in
@@ -79,17 +79,22 @@ jobs:
       # niet bereikt) en staat er als vangrail: wie de fase ooit optrekt, krijgt de
       # testcompilatie dan niet ongemerkt terug.
       #
-      # `-T 1C` draait de reactor parallel. De module-graaf is breed — alleen `fbs-common` is
-      # upstream van de rest — dus het kritieke pad is `fbs-common` (30 s) → `berichtenmagazijn`
-      # (104 s) in plaats van de som van alle modules. Zonder dit bleef de analyse op ~4:21
-      # steken, boven de grens van 4 minuten die we onszelf stelden.
+      # `-T` draait de reactor parallel. De module-graaf is breed — alleen `fbs-common` is
+      # upstream van de rest — dus het kritieke pad loopt via `fbs-common` naar het zwaarste
+      # component, in plaats van via de som van alle modules. De winst blijft beperkt doordat
+      # de extractie CPU-gebonden is en de runner weinig kernen heeft: modules die naast elkaar
+      # draaien concurreren om dezelfde kernen.
       #
       # Het risico is dat de extractor compiler-processen traceert: als parallelle builds die
       # tracing zouden verstoren, verdwijnt er stil code uit de database. Daarom telt de stap na
       # de analyse de geëxtraheerde bronbestanden per module — die telling moet gelijk blijven
       # aan die van een sequentiële build.
+      #
+      # De metingen achter bovenstaande keuzes staan, mét datum en runs, in
+      # docs/plans/2026-08-19-codeql-minimale-buildstap.md. Bewust niet hier: getallen in
+      # commentaar verouderen zonder dat iemand het merkt.
       - name: Build
-        run: ./mvnw -B -ntp -e -T 1C clean compile -Dmaven.test.skip=true
+        run: ./mvnw -B -ntp -e -T 2C clean compile -Dmaven.test.skip=true
       # Een reactor die stilletjes minder bouwt, eindigt groen: CodeQL uploadt dan een vrijwel
       # lege SARIF en de PR oogt veilig terwijl er niets is gekeken. De CodeQL-actie vangt
       # alleen "nul bestanden" af, niet "één module in plaats van zes". Deze controle staat
