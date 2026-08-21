@@ -22,9 +22,20 @@
     </modules>
 
     <properties>
+        <!-- Los van de Quarkus-BOM beheerd: die pint jackson-databind op 2.22.0, dat kwetsbaar is
+             voor CVE-2026-54515 (case-insensitive deserialisatie omzeilt @JsonIgnoreProperties per
+             property) en CVE-2026-59889 (@JsonView omzeild bij @JsonUnwrapped-containers). Beide zijn
+             verholpen vanaf 2.22.1. Verwijder deze pin zodra de Quarkus-BOM zelf 2.22.1 of hoger
+             meelevert. Controleer dat bij ELKE quarkus.platform.version-bump: de pin wint ook
+             neerwaarts, dus hij trekt een nieuwere jackson uit een latere Quarkus-BOM stil terug
+             — de build blijft daarbij groen, dus niets anders signaleert het. -->
+        <jackson-bom.version>2.22.2</jackson-bom.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
         <kotlin.version>2.4.10</kotlin.version>
+        <!-- Bij een bump: kijk welke jackson-databind de nieuwe BOM meelevert en vergelijk met
+             jackson-bom.version hierboven. Die pin staat vóór de Quarkus-BOM en wint ook neerwaarts,
+             dus hij trekt een nieuwere jackson stil terug zonder dat de build of CI iets meldt. -->
         <quarkus.platform.version>3.38.2</quarkus.platform.version>
         <openapi-generator.version>7.24.0</openapi-generator.version>
         <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
@@ -58,6 +69,15 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Vóór de Quarkus-BOM: bij twee geïmporteerde BOM's wint de eerst gedeclareerde, dus
+                 alleen op deze plek overschrijft de jackson-BOM de jackson-versies van Quarkus. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson-bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>io.quarkus.platform</groupId>
                 <artifactId>quarkus-bom</artifactId>
