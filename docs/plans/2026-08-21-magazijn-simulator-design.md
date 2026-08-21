@@ -39,7 +39,8 @@ Een paar termen komen hieronder steeds terug.
 |---|---|
 | fan-out | Het aantal magazijnen dat de uitvraag voor één ondernemer bevraagt: de opt-ins uit zijn profiel, doorsneden met het register. |
 | substream | De voortgangsregels van één magazijn binnen één ophaalronde — gestart, daarna voltooid met uitkomst `OK`, `TIMEOUT` of `FOUT`. |
-| pad-prefix | Het eerste stuk van de URL (`/m07`) waarmee de simulator bepaalt welk magazijn bedoeld is. |
+| pad-prefix | Het eerste stuk van de URL — de OIN van het magazijn — waarmee de simulator bepaalt welk magazijn bedoeld is. |
+| index (`i`) | Volgnummer 1…98 van een gesimuleerd magazijn. Bepaalt zijn OIN (`0000000900000000{i:04d}`), zijn naam ("Demo-magazijn i") en zijn gedrag. Alleen een rekengrootheid; hij komt niet in URL's voor. |
 | log-normale spreiding | Responstijden met een lange staart: de meeste rond de mediaan, af en toe een forse uitschieter. Realistischer dan een vaste vertraging. |
 | circuit breaker | Beveiliging in de uitvraag die een magazijn na herhaalde storingen een tijdje overslaat in plaats van er telkens op te wachten. |
 
@@ -94,6 +95,11 @@ Nieuwe Maven-module **`services/magazijn-simulator`** — een eigen module in de
 conform de bestaande conventies (surrogate PK per tabel, FK op surrogate PK, RESTRICT, `bytea`
 zonder `@Lob`).
 
+De simulator is een onderdeel van wat de issues de **simulatie-engine** noemen (groep-issue #787,
+en #936 voor het draaibaar maken ervan) — niet het geheel: de demo-console en de scripts in `demo/`
+horen er net zo goed bij. Vandaar de specifiekere modulenaam; wie "simulatie-engine" zegt, bedoelt
+de simulator plus de bediening eromheen.
+
 **Waarom onder `services/` en niet onder `demo/`.** Het demo-karakter pleit voor `demo/`, maar de
 reactor kent vandaag alleen `libraries/*` en `services/*` als module-root, en het enige bestaande
 demo-only artefact — `services/demo-console` — staat al onder `services/`. Eén module apart
@@ -130,42 +136,72 @@ De gegenereerde interfaces dragen paden relatief aan `quarkus.rest.path=/api/v1`
 niets aan. Een `@PreMatching ContainerRequestFilter` doet het werk:
 
 ```
-GET   /m07/api/v1/berichten          →  magazijn m07, match op /api/v1/berichten
-PATCH /m07/api/v1/berichten/{id}     →  magazijn m07, match op /api/v1/berichten/{id}
-POST  /m07/api/v1/aanleveringen      →  magazijn m07, match op /api/v1/aanleveringen
+GET   /00000009000000000007/api/v1/berichten        →  magazijn met die OIN, match op /api/v1/berichten
+PATCH /00000009000000000007/api/v1/berichten/{id}   →  idem, match op /api/v1/berichten/{id}
+POST  /00000009000000000007/api/v1/aanleveringen    →  idem, match op /api/v1/aanleveringen
 ```
 
-Het filter leest het eerste segment, matcht `^m\d+$`, zoekt het magazijn op, vult een
+**Het prefix is de OIN, niet een verzonnen kortcode.** Fase 6 gebruikte `/m07`; dat vroeg om een
+aparte `prefix`-kolom die met de gegenereerde register-regels in de pas moest blijven, en het brak
+boven de 99 magazijnen (`/m{i:02d}`). De OIN is de identiteit die toch al door de hele keten stroomt
+— `magazijnId == oin.waarde` — en staat al als sleutel in het register, dus de configuratieregel
+wordt zelfbeschrijvend:
+
+```properties
+magazijnen."00000009000000000007".url=http://magazijn-simulator:8092/00000009000000000007
+```
+
+Sleutel en laatste padsegment zijn dan per constructie gelijk; drift tussen generator en simulator
+kan niet meer ontstaan. De prijs is een langere URL in de logs, en dat is hem waard.
+
+Het filter leest het eerste segment, matcht `^\d{20}$`, zoekt het magazijn op, vult een
 `@RequestScoped MagazijnContext` en herschrijft de URI met **`setRequestUri(baseUri, requestUri)`**.
 
 Die twee-argument-variant is essentieel. De resources bouwen hun HAL `_links` uit
-`UriInfo.baseUriBuilder`; door het prefix in de `baseUri` te laten staan blijven die links
-`/m07/…` bevatten. Met de één-argument-variant verdwijnt het prefix en wijzen de links naar het
-verkeerde magazijn. Dit is de scherpste valkuil in het ontwerp — het gedrag van Quarkus REST op dit
-punt moet in stap 1 geverifieerd worden en met een test vastgepind.
+`UriInfo.baseUriBuilder`; door het prefix in de `baseUri` te laten staan blijven die links de OIN
+bevatten. Met de één-argument-variant verdwijnt het prefix en wijzen de links naar het verkeerde
+magazijn. Dit is de scherpste valkuil in het ontwerp — het gedrag van Quarkus REST op dit punt moet
+in stap 1 geverifieerd worden en met een test vastgepind.
 
-Onbekend of ontbrekend prefix → 404 `application/problem+json`. Bewust geen default-magazijn: een
-verkeerd geconfigureerd register moet luidruchtig falen en niet stil op magazijn 1 uitkomen.
+Onbekende of ontbrekende OIN → 404 `application/problem+json`. Bewust geen default-magazijn: een
+verkeerd geconfigureerd register moet luidruchtig falen en niet stil bij het eerste magazijn
+uitkomen.
 
 De uitvraag-kant hoeft niets: `MagazijnClientFactory` bouwt de client met
-`baseUri(http://magazijn-simulator:8092/m07)` en behoudt dat subpad — al bewezen in fase 6.
+`baseUri(http://magazijn-simulator:8092/<OIN>)` en behoudt dat subpad — al bewezen in fase 6.
 
 ## Datamodel
 
 ```
-magazijn        id, oin UNIQUE, prefix UNIQUE, naam,
+magazijn        id, oin UNIQUE, naam,
                 gedrag_modus, latency_p50_ms, latency_p95_ms, foutkans, fout_status
-bericht         id, magazijn_db_id FK, bericht_id UUID, afzender,
+bericht         id, magazijn_db_id FK, bericht_id UUID UNIQUE, afzender,
                 ontvanger_type, ontvanger_waarde, onderwerp, inhoud,
-                publicatietijdstip, tijdstip_ontvangst, verwijderd_op,
-                UNIQUE(magazijn_db_id, bericht_id)
-bericht_status  id, bericht_db_id FK, gelezen bool, map varchar(128), gewijzigd_op
+                publicatietijdstip, tijdstip_ontvangst, verwijderd_op
+bericht_status  id, bericht_db_id FK UNIQUE, gelezen bool, map varchar(128), gewijzigd_op
 bijlage         id, bericht_db_id FK, bijlage_id UUID, naam, mime_type, inhoud bytea
 ```
 
 Elke repository filtert op het magazijn uit `MagazijnContext`; er is geen query die zonder die
 discriminator draait. Test-cleanup in child-eerst-volgorde (`bericht_status` → `bijlage` →
-`bericht` → `magazijn`), zoals bij het echte magazijn.
+`bericht` → `magazijn`), zoals bij het echte magazijn. Bij elke migratie hoort een
+rollback-script onder `src/main/resources/db/rollback/V*.sql`, conform de projectconventie.
+
+Twee constraints verdienen toelichting, want ze wijken af van wat je zou verwachten.
+
+**`bericht_id` is globaal uniek, niet uniek per magazijn.** De voor de hand liggende sleutel zou
+`(magazijn_db_id, bericht_id)` zijn — één magazijn mag hetzelfde bericht niet twee keer hebben. Maar
+de sessiecache sleutelt zijn berichten op `bericht:v1:<berichtId>`, zonder magazijn erin. Twee
+gesimuleerde magazijnen die toevallig dezelfde UUID uitdelen, overschrijven elkaar daar. De
+seed-generator moet dus globaal unieke UUID's leveren, en de database dwingt dat af in plaats van
+erop te vertrouwen.
+
+**`bericht_status` is 1:1 met `bericht`.** In het echte magazijn hangt de status aan (bericht,
+ontvanger) en zijn er dus meerdere per bericht; in de simulator heeft een bericht precies één
+ontvanger. Een aparte tabel blijft toch de juiste vorm: de spec zegt dat `BerichtStatusInfo`
+*weggelaten* wordt zolang de ontvanger niets heeft gezet, en een ontbrekende rij modelleert dat
+exact — met kolommen op `bericht` zou je dat met nullables moeten nabouwen. De `UNIQUE` op de
+foreign key maakt de 1:1 hard.
 
 Wat hiermee werkt en met WireMock niet:
 
@@ -204,9 +240,22 @@ voor `PATCH` en bijlage-download, iets wat een WireMock-mapping-overlay per defi
 | `HAPERT` | foutkans per call | wisselend `OK` / `FOUT` |
 | `STUK` | `fout_status` (503) | `FOUT`, na 3× `CIRCUIT_OPEN` |
 | `UIT` | vertraging boven de query-timeout van 10 s | `TIMEOUT` |
+| `WEIGERT` | 4xx met een `problem+json`-body | `FOUT`, maar **géén** circuit-tik |
+| `MALFORMED` | 200 met een body die het schema schendt | `FOUT`, maar **géén** circuit-tik |
+
+De laatste twee zijn er niet voor de sier. De uitvraag onderscheidt bewust
+*beschikbaarheids*-storingen (timeout, 5xx, netwerk — die tellen mee voor de circuit breaker) van
+een magazijn dat wél antwoordde maar iets onbruikbaars zei (4xx of een body die niet deserialiseert
+— die tellen níét mee). Met alleen de eerste vier modi wordt die tweede tak in de demo nooit geraakt,
+terwijl juist die in fase 6 een echte fout opleverde: stub-responses zonder `bijlagen`-veld die als
+`MALFORMED` binnenkwamen. Twee extra rijen in een enum dekken een pad dat anders onzichtbaar blijft.
 
 **Gevolg voor de rest van de keten.** Omdat het gedrag op elke endpoint geldt, kan ook het markeren
-als gelezen of het verplaatsen naar een map traag zijn of falen. Dat is realistisch — in het echte
+als gelezen, het verplaatsen naar een map of het *aanleveren* van een nieuw bericht traag zijn of
+falen. Dat laatste raakt de demo-bediening: een magazijn dat op `STUK` staat weigert ook nieuwe
+berichten, dus wie eerst een storing aanzet en daarna wil vullen, krijgt een fout. Bedoeld gedrag,
+maar het moet niet verrassen — vullen doe je vóór de storing, of via `POST /beheer/seed`, dat buiten
+de simulatie valt. Dat is realistisch — in het echte
 stelsel is een schrijfactie net zo goed een aanroep naar een andere organisatie — maar het vergroot
 het testoppervlak, en het stelt eisen aan de foutafhandeling in de Berichtenbox die er nu misschien
 niet zijn. Dat is geen bezwaar tegen dit ontwerp: het maakt werk zichtbaar dat er anders ook was.
@@ -225,18 +274,39 @@ meeschalen. Meetpunt in stap 6.
 
 Buiten de gedeelde spec, op een eigen `/beheer`-pad zodat de gegenereerde interfaces schoon blijven.
 
+**De magazijnen komen niet uit dit pad.** Het generatiescript levert één artefact met de hele set —
+OIN, naam en gedrag per index — en de simulator leest dat bij het starten in en brengt zijn
+`magazijn`-tabel ermee in overeenstemming. Datzelfde script schrijft de register-regels voor de
+uitvraag, dus beide kanten komen uit één bron en kunnen niet uit elkaar lopen. Zou het inrichten via
+een beheer-aanroep gaan, dan is er een opstartvolgorde (tot die aanroep geeft elk pad 404 terwijl het
+register van de uitvraag geldig oogt) én een tweede waarheid die kan driften. `/beheer` is er
+uitsluitend voor wijzigingen *tijdens* een demo.
+
 | Endpoint | Waarvoor |
 |---|---|
-| `POST /beheer/magazijnen` | n magazijnen inrichten (oin, prefix, naam, gedrag) |
-| `PUT /beheer/magazijnen/{prefix}/gedrag` | gedrag live bijstellen |
+| `PUT /beheer/magazijnen/{oin}/gedrag` | gedrag live bijstellen |
 | `POST /beheer/seed` | bulk n × m berichten in één transactie |
-| `POST /beheer/legen` | reset zonder handmatig databasewerk |
+| `POST /beheer/legen` | terug naar de begintoestand |
 
-`seed` is geen luxe: 45 magazijnen × 50 berichten via losse HTTP-aanleveringen duurt minuten, een
-bulk-insert seconden. Vullen kán daarnaast gewoon via `POST /mNN/api/v1/aanleveringen` — dezelfde
-spec, dus de bestaande aanlever- en generatorcode van de demo-console werkt met alleen een andere
-base-URL. Samen dekken `seed` en `legen` de acceptatiecriteria van #936 over herhaalbaar vullen en
-leegmaken.
+`seed` is geen luxe: 45 magazijnen × 20 berichten via losse HTTP-aanleveringen duurt minuten, een
+bulk-insert seconden. Hij levert ook bijlagen mee — een deel van de berichten krijgt er één, met een
+echt MIME-type en een paar kilobyte inhoud. Zonder dat blijft het bijlage-pad in de uitvraag
+alsnog ongebruikt, terwijl dat juist een van de redenen was om geen antwoordmachine meer te
+gebruiken.
+
+**Twintig berichten per magazijn is niet toevallig.** De uitvraag haalt per magazijn één pagina op en
+het magazijn levert er standaard twintig; daarboven ziet de ondernemer niets. Dat is een echt gat en
+staat als MinBZK/MijnOverheidZakelijk#996 op de backlog. Zolang dat er is, houdt de seed zich aan
+twintig per magazijn — anders demonstreren we onbedoeld het gat in plaats van het gedrag dat we
+willen tonen. Wie het gat juist wél wil laten zien, zet er bewust meer in.
+
+`legen` zet ook het **gedrag** terug naar de deterministische verdeling, niet alleen de berichten.
+Anders staat een magazijn dat tijdens de vorige demo op `STUK` is gezet er de volgende keer nog zo
+bij, en is "terug naar de begintoestand" uit #936 een halve waarheid.
+
+Vullen kán daarnaast gewoon via `POST /<OIN>/api/v1/aanleveringen` — dezelfde spec, dus de bestaande
+aanlever- en generatorcode van de demo-console werkt met alleen een andere base-URL. Samen dekken
+`seed` en `legen` de acceptatiecriteria van #936 over herhaalbaar vullen en leegmaken.
 
 **`/beheer` hoort niet open te staan.** De WireMock-admin-API van de huidige ZAD-stubs is publiek en
 zonder authenticatie bereikbaar (`GET https://profiel-test-mpfpsm-lcl.rig…/__admin/mappings`
@@ -264,14 +334,20 @@ verschil in wachttijd puur het gevolg van de extra magazijnen en niet van een an
 
 | Persona | Identificatie | Fan-out | Samenstelling |
 |---|---|---|---|
-| Bakkerij Pietersen | bestaande BSN-persona | **3** | A + B + m01 |
-| Installatiebedrijf De Vries | KVK 90000002 | **15** | A + B + m01–m13 |
-| Grootbedrijf B.V. | KVK 90000001 (bestaat al) | **45** | A + B + m01–m43 |
-| Landelijk Concern N.V. | KVK 90000003 | **100** | A + B + m01–m98 |
+| Bakkerij Pietersen | bestaande BSN-persona | **3** | A + B + index 1 |
+| Installatiebedrijf De Vries | KVK 90000002 | **15** | A + B + index 1–13 |
+| Grootbedrijf B.V. | KVK 90000001 (bestaat al) | **45** | A + B + index 1–43 |
+| Landelijk Concern N.V. | KVK 90000003 | **100** | A + B + index 1–98 |
 
 De vierde persona bevraagt het volledige register en is bewust extreem: geen enkele echte ondernemer
 raakt 100 magazijnen. Hij bestaat om het gedrag van de keten in de breedte zichtbaar te maken, niet
 om realisme te tonen.
+
+**Het generatiescript bewaakt de ondergrens.** De persona's zijn vaste indexbereiken, dus met een
+kleinere n bestaan ze niet meer: bij `DEMO_MAGAZIJN_STUBS=10` valt er van de 15-, 45- en
+100-persona niets te bouwen. Het script hoort n daarom te toetsen aan de grootste persona en te
+weigeren met een leesbare melding, in plaats van stilletjes een profiel met dertien scopes te
+schrijven waarvan er tien bestaan. Wie bewust klein wil draaien, verkleint de persona-set mee.
 
 **De namen liggen nog niet vast.** Er lopen elders standaard-persona's — in de proeftuin, en het werk
 dat Swie eraan doet. Die zijn leidend zodra ze er zijn; nieuwe verzinnen zou de derde set opleveren.
@@ -286,22 +362,26 @@ dezelfde verdeling:
 
 1. `i ∈ {28, 97}` → **UIT** (2)
 2. `i ∈ {33, 66, 98}` → **STUK** (3)
-3. `i mod 20 == 0` → **HAPERT** (m20, m40, m60, m80 — 4)
-4. `i mod 5 == 0`, voor zover niet hierboven → **TRAAG** (15)
-5. rest → **NORMAAL** (74)
+3. `i ∈ {22, 71}` → **WEIGERT** respectievelijk **MALFORMED** (1 + 1)
+4. `i mod 20 == 0` → **HAPERT** (index 20, 40, 60, 80 — 4)
+5. `i mod 5 == 0`, voor zover niet hierboven → **TRAAG** (15)
+6. rest → **NORMAAL** (72)
 
-Aandelen: 76 % normaal, 15 % traag, 4 % hapert, 3 % stuk, 2 % uit. De twee echte magazijnen staan op
-normaal en blijven dat: met 98 gesimuleerde magazijnen die elk gedrag kunnen vertonen, hoeft er op de
-echte geen storing meer nagebootst te worden.
+Aandelen: 73 % normaal, 15 % traag, 4 % hapert, 3 % stuk, 2 % uit, 1 % weigert, 1 % malformed.
+Index 22 valt binnen de 45-persona en index 71 alleen binnen de grootste, zodat de kleinste twee
+persona's hun schone contrast houden en de niet-storing-tak vanaf het grote scenario zichtbaar wordt.
+
+De twee echte magazijnen staan op normaal en blijven dat: met 98 gesimuleerde magazijnen die elk
+gedrag kunnen vertonen, hoeft er op de echte geen storing meer nagebootst te worden.
 
 De verdeling is zo gelegd dat elke persona een zinvol beeld geeft:
 
-| Persona | traag | hapert | stuk | uit |
-|---|---|---|---|---|
-| 3 | – | – | – | – |
-| 15 | m05, m10 | – | – | – |
-| 45 | m05, m10, m15, m25, m30, m35 | m20, m40 | m33 | m28 |
-| 100 | 15 | 4 | 3 | 2 |
+| Persona | traag | hapert | stuk | uit | weigert / malformed |
+|---|---|---|---|---|---|
+| 3 | – | – | – | – | – |
+| 15 | 5, 10 | – | – | – | – |
+| 45 | 5, 10, 15, 25, 30, 35 | 20, 40 | 33 | 28 | 22 (weigert) |
+| 100 | 15 | 4 | 3 | 2 | 22, 71 |
 
 Verwacht beeld per persona — te meten, niet aangenomen:
 
@@ -309,11 +389,14 @@ Verwacht beeld per persona — te meten, niet aangenomen:
 - **15** — compleet, maar de lijst is pas klaar als de twee trage magazijnen geantwoord hebben. Toont
   dat de gebruiker op zijn traagste leverancier wacht.
 - **45** — eerste berichten direct, daarna druppelsgewijs; één magazijn in timeout, één stuk (na drie
-  rondes overgeslagen door de circuit breaker) en twee die wisselend falen. De lijst is dus zowel
-  traag als onvolledig, en per magazijn is zichtbaar waaróm.
+  rondes overgeslagen door de circuit breaker), twee die wisselend falen en één dat netjes antwoordt
+  met een weigering. De lijst is dus zowel traag als onvolledig, en per magazijn is zichtbaar waaróm
+  — inclusief het verschil tussen "onbereikbaar" en "wel bereikbaar, maar geen antwoord dat we
+  kunnen gebruiken".
 - **100** — hetzelfde beeld met een langere staart: vijftien trage magazijnen bepalen wanneer de
-  lijst compleet heet, vijf leveren niets (drie stuk, twee die niet reageren) en vier falen
-  wisselend. Toont dat de wachttijd van de ondernemer die van zijn traagste leverancier is.
+  lijst compleet heet, vijf leveren niets (drie stuk, twee die niet reageren), vier falen wisselend
+  en twee antwoorden onbruikbaar. Toont dat de wachttijd van de ondernemer die van zijn traagste
+  leverancier is.
 
 ## Grenzen en meetpunten
 
@@ -327,9 +410,19 @@ backlog-issue en speelt in dit document geen rol.
 | Threads in de simulator | ~200 (Quarkus-default) | fan-out 100 met vertraagde magazijnen, meerdere sessies tegelijk |
 | Register-configuratie | 2 regels per magazijn | 200 regels bij n = 100; triviaal |
 | Doorlooptijd van een ophaalronde | het traagste magazijn bepaalt wanneer de lijst compleet is | tijd tot het eerste bericht en tijd tot compleet, per persona |
+| Berichten per magazijn | 20 — de uitvraag haalt één pagina op | staat als MinBZK/MijnOverheidZakelijk#996 op de backlog; de seed blijft er tot die tijd onder |
 
-Verwacht dat de demo hier optimalisatiepunten uit oplevert; dat is een doel en geen bijwerking. Wat
-stap 6 vindt hoort als issue op de backlog, niet stilzwijgend in dit document.
+**Hoe we meten.** De uitvraag zendt per magazijn een `MAGAZIJN_BEVRAGING_GESTART`- en een
+`..._VOLTOOID`-event over de SSE-stream. Een klein script dat die stream meeleest en per event een
+tijdstempel wegschrijft, levert precies de twee getallen die we willen: het eerste `VOLTOOID` met
+uitkomst `OK` is "tijd tot het eerste bericht", het laatste event van de ronde is "tijd tot
+compleet". Dat script hoort bij stap 6 en komt naast `demo/smoke.sh` te staan, zodat de meting
+herhaalbaar is en niet met een stopwatch gebeurt.
+
+Verwacht dat de demo hier optimalisatiepunten oplevert; dat is een doel en geen bijwerking. Wat stap
+6 vindt hoort als issue op de backlog, niet stilzwijgend in dit document. Twee daarvan staan er al —
+#996 hierboven en MinBZK/MijnOverheidZakelijk#997 over de onvolledige lijst bij veel aangesloten
+organisaties.
 
 ## Wat vervalt
 
@@ -367,7 +460,9 @@ n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
 
 ## Foutafhandeling
 
-- Onbekend pad-prefix → 404 problem+json met het prefix in `detail`.
+- Onbekende of ontbrekende OIN in het pad → 404 problem+json, met de OIN in `detail`.
+- Aanleveren bij een magazijn dat op `STUK` of `UIT` staat faalt net als elke andere aanroep; het
+  gedrag geldt op de hele API. Alleen `/beheer` valt erbuiten.
 - Ontbrekende of ongeldige `X-Ontvanger` → 400, zoals de spec voorschrijft.
 - `POST /beheer/*` zonder geldig token buiten dev/test → 401, en bij boot een fail-fast als het
   token niet gezet is.
@@ -380,11 +475,14 @@ n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
 De categorieën hieronder zijn een startpunt, geen afvinklijst: bij de implementatie komen er zaken
 bij die net zo goed getest horen te worden.
 
-- **Unit** — pad-prefix-filter (geldig, onbekend, ontbrekend, prefix in de `baseUri`), gedragskiezer
-  (deterministische verdeling voor i = 1…98: precies 2 uit, 3 stuk, 4 hapert, 15 traag, 74 normaal),
-  status-patch-semantiek (ontbrekend veld, expliciet `null`, overschrijven van een map).
+- **Unit** — pad-prefix-filter (geldige OIN, onbekende OIN, ontbrekend segment, iets dat geen
+  20 cijfers is, en de OIN die in de `baseUri` blijft staan), gedragskiezer (deterministische
+  verdeling voor i = 1…98: precies 2 uit, 3 stuk, 1 weigert, 1 malformed, 4 hapert, 15 traag,
+  72 normaal), status-patch-semantiek (ontbrekend veld, expliciet `null`, overschrijven van een map),
+  en de n-validatie van het generatiescript tegen de grootste persona.
 - **Integratie (`@QuarkusTest`, Dev Services)** — twee magazijnen naast elkaar: bericht aanleveren in
-  m01, `PATCH gelezen+map`, `GET` in m01 toont de wijziging en `GET` in m02 níét; paginering over
+  het eerste magazijn, `PATCH gelezen+map`, `GET` daar toont de wijziging en `GET` bij het tweede
+  magazijn níét; paginering over
   meerdere pagina's; soft-delete; bijlage-bytes met MIME-type. Cardinaliteiten leeg / één / meerdere
   via `@ParameterizedTest`, conform de teststrategie.
 - **Contract** — `swagger-request-validator` tegen `berichtenmagazijn-api.yaml`, zodat de simulator
@@ -392,6 +490,11 @@ bij die net zo goed getest horen te worden.
   een expliciete test in plaats van vertrouwen op de generator.
 - **Keten** — de bestaande `demo/smoke.sh` uitbreiden met een gesimuleerd magazijn: aanleveren →
   ophalen via de uitvraag → markeren als gelezen → opnieuw ophalen toont `gelezen: true`.
+- **Invarianten die stil kunnen breken** — `seed` levert globaal unieke `berichtId`'s (niet alleen
+  uniek binnen een magazijn); `legen` zet het gedrag terug naar de deterministische verdeling en niet
+  alleen de berichten; een magazijn op `WEIGERT` of `MALFORMED` laat de circuit breaker van de
+  uitvraag ongemoeid terwijl `STUK` hem wél opent. Alle drie zijn ze onzichtbaar tot ze misgaan,
+  vandaar expliciet.
 - **Coverage** — dezelfde 90 %-JaCoCo-gate als de andere modules. Dat de simulator demo-gereedschap
   is, is geen reden om er minder van te eisen: hij draagt straks het gedrag van honderd magazijnen,
   en een fout erin lijkt op een fout in de keten. Let op de bekende valkuil: de
@@ -404,10 +507,10 @@ bij die net zo goed getest horen te worden.
 ## Stappen
 
 1. **Module + spec + pad-prefix.** Lege module, generatie uit optie A, `@PreMatching`-filter,
-   `MagazijnContext`. Verificatie: `GET /m01/api/v1/berichten` levert een lege, spec-valide
-   `BerichtenLijst` en de `_links` bevatten `/m01`.
-2. **Persistentie.** Flyway-migratie, entities, repositories met discriminator, alle zes de
-   operaties uit de spec. Verificatie: de integratietests hierboven.
+   `MagazijnContext`. Verificatie: `GET /<OIN>/api/v1/berichten` levert een lege, spec-valide
+   `BerichtenLijst` en de `_links` dragen diezelfde OIN.
+2. **Persistentie.** Flyway-migratie mét rollback-script, entities, repositories met discriminator,
+   alle zes de operaties uit de spec. Verificatie: de integratietests hierboven.
 3. **Gedrag per magazijn.** Modi, vertraging, foutkans. Verificatie: unit-test op de verdeling plus
    een `@QuarkusTest` die een `STUK`-magazijn een 503 ziet geven.
 4. **Beheer-API + token.** Inrichten, seed, legen, gedrag. Verificatie: 100 magazijnen × 20 berichten
@@ -415,13 +518,16 @@ bij die net zo goed getest horen te worden.
 5. **Generator en compose omzetten.** WireMock-stub-service en `VeelMagazijnenService` eruit,
    simulator erin, vier persona's in de profiel-stub, de twee magazijn-proxies uit Toxiproxy.
    Verificatie: `demo/smoke.sh` groen, de vier persona's leveren fan-out 3 / 15 / 45 / 100.
-6. **Meten en vastleggen.** Tijd tot het eerste bericht en tijd tot compleet, per persona;
-   opstarttijd en geheugengebruik van de uitvraag bij n = 50 / 100 / 250. Uitkomsten terug in dit
-   document en in #938.
+6. **Meten en vastleggen.** Meetscript op de SSE-stream; tijd tot het eerste bericht en tijd tot
+   compleet, per persona; opstarttijd en geheugengebruik van de uitvraag bij n = 50 / 100 / 250.
+   Uitkomsten terug in dit document en in #938.
 7. **ZAD.** Component, database, register-attachment, persona's in het stubs-image.
 
-Stap 1 t/m 5 leveren de lokale demo; stap 6 levert de onderbouwing die #938 vraagt; stap 7 de
-ZAD-helft, die verder op #936 leunt.
+Stap 1 t/m 5 leveren de lokale demo; stap 6 levert de onderbouwing die #938 vraagt. Stap 7 is
+**geblokkeerd door #936**, en niet slechts ervan afhankelijk: zonder bediening en zonder
+Berichtenbox op ZAD kan die stap technisch slagen — de simulator draait, de fan-out klopt — terwijl
+er voor een stakeholder niets te zien is. Plan hem dus ná #936, of accepteer expliciet dat stap 7
+alleen de keten oplevert en niet de demo.
 
 Elke stap wordt een sub-issue onder MinBZK/MijnOverheidZakelijk#938, zodat het werk op het bord staat
 en niet alleen in dit document.
@@ -447,3 +553,6 @@ en niet alleen in dit document.
    plafond lager? Stap 6 beslist; het getal in dit document is een voorstel, geen meting.
 5. Gaat het gedrag ook op schrijfacties gelden, of eerst alleen op leesacties? Zie "Gedrag per
    magazijn"; het verschil zit in het testoppervlak en in wat de Berichtenbox moet opvangen.
+6. Blijft de module `magazijn-simulator` heten, of wil het team de term "simulatie-engine" uit #787
+   in de modulenaam terugzien? Nu beslissen is goedkoop; na de eerste code kost het een
+   package-rename.
