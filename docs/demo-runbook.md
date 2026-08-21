@@ -1,4 +1,4 @@
-# Demo-runbook — FBS Berichtenbox
+# Demo-runbook — PoC Federatief Berichtenstelsel
 
 Zo zet je de demo-stack op en speel je elk scenario. De demo draait volledig lokaal via Docker
 Compose. Alle demo-bediening zit in de **wegwerp `demo-console`** (poort 8095); de bestaande services
