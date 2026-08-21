@@ -357,12 +357,12 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 - **Titel en inleiding zijn functioneel en niet-technisch.** De Product Owner leest mee en moet aanleiding, effect voor gebruikers, wenselijk gedrag en acceptatiecriteria kunnen volgen zonder Kotlin/Quarkus/Redis-kennis. Geen klasse-namen, file:line-verwijzingen, framework-jargon in het bovenste deel van het issue.
 - **Technische details horen in een aparte sectie verderop** (bv. "Technische context", "Oplossingsrichtingen"). Daar mogen wel code-locaties, klasse-namen, libraries en concrete refactor-opties.
 - **Acceptatiecriteria functioneel formuleren** in termen van gedrag voor de gebruiker of het systeem (latency-grenzen, foutgedrag, beschikbaarheid), niet in termen van implementatie ("gebruik X-pattern").
-- **Alles hangt onder epic [#238](https://github.com/MinBZK/MijnOverheidZakelijk/issues/238)**, en daarbinnen onder de groep-issue waar het werk bij hoort: [#349](https://github.com/MinBZK/MijnOverheidZakelijk/issues/349) PoC (standaardkeuze — services, keten, CI/CD, deploy, documentatie), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552) authenticatie/autorisatie, [#787](https://github.com/MinBZK/MijnOverheidZakelijk/issues/787) simulatie-engine, [#947](https://github.com/MinBZK/MijnOverheidZakelijk/issues/947) Model AppManager. Past het bij geen enkele groep: rechtstreeks onder #238, en meld dat bij het opleveren. Koppel via de sub-issue-relatie, niet via een `> Onderdeel van #N.`-regel in de tekst — `gh` (2.46) kent daar geen commando voor, dus via GraphQL:
+- **Alles hangt onder epic [#238](https://github.com/MinBZK/MijnOverheidZakelijk/issues/238)**, en daarbinnen onder de groep-issue waar het werk bij hoort: [#349](https://github.com/MinBZK/MijnOverheidZakelijk/issues/349) PoC (productcode, keten, CI/CD, deploy, documentatie), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552) authenticatie/autorisatie, [#787](https://github.com/MinBZK/MijnOverheidZakelijk/issues/787) demo (simulatie-engine, berichtenbox-UI, demo-omgeving, scenario's en vraagstukken die de demo bespreekbaar maakt), [#947](https://github.com/MinBZK/MijnOverheidZakelijk/issues/947) Model AppManager. Geen standaardkeuze: kies de groep die de aanleiding raakt. Past het bij geen enkele groep: rechtstreeks onder #238, en meld dat bij het opleveren. Koppel via de sub-issue-relatie, niet via een `> Onderdeel van #N.`-regel in de tekst — `gh` (2.46) kent daar geen commando voor, dus via GraphQL:
 
 ```bash
 issue_id() { gh api graphql -f query="{repository(owner:\"MinBZK\",name:\"MijnOverheidZakelijk\"){issue(number:$1){id}}}" --jq '.data.repository.issue.id'; }
 gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){subIssue{number}}}' \
-  -f p="$(issue_id 349)" -f c="$(issue_id <n>)"
+  -f p="$(issue_id <groep>)" -f c="$(issue_id <n>)"
 ```
 
 ## Teststrategie
