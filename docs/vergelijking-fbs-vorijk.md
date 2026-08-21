@@ -1,4 +1,4 @@
-# Vergelijking VoRijk (Blauwe Knop) vs. FBS Berichtenbox (AI-gegenereerd)
+# Vergelijking VoRijk (Blauwe Knop) vs. Federatief Berichtenstelsel (AI-gegenereerd)
 
 > **AI-disclaimer:** Dit document is gegenereerd met behulp van Claude Code. De inhoud kan feitelijke onjuistheden bevatten en is nog niet inhoudelijk gereviewd. Feedback is welkom.
 
@@ -8,7 +8,7 @@ Het **Vorderingenoverzicht Rijk** is een initiatief waarbij burgers hun openstaa
 
 ## Fundamenteel verschil: wie initieert de communicatie?
 
-| Aspect | FBS Berichtenbox | VoRijk (Blauwe Knop) |
+| Aspect | FBS (deze PoC) | VoRijk (Blauwe Knop) |
 |--------|------------------|----------------------|
 | **Initiator** | Burger logt in op Interactielaag (webportaal), die namens burger bij magazijnen opvraagt | Burger gebruikt een **mobiele app** die **direct** met elke bronorganisatie communiceert |
 | **Intermediair** | Ja — de Interactielaag en Berichten Uitvraag Service als tussenstations | **Nee** — geen intermediair verwerkt de data |

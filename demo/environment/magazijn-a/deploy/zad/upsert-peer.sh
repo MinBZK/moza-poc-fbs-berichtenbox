@@ -42,7 +42,7 @@ TXLOG_TAG="${ZAD_TXLOG_TAG:-${IMAGE_TAG}}"
 PROJECT="${ZAD_PROJECT:-mpfm-w3h}"
 BASE="${ZAD_BASE:-https://zad.rijksapp.nl}"
 BASE_DOMAIN="${ZAD_BASE_DOMAIN:-rig.prd1.gn2.quattro.rijksapps.nl}"
-PG_SSLMODE="${ZAD_PG_SSLMODE:-disable}"          # managed DB intra-cluster: plaintext (zoals berichtenbox-JDBC)
+PG_SSLMODE="${ZAD_PG_SSLMODE:-disable}"          # managed DB intra-cluster: plaintext (zoals de JDBC van de FBS-services)
 CLONE_FROM="${ZAD_PEER_CLONE_FROM:-}"            # leeg = geen clone; klonen van `test` zou de app-componenten meenemen
 
 # --- Self-hosted Postgres (component magazijna-fscpg) ---------------------------------------------------------

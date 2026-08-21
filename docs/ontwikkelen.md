@@ -1,4 +1,4 @@
-# Ontwikkelen aan de FBS Berichtenbox
+# Ontwikkelen aan de PoC Federatief Berichtenstelsel
 
 Alles wat je lokaal nodig hebt om te bouwen, testen en handmatig tegen de API's aan te praten.
 Voor het opzetten van de demo-stack: [`demo-runbook.md`](demo-runbook.md). Voor draaien in
