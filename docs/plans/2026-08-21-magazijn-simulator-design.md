@@ -31,11 +31,23 @@ met de spec delen, kunnen ze er stil uit lopen.
 Berichtenbox-lijst meewegen. Dat is geen argument: de UI mag het aantal magazijnen niet bepalen.
 Wat het aantal wél begrenst staat onder "Grenzen en meetpunten".
 
+## Begrippen
+
+Een paar termen komen hieronder steeds terug.
+
+| Term | Betekenis in dit document |
+|---|---|
+| fan-out | Het aantal magazijnen dat de uitvraag voor één ondernemer bevraagt: de opt-ins uit zijn profiel, doorsneden met het register. |
+| substream | De voortgangsregels van één magazijn binnen één ophaalronde — gestart, daarna voltooid met uitkomst `OK`, `TIMEOUT` of `FOUT`. |
+| pad-prefix | Het eerste stuk van de URL (`/m07`) waarmee de simulator bepaalt welk magazijn bedoeld is. |
+| log-normale spreiding | Responstijden met een lange staart: de meeste rond de mediaan, af en toe een forse uitschieter. Realistischer dan een vaste vertraging. |
+| circuit breaker | Beveiliging in de uitvraag die een magazijn na herhaalde storingen een tijdje overslaat in plaats van er telkens op te wachten. |
+
 ## Aantallen
 
 | Laag | Aantal | Onderbouwing |
 |---|---|---|
-| Echte magazijnen | **2** (A, B — ongewijzigd) | Dragen aanleveren, bijlagen, notificatie-outbox, LDV, retentie en FSC. Kosten per stuk zijn hoog (op ZAD ~335–363 Mi + eigen `postgresql-database` + eigen ingress). Een derde voegt geen nieuw gedrag toe: variatie in snelheid en uitval doet Toxiproxy al. |
+| Echte magazijnen | **2** (A, B — ongewijzigd) | Dragen aanleveren, bijlagen, notificatie-outbox, LDV, retentie en FSC. Kosten per stuk zijn hoog (op ZAD ~335–363 Mi + eigen `postgresql-database` + eigen ingress). Een derde voegt geen nieuw gedrag toe: variatie in snelheid en uitval komt straks uit de simulator. |
 | Gesimuleerde magazijnen | **98** | Eén service + één database, ongeacht n. Kosten zijn constant in het aantal. |
 | **Register totaal** | **100** | |
 
@@ -45,28 +57,50 @@ gemeente, provincie, waterschap en omgevingsdienst). Met vestigingen in meerdere
 naar 25–45. Het landelijke register is wezenlijk groter — alleen al 342 gemeenten — dus 100 toont de
 orde van grootte van de fan-out, niet de omvang van het register. Zeg dat in de demo hardop.
 
-Alle drie de getallen zijn instellingen, geen code.
+Het aantal gesimuleerde magazijnen en de fan-out per persona zijn instellingen: één getal in het
+generatiescript en een profiel-mapping. Het aantal **echte** magazijnen is dat niet — dat is een
+deployment erbij (container, database, ingress en, zodra zo'n magazijn federatief meedoet, een eigen
+FSC-peer). Vandaar dat de twee echte er twee blijven.
 
-## Waarom een eigen simulator
+## Besluit: een eigen simulator
 
-| Alternatief | Waarom niet |
+We bouwen één service die n magazijnen bedient, elk op een eigen pad-prefix, met één PostgreSQL
+eronder. Drie redenen.
+
+**Toestand.** Mappen en leesstatus zijn niet decoratief maar precies wat we willen tonen. Dat vraagt
+opslag, en dus een echte implementatie in plaats van een antwoordmachine.
+
+**Kosten die niet meeschalen.** Eén service en één database, of er nu tien of honderd magazijnen in
+het register staan. Elke andere vorm betaalt per magazijn.
+
+**Het contract blijft bewaakt.** De simulator genereert uit dezelfde `berichtenmagazijn-api.yaml`,
+dus zijn build faalt zodra spec en implementatie uiteenlopen. Bijkomend voordeel: het levert een
+tweede, onafhankelijke implementatie van die spec op. Voor een federatief stelsel is dat geen
+bijzaak — het toont dat het contract implementeerbaar is door iemand die onze domeincode niet heeft.
+
+### Overwogen alternatieven
+
+| Alternatief | Waarom afgevallen |
 |---|---|
-| WireMock met stateful scenarios | Scenario-transitions dekken geen per-bericht-state; een vrije-tekst `map` en filtering per ontvanger zijn er niet in uit te drukken. |
-| n instanties van het echte berichtenmagazijn | 98 JVM's en 98 databases. |
+| Doorgaan met WireMock, met stateful scenarios | Scenario-transitions dekken geen per-bericht-toestand; een vrije-tekst `map` en filtering per ontvanger zijn er niet in uit te drukken. |
+| n instanties van het echte berichtenmagazijn | 98 JVM's en 98 databases — en zodra ze federatief meedoen ook een FSC-peer per magazijn (manager, controller, txlog, inway, outway, eigen PKI). Bij tien magazijnen zijn dat al zestig componenten. |
 | Het echte magazijn multi-tenant maken | Raakt productiecode op de plekken waar het pijn doet: autorisatie, LDV per organisatie, migraties, retentie. |
-| **Nieuwe module `services/magazijn-simulator`** | Eén service, één database, n magazijnen op pad-prefix. |
-
-Bijvangst die het extra waard maakt: de simulator is een **tweede, onafhankelijke implementatie van
-`berichtenmagazijn-api.yaml`**. Voor een federatief stelsel is dat geen bijzaak — het toont dat de
-spec implementeerbaar is door iemand die onze domeincode niet heeft. En omdat hij uit dezelfde spec
-genereert, faalt de build zodra spec en simulator uiteenlopen. Dat is precies wat WireMock nooit kon.
 
 ## Module-opzet
 
-Nieuwe Maven-module `services/magazijn-simulator`, package
+Nieuwe Maven-module **`services/magazijn-simulator`** — een eigen module in de reactor, naast
+`berichtenmagazijn`, `berichtenuitvraag` en `demo-console`. Package
 `nl.rijksoverheid.moz.fbs.magazijnsimulator`. Quarkus + Kotlin + Panache + PostgreSQL 18 + Flyway,
 conform de bestaande conventies (surrogate PK per tabel, FK op surrogate PK, RESTRICT, `bytea`
 zonder `@Lob`).
+
+**Waarom onder `services/` en niet onder `demo/`.** Het demo-karakter pleit voor `demo/`, maar de
+reactor kent vandaag alleen `libraries/*` en `services/*` als module-root, en het enige bestaande
+demo-only artefact — `services/demo-console` — staat al onder `services/`. Eén module apart
+neerzetten levert twee conventies naast elkaar op. Wil het team een `demo/`-module-root, dan is dat
+een eigen kleine opruimactie waarin `demo-console` en de simulator sámen verhuizen; die staat los
+van dit ontwerp. `demo/` blijft ondertussen wat het is: scripts en gegenereerde artefacten, geen
+Maven-modules.
 
 ### Spec-hergebruik (optie A)
 
@@ -144,8 +178,19 @@ Wat hiermee werkt en met WireMock niet:
 - **Bijlagen** met echte bytes en MIME-type, zodat het `BijlageContentTypeFilter`-pad in de uitvraag
   ook bij de gesimuleerde magazijnen iets doet.
 
-Bewust buiten de simulator, en dat is wat hem klein houdt: LDV, FSC-inway, notificatie-outbox,
-retentie-cron, autorisatiediepte en bijlage-groottelimieten.
+### Niet in de eerste versie
+
+Het onderstaande laten we liggen om de simulator klein te houden — niet omdat het er nooit in hoort.
+Per stuk wat het later zou kosten, in de volgorde waarin het het makkelijkst alsnog landt:
+
+| Onderdeel | Later toevoegen |
+|---|---|
+| Bijlage-groottelimieten | Goedkoop: een validatie op de aanlever-endpoint. |
+| Retentie | Goedkoop: één periodieke query op `publicatietijdstip`. |
+| Notificatie-outbox | Middel: een tabel plus poller. Interessant zodra we push-gedrag van veel magazijnen tegelijk willen tonen. |
+| Autorisatiediepte | Middel, en pas zinvol zodra de AuthZEN-PEP (#10) er staat. |
+| LDV | Duur, en inhoudelijk twijfelachtig: het logboek is per organisatie, dus honderd gesimuleerde magazijnen zouden honderd logboeken suggereren die er niet zijn. |
+| FSC-inway | Duur; zie de ZAD-sectie. |
 
 ## Gedrag per magazijn
 
@@ -160,10 +205,21 @@ voor `PATCH` en bijlage-download, iets wat een WireMock-mapping-overlay per defi
 | `STUK` | `fout_status` (503) | `FOUT`, na 3× `CIRCUIT_OPEN` |
 | `UIT` | vertraging boven de query-timeout van 10 s | `TIMEOUT` |
 
-Een vertraagd antwoord houdt een worker-thread vast (Panache is blocking). Bij een fan-out van 100
-met seconden vertraging raakt de default-pool van 200 in zicht, zeker bij meerdere gelijktijdige
-sessies. Ofwel `quarkus.thread-pool.max-threads` meeschalen, ofwel de vertraging reactief vóór de
-blocking DB-call leggen. Meetpunt, geen blokkade.
+**Gevolg voor de rest van de keten.** Omdat het gedrag op elke endpoint geldt, kan ook het markeren
+als gelezen of het verplaatsen naar een map traag zijn of falen. Dat is realistisch — in het echte
+stelsel is een schrijfactie net zo goed een aanroep naar een andere organisatie — maar het vergroot
+het testoppervlak, en het stelt eisen aan de foutafhandeling in de Berichtenbox die er nu misschien
+niet zijn. Dat is geen bezwaar tegen dit ontwerp: het maakt werk zichtbaar dat er anders ook was.
+Wie het in eerste instantie wil beperken, zet een vlag op de `magazijn`-rij die het gedrag tot
+leesacties beperkt; dat is geen ander ontwerp.
+
+**Threads in de simulator.** Een vertraagd antwoord houdt een worker-thread van de *simulator* vast
+(Panache is blocking). Dit gaat over het magazijn-eind, niet over de uitvraag. Bij een fan-out van
+100 met seconden vertraging komt de Quarkus-default van ~200 threads in zicht, zeker bij meerdere
+gelijktijdige sessies. Drie uitwegen, in volgorde van voorkeur: `@RunOnVirtualThread` op de endpoints
+(Java 21; een wachtende virtual thread kost geen platform-thread, en wachten is hier precies wat we
+doen), de vertraging reactief vóór de blocking DB-call leggen, of `quarkus.thread-pool.max-threads`
+meeschalen. Meetpunt in stap 6.
 
 ## Beheer-API
 
@@ -182,12 +238,23 @@ spec, dus de bestaande aanlever- en generatorcode van de demo-console werkt met 
 base-URL. Samen dekken `seed` en `legen` de acceptatiecriteria van #936 over herhaalbaar vullen en
 leegmaken.
 
-**`/beheer` moet dicht.** De WireMock-admin-API van de huidige ZAD-stubs is publiek en zonder
-authenticatie bereikbaar (`GET https://profiel-test-mpfpsm-lcl.rig…/__admin/mappings` antwoordt met
-200; geverifieerd 2026-08-21). Die fout niet herhalen: een gedeeld token in een header, verplicht
-buiten `%dev`/`%test`, afgedwongen bij boot zoals `RedisVerbindingValidator` dat doet. Alternatief om
-te onderzoeken: `/beheer` op de Quarkus management-interface, die op ZAD niet via `publish-on-web`
-naar buiten komt. Token-auth werkt hoe dan ook en is de basis.
+**`/beheer` hoort niet open te staan.** De WireMock-admin-API van de huidige ZAD-stubs is publiek en
+zonder authenticatie bereikbaar (`GET https://profiel-test-mpfpsm-lcl.rig…/__admin/mappings`
+antwoordt met 200; geverifieerd 2026-08-21). Die fout niet herhalen.
+
+De schoonste vorm is het beheerpad helemaal niet publiceren. De enige beoogde beller is de
+demo-console, en binnen één ZAD-project bereiken componenten elkaar intern. Dat werkt alleen als de
+demo-console en de simulator in hetzelfde project landen: cross-project verkeer loopt op ZAD over de
+publieke ingress-URL's. Waar de demo-console terechtkomt is een open punt in #936; dit ontwerp vraagt
+alleen dat die keuze bewust valt in plaats van per ongeluk.
+
+Komt `/beheer` toch publiek te staan, dan hoort er authenticatie voor. Een gedeeld token in een
+header — verplicht buiten `%dev`/`%test` en afgedwongen bij het starten, zoals
+`RedisVerbindingValidator` dat doet — is de vorm die we zelf in de hand hebben. Of ZAD een
+SSO-voorziening biedt die we ervoor kunnen gebruiken heb ik niet kunnen vaststellen: de drie
+projectspecs gebruiken alleen `publish-on-web`, `persistent-storage`, `postgresql-database`,
+`attachments`, `temp-storage` en `cross-domain-access`. Navragen bij het ZAD-team; is er SSO, dan
+verdient die de voorkeur boven een gedeeld token.
 
 ## Persona's en fan-out
 
@@ -203,8 +270,14 @@ verschil in wachttijd puur het gevolg van de extra magazijnen en niet van een an
 | Landelijk Concern N.V. | KVK 90000003 | **100** | A + B + m01–m98 |
 
 De vierde persona bevraagt het volledige register en is bewust extreem: geen enkele echte ondernemer
-raakt 100 magazijnen. Hij bestaat om het capaciteitsgedrag van de keten zichtbaar te maken, niet om
-realisme te tonen.
+raakt 100 magazijnen. Hij bestaat om het gedrag van de keten in de breedte zichtbaar te maken, niet
+om realisme te tonen.
+
+**De namen liggen nog niet vast.** Er lopen elders standaard-persona's — in de proeftuin, en het werk
+dat Swie eraan doet. Die zijn leidend zodra ze er zijn; nieuwe verzinnen zou de derde set opleveren.
+Het ontwerp hangt alleen aan de *omvang* van de fan-out, niet aan namen of identificatienummers, dus
+overnemen kost niets zolang het vóór stap 5 gebeurt. Actie: de vier groottes koppelen aan bestaande
+persona's in plaats van eigen namen te bedenken.
 
 ### Gedragsverdeling over de 98
 
@@ -217,17 +290,18 @@ dezelfde verdeling:
 4. `i mod 5 == 0`, voor zover niet hierboven → **TRAAG** (15)
 5. rest → **NORMAAL** (74)
 
-Aandelen: 76 % normaal, 15 % traag, 4 % hapert, 3 % stuk, 2 % uit. De twee echte magazijnen staan
-op normaal; hun gedrag stuur je met Toxiproxy.
+Aandelen: 76 % normaal, 15 % traag, 4 % hapert, 3 % stuk, 2 % uit. De twee echte magazijnen staan op
+normaal en blijven dat: met 98 gesimuleerde magazijnen die elk gedrag kunnen vertonen, hoeft er op de
+echte geen storing meer nagebootst te worden.
 
 De verdeling is zo gelegd dat elke persona een zinvol beeld geeft:
 
-| Persona | traag | hapert | stuk | uit | > bulkhead (20)? |
-|---|---|---|---|---|---|
-| 3 | – | – | – | – | nee |
-| 15 | m05, m10 | – | – | – | nee |
-| 45 | m05, m10, m15, m25, m30, m35 | m20, m40 | m33 | m28 | **ja** |
-| 100 | 15 | 4 | 3 | 2 | **ja, ruim** |
+| Persona | traag | hapert | stuk | uit |
+|---|---|---|---|---|
+| 3 | – | – | – | – |
+| 15 | m05, m10 | – | – | – |
+| 45 | m05, m10, m15, m25, m30, m35 | m20, m40 | m33 | m28 |
+| 100 | 15 | 4 | 3 | 2 |
 
 Verwacht beeld per persona — te meten, niet aangenomen:
 
@@ -235,35 +309,27 @@ Verwacht beeld per persona — te meten, niet aangenomen:
 - **15** — compleet, maar de lijst is pas klaar als de twee trage magazijnen geantwoord hebben. Toont
   dat de gebruiker op zijn traagste leverancier wacht.
 - **45** — eerste berichten direct, daarna druppelsgewijs; één magazijn in timeout, één stuk (na drie
-  rondes `CIRCUIT_OPEN`), twee die wisselend falen. En: 45 > 20 permits, dus een deel wordt
-  geweigerd. Partiële lijst, de rest komt bij vernieuwen.
-- **100** — gedomineerd door bulkhead-weigering: ~20 magazijnen beantwoord, ~80 "tijdelijk niet
-  beschikbaar".
+  rondes overgeslagen door de circuit breaker) en twee die wisselend falen. De lijst is dus zowel
+  traag als onvolledig, en per magazijn is zichtbaar waaróm.
+- **100** — hetzelfde beeld met een langere staart: vijftien trage magazijnen bepalen wanneer de
+  lijst compleet heet, vijf leveren niets (drie stuk, twee die niet reageren) en vier falen
+  wisselend. Toont dat de wachttijd van de ondernemer die van zijn traagste leverancier is.
 
 ## Grenzen en meetpunten
 
-| Grens | Waarde | Meten |
+Dit ontwerp gaat ervan uit dat **alle** magazijnen in de fan-out ook daadwerkelijk bevraagd worden.
+De begrenzing die de uitvraag op het aantal gelijktijdige magazijn-aanroepen legt, staat als aparte
+backlog-issue en speelt in dit document geen rol.
+
+| Grens | Waarde | Hoe we hem meten |
 |---|---|---|
-| Bulkhead | 20 permits, gedeeld over sessies | zie hieronder |
-| REST-clients in de uitvraag | n clients bij boot, elk met eigen pool | boot-tijd en RSS bij n = 50 / 100 / 250 |
-| Worker-threads in de simulator | ~200 (default) | fan-out 100 × vertraagd, meerdere sessies |
-| Register-configuratie | 2 regels per magazijn | 200 regels bij n=100; triviaal |
+| Verbindingen vanuit de uitvraag | één client per magazijn, opgebouwd bij het starten | opstarttijd en geheugengebruik van de uitvraag bij n = 50 / 100 / 250 |
+| Threads in de simulator | ~200 (Quarkus-default) | fan-out 100 met vertraagde magazijnen, meerdere sessies tegelijk |
+| Register-configuratie | 2 regels per magazijn | 200 regels bij n = 100; triviaal |
+| Doorlooptijd van een ophaalronde | het traagste magazijn bepaalt wanneer de lijst compleet is | tijd tot het eerste bericht en tijd tot compleet, per persona |
 
-De demo draait op de **productiewaarde `berichtensessiecache.magazijn-bulkhead.max-concurrent=20`**.
-De huidige demo-override naar 60 in `compose.yaml` vervalt: die maskeerde precies het gedrag dat
-#938 wil kunnen tonen. Wie het wachttijd-verhaal zónder weigering wil demonstreren zet de waarde
-tijdelijk boven de fan-out; dat blijft één env-var.
-
-**Openstaande vraag met productie-impact.** `MagazijnAggregatieBulkhead` doet `tryAcquire` zonder
-wachttijd: bij een volle bulkhead volgt onmiddellijk `OVERBELAST`, er wordt niet gewacht. Bij een
-fan-out boven 20 krijgt de gebruiker dus structureel een onvolledige lijst zonder dat er iets stuk
-is. Erger nog: `MagazijnClientFactory` bouwt zijn clients met `associate` (LinkedHashMap) en
-`Multi.createBy().merging()` subscribet in die volgorde, dus vermoedelijk winnen **steeds dezelfde
-eerste 20** de permits en zijn de overige magazijnen voor die gebruiker permanent onzichtbaar — in
-plaats van een wisselende deelverzameling. Dat is met de 100-persona voor het eerst reproduceerbaar
-aan te tonen. Vaststellen met een test; is het zo, dan hoort er een apart issue onder #349 te komen
-over permits meeschalen met de maximale fan-out, dan wel wachtrijen met een begrensde wachttijd in
-plaats van weigeren.
+Verwacht dat de demo hier optimalisatiepunten uit oplevert; dat is een doel en geen bijwerking. Wat
+stap 6 vindt hoort als issue op de backlog, niet stilzwijgend in dit document.
 
 ## Wat vervalt
 
@@ -273,6 +339,12 @@ plaats van weigeren.
 | `demo/generated/magazijn-stubs-mappings/` | `POST /beheer/magazijnen`-payload uit de generator |
 | `VeelMagazijnenService` + `WireMockAdminClient` in demo-console | demo-console roept `/beheer/…` aan |
 | 503-overlay als enige gedragsknop | gedragsmodus per magazijn |
+| Toxiproxy-proxies `magazijn-a` en `magazijn-b` | vervallen — storingsgedrag komt uit de simulator |
+
+Toxiproxy zelf blijft wél staan. De vier andere proxies (`redis`, `profiel`, `notificatie`,
+`aanmeld`) dragen de storingsscenario's uit fase 3 en 4 — cache weg, profielservice uit, downstream
+onbereikbaar — en die komen niet uit de simulator. Alleen de twee magazijn-proxies worden overbodig;
+de uitvraag adresseert de echte magazijnen daarna rechtstreeks.
 
 De WireMock-stubs op 8081/8082 blijven: die bedienen de `%test`-profielen, niet de demo.
 `demo/genereer-magazijnen.py` blijft bestaan maar schrijft voortaan register-regels naar de
@@ -286,7 +358,7 @@ simulator plus één inricht-payload, in plaats van n mapping-bestanden.
 | Register-entries | Gegenereerde `.properties` als ZAD-`attachments`-entry met `provide-as: file`, plus `SMALLRYE_CONFIG_LOCATIONS` op de uitvraag. Precedent: `logius-internal-ca-root-cert` staat er al zo op. n env-vars is bij 100 magazijnen geen optie. Previews erven via `clone-from: test`. |
 | Profiel-persona's | De vier persona-mappings mee laten bakken in het `fbs-externe-stubs`-image; generator draaien vóór `docker build` in CI, met n uit een repo-variable. |
 | https | `ConfigMagazijnregister` eist https buiten dev/test; de ZAD-ingress levert dat. |
-| `/beheer` | Token verplicht buiten dev/test (zie boven). |
+| `/beheer` | Niet publiceren als de demo-console in hetzelfde project draait; anders publieke ingress mét token. Zie de Beheer-API-sectie. |
 
 De simulator hoeft **niet** door FSC. Dat is een aparte afweging die in dit ontwerp niet meespeelt:
 FSC blijft op de twee echte magazijnen. Eén gesimuleerd magazijn als extra FSC-dienst op een
@@ -305,6 +377,9 @@ n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
 
 ## Testen
 
+De categorieën hieronder zijn een startpunt, geen afvinklijst: bij de implementatie komen er zaken
+bij die net zo goed getest horen te worden.
+
 - **Unit** — pad-prefix-filter (geldig, onbekend, ontbrekend, prefix in de `baseUri`), gedragskiezer
   (deterministische verdeling voor i = 1…98: precies 2 uit, 3 stuk, 4 hapert, 15 traag, 74 normaal),
   status-patch-semantiek (ontbrekend veld, expliciet `null`, overschrijven van een map).
@@ -317,8 +392,14 @@ n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
   een expliciete test in plaats van vertrouwen op de generator.
 - **Keten** — de bestaande `demo/smoke.sh` uitbreiden met een gesimuleerd magazijn: aanleveren →
   ophalen via de uitvraag → markeren als gelezen → opnieuw ophalen toont `gelezen: true`.
-- **Coverage** — de simulator is demo-gereedschap, net als `demo-console`, en krijgt daarom géén
-  90 %-JaCoCo-gate. Wel echte tests; detekt geldt onverkort.
+- **Coverage** — dezelfde 90 %-JaCoCo-gate als de andere modules. Dat de simulator demo-gereedschap
+  is, is geen reden om er minder van te eisen: hij draagt straks het gedrag van honderd magazijnen,
+  en een fout erin lijkt op een fout in de keten. Let op de bekende valkuil: de
+  `quarkus-jacoco`-extensie telt alleen `@QuarkusTest`-dekking, dus pure unit-tests dragen niet bij
+  aan de drempel — integratietests zijn dus nodig, niet optioneel. Blijkt 90 % onhaalbaar, dan is dat
+  een eigen afweging en zetten we hem bewust lager in plaats van hem stilzwijgend weg te laten.
+  Dat `services/demo-console` vandaag helemaal geen gate heeft, is een gat op zich; dat verdient een
+  eigen issue. Detekt geldt onverkort.
 
 ## Stappen
 
@@ -332,15 +413,18 @@ n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
 4. **Beheer-API + token.** Inrichten, seed, legen, gedrag. Verificatie: 100 magazijnen × 20 berichten
    geseed in < 10 s; 401 zonder token onder `%prod`.
 5. **Generator en compose omzetten.** WireMock-stub-service en `VeelMagazijnenService` eruit,
-   simulator erin, vier persona's in de profiel-stub, bulkhead terug naar 20. Verificatie:
-   `demo/smoke.sh` groen, de vier persona's leveren fan-out 3 / 15 / 45 / 100.
-6. **Meten en vastleggen.** Tijd tot eerste bericht en tijd tot compleet per persona; boot-tijd en
-   geheugen van de uitvraag bij n = 50 / 100 / 250; is de bulkhead-weigering deterministisch?
-   Uitkomsten terug in dit document en in #938.
+   simulator erin, vier persona's in de profiel-stub, de twee magazijn-proxies uit Toxiproxy.
+   Verificatie: `demo/smoke.sh` groen, de vier persona's leveren fan-out 3 / 15 / 45 / 100.
+6. **Meten en vastleggen.** Tijd tot het eerste bericht en tijd tot compleet, per persona;
+   opstarttijd en geheugengebruik van de uitvraag bij n = 50 / 100 / 250. Uitkomsten terug in dit
+   document en in #938.
 7. **ZAD.** Component, database, register-attachment, persona's in het stubs-image.
 
 Stap 1 t/m 5 leveren de lokale demo; stap 6 levert de onderbouwing die #938 vraagt; stap 7 de
 ZAD-helft, die verder op #936 leunt.
+
+Elke stap wordt een sub-issue onder MinBZK/MijnOverheidZakelijk#938, zodat het werk op het bord staat
+en niet alleen in dit document.
 
 ## Bewust buiten scope
 
@@ -356,9 +440,10 @@ ZAD-helft, die verder op #936 leunt.
 
 1. Honoreert Quarkus REST de `baseUri` uit `setRequestUri(baseUri, requestUri)` voor `UriInfo`? Zo
    niet, dan moeten de HAL-links langs een andere weg hun prefix terugkrijgen. **Blokkeert stap 1.**
-2. `/beheer` achter een token, of op de management-interface? Token is de basis; de
-   management-interface is een verbetering als ZAD hem afschermt.
-3. Blijft de bulkhead-weigering bij dezelfde eerste 20 magazijnen hangen? Zo ja: apart issue onder
-   #349.
-4. Is n = 100 haalbaar binnen de boot-tijd en het geheugen van de uitvraag, of ligt het plafond
-   lager? Stap 6 beslist; het getal in dit document is een voorstel, geen meting.
+2. Waar landt de demo-console op ZAD? Hetzelfde project als de simulator → `/beheer` blijft intern;
+   een ander project → publieke ingress met token, of SSO als ZAD dat biedt. Hangt aan #936.
+3. Welke persona's nemen we over uit de proeftuin en de standaard-persona's? Vóór stap 5.
+4. Is n = 100 haalbaar binnen de opstarttijd en het geheugengebruik van de uitvraag, of ligt het
+   plafond lager? Stap 6 beslist; het getal in dit document is een voorstel, geen meting.
+5. Gaat het gedrag ook op schrijfacties gelden, of eerst alleen op leesacties? Zie "Gedrag per
+   magazijn"; het verschil zit in het testoppervlak en in wat de Berichtenbox moet opvangen.
