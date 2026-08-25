@@ -36,7 +36,7 @@
         <!-- Bij een bump: kijk welke jackson-databind de nieuwe BOM meelevert en vergelijk met
              jackson-bom.version hierboven. Die pin staat vóór de Quarkus-BOM en wint ook neerwaarts,
              dus hij trekt een nieuwere jackson stil terug zonder dat de build of CI iets meldt. -->
-        <quarkus.platform.version>3.38.2</quarkus.platform.version>
+        <quarkus.platform.version>3.38.3</quarkus.platform.version>
         <openapi-generator.version>7.24.0</openapi-generator.version>
         <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
         <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert
