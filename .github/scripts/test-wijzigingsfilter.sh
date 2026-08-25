@@ -74,7 +74,7 @@ deploy=false
 demo-only=false
 fuzz=false'
 
-# Een Maven-module onder demo/ die buiten DEMO_NIET_UITGEROLD valt: uitrol-relevant, want hij kan
+# Een Maven-module onder demo/ die buiten DEMO_BUITEN_UITROLPOORT valt: uitrol-relevant, want hij kan
 # een eigen image voeden. `demo-only` valt daarmee terug op false — een preview rolt de services
 # uit, en die horen in diezelfde run getest te zijn. Geen fuzz-ronde: de fuzz-doelen staan alleen
 # in libraries/ en services/.
@@ -129,6 +129,14 @@ fuzz=false'
 # suite, en dat is de dure kant: `demo/` ergens in een pad zou de tests wegscopen, `bruno/` de
 # preview, en een bronbestand met een meta-naam de code-checks.
 verwacht "een 'demo'-map bínnen een module scopet de tests niet weg" 'services/berichtenuitvraag/src/test/resources/demo/payload.json' "$ALLES_AAN"
+
+# Isoleert het `^`-anker van BUITEN_DEMO: op een uitrol-relevant pad zou de invariant demo-only
+# tóch op false zetten en zou de fixture ook zonder anker slagen.
+verwacht "een 'demo'-map in een niet-uitrol-relevant pad scopet de tests niet weg" \
+  'bruno/berichtenmagazijn/demo/ophalen.bru' 'run=true
+deploy=false
+demo-only=false
+fuzz=false'
 
 verwacht "een 'bruno'-map bínnen een module blijft uitrol-relevant" 'services/berichtenmagazijn/src/test/bruno/Contract.kt' "$ALLES_AAN"
 
@@ -195,7 +203,7 @@ verwacht "demo-module met een eigen image kost wél een uitrol" \
 
 verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' "$DEMO_STACK"
 
-# Het derde alternatief van DEMO_NIET_UITGEROLD (`^demo/[^/]*\.(sh|py)$`) dekt de scripts die de
+# Het derde alternatief van DEMO_BUITEN_UITROLPOORT (`^demo/[^/]*\.(sh|py)$`) dekt de scripts die de
 # demo-stack aansturen. Zonder deze twee fixtures kon het compleet verdwijnen — of tot één
 # extensie versmallen — zonder dat er iets rood werd.
 verwacht "een shellscript direct onder demo/" 'demo/smoke.sh' "$DEMO_STACK"
@@ -207,6 +215,25 @@ verwacht "de magazijn-generator direct onder demo/" 'demo/genereer-magazijnen.py
 verwacht "een script in een submap onder demo/ houdt zijn uitrol" 'demo/scripts/smoke.sh' "$DEMO_MET_IMAGE"
 
 verwacht "een ander bestand direct onder demo/ houdt zijn uitrol" 'demo/compose.yaml' "$DEMO_MET_IMAGE"
+
+# Het `$`-anker van de extensielijst: zonder dat anker zou een backup- of afgeleid bestand de
+# uitsluiting binnenglippen en zijn build verliezen.
+verwacht "een afgeleid bestand met .sh in de naam houdt zijn uitrol" 'demo/smoke.sh.bak' "$DEMO_MET_IMAGE"
+
+# De prefix-buur aan de environment-kant; hetzelfde anker-argument als bij demo-console.
+verwacht "prefix-buur van environment valt niet in de uitrol-uitsluiting" \
+  'demo/environment-simulator/Stack.kt' "$DEMO_MET_IMAGE"
+
+# De `^`-ankers: dezelfde mapnamen dieper in een pad zijn gewone code en horen de volle keten te
+# kopen. Een fixture op een uitrol-relevant pad zou dit niet aantonen — die valt al door de
+# invariant terug op demo-only=false.
+verwacht "een 'demo/demo-console'-pad bínnen een module is gewone code" \
+  'services/berichtenuitvraag/src/test/resources/demo/demo-console/fixture.json' "$ALLES_AAN"
+
+# De pom van een demo-module: wél code en test-scope demo, maar geen fuzz-ronde — de fuzz-doelen
+# staan alleen in libraries/ en services/. Zonder het `^`-anker op `pom\.xml` in FUZZ_RELEVANT
+# koopt elke bump op een demo-pom een volledige ronde.
+verwacht "de pom van een demo-module koopt geen fuzz-ronde" 'demo/demo-console/pom.xml' "$DEMO_STACK"
 
 # --- bot-PR ----------------------------------------------------------------------------------
 verwacht "bot-PR met code — toetsen ja, uitrollen nee" 'pom.xml' 'run=true
@@ -351,16 +378,16 @@ for f in "$REPO_ROOT"/.github/workflows/*.yml "$REPO_ROOT"/.github/workflows/*.y
 done
 
 [ -d "$REPO_ROOT/demo/demo-console" ] \
-  || fout "demo/demo-console/ bestaat niet meer; de uitsluiting in DEMO_NIET_UITGEROLD is dode letter"
+  || fout "demo/demo-console/ bestaat niet meer; de uitsluiting in DEMO_BUITEN_UITROLPOORT is dode letter"
 
 [ -d "$REPO_ROOT/demo/environment" ] \
-  || fout "demo/environment/ bestaat niet meer; de uitsluiting in DEMO_NIET_UITGEROLD is dode letter"
+  || fout "demo/environment/ bestaat niet meer; de uitsluiting in DEMO_BUITEN_UITROLPOORT is dode letter"
 
 compgen -G "$REPO_ROOT/demo/*.sh" >/dev/null \
-  || fout "geen *.sh direct onder demo/; het sh-alternatief in DEMO_NIET_UITGEROLD is dode letter"
+  || fout "geen *.sh direct onder demo/; het sh-alternatief in DEMO_BUITEN_UITROLPOORT is dode letter"
 
 compgen -G "$REPO_ROOT/demo/*.py" >/dev/null \
-  || fout "geen *.py direct onder demo/; het py-alternatief in DEMO_NIET_UITGEROLD is dode letter"
+  || fout "geen *.py direct onder demo/; het py-alternatief in DEMO_BUITEN_UITROLPOORT is dode letter"
 
 # De uitsluiting legt vast dat deze paden geen image voeden dat aan de uitrolpoort hangt. Dat is
 # handwerk, dus het kan verlopen: zodra een demo-module in de build-matrix van deploy.yml staat,
@@ -377,10 +404,10 @@ else
     esac
 
     grep -q "\b$module\b" <<<"$matrix" \
-      && fout "$module staat in de build-matrix van deploy.yml én in DEMO_NIET_UITGEROLD; zijn imagebuild wordt stil overgeslagen"
-  done <<<"${DEMO_NIET_UITGEROLD//|/$'\n'}"
+      && fout "$module staat in de build-matrix van deploy.yml én in DEMO_BUITEN_UITROLPOORT; zijn imagebuild wordt stil overgeslagen"
+  done <<<"${DEMO_BUITEN_UITROLPOORT//|/$'\n'}"
 
-  ok "geen enkel pad uit DEMO_NIET_UITGEROLD staat in de build-matrix van deploy.yml"
+  ok "geen enkel pad uit DEMO_BUITEN_UITROLPOORT staat in de build-matrix van deploy.yml"
 fi
 
 [ -f "$REPO_ROOT/docs/architecture/workspace.dsl" ] \

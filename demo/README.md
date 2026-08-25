@@ -29,8 +29,9 @@ elfproef-validatie staat lokaal in `demo-console/src/main/kotlin/…/generator/I
 naast het gezaghebbende `libraries/fbs-common/…/identificatie/Identificatienummer.kt`. Wie de
 elfproef wijzigt, wijzigt beide.
 
-`.github/scripts/demo-grens.sh` bewaakt de richting: het faalt zodra een module onder `services/` of
-`libraries/` een demo-module als dependency declareert. Zonder die controle is de scheiding een
+`.github/scripts/demo-grens.sh` bewaakt de richting: het faalt zodra een pom van het stelsel — de
+modules onder `services/` en `libraries/`, én de root-pom waar ze allemaal van erven — de naam van
+een demo-module noemt, als dependency of als parent. Zonder die controle is de scheiding een
 afspraak die alleen in review houdt, en dan is één `<dependency>` erbij genoeg om demo-code naar
 productie te laten meeliften.
 
@@ -38,9 +39,9 @@ productie te laten meeliften.
 
 Demo ≠ "wordt niet uitgerold". De FSC-harness levert het contract-bootstrap-image en een demo-module
 kan een eigen ZAD-component hebben. `.github/scripts/wijzigingsfilter.sh` sluit daarom niet `demo/`
-als geheel van bouwen en uitrollen uit, maar de delen die geen image voeden dat aan de uitrolpoort
-hangt (`DEMO_NIET_UITGEROLD`) — het contract-bootstrap-image uit `environment/` hangt aan `run`, dus
-dat wordt daar niet door geraakt. Een nieuwe demo-module valt buiten de uitsluiting en houdt zijn
+als geheel van bouwen en uitrollen uit, maar de delen die buiten de uitrolpoort vallen
+(`DEMO_BUITEN_UITROLPOORT`) — het contract-bootstrap-image uit `environment/` hangt aan `run` en
+niet aan `deploy`, dus dat wordt daar niet door geraakt. Een nieuwe demo-module valt buiten de uitsluiting en houdt zijn
 build: vergeten kost een overbodige build, niet een overgeslagen build.
 
 Voor de test-scope geldt `demo/` wél als geheel: raakt een PR niets buiten deze map, dan test de

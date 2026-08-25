@@ -184,8 +184,22 @@ jobs:
           # Een module zonder testbronnen levert BUILD SUCCESS met nul tests. Bij een
           # demo-only-run is dit de énige shard, dus de required check zou groen rapporteren
           # zonder dat er iets getoetst is.
-          if [ -z "$(find . -path '*/target/surefire-reports/*.xml' -print -quit)" ]; then
-            echo "::error::Geen enkel surefire-rapport — deze shard heeft niets getest."
+          #
+          # Gescoped op de modules van deze shard en niet repo-breed: `-am` bouwt de upstream-
+          # modules mee, en hun rapporten zouden de guard vullen terwijl de module waar het om
+          # gaat nul tests draaide. Het complement (`!services/berichtenmagazijn`) is geen pad,
+          # dus die shard valt terug op de hele werkmap — daar is het onderscheid niet nodig,
+          # want die shard test per definitie meer dan één module.
+          zoekpaden=()
+
+          for module in ${MODULES//,/ }; do
+            [ -d "$module" ] && zoekpaden+=("$module")
+          done
+
+          [ ${#zoekpaden[@]} -gt 0 ] || zoekpaden=(.)
+
+          if [ -z "$(find "${zoekpaden[@]}" -path '*/target/surefire-reports/*.xml' -print -quit)" ]; then
+            echo "::error::Geen enkel surefire-rapport onder ${zoekpaden[*]} — deze shard heeft niets getest."
             exit 1
           fi
       # De rapporten gaan naar de `test`-job, die er één coverage-comment van maakt; los per

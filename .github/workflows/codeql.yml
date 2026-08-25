@@ -107,6 +107,11 @@ jobs:
 
           for module in libraries/* services/* demo/*; do
             [ -f "$module/pom.xml" ] || continue
+
+            # Een module zonder JVM-bronnen levert per definitie geen classes op; die eis zou hem
+            # hard laten falen terwijl er niets mis is. CodeQL heeft er ook niets te extraheren.
+            [ -n "$(find "$module/src" \( -name '*.kt' -o -name '*.java' \) -print -quit 2>/dev/null)" ] || continue
+
             gezien=$((gezien + 1))
 
             if [ -z "$(find "$module/target/classes" -name '*.class' -print -quit 2>/dev/null)" ]; then
@@ -167,6 +172,8 @@ jobs:
 
           for module in libraries/* services/* demo/*; do
             [ -f "$module/pom.xml" ] || continue
+            [ -n "$(find "$module/src" \( -name '*.kt' -o -name '*.java' \) -print -quit 2>/dev/null)" ] || continue
+
             gezien=$((gezien + 1))
             aantal=$(grep -cF "/$module/" <<<"$bestanden" || true)
             echo "| $module | $aantal |" | tee -a "$GITHUB_STEP_SUMMARY"

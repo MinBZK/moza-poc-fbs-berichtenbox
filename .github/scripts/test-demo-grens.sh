@@ -73,6 +73,12 @@ voeg_module() {
     eenregelig)
       parent='    <parent><groupId>nl.rijksoverheid.moz</groupId><artifactId>moza-poc-fbs-berichtenbox</artifactId></parent>'
       ;;
+    parent-met-witruimte)
+      parent='    <parent ><groupId>nl.rijksoverheid.moz</groupId><artifactId>moza-poc-fbs-berichtenbox</artifactId></parent >'
+      ;;
+    zonder-artifactid)
+      parent='    <parent><artifactId>moza-poc-fbs-berichtenbox</artifactId></parent>'
+      ;;
     zonder-parent)
       parent=''
       ;;
@@ -87,10 +93,18 @@ voeg_module() {
 
   mkdir -p "$wortel/$pad"
 
+  # De vorm zonder eigen artifactId hoort hard te falen; hij mag hier dus niet stilzwijgend een
+  # naam krijgen.
+  local eigen="    <artifactId>$naam</artifactId>"
+
+  if [ "$vorm" = "zonder-artifactid" ]; then
+    eigen=""
+  fi
+
   cat > "$wortel/$pad/pom.xml" <<POM
 <project>
 $parent
-    <artifactId>$naam</artifactId>
+$eigen
     <dependencies>
 $deps    </dependencies>
 </project>
@@ -200,6 +214,17 @@ uitvoer=$(REPO_ROOT="$w" controleer 2>&1) || true
   || fout "niet alle overtredingen gemeld:
 $uitvoer"
 
+# Overerven is de tweede route om de grens heen: een stelsel-module die een demo-module als parent
+# neemt, trekt diens hele dependency- en pluginconfiguratie mee. Daarom kijkt de controle naar élke
+# artifactId in de pom en niet alleen naar het dependencies-blok.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's:<artifactId>moza-poc-fbs-berichtenbox</artifactId>:<artifactId>demo-console</artifactId>:' \
+  "$w/services/berichtenuitvraag/pom.xml"
+toets "een stelsel-module die van een demo-module erft" "$w" 1 "hangt af van demo-module 'demo-console'"
+
 # --- cardinaliteit: nul, één, meerdere -----------------------------------------------------------
 # Met één demo-module verbergt de suite of de controle "de eerste/enige" pakt of écht per module
 # discrimineert; de overtreding wijst hier daarom naar de tweede.
@@ -249,13 +274,43 @@ voeg_module "$w" services/berichtenuitvraag meerregelig moza-poc-fbs-berichtenbo
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 toets "de parent-artifactId telt niet als demo-module" "$w" 0 "OK:"
 
+# Een parent-tag mag witruimte of een attribuut dragen. Matcht de parser alleen de letterlijke
+# `<parent>`, dan geldt de parent-artifactId als die van de module en passeert een dependency op de
+# échte module ongezien.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console parent-met-witruimte quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "een parent-tag met witruimte" "$w" 1 "hangt af van demo-module 'demo-console'"
+
+# Twee dependencies op één regel: een regel-gebaseerde extractie levert er hoogstens één op, en dan
+# verdwijnt juist de eerste.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's:<dependency><groupId>nl.rijksoverheid.moz</groupId><artifactId>quarkus-rest</artifactId></dependency>:<dependency><artifactId>demo-console</artifactId></dependency><dependency><artifactId>quarkus-rest</artifactId></dependency>:' \
+  "$w/services/berichtenuitvraag/pom.xml"
+toets "twee dependencies op één regel" "$w" 1 "hangt af van demo-module 'demo-console'"
+
 # --- de meting zelf ---------------------------------------------------------------------------------
 # Verdwijnt libraries/ of services/ (hernoemd, geherstructureerd, verkeerde REPO_ROOT), dan zou de
 # lus nul keer draaien en de OK-regel alsnog verschijnen.
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 rmdir "$w/services" "$w/libraries"
-toets "nul stelsel-modules meldt dat er niets gemeten is" "$w" 1 "deze controle meet niets"
+toets "nul stelsel-modules meldt dat er niets gemeten is" "$w" 1 "geen enkele pom onder"
+
+# Eén wortel is genoeg om een totaalteller boven zijn drempel te houden; die helft van het stelsel
+# blijft dan ongemeten terwijl de melding groen is.
+for weg in services libraries; do
+  w=$(nieuw_repo)
+  voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+  voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+  voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+  rm -rf "${w:?}/$weg"
+  toets "alleen $weg/ weg meldt dat die helft niet gemeten is" "$w" 1 "geen enkele pom onder $weg/"
+done
 
 # Een demo-pom waar geen artifactId uit komt mag niet geruisloos uit de lijst vallen.
 w=$(nieuw_repo)
@@ -264,6 +319,15 @@ voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 printf '<project><parent><artifactId>p</artifactId></parent></project>\n' > "$w/demo/demo-console/pom.xml"
 toets "een demo-pom zonder artifactId valt niet stil weg" "$w" 1 "geen artifactId gevonden"
+
+# Met twéé demo-modules blijft de lijst gevuld als de tweede niet parseert; alleen een expliciet
+# doorgegeven exitcode maakt dat nog rood.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" demo/magazijn-simulator zonder-artifactid
+voeg_module "$w" services/berichtenuitvraag meerregelig magazijn-simulator
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "de tweede demo-pom zonder artifactId valt niet stil weg" "$w" 1 "geen artifactId gevonden"
 
 # --- demo-modules.sh: reactor tegenover schijf ------------------------------------------------------
 lijst_toets() {
@@ -286,8 +350,19 @@ voeg_module "$w" demo/magazijn-simulator meerregelig quarkus-kotlin
 lijst_toets "de lijst is gesorteerd en compleet" "$w" 0 "demo/demo-console
 demo/magazijn-simulator"
 
-# Een module op schijf die niet in de reactor staat, wordt door Maven niet gebouwd — en zou door de
-# demo-shard wél getest worden. Andersom is het een reactor-verwijzing zonder module.
+# Registratievolgorde is geen sorteervolgorde: zonder de sort aan beide kanten lopen reactor en
+# schijf uiteen zodra iemand een module niet achteraan het alfabet toevoegt, en dan valt de hele
+# grensbewaking én de demo-shard om op een verschil dat er niet is.
+w=$(nieuw_repo)
+voeg_module "$w" demo/zeta meerregelig quarkus-kotlin
+voeg_module "$w" demo/alfa meerregelig quarkus-kotlin
+lijst_toets "een niet-alfabetische registratievolgorde levert dezelfde lijst" "$w" 0 "demo/alfa
+demo/zeta"
+
+# De demo-shard leidt zijn modulelijst uit de reactor af. Een module die alleen op schijf staat,
+# wordt daardoor niet gebouwd en niet getest, terwijl een PR die hem raakt wél naar `demo-only`
+# scopet — de run meldt dan groen over code die niemand heeft aangeraakt. Andersom is het een
+# reactor-verwijzing zonder module, en dan faalt Maven zelf.
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 mkdir -p "$w/demo/vergeten-module"
@@ -300,6 +375,10 @@ rm -rf "$w/demo/demo-console"
 lijst_toets "een reactor-verwijzing zonder module valt op" "$w" 1 "lopen uiteen"
 
 # --- hygiëne ------------------------------------------------------------------------------------------
+w=$(nieuw_repo)
+rm -rf "${w:?}/demo"
+lijst_toets "een ontbrekende demo-wortel meldt wat er mist" "$w" 1 "bestaat niet"
+
 for script in demo-grens.sh demo-modules.sh; do
   [ -x "$HERE/$script" ] \
     && ok "$script is uitvoerbaar" \
@@ -325,7 +404,8 @@ $uitvoer"
 
 # --- de suite bewaakt zichzelf ------------------------------------------------------------------
 # Zonder deze zelftest blijft een suite waaruit de vergelijking is weggevallen groen mét het volle
-# aantal OK-regels: de teller in ci-scripts.yml telt geprinte regels, geen vergelijkingen.
+# aantal OK-regels: ci-scripts.yml leest de ASSERTIES-regel die deze suite zelf rapporteert, en die
+# telt geslaagde asserties — niet of er nog iets vergeleken wordt.
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig demo-console

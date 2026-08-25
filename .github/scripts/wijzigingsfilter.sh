@@ -39,7 +39,7 @@ GEEN_PREVIEW_WORKFLOWS='test|detekt|codeql|scorecard|architecture|pin-consistenc
 # shellcheck disable=SC2034  # alleen door de kruiscontrole in test-wijzigingsfilter.sh gelezen
 UITROL_RELEVANT='deploy'
 
-# De delen van demo/ die geen image voeden dat aan de uitrolpoort hangt. Niet "geen enkel image":
+# De delen van demo/ die buiten de uitrolpoort vallen. Nadrukkelijk niet "die geen image voeden":
 # het contract-bootstrap-image komt uit demo/environment/, maar hangt in deploy.yml aan `run` en
 # niet aan `deploy` — een wijziging daar bouwt het dus nog steeds.
 #
@@ -55,7 +55,7 @@ UITROL_RELEVANT='deploy'
 # dat is precies de stille faalwijze die dit script moet uitsluiten.
 #
 # demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.
-DEMO_NIET_UITGEROLD='^demo/demo-console/|^demo/environment/|^demo/[^/]*\.(sh|py)$'
+DEMO_BUITEN_UITROLPOORT='^demo/demo-console/|^demo/environment/|^demo/[^/]*\.(sh|py)$'
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.
@@ -67,7 +67,7 @@ DEMO_NIET_UITGEROLD='^demo/demo-console/|^demo/environment/|^demo/[^/]*\.(sh|py)
 # Het contract-bootstrap-image wordt op een PR beproefd door fsc-harness-overlays.yml en pas
 # uitgerold op push naar main. Een uitzondering hier zou de hele deploy-keten (twee jib-images, de
 # stubs en drie previews) openzetten voor een wijziging die daar niets mee te maken heeft.
-NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|$DEMO_NIET_UITGEROLD|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
+NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|$DEMO_BUITEN_UITROLPOORT|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
 
 # Raakt de PR niets buiten demo/, dan hoeven berichtenmagazijn, berichtenuitvraag en de libraries
 # niet mee gebouwd en getest te worden. `-am` trekt bovendien op wat een demo-module wél uit het
@@ -166,7 +166,7 @@ classificeer() {
   # test-check, en bij een demo-only-run zijn die services in díe run niet getest. De uitrol zou
   # dan ongetoetste code dragen zonder dat er iets roods verschijnt.
   #
-  # Een demo-module met een eigen image (uitzondering op DEMO_NIET_UITGEROLD) valt dus terug op de
+  # Een demo-module met een eigen image (uitzondering op DEMO_BUITEN_UITROLPOORT) valt dus terug op de
   # volle test-scope. Dat is de dure maar juiste kant: wat uitgerold wordt, hoort getest te zijn.
   if grep_fail_safe "$bestanden" -vE "$BUITEN_DEMO"; then
     echo "demo-only=false"

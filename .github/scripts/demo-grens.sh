@@ -25,20 +25,21 @@ source "$HERE/demo-modules.sh"
 # buiten de controle valt.
 artifact_id() {
   awk '
-    function strip_parent(s,   uit, p, q) {
+    function strip_parent(s,   uit) {
       uit = ""
 
       while (length(s) > 0) {
         if (in_parent) {
-          q = index(s, "</parent>")
-          if (q == 0) return uit
-          s = substr(s, q + 9)
+          if (!match(s, /<\/parent[ \t\r]*>/)) return uit
+          s = substr(s, RSTART + RLENGTH)
           in_parent = 0
         } else {
-          p = index(s, "<parent>")
-          if (p == 0) return uit s
-          uit = uit substr(s, 1, p - 1)
-          s = substr(s, p + 8)
+          # Op de tag-vorm matchen en niet op de letterlijke string: <parent > en <parent
+          # xmlns="…"> zijn allebei geldig, en een gemiste opening laat de parent-artifactId
+          # als die van de module gelden — stil, want er komt gewoon een naam uit.
+          if (!match(s, /<parent[ \t\r>]/)) return uit s
+          uit = uit substr(s, 1, RSTART - 1)
+          s = substr(s, RSTART + RLENGTH - 1)
           in_parent = 1
         }
       }
@@ -56,18 +57,32 @@ artifact_id() {
   ' "$1"
 }
 
-# Elke <artifactId> binnen een <dependencies>-blok. Dat is ruimer dan alleen de directe
-# afhankelijkheden — <dependencyManagement> en plugin-dependencies vallen er ook onder — en dat is
-# hier gewenst: ook langs die weg belandt demo-code op het classpath van het stelsel.
-dependency_artifacts() {
-  sed -n '/<dependencies>/,/<\/dependencies>/p' "$1" \
-    | sed -n 's:.*<artifactId>\([^<]*\)</artifactId>.*:\1:p'
+# Élke <artifactId> in de pom, ongeacht het omliggende element. Bewust niet afgebakend tot
+# <dependencies>: een regel-gebaseerde afbakening levert hoogstens één treffer per regel op, dus
+# twee dependencies op één regel verbergen de tweede. En de naam van een demo-module hoort sowieso
+# nergens in een pom van het stelsel te staan — ook niet in <dependencyManagement> of bij een
+# plugin, want ook langs die weg komt demo-code de build binnen.
+alle_artifacts() {
+  awk '
+    {
+      s = $0
+
+      while (match(s, /<artifactId>[^<]*<\/artifactId>/)) {
+        print substr(s, RSTART + 12, RLENGTH - 25)
+        s = substr(s, RSTART + RLENGTH)
+      }
+    }
+  ' "$1"
 }
 
 # De artifactId's van alle demo-modules. Faalt zodra één module er geen oplevert: een pom-vorm die
 # niet geparsed wordt zou anders geruisloos uit de controle vallen terwijl de rest groen meldt.
 demo_artifacts() {
-  local module id
+  local module id modules
+
+  # Eerst de lijst ophalen en de status vasthouden: `done < <(demo_modules)` zou een mislukking
+  # daar geruisloos veranderen in een lege lus, en dan levert deze functie nul namen met exitcode 0.
+  modules=$(demo_modules) || return 1
 
   while IFS= read -r module; do
     id=$(artifact_id "$REPO_ROOT/$module/pom.xml")
@@ -79,33 +94,35 @@ demo_artifacts() {
     fi
 
     printf '%s\n' "$id"
-  done < <(demo_modules)
+  done <<<"$modules"
 }
 
 # De pom's die de grens moeten respecteren. De root-pom hoort erbij: zijn <dependencies>-blok
 # wordt door élke module geërfd, dus één regel daar koppelt het hele stelsel aan demo-code.
+STELSEL_WORTELS=(libraries services)
+
 stelsel_poms() {
-  local pom
+  local wortel
 
   printf '%s\n' "$REPO_ROOT/pom.xml"
 
-  while IFS= read -r pom; do
-    printf '%s\n' "$pom"
-  done < <(find "$REPO_ROOT/libraries" "$REPO_ROOT/services" -name target -prune -o -name pom.xml -print 2>/dev/null | sort)
+  for wortel in "${STELSEL_WORTELS[@]}"; do
+    find "$REPO_ROOT/$wortel" -name target -prune -o -name pom.xml -print 2>/dev/null
+  done | sort
 }
 
 controleer() {
-  local bevindingen=0 gescand=0 demo pom afhankelijkheid
+  local bevindingen=0 gescand=0 demo pom afhankelijkheid wortel
+
+  # Niet `mapfile < <(demo_artifacts)`: die vorm gooit de exitcode van de procesvervanging weg, en
+  # dan blijft een module die niet parseert stil buiten de lijst zolang er één andere wél parseert.
+  # Een lege lijst kan hier niet aankomen: demo_modules faalt daar zelf op, en dat is de enige
+  # plek waar die garantie hoort te staan.
+  local demolijst
+  demolijst=$(demo_artifacts) || return 1
 
   local -a demos
-  mapfile -t demos < <(demo_artifacts)
-
-  # Een lege lijst betekent "niets gemeten", niet "niets gevonden".
-  if [ ${#demos[@]} -eq 0 ]; then
-    echo "FOUT: geen enkele demo-module gevonden — deze controle meet niets."
-
-    return 1
-  fi
+  mapfile -t demos <<<"$demolijst"
 
   while IFS= read -r pom; do
     [ -f "$pom" ] || continue
@@ -118,23 +135,25 @@ controleer() {
           bevindingen=$((bevindingen + 1))
         fi
       done
-    done < <(dependency_artifacts "$pom")
+    done < <(alle_artifacts "$pom")
   done < <(stelsel_poms)
 
-  # Dezelfde guard aan de andere kant: verdwijnt libraries/ of services/ (hernoemd, geherstructureerd,
-  # of een verkeerde REPO_ROOT), dan zou de lus nul keer draaien en de OK-regel alsnog verschijnen.
-  # Eén pom is de root-pom zelf, dus daar telt pas vanaf twee.
-  if [ "$gescand" -lt 2 ]; then
-    echo "FOUT: $gescand pom('s) onder libraries/ en services/ gescand — deze controle meet niets."
+  # Dezelfde guard aan de andere kant, en per wortel: valt er één weg (hernoemd, geherstructureerd,
+  # of een verkeerde REPO_ROOT), dan blijft een totaalteller ruim boven nul terwijl die helft van
+  # het stelsel ongemeten is.
+  for wortel in "${STELSEL_WORTELS[@]}"; do
+    if [ -z "$(find "$REPO_ROOT/$wortel" -name pom.xml -print -quit 2>/dev/null)" ]; then
+      echo "FOUT: geen enkele pom onder $wortel/ — die helft van het stelsel is niet gecontroleerd."
 
-    return 1
-  fi
+      return 1
+    fi
+  done
 
   if [ "$bevindingen" -ne 0 ]; then
     return 1
   fi
 
-  echo "OK: $gescand pom('s) van het stelsel bevatten geen van de ${#demos[@]} demo-module(s) als dependency."
+  echo "OK: $gescand pom('s) van het stelsel (root + ${STELSEL_WORTELS[*]}) noemen geen van de ${#demos[@]} demo-module(s)."
 }
 
 # Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.

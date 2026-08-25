@@ -21,6 +21,15 @@ reactor_demo_modules() {
 }
 
 schijf_demo_modules() {
+  # Zonder deze controle sterft het script op de mislukte `find` — met `pipefail` en `set -e` valt
+  # dat samen tot exitcode 1 zonder één regel uitleg, en dat is precies de situatie (root-pom al
+  # om, map nog niet verplaatst) waarin de lezer die uitleg nodig heeft.
+  if [ ! -d "$REPO_ROOT/demo" ]; then
+    echo "FOUT: $REPO_ROOT/demo bestaat niet — de demo-modulelijst is niet op te maken." >&2
+
+    return 1
+  fi
+
   # `target/` uitsluiten: een build kan daar pom-kopieën achterlaten, en die zijn geen module.
   find "$REPO_ROOT/demo" -name target -prune -o -name pom.xml -print 2>/dev/null \
     | sed "s:^$REPO_ROOT/::; s:/pom\.xml$::" \

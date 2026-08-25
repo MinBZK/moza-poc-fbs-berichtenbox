@@ -23,7 +23,7 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', 'demo/environment/**']
+    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
 
 permissions:
   contents: read
@@ -97,9 +97,9 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=76
+            [.github/scripts/test-wijzigingsfilter.sh]=81
             [.github/scripts/test-uitrol-poort.sh]=62
-            [.github/scripts/test-demo-grens.sh]=24
+            [.github/scripts/test-demo-grens.sh]=32
           )
 
           # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt

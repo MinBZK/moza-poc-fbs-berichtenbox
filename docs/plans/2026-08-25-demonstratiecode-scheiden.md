@@ -158,7 +158,7 @@ als succes voor branch protection. De uitsluitingsvorm die het script al gebruik
 fail-safe: wat er niet in staat, valt door en wordt gebouwd. Alleen de te grove regel `^demo/` moest
 weg, niet de vorm.
 
-Uitgevoerd als `DEMO_NIET_UITGEROLD` in `wijzigingsfilter.sh`: `^demo/demo-console/`,
+Uitgevoerd als `DEMO_BUITEN_UITROLPOORT` in `wijzigingsfilter.sh`: `^demo/demo-console/`,
 `^demo/environment/` en `^demo/[^/]*\.(sh|py)$`. `demo/generated/` staat er bewust niet bij — die map
 is gitignored en haalt dus nooit een bestandenlijst.
 
@@ -241,11 +241,11 @@ Gedaan in deze PR, in de volgorde van de kostentabel:
 |---|---|
 | `services/demo-console` → `demo/demo-console` (rename, historie behouden) | — |
 | Modulepad + comment over de drie wortels | `pom.xml` |
-| `^demo/` vervangen door `DEMO_NIET_UITGEROLD`; `BUITEN_DEMO_CONSOLE` → `BUITEN_DEMO` (`^demo/`) | `.github/scripts/wijzigingsfilter.sh` |
+| `^demo/` vervangen door `DEMO_BUITEN_UITROLPOORT`; `BUITEN_DEMO_CONSOLE` → `BUITEN_DEMO` (`^demo/`) | `.github/scripts/wijzigingsfilter.sh` |
 | Fixtures verlegd, plus een nieuwe voor een demo-module mét image en een prefix-buur | `.github/scripts/test-wijzigingsfilter.sh` |
 | Demo-shard leidt zijn modulelijst af uit `demo/*/pom.xml`; JaCoCo-globs en artefactpaden uitgebreid | `.github/workflows/test.yml` |
 | Modulelus over `demo/*` | `.github/workflows/codeql.yml` |
-| Padfilter, nieuwe suite geregistreerd, assertiedrempel 70 → 71 | `.github/workflows/ci-scripts.yml` |
+| Padfilter, nieuwe suite geregistreerd, assertiedrempels bijgesteld | `.github/workflows/ci-scripts.yml` |
 | Grensbewaking stelsel ↛ demo, met eigen fixture-suite | `.github/scripts/demo-grens.sh`, `test-demo-grens.sh` |
 | Modulepad in de warmup-laag van het fuzz-base-image | `.clusterfuzzlite/base/Dockerfile` |
 | Wat er onder `demo/` staat en waarom | `demo/README.md` |
