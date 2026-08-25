@@ -1,5 +1,5 @@
 publiccodeYmlVersion: "0.5"
-name: PoC MOZa Berichtenbox
+name: MOZa PoC Federatief Berichtenstelsel
 url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
 landingURL: https://mijnoverheidzakelijk.nl
 platforms:
@@ -21,14 +21,13 @@ intendedAudience:
     - government
 description:
   nl:
-    localisedName: MOZa Berichtenbox
+    localisedName: MOZa PoC Federatief Berichtenstelsel
     shortDescription: >-
-      PoC Berichtenbox voor MijnOverheid Zakelijk (MOZa).
+      PoC Federatief Berichtenstelsel voor MijnOverheid Zakelijk (MOZa).
     longDescription: >
-      De MOZa Berichtenbox is een Proof of Concept voor het ontvangen,
-      opslaan en ophalen van berichten binnen MijnOverheid Zakelijk. De
-      Berichtenbox is onderdeel van het Federatief Berichtenstelsel (FBS)
-      en bestaat uit de volgende onderdelen:
+      Deze Proof of Concept ontvangt, slaat op en haalt berichten op
+      binnen MijnOverheid Zakelijk volgens het Federatief
+      Berichtenstelsel (FBS) en bestaat uit de volgende onderdelen:
 
       - Berichtensessiecache
 
@@ -37,23 +36,23 @@ description:
       - Berichtnotificatieprofiel
 
 
-      Deze repository bevat de broncode van de PoC Berichtenbox. Het
-      MOZa-project bestaat uit meerdere repositories binnen de MinBZK
-      organisatie, te herkennen aan de moza- prefix of het topic
-      mijnoverheidzakelijk.
+      Deze repository bevat de broncode van de PoC Federatief
+      Berichtenstelsel. Het MOZa-project bestaat uit meerdere repositories
+      binnen de MinBZK organisatie, te herkennen aan de moza- prefix of
+      het topic mijnoverheidzakelijk.
     features:
       - Ontvangen en opslaan van berichten
       - Ophalen en weergeven van berichtensessiecache
       - Beheer van berichtnotificatieprofielen
   en:
     shortDescription: >-
-      PoC Berichtenbox for "MijnOverheid Zakelijk" (MOZa).
+      PoC Federatief Berichtenstelsel (Federated Messaging System) for
+      "MijnOverheid Zakelijk" (MOZa).
     longDescription: >
-      The MOZa Berichtenbox is a Proof of Concept for receiving, storing
-      and retrieving messages within "MijnOverheid Zakelijk". The
-      Berichtenbox is part of the Federatief Berichtenstelsel (FBS,
-      Federated Messaging System) and consists of the following
-      components:
+      This Proof of Concept receives, stores and retrieves messages
+      within "MijnOverheid Zakelijk" following the Federatief
+      Berichtenstelsel (FBS, Federated Messaging System) and consists of
+      the following components:
 
       - Message list
 
@@ -62,10 +61,10 @@ description:
       - Message notification profile
 
 
-      This repository contains the source code of the PoC Berichtenbox.
-      The MOZa project consists of multiple repositories within the
-      MinBZK organisation, identifiable by the moza- prefix or the
-      mijnoverheidzakelijk topic.
+      This repository contains the source code of the PoC Federatief
+      Berichtenstelsel. The MOZa project consists of multiple repositories
+      within the MinBZK organisation, identifiable by the moza- prefix or
+      the mijnoverheidzakelijk topic.
     features:
       - Receiving and storing messages
       - Retrieving and displaying message lists

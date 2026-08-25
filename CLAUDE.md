@@ -2,7 +2,7 @@
 
 ## Project
 
-FBS Berichtenbox - Proof of Concept voor het Federatief Berichtenstelsel (FBS).
+MOZa PoC Federatief Berichtenstelsel (FBS) - Proof of Concept binnen MijnOverheid Zakelijk.
 Monorepo met Maven, Quarkus en Kotlin. Architectuurdocumentatie in Structurizr DSL (C4 model).
 
 ## Taal

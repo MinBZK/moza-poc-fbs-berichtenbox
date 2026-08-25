@@ -7,9 +7,9 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.BijlageDto
  * zodat de bijlage-download in de UI demonstreerbaar is. Het magazijn accepteert alleen
  * `application/pdf`. Bewust in code (niet herhaald in de dataset-JSON) om die schoon te houden.
  *
- * De PDF rendert twee tekstregels: "Demo-bijlage" en "FBS Berichtenbox". Wie de tekst wijzigt,
- * moet de hele PDF opnieuw genereren: de xref-tabel bevat byte-offsets die met de streamlengte
- * meeschuiven, dus losse Base64-bewerking levert een onleesbaar bestand op.
+ * De PDF rendert twee tekstregels: "Demo-bijlage" en "Federatief Berichtenstelsel". Wie de tekst
+ * wijzigt, moet de hele PDF opnieuw genereren: de xref-tabel bevat byte-offsets die met de
+ * streamlengte meeschuiven, dus losse Base64-bewerking levert een onleesbaar bestand op.
  */
 object DemoBijlage {
 
@@ -18,13 +18,14 @@ object DemoBijlage {
             "CjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2Jq" +
             "CjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAzMDAg" +
             "MjAwXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4g" +
-            "Pj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA3NSA+PgpzdHJlYW0KQlQgL0YxIDE2IFRm" +
-            "IDQwIDEyMCBUZCAoRGVtby1iaWpsYWdlKSBUaiAwIC0zMCBUZCAoRkJTIEJlcmljaHRlbmJveCkg" +
-            "VGogRVQKZW5kc3RyZWFtCmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9U" +
-            "eXBlMSAvQmFzZUZvbnQgL0hlbHZldGljYSA+PgplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2" +
-            "NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDEx" +
-            "NSAwMDAwMCBuIAowMDAwMDAwMjQxIDAwMDAwIG4gCjAwMDAwMDAzNjUgMDAwMDAgbiAKdHJhaWxl" +
-            "cgo8PCAvU2l6ZSA2IC9Sb290IDEgMCBSID4+CnN0YXJ0eHJlZgo0MzUKJSVFT0YK"
+            "Pj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA4NiA+PgpzdHJlYW0KQlQgL0YxIDE2IFRm" +
+            "IDQwIDEyMCBUZCAoRGVtby1iaWpsYWdlKSBUaiAwIC0zMCBUZCAoRmVkZXJhdGllZiBCZXJpY2h0" +
+            "ZW5zdGVsc2VsKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQg" +
+            "L1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iagp4cmVmCjAgNgow" +
+            "MDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBu" +
+            "IAowMDAwMDAwMTE1IDAwMDAwIG4gCjAwMDAwMDAyNDEgMDAwMDAgbiAKMDAwMDAwMDM3NiAwMDAw" +
+            "MCBuIAp0cmFpbGVyCjw8IC9TaXplIDYgL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjQ0NgolJUVP" +
+            "Rgo="
 
     fun bij(bestandsnaam: String): BijlageDto = BijlageDto(bestandsnaam, "application/pdf", PDF_BASE64)
 }
