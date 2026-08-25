@@ -302,18 +302,47 @@ mock-dataset van de proeftuin toont vandaag elf echte instanties plus drie gemee
 generatiescript moet dus echte organisatienamen leveren — gemeentes zijn de voor de hand liggende
 bron voor de lange staart. Dit raakt alleen het script, niet het ontwerp eromheen.
 
-**3. Waar `/beheer` landt.** Openstaande beslissing 2 in het simulator-ontwerp gaat over waar de
-demo-console op ZAD terechtkomt, met als eis dat `/beheer` intern blijft. Dit ontwerp voegt er een
-eis aan toe: `/api/demo/personas` moet vanaf de proeftuin bereikbaar zijn. Dat is server-to-server
-verkeer, niet de browser — maar op ZAD isoleert de tenant-NetworkPolicy per deployment, dus
-cross-project bereikbaarheid loopt hoe dan ook over de publieke route. De demo-console krijgt dus twee
-soorten pad — een publiek leespad en een intern beheerpad — en die scheiding hoort in de deployment
-terug te komen, niet alleen in de code.
+**3. Wat er publiek mag staan.** Het simulator-ontwerp wil `/beheer` — het beheerpad van de
+*simulator* — helemaal niet publiceren, en houdt daarvoor demo-console en simulator liefst in
+hetzelfde ZAD-project, waar componenten elkaar intern bereiken. Dit ontwerp zet daar één eis
+tegenover: `/api/demo/personas` moet wél van buiten bereikbaar zijn, want de proeftuin draait in een
+ander project en op ZAD isoleert de tenant-NetworkPolicy per deployment — cross-project verkeer loopt
+over de publieke route.
 
-**4. Het paginagat (#996).** De uitvraag haalt per magazijn één pagina van twintig berichten op. In
-de wegwerp-UI valt dat nauwelijks op; in de proeftuin, waar de mock 120 berichten toont, wordt het
-direct zichtbaar. Dat is geen bezwaar tegen de koppeling — het is precies waarom een echte koppeling
-nuttig is — maar het hoort vóór een stakeholder-demo bekend te zijn.
+Die twee botsen niet, want het zijn verschillende componenten. Waar ze wél botsen is *binnen* de
+demo-console: `/api/demo/personas` moet publiek, terwijl onder datzelfde prefix `POST /api/demo/legen`
+staat (TRUNCATE op beide magazijn-databases), plus `random`, `storing/*` en `ontdubbeling`. Lokaal is
+dat afgedekt doordat compose de console alleen op `127.0.0.1` publiceert; op ZAD bestaat die knop niet.
+
+**Vorm die daaruit volgt.** Op ZAD is publiek-of-niet een eigenschap van een *component*, niet van een
+pad. Eén artefact, twee keer uitgerold als twee componenten die alleen in configuratie verschillen:
+één met een publieke route die uitsluitend het leespad aanzet, één zonder route met de bedienings- en
+storingsacties. Twee dingen horen daarbij:
+
+- **Het leespad krijgt een eigen prefix**, los van `/api/demo/`. Zolang publiek en destructief onder
+  hetzelfde prefix zitten, is elke routeringsregel een handmatige uitzonderingslijst en is één fout
+  genoeg.
+- **De code doet dezelfde scheiding.** Het publieke component zet de beheer-endpoints uit via
+  configuratie, zodat een fout in de routering geen TRUNCATE-endpoint blootlegt. Een tweede HTTP-poort
+  binnen het artefact kan ook — Quarkus biedt daarvoor `ManagementInterface`, waarmee je routes op
+  `quarkus.management.port` hangt — maar dat werkt met Vert.x-routes, en onze endpoints zijn JAX-RS
+  (`@Path("/api/demo")`). Dat zou een herschrijving betekenen voor een scheiding die de
+  component-splitsing plus een configuratievlag ook levert.
+
+Deze eis is scherper dan die van het simulator-ontwerp en vervangt hem niet: `/beheer` van de
+simulator blijft ongepubliceerd, en het enige dat in het demo-project publiek hoort te staan is de
+personalijst.
+
+**4. De onvolledige lijst (#996, #997).** De uitvraag haalt per magazijn één pagina van twintig
+berichten op (#996), en bij veel aangesloten organisaties valt er nog meer buiten de lijst (#997). In
+de wegwerp-UI valt dat nauwelijks op; in de proeftuin, waar de mock 120 berichten over veertien
+organisaties toont, wordt het direct zichtbaar — en met de simulator erbij (45 of 100 magazijnen)
+wordt #997 het opvallendst van de twee.
+
+Dit is een volgorde-afhankelijkheid, geen bezwaar: landen #996 en #997 vóór de koppeling een
+stakeholder bereikt, dan is er niets om te weten. Beide staan vandaag open en in refine, dus tot dat
+moment hoort de beperking bekend te zijn bij wie de demo geeft. Dat een echte koppeling dit zichtbaar
+maakt terwijl een mock-dataset het verbergt, is precies het argument vóór koppelen.
 
 Er is één volgorde-verschil dat het vermelden waard is: stap 7 van het simulator-ontwerp (ZAD) is
 geblokkeerd door #936, dit ontwerp is dat voor het leespad niet. De online koppeling kan dus eerder
@@ -407,7 +436,7 @@ Elke stap wordt een sub-issue onder #937, zodat het werk in beide repo's op éé
 3. Toont de proeftuin de voortgang per organisatie tijdens het ophalen, of alleen het eindresultaat?
    Dat bepaalt of trage magazijnen zichtbaar zijn of alleen merkbaar als wachttijd.
 4. Wat is het pollinterval bij het verversen, en stopt het als het tabblad niet zichtbaar is?
-5. Blijft `/api/demo/...` bij de demo-console, of hoort de personalijst op termijn ergens anders?
-   Zodra de demo-console op ZAD in een ander project landt dan de uitvraag, staat de proeftuin
-   tegenover twee bestemmingen in plaats van één — met de proxy is dat twee `location`s, geen twee
-   origins in een allowlist.
+5. Welk prefix krijgt het publieke leespad, en hoe heten de twee componenten? Nodig om personas
+   publiek te kunnen zetten zonder `POST /api/demo/legen` mee te publiceren; zie punt 3 hierboven.
+   Dat de proeftuin daardoor tegenover twee bestemmingen staat (uitvraag en demo-console) is met de
+   proxy geen bezwaar: twee `location`s, geen twee origins in een allowlist.
