@@ -34,8 +34,19 @@ vergelijk() {
 # $4 = optioneel 'true' voor een bot-PR.
 verwacht() {
   local omschrijving=$1 bestanden=$2 verwachting=$3 bot=${4:-false}
+  local uitkomst
 
-  vergelijk "$omschrijving" "$(classificeer "$bestanden" "$bot" 2>/dev/null)" "$verwachting"
+  uitkomst=$(classificeer "$bestanden" "$bot" 2>/dev/null)
+
+  vergelijk "$omschrijving" "$uitkomst" "$verwachting"
+
+  # Invariant over élke fixture, niet één losse test: `demo-only` scopet de tests naar de
+  # demo-modules terwijl `deploy` previews van de twee services uitrolt. Samen betekent dat een
+  # uitrol van code die in díe run niet getest is, en de uitrolpoort ziet alleen een geslaagde
+  # test-check — dus niets wordt rood.
+  if grep -q 'demo-only=true' <<<"$uitkomst" && grep -q 'deploy=true' <<<"$uitkomst"; then
+    fout "$omschrijving levert demo-only=true én deploy=true — previews op een halve testrun"
+  fi
 }
 
 # Draait `main` met een gestubde `gh`, zodat het ophaal-, fail-safe- en event-pad meetellen.
@@ -63,11 +74,18 @@ deploy=false
 demo-only=false
 fuzz=false'
 
-# Een Maven-module onder demo/: uitrol-relevant (hij voedt een eigen image), maar buiten het
-# stelsel — dus test-scope demo en geen fuzz-ronde, want de fuzz-doelen staan alleen in
-# libraries/ en services/.
+# Een Maven-module onder demo/ die buiten DEMO_NIET_UITGEROLD valt: uitrol-relevant, want hij kan
+# een eigen image voeden. `demo-only` valt daarmee terug op false — een preview rolt de services
+# uit, en die horen in diezelfde run getest te zijn. Geen fuzz-ronde: de fuzz-doelen staan alleen
+# in libraries/ en services/.
 DEMO_MET_IMAGE='run=true
 deploy=true
+demo-only=false
+fuzz=false'
+
+# Een demo-onderdeel dat geen image voedt: geen uitrol, en de test-job scopet naar de demo-modules.
+DEMO_STACK='run=true
+deploy=false
 demo-only=true
 fuzz=false'
 
@@ -169,16 +187,26 @@ fuzz=false'
 verwacht "demo-console plus een andere module — volledige build" 'demo/demo-console/src/main/kotlin/Console.kt
 services/berichtenuitvraag/src/main/kotlin/Uitvraag.kt' "$ALLES_AAN"
 
-# De kern van de padprecieze uitsluiting: een demo-module met een eigen image (de magazijn-
-# simulator krijgt er een) moet zijn build en preview houden. Een kale `^demo/`-uitsluiting zou
-# hem stil overslaan — een overgeslagen job telt als succes voor branch protection.
+# De kern van de padprecieze uitsluiting: een demo-module die een eigen image kan voeden moet zijn
+# build en preview houden. Een kale `^demo/`-uitsluiting zou hem stil overslaan — een overgeslagen
+# job telt als succes voor branch protection.
 verwacht "demo-module met een eigen image kost wél een uitrol" \
   'demo/magazijn-simulator/src/main/kotlin/Simulator.kt' "$DEMO_MET_IMAGE"
 
-verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' 'run=true
-deploy=false
-demo-only=true
-fuzz=false'
+verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' "$DEMO_STACK"
+
+# Het derde alternatief van DEMO_NIET_UITGEROLD (`^demo/[^/]*\.(sh|py)$`) dekt de scripts die de
+# demo-stack aansturen. Zonder deze twee fixtures kon het compleet verdwijnen — of tot één
+# extensie versmallen — zonder dat er iets rood werd.
+verwacht "een shellscript direct onder demo/" 'demo/smoke.sh' "$DEMO_STACK"
+
+verwacht "de magazijn-generator direct onder demo/" 'demo/genereer-magazijnen.py' "$DEMO_STACK"
+
+# `[^/]*` steekt geen slash over en de extensielijst is kort: allebei bewust, zodat onbekende
+# demo-paden aan de bouwende kant vallen in plaats van stil overgeslagen te worden.
+verwacht "een script in een submap onder demo/ houdt zijn uitrol" 'demo/scripts/smoke.sh' "$DEMO_MET_IMAGE"
+
+verwacht "een ander bestand direct onder demo/ houdt zijn uitrol" 'demo/compose.yaml' "$DEMO_MET_IMAGE"
 
 # --- bot-PR ----------------------------------------------------------------------------------
 verwacht "bot-PR met code — toetsen ja, uitrollen nee" 'pom.xml' 'run=true
@@ -327,6 +355,33 @@ done
 
 [ -d "$REPO_ROOT/demo/environment" ] \
   || fout "demo/environment/ bestaat niet meer; de uitsluiting in DEMO_NIET_UITGEROLD is dode letter"
+
+compgen -G "$REPO_ROOT/demo/*.sh" >/dev/null \
+  || fout "geen *.sh direct onder demo/; het sh-alternatief in DEMO_NIET_UITGEROLD is dode letter"
+
+compgen -G "$REPO_ROOT/demo/*.py" >/dev/null \
+  || fout "geen *.py direct onder demo/; het py-alternatief in DEMO_NIET_UITGEROLD is dode letter"
+
+# De uitsluiting legt vast dat deze paden geen image voeden dat aan de uitrolpoort hangt. Dat is
+# handwerk, dus het kan verlopen: zodra een demo-module in de build-matrix van deploy.yml staat,
+# zou een PR aan die module zijn eigen imagebuild overslaan — en overgeslagen telt als succes.
+matrix=$(sed -n 's/.*service: \[\(.*\)\].*/\1/p' "$REPO_ROOT/.github/workflows/deploy.yml")
+
+if [ -z "$matrix" ]; then
+  fout "geen service-matrix gevonden in deploy.yml; deze kruiscontrole meet niets"
+else
+  while IFS= read -r uitgesloten; do
+    case "$uitgesloten" in
+      '^demo/'*'/') module=${uitgesloten#^demo/}; module=${module%/} ;;
+      *) continue ;;
+    esac
+
+    grep -q "\b$module\b" <<<"$matrix" \
+      && fout "$module staat in de build-matrix van deploy.yml én in DEMO_NIET_UITGEROLD; zijn imagebuild wordt stil overgeslagen"
+  done <<<"${DEMO_NIET_UITGEROLD//|/$'\n'}"
+
+  ok "geen enkel pad uit DEMO_NIET_UITGEROLD staat in de build-matrix van deploy.yml"
+fi
 
 [ -f "$REPO_ROOT/docs/architecture/workspace.dsl" ] \
   || fout "docs/architecture/workspace.dsl bestaat niet meer; de ^docs/-fixture is dode letter"

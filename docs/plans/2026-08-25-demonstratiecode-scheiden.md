@@ -96,6 +96,9 @@ Wat er naast de map bij hoort:
 
 ## Wat het kost
 
+Regelnummers hieronder verwijzen naar de stand vóór de verhuizing; de symboolnamen ernaast blijven
+wél houdbaar.
+
 | Wat | Waar | Werk |
 |---|---|---|
 | Modulepaden | `pom.xml:21` (+ regel voor de simulator), `relativePath` in de module-poms | triviaal |
@@ -121,9 +124,9 @@ grootste deel is niet het verplaatsen maar het narekenen van de filters.
 
 ### De echte post: `^demo/` betekent nu "raakt de uitrol niet"
 
-`NIET_DEPLOYBAAR` sluit vandaag `^demo/` én `^services/demo-console/` uit: een PR die daar alleen
-aankomt, bouwt geen images en rolt geen preview uit (`wijzigingsfilter.sh:44-55`). Dat klopt zolang
-niets onder `demo/` een eigen image heeft.
+`NIET_DEPLOYBAAR` sloot vóór deze PR `^demo/` én `^services/demo-console/` uit: een PR die daar
+alleen aankomt, bouwt geen images en rolt geen preview uit (`wijzigingsfilter.sh:44-55`). Dat klopt
+zolang niets onder `demo/` een eigen image heeft.
 
 De simulator krijgt dat wél: een eigen ZAD-component in `mpfm-w3h`, met een image uit de deploy
 (magazijn-simulator-design, sectie ZAD). Zet je hem onder `demo/` zonder het filter aan te passen,
@@ -197,7 +200,7 @@ image-bouwpad in `deploy.yml:390` zonder dat een meelezer er iets voor terugkrij
 Het risico is dat demo-code productiecode aantrekt: een simulator die "even" een entity uit het
 magazijn hergebruikt, en dan zit productie vast aan een demo-eis.
 
-De signalen zijn voorzichtig gunstig. `services/demo-console/pom.xml` heeft bewust géén afhankelijkheid
+De signalen zijn voorzichtig gunstig. `demo/demo-console/pom.xml` heeft bewust géén afhankelijkheid
 op `fbs-common` en heeft de elfproef-validatie lokaal geïnlined; de simulator hergebruikt alleen de
 OpenAPI-spec van het magazijn, een statisch bronbestand, en genereert daaruit zijn eigen DTO's in een
 eigen package. De koppeling die er is, loopt dus via het contract en niet via code.
@@ -249,9 +252,15 @@ Gedaan in deze PR, in de volgorde van de kostentabel:
 | Paden en de drie wortels | `README.md`, `CLAUDE.md`, `docs/ontwikkelen.md`, `docs/demo-runbook.md` |
 | Simulator landt op `demo/magazijn-simulator`; openstaande beslissing 7 afgehandeld | `docs/plans/2026-08-21-magazijn-simulator-design.md` |
 
-Twee dingen die tijdens de uitvoering veranderden ten opzichte van het voorstel:
+Drie dingen die tijdens de uitvoering veranderden ten opzichte van het voorstel:
 
 - **Optie 1 in plaats van optie 2** voor het uitrolfilter; zie de correctie hierboven.
+- **`demo-only` en `deploy` mogen nooit samen aanstaan.** Vóór de verhuizing volgde dat uit de
+  patronen zelf: alles wat de test-scope naar de demo-modules bracht, viel ook buiten de uitrol. Met
+  de padprecieze uitsluiting is die insluiting weg — een demo-module die een image voedt zou de
+  previews openzetten terwijl in diezelfde run alleen de demo-modules getest zijn, en de uitrolpoort
+  ziet alleen een geslaagde test-check. `classificeer` laat `demo-only` daarom terugvallen op `false`
+  zodra de uitrol geraakt wordt, en elke fixture in de suite toetst die invariant.
 - **`fuzz=false` bij een demo-only PR.** `FUZZ_RELEVANT` ankert op `^libraries/|^services/`, dus
   demo-code koopt geen fuzz-ronde meer. Dat is juister dan de oude uitkomst: de fuzz-doelen staan
   alleen in de twee services en twee libraries (`.clusterfuzzlite/build.sh`), dus een demo-console-PR

@@ -100,8 +100,10 @@ en #936 voor het draaibaar maken ervan) — niet het geheel: de demo-console en 
 horen er net zo goed bij. Vandaar de specifiekere modulenaam; wie "simulatie-engine" zegt, bedoelt
 de simulator plus de bediening eromheen.
 
-**Waarom onder `demo/`.** De simulator hoort nooit in productie te draaien, en sinds spike
-MinBZK/MijnOverheidZakelijk#1005 is `demo/` een module-wortel naast `services/` en `libraries/`:
+**Waarom onder `demo/`.** De simulator hoort nooit in productie te draaien. Onder voorbehoud van
+het teambesluit bij spike MinBZK/MijnOverheidZakelijk#1005 — valt dat anders uit, dan landt de
+simulator op `services/magazijn-simulator` — is `demo/` een module-wortel naast `services/` en
+`libraries/`:
 `demo-console` staat er al, de simulator komt ernaast. `.github/scripts/demo-grens.sh` bewaakt de
 richting van de koppeling — een module uit het stelsel mag niet van een demo-module afhangen.
 
@@ -580,5 +582,5 @@ en niet alleen in dit document.
 6. Blijft de module `magazijn-simulator` heten, of wil het team de term "simulatie-engine" uit #787
    in de modulenaam terugzien? Nu beslissen is goedkoop; na de eerste code kost het een
    package-rename.
-7. ~~Waar landt demo-code in de repository?~~ Beantwoord door spike #1005: `demo/` is een
-   module-wortel geworden en de simulator begint daar.
+7. Waar landt demo-code in de repository? Spike #1005 heeft `demo/` als module-wortel ingericht en
+   de simulator begint daar; het teambesluit bij die spike moet dat nog bekrachtigen.

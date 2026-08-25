@@ -29,11 +29,9 @@ description:
       binnen MijnOverheid Zakelijk volgens het Federatief
       Berichtenstelsel (FBS) en bestaat uit de volgende onderdelen:
 
-      - Berichtensessiecache
-
       - Berichtenmagazijn
 
-      - Berichtnotificatieprofiel
+      - Berichtenuitvraag
 
 
       Deze repository bevat de broncode van de PoC Federatief
@@ -42,8 +40,8 @@ description:
       het topic mijnoverheidzakelijk.
     features:
       - Ontvangen en opslaan van berichten
-      - Ophalen en weergeven van berichtensessiecache
-      - Beheer van berichtnotificatieprofielen
+      - Federatief ophalen van berichten bij alle magazijnen van een ontvanger
+      - Streamen van de voortgang van een uitvraag
   en:
     shortDescription: >-
       PoC Federatief Berichtenstelsel (Federated Messaging System) for
@@ -54,11 +52,9 @@ description:
       Berichtenstelsel (FBS, Federated Messaging System) and consists of
       the following components:
 
-      - Message list
+      - Message store (berichtenmagazijn)
 
-      - Message store
-
-      - Message notification profile
+      - Message retrieval (berichtenuitvraag)
 
 
       This repository contains the source code of the PoC Federatief
@@ -67,8 +63,8 @@ description:
       the mijnoverheidzakelijk topic.
     features:
       - Receiving and storing messages
-      - Retrieving and displaying message lists
-      - Management of message notification profiles
+      - Federated retrieval of messages from all of a recipient's message stores
+      - Streaming the progress of a retrieval
 legal:
   license: EUPL-1.2
   mainCopyrightOwner: Ministerie van Binnenlandse Zaken en Koninkrijksrelaties

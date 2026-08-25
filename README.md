@@ -26,8 +26,6 @@ voor het portaal.
 - **Berichtenuitvraag** — frontend-API voor het portaal: bevraagt alle magazijnen van de ontvanger,
   streamt voortgang via SSE, bedient lijst, zoeken, detail en bijlagen, en neemt aanmeldingen
   van magazijnen aan.
-- **Demo-console** — bedieningspaneel voor demonstraties (magazijnen legen, dataset laden,
-  berichten opvoeren). Draait alleen mee in de demo-stack.
 
 De uitvraag heeft geen losse berichtensessiecache-service meer: die is opgegaan in
 `berichtenuitvraag` als in-process library, met Redis als gedeelde backing store.

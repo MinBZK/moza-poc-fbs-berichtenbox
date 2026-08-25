@@ -103,14 +103,23 @@ jobs:
       - name: Controleer dat elke module classes opleverde
         run: |
           set -euo pipefail
+          gezien=0
+
           for module in libraries/* services/* demo/*; do
             [ -f "$module/pom.xml" ] || continue
+            gezien=$((gezien + 1))
 
             if [ -z "$(find "$module/target/classes" -name '*.class' -print -quit 2>/dev/null)" ]; then
               echo "::error::$module leverde geen classes op — de analyse zou onvolledig zijn."
               exit 1
             fi
           done
+
+          # Nul modules is geen schone uitkomst maar een stille: matcht geen van de drie globs
+          # (verschoven mapstructuur, sparse checkout, andere werkmap), dan meldt de stap die de
+          # onvolledige build moet vangen zélf groen.
+          [ "$gezien" -gt 0 ] \
+            || { echo "::error::Geen enkele Maven-module gevonden — deze controle meet niets."; exit 1; }
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
         with:
@@ -154,8 +163,11 @@ jobs:
             echo "|---|---|"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+          gezien=0
+
           for module in libraries/* services/* demo/*; do
             [ -f "$module/pom.xml" ] || continue
+            gezien=$((gezien + 1))
             aantal=$(grep -cF "/$module/" <<<"$bestanden" || true)
             echo "| $module | $aantal |" | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -164,5 +176,8 @@ jobs:
               exit 1
             fi
           done
+
+          [ "$gezien" -gt 0 ] \
+            || { echo "::error::Geen enkele Maven-module gevonden — deze telling meet niets."; exit 1; }
 
           echo "| **Totaal** | **$(grep -c . <<<"$bestanden" || true)** |" | tee -a "$GITHUB_STEP_SUMMARY"

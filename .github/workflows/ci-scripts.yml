@@ -1,10 +1,9 @@
 # De scripts onder .github/scripts/ beslissen wát de rest van de CI doet: wijzigingsfilter.sh
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
-# demonstratiecode afhangt. Een fout daarin is stil — een overgeslagen job
-# rapporteert 'skipped' en dat telt als succes voor branch protection. Vandaar een eigen, lichte
-# workflow: shellcheck, actionlint en de bash-unittests, zonder de docker build van de
-# FSC-harness.
+# demonstratiecode afhangt. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped'
+# en dat telt als succes voor branch protection. Vandaar een eigen, lichte workflow: shellcheck,
+# actionlint en de bash-unittests, zonder de docker build van de FSC-harness.
 name: CI-scripts
 
 # Op een PR bewust ZONDER pad-filter. Twee redenen. Ten eerste kruiscontroleren de unittests de
@@ -24,7 +23,7 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', 'demo/demo-console/**', 'demo/environment/**']
+    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', 'demo/environment/**']
 
 permissions:
   contents: read
@@ -98,10 +97,22 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=71
+            [.github/scripts/test-wijzigingsfilter.sh]=76
             [.github/scripts/test-uitrol-poort.sh]=62
-            [.github/scripts/test-demo-grens.sh]=8
+            [.github/scripts/test-demo-grens.sh]=24
           )
+
+          # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt
+          # hernoemd, laat alleen een verweesde sleutel achter — `find` levert hem niet meer, de
+          # `gedraaid`-guard hieronder telt de overige suites en de stap wordt groen. Voor
+          # demo-grens.sh is dat extra duur: die controle heeft geen andere aanroep in de keten,
+          # dus één hernoeming haalt de architectuurgrens er geruisloos uit.
+          for t in "${!VERWACHTE_ASSERTIES[@]}"; do
+            if [ ! -f "$t" ]; then
+              echo "FOUT: $t staat in VERWACHTE_ASSERTIES maar bestaat niet meer."
+              fail=1
+            fi
+          done
 
           while IFS= read -r t; do
             gedraaid=$((gedraaid + 1))
@@ -123,6 +134,11 @@ jobs:
               fail=1
             elif [ -z "$gemeten" ]; then
               echo "FOUT: $t rapporteert geen ASSERTIES=-regel; het aantal is niet te bewaken."
+              fail=1
+            elif ! [[ "$gemeten" =~ ^[0-9]+$ ]]; then
+              # Zonder deze tak valt de vergelijking hieronder met 'integer expression expected'
+              # om, grijpt `set -e` niet in op een elif-conditie, en wordt de stap groen.
+              echo "FOUT: $t rapporteert ASSERTIES=$gemeten; dat is geen aantal."
               fail=1
             elif [ "$gemeten" -lt "$verwacht" ]; then
               echo "FOUT: $t leverde $gemeten asserties, verwacht minstens $verwacht."

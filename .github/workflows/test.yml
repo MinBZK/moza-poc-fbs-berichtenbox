@@ -167,32 +167,27 @@ jobs:
       - name: Test
         env:
           MODULES: ${{ matrix.shard.modules }}
-        # `-pl` kent geen globs; de demo-shard geeft er wel een mee. Die expansie hier is opzet:
-        # een handmatige lijst van demo-modules zou stil verouderen, en een module die nergens
-        # genoemd wordt blijft dan ongetest terwijl de shard groen rapporteert — precies de
-        # faalwijze die de andere shard met zijn complement (`!services/berichtenmagazijn`)
-        # vermijdt.
+        # `-pl` kent geen globs; de demo-shard geeft er wel een mee. De lijst komt uit
+        # demo-modules.sh — hetzelfde script dat de grensbewaking gebruikt en dat door
+        # test-demo-grens.sh gedekt is. Een lijst die hier ter plekke wordt afgeleid zou
+        # beslislogica in een workflow zijn die geen enkele test rood kan krijgen.
         run: |
           set -euo pipefail
 
           if [ "$MODULES" = "demo/*" ]; then
-            modules=()
-
-            for pom in demo/*/pom.xml; do
-              [ -f "$pom" ] || continue
-              modules+=("${pom%/pom.xml}")
-            done
-
-            # Leeg betekent hier "niets gemeten": zonder deze guard zou `-pl ''` de hele reactor
-            # testen (duur, maar stil) of falen op een lege modulelijst.
-            [ ${#modules[@]} -gt 0 ] \
-              || { echo "::error::Geen Maven-module onder demo/ gevonden — de demo-shard meet niets."; exit 1; }
-
-            MODULES=$(IFS=,; echo "${modules[*]}")
+            MODULES=$(.github/scripts/demo-modules.sh | paste -sd, -)
             echo "Demo-shard test: $MODULES"
           fi
 
           ./mvnw -B test -pl "$MODULES" -am
+
+          # Een module zonder testbronnen levert BUILD SUCCESS met nul tests. Bij een
+          # demo-only-run is dit de énige shard, dus de required check zou groen rapporteren
+          # zonder dat er iets getoetst is.
+          if [ -z "$(find . -path '*/target/surefire-reports/*.xml' -print -quit)" ]; then
+            echo "::error::Geen enkel surefire-rapport — deze shard heeft niets getest."
+            exit 1
+          fi
       # De rapporten gaan naar de `test`-job, die er één coverage-comment van maakt; los per
       # shard zou elke shard zijn eigen halve comment plaatsen. Retentie kort: ze zijn na die
       # ene comment nergens meer voor nodig.
@@ -303,12 +298,13 @@ jobs:
       # cijfer kunstmatig (bv. ~38% i.p.v. ~95% voor dezelfde module). Het site/jacoco-
       # rapport hanteert dezelfde excludes als de 90%-gate, dus de comment spiegelt de gate.
       # Glob op `services/*`, `libraries/*` én `demo/*` zodat nieuwe modules automatisch
-      # meegenomen worden — ook een demo-module mét coverage-gate (demo-console heeft er geen,
-      # de magazijn-simulator krijgt er wel een).
+      # meegenomen worden, ook een demo-module met een eigen coverage-gate.
       #
-      # demo-only sluit deze stap uit: demo/demo-console/pom.xml heeft geen jacoco-maven-plugin
-      # (geen coverage-gate voor de wegwerp-module), dus bij een demo-only-run bestaat er nergens
-      # een jacoco.xml — de comment-stap zou dan niets te rapporteren hebben.
+      # demo-only sluit deze stap uit: demo/demo-console/pom.xml heeft geen jacoco-maven-plugin,
+      # dus bij een demo-only-run bestaat er nergens een jacoco.xml en zou de comment-stap niets
+      # te rapporteren hebben. Krijgt een demo-module wél een gate, dan blijft die gate zelf
+      # gewoon draaien (jacoco:check hangt aan de test-fase) — alleen de informatieve comment
+      # ontbreekt bij een demo-only-run.
       - name: JaCoCo coverage als PR-comment
         if: github.event_name == 'pull_request' && inputs.demo-only != 'true' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
         uses: madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920 # v1.8.0

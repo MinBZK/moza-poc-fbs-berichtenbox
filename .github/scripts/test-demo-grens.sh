@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Fixture-tests voor demo-grens.sh. De controle zelf is stil als hij niets vindt, dus de dure
-# faalwijze is dat hij niets meer méét: een gewijzigde pom-vorm, een lege demo-wortel of een
-# stukgelopen sed levert dan een groene run zonder dat er iets gecontroleerd is.
+# Fixture-tests voor demo-grens.sh en demo-modules.sh. De controle is stil als hij niets vindt, dus
+# de dure faalwijze is dat hij niets meer méét: een afwijkende pom-vorm, een lege wortel, een
+# verschoven glob of een stukgelopen parser levert dan een groene run zonder dat er iets
+# gecontroleerd is.
+#
+# Daarom toetst elke assertie naast de exitcode ook de melding. Exitcode 1 betekent zowel "grens
+# overschreden" als "niets gemeten"; zonder de melding zijn die twee niet uit elkaar te houden en
+# blijft een suite groen terwijl de controle om de verkeerde reden rood is.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -16,87 +21,301 @@ fout() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
 WERKMAP=$(mktemp -d)
 trap 'rm -rf "$WERKMAP"' EXIT
 
-# Bouwt een repository-skelet met één demo-module en één module in het stelsel. $1 = de
-# artifactId's die de stelsel-module als dependency declareert (spaties gescheiden, mag leeg).
-bouw_repo() {
-  local afhankelijkheden=${1:-}
-  local wortel="$WERKMAP/repo-$RANDOM"
-  local dep=""
+# Een repository-skelet met alleen een root-pom. Modules worden er los in gezet, zodat elke test
+# zijn eigen samenstelling kiest.
+#
+# `mktemp -d` en geen oplopende teller: deze functie draait in een command-substitutie, en een
+# teller die dáár ophoogt is na afloop weer weg — alle fixtures zouden dezelfde map delen en
+# elkaars modules zien.
+nieuw_repo() {
+  local wortel
+  wortel=$(mktemp -d "$WERKMAP/repo-XXXXXX")
 
-  for a in $afhankelijkheden; do
-    dep+="        <dependency><groupId>nl.rijksoverheid.moz</groupId><artifactId>$a</artifactId></dependency>"$'\n'
-  done
+  mkdir -p "$wortel/demo" "$wortel/services" "$wortel/libraries"
 
-  mkdir -p "$wortel/demo/demo-console" "$wortel/services/berichtenuitvraag" "$wortel/libraries/fbs-common"
-
-  cat > "$wortel/demo/demo-console/pom.xml" <<'POM'
+  cat > "$wortel/pom.xml" <<'POM'
 <project>
-    <parent>
-        <groupId>nl.rijksoverheid.moz</groupId>
-        <artifactId>moza-poc-fbs-berichtenbox</artifactId>
-    </parent>
-    <artifactId>demo-console</artifactId>
+    <groupId>nl.rijksoverheid.moz</groupId>
+    <artifactId>moza-poc-fbs-berichtenbox</artifactId>
+    <modules>
+    </modules>
     <dependencies>
-        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-kotlin</artifactId></dependency>
     </dependencies>
 </project>
 POM
 
-  cat > "$wortel/services/berichtenuitvraag/pom.xml" <<POM
-<project>
-    <parent>
-        <groupId>nl.rijksoverheid.moz</groupId>
-        <artifactId>moza-poc-fbs-berichtenbox</artifactId>
-    </parent>
-    <artifactId>berichtenuitvraag</artifactId>
-    <dependencies>
-$dep    </dependencies>
-</project>
-POM
-
-  cp "$wortel/services/berichtenuitvraag/pom.xml" "$wortel/libraries/fbs-common/pom.xml"
-
   echo "$wortel"
 }
 
-# Draait de controle tegen een gebouwd skelet. $1 = omschrijving, $2 = dependencies van de
-# stelsel-modules, $3 = verwachte exitcode.
-verwacht() {
-  local omschrijving=$1 afhankelijkheden=$2 verwachte_code=$3
-  local wortel code=0
+dependency_regels() {
+  local a
 
-  wortel=$(bouw_repo "$afhankelijkheden")
+  for a in "$@"; do
+    printf '        <dependency><groupId>nl.rijksoverheid.moz</groupId><artifactId>%s</artifactId></dependency>\n' "$a"
+  done
+}
 
-  REPO_ROOT="$wortel" controleer >/dev/null 2>&1 || code=$?
+# $1 = wortel, $2 = modulepad (bv. demo/demo-console), $3 = pom-vorm, rest = dependencies.
+# De drie vormen bestaan omdat ze alle drie in het wild voorkomen en de parser ze alle drie moet
+# aankunnen: een geformatteerde pom, een compact parent-blok op één regel, en een module die
+# bewust niet van de reactor-parent erft.
+voeg_module() {
+  local wortel=$1 pad=$2 vorm=$3
+  shift 3
 
-  if [ "$code" -eq "$verwachte_code" ]; then
-    ok "$omschrijving"
-  else
-    fout "$omschrijving — verwacht exitcode $verwachte_code, gekregen $code"
+  local naam=${pad##*/}
+  local parent deps
+
+  case "$vorm" in
+    meerregelig)
+      parent=$'    <parent>\n        <groupId>nl.rijksoverheid.moz</groupId>\n        <artifactId>moza-poc-fbs-berichtenbox</artifactId>\n        <relativePath>../../pom.xml</relativePath>\n    </parent>'
+      ;;
+    eenregelig)
+      parent='    <parent><groupId>nl.rijksoverheid.moz</groupId><artifactId>moza-poc-fbs-berichtenbox</artifactId></parent>'
+      ;;
+    zonder-parent)
+      parent=''
+      ;;
+    *)
+      echo "onbekende pom-vorm: $vorm" >&2
+
+      return 1
+      ;;
+  esac
+
+  deps=$(dependency_regels "$@")
+
+  mkdir -p "$wortel/$pad"
+
+  cat > "$wortel/$pad/pom.xml" <<POM
+<project>
+$parent
+    <artifactId>$naam</artifactId>
+    <dependencies>
+$deps    </dependencies>
+</project>
+POM
+
+  # Alleen demo-modules staan in de reactor-lijst die demo-modules.sh kruiscontroleert; de
+  # stelsel-modules vindt demo-grens.sh via de mappen zelf.
+  if [ "${pad%%/*}" = "demo" ]; then
+    sed -i "s:    </modules>:        <module>$pad</module>\n    </modules>:" "$wortel/pom.xml"
   fi
 }
 
-verwacht "een schone repository gaat door" '' 0
-verwacht "alleen externe afhankelijkheden gaan door" 'quarkus-kotlin jackson-module-kotlin' 0
-verwacht "een dependency op een demo-module valt op" 'demo-console' 1
-verwacht "de demo-module valt op tussen andere dependencies" 'quarkus-kotlin demo-console fbs-common' 1
+root_dependency() {
+  local wortel=$1
+  shift
 
-# De parent-artifactId staat in élke module-pom en is géén demo-module. Zonder de `</parent>`-
-# afbakening zou hij als demo-artifactId meetellen en zou iedere module zichzelf rood maken.
-verwacht "de parent-artifactId telt niet als demo-module" 'moza-poc-fbs-berichtenbox' 0
+  local blok="$wortel/root-deps.xml"
 
-# Zonder demo-modules is er niets te meten; dat moet rood zijn, niet groen.
-leeg=$(mktemp -d "$WERKMAP/leeg-XXXX")
-mkdir -p "$leeg/demo" "$leeg/services" "$leeg/libraries"
-code=0
-REPO_ROOT="$leeg" controleer >/dev/null 2>&1 || code=$?
-[ "$code" -eq 1 ] \
-  && ok "een lege demo-wortel meldt dat er niets gemeten is" \
-  || fout "een lege demo-wortel levert exitcode $code; de controle meet dan niets en meldt groen"
+  # Via een bestand en `sed r` in plaats van een `s`-substitutie: die zou `&` en `\` in een
+  # artifactId als vervangingsopdracht lezen. Ankeren op de openingstag, want `r` voegt ná de
+  # matchende regel in — op de sluittag belandt de dependency buiten het blok.
+  dependency_regels "$@" > "$blok"
+  sed -i -e "/^    <dependencies>/{r $blok" -e '}' "$wortel/pom.xml"
+}
 
-# --- de echte repository ------------------------------------------------------------------------
-# De fixtures toetsen het gedrag; deze regel toetst de repository zoals hij nu is. Faalt hij, dan
-# is de grens daadwerkelijk overschreden.
+# $1 = omschrijving, $2 = wortel, $3 = verwachte exitcode, $4 = patroon dat in de uitvoer moet staan.
+toets() {
+  local omschrijving=$1 wortel=$2 verwachte_code=$3 patroon=$4
+  local uitvoer code=0
+
+  uitvoer=$(REPO_ROOT="$wortel" controleer 2>&1) || code=$?
+
+  if [ "$code" -ne "$verwachte_code" ]; then
+    fout "$omschrijving — verwacht exitcode $verwachte_code, gekregen $code
+  uitvoer: $uitvoer"
+
+    return
+  fi
+
+  if ! grep -qF "$patroon" <<<"$uitvoer"; then
+    fout "$omschrijving — melding mist '$patroon'
+  uitvoer: $uitvoer"
+
+    return
+  fi
+
+  ok "$omschrijving"
+}
+
+# --- de toegestane richting en het schone geval ---------------------------------------------------
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig fbs-common
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "een schone repository gaat door" "$w" 0 "OK: 3 pom('s) van het stelsel"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig fbs-common quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "een demo-module mág van het stelsel afhangen" "$w" 0 "OK:"
+
+# --- de verboden richting, per boom ---------------------------------------------------------------
+# Los per boom, want met identieke pom's in beide bomen levert elke overtreding twee bevindingen en
+# blijft het weghalen van één van de twee globs onzichtbaar.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "een service die van een demo-module afhangt" "$w" 1 \
+  "services/berichtenuitvraag/pom.xml hangt af van demo-module 'demo-console'"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig demo-console
+toets "een library die van een demo-module afhangt" "$w" 1 \
+  "libraries/fbs-common/pom.xml hangt af van demo-module 'demo-console'"
+
+# De root-pom is de goedkoopste manier om de grens te slechten: zijn <dependencies>-blok wordt door
+# élke module geërfd, dus één regel daar zet demo-code op het classpath van het hele stelsel.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+root_dependency "$w" demo-console
+toets "de root-pom die van een demo-module afhangt" "$w" 1 \
+  "pom.xml hangt af van demo-module 'demo-console'"
+
+# Een gelijkenis is geen treffer: `demo-console-mock` is een andere module dan `demo-console`, en
+# een substring-vergelijking zou hem als overtreding melden zonder dat iemand kan verklaren waarom.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console-mock
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "een artifactId dat een demo-naam bevat is geen overtreding" "$w" 0 "OK:"
+
+# Alle overtredingen in één run, niet alleen de eerste: wie er één fixt en opnieuw draait, hoort
+# niet verrast te worden door de volgende.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
+voeg_module "$w" libraries/fbs-common meerregelig demo-console
+uitvoer=$(REPO_ROOT="$w" controleer 2>&1) || true
+[ "$(grep -c 'hangt af van demo-module' <<<"$uitvoer")" -eq 2 ] \
+  && ok "beide overtredingen worden in één run gemeld" \
+  || fout "niet alle overtredingen gemeld:
+$uitvoer"
+
+# --- cardinaliteit: nul, één, meerdere -----------------------------------------------------------
+# Met één demo-module verbergt de suite of de controle "de eerste/enige" pakt of écht per module
+# discrimineert; de overtreding wijst hier daarom naar de tweede.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" demo/magazijn-simulator meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig magazijn-simulator
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "de tweede van twee demo-modules wordt óók bewaakt" "$w" 1 \
+  "hangt af van demo-module 'magazijn-simulator'"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" demo/magazijn-simulator meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "twee schone demo-modules tellen allebei mee" "$w" 0 "geen van de 2 demo-module(s)"
+
+w=$(nieuw_repo)
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "een lege demo-wortel meldt dat er niets gemeten is" "$w" 1 \
+  "geen enkele <module>demo/"
+
+# --- pom-vormen ------------------------------------------------------------------------------------
+# Een compact parent-blok op één regel liet een regel-gebaseerde parser de párent-artifactId pakken;
+# de echte module viel dan stil buiten de controle terwijl de melding groen bleef.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console eenregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "een demo-pom met een eenregelig parent-blok" "$w" 1 \
+  "hangt af van demo-module 'demo-console'"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console zonder-parent quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "een demo-pom zonder parent-blok" "$w" 1 \
+  "hangt af van demo-module 'demo-console'"
+
+# De parent-artifactId staat in élke module-pom en is géén demo-module. Zonder de parent-afbakening
+# zou hij als demo-artifactId meetellen en zou iedere module zichzelf rood maken.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig moza-poc-fbs-berichtenbox
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+toets "de parent-artifactId telt niet als demo-module" "$w" 0 "OK:"
+
+# --- de meting zelf ---------------------------------------------------------------------------------
+# Verdwijnt libraries/ of services/ (hernoemd, geherstructureerd, verkeerde REPO_ROOT), dan zou de
+# lus nul keer draaien en de OK-regel alsnog verschijnen.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+rmdir "$w/services" "$w/libraries"
+toets "nul stelsel-modules meldt dat er niets gemeten is" "$w" 1 "deze controle meet niets"
+
+# Een demo-pom waar geen artifactId uit komt mag niet geruisloos uit de lijst vallen.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+printf '<project><parent><artifactId>p</artifactId></parent></project>\n' > "$w/demo/demo-console/pom.xml"
+toets "een demo-pom zonder artifactId valt niet stil weg" "$w" 1 "geen artifactId gevonden"
+
+# --- demo-modules.sh: reactor tegenover schijf ------------------------------------------------------
+lijst_toets() {
+  local omschrijving=$1 wortel=$2 verwachte_code=$3 patroon=$4
+  local uitvoer code=0
+
+  uitvoer=$(REPO_ROOT="$wortel" demo_modules 2>&1) || code=$?
+
+  if [ "$code" -eq "$verwachte_code" ] && grep -qF "$patroon" <<<"$uitvoer"; then
+    ok "$omschrijving"
+  else
+    fout "$omschrijving — exitcode $code (verwacht $verwachte_code)
+  uitvoer: $uitvoer"
+  fi
+}
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" demo/magazijn-simulator meerregelig quarkus-kotlin
+lijst_toets "de lijst is gesorteerd en compleet" "$w" 0 "demo/demo-console
+demo/magazijn-simulator"
+
+# Een module op schijf die niet in de reactor staat, wordt door Maven niet gebouwd — en zou door de
+# demo-shard wél getest worden. Andersom is het een reactor-verwijzing zonder module.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+mkdir -p "$w/demo/vergeten-module"
+printf '<project><artifactId>vergeten</artifactId></project>\n' > "$w/demo/vergeten-module/pom.xml"
+lijst_toets "een demo-module buiten de reactor valt op" "$w" 1 "lopen uiteen"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+rm -rf "$w/demo/demo-console"
+lijst_toets "een reactor-verwijzing zonder module valt op" "$w" 1 "lopen uiteen"
+
+# --- hygiëne ------------------------------------------------------------------------------------------
+for script in demo-grens.sh demo-modules.sh; do
+  [ -x "$HERE/$script" ] \
+    && ok "$script is uitvoerbaar" \
+    || fout "$script is niet uitvoerbaar; de directe aanroep in CI faalt"
+done
+
+# De BASH_SOURCE-guard bestaat voor deze suite: breekt hij, dan draait de controle tegen de echte
+# repository zodra een test het script sourcet, en vervuilt dat de uitvoer van elke fixture.
+uitvoer=$(source "$HERE/demo-grens.sh" 2>&1)
+[ -z "$uitvoer" ] \
+  && ok "sourcen voert de controle niet uit" \
+  || fout "sourcen van demo-grens.sh voert de controle uit: $uitvoer"
+
+# --- de echte repository ---------------------------------------------------------------------------
+# De fixtures toetsen het gedrag; deze regel toetst de repository zoals hij nu is. Faalt hij, dan is
+# de grens daadwerkelijk overschreden.
 code=0
 uitvoer=$(controleer 2>&1) || code=$?
 [ "$code" -eq 0 ] \
@@ -107,10 +326,21 @@ $uitvoer"
 # --- de suite bewaakt zichzelf ------------------------------------------------------------------
 # Zonder deze zelftest blijft een suite waaruit de vergelijking is weggevallen groen mét het volle
 # aantal OK-regels: de teller in ci-scripts.yml telt geprinte regels, geen vergelijkingen.
-if (fails=0; verwacht zelftest 'demo-console' 0 >/dev/null 2>&1; [ "$fails" -eq 1 ]); then
-  ok "verwacht merkt een afwijking op"
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+
+if (fails=0; toets zelftest "$w" 0 "OK:" >/dev/null 2>&1; [ "$fails" -eq 1 ]); then
+  ok "toets merkt een afwijkende exitcode op"
 else
-  fout "verwacht meldt geen afwijking meer; de suite meet niets"
+  fout "toets meldt geen afwijking meer; de suite meet niets"
+fi
+
+if (fails=0; toets zelftest "$w" 1 "een melding die er niet staat" >/dev/null 2>&1; [ "$fails" -eq 1 ]); then
+  ok "toets merkt een afwijkende melding op"
+else
+  fout "toets vergelijkt de melding niet meer; exitcode 1 blijft dan dubbelzinnig"
 fi
 
 echo
