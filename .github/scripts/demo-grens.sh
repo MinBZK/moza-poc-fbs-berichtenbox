@@ -20,75 +20,26 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=demo-modules.sh
 source "$HERE/demo-modules.sh"
 
-# Élke artifactId in een pom, in volgorde van voorkomen — ongeacht het omliggende element. Bewust
-# niet afgebakend tot <dependencies>: ook via <dependencyManagement>, een <profile> of een
-# plugin-dependency komt demo-code de build binnen, en de naam van een demo-module hoort sowieso
-# nergens in een pom van het stelsel te staan. XML-commentaar telt daarbij mee als inhoud; dat kan
-# een overtreding hoogstens verzinnen, nooit verbergen.
+# Élke artifactId in een pom, ongeacht het omliggende element. Bewust niet afgebakend tot
+# <dependencies>: ook via <dependencyManagement>, een <profile> of een plugin-dependency komt
+# demo-code de build binnen, en de naam van een demo-module hoort sowieso nergens in een pom van
+# het stelsel te staan.
 #
-# De hele pom wordt eerst tot één regel genormaliseerd: XML mag een tag over meerdere regels spreiden en witruimte binnen een element is
-# betekenisloos (`<artifactId>\n  demo-console\n</artifactId>` resolvet Maven gewoon), dus een
-# regel-gebaseerde regex laat precies die vorm ongezien passeren — een bypass die elke formatter
-# vanzelf produceert.
-#
-# Geen XML-parser: `xmllint` staat niet op elke runner en deze controle mag niet afhangen van een
-# pakket dat er toevallig is. De normalisatie haalt het verschil weg dat er wél toe doet.
+# XML parsen en niet matchen met een regex. Maven sluit op XML-vorm, een regex op tekstvorm, en dat
+# verschil is een bypass-generator: een gespreid element, witruimte in de tag, een attribuut, een
+# CDATA-sectie of een entity levert een dependency op die Maven gewoon resolvet en die een regex
+# niet ziet. Elke ronde zou een nieuwe deelverzameling dichten; de parser sluit ze in één keer.
 artifact_ids() {
-    awk '
-    { doc = doc " " $0 }
-
-    END {
-      gsub(/[ \t\r\n]+/, " ", doc)
-
-      while (match(doc, /<artifactId *>[^<]*<\/artifactId *>/)) {
-        waarde = substr(doc, RSTART, RLENGTH)
-        sub(/^<artifactId *>/, "", waarde)
-        sub(/<\/artifactId *>$/, "", waarde)
-        gsub(/^ +| +$/, "", waarde)
-
-        if (waarde != "") print waarde
-
-        doc = substr(doc, RSTART + RLENGTH)
-      }
-    }
-  ' "$1"
+  python3 "$HERE/pom-artifactids.py" --alle "$1"
 }
 
-# De artifactId van de module zelf: de eerste buiten het <parent>-blok. Het parent-blok gaat er
-# eerst uit, want anders geldt de artifactId van de parent als die van de module — stil, want er
-# komt gewoon een naam uit. Op de tag-vorm matchen en niet op de letterlijke string: `<parent >` en
-# `<parent xmlns="…">` zijn allebei geldig.
+# De artifactId van de module zelf: het directe kind van <project>. Het <parent>-blok valt daar
+# vanzelf buiten — zonder dat onderscheid zou de artifactId van de parent als die van de module
+# gelden, en dat is stil, want er komt gewoon een naam uit.
 artifact_id() {
-    awk '
-    { doc = doc " " $0 }
-
-    END {
-      gsub(/[ \t\r\n]+/, " ", doc)
-
-      if (match(doc, /<parent[ >]/)) {
-        kop = substr(doc, 1, RSTART - 1)
-        rest = substr(doc, RSTART)
-
-        if (match(rest, /<\/parent *>/)) {
-          doc = kop substr(rest, RSTART + RLENGTH)
-        } else {
-          doc = kop
-        }
-      }
-
-      if (match(doc, /<artifactId *>[^<]*<\/artifactId *>/)) {
-        waarde = substr(doc, RSTART, RLENGTH)
-        sub(/^<artifactId *>/, "", waarde)
-        sub(/<\/artifactId *>$/, "", waarde)
-        gsub(/^ +| +$/, "", waarde)
-        print waarde
-      }
-    }
-  ' "$1"
+  python3 "$HERE/pom-artifactids.py" --eigen "$1"
 }
 
-# De pom's die de grens moeten respecteren. De root-pom hoort erbij: zijn <dependencies>-blok
-# wordt door élke module geërfd, dus één regel daar koppelt het hele stelsel aan demo-code.
 # De artifactId's van alle demo-modules. Faalt zodra één module er geen oplevert: een pom-vorm die
 # niet geparsed wordt zou anders geruisloos uit de controle vallen terwijl de rest groen meldt.
 demo_artifacts() {
@@ -117,12 +68,21 @@ STELSEL_WORTELS=(libraries services)
 # daar koppelt het hele stelsel aan demo-code) plus alles onder de stelsel-wortels. `target/` eruit:
 # een build kan daar pom-kopieën achterlaten, en die tellen niet mee als module.
 stelsel_poms() {
-  local wortel
+  local wortel gevonden
 
   printf '%s\n' "$REPO_ROOT/pom.xml"
 
   for wortel in "${STELSEL_WORTELS[@]}"; do
-    find "$REPO_ROOT/$wortel" -name target -prune -o -name pom.xml -print 2>/dev/null
+    # Een wortel die helemaal weg is, is de per-wortel-guard van `controleer` — daar staat de
+    # bruikbare melding. Hier alleen doorlopen zodat die guard aan bod komt.
+    [ -d "$REPO_ROOT/$wortel" ] || continue
+
+    # Status vasthouden en stderr laten staan: `find` levert bij een onleesbare submap gedeeltelijke
+    # uitvoer én een foutstatus. Onderdrukt en genegeerd zou dat een halve boom opleveren die als
+    # volledige meting doorgaat — met een overtreding die niemand ziet.
+    gevonden=$(find "$REPO_ROOT/$wortel" -name target -prune -o -name pom.xml -print) || return 1
+
+    printf '%s\n' "$gevonden"
   done | sort
 }
 
@@ -139,14 +99,38 @@ controleer() {
   local -a demos
   mapfile -t demos <<<"$demolijst"
 
+  # Een reactor-module buiten de bekende wortels valt buiten élke lijst in deze keten — de scan
+  # hieronder, de CodeQL-lussen, de jacoco-globs en de fuzz-allowlist. Dan is de grens niet meer
+  # bewaakt zonder dat er iets roods verschijnt, dus is een nieuwe wortel een expliciete keuze.
+  local onbekend
+  onbekend=$(sed -n 's:.*<module>\([^<]*\)</module>.*:\1:p' "$REPO_ROOT/pom.xml" \
+    | awk -v wortels="${STELSEL_WORTELS[*]} demo" '
+      BEGIN { aantal = split(wortels, bekend, " ") }
+      {
+        for (i = 1; i <= aantal; i++) {
+          if (index($0, bekend[i] "/") == 1) next
+        }
+
+        print
+      }')
+
+  if [ -n "$onbekend" ]; then
+    echo "FOUT: reactor-module(s) buiten de bekende wortels: $(tr '\n' ' ' <<<"$onbekend")"
+    echo "      Voeg de wortel toe aan STELSEL_WORTELS en aan de module-lussen van codeql.yml en test.yml."
+
+    return 1
+  fi
+
   local pomlijst
-  pomlijst=$(stelsel_poms)
+  pomlijst=$(stelsel_poms) || return 1
 
   # Per wortel tellen uit diezelfde lijst, niet uit een tweede `find`: een guard die anders meet dan
   # de scan is geen guard. Verdwijnt er één wortel (hernoemd, geherstructureerd, verkeerde
   # REPO_ROOT), dan blijft een totaalteller ruim boven nul terwijl die helft ongemeten is.
   for wortel in "${STELSEL_WORTELS[@]}"; do
-    aantal=$(grep -c "^$REPO_ROOT/$wortel/" <<<"$pomlijst" || true)
+    # Op prefix vergelijken en niet met grep: REPO_ROOT gaat daar ongeëscaped een reguliere
+    # expressie in, en een metateken in het pad maakt de telling stil onbruikbaar.
+    aantal=$(awk -v prefix="$REPO_ROOT/$wortel/" 'index($0, prefix) == 1' <<<"$pomlijst" | grep -c . || true)
 
     if [ "$aantal" -eq 0 ]; then
       echo "FOUT: geen enkele pom onder $wortel/ — die helft van het stelsel is niet gecontroleerd."

@@ -309,7 +309,16 @@ voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 : > "$w/services/berichtenuitvraag/pom.xml"
-toets "een lege stelsel-pom valt niet stil weg" "$w" 1 "geen enkele artifactId gelezen"
+toets "een onleesbare stelsel-pom valt niet stil weg" "$w" 1 "niet als XML te lezen"
+
+# Geldige XML zonder één artifactId is óók "niets gemeten": zo'n pom stil overslaan terwijl hij wel
+# in de telling zit, is precies de OK-zonder-meting die deze controle moet uitsluiten.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+printf '<project></project>\n' > "$w/services/berichtenuitvraag/pom.xml"
+toets "een stelsel-pom zonder artifactId valt niet stil weg" "$w" 1 "geen enkele artifactId gelezen"
 
 # De wortel-guard moet dezelfde verzameling meten als de scan: telt hij pom's mee die de scan
 # pruned (uit target/), dan is hij tevreden over een wortel waar niets gecontroleerd is.
@@ -387,6 +396,35 @@ voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 sed -i 's:<dependency><groupId>nl.rijksoverheid.moz</groupId><artifactId>quarkus-rest</artifactId></dependency>:<dependency><artifactId>demo-console</artifactId></dependency><dependency><artifactId>quarkus-rest</artifactId></dependency>:' \
   "$w/services/berichtenuitvraag/pom.xml"
 toets "twee dependencies op één regel" "$w" 1 "noemt demo-module 'demo-console'"
+
+# Een reactor-module buiten de bekende wortels valt buiten élke lijst in de keten — de scan, de
+# CodeQL-lussen, de jacoco-globs en de fuzz-allowlist — zonder dat er iets roods verschijnt.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+mkdir -p "$w/platform/kern"
+printf '<project><artifactId>kern</artifactId></project>\n' > "$w/platform/kern/pom.xml"
+sed -i 's:    </modules>:        <module>platform/kern</module>\n    </modules>:' "$w/pom.xml"
+toets "een reactor-module buiten de bekende wortels" "$w" 1 "buiten de bekende wortels"
+
+# `find` levert bij een onleesbare submap gedeeltelijke uitvoer én een foutstatus. Genegeerd zou dat
+# een halve boom opleveren die als volledige meting doorgaat — met een overtreding die niemand ziet.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+voeg_module "$w" libraries/geheim meerregelig demo-console
+chmod 000 "$w/libraries/geheim"
+
+if [ "$(id -u)" -eq 0 ]; then
+  # root leest door een 000-map heen, dus deze fixture kan het gedrag daar niet uitlokken.
+  chmod 755 "$w/libraries/geheim"
+  ok "onleesbare submap (niet uit te lokken als root)"
+else
+  toets "een onleesbare submap onder een wortel" "$w" 1 "Permission denied"
+  chmod 755 "$w/libraries/geheim"
+fi
 
 # --- de meting zelf ---------------------------------------------------------------------------------
 # Verdwijnt libraries/ of services/ (hernoemd, geherstructureerd, verkeerde REPO_ROOT), dan zou de

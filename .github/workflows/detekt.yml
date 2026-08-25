@@ -117,10 +117,43 @@ jobs:
       # (detekt.yml maxIssues) laat de stap falen bij nieuwe complexiteit boven budget.
       - name: Run detekt
         run: ./mvnw -B detekt:check
-      # SARIF ook uploaden als detekt faalt (bv. budget-overschrijding), zodat bevindingen
-      # zichtbaar blijven in het code-scanning-dashboard. Per module een aparte upload met
-      # eigen `category`: code scanning weigert sinds 2025 meerdere SARIF-runs onder dezelfde
-      # category. De hashFiles-guard slaat upload over als een module geen rapport opleverde.
+      # De uploadstappen hieronder zijn per module ingetypt, en `if: hashFiles(...) != ''` maakt
+      # van "deze module heeft geen rapport" een stille overslag. Een nieuwe module zou daardoor
+      # ongelint in het dashboard ontbreken terwijl deze required check groen blijft. Vandaar
+      # eerst de kruiscontrole: elk rapport op schijf moet een uploadstap hebben, en elke module
+      # in de reactor moet een rapport hebben opgeleverd.
+      - name: Controleer dat elke module een rapport heeft en dat elk rapport geüpload wordt
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+
+          fout=0
+          gezien=0
+
+          while IFS= read -r module; do
+            gezien=$((gezien + 1))
+            rapport="$module/target/detekt.sarif"
+
+            if [ ! -f "$rapport" ]; then
+              echo "::error::$module leverde geen detekt.sarif op — die module is niet gelint."
+              fout=1
+
+              continue
+            fi
+
+            if ! grep -qF "sarif_file: $rapport" "$WORKFLOW_BESTAND"; then
+              echo "::error::$rapport heeft geen uploadstap in detekt.yml — de bevindingen halen het dashboard niet."
+              fout=1
+            fi
+          done < <(sed -n 's:.*<module>\([^<]*\)</module>.*:\1:p' pom.xml)
+
+          # Nul modules is geen schone uitkomst maar een stille: dan is er niets gecontroleerd.
+          [ "$gezien" -gt 0 ] \
+            || { echo "::error::Geen enkele <module> in pom.xml — deze controle meet niets."; exit 1; }
+
+          exit "$fout"
+        env:
+          WORKFLOW_BESTAND: .github/workflows/detekt.yml
       - name: Upload SARIF — fbs-common
         if: ${{ always() && hashFiles('libraries/fbs-common/target/detekt.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8

@@ -105,13 +105,18 @@ jobs:
           set -euo pipefail
           # Per wortel tellen en niet in totaal: verdwijnt er één (verschoven mapstructuur, sparse
           # checkout, andere werkmap), dan houden de andere twee een totaalteller ruim boven nul
-          # terwijl die wortel ongecontroleerd blijft.
+          # terwijl die wortel ongecontroleerd blijft. `find` in plaats van een glob op één niveau,
+          # want een geneste module zou anders overgeslagen worden zonder dat de telling daalt.
           for wortel in libraries services demo; do
             gezien=0
 
-            for module in "$wortel"/*; do
-              [ -f "$module/pom.xml" ] || continue
+            while IFS= read -r pom; do
+              module=$(dirname "$pom")
               gezien=$((gezien + 1))
+
+              # Een aggregator (packaging pom) compileert niets en heeft geen target/; die eis zou
+              # hem hard laten falen terwijl de reactor hem correct bouwde.
+              grep -q '<packaging>pom</packaging>' "$pom" && continue
 
               # Een module zonder JVM-bronnen kan geen classes opleveren; die eis zou hem hard
               # laten falen terwijl er niets te analyseren valt. `target/` moet er dan wél zijn:
@@ -129,7 +134,7 @@ jobs:
                 echo "::error::$module leverde geen classes op — de analyse zou onvolledig zijn."
                 exit 1
               fi
-            done
+            done < <(find "$wortel" -name target -prune -o -name pom.xml -print)
 
             [ "$gezien" -gt 0 ] \
               || { echo "::error::Geen enkele Maven-module onder $wortel/ — deze controle meet niets."; exit 1; }
@@ -180,8 +185,8 @@ jobs:
           for wortel in libraries services demo; do
             gezien=0
 
-            for module in "$wortel"/*; do
-              [ -f "$module/pom.xml" ] || continue
+            while IFS= read -r pom; do
+              module=$(dirname "$pom")
               gezien=$((gezien + 1))
 
               # Een module zonder JVM-bronnen levert niets aan de database; alleen die overslaan,
@@ -195,7 +200,7 @@ jobs:
                 echo "::error::Geen bronbestanden van $module in de database — die code is niet geanalyseerd."
                 exit 1
               fi
-            done
+            done < <(find "$wortel" -name target -prune -o -name pom.xml -print)
 
             [ "$gezien" -gt 0 ] \
               || { echo "::error::Geen enkele Maven-module onder $wortel/ — deze telling meet niets."; exit 1; }
