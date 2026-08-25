@@ -16,11 +16,12 @@ set -euo pipefail
 DEMO_MODULES_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${REPO_ROOT:="$(cd "$DEMO_MODULES_HERE/../.." && pwd)"}"
 
-# Alle modulepaden uit de reactor. Via de XML-parser en niet met een regex: een gespreide
-# <module>-regel zou anders onzichtbaar blijven en een uitgecommentarieerde juist meetellen — de
-# eerste laat een module buiten élke controle vallen, de tweede maakt een geldige repo rood.
+# Alle modulepaden uit de reactor, transitief. Via de XML-parser en niet met een regex: een
+# gespreide <module>-regel zou anders onzichtbaar blijven en een uitgecommentarieerde juist
+# meetellen. Transitief, want een module mag zélf modules declareren en die staan niet in de
+# root-pom — wie alleen daar kijkt, mist precies de module die niemand mist.
 reactor_modules() {
-  python3 "$DEMO_MODULES_HERE/pom-artifactids.py" --modules "$REPO_ROOT/pom.xml"
+  python3 "$DEMO_MODULES_HERE/pom-artifactids.py" --reactor "$REPO_ROOT/pom.xml"
 }
 
 reactor_demo_modules() {
@@ -38,8 +39,18 @@ schijf_demo_modules() {
   fi
 
   # `target/` uitsluiten: een build kan daar pom-kopieën achterlaten, en die zijn geen module.
-  find "$REPO_ROOT/demo" -name target -prune -o -name pom.xml -print 2>/dev/null \
+  # Status vasthouden en stderr laten staan: een onleesbare submap levert gedeeltelijke uitvoer én
+  # een foutstatus, en genegeerd gaat die halve boom door voor een volledige meting.
+  local gevonden
+  if ! gevonden=$(find "$REPO_ROOT/demo" -name target -prune -o -name pom.xml -print); then
+    echo "FOUT: demo/ is niet volledig te doorzoeken — de modulelijst is niet betrouwbaar." >&2
+
+    return 1
+  fi
+
+  printf '%s\n' "$gevonden" \
     | while IFS= read -r pom; do
+        [ -n "$pom" ] || continue
         # Prefix strippen met bash en niet met sed: REPO_ROOT gaat daar ongeëscapeerd een reguliere
         # expressie in, en een metateken in het pad maakt de vergelijking stil onbruikbaar.
         pom=${pom#"$REPO_ROOT/"}

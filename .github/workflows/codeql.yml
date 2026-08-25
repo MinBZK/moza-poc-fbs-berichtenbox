@@ -115,8 +115,9 @@ jobs:
               gezien=$((gezien + 1))
 
               # Een aggregator (packaging pom) compileert niets en heeft geen target/; die eis zou
-              # hem hard laten falen terwijl de reactor hem correct bouwde.
-              grep -q '<packaging>pom</packaging>' "$pom" && continue
+              # hem hard laten falen terwijl de reactor hem correct bouwde. Via de XML-parser, want
+              # een gespreide tag zou een regex ontgaan en een uitgecommentarieerde juist matchen.
+              [ "$(.github/scripts/pom-artifactids.py --packaging "$pom")" = "pom" ] && continue
 
               # Een module zonder JVM-bronnen kan geen classes opleveren; die eis zou hem hard
               # laten falen terwijl er niets te analyseren valt. `target/` moet er dan wél zijn:

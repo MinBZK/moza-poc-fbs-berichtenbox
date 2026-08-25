@@ -37,6 +37,7 @@ nieuw_repo() {
 <project>
     <groupId>nl.rijksoverheid.moz</groupId>
     <artifactId>moza-poc-fbs-berichtenbox</artifactId>
+    <packaging>pom</packaging>
     <modules>
     </modules>
     <dependencies>
@@ -110,11 +111,19 @@ $deps    </dependencies>
 </project>
 POM
 
-  # Alleen demo-modules staan in de reactor-lijst die demo-modules.sh kruiscontroleert; de
-  # stelsel-modules vindt demo-grens.sh via de mappen zelf.
-  if [ "${pad%%/*}" = "demo" ]; then
-    sed -i "s:    </modules>:        <module>$pad</module>\n    </modules>:" "$wortel/pom.xml"
-  fi
+  # Élke module in de reactor registreren, zoals in de echte repository: de controles leiden hun
+  # modulelijst daaruit af, dus een fixture die alleen de demo-kant registreert zou een gat
+  # verbergen in plaats van blootleggen.
+  sed -i "s:    </modules>:        <module>$pad</module>\n    </modules>:" "$wortel/pom.xml"
+}
+
+# Haalt een module weer uit de reactor. Nodig zodra een fixture de map verwijdert: een reactor die
+# naar een verdwenen module wijst, is een eigen fout en die zou de fixture eerder laten falen dan
+# het gedrag dat hij wil toetsen.
+verwijder_module() {
+  local wortel=$1 pad=$2
+
+  sed -i "\|<module>$pad</module>|d" "$wortel/pom.xml"
 }
 
 root_dependency() {
@@ -415,6 +424,9 @@ voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 voeg_module "$w" libraries/geheim meerregelig demo-console
+# De reactor mag er niet meer naar wijzen: het lezen van díe pom faalt dan eerder dan het
+# doorzoeken van de wortel, en dan toetst de fixture een andere guard dan bedoeld.
+verwijder_module "$w" libraries/geheim
 chmod 000 "$w/libraries/geheim"
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -463,6 +475,19 @@ voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 sed -i 's|    </modules>|        <!-- tijdelijk eruit: <module>tooling/generator</module> -->\n    </modules>|' "$w/pom.xml"
 toets "een uitgecommentarieerde module telt niet mee" "$w" 0 "OK:"
 
+# Een module mag zélf modules declareren, en die staan niet in de root-pom. Wie alleen daar kijkt,
+# mist precies de module die niemand mist — en die valt dan buiten élke controle in de keten.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+mkdir -p "$w/tooling/generator"
+printf '<project><artifactId>generator</artifactId><dependencies><dependency><artifactId>demo-console</artifactId></dependency></dependencies></project>\n' \
+  > "$w/tooling/generator/pom.xml"
+sed -i 's|    <dependencies>|    <modules><module>../../tooling/generator</module></modules>\n    <dependencies>|' \
+  "$w/services/berichtenuitvraag/pom.xml"
+toets "een geneste module buiten de bekende wortels" "$w" 1 "buiten de bekende wortels"
+
 # --- de meting zelf ---------------------------------------------------------------------------------
 # Verdwijnt libraries/ of services/ (hernoemd, geherstructureerd, verkeerde REPO_ROOT), dan zou de
 # lus nul keer draaien en de OK-regel alsnog verschijnen.
@@ -478,6 +503,12 @@ for weg in services libraries; do
   voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
   voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
   voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+
+  case "$weg" in
+    services) verwijder_module "$w" services/berichtenuitvraag ;;
+    libraries) verwijder_module "$w" libraries/fbs-common ;;
+  esac
+
   rm -rf "${w:?}/$weg"
   toets "alleen $weg/ weg meldt dat die helft niet gemeten is" "$w" 1 "geen enkele pom onder $weg/"
 done
@@ -542,7 +573,51 @@ lijst_toets "een demo-module buiten de reactor valt op" "$w" 1 "lopen uiteen"
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 rm -rf "$w/demo/demo-console"
-lijst_toets "een reactor-verwijzing zonder module valt op" "$w" 1 "lopen uiteen"
+lijst_toets "een reactor-verwijzing zonder module valt op" "$w" 1 "bestaat niet"
+
+# --- de parser rechtstreeks ---------------------------------------------------------------------------
+# `--packaging` en de volgorde van `--reactor` hebben geen eigen pad door `controleer`, terwijl de
+# workflows er wél op sluiten: detekt.yml en codeql.yml slaan een aggregator over op wat hier
+# uitkomt, en een niet-deterministische volgorde laat de reactor/schijf-vergelijking spoken zien.
+parser_toets() {
+  local omschrijving=$1 verwacht=$2
+  shift 2
+
+  local gekregen
+  gekregen=$(python3 "$HERE/pom-artifactids.py" "$@" 2>&1) || true
+
+  if [ "$gekregen" = "$verwacht" ]; then
+    ok "$omschrijving"
+  else
+    fout "$omschrijving
+  verwacht: $verwacht
+  gekregen: $gekregen"
+  fi
+}
+
+w=$(nieuw_repo)
+parser_toets "packaging van een aggregator" "pom" --packaging "$w/pom.xml"
+
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+parser_toets "packaging zonder element is jar" "jar" --packaging "$w/demo/demo-console/pom.xml"
+
+printf '<project><packaging>\n    pom\n</packaging></project>\n' > "$w/demo/demo-console/pom.xml"
+parser_toets "packaging over meerdere regels" "pom" --packaging "$w/demo/demo-console/pom.xml"
+
+# Alleen het directe kind van <project> telt: een <packaging> in een profiel of in een
+# plugin-configuratie gaat over iets anders, en die voor de module aanzien zou een gewone module
+# als aggregator laten wegvallen uit de volledigheidscontroles.
+printf '<project><profiles><profile><build><plugins><plugin><configuration><packaging>pom</packaging></configuration></plugin></plugins></build></profile></profiles></project>\n' \
+  > "$w/demo/demo-console/pom.xml"
+parser_toets "packaging in een profiel telt niet" "jar" --packaging "$w/demo/demo-console/pom.xml"
+
+# Registratievolgorde is geen uitvoervolgorde: zonder sortering ziet de vergelijking van reactor en
+# schijf een verschil dat er niet is.
+w=$(nieuw_repo)
+voeg_module "$w" services/zeta meerregelig quarkus-rest
+voeg_module "$w" demo/alfa meerregelig quarkus-kotlin
+parser_toets "de reactorlijst is gesorteerd" "demo/alfa
+services/zeta" --reactor "$w/pom.xml"
 
 # --- hygiëne ------------------------------------------------------------------------------------------
 w=$(nieuw_repo)
@@ -552,7 +627,7 @@ lijst_toets "een ontbrekende demo-wortel meldt wat er mist" "$w" 1 "bestaat niet
 # De wortels staan op twee plekken ingetypt: hier en in de module-lussen van codeql.yml. Lopen ze
 # uiteen, dan dekt de ene guard een wortel die de andere overslaat — en dat is stil, want beide
 # blijven groen over wat ze wél zien.
-codeql_wortels=$(grep -oE 'for wortel in [a-z ]+; do' "$HERE/../workflows/codeql.yml" \
+codeql_wortels=$( { grep -oE 'for wortel in [a-z ]+; do' "$HERE/../workflows/codeql.yml" || true; } \
   | sed 's/for wortel in //; s/; do//' | sort -u)
 eigen_wortels="${STELSEL_WORTELS[*]} demo"
 
@@ -562,6 +637,21 @@ elif [ "$codeql_wortels" = "$eigen_wortels" ]; then
   ok "codeql.yml hanteert dezelfde wortels als de grensbewaking"
 else
   fout "codeql.yml hanteert andere wortels ($codeql_wortels) dan de grensbewaking ($eigen_wortels)"
+fi
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+mkdir -p "$w/demo/demo-console/diep"
+chmod 000 "$w/demo/demo-console/diep"
+
+if [ "$(id -u)" -eq 0 ]; then
+  chmod 755 "$w/demo/demo-console/diep"
+  ok "onleesbare submap onder demo/ (niet uit te lokken als root)"
+else
+  lijst_toets "een onleesbare submap onder demo/" "$w" 1 "niet volledig te doorzoeken"
+  chmod 755 "$w/demo/demo-console/diep"
 fi
 
 for script in demo-grens.sh demo-modules.sh; do

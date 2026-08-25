@@ -190,24 +190,28 @@ jobs:
           # gaat nul tests draaide. Het complement (`!services/berichtenmagazijn`) is geen pad,
           # dus die shard valt terug op de hele werkmap — daar is het onderscheid niet nodig,
           # want die shard test per definitie meer dan één module.
-          # Per module en niet per shard: met één rapport uit de hele shard lift een module zonder
-          # tests mee op zijn zusters. Alleen het complement (`!services/berichtenmagazijn`) is
-          # geen pad; die shard test per definitie meer dan één module en valt terug op de
-          # werkmap als geheel.
-          zoekpaden=()
+          # Per gebouwde module en niet per shard: met één rapport uit de hele shard lift een
+          # module zonder gedraaide tests mee op zijn zusters, en juist het complement
+          # (`!services/berichtenmagazijn`) is geen pad — die shard zou dan op de werkmap als
+          # geheel terugvallen. De reactor levert de modulelijst; `target/` verraadt welke daarvan
+          # deze shard getest heeft. Op `target/test-classes` en niet op `target/`: dat laatste
+          # laat ook een detekt- of compile-run achter, en dan zou de eis slaan op een module die
+          # deze shard nooit getest heeft.
+          while IFS= read -r module; do
+            [ -d "$module/target/test-classes" ] || continue
 
-          for module in ${MODULES//,/ }; do
-            [ -d "$module" ] && zoekpaden+=("$module")
-          done
-
-          [ ${#zoekpaden[@]} -gt 0 ] || zoekpaden=(.)
-
-          for pad in "${zoekpaden[@]}"; do
-            if [ -z "$(find "$pad" -path '*/target/surefire-reports/*.xml' -print -quit)" ]; then
-              echo "::error::Geen enkel surefire-rapport onder $pad — die module heeft niets getest."
+            if [ -z "$(find "$module/target/surefire-reports" -name '*.xml' -print -quit 2>/dev/null)" ]; then
+              echo "::error::$module heeft testbronnen maar leverde geen surefire-rapport — die tests hebben niet gedraaid."
               exit 1
             fi
-          done
+          done < <(.github/scripts/pom-artifactids.py --reactor pom.xml)
+
+          # En de shard als geheel moet iets getest hebben: een shard waarin geen enkele module
+          # testbronnen heeft, zou anders groen rapporteren zonder één assertie.
+          if [ -z "$(find . -path '*/target/surefire-reports/*.xml' -print -quit)" ]; then
+            echo "::error::Geen enkel surefire-rapport — deze shard heeft niets getest."
+            exit 1
+          fi
       # De rapporten gaan naar de `test`-job, die er één coverage-comment van maakt; los per
       # shard zou elke shard zijn eigen halve comment plaatsen. Retentie kort: ze zijn na die
       # ene comment nergens meer voor nodig.

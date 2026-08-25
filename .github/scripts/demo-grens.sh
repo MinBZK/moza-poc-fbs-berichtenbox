@@ -47,7 +47,9 @@ demo_artifacts() {
 
   # Eerst de lijst ophalen en de status vasthouden: `done < <(demo_modules)` zou een mislukking
   # daar geruisloos veranderen in een lege lus, en dan levert deze functie nul namen met exitcode 0.
-  modules=$(demo_modules) || return 1
+  if ! modules=$(demo_modules); then
+    return 1
+  fi
 
   while IFS= read -r module; do
     # Status apart van de leegte-controle: een ontbrekende interpreter of een onleesbare pom is

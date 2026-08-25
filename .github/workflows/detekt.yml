@@ -128,18 +128,20 @@ jobs:
           set -euo pipefail
 
           fout=0
-          gezien=0
 
-          # Via `find` en niet via de <module>-regels van de root-pom: een module die door een
-          # andere module gedeclareerd wordt, staat daar niet in en zou buiten deze controle
-          # vallen — juist de module die niemand mist.
-          while IFS= read -r pom; do
-            module=$(dirname "$pom")
+          # De modulelijst komt uit de reactor zelf (transitief, via de XML-parser), niet uit een
+          # `find` over ingetypte wortels: een nieuwe wortel of een geneste module zou anders
+          # buiten deze controle vallen — juist de module die niemand mist.
+          modules=$(.github/scripts/pom-artifactids.py --reactor pom.xml)
 
+          # Leeg betekent "niets gemeten", niet "niets te doen".
+          [ -n "$modules" ] \
+            || { echo "::error::Geen enkele Maven-module in de reactor — deze controle meet niets."; exit 1; }
+
+          while IFS= read -r module; do
             # Een aggregator (packaging pom) heeft geen bronnen en levert dus geen rapport.
-            grep -q '<packaging>pom</packaging>' "$pom" && continue
+            [ "$(.github/scripts/pom-artifactids.py --packaging "$module/pom.xml")" = "pom" ] && continue
 
-            gezien=$((gezien + 1))
             rapport="$module/target/detekt.sarif"
 
             if [ ! -f "$rapport" ]; then
@@ -153,11 +155,7 @@ jobs:
               echo "::error::$rapport heeft geen uploadstap in detekt.yml — de bevindingen halen het dashboard niet."
               fout=1
             fi
-          done < <(find libraries services demo -name target -prune -o -name pom.xml -print)
-
-          # Nul modules is geen schone uitkomst maar een stille: dan is er niets gecontroleerd.
-          [ "$gezien" -gt 0 ] \
-            || { echo "::error::Geen enkele Maven-module gevonden — deze controle meet niets."; exit 1; }
+          done <<<"$modules"
 
           exit "$fout"
         env:
