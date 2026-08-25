@@ -38,10 +38,16 @@ bewezen, inclusief SSE-voortgang en bijlage-download; aan de proeftuin-kant best
 verkeer same-origin kan afhandelen al, in beide opstellingen. Wat ontbreekt is de bedrading tussen
 die twee, plus een identiteit die niet uit een keuzelijst in onze eigen console komt.
 
-**De proeftuin wordt de Berichtenbox van de demo, lokaal én online.** De wegwerp-UI in de
-demo-console blijft bestaan als onze eigen verificatie dat de keten werkt zónder de proeftuin ertussen
-— nuttig bij het uitzoeken van een storing — maar is niet langer wat een stakeholder ziet. Dat maakt
-"één build voor beide opstellingen" een harde eis in plaats van een nette bijkomstigheid.
+**De proeftuin wordt de Berichtenbox van de demo, lokaal én online.** Dat maakt "één build voor
+beide opstellingen" een harde eis in plaats van een nette bijkomstigheid — en het maakt de
+wegwerp-Berichtenbox overbodig. Twee UI's op hetzelfde koppelvlak betekent elke wijziging twee keer
+doen, of de tweede laten rotten; een rottende tweede UI is erger dan geen, want hij wijst bij een
+storing de verkeerde kant op. De verificatie waarvoor hij zogenaamd nodig was — werkt de keten zónder
+de proeftuin ertussen? — doen `demo/smoke.sh` (levert aan bij A én B, toetst de ophaal-stream op
+geslaagde bevraging van beide) en de Bruno-collecties beter: scriptbaar, zonder browser, en
+bruikbaar in CI. `berichtenbox.{html,css,js}` in de demo-console (ruim 800 regels) verdwijnt daarom
+zodra stap 4 laat zien dat de proeftuin het overneemt. Het bedieningspaneel (`index.html`,
+`/beheer`) is iets anders en blijft: dat is de engine, niet de Berichtenbox.
 
 ## Begrippen
 
@@ -318,7 +324,7 @@ tussenstation en geen halve oplevering.
 
 | Waar | Wat |
 |---|---|
-| `services/demo-console` | `GET /api/demo/personas`; persona's uit configuratie, inclusief `bron` |
+| `services/demo-console` | `GET /api/demo/personas`; persona's uit configuratie, inclusief `bron`. Later: `berichtenbox.{html,css,js}` weg, `/beheer` blijft |
 | `compose.yaml` | proeftuin-container als service in het `demo`-profiel, met de bestemming naar uitvraag en demo-console |
 | ZAD-projectspec `mpfb-8wh` | niets, zolang de proeftuin via zijn eigen proxy binnenkomt; de uitvraag moet publiek bereikbaar zijn |
 | `docs/ontwikkelen.md` | hoe je de demo mét proeftuin start, en hoe je hem op een preview van de keten richt |
@@ -360,9 +366,11 @@ dekkingseis binnen. Dat gat is geen vondst van dit ontwerp — het simulator-ont
 3. **PR op de proeftuin.** Wij openen hem zelf, met de proxy-`location`s, de bronkeuze en een
    Berichtenbox die op het koppelvlak praat. Zo staat het voorstel in code in plaats van in een
    document, en houdt het proeftuin-team de regie over vormgeving en review.
-4. **Proeftuin in compose.** Stabiele image-tag afspreken, container als service in het
-   `demo`-profiel, bestemming naar uitvraag en demo-console. Verificatie: acceptatiecriteria 1, 2 en 3
-   in de lokale opstelling, zonder Node op de machine.
+4. **Proeftuin in compose, wegwerp-Berichtenbox eruit.** Stabiele image-tag afspreken, container als
+   service in het `demo`-profiel, bestemming naar uitvraag en demo-console. Verificatie:
+   acceptatiecriteria 1, 2 en 3 in de lokale opstelling, zonder Node op de machine. Zodra die groen
+   zijn: `berichtenbox.{html,css,js}` uit de demo-console, `/beheer` blijft. Niet eerder — pas als de
+   proeftuin het aantoonbaar overneemt.
 5. **Verversen.** Periodiek lezen plus zichtbare melding van nieuwe berichten. Verificatie: engine
    voert een bericht op, de pagina toont het uit zichzelf.
 6. **Online leespad.** Bestemming op de proeftuin-omgeving naar `mpfb-8wh`/`test`, plus de
@@ -385,15 +393,17 @@ Elke stap wordt een sub-issue onder #937, zodat het werk in beide repo's op éé
 - **Notificaties buiten de pagina om.** E-mail of push naar een toestel is de notificatiedienst, niet
   deze koppeling. Nieuwe berichten binnen een open Berichtenbox vallen er wél onder; zie "Nieuwe
   berichten zichtbaar maken".
-- **De wegwerp-UI vervangen.** Hij blijft als eigen verificatiegereedschap, maar is niet meer het
-  gezicht van de demo. Zolang hij niets kost, blijft hij staan.
+- **Het bedieningspaneel vervangen.** `/beheer` in de demo-console blijft; dat is de engine. Alleen
+  de wegwerp-Berichtenbox ernaast verdwijnt, en dat staat in stap 4 in plaats van hier.
 
 ## Openstaande beslissingen
 
 1. Welke persona's en welke nummers? Afstemmen met stap 5 van het simulator-ontwerp en met het
    persona-werk dat elders loopt, zodat er geen derde set ontstaat.
 2. Welke image-tag van de proeftuin gebruiken we in compose? Vandaag publiceert de proeftuin alleen
-   per PR; een stabiele tag is nodig om hem als service op te nemen.
+   per PR; een stabiele tag is nodig om hem als service op te nemen. Dit is de enige echte
+   afhankelijkheid die ontstaat door de wegwerp-Berichtenbox op te ruimen: zonder eigen UI staat of
+   valt de lokale demo met een image uit een ander repo. Een gepinde tag houdt dat beheersbaar.
 3. Toont de proeftuin de voortgang per organisatie tijdens het ophalen, of alleen het eindresultaat?
    Dat bepaalt of trage magazijnen zichtbaar zijn of alleen merkbaar als wachttijd.
 4. Wat is het pollinterval bij het verversen, en stopt het als het tabblad niet zichtbaar is?
