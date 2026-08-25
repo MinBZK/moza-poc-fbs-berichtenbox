@@ -1,9 +1,8 @@
 # Disclaimer
 
-Dit project is een **experimentele Proof of Concept (PoC)** voor de Berichtenbox
-binnen het Federatief Berichtenstelsel (FBS). De code is **grotendeels
-gegenereerd met generatieve AI** (Claude Code, Anthropic). Alle **niet-testcode**
-wordt **menselijk gereviewd** voordat die in de hoofdbranch wordt opgenomen;
+Dit project is een **experimentele Proof of Concept (PoC)** voor het Federatief
+Berichtenstelsel (FBS). De code is **grotendeels gegenereerd met generatieve AI**
+(Claude Code, Anthropic). Alle **niet-testcode** wordt **menselijk gereviewd** voordat die in de hoofdbranch wordt opgenomen;
 testcode wordt niet regel voor regel gereviewd, maar de werking van het geheel
 wordt functioneel beproefd.
 
