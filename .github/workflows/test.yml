@@ -197,6 +197,14 @@ jobs:
           # deze shard getest heeft. Op `target/test-classes` en niet op `target/`: dat laatste
           # laat ook een detekt- of compile-run achter, en dan zou de eis slaan op een module die
           # deze shard nooit getest heeft.
+          # Eerst de lijst, dan de lus: `done < <(…)` gooit de status van de aanroep weg, en dan
+          # wordt deze controle stil een lege lus — waarna alleen de shard-brede terugval eronder
+          # overblijft en één rapport van een zustermodule volstaat.
+          modules=$(.github/scripts/pom-artifactids.py --reactor pom.xml)
+
+          [ -n "$modules" ] \
+            || { echo "::error::Geen enkele reactor-module — deze controle meet niets."; exit 1; }
+
           while IFS= read -r module; do
             [ -d "$module/target/test-classes" ] || continue
 
@@ -204,7 +212,7 @@ jobs:
               echo "::error::$module heeft testbronnen maar leverde geen surefire-rapport — die tests hebben niet gedraaid."
               exit 1
             fi
-          done < <(.github/scripts/pom-artifactids.py --reactor pom.xml)
+          done <<<"$modules"
 
           # En de shard als geheel moet iets getest hebben: een shard waarin geen enkele module
           # testbronnen heeft, zou anders groen rapporteren zonder één assertie.

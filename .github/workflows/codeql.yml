@@ -110,14 +110,31 @@ jobs:
           for wortel in libraries services demo; do
             gezien=0
 
+            # Status vasthouden: een gedeeltelijk mislukte `find` (onleesbare submap) levert een
+            # halve lijst én een foutstatus, en in een procesvervanging verdwijnt die status —
+            # waarna de overgebleven modules de teller tevredenstellen.
+            if ! poms=$(find "$wortel" -name target -prune -o -name pom.xml -print); then
+              echo "::error::$wortel/ is niet volledig te doorzoeken — de analyse zou onvolledig zijn."
+              exit 1
+            fi
+
             while IFS= read -r pom; do
+              # Een lege wortel levert via `<<<` één lege regel; zonder deze regel telt die als
+              # module en stelt hij de guard hieronder tevreden.
+              [ -n "$pom" ] || continue
+
               module=$(dirname "$pom")
               gezien=$((gezien + 1))
 
               # Een aggregator (packaging pom) compileert niets en heeft geen target/; die eis zou
               # hem hard laten falen terwijl de reactor hem correct bouwde. Via de XML-parser, want
               # een gespreide tag zou een regex ontgaan en een uitgecommentarieerde juist matchen.
-              [ "$(.github/scripts/pom-artifactids.py --packaging "$pom")" = "pom" ] && continue
+              if ! packaging=$(.github/scripts/pom-artifactids.py --packaging "$pom"); then
+                echo "::error::packaging van $module is niet te lezen — de analyse zou onvolledig zijn."
+                exit 1
+              fi
+
+              [ "$packaging" = "pom" ] && continue
 
               # Een module zonder JVM-bronnen kan geen classes opleveren; die eis zou hem hard
               # laten falen terwijl er niets te analyseren valt. `target/` moet er dan wél zijn:
@@ -135,7 +152,7 @@ jobs:
                 echo "::error::$module leverde geen classes op — de analyse zou onvolledig zijn."
                 exit 1
               fi
-            done < <(find "$wortel" -name target -prune -o -name pom.xml -print)
+            done <<<"$poms"
 
             [ "$gezien" -gt 0 ] \
               || { echo "::error::Geen enkele Maven-module onder $wortel/ — deze controle meet niets."; exit 1; }
@@ -186,7 +203,19 @@ jobs:
           for wortel in libraries services demo; do
             gezien=0
 
+            # Status vasthouden: een gedeeltelijk mislukte `find` (onleesbare submap) levert een
+            # halve lijst én een foutstatus, en in een procesvervanging verdwijnt die status —
+            # waarna de overgebleven modules de teller tevredenstellen.
+            if ! poms=$(find "$wortel" -name target -prune -o -name pom.xml -print); then
+              echo "::error::$wortel/ is niet volledig te doorzoeken — de analyse zou onvolledig zijn."
+              exit 1
+            fi
+
             while IFS= read -r pom; do
+              # Een lege wortel levert via `<<<` één lege regel; zonder deze regel telt die als
+              # module en stelt hij de guard hieronder tevreden.
+              [ -n "$pom" ] || continue
+
               module=$(dirname "$pom")
               gezien=$((gezien + 1))
 
@@ -201,7 +230,7 @@ jobs:
                 echo "::error::Geen bronbestanden van $module in de database — die code is niet geanalyseerd."
                 exit 1
               fi
-            done < <(find "$wortel" -name target -prune -o -name pom.xml -print)
+            done <<<"$poms"
 
             [ "$gezien" -gt 0 ] \
               || { echo "::error::Geen enkele Maven-module onder $wortel/ — deze telling meet niets."; exit 1; }

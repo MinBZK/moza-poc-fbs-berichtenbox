@@ -31,12 +31,25 @@ def lees(pad: str) -> ET.ElementTree:
 
 
 def modulepaden(pom: str) -> list[str]:
-    """De <module>-paden van één pom, in volgorde van voorkomen."""
-    return [
-        element.text.strip()
-        for element in lees(pom).iter()
-        if lokale_naam(element.tag) == "module" and element.text and element.text.strip()
-    ]
+    """De <module>-paden die Maven standaard bouwt, in volgorde van voorkomen.
+
+    Alleen het <modules>-blok dat direct onder <project> hangt. Een <module> in een <profile> hoort
+    er niet bij: Maven bouwt die alleen met dat profiel actief, en onze CI activeert er geen. Ze
+    tóch meetellen leverde een module op die niet bestaat (een release-only profiel) en daarmee een
+    rood signaal over een build die prima liep. Een profielmodule die wél op schijf staat, blijft
+    gedekt: de grensbewaking scant de wortels van schijf, niet alleen de reactor.
+    """
+    gevonden = []
+
+    for blok in lees(pom).getroot():
+        if lokale_naam(blok.tag) != "modules":
+            continue
+
+        for element in blok:
+            if lokale_naam(element.tag) == "module" and element.text and element.text.strip():
+                gevonden.append(element.text.strip())
+
+    return gevonden
 
 
 def reactor(wortel_pom: str) -> list[str]:

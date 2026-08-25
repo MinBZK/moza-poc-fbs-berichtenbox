@@ -619,6 +619,31 @@ voeg_module "$w" demo/alfa meerregelig quarkus-kotlin
 parser_toets "de reactorlijst is gesorteerd" "demo/alfa
 services/zeta" --reactor "$w/pom.xml"
 
+# Een <module> in een <profile> bouwt Maven alleen met dat profiel actief, en onze CI activeert er
+# geen. Meetellen leverde een rood signaal op over een module die de build nooit aanraakt — en bij
+# een release-only profiel wijst zo'n regel naar een map die niet eens bestaat.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's|</project>|    <profiles><profile><modules><module>tooling/alleen-bij-release</module></modules></profile></profiles>\n</project>|' \
+  "$w/pom.xml"
+toets "een module in een profiel telt niet mee in de reactor" "$w" 0 "OK:"
+
+# Diezelfde profielmodule blijft wél gedekt zodra hij op schijf staat: de grensbewaking scant de
+# wortels van schijf, niet alleen de reactor.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+mkdir -p "$w/services/alleen-bij-release"
+printf '<project><artifactId>release-hulp</artifactId><dependencies><dependency><artifactId>demo-console</artifactId></dependency></dependencies></project>\n' \
+  > "$w/services/alleen-bij-release/pom.xml"
+sed -i 's|</project>|    <profiles><profile><modules><module>services/alleen-bij-release</module></modules></profile></profiles>\n</project>|' \
+  "$w/pom.xml"
+toets "een profielmodule op schijf blijft onder de grensbewaking vallen" "$w" 1 \
+  "services/alleen-bij-release/pom.xml noemt demo-module 'demo-console'"
+
 # --- hygiëne ------------------------------------------------------------------------------------------
 w=$(nieuw_repo)
 rm -rf "${w:?}/demo"

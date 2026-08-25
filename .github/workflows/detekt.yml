@@ -139,8 +139,15 @@ jobs:
             || { echo "::error::Geen enkele Maven-module in de reactor — deze controle meet niets."; exit 1; }
 
           while IFS= read -r module; do
-            # Een aggregator (packaging pom) heeft geen bronnen en levert dus geen rapport.
-            [ "$(.github/scripts/pom-artifactids.py --packaging "$module/pom.xml")" = "pom" ] && continue
+            # Een aggregator (packaging pom) heeft geen bronnen en levert dus geen rapport. Een
+            # mislukte lezing telt niet als "geen aggregator": dan meldt de stap straks dat de
+            # module niet gelint is, terwijl het probleem bij de lezing zat.
+            if ! packaging=$(.github/scripts/pom-artifactids.py --packaging "$module/pom.xml"); then
+              echo "::error::packaging van $module is niet te lezen — deze controle is niet betrouwbaar."
+              exit 1
+            fi
+
+            [ "$packaging" = "pom" ] && continue
 
             rapport="$module/target/detekt.sarif"
 
