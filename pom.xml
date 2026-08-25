@@ -63,7 +63,7 @@
              Niet bumpen zolang openapi-request-validator hierop staat. Un-pin zodra de
              upstream-migratie naar networknt 3.x is gereleased — volg:
              https://github.com/atlassian/openapi-request-validator/pull/24 -->
-        <json-schema-validator.version>2.0.4</json-schema-validator.version>
+        <json-schema-validator.version>2.0.7</json-schema-validator.version>
         <awaitility.version>4.3.0</awaitility.version>
     </properties>
 
