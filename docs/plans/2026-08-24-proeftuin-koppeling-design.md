@@ -175,9 +175,9 @@ geen eigen namenlijst te onderhouden — en de naam die hij toont is de naam uit
 Dit hoort bij de koppeling, niet erbuiten: acceptatiecriterium 2 is "engine voert een bericht op →
 zichtbaar in de proeftuin", en dat is alleen overtuigend als de pagina het uit zichzelf laat zien.
 
-**De duw bestaat al, op één stap na.** Een magazijn publiceert een nieuw bericht als CloudEvent naar
-`POST /api/v1/aanmeldingen` op de uitvraag (in compose loopt dat pad langs Toxiproxy naar de échte
-uitvraag-webhook). De uitvraag schrijft het bericht meteen in de sessiecache van de ontvanger, mits
+**Het aanmeld-pad bestaat al, op één stap na.** Een magazijn publiceert een nieuw bericht als
+CloudEvent naar `POST /api/v1/aanmeldingen` op de uitvraag (in compose loopt dat pad langs Toxiproxy
+naar de échte uitvraag-webhook). De uitvraag schrijft het bericht meteen in de sessiecache van de ontvanger, mits
 die een actieve sessie heeft; het is idempotent op het CloudEvents-`id`. Een nieuw bericht staat dus
 binnen een seconde na het opvoeren in de cache, zónder nieuwe ophaalronde. Wat ontbreekt is
 uitsluitend de laatste hop: uitvraag → browser.
@@ -189,11 +189,12 @@ die in het demo-profiel op `PT2M` staat. Nieuwe berichten meldt de pagina zichtb
 berichten") in plaats van ze stil in de lijst te schuiven; dat is wat je bij een demo wilt kunnen
 aanwijzen.
 
-**Later: een echte duw.** Een SSE-endpoint op de uitvraag waarop de browser wacht tot er iets in de
-sessiecache verandert, haalt de vertraging en het polling-verkeer weg. Dat is wél een toevoeging aan
+**Later: de aanmelding doorzetten tot in de browser.** Een SSE-endpoint op de uitvraag waarop de
+browser wacht tot er iets in de sessiecache verandert, haalt de vertraging en het polling-verkeer weg. Dat is wél een toevoeging aan
 de spec en aan het gedragspad van een productiedienst, dus het hoort een eigen afweging te krijgen —
 inclusief de vraag wat er met dat endpoint gebeurt als de sessie verloopt of de cache wegvalt. Het
-verversen hierboven is de stap die de demo nú compleet maakt; de duw is de nette eindvorm.
+verversen hierboven is de stap die de demo nú compleet maakt; de aanmelding doorzetten is de nette
+eindvorm.
 
 Wat hier níét onder valt: notificaties buiten de pagina om (e-mail, push naar een toestel). Dat is de
 notificatiedienst en een eigen vraagstuk.
