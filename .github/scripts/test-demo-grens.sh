@@ -283,6 +283,24 @@ open(pad, "w", newline="\r\n").write(inhoud)
 PYEOF
 toets "de modulenaam zelf gespreid en met CRLF" "$w" 1 "noemt demo-module 'demo-console'"
 
+# Witruimte in de tag zelf (`<artifactId >`) is geldige XML en Maven resolvet het gewoon. Het
+# parent-blok vangt die vorm al af; de tag die de poort bewaakt hoort dat net zo goed te doen.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's:<artifactId>quarkus-rest</artifactId>:<artifactId >demo-console</artifactId >:' \
+  "$w/services/berichtenuitvraag/pom.xml"
+toets "witruimte in de artifactId-tag" "$w" 1 "noemt demo-module 'demo-console'"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's:<artifactId>demo-console</artifactId>:<artifactId >demo-console</artifactId >:' \
+  "$w/demo/demo-console/pom.xml"
+toets "witruimte in de artifactId-tag van de modulenaam" "$w" 1 "noemt demo-module 'demo-console'"
+
 # Een pom die geen enkele artifactId oplevert is onleesbaar of niet te parsen. Hem stil overslaan
 # terwijl hij wél in de telling zit, is de "OK terwijl er niets gemeten is" die deze controle moet
 # uitsluiten.

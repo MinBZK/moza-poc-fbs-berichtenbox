@@ -31,7 +31,8 @@ elfproef wijzigt, wijzigt beide.
 
 `.github/scripts/demo-grens.sh` bewaakt de richting: het faalt zodra een pom van het stelsel — de
 modules onder `services/` en `libraries/`, én de root-pom waar ze allemaal van erven — de naam van
-een demo-module noemt, als dependency of als parent. Zonder die controle is de scheiding een
+een demo-module noemt: als dependency, als parent, als plugin of in een profiel. Kies een
+demo-module dus een naam die niet met een bestaande dependency botst. Zonder die controle is de scheiding een
 afspraak die alleen in review houdt, en dan is één `<dependency>` erbij genoeg om demo-code naar
 productie te laten meeliften.
 

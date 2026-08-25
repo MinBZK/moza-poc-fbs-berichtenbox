@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Bewaakt de grens tussen het stelsel (libraries/, services/) en de demonstratiecode (demo/):
-# een module uit het stelsel mag niet afhangen van een demo-module.
+# Bewaakt de grens tussen het stelsel (libraries/, services/) en de demonstratiecode (demo/): geen
+# enkele pom van het stelsel mag de naam van een demo-module noemen — niet als dependency, niet als
+# parent, niet als plugin.
 #
 # Zonder deze controle is de scheiding een afspraak die alleen in review houdt, en dat is precies
 # de kant waar hij faalt: één `<dependency>` erbij is in een grote diff een detail, terwijl het
@@ -19,8 +20,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=demo-modules.sh
 source "$HERE/demo-modules.sh"
 
-# De artifactId's uit een pom, in volgorde van voorkomen. De hele pom wordt eerst tot één regel
-# genormaliseerd: XML mag een tag over meerdere regels spreiden en witruimte binnen een element is
+# Élke artifactId in een pom, in volgorde van voorkomen — ongeacht het omliggende element. Bewust
+# niet afgebakend tot <dependencies>: ook via <dependencyManagement>, een <profile> of een
+# plugin-dependency komt demo-code de build binnen, en de naam van een demo-module hoort sowieso
+# nergens in een pom van het stelsel te staan. XML-commentaar telt daarbij mee als inhoud; dat kan
+# een overtreding hoogstens verzinnen, nooit verbergen.
+#
+# De hele pom wordt eerst tot één regel genormaliseerd: XML mag een tag over meerdere regels spreiden en witruimte binnen een element is
 # betekenisloos (`<artifactId>\n  demo-console\n</artifactId>` resolvet Maven gewoon), dus een
 # regel-gebaseerde regex laat precies die vorm ongezien passeren — een bypass die elke formatter
 # vanzelf produceert.
@@ -34,8 +40,10 @@ artifact_ids() {
     END {
       gsub(/[ \t\r\n]+/, " ", doc)
 
-      while (match(doc, /<artifactId>[^<]*<\/artifactId>/)) {
-        waarde = substr(doc, RSTART + 12, RLENGTH - 25)
+      while (match(doc, /<artifactId *>[^<]*<\/artifactId *>/)) {
+        waarde = substr(doc, RSTART, RLENGTH)
+        sub(/^<artifactId *>/, "", waarde)
+        sub(/<\/artifactId *>$/, "", waarde)
         gsub(/^ +| +$/, "", waarde)
 
         if (waarde != "") print waarde
@@ -68,8 +76,10 @@ artifact_id() {
         }
       }
 
-      if (match(doc, /<artifactId>[^<]*<\/artifactId>/)) {
-        waarde = substr(doc, RSTART + 12, RLENGTH - 25)
+      if (match(doc, /<artifactId *>[^<]*<\/artifactId *>/)) {
+        waarde = substr(doc, RSTART, RLENGTH)
+        sub(/^<artifactId *>/, "", waarde)
+        sub(/<\/artifactId *>$/, "", waarde)
         gsub(/^ +| +$/, "", waarde)
         print waarde
       }

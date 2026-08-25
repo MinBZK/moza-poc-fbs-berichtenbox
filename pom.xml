@@ -14,8 +14,8 @@
 
     <!-- Drie module-wortels met elk een eigen betekenis: `libraries/` en `services/` vormen het
          stelsel, `demo/` bevat wat er alleen is om het stelsel te tonen en nooit in productie
-         draait. Die grens wordt bewaakt door .github/scripts/demo-grens.sh: een module uit het
-         stelsel mag niet van een demo-module afhangen. -->
+         draait. Die grens wordt bewaakt door .github/scripts/demo-grens.sh: geen enkele pom van
+         het stelsel mag de naam van een demo-module noemen. -->
     <modules>
         <module>libraries/fbs-common</module>
         <module>libraries/fbs-magazijnregister</module>
