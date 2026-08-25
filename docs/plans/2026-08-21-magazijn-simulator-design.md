@@ -39,7 +39,7 @@ Een paar termen komen hieronder steeds terug.
 |---|---|
 | fan-out | Het aantal magazijnen dat de uitvraag voor één ondernemer bevraagt: de opt-ins uit zijn profiel, doorsneden met het register. |
 | substream | De voortgangsregels van één magazijn binnen één ophaalronde — gestart, daarna voltooid met uitkomst `OK`, `TIMEOUT` of `FOUT`. |
-| pad-prefix | Het eerste stuk van de URL — de OIN van het magazijn — waarmee de simulator bepaalt welk magazijn bedoeld is. |
+| pad-prefix | Het eerste stuk van de URL — `/magazijn/<OIN>` — waarmee de simulator bepaalt welk magazijn bedoeld is. |
 | index (`i`) | Volgnummer 1…98 van een gesimuleerd magazijn. Bepaalt zijn OIN (`0000000900000000{i:04d}`), zijn naam ("Demo-magazijn i") en zijn gedrag. Alleen een rekengrootheid; hij komt niet in URL's voor. |
 | log-normale spreiding | Responstijden met een lange staart: de meeste rond de mediaan, af en toe een forse uitschieter. Realistischer dan een vaste vertraging. |
 | circuit breaker | Beveiliging in de uitvraag die een magazijn na herhaalde storingen een tijdje overslaat in plaats van er telkens op te wachten. |
@@ -104,9 +104,16 @@ de simulator plus de bediening eromheen.
 reactor kent vandaag alleen `libraries/*` en `services/*` als module-root, en het enige bestaande
 demo-only artefact — `services/demo-console` — staat al onder `services/`. Eén module apart
 neerzetten levert twee conventies naast elkaar op. Wil het team een `demo/`-module-root, dan is dat
-een eigen kleine opruimactie waarin `demo-console` en de simulator sámen verhuizen; die staat los
-van dit ontwerp. `demo/` blijft ondertussen wat het is: scripts en gegenereerde artefacten, geen
+een eigen opruimactie waarin `demo-console` en de simulator sámen verhuizen; die staat los van dit
+ontwerp. `demo/` blijft ondertussen wat het is: scripts en gegenereerde artefacten, geen
 Maven-modules.
+
+Het bezwaar dat demo-code beter niet naast de code van het stelsel staat is terecht — voor
+meelezers is het verschil nu niet te zien, en de simulator maakt dat groter. Dat is een vraag over
+de indeling van de hele repository, niet over deze ene module, en die ligt als spike op de backlog:
+MinBZK/MijnOverheidZakelijk#1005. Valt daar het besluit vóór stap 1, dan landt de simulator meteen
+op de nieuwe plek; valt het later, dan verhuist hij mee. Wat we níet doen is de simulator
+vooruitlopend ergens anders neerzetten dan `demo-console`.
 
 ### Spec-hergebruik (optie A)
 
@@ -136,9 +143,9 @@ De gegenereerde interfaces dragen paden relatief aan `quarkus.rest.path=/api/v1`
 niets aan. Een `@PreMatching ContainerRequestFilter` doet het werk:
 
 ```
-GET   /00000009000000000007/api/v1/berichten        →  magazijn met die OIN, match op /api/v1/berichten
-PATCH /00000009000000000007/api/v1/berichten/{id}   →  idem, match op /api/v1/berichten/{id}
-POST  /00000009000000000007/api/v1/aanleveringen    →  idem, match op /api/v1/aanleveringen
+GET   /magazijn/00000009000000000007/api/v1/berichten      →  magazijn met die OIN, match op /api/v1/berichten
+PATCH /magazijn/00000009000000000007/api/v1/berichten/{id} →  idem, match op /api/v1/berichten/{id}
+POST  /magazijn/00000009000000000007/api/v1/aanleveringen  →  idem, match op /api/v1/aanleveringen
 ```
 
 **Het prefix is de OIN, niet een verzonnen kortcode.** Fase 6 gebruikte `/m07`; dat vroeg om een
@@ -148,14 +155,24 @@ boven de 99 magazijnen (`/m{i:02d}`). De OIN is de identiteit die toch al door d
 wordt zelfbeschrijvend:
 
 ```properties
-magazijnen."00000009000000000007".url=http://magazijn-simulator:8092/00000009000000000007
+magazijnen."00000009000000000007".url=http://magazijn-simulator:8092/magazijn/00000009000000000007
 ```
 
-Sleutel en laatste padsegment zijn dan per constructie gelijk; drift tussen generator en simulator
-kan niet meer ontstaan. De prijs is een langere URL in de logs, en dat is hem waard.
+Sleutel en OIN-segment zijn dan per constructie gelijk; drift tussen generator en simulator kan niet
+meer ontstaan. De prijs is een langere URL in de logs, en dat is hem waard.
 
-Het filter leest het eerste segment, matcht `^\d{20}$`, zoekt het magazijn op, vult een
-`@RequestScoped MagazijnContext` en herschrijft de URI met **`setRequestUri(baseUri, requestUri)`**.
+**Met `/magazijn/` ervoor.** Zonder dat woord moet het filter aan de *vorm* van het eerste segment
+zien of er een magazijn bedoeld is — twintig cijfers, dus `^\d{20}$` — en dat is een gok over wat
+een padsegment betekent. Met een vast woord ervoor is de vraag letterlijk te beantwoorden: begint
+het pad met `/magazijn/`, dan hoort het tweede segment een OIN te zijn en is een niet-bestaande OIN
+een 404 in plaats van iets dat langs het filter glipt. Het houdt bovendien de wortel vrij voor
+paden die géén magazijn zijn — `/beheer`, en `/q/*` van Quarkus zelf. Voor mensen die de logs lezen
+is het meegenomen dat er staat wat het is; dat is niet de reden, wel een prettige bijvangst. De
+kosten zijn één segment extra in de register-URL.
+
+Het filter matcht het eerste segment op `magazijn`, zoekt het magazijn bij het tweede segment op,
+vult een `@RequestScoped MagazijnContext` en herschrijft de URI met
+**`setRequestUri(baseUri, requestUri)`**.
 
 Die twee-argument-variant is essentieel. De resources bouwen hun HAL `_links` uit
 `UriInfo.baseUriBuilder`; door het prefix in de `baseUri` te laten staan blijven die links de OIN
@@ -163,19 +180,20 @@ bevatten. Met de één-argument-variant verdwijnt het prefix en wijzen de links 
 magazijn. Dit is de scherpste valkuil in het ontwerp — het gedrag van Quarkus REST op dit punt moet
 in stap 1 geverifieerd worden en met een test vastgepind.
 
-Onbekende of ontbrekende OIN → 404 `application/problem+json`. Bewust geen default-magazijn: een
-verkeerd geconfigureerd register moet luidruchtig falen en niet stil bij het eerste magazijn
-uitkomen.
+Een pad zonder `/magazijn/`-wortel, zonder OIN of met een onbekende OIN → 404
+`application/problem+json`. Bewust geen default-magazijn: een verkeerd geconfigureerd register moet
+luidruchtig falen en niet stil bij het eerste magazijn uitkomen.
 
 De uitvraag-kant hoeft niets: `MagazijnClientFactory` bouwt de client met
-`baseUri(http://magazijn-simulator:8092/<OIN>)` en behoudt dat subpad — al bewezen in fase 6.
+`baseUri(http://magazijn-simulator:8092/magazijn/<OIN>)` en behoudt dat subpad — al bewezen in
+fase 6.
 
 ## Datamodel
 
 ```
 magazijn        id, oin UNIQUE, naam,
                 gedrag_modus, latency_p50_ms, latency_p95_ms, foutkans, fout_status
-bericht         id, magazijn_db_id FK, bericht_id UUID UNIQUE, afzender,
+bericht         id, magazijn_db_id FK, bericht_id UUID, afzender,      -- UNIQUE (magazijn_db_id, bericht_id)
                 ontvanger_type, ontvanger_waarde, onderwerp, inhoud,
                 publicatietijdstip, tijdstip_ontvangst, verwijderd_op
 bericht_status  id, bericht_db_id FK UNIQUE, gelezen bool, map varchar(128), gewijzigd_op
@@ -187,21 +205,30 @@ discriminator draait. Test-cleanup in child-eerst-volgorde (`bericht_status` →
 `bericht` → `magazijn`), zoals bij het echte magazijn. Bij elke migratie hoort een
 rollback-script onder `src/main/resources/db/rollback/V*.sql`, conform de projectconventie.
 
-Twee constraints verdienen toelichting, want ze wijken af van wat je zou verwachten.
+Twee dingen verdienen toelichting.
 
-**`bericht_id` is globaal uniek, niet uniek per magazijn.** De voor de hand liggende sleutel zou
-`(magazijn_db_id, bericht_id)` zijn — één magazijn mag hetzelfde bericht niet twee keer hebben. Maar
-de sessiecache sleutelt zijn berichten op `bericht:v1:<berichtId>`, zonder magazijn erin. Twee
-gesimuleerde magazijnen die toevallig dezelfde UUID uitdelen, overschrijven elkaar daar. De
-seed-generator moet dus globaal unieke UUID's leveren, en de database dwingt dat af in plaats van
-erop te vertrouwen.
+**`bericht_id` is uniek binnen een magazijn, niet daarbuiten.** Elk magazijn deelt zijn eigen
+`berichtId` uit; twee organisaties kunnen dezelfde UUID kiezen zonder dat iemand daar iets over te
+zeggen heeft. De simulator hoort dat te kunnen — de natuurlijke sleutel is dus
+`(magazijn_db_id, bericht_id)`, precies zoals in het echte magazijn.
 
-**`bericht_status` is 1:1 met `bericht`.** In het echte magazijn hangt de status aan (bericht,
-ontvanger) en zijn er dus meerdere per bericht; in de simulator heeft een bericht precies één
-ontvanger. Een aparte tabel blijft toch de juiste vorm: de spec zegt dat `BerichtStatusInfo`
-*weggelaten* wordt zolang de ontvanger niets heeft gezet, en een ontbrekende rij modelleert dat
-exact — met kolommen op `bericht` zou je dat met nullables moeten nabouwen. De `UNIQUE` op de
-foreign key maakt de 1:1 hard.
+Dat wringt met de sessiecache, die berichten opslaat onder `bericht:v1:<berichtId>` zonder magazijn
+erin: bij een botsing verdringt het ene bericht het andere en komt een `PATCH` of `DELETE` bij het
+verkeerde uit. Dat is een gebrek in de cache, geen eis aan de simulator, en het staat als
+MinBZK/MijnOverheidZakelijk#1004 op de backlog. Een globale `UNIQUE` in de simulator zou het gebrek
+alleen verstoppen.
+
+Praktisch: de seed-generator deelt UUID's uit die over alle magazijnen verschillen, zodat een demo
+er niet per ongeluk overheen valt. Zodra #1004 opgepakt wordt, is de botsing met een seed-optie
+opzettelijk na te bootsen — dat is precies het soort scenario waarvoor de simulator er is.
+
+**`bericht_status` is een aparte tabel, ook al is er hooguit één rij per bericht.** Een bericht
+heeft precies één ontvanger, dus die 1:1 is de bedoelde vorm en de `UNIQUE` op de foreign key legt
+hem vast; het echte magazijn doet het niet anders. De reden om er toch geen kolommen op `bericht`
+van te maken zit in de spec: die laat het veld `status` wég zolang de ontvanger niets heeft gezet,
+en pas als er iets gezet is staat er `gelezen` plus `gewijzigdOp` in. Een ontbrekende rij is dat
+onderscheid, één op één. Met kolommen op `bericht` zou "nog niets gezet" en "op ongelezen gezet"
+allebei uit nullbare velden moeten volgen, en dan is het aan de code om het verschil te onthouden.
 
 Wat hiermee werkt en met WireMock niet:
 
@@ -304,15 +331,16 @@ willen tonen. Wie het gat juist wél wil laten zien, zet er bewust meer in.
 Anders staat een magazijn dat tijdens de vorige demo op `STUK` is gezet er de volgende keer nog zo
 bij, en is "terug naar de begintoestand" uit #936 een halve waarheid.
 
-Vullen kán daarnaast gewoon via `POST /<OIN>/api/v1/aanleveringen` — dezelfde spec, dus de bestaande
-aanlever- en generatorcode van de demo-console werkt met alleen een andere base-URL. Samen dekken
+Vullen kán daarnaast gewoon via `POST /magazijn/<OIN>/api/v1/aanleveringen` — dezelfde spec, dus de
+bestaande aanlever- en generatorcode van de demo-console werkt met alleen een andere base-URL. Samen
+dekken
 `seed` en `legen` de acceptatiecriteria van #936 over herhaalbaar vullen en leegmaken.
 
 **`/beheer` hoort niet open te staan.** De WireMock-admin-API van de huidige ZAD-stubs is publiek en
 zonder authenticatie bereikbaar (`GET https://profiel-test-mpfpsm-lcl.rig…/__admin/mappings`
 antwoordt met 200; geverifieerd 2026-08-21). Die fout niet herhalen.
 
-De schoonste vorm is het beheerpad helemaal niet publiceren. De enige beoogde beller is de
+De schoonste vorm is het beheerpad helemaal niet publiceren. De enige beoogde aanroeper is de
 demo-console, en binnen één ZAD-project bereiken componenten elkaar intern. Dat werkt alleen als de
 demo-console en de simulator in hetzelfde project landen: cross-project verkeer loopt op ZAD over de
 publieke ingress-URL's. Waar de demo-console terechtkomt is een open punt in #936; dit ontwerp vraagt
@@ -460,7 +488,8 @@ n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
 
 ## Foutafhandeling
 
-- Onbekende of ontbrekende OIN in het pad → 404 problem+json, met de OIN in `detail`.
+- Onbekende of ontbrekende OIN in het pad → 404 problem+json, met de OIN in `detail`; een pad
+  zonder `/magazijn/`-wortel eveneens 404.
 - Aanleveren bij een magazijn dat op `STUK` of `UIT` staat faalt net als elke andere aanroep; het
   gedrag geldt op de hele API. Alleen `/beheer` valt erbuiten.
 - Ontbrekende of ongeldige `X-Ontvanger` → 400, zoals de spec voorschrijft.
@@ -475,9 +504,9 @@ n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
 De categorieën hieronder zijn een startpunt, geen afvinklijst: bij de implementatie komen er zaken
 bij die net zo goed getest horen te worden.
 
-- **Unit** — pad-prefix-filter (geldige OIN, onbekende OIN, ontbrekend segment, iets dat geen
-  20 cijfers is, en de OIN die in de `baseUri` blijft staan), gedragskiezer (deterministische
-  verdeling voor i = 1…98: precies 2 uit, 3 stuk, 1 weigert, 1 malformed, 4 hapert, 15 traag,
+- **Unit** — pad-prefix-filter (geldige OIN, onbekende OIN, ontbrekende `/magazijn/`-wortel, iets
+  dat geen 20 cijfers is, en de OIN die in de `baseUri` blijft staan), gedragskiezer
+  (deterministische verdeling voor i = 1…98: precies 2 uit, 3 stuk, 1 weigert, 1 malformed, 4 hapert, 15 traag,
   72 normaal), status-patch-semantiek (ontbrekend veld, expliciet `null`, overschrijven van een map),
   en de n-validatie van het generatiescript tegen de grootste persona.
 - **Integratie (`@QuarkusTest`, Dev Services)** — twee magazijnen naast elkaar: bericht aanleveren in
@@ -490,25 +519,25 @@ bij die net zo goed getest horen te worden.
   een expliciete test in plaats van vertrouwen op de generator.
 - **Keten** — de bestaande `demo/smoke.sh` uitbreiden met een gesimuleerd magazijn: aanleveren →
   ophalen via de uitvraag → markeren als gelezen → opnieuw ophalen toont `gelezen: true`.
-- **Invarianten die stil kunnen breken** — `seed` levert globaal unieke `berichtId`'s (niet alleen
-  uniek binnen een magazijn); `legen` zet het gedrag terug naar de deterministische verdeling en niet
-  alleen de berichten; een magazijn op `WEIGERT` of `MALFORMED` laat de circuit breaker van de
-  uitvraag ongemoeid terwijl `STUK` hem wél opent. Alle drie zijn ze onzichtbaar tot ze misgaan,
-  vandaar expliciet.
+- **Invarianten die stil kunnen breken** — `seed` levert `berichtId`'s die ook over magazijnen heen
+  verschillen, zolang MinBZK/MijnOverheidZakelijk#1004 openstaat; `legen` zet het gedrag terug naar
+  de deterministische verdeling en niet alleen de berichten; een magazijn op `WEIGERT` of
+  `MALFORMED` laat de circuit breaker van de uitvraag ongemoeid terwijl `STUK` hem wél opent. Alle
+  drie zijn ze onzichtbaar tot ze misgaan, vandaar expliciet.
 - **Coverage** — dezelfde 90 %-JaCoCo-gate als de andere modules. Dat de simulator demo-gereedschap
   is, is geen reden om er minder van te eisen: hij draagt straks het gedrag van honderd magazijnen,
   en een fout erin lijkt op een fout in de keten. Let op de bekende valkuil: de
   `quarkus-jacoco`-extensie telt alleen `@QuarkusTest`-dekking, dus pure unit-tests dragen niet bij
   aan de drempel — integratietests zijn dus nodig, niet optioneel. Blijkt 90 % onhaalbaar, dan is dat
   een eigen afweging en zetten we hem bewust lager in plaats van hem stilzwijgend weg te laten.
-  Dat `services/demo-console` vandaag helemaal geen gate heeft, is een gat op zich; dat verdient een
-  eigen issue. Detekt geldt onverkort.
+  Dat `services/demo-console` vandaag helemaal geen gate heeft, is een gat op zich; dat staat als
+  MinBZK/MijnOverheidZakelijk#1006 op de backlog en dekt beide modules. Detekt geldt onverkort.
 
 ## Stappen
 
 1. **Module + spec + pad-prefix.** Lege module, generatie uit optie A, `@PreMatching`-filter,
-   `MagazijnContext`. Verificatie: `GET /<OIN>/api/v1/berichten` levert een lege, spec-valide
-   `BerichtenLijst` en de `_links` dragen diezelfde OIN.
+   `MagazijnContext`. Verificatie: `GET /magazijn/<OIN>/api/v1/berichten` levert een lege,
+   spec-valide `BerichtenLijst` en de `_links` dragen diezelfde OIN.
 2. **Persistentie.** Flyway-migratie mét rollback-script, entities, repositories met discriminator,
    alle zes de operaties uit de spec. Verificatie: de integratietests hierboven.
 3. **Gedrag per magazijn.** Modi, vertraging, foutkans. Verificatie: unit-test op de verdeling plus
@@ -556,3 +585,5 @@ en niet alleen in dit document.
 6. Blijft de module `magazijn-simulator` heten, of wil het team de term "simulatie-engine" uit #787
    in de modulenaam terugzien? Nu beslissen is goedkoop; na de eerste code kost het een
    package-rename.
+7. Waar landt demo-code in de repository? De spike staat als #1005 op de backlog. Valt dat besluit
+   vóór stap 1, dan begint de simulator meteen op de goede plek.
