@@ -190,6 +190,10 @@ jobs:
           # gaat nul tests draaide. Het complement (`!services/berichtenmagazijn`) is geen pad,
           # dus die shard valt terug op de hele werkmap — daar is het onderscheid niet nodig,
           # want die shard test per definitie meer dan één module.
+          # Per module en niet per shard: met één rapport uit de hele shard lift een module zonder
+          # tests mee op zijn zusters. Alleen het complement (`!services/berichtenmagazijn`) is
+          # geen pad; die shard test per definitie meer dan één module en valt terug op de
+          # werkmap als geheel.
           zoekpaden=()
 
           for module in ${MODULES//,/ }; do
@@ -198,10 +202,12 @@ jobs:
 
           [ ${#zoekpaden[@]} -gt 0 ] || zoekpaden=(.)
 
-          if [ -z "$(find "${zoekpaden[@]}" -path '*/target/surefire-reports/*.xml' -print -quit)" ]; then
-            echo "::error::Geen enkel surefire-rapport onder ${zoekpaden[*]} — deze shard heeft niets getest."
-            exit 1
-          fi
+          for pad in "${zoekpaden[@]}"; do
+            if [ -z "$(find "$pad" -path '*/target/surefire-reports/*.xml' -print -quit)" ]; then
+              echo "::error::Geen enkel surefire-rapport onder $pad — die module heeft niets getest."
+              exit 1
+            fi
+          done
       # De rapporten gaan naar de `test`-job, die er één coverage-comment van maakt; los per
       # shard zou elke shard zijn eigen halve comment plaatsen. Retentie kort: ze zijn na die
       # ene comment nergens meer voor nodig.

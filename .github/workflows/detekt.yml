@@ -130,7 +130,15 @@ jobs:
           fout=0
           gezien=0
 
-          while IFS= read -r module; do
+          # Via `find` en niet via de <module>-regels van de root-pom: een module die door een
+          # andere module gedeclareerd wordt, staat daar niet in en zou buiten deze controle
+          # vallen — juist de module die niemand mist.
+          while IFS= read -r pom; do
+            module=$(dirname "$pom")
+
+            # Een aggregator (packaging pom) heeft geen bronnen en levert dus geen rapport.
+            grep -q '<packaging>pom</packaging>' "$pom" && continue
+
             gezien=$((gezien + 1))
             rapport="$module/target/detekt.sarif"
 
@@ -145,11 +153,11 @@ jobs:
               echo "::error::$rapport heeft geen uploadstap in detekt.yml — de bevindingen halen het dashboard niet."
               fout=1
             fi
-          done < <(sed -n 's:.*<module>\([^<]*\)</module>.*:\1:p' pom.xml)
+          done < <(find libraries services demo -name target -prune -o -name pom.xml -print)
 
           # Nul modules is geen schone uitkomst maar een stille: dan is er niets gecontroleerd.
           [ "$gezien" -gt 0 ] \
-            || { echo "::error::Geen enkele <module> in pom.xml — deze controle meet niets."; exit 1; }
+            || { echo "::error::Geen enkele Maven-module gevonden — deze controle meet niets."; exit 1; }
 
           exit "$fout"
         env:

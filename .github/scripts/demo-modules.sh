@@ -16,8 +16,15 @@ set -euo pipefail
 DEMO_MODULES_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${REPO_ROOT:="$(cd "$DEMO_MODULES_HERE/../.." && pwd)"}"
 
+# Alle modulepaden uit de reactor. Via de XML-parser en niet met een regex: een gespreide
+# <module>-regel zou anders onzichtbaar blijven en een uitgecommentarieerde juist meetellen — de
+# eerste laat een module buiten élke controle vallen, de tweede maakt een geldige repo rood.
+reactor_modules() {
+  python3 "$DEMO_MODULES_HERE/pom-artifactids.py" --modules "$REPO_ROOT/pom.xml"
+}
+
 reactor_demo_modules() {
-  sed -n 's:.*<module>\(demo/[^<]*\)</module>.*:\1:p' "$REPO_ROOT/pom.xml" | sort
+  reactor_modules | grep '^demo/' | sort
 }
 
 schijf_demo_modules() {
@@ -32,7 +39,12 @@ schijf_demo_modules() {
 
   # `target/` uitsluiten: een build kan daar pom-kopieën achterlaten, en die zijn geen module.
   find "$REPO_ROOT/demo" -name target -prune -o -name pom.xml -print 2>/dev/null \
-    | sed "s:^$REPO_ROOT/::; s:/pom\.xml$::" \
+    | while IFS= read -r pom; do
+        # Prefix strippen met bash en niet met sed: REPO_ROOT gaat daar ongeëscapeerd een reguliere
+        # expressie in, en een metateken in het pad maakt de vergelijking stil onbruikbaar.
+        pom=${pom#"$REPO_ROOT/"}
+        printf '%s\n' "${pom%/pom.xml}"
+      done \
     | sort
 }
 

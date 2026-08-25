@@ -426,6 +426,43 @@ else
   chmod 755 "$w/libraries/geheim"
 fi
 
+# Maven sluit op de effective POM: `${demo.art}` wordt daar een gewone naam. De ruwe XML laat dan
+# niets zien, dus zo'n artifactId is niet statisch te controleren en doorlaten zou stil zijn.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's:<artifactId>quarkus-rest</artifactId>:<artifactId>${demo.art}</artifactId>:' \
+  "$w/services/berichtenuitvraag/pom.xml"
+toets "property-interpolatie in een artifactId van het stelsel" "$w" 1 "property-interpolatie"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's:<artifactId>demo-console</artifactId>:<artifactId>demo-${suffix}</artifactId>:' \
+  "$w/demo/demo-console/pom.xml"
+toets "property-interpolatie in de naam van een demo-module" "$w" 1 "property-interpolatie"
+
+# Een gespreide <module>-regel is geldige XML die Maven gewoon bouwt. Met een regex-lezing valt zo'n
+# module buiten élke controle in de keten; met een uitgecommentarieerde zou hij juist meetellen en
+# een geldige repository rood maken.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+mkdir -p "$w/nieuwewortel/foo"
+printf '<project><artifactId>foo</artifactId></project>\n' > "$w/nieuwewortel/foo/pom.xml"
+sed -i 's:    </modules>:        <module>\n            nieuwewortel/foo\n        </module>\n    </modules>:' "$w/pom.xml"
+toets "een gespreide module-registratie buiten de bekende wortels" "$w" 1 "buiten de bekende wortels"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's|    </modules>|        <!-- tijdelijk eruit: <module>tooling/generator</module> -->\n    </modules>|' "$w/pom.xml"
+toets "een uitgecommentarieerde module telt niet mee" "$w" 0 "OK:"
+
 # --- de meting zelf ---------------------------------------------------------------------------------
 # Verdwijnt libraries/ of services/ (hernoemd, geherstructureerd, verkeerde REPO_ROOT), dan zou de
 # lus nul keer draaien en de OK-regel alsnog verschijnen.
@@ -511,6 +548,21 @@ lijst_toets "een reactor-verwijzing zonder module valt op" "$w" 1 "lopen uiteen"
 w=$(nieuw_repo)
 rm -rf "${w:?}/demo"
 lijst_toets "een ontbrekende demo-wortel meldt wat er mist" "$w" 1 "bestaat niet"
+
+# De wortels staan op twee plekken ingetypt: hier en in de module-lussen van codeql.yml. Lopen ze
+# uiteen, dan dekt de ene guard een wortel die de andere overslaat — en dat is stil, want beide
+# blijven groen over wat ze wél zien.
+codeql_wortels=$(grep -oE 'for wortel in [a-z ]+; do' "$HERE/../workflows/codeql.yml" \
+  | sed 's/for wortel in //; s/; do//' | sort -u)
+eigen_wortels="${STELSEL_WORTELS[*]} demo"
+
+if [ -z "$codeql_wortels" ]; then
+  fout "geen wortellijst gevonden in codeql.yml; deze kruiscontrole meet niets"
+elif [ "$codeql_wortels" = "$eigen_wortels" ]; then
+  ok "codeql.yml hanteert dezelfde wortels als de grensbewaking"
+else
+  fout "codeql.yml hanteert andere wortels ($codeql_wortels) dan de grensbewaking ($eigen_wortels)"
+fi
 
 for script in demo-grens.sh demo-modules.sh; do
   [ -x "$HERE/$script" ] \

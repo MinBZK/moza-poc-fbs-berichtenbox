@@ -99,7 +99,7 @@ jobs:
           declare -A VERWACHTE_ASSERTIES=(
             [.github/scripts/test-wijzigingsfilter.sh]=81
             [.github/scripts/test-uitrol-poort.sh]=62
-            [.github/scripts/test-demo-grens.sh]=43
+            [.github/scripts/test-demo-grens.sh]=48
           )
 
           # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt

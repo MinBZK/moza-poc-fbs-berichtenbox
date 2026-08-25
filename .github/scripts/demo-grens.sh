@@ -50,7 +50,9 @@ demo_artifacts() {
   modules=$(demo_modules) || return 1
 
   while IFS= read -r module; do
-    id=$(artifact_id "$REPO_ROOT/$module/pom.xml")
+    # Status apart van de leegte-controle: een ontbrekende interpreter of een onleesbare pom is
+    # iets anders dan een pom zonder artifactId, en de melding hoort dat verschil te tonen.
+    id=$(artifact_id "$REPO_ROOT/$module/pom.xml") || return 1
 
     if [ -z "$id" ]; then
       echo "FOUT: geen artifactId gevonden in $module/pom.xml — die module valt buiten de grensbewaking." >&2
@@ -80,7 +82,11 @@ stelsel_poms() {
     # Status vasthouden en stderr laten staan: `find` levert bij een onleesbare submap gedeeltelijke
     # uitvoer én een foutstatus. Onderdrukt en genegeerd zou dat een halve boom opleveren die als
     # volledige meting doorgaat — met een overtreding die niemand ziet.
-    gevonden=$(find "$REPO_ROOT/$wortel" -name target -prune -o -name pom.xml -print) || return 1
+    if ! gevonden=$(find "$REPO_ROOT/$wortel" -name target -prune -o -name pom.xml -print); then
+      echo "FOUT: $wortel/ is niet volledig te doorzoeken — de meting is afgebroken." >&2
+
+      return 1
+    fi
 
     printf '%s\n' "$gevonden"
   done | sort
@@ -103,7 +109,7 @@ controleer() {
   # hieronder, de CodeQL-lussen, de jacoco-globs en de fuzz-allowlist. Dan is de grens niet meer
   # bewaakt zonder dat er iets roods verschijnt, dus is een nieuwe wortel een expliciete keuze.
   local onbekend
-  onbekend=$(sed -n 's:.*<module>\([^<]*\)</module>.*:\1:p' "$REPO_ROOT/pom.xml" \
+  onbekend=$(reactor_modules \
     | awk -v wortels="${STELSEL_WORTELS[*]} demo" '
       BEGIN { aantal = split(wortels, bekend, " ") }
       {
