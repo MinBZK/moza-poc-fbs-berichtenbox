@@ -26,7 +26,7 @@ COPY libraries/fbs-magazijnregister/pom.xml libraries/fbs-magazijnregister/pom.x
 COPY libraries/fbs-berichtensessiecache/pom.xml libraries/fbs-berichtensessiecache/pom.xml
 COPY services/berichtenmagazijn/pom.xml services/berichtenmagazijn/pom.xml
 COPY services/berichtenuitvraag/pom.xml services/berichtenuitvraag/pom.xml
-COPY services/demo-console/pom.xml services/demo-console/pom.xml
+COPY demo/demo-console/pom.xml demo/demo-console/pom.xml
 
 RUN chmod +x mvnw
 

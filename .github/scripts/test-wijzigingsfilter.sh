@@ -63,6 +63,14 @@ deploy=false
 demo-only=false
 fuzz=false'
 
+# Een Maven-module onder demo/: uitrol-relevant (hij voedt een eigen image), maar buiten het
+# stelsel — dus test-scope demo en geen fuzz-ronde, want de fuzz-doelen staan alleen in
+# libraries/ en services/.
+DEMO_MET_IMAGE='run=true
+deploy=true
+demo-only=true
+fuzz=false'
+
 # --- documentatie en repo-meta ------------------------------------------------------------------
 # `demo-only=true` bij een docs-only PR is geen tegenstrijdigheid: de test-job is dan al via
 # `run=false` uitgeschakeld, dus de scope-uitkomst wordt niet gebruikt.
@@ -90,7 +98,9 @@ verwacht "een bronbestand met een meta-naam in een submap" 'services/berichtenma
 
 verwacht "een docs-map bínnen een module is gewoon code" 'services/berichtenmagazijn/docs/hulp.sh' "$ALLES_AAN"
 
-verwacht "prefix-buur van demo-console is een gewone module" 'services/demo-console-extra/Console.kt' "$ALLES_AAN"
+# `^demo/demo-console/` eindigt op een slash; zonder die anker-slash zou een gelijknamige
+# prefix-buur ongemerkt uit de uitrol vallen.
+verwacht "prefix-buur van demo-console valt niet in de uitrol-uitsluiting" 'demo/demo-console-extra/Console.kt' "$DEMO_MET_IMAGE"
 
 verwacht "een workflow met .yaml-extensie valt buiten de toets-lijst" '.github/workflows/test.yaml' 'run=true
 deploy=true
@@ -151,13 +161,19 @@ demo-only=false
 fuzz=false'
 
 # --- test-scope -------------------------------------------------------------------------------
-verwacht "uitsluitend demo-console" 'services/demo-console/src/main/kotlin/Console.kt' 'run=true
+verwacht "uitsluitend demo-console" 'demo/demo-console/src/main/kotlin/Console.kt' 'run=true
 deploy=false
 demo-only=true
-fuzz=true'
+fuzz=false'
 
-verwacht "demo-console plus een andere module — volledige build" 'services/demo-console/src/main/kotlin/Console.kt
+verwacht "demo-console plus een andere module — volledige build" 'demo/demo-console/src/main/kotlin/Console.kt
 services/berichtenuitvraag/src/main/kotlin/Uitvraag.kt' "$ALLES_AAN"
+
+# De kern van de padprecieze uitsluiting: een demo-module met een eigen image (de magazijn-
+# simulator krijgt er een) moet zijn build en preview houden. Een kale `^demo/`-uitsluiting zou
+# hem stil overslaan — een overgeslagen job telt als succes voor branch protection.
+verwacht "demo-module met een eigen image kost wél een uitrol" \
+  'demo/magazijn-simulator/src/main/kotlin/Simulator.kt' "$DEMO_MET_IMAGE"
 
 verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' 'run=true
 deploy=false
@@ -306,8 +322,11 @@ for f in "$REPO_ROOT"/.github/workflows/*.yml "$REPO_ROOT"/.github/workflows/*.y
   esac
 done
 
-[ -d "$REPO_ROOT/services/demo-console" ] \
-  || fout "services/demo-console/ bestaat niet meer; BUITEN_DEMO_CONSOLE is dode letter"
+[ -d "$REPO_ROOT/demo/demo-console" ] \
+  || fout "demo/demo-console/ bestaat niet meer; de uitsluiting in DEMO_NIET_UITGEROLD is dode letter"
+
+[ -d "$REPO_ROOT/demo/environment" ] \
+  || fout "demo/environment/ bestaat niet meer; de uitsluiting in DEMO_NIET_UITGEROLD is dode letter"
 
 [ -f "$REPO_ROOT/docs/architecture/workspace.dsl" ] \
   || fout "docs/architecture/workspace.dsl bestaat niet meer; de ^docs/-fixture is dode letter"

@@ -29,7 +29,7 @@ De demo draait de drie eigen services als container-image (`fbs-demo/…:demo`).
 
 ```bash
 ./mvnw clean package -DskipTests \
-  -pl services/berichtenmagazijn,services/berichtenuitvraag,services/demo-console -am \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console -am \
   -Dquarkus.container-image.build=true \
   -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo \
   -Dquarkus.jib.platforms=linux/arm64        # alleen op Apple Silicon

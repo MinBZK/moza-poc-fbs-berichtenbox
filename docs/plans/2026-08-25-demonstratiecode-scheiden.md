@@ -1,6 +1,6 @@
 # Demonstratiecode scheiden van de code van het stelsel
 
-**Status:** Concept — voorstel ter besluitvorming
+**Status:** Concept — voorstel ter besluitvorming, uitgevoerd ter review
 
 Spike voor MinBZK/MijnOverheidZakelijk#1005. Aanleiding: de reviewbespreking bij het ontwerp van de
 magazijn-simulator (`docs/plans/2026-08-21-magazijn-simulator-design.md`, openstaande beslissing 7).
@@ -9,6 +9,10 @@ Dit document beantwoordt twee van de drie acceptatiecriteria: er ligt een voorst
 de kosten voor build, CI en deploy staan erin. Het derde criterium — het teambesluit — is aan het
 team; de uitkomst hoort onderaan dit document terug te komen, ook als die "we laten het zoals het
 is" luidt.
+
+De verhuizing is in dezelfde PR uitgevoerd, zodat het team niet over een beschrijving hoeft te
+oordelen maar over de diff. Terugdraaien is één revert; wat er precies gedaan is, staat onder
+"Uitvoering".
 
 ## De vraag
 
@@ -105,6 +109,7 @@ Wat er naast de map bij hoort:
 | Padfilter CI-scripts | `ci-scripts.yml:26` (`services/demo-console/**`) | triviaal |
 | Documentatie | `README.md` (r. 44-49), `CLAUDE.md` (modules, bestandstabel, testcommando's), `docs/ontwikkelen.md:32` | klein |
 | Nieuw | `demo/README.md`, dependency-controle + testcase | klein |
+| Modulepad in de warmup-laag van het fuzz-base-image (bij de uitvoering gevonden; het Dockerfile bewaakt zichzelf, dus dit zou luidruchtig gefaald hebben) | `.clusterfuzzlite/base/Dockerfile:29` | triviaal |
 
 Niet geraakt: `deploy.yml` (de build-matrix noemt alleen `berichtenuitvraag` en `berichtenmagazijn`,
 `deploy.yml:293`/`:318`), `.clusterfuzzlite/build.sh:5` (expliciete modulelijst zonder demo-modules)
@@ -141,8 +146,18 @@ Twee manieren om hem te betalen:
    en `deploy.yml`) en sluit de rest uit. Dan is "vergeten" zichtbaar als een overbodige build, niet
    als een overgeslagen build — de fail-safe kant.
 
-Aanbeveling: **optie 2**, in dezelfde PR als de verhuizing. Het is de enige plek waar de verhuizing
-een risico introduceert, en de omkering maakt het filter meteen bestand tegen de volgende module.
+Aanbeveling: **optie 1**, in dezelfde PR als de verhuizing.
+
+Bij het uitvoeren bleek de eerste versie van dit document optie 2 aan te bevelen met het argument
+dat "vergeten" daar een overbodige build kost. Dat is omgekeerd. Bij een allowlist levert een
+vergeten pad juist een *overgeslagen* build op — de stille faalwijze, want een overgeslagen job telt
+als succes voor branch protection. De uitsluitingsvorm die het script al gebruikt is per constructie
+fail-safe: wat er niet in staat, valt door en wordt gebouwd. Alleen de te grove regel `^demo/` moest
+weg, niet de vorm.
+
+Uitgevoerd als `DEMO_NIET_UITGEROLD` in `wijzigingsfilter.sh`: `^demo/demo-console/`,
+`^demo/environment/` en `^demo/[^/]*\.(sh|py)$`. `demo/generated/` staat er bewust niet bij — die map
+is gitignored en haalt dus nooit een bestandenlijst.
 
 ### De drift-val bij de test-scope
 
@@ -215,7 +230,40 @@ een rode build met een uitleg erbij.
    een demo-module ligt `demo/magazijn-simulator/bruno/` meer voor de hand; dat is dan wel een tweede
    conventie.
 
+## Uitvoering
+
+Gedaan in deze PR, in de volgorde van de kostentabel:
+
+| Wat | Bestand |
+|---|---|
+| `services/demo-console` → `demo/demo-console` (rename, historie behouden) | — |
+| Modulepad + comment over de drie wortels | `pom.xml` |
+| `^demo/` vervangen door `DEMO_NIET_UITGEROLD`; `BUITEN_DEMO_CONSOLE` → `BUITEN_DEMO` (`^demo/`) | `.github/scripts/wijzigingsfilter.sh` |
+| Fixtures verlegd, plus een nieuwe voor een demo-module mét image en een prefix-buur | `.github/scripts/test-wijzigingsfilter.sh` |
+| Demo-shard leidt zijn modulelijst af uit `demo/*/pom.xml`; JaCoCo-globs en artefactpaden uitgebreid | `.github/workflows/test.yml` |
+| Modulelus over `demo/*` | `.github/workflows/codeql.yml` |
+| Padfilter, nieuwe suite geregistreerd, assertiedrempel 70 → 71 | `.github/workflows/ci-scripts.yml` |
+| Grensbewaking stelsel ↛ demo, met eigen fixture-suite | `.github/scripts/demo-grens.sh`, `test-demo-grens.sh` |
+| Modulepad in de warmup-laag van het fuzz-base-image | `.clusterfuzzlite/base/Dockerfile` |
+| Wat er onder `demo/` staat en waarom | `demo/README.md` |
+| Paden en de drie wortels | `README.md`, `CLAUDE.md`, `docs/ontwikkelen.md`, `docs/demo-runbook.md` |
+| Simulator landt op `demo/magazijn-simulator`; openstaande beslissing 7 afgehandeld | `docs/plans/2026-08-21-magazijn-simulator-design.md` |
+
+Twee dingen die tijdens de uitvoering veranderden ten opzichte van het voorstel:
+
+- **Optie 1 in plaats van optie 2** voor het uitrolfilter; zie de correctie hierboven.
+- **`fuzz=false` bij een demo-only PR.** `FUZZ_RELEVANT` ankert op `^libraries/|^services/`, dus
+  demo-code koopt geen fuzz-ronde meer. Dat is juister dan de oude uitkomst: de fuzz-doelen staan
+  alleen in de twee services en twee libraries (`.clusterfuzzlite/build.sh`), dus een demo-console-PR
+  draaide een ronde die per definitie niets nieuws raakte.
+
+De grensbewaking is geen losse CI-stap geworden maar een assertie in `test-demo-grens.sh` ("de
+repository zelf respecteert de grens"). Die suite draait al in `ci-scripts.yml`, dus het scheelt een
+stap zonder dekking te verliezen — en het volgt de vorm die `test-wijzigingsfilter.sh` al gebruikt
+voor zijn kruiscontroles op schijf.
+
 ## Besluit
 
 _Nog te nemen. Vul hier de uitkomst van de teambespreking in, inclusief de datum en de reden — ook
-als de uitkomst "we laten het zoals het is" is._
+als de uitkomst "we laten het zoals het is" is. De uitvoering staat klaar in de PR; een andere
+uitkomst dan "doen" betekent die revert._
