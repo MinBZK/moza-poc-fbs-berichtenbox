@@ -30,26 +30,39 @@ def lees(pad: str) -> ET.ElementTree:
         raise SystemExit(1)
 
 
-def modulepaden(pom: str) -> list[str]:
-    """De <module>-paden die Maven standaard bouwt, in volgorde van voorkomen.
+def modulepaden(pom: str) -> list[tuple[str, bool]]:
+    """De <module>-paden van één pom, met per pad of het bestaan ervan afdwingbaar is.
 
-    Alleen het <modules>-blok dat direct onder <project> hangt. Een <module> in een <profile> hoort
-    er niet bij: Maven bouwt die alleen met dat profiel actief, en onze CI activeert er geen. Ze
-    tóch meetellen leverde een module op die niet bestaat (een release-only profiel) en daarmee een
-    rood signaal over een build die prima liep. Een profielmodule die wél op schijf staat, blijft
-    gedekt: de grensbewaking scant de wortels van schijf, niet alleen de reactor.
+    Modules uit een <profile> tellen mee: een profiel met `activeByDefault` of een
+    file-activation draait zonder `-P`, dus Maven bouwt zo'n module gewoon — en dan hoort hij ook
+    onder de controles te vallen. Maar het bestaan ervan is niet af te dwingen: een release-only
+    profiel mag naar een map wijzen die er in een gewone checkout niet is. Vandaar het onderscheid;
+    ontbreekt een module uit het gewone <modules>-blok, dan is dat een echte reactor-fout die Maven
+    zelf ook meldt.
     """
-    gevonden = []
+    gevonden: list[tuple[str, bool]] = []
+    wortel = lees(pom).getroot()
 
-    for blok in lees(pom).getroot():
-        if lokale_naam(blok.tag) != "modules":
-            continue
+    for blok in wortel:
+        if lokale_naam(blok.tag) == "modules":
+            gevonden += [(pad, True) for pad in module_elementen(blok)]
 
-        for element in blok:
-            if lokale_naam(element.tag) == "module" and element.text and element.text.strip():
-                gevonden.append(element.text.strip())
+        if lokale_naam(blok.tag) == "profiles":
+            for profiel in blok:
+                for profielblok in profiel:
+                    if lokale_naam(profielblok.tag) == "modules":
+                        gevonden += [(pad, False) for pad in module_elementen(profielblok)]
 
     return gevonden
+
+
+def module_elementen(blok: ET.Element) -> list[str]:
+    """De niet-lege <module>-teksten binnen één <modules>-blok."""
+    return [
+        element.text.strip()
+        for element in blok
+        if lokale_naam(element.tag) == "module" and element.text and element.text.strip()
+    ]
 
 
 def reactor(wortel_pom: str) -> list[str]:
@@ -67,7 +80,7 @@ def reactor(wortel_pom: str) -> list[str]:
     while te_doen:
         pom = te_doen.pop(0)
 
-        for module in modulepaden(pom):
+        for module, verplicht in modulepaden(pom):
             map_pad = os.path.normpath(os.path.join(os.path.dirname(pom), module))
             module_pom = map_pad if map_pad.endswith(".xml") else os.path.join(map_pad, "pom.xml")
 
@@ -77,6 +90,11 @@ def reactor(wortel_pom: str) -> list[str]:
             gezien.add(module_pom)
 
             if not os.path.isfile(module_pom):
+                if not verplicht:
+                    print(f"Overgeslagen: {pom} declareert {module} in een profiel, maar {module_pom} bestaat niet.", file=sys.stderr)
+
+                    continue
+
                 print(f"FOUT: {pom} declareert module {module}, maar {module_pom} bestaat niet.", file=sys.stderr)
                 raise SystemExit(1)
 
@@ -104,7 +122,7 @@ def main() -> int:
     boom = lees(pad)
 
     if modus == "--modules":
-        for module in modulepaden(pad):
+        for module, _ in modulepaden(pad):
             print(module)
 
         return 0

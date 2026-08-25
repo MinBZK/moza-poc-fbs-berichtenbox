@@ -383,6 +383,27 @@ done
 [ -d "$REPO_ROOT/demo/environment" ] \
   || fout "demo/environment/ bestaat niet meer; de uitsluiting in DEMO_BUITEN_UITROLPOORT is dode letter"
 
+# De fuzz-allowlist in .clusterfuzzlite/build.sh is handwerk: een module met een Jazzer-doel die
+# daar niet in staat, wordt niet gebouwd en niet gefuzzd terwijl de ronde groen rapporteert.
+fuzz_modules=$(grep -rl 'fuzzerTestOneInput' --include='*.kt' --include='*.java' "$REPO_ROOT/libraries" "$REPO_ROOT/services" "$REPO_ROOT/demo" 2>/dev/null \
+  | sed "s:^$REPO_ROOT/::; s:/src/.*::" | sort -u)
+
+if [ -z "$fuzz_modules" ]; then
+  fout "geen enkel Jazzer-doel gevonden; deze kruiscontrole meet niets"
+else
+  ontbrekend=""
+
+  while IFS= read -r module; do
+    grep -q "MODULES=(.*$module" "$REPO_ROOT/.clusterfuzzlite/build.sh" || ontbrekend="$ontbrekend $module"
+  done <<<"$fuzz_modules"
+
+  if [ -n "$ontbrekend" ]; then
+    fout "module(s) met een Jazzer-doel ontbreken in de MODULES-lijst van .clusterfuzzlite/build.sh:$ontbrekend"
+  else
+    ok "elke module met een Jazzer-doel staat in de fuzz-allowlist"
+  fi
+fi
+
 compgen -G "$REPO_ROOT/demo/*.sh" >/dev/null \
   || fout "geen *.sh direct onder demo/; het sh-alternatief in DEMO_BUITEN_UITROLPOORT is dode letter"
 

@@ -25,7 +25,14 @@ reactor_modules() {
 }
 
 reactor_demo_modules() {
-  reactor_modules | grep '^demo/' | sort
+  local alle
+
+  # Niet `reactor_modules | grep …` als één pipeline: vindt grep niets, dan geeft de pipeline 1 en
+  # doden `pipefail` en `set -e` het script ín de assignment van de aanroeper — vóór de tak die de
+  # bruikbare melding draagt. Een lege uitkomst is hier een geldige meting, geen fout.
+  alle=$(reactor_modules) || return 1
+
+  printf '%s\n' "$alle" | { grep '^demo/' || true; } | sort
 }
 
 schijf_demo_modules() {

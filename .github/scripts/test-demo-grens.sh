@@ -619,16 +619,36 @@ voeg_module "$w" demo/alfa meerregelig quarkus-kotlin
 parser_toets "de reactorlijst is gesorteerd" "demo/alfa
 services/zeta" --reactor "$w/pom.xml"
 
-# Een <module> in een <profile> bouwt Maven alleen met dat profiel actief, en onze CI activeert er
-# geen. Meetellen leverde een rood signaal op over een module die de build nooit aanraakt — en bij
-# een release-only profiel wijst zo'n regel naar een map die niet eens bestaat.
+# Een profiel met activeByDefault of een file-activation draait zonder `-P`, dus Maven bouwt zo'n
+# module gewoon — en dan hoort hij ook onder de controles te vallen.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+mkdir -p "$w/tooling/generator"
+printf '<project><artifactId>generator</artifactId><dependencies><dependency><artifactId>demo-console</artifactId></dependency></dependencies></project>\n' \
+  > "$w/tooling/generator/pom.xml"
+sed -i 's|</project>|    <profiles><profile><activation><activeByDefault>true</activeByDefault></activation><modules><module>tooling/generator</module></modules></profile></profiles>\n</project>|' \
+  "$w/pom.xml"
+toets "een module in een actief profiel telt mee in de reactor" "$w" 1 "buiten de bekende wortels"
+
+# Maar het bestaan is niet af te dwingen: een release-only profiel mag naar een map wijzen die er
+# in een gewone checkout niet is. Dat hard laten falen zou een groene build rood maken.
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 sed -i 's|</project>|    <profiles><profile><modules><module>tooling/alleen-bij-release</module></modules></profile></profiles>\n</project>|' \
   "$w/pom.xml"
-toets "een module in een profiel telt niet mee in de reactor" "$w" 0 "OK:"
+toets "een profielmodule die niet bestaat wordt overgeslagen" "$w" 0 "OK:"
+
+# Uit het gewone <modules>-blok is het wél een echte reactor-fout; Maven meldt die zelf ook.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's|    </modules>|        <module>services/spook</module>\n    </modules>|' "$w/pom.xml"
+toets "een ontbrekende module uit het gewone blok faalt hard" "$w" 1 "bestaat niet"
 
 # Diezelfde profielmodule blijft wél gedekt zodra hij op schijf staat: de grensbewaking scant de
 # wortels van schijf, niet alleen de reactor.
