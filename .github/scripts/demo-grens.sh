@@ -19,62 +19,66 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=demo-modules.sh
 source "$HERE/demo-modules.sh"
 
-# De artifactId van een module: de eerste <artifactId> buiten het <parent>-blok. Awk in plaats van
-# sed omdat het parent-blok ook op één regel mag staan — dan begint een regel-gebaseerde range er
-# middenin en levert de greedy substitutie de parent-artifactId op, waarna de échte module stil
-# buiten de controle valt.
-artifact_id() {
-  awk '
-    function strip_parent(s,   uit) {
-      uit = ""
+# De artifactId's uit een pom, in volgorde van voorkomen. De hele pom wordt eerst tot één regel
+# genormaliseerd: XML mag een tag over meerdere regels spreiden en witruimte binnen een element is
+# betekenisloos (`<artifactId>\n  demo-console\n</artifactId>` resolvet Maven gewoon), dus een
+# regel-gebaseerde regex laat precies die vorm ongezien passeren — een bypass die elke formatter
+# vanzelf produceert.
+#
+# Geen XML-parser: `xmllint` staat niet op elke runner en deze controle mag niet afhangen van een
+# pakket dat er toevallig is. De normalisatie haalt het verschil weg dat er wél toe doet.
+artifact_ids() {
+    awk '
+    { doc = doc " " $0 }
 
-      while (length(s) > 0) {
-        if (in_parent) {
-          if (!match(s, /<\/parent[ \t\r]*>/)) return uit
-          s = substr(s, RSTART + RLENGTH)
-          in_parent = 0
+    END {
+      gsub(/[ \t\r\n]+/, " ", doc)
+
+      while (match(doc, /<artifactId>[^<]*<\/artifactId>/)) {
+        waarde = substr(doc, RSTART + 12, RLENGTH - 25)
+        gsub(/^ +| +$/, "", waarde)
+
+        if (waarde != "") print waarde
+
+        doc = substr(doc, RSTART + RLENGTH)
+      }
+    }
+  ' "$1"
+}
+
+# De artifactId van de module zelf: de eerste buiten het <parent>-blok. Het parent-blok gaat er
+# eerst uit, want anders geldt de artifactId van de parent als die van de module — stil, want er
+# komt gewoon een naam uit. Op de tag-vorm matchen en niet op de letterlijke string: `<parent >` en
+# `<parent xmlns="…">` zijn allebei geldig.
+artifact_id() {
+    awk '
+    { doc = doc " " $0 }
+
+    END {
+      gsub(/[ \t\r\n]+/, " ", doc)
+
+      if (match(doc, /<parent[ >]/)) {
+        kop = substr(doc, 1, RSTART - 1)
+        rest = substr(doc, RSTART)
+
+        if (match(rest, /<\/parent *>/)) {
+          doc = kop substr(rest, RSTART + RLENGTH)
         } else {
-          # Op de tag-vorm matchen en niet op de letterlijke string: <parent > en <parent
-          # xmlns="…"> zijn allebei geldig, en een gemiste opening laat de parent-artifactId
-          # als die van de module gelden — stil, want er komt gewoon een naam uit.
-          if (!match(s, /<parent[ \t\r>]/)) return uit s
-          uit = uit substr(s, 1, RSTART - 1)
-          s = substr(s, RSTART + RLENGTH - 1)
-          in_parent = 1
+          doc = kop
         }
       }
 
-      return uit
-    }
-    {
-      rest = strip_parent($0)
-
-      if (match(rest, /<artifactId>[^<]*<\/artifactId>/)) {
-        print substr(rest, RSTART + 12, RLENGTH - 25)
-        exit
+      if (match(doc, /<artifactId>[^<]*<\/artifactId>/)) {
+        waarde = substr(doc, RSTART + 12, RLENGTH - 25)
+        gsub(/^ +| +$/, "", waarde)
+        print waarde
       }
     }
   ' "$1"
 }
 
-# Élke <artifactId> in de pom, ongeacht het omliggende element. Bewust niet afgebakend tot
-# <dependencies>: een regel-gebaseerde afbakening levert hoogstens één treffer per regel op, dus
-# twee dependencies op één regel verbergen de tweede. En de naam van een demo-module hoort sowieso
-# nergens in een pom van het stelsel te staan — ook niet in <dependencyManagement> of bij een
-# plugin, want ook langs die weg komt demo-code de build binnen.
-alle_artifacts() {
-  awk '
-    {
-      s = $0
-
-      while (match(s, /<artifactId>[^<]*<\/artifactId>/)) {
-        print substr(s, RSTART + 12, RLENGTH - 25)
-        s = substr(s, RSTART + RLENGTH)
-      }
-    }
-  ' "$1"
-}
-
+# De pom's die de grens moeten respecteren. De root-pom hoort erbij: zijn <dependencies>-blok
+# wordt door élke module geërfd, dus één regel daar koppelt het hele stelsel aan demo-code.
 # De artifactId's van alle demo-modules. Faalt zodra één module er geen oplevert: een pom-vorm die
 # niet geparsed wordt zou anders geruisloos uit de controle vallen terwijl de rest groen meldt.
 demo_artifacts() {
@@ -97,10 +101,11 @@ demo_artifacts() {
   done <<<"$modules"
 }
 
-# De pom's die de grens moeten respecteren. De root-pom hoort erbij: zijn <dependencies>-blok
-# wordt door élke module geërfd, dus één regel daar koppelt het hele stelsel aan demo-code.
 STELSEL_WORTELS=(libraries services)
 
+# Alle pom's die de grens moeten respecteren: de root-pom (waar élke module van erft, dus één regel
+# daar koppelt het hele stelsel aan demo-code) plus alles onder de stelsel-wortels. `target/` eruit:
+# een build kan daar pom-kopieën achterlaten, en die tellen niet mee als module.
 stelsel_poms() {
   local wortel
 
@@ -112,7 +117,7 @@ stelsel_poms() {
 }
 
 controleer() {
-  local bevindingen=0 gescand=0 demo pom afhankelijkheid wortel
+  local bevindingen=0 demo pom afhankelijkheid wortel aantal ids
 
   # Niet `mapfile < <(demo_artifacts)`: die vorm gooit de exitcode van de procesvervanging weg, en
   # dan blijft een module die niet parseert stil buiten de lijst zolang er één andere wél parseert.
@@ -124,36 +129,49 @@ controleer() {
   local -a demos
   mapfile -t demos <<<"$demolijst"
 
-  while IFS= read -r pom; do
-    [ -f "$pom" ] || continue
-    gescand=$((gescand + 1))
+  local pomlijst
+  pomlijst=$(stelsel_poms)
 
-    while IFS= read -r afhankelijkheid; do
-      for demo in "${demos[@]}"; do
-        if [ "$afhankelijkheid" = "$demo" ]; then
-          echo "FOUT: ${pom#"$REPO_ROOT"/} hangt af van demo-module '$demo' — demonstratiecode hoort niet in het stelsel."
-          bevindingen=$((bevindingen + 1))
-        fi
-      done
-    done < <(alle_artifacts "$pom")
-  done < <(stelsel_poms)
-
-  # Dezelfde guard aan de andere kant, en per wortel: valt er één weg (hernoemd, geherstructureerd,
-  # of een verkeerde REPO_ROOT), dan blijft een totaalteller ruim boven nul terwijl die helft van
-  # het stelsel ongemeten is.
+  # Per wortel tellen uit diezelfde lijst, niet uit een tweede `find`: een guard die anders meet dan
+  # de scan is geen guard. Verdwijnt er één wortel (hernoemd, geherstructureerd, verkeerde
+  # REPO_ROOT), dan blijft een totaalteller ruim boven nul terwijl die helft ongemeten is.
   for wortel in "${STELSEL_WORTELS[@]}"; do
-    if [ -z "$(find "$REPO_ROOT/$wortel" -name pom.xml -print -quit 2>/dev/null)" ]; then
+    aantal=$(grep -c "^$REPO_ROOT/$wortel/" <<<"$pomlijst" || true)
+
+    if [ "$aantal" -eq 0 ]; then
       echo "FOUT: geen enkele pom onder $wortel/ — die helft van het stelsel is niet gecontroleerd."
 
       return 1
     fi
   done
 
+  while IFS= read -r pom; do
+    # Elke pom moet minstens zijn eigen artifactId opleveren. Nul betekent onleesbaar of niet te
+    # parsen — en die pom stil overslaan terwijl hij wél in de telling zit, is precies de "OK
+    # terwijl er niets gemeten is" die deze controle moet uitsluiten.
+    ids=$(artifact_ids "$pom") || return 1
+
+    if [ -z "$ids" ]; then
+      echo "FOUT: geen enkele artifactId gelezen uit ${pom#"$REPO_ROOT"/} — die pom is niet gecontroleerd."
+
+      return 1
+    fi
+
+    while IFS= read -r afhankelijkheid; do
+      for demo in "${demos[@]}"; do
+        if [ "$afhankelijkheid" = "$demo" ]; then
+          echo "FOUT: ${pom#"$REPO_ROOT"/} noemt demo-module '$demo' — demonstratiecode hoort niet in het stelsel."
+          bevindingen=$((bevindingen + 1))
+        fi
+      done
+    done <<<"$ids"
+  done <<<"$pomlijst"
+
   if [ "$bevindingen" -ne 0 ]; then
     return 1
   fi
 
-  echo "OK: $gescand pom('s) van het stelsel (root + ${STELSEL_WORTELS[*]}) noemen geen van de ${#demos[@]} demo-module(s)."
+  echo "OK: $(grep -c . <<<"$pomlijst") pom('s) van het stelsel (root + ${STELSEL_WORTELS[*]}) noemen geen van de ${#demos[@]} demo-module(s)."
 }
 
 # Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.

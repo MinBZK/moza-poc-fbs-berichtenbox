@@ -175,14 +175,14 @@ voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 toets "een service die van een demo-module afhangt" "$w" 1 \
-  "services/berichtenuitvraag/pom.xml hangt af van demo-module 'demo-console'"
+  "services/berichtenuitvraag/pom.xml noemt demo-module 'demo-console'"
 
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig demo-console
 toets "een library die van een demo-module afhangt" "$w" 1 \
-  "libraries/fbs-common/pom.xml hangt af van demo-module 'demo-console'"
+  "libraries/fbs-common/pom.xml noemt demo-module 'demo-console'"
 
 # De root-pom is de goedkoopste manier om de grens te slechten: zijn <dependencies>-blok wordt door
 # élke module geërfd, dus één regel daar zet demo-code op het classpath van het hele stelsel.
@@ -192,7 +192,7 @@ voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 root_dependency "$w" demo-console
 toets "de root-pom die van een demo-module afhangt" "$w" 1 \
-  "pom.xml hangt af van demo-module 'demo-console'"
+  "pom.xml noemt demo-module 'demo-console'"
 
 # Een gelijkenis is geen treffer: `demo-console-mock` is een andere module dan `demo-console`, en
 # een substring-vergelijking zou hem als overtreding melden zonder dat iemand kan verklaren waarom.
@@ -209,7 +209,7 @@ voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
 voeg_module "$w" libraries/fbs-common meerregelig demo-console
 uitvoer=$(REPO_ROOT="$w" controleer 2>&1) || true
-[ "$(grep -c 'hangt af van demo-module' <<<"$uitvoer")" -eq 2 ] \
+[ "$(grep -c 'noemt demo-module' <<<"$uitvoer")" -eq 2 ] \
   && ok "beide overtredingen worden in één run gemeld" \
   || fout "niet alle overtredingen gemeld:
 $uitvoer"
@@ -223,7 +223,84 @@ voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 sed -i 's:<artifactId>moza-poc-fbs-berichtenbox</artifactId>:<artifactId>demo-console</artifactId>:' \
   "$w/services/berichtenuitvraag/pom.xml"
-toets "een stelsel-module die van een demo-module erft" "$w" 1 "hangt af van demo-module 'demo-console'"
+toets "een stelsel-module die van een demo-module erft" "$w" 1 "noemt demo-module 'demo-console'"
+
+# XML mag een element over meerdere regels spreiden en witruimte binnen een tag is betekenisloos —
+# Maven resolvet zo'n dependency gewoon. Een regel-gebaseerde regex laat precies die vorm passeren,
+# en dat is een bypass die elke formatter vanzelf produceert.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+python3 - "$w/services/berichtenuitvraag/pom.xml" <<'PYEOF'
+import sys
+pad = sys.argv[1]
+inhoud = open(pad).read().replace(
+    "<artifactId>quarkus-rest</artifactId>",
+    "<artifactId>\n            demo-console\n        </artifactId>")
+open(pad, "w").write(inhoud)
+PYEOF
+toets "een artifactId over meerdere regels" "$w" 1 "noemt demo-module 'demo-console'"
+
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's:<artifactId>quarkus-rest</artifactId>:<artifactId> demo-console </artifactId>:' \
+  "$w/services/berichtenuitvraag/pom.xml"
+toets "een artifactId met witruimte eromheen" "$w" 1 "noemt demo-module 'demo-console'"
+
+# Windows-regeleinden gecombineerd met een gespreid element: zonder normalisatie blijft de CR aan
+# de naam plakken en matcht de vergelijking nooit — stil, want er komt gewoon een naam uit.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+python3 - "$w/services/berichtenuitvraag/pom.xml" <<'PYEOF'
+import sys
+pad = sys.argv[1]
+inhoud = open(pad).read().replace(
+    "<artifactId>quarkus-rest</artifactId>",
+    "<artifactId>\n            demo-console\n        </artifactId>")
+open(pad, "w", newline="\r\n").write(inhoud)
+PYEOF
+toets "een gespreid element in een pom met CRLF-regeleinden" "$w" 1 "noemt demo-module 'demo-console'"
+
+# Dezelfde vorm aan de demo-kant: leest de parser de modulenaam met een CR eraan vast, dan matcht
+# geen enkele dependency er ooit mee en meldt de controle groen over een module die feitelijk
+# buiten de bewaking valt.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+python3 - "$w/demo/demo-console/pom.xml" <<'PYEOF'
+import sys
+pad = sys.argv[1]
+inhoud = open(pad).read().replace(
+    "<artifactId>demo-console</artifactId>",
+    "<artifactId>\n        demo-console\n    </artifactId>")
+open(pad, "w", newline="\r\n").write(inhoud)
+PYEOF
+toets "de modulenaam zelf gespreid en met CRLF" "$w" 1 "noemt demo-module 'demo-console'"
+
+# Een pom die geen enkele artifactId oplevert is onleesbaar of niet te parsen. Hem stil overslaan
+# terwijl hij wél in de telling zit, is de "OK terwijl er niets gemeten is" die deze controle moet
+# uitsluiten.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+: > "$w/services/berichtenuitvraag/pom.xml"
+toets "een lege stelsel-pom valt niet stil weg" "$w" 1 "geen enkele artifactId gelezen"
+
+# De wortel-guard moet dezelfde verzameling meten als de scan: telt hij pom's mee die de scan
+# pruned (uit target/), dan is hij tevreden over een wortel waar niets gecontroleerd is.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+mkdir -p "$w/libraries/target"
+printf '<project><artifactId>restant</artifactId></project>\n' > "$w/libraries/target/pom.xml"
+toets "een pom in target/ telt niet als gecontroleerde wortel" "$w" 1 "geen enkele pom onder libraries/"
 
 # --- cardinaliteit: nul, één, meerdere -----------------------------------------------------------
 # Met één demo-module verbergt de suite of de controle "de eerste/enige" pakt of écht per module
@@ -234,7 +311,7 @@ voeg_module "$w" demo/magazijn-simulator meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig magazijn-simulator
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 toets "de tweede van twee demo-modules wordt óók bewaakt" "$w" 1 \
-  "hangt af van demo-module 'magazijn-simulator'"
+  "noemt demo-module 'magazijn-simulator'"
 
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
@@ -257,14 +334,14 @@ voeg_module "$w" demo/demo-console eenregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 toets "een demo-pom met een eenregelig parent-blok" "$w" 1 \
-  "hangt af van demo-module 'demo-console'"
+  "noemt demo-module 'demo-console'"
 
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console zonder-parent quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 toets "een demo-pom zonder parent-blok" "$w" 1 \
-  "hangt af van demo-module 'demo-console'"
+  "noemt demo-module 'demo-console'"
 
 # De parent-artifactId staat in élke module-pom en is géén demo-module. Zonder de parent-afbakening
 # zou hij als demo-artifactId meetellen en zou iedere module zichzelf rood maken.
@@ -281,7 +358,7 @@ w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console parent-met-witruimte quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig demo-console
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
-toets "een parent-tag met witruimte" "$w" 1 "hangt af van demo-module 'demo-console'"
+toets "een parent-tag met witruimte" "$w" 1 "noemt demo-module 'demo-console'"
 
 # Twee dependencies op één regel: een regel-gebaseerde extractie levert er hoogstens één op, en dan
 # verdwijnt juist de eerste.
@@ -291,7 +368,7 @@ voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 sed -i 's:<dependency><groupId>nl.rijksoverheid.moz</groupId><artifactId>quarkus-rest</artifactId></dependency>:<dependency><artifactId>demo-console</artifactId></dependency><dependency><artifactId>quarkus-rest</artifactId></dependency>:' \
   "$w/services/berichtenuitvraag/pom.xml"
-toets "twee dependencies op één regel" "$w" 1 "hangt af van demo-module 'demo-console'"
+toets "twee dependencies op één regel" "$w" 1 "noemt demo-module 'demo-console'"
 
 # --- de meting zelf ---------------------------------------------------------------------------------
 # Verdwijnt libraries/ of services/ (hernoemd, geherstructureerd, verkeerde REPO_ROOT), dan zou de
