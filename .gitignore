@@ -57,3 +57,7 @@ demo/environment/*/pki/zad-upload/
 
 # Lokale contract-bootstrap-state (content_hash, niet geheim maar host-lokaal)
 demo/environment/*/contracts/.bootstrap-state/
+
+# Bytecode-cache van de Python-hulpscripts; een artefact van het draaien, geen bron.
+__pycache__/
+*.pyc
