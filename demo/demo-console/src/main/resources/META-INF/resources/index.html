@@ -16,8 +16,13 @@
     #paneel { overflow-y: auto; height: 100vh; padding: 1rem; box-sizing: border-box;
               border-left: 1px solid #ccc; }
     body.ingeklapt #paneel { display: none; }
-    #klap { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 1; font-size: 0.85rem;
-            padding: 0.3rem 0.6rem; }
+    /* Zo klein mogelijk: de berichtenbox is waar je naar kijkt, dit is alleen de handgreep.
+       De richting van het teken zegt wat er gebeurt — » duwt de bediening weg, « haalt hem terug. */
+    #klap { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 1; border: 0;
+            background: transparent; color: #767676; font-size: 1.1rem; line-height: 1;
+            padding: 0.35rem 0.5rem; border-radius: 4px; }
+    #klap:hover { color: #111; background: rgba(0, 0, 0, 0.07); }
+    #klap:focus-visible { outline: 2px solid #0055cc; outline-offset: 2px; }
     #geen-box { padding: 2rem; }
     button { font-size: 1rem; padding: 0.5rem 1rem; margin: 0.25rem 0; cursor: pointer; }
     input { font-size: 1rem; padding: 0.4rem; width: 5rem; }
@@ -27,7 +32,8 @@
 </head>
 <body>
   <div id="boxkolom">
-    <button id="klap" onclick="klap()">Bediening verbergen</button>
+    <button id="klap" onclick="klap()" aria-controls="paneel" aria-expanded="true"
+            aria-label="Bediening verbergen" title="Bediening verbergen">&#187;</button>
     <iframe id="box" title="Berichtenbox" hidden></iframe>
     <div id="geen-box" hidden>
       <h2>Berichtenbox niet bereikbaar</h2>
@@ -141,8 +147,13 @@
 
     function klap() {
       const ingeklapt = document.body.classList.toggle('ingeklapt');
+      const knop = document.getElementById('klap');
+      const bijschrift = ingeklapt ? 'Bediening tonen' : 'Bediening verbergen';
 
-      document.getElementById('klap').textContent = ingeklapt ? 'Bediening tonen' : 'Bediening verbergen';
+      knop.textContent = ingeklapt ? '\u00AB' : '\u00BB';
+      knop.setAttribute('aria-expanded', String(!ingeklapt));
+      knop.setAttribute('aria-label', bijschrift);
+      knop.title = bijschrift;
     }
 
     async function post(pad, bevestig) {
