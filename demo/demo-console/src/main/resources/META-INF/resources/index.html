@@ -30,6 +30,11 @@
     <br>
     <label>Random berichten: <input id="aantal" type="number" value="10" min="1" max="500"></label>
     <button onclick="post('/api/demo/random?aantal=' + document.getElementById('aantal').value)">Opvoeren</button>
+    <br>
+    <label>Stroom: elke <input id="tempoInterval" type="number" value="10" min="1" max="3600"> seconden</label>
+    <button onclick="post('/api/demo/tempo/start?interval=' + document.getElementById('tempoInterval').value)">Stroom starten</button>
+    <button onclick="post('/api/demo/tempo/stop')">Stroom stoppen</button>
+    <button onclick="get('/api/demo/tempo')">Stroom-status</button>
   </fieldset>
 
   <fieldset>
