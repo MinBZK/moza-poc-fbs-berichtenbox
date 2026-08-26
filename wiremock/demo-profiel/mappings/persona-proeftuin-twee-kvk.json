@@ -1,0 +1,33 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/profielservice/v1/KVK/90000012"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "partijId": 202,
+      "identificaties": [],
+      "voorkeuren": [
+        {
+          "id": 1,
+          "voorkeurType": "OntvangViaBerichtenbox",
+          "waarde": "true",
+          "scopes": [
+            {
+              "partij": {
+                "identificatieType": "OIN",
+                "identificatieNummer": "00000001823288444000"
+              }
+            }
+          ]
+        }
+      ],
+      "contactgegevens": []
+    }
+  }
+}

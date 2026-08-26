@@ -1,0 +1,26 @@
+{
+  "_toelichting": "Kopie van de keten-personas uit _data/personas.json in MinBZK/moza-poc, beperkt tot de velden die het magazijn nodig heeft: het nummer om aan af te leveren en de handelsnaam voor de aanhef. Hun bestand is eigenaar; deze kopie bestaat alleen zodat een test een verschil opmerkt. Namen en nummers zijn voorlopig tot het proeftuin-team ze kiest.",
+  "personas": [
+    {
+      "id": "proeftuin-een",
+      "bedrijf": {
+        "handelsnaam": "Demo-onderneming 1",
+        "kvkNummer": "90000011"
+      }
+    },
+    {
+      "id": "proeftuin-twee",
+      "bedrijf": {
+        "handelsnaam": "Demo-onderneming 2",
+        "kvkNummer": "90000012"
+      }
+    },
+    {
+      "id": "proeftuin-drie",
+      "bedrijf": {
+        "handelsnaam": "Demo-onderneming 3",
+        "kvkNummer": "90000013"
+      }
+    }
+  ]
+}
