@@ -103,13 +103,59 @@ jobs:
       - name: Controleer dat elke module classes opleverde
         run: |
           set -euo pipefail
-          for module in libraries/* services/* demo/*; do
-            [ -f "$module/pom.xml" ] || continue
+          # Per root tellen en niet in totaal: verdwijnt er één (verschoven mapstructuur, sparse
+          # checkout, andere werkmap), dan houden de andere twee een totaalteller ruim boven nul
+          # terwijl die root ongecontroleerd blijft. `find` in plaats van een glob op één niveau,
+          # want een geneste module zou anders overgeslagen worden zonder dat de telling daalt.
+          for root in libraries services demo; do
+            gezien=0
 
-            if [ -z "$(find "$module/target/classes" -name '*.class' -print -quit 2>/dev/null)" ]; then
-              echo "::error::$module leverde geen classes op — de analyse zou onvolledig zijn."
+            # Status vasthouden: een gedeeltelijk mislukte `find` (onleesbare submap) levert een
+            # halve lijst én een foutstatus, en in een procesvervanging verdwijnt die status —
+            # waarna de overgebleven modules de teller tevredenstellen.
+            if ! poms=$(find "$root" -name target -prune -o -name pom.xml -print); then
+              echo "::error::$root/ is niet volledig te doorzoeken — de analyse zou onvolledig zijn."
               exit 1
             fi
+
+            while IFS= read -r pom; do
+              # Een lege root levert via `<<<` één lege regel; zonder deze regel telt die als
+              # module en stelt hij de guard hieronder tevreden.
+              [ -n "$pom" ] || continue
+
+              module=$(dirname "$pom")
+              gezien=$((gezien + 1))
+
+              # Een aggregator (packaging pom) compileert niets en heeft geen target/; die eis zou
+              # hem hard laten falen terwijl de reactor hem correct bouwde. Via de XML-parser, want
+              # een gespreide tag zou een regex ontgaan en een uitgecommentarieerde juist matchen.
+              if ! packaging=$(.github/scripts/pom-artifactids.py --packaging "$pom"); then
+                echo "::error::packaging van $module is niet te lezen — de analyse zou onvolledig zijn."
+                exit 1
+              fi
+
+              [ "$packaging" = "pom" ] && continue
+
+              # Een module zonder JVM-bronnen kan geen classes opleveren; die eis zou hem hard
+              # laten falen terwijl er niets te analyseren valt. `target/` moet er dan wél zijn:
+              # dat is het bewijs dat de reactor hem heeft gebouwd, en zonder die eis maakt deze
+              # uitzondering juist de "reactor bouwde stilletjes minder" groen die deze stap moet
+              # vangen.
+              if [ -z "$(find "$module/src/main" \( -name '*.kt' -o -name '*.java' \) -print -quit 2>/dev/null)" ]; then
+                [ -d "$module/target" ] \
+                  || { echo "::error::$module is niet gebouwd — de analyse zou onvolledig zijn."; exit 1; }
+
+                continue
+              fi
+
+              if [ -z "$(find "$module/target/classes" -name '*.class' -print -quit 2>/dev/null)" ]; then
+                echo "::error::$module leverde geen classes op — de analyse zou onvolledig zijn."
+                exit 1
+              fi
+            done <<<"$poms"
+
+            [ "$gezien" -gt 0 ] \
+              || { echo "::error::Geen enkele Maven-module onder $root/ — deze controle meet niets."; exit 1; }
           done
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
@@ -154,15 +200,40 @@ jobs:
             echo "|---|---|"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          for module in libraries/* services/* demo/*; do
-            [ -f "$module/pom.xml" ] || continue
-            aantal=$(grep -cF "/$module/" <<<"$bestanden" || true)
-            echo "| $module | $aantal |" | tee -a "$GITHUB_STEP_SUMMARY"
+          for root in libraries services demo; do
+            gezien=0
 
-            if [ "$aantal" -eq 0 ]; then
-              echo "::error::Geen bronbestanden van $module in de database — die code is niet geanalyseerd."
+            # Status vasthouden: een gedeeltelijk mislukte `find` (onleesbare submap) levert een
+            # halve lijst én een foutstatus, en in een procesvervanging verdwijnt die status —
+            # waarna de overgebleven modules de teller tevredenstellen.
+            if ! poms=$(find "$root" -name target -prune -o -name pom.xml -print); then
+              echo "::error::$root/ is niet volledig te doorzoeken — de analyse zou onvolledig zijn."
               exit 1
             fi
+
+            while IFS= read -r pom; do
+              # Een lege root levert via `<<<` één lege regel; zonder deze regel telt die als
+              # module en stelt hij de guard hieronder tevreden.
+              [ -n "$pom" ] || continue
+
+              module=$(dirname "$pom")
+              gezien=$((gezien + 1))
+
+              # Een module zonder JVM-bronnen levert niets aan de database; alleen die overslaan,
+              # niet de telling van de root.
+              [ -n "$(find "$module/src/main" \( -name '*.kt' -o -name '*.java' \) -print -quit 2>/dev/null)" ] || continue
+
+              aantal=$(grep -cF "/$module/" <<<"$bestanden" || true)
+              echo "| $module | $aantal |" | tee -a "$GITHUB_STEP_SUMMARY"
+
+              if [ "$aantal" -eq 0 ]; then
+                echo "::error::Geen bronbestanden van $module in de database — die code is niet geanalyseerd."
+                exit 1
+              fi
+            done <<<"$poms"
+
+            [ "$gezien" -gt 0 ] \
+              || { echo "::error::Geen enkele Maven-module onder $root/ — deze telling meet niets."; exit 1; }
           done
 
           echo "| **Totaal** | **$(grep -c . <<<"$bestanden" || true)** |" | tee -a "$GITHUB_STEP_SUMMARY"

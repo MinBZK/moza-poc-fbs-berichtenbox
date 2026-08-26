@@ -11,7 +11,7 @@ on:
           Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml: 'false' wanneer de PR
           alleen documentatie of repo-meta raakt. Leeg (de default) betekent "niet meegegeven", en dan
           bepaalt deze workflow het zelf. Het overslaan gebeurt hier, in de job — niet bij de
-          caller: die overslaan zou deze workflow helemaal niet draaien, waardoor de required
+          aanroeper: die overslaan zou deze workflow helemaal niet draaien, waardoor de required
           check-run nooit verschijnt en de merge voorgoed blokkeert.
         type: string
         required: false
@@ -35,7 +35,7 @@ on:
     branches-ignore: [main]
   workflow_dispatch:
 
-# Geen `read-all`: als aangeroepen workflow mag dit nooit meer zijn dan de caller-job toekent, en
+# Geen `read-all`: als aangeroepen workflow mag dit nooit meer zijn dan de aanroeper-job toekent, en
 # die kent alleen toe wat hier daadwerkelijk nodig is. De `changes`-job leest de bestandenlijst van
 # de PR; de `test`-job verhoogt zelf naar pull-requests: write voor de coverage-comment.
 permissions:
@@ -52,7 +52,7 @@ jobs:
   # bij een docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes
   # voor branch protection. Een workflow-niveau paths-filter zou de check juist nooit rapporteren
   # en de PR eeuwig blokkeren.
-  # Draait alleen wanneer de caller de uitkomst niet meegaf; anders is dit dezelfde vraag
+  # Draait alleen wanneer de aanroeper de uitkomst niet meegaf; anders is dit dezelfde vraag
   # voor de tweede keer, en dat kostte per PR een runner-allocatie voor een bekend antwoord.
   changes:
     if: inputs.wijzigingen-relevant == ''
@@ -91,19 +91,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Bufferen, op de vier sleutels filteren en pas dan publiceren: zie de toelichting bij
-          # dezelfde stap in deploy.yml.
-          uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
-          uitkomsten=$(grep -E '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten" | sort -u) || true
-
-          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .) || true
-
-          if [ "$(grep -c . <<<"$uitkomsten")" != 4 ] || [ "$sleutels" != 4 ]; then
-            echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
-            uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
-          fi
-
-          printf '%s\n' "$uitkomsten" >> "$GITHUB_OUTPUT"
+          # Valideren en publiceren zit in het script; zie de toelichting bij dezelfde stap in
+          # deploy.yml.
+          .github/scripts/publiceer-uitkomsten.sh
 
   # De modules draaiden achter elkaar in één reactor: 8 minuten, waarvan berichtenmagazijn
   # alleen al 4,5. Dat maakte deze controle de traagste van de keten en daarmee de wachttijd
@@ -136,7 +126,7 @@ jobs:
         # dat is goedkoper dan per shard uitzoeken welke upstream-modules erbij horen.
         #
         # Hier afgeleid en niet in de `changes`-job, omdat die overgeslagen wordt zodra de
-        # caller de uitkomst meegeeft — dan is er geen job-output om de matrix uit te vullen.
+        # aanroeper de uitkomst meegeeft — dan is er geen job-output om de matrix uit te vullen.
         # De meegegeven input wint; alleen als die leeg is telt wat `changes` zelf bepaalde.
         shard: >-
           ${{ fromJSON(
@@ -167,32 +157,59 @@ jobs:
       - name: Test
         env:
           MODULES: ${{ matrix.shard.modules }}
-        # `-pl` kent geen globs; de demo-shard geeft er wel een mee. Die expansie hier is opzet:
-        # een handmatige lijst van demo-modules zou stil verouderen, en een module die nergens
-        # genoemd wordt blijft dan ongetest terwijl de shard groen rapporteert — precies de
-        # faalwijze die de andere shard met zijn complement (`!services/berichtenmagazijn`)
-        # vermijdt.
+        # `-pl` kent geen globs; de demo-shard geeft er wel een mee. De lijst komt uit
+        # demo-modules.sh — hetzelfde script dat de grensbewaking gebruikt en dat door
+        # test-demo-grens.sh gedekt is. Een lijst die hier ter plekke wordt afgeleid zou
+        # beslislogica in een workflow zijn die geen enkele test rood kan krijgen.
         run: |
           set -euo pipefail
 
           if [ "$MODULES" = "demo/*" ]; then
-            modules=()
-
-            for pom in demo/*/pom.xml; do
-              [ -f "$pom" ] || continue
-              modules+=("${pom%/pom.xml}")
-            done
-
-            # Leeg betekent hier "niets gemeten": zonder deze guard zou `-pl ''` de hele reactor
-            # testen (duur, maar stil) of falen op een lege modulelijst.
-            [ ${#modules[@]} -gt 0 ] \
-              || { echo "::error::Geen Maven-module onder demo/ gevonden — de demo-shard meet niets."; exit 1; }
-
-            MODULES=$(IFS=,; echo "${modules[*]}")
+            MODULES=$(.github/scripts/demo-modules.sh | paste -sd, -)
             echo "Demo-shard test: $MODULES"
           fi
 
           ./mvnw -B test -pl "$MODULES" -am
+
+          # Een module zonder testbronnen levert BUILD SUCCESS met nul tests. Bij een
+          # demo-only-run is dit de énige shard, dus de required check zou groen rapporteren
+          # zonder dat er iets getoetst is.
+          #
+          # Gescoped op de modules van deze shard en niet repo-breed: `-am` bouwt de upstream-
+          # modules mee, en hun rapporten zouden de guard vullen terwijl de module waar het om
+          # gaat nul tests draaide. Het complement (`!services/berichtenmagazijn`) is geen pad,
+          # dus die shard valt terug op de hele werkmap — daar is het onderscheid niet nodig,
+          # want die shard test per definitie meer dan één module.
+          # Per gebouwde module en niet per shard: met één rapport uit de hele shard lift een
+          # module zonder gedraaide tests mee op zijn zusters, en juist het complement
+          # (`!services/berichtenmagazijn`) is geen pad — die shard zou dan op de werkmap als
+          # geheel terugvallen. De reactor levert de modulelijst; `target/` verraadt welke daarvan
+          # deze shard getest heeft. Op `target/test-classes` en niet op `target/`: dat laatste
+          # laat ook een detekt- of compile-run achter, en dan zou de eis slaan op een module die
+          # deze shard nooit getest heeft.
+          # Eerst de lijst, dan de lus: `done < <(…)` gooit de status van de aanroep weg, en dan
+          # wordt deze controle stil een lege lus — waarna alleen de shard-brede terugval eronder
+          # overblijft en één rapport van een zustermodule volstaat.
+          modules=$(.github/scripts/pom-artifactids.py --reactor pom.xml)
+
+          [ -n "$modules" ] \
+            || { echo "::error::Geen enkele reactor-module — deze controle meet niets."; exit 1; }
+
+          while IFS= read -r module; do
+            [ -d "$module/target/test-classes" ] || continue
+
+            if [ -z "$(find "$module/target/surefire-reports" -name '*.xml' -print -quit 2>/dev/null)" ]; then
+              echo "::error::$module heeft testbronnen maar leverde geen surefire-rapport — die tests hebben niet gedraaid."
+              exit 1
+            fi
+          done <<<"$modules"
+
+          # En de shard als geheel moet iets getest hebben: een shard waarin geen enkele module
+          # testbronnen heeft, zou anders groen rapporteren zonder één assertie.
+          if [ -z "$(find . -path '*/target/surefire-reports/*.xml' -print -quit)" ]; then
+            echo "::error::Geen enkel surefire-rapport — deze shard heeft niets getest."
+            exit 1
+          fi
       # De rapporten gaan naar de `test`-job, die er één coverage-comment van maakt; los per
       # shard zou elke shard zijn eigen halve comment plaatsen. Retentie kort: ze zijn na die
       # ene comment nergens meer voor nodig.
@@ -237,7 +254,7 @@ jobs:
 
           # Zonder deze check zou een gevallen `changes`-job de shards overslaan en hier stil
           # als groen doortellen — precies het gat dat de fail-safe hierboven dicht wil houden.
-          # Overslaan is alleen legitiem wanneer de caller de uitkomst meegaf: dan is er niets
+          # Overslaan is alleen legitiem wanneer de aanroeper de uitkomst meegaf: dan is er niets
           # te bepalen en is 'skipped' de bedoeling.
           case "$CHANGES" in
             success) ;;
@@ -303,12 +320,13 @@ jobs:
       # cijfer kunstmatig (bv. ~38% i.p.v. ~95% voor dezelfde module). Het site/jacoco-
       # rapport hanteert dezelfde excludes als de 90%-gate, dus de comment spiegelt de gate.
       # Glob op `services/*`, `libraries/*` én `demo/*` zodat nieuwe modules automatisch
-      # meegenomen worden — ook een demo-module mét coverage-gate (demo-console heeft er geen,
-      # de magazijn-simulator krijgt er wel een).
+      # meegenomen worden, ook een demo-module met een eigen coverage-gate.
       #
-      # demo-only sluit deze stap uit: demo/demo-console/pom.xml heeft geen jacoco-maven-plugin
-      # (geen coverage-gate voor de wegwerp-module), dus bij een demo-only-run bestaat er nergens
-      # een jacoco.xml — de comment-stap zou dan niets te rapporteren hebben.
+      # demo-only sluit deze stap uit: demo/demo-console/pom.xml heeft geen jacoco-maven-plugin,
+      # dus bij een demo-only-run bestaat er nergens een jacoco.xml en zou de comment-stap niets
+      # te rapporteren hebben. Krijgt een demo-module wél een gate, dan blijft die gate zelf
+      # gewoon draaien (jacoco:check hangt aan de test-fase) — alleen de informatieve comment
+      # ontbreekt bij een demo-only-run.
       - name: JaCoCo coverage als PR-comment
         if: github.event_name == 'pull_request' && inputs.demo-only != 'true' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
         uses: madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920 # v1.8.0
