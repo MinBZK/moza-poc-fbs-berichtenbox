@@ -465,9 +465,9 @@ jobs:
           # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
           # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
-          # de `build`-matrix, `build-externe-stubs` en `build-contract-bootstrap` in deploy.yml;
-          # een vergeten package laat weesversies achter.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-fsc-contract-bootstrap; do
+          # de `build`-matrix, `build-externe-stubs`, `build-contract-bootstrap` en
+          # `build-democonsole` in deploy.yml; een vergeten package laat weesversies achter.
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-fsc-contract-bootstrap fbs-demo-console; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
               fail=1
