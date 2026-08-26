@@ -34,8 +34,19 @@ vergelijk() {
 # $4 = optioneel 'true' voor een bot-PR.
 verwacht() {
   local omschrijving=$1 bestanden=$2 verwachting=$3 bot=${4:-false}
+  local uitkomst
 
-  vergelijk "$omschrijving" "$(classificeer "$bestanden" "$bot" 2>/dev/null)" "$verwachting"
+  uitkomst=$(classificeer "$bestanden" "$bot" 2>/dev/null)
+
+  vergelijk "$omschrijving" "$uitkomst" "$verwachting"
+
+  # Invariant over élke fixture, niet één losse test: `demo-only` scopet de tests naar de
+  # demo-modules terwijl `deploy` previews van de twee services uitrolt. Samen betekent dat een
+  # uitrol van code die in díe run niet getest is, en de uitrolpoort ziet alleen een geslaagde
+  # test-check — dus niets wordt rood.
+  if grep -q 'demo-only=true' <<<"$uitkomst" && grep -q 'deploy=true' <<<"$uitkomst"; then
+    fout "$omschrijving levert demo-only=true én deploy=true — previews op een halve testrun"
+  fi
 }
 
 # Draait `main` met een gestubde `gh`, zodat het ophaal-, fail-safe- en event-pad meetellen.
@@ -61,6 +72,21 @@ fuzz=true'
 GEEN_PREVIEW='run=true
 deploy=false
 demo-only=false
+fuzz=false'
+
+# Een Maven-module onder demo/ die buiten DEMO_BUITEN_UITROLPOORT valt: uitrol-relevant, want hij
+# kan een eigen image voeden. `demo-only` valt daarmee terug op false — een preview rolt de services
+# uit, en die horen in diezelfde run getest te zijn. Geen fuzz-ronde: de fuzz-doelen staan alleen in
+# libraries/ en services/.
+DEMO_MET_IMAGE='run=true
+deploy=true
+demo-only=false
+fuzz=false'
+
+# Een demo-onderdeel dat geen image voedt: geen uitrol, en de test-job scopet naar de demo-modules.
+DEMO_STACK='run=true
+deploy=false
+demo-only=true
 fuzz=false'
 
 # --- documentatie en repo-meta ------------------------------------------------------------------
@@ -90,7 +116,14 @@ verwacht "een bronbestand met een meta-naam in een submap" 'services/berichtenma
 
 verwacht "een docs-map bínnen een module is gewoon code" 'services/berichtenmagazijn/docs/hulp.sh' "$ALLES_AAN"
 
-verwacht "prefix-buur van demo-console is een gewone module" 'services/demo-console-extra/Console.kt' "$ALLES_AAN"
+# `^demo/demo-console/` eindigt op een slash; zonder die anker-slash zou een gelijknamige
+# prefix-buur ongemerkt uit de uitrol vallen.
+verwacht "prefix-buur van demo-console valt niet in de uitrol-uitsluiting" \
+  'demo/demo-console-extra/Console.kt' "$DEMO_MET_IMAGE"
+
+# Hetzelfde anker aan de environment-kant.
+verwacht "prefix-buur van environment valt niet in de uitrol-uitsluiting" \
+  'demo/environment-simulator/Stack.kt' "$DEMO_MET_IMAGE"
 
 verwacht "een workflow met .yaml-extensie valt buiten de toets-lijst" '.github/workflows/test.yaml' 'run=true
 deploy=true
@@ -101,6 +134,11 @@ fuzz=false'
 # suite, en dat is de dure kant: `demo/` ergens in een pad zou de tests wegscopen, `bruno/` de
 # preview, en een bronbestand met een meta-naam de code-checks.
 verwacht "een 'demo'-map bínnen een module scopet de tests niet weg" 'services/berichtenuitvraag/src/test/resources/demo/payload.json' "$ALLES_AAN"
+
+# Isoleert het `^`-anker van BUITEN_DEMO: op een uitrol-relevant pad zou de invariant demo-only
+# tóch op false zetten en zou de fixture ook zonder anker slagen.
+verwacht "een 'demo'-map in een niet-uitrol-relevant pad scopet de tests niet weg" \
+  'bruno/berichtenmagazijn/demo/ophalen.bru' "$GEEN_PREVIEW"
 
 verwacht "een 'bruno'-map bínnen een module blijft uitrol-relevant" 'services/berichtenmagazijn/src/test/bruno/Contract.kt' "$ALLES_AAN"
 
@@ -151,18 +189,36 @@ demo-only=false
 fuzz=false'
 
 # --- test-scope -------------------------------------------------------------------------------
-verwacht "uitsluitend demo-console" 'services/demo-console/src/main/kotlin/Console.kt' 'run=true
-deploy=false
-demo-only=true
-fuzz=true'
+verwacht "uitsluitend demo-console" 'demo/demo-console/src/main/kotlin/Console.kt' "$DEMO_STACK"
 
-verwacht "demo-console plus een andere module — volledige build" 'services/demo-console/src/main/kotlin/Console.kt
+verwacht "demo-console plus een andere module — volledige build" 'demo/demo-console/src/main/kotlin/Console.kt
 services/berichtenuitvraag/src/main/kotlin/Uitvraag.kt' "$ALLES_AAN"
 
-verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' 'run=true
-deploy=false
-demo-only=true
-fuzz=false'
+verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' "$DEMO_STACK"
+
+# De kern van de padprecieze uitsluiting: een demo-module die een eigen image kan voeden moet zijn
+# build en preview houden. Een kale `^demo/`-uitsluiting zou hem stil overslaan — en een
+# overgeslagen job telt als succes voor branch protection.
+verwacht "demo-module met een eigen image kost wél een uitrol" \
+  'demo/magazijn-simulator/src/main/kotlin/Simulator.kt' "$DEMO_MET_IMAGE"
+
+# De scripts die de demo-stack aansturen staan direct onder demo/ en voeden geen image.
+verwacht "een shellscript direct onder demo/" 'demo/smoke.sh' "$DEMO_STACK"
+
+verwacht "de magazijn-generator direct onder demo/" 'demo/genereer-magazijnen.py' "$DEMO_STACK"
+
+# `[^/]*` steekt geen slash over, de extensielijst is kort en het `$`-anker sluit af: alle drie
+# bewust, zodat onbekende demo-paden aan de bouwende kant vallen in plaats van stil overgeslagen te
+# worden.
+verwacht "een script in een submap onder demo/ houdt zijn uitrol" 'demo/scripts/smoke.sh' "$DEMO_MET_IMAGE"
+
+verwacht "een ander bestand direct onder demo/ houdt zijn uitrol" 'demo/compose.yaml' "$DEMO_MET_IMAGE"
+
+verwacht "een afgeleid bestand met .sh in de naam houdt zijn uitrol" 'demo/smoke.sh.bak' "$DEMO_MET_IMAGE"
+
+# De pom van een demo-module: wél code en test-scope demo, maar geen fuzz-ronde — de fuzz-doelen
+# staan alleen in libraries/ en services/.
+verwacht "de pom van een demo-module koopt geen fuzz-ronde" 'demo/demo-console/pom.xml' "$DEMO_STACK"
 
 # --- bot-PR ----------------------------------------------------------------------------------
 verwacht "bot-PR met code — toetsen ja, uitrollen nee" 'pom.xml' 'run=true
@@ -306,8 +362,48 @@ for f in "$REPO_ROOT"/.github/workflows/*.yml "$REPO_ROOT"/.github/workflows/*.y
   esac
 done
 
-[ -d "$REPO_ROOT/services/demo-console" ] \
-  || fout "services/demo-console/ bestaat niet meer; BUITEN_DEMO_CONSOLE is dode letter"
+[ -d "$REPO_ROOT/demo/demo-console" ] \
+  || fout "demo/demo-console/ bestaat niet meer; de uitsluiting in DEMO_BUITEN_UITROLPOORT is dode letter"
+
+[ -d "$REPO_ROOT/demo/environment" ] \
+  || fout "demo/environment/ bestaat niet meer; de uitsluiting in DEMO_BUITEN_UITROLPOORT is dode letter"
+
+compgen -G "$REPO_ROOT/demo/*.sh" >/dev/null \
+  || fout "geen *.sh direct onder demo/; het sh-alternatief in DEMO_BUITEN_UITROLPOORT is dode letter"
+
+compgen -G "$REPO_ROOT/demo/*.py" >/dev/null \
+  || fout "geen *.py direct onder demo/; het py-alternatief in DEMO_BUITEN_UITROLPOORT is dode letter"
+
+# De uitsluiting legt vast dat deze paden geen image voeden dat aan de uitrolpoort hangt. Dat is
+# handwerk, dus het kan verlopen: zodra een demo-module in de build-matrix van deploy.yml staat,
+# zou een PR aan die module zijn eigen imagebuild overslaan — en overgeslagen telt als succes.
+matrix=$(sed -n 's/.*service: \[\(.*\)\].*/\1/p' "$REPO_ROOT/.github/workflows/deploy.yml")
+vergeleken=0
+
+if [ -z "$matrix" ]; then
+  fout "geen service-matrix gevonden in deploy.yml; deze kruiscontrole meet niets"
+else
+  while IFS= read -r uitgesloten; do
+    case "$uitgesloten" in
+      '^demo/'*'/') module=${uitgesloten#^demo/}; module=${module%/} ;;
+      *) continue ;;
+    esac
+
+    vergeleken=$((vergeleken + 1))
+
+    grep -q "\b$module\b" <<<"$matrix" \
+      && fout "$module staat in de build-matrix van deploy.yml én in DEMO_BUITEN_UITROLPOORT; zijn imagebuild wordt stil overgeslagen"
+  done <<<"${DEMO_BUITEN_UITROLPOORT//|/$'\n'}"
+
+  # Nul vergelijkingen is geen schone uitkomst maar een stille: een gedragsneutrale herformulering
+  # van het patroon laat de `case` niets matchen, en dan meldt de `ok` iets over een vergelijking
+  # die nooit gemaakt is.
+  if [ "$vergeleken" -eq 0 ]; then
+    fout "geen enkel demo-modulepad uit DEMO_BUITEN_UITROLPOORT herkend; deze kruiscontrole meet niets"
+  else
+    ok "geen enkel pad uit DEMO_BUITEN_UITROLPOORT staat in de build-matrix van deploy.yml"
+  fi
+fi
 
 [ -f "$REPO_ROOT/docs/architecture/workspace.dsl" ] \
   || fout "docs/architecture/workspace.dsl bestaat niet meer; de ^docs/-fixture is dode letter"

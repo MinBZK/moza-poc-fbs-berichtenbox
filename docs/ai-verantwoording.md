@@ -1,4 +1,4 @@
-# Verantwoording inzet van generatieve AI in de Berichtenbox-PoC
+# Verantwoording inzet van generatieve AI in de PoC Federatief Berichtenstelsel
 
 **Verantwoording i.h.k.v. het Overheidsbreed Standpunt Generatieve AI, getoetst aan het stappenplan uit de bijbehorende handreiking**
 
@@ -8,9 +8,9 @@ Proof of Concept (PoC). Voor een beknopte samenvatting, zie
 
 ## Beschrijving van de PoC en de rol van AI
 
-Deze repository is een PoC voor de Berichtenbox binnen het Federatief
-Berichtenstelsel (FBS), in de context van MijnOverheid Zakelijk (MOZa). Zie de
-[`README.md`](../README.md) voor de actuele opzet en onderdelen.
+Deze repository is een PoC voor het Federatief Berichtenstelsel (FBS), in de
+context van MijnOverheid Zakelijk (MOZa). Zie de [`README.md`](../README.md)
+voor de actuele opzet en onderdelen.
 
 **Rol van AI.** De code is grotendeels gegenereerd met de AI-assistant
 Claude Code (Anthropic). AI is ingezet voor codegeneratie en voor ondersteuning

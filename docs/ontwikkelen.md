@@ -1,4 +1,4 @@
-# Ontwikkelen aan de FBS Berichtenbox
+# Ontwikkelen aan de PoC Federatief Berichtenstelsel
 
 Alles wat je lokaal nodig hebt om te bouwen, testen en handmatig tegen de API's aan te praten.
 Voor het opzetten van de demo-stack: [`demo-runbook.md`](demo-runbook.md). Voor draaien in
@@ -29,7 +29,7 @@ ongewijzigde code.
 ```bash
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
-./mvnw clean test -pl services/demo-console -am               # pure JVM
+./mvnw clean test -pl demo/demo-console -am                   # pure JVM
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist

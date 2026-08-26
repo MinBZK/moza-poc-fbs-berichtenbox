@@ -9,16 +9,20 @@
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>FBS Berichtenbox</name>
+    <name>MOZa PoC Federatief Berichtenstelsel</name>
     <description>Federatief Berichtenstelsel - Proof of Concept</description>
 
+    <!-- Drie module-wortels met elk een eigen betekenis: `libraries/` en `services/` vormen het
+         stelsel, `demo/` bevat wat er alleen is om het stelsel te tonen en nooit in productie
+         draait. Die grens wordt bewaakt door .github/scripts/demo-grens.sh: geen enkele pom van
+         het stelsel mag de naam van een demo-module noemen. -->
     <modules>
         <module>libraries/fbs-common</module>
         <module>libraries/fbs-magazijnregister</module>
         <module>libraries/fbs-berichtensessiecache</module>
         <module>services/berichtenmagazijn</module>
         <module>services/berichtenuitvraag</module>
-        <module>services/demo-console</module>
+        <module>demo/demo-console</module>
     </modules>
 
     <properties>
@@ -36,7 +40,7 @@
         <!-- Bij een bump: kijk welke jackson-databind de nieuwe BOM meelevert en vergelijk met
              jackson-bom.version hierboven. Die pin staat vóór de Quarkus-BOM en wint ook neerwaarts,
              dus hij trekt een nieuwere jackson stil terug zonder dat de build of CI iets meldt. -->
-        <quarkus.platform.version>3.38.2</quarkus.platform.version>
+        <quarkus.platform.version>3.38.3</quarkus.platform.version>
         <openapi-generator.version>7.24.0</openapi-generator.version>
         <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
         <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert
@@ -63,7 +67,7 @@
              Niet bumpen zolang openapi-request-validator hierop staat. Un-pin zodra de
              upstream-migratie naar networknt 3.x is gereleased — volg:
              https://github.com/atlassian/openapi-request-validator/pull/24 -->
-        <json-schema-validator.version>2.0.4</json-schema-validator.version>
+        <json-schema-validator.version>2.0.7</json-schema-validator.version>
         <awaitility.version>4.3.0</awaitility.version>
     </properties>
 

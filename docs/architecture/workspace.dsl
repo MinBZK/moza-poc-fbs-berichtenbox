@@ -118,7 +118,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         sessiecacheCircuitBreaker -> sessiecacheMagazijnClient "Roept magazijn aan (als circuit closed)" "CDI"
                     }
 
-                    uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichtenbox inzien en berichten beheren" "Quarkus / Kotlin" "Service" {
+                    uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichten inzien en beheren" "Quarkus / Kotlin" "Service" {
                         uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenlijst, ophalen, beheer en verwijderen" "JAX-RS Resource"
                         tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens (handtekening, iss, aud, exp, jti, acr) en stelt de gebruikersidentiteit en het betrouwbaarheidsniveau vast" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst" "CDI Bean"
@@ -171,7 +171,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         notificatieService -> burger "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
-        interactielaag -> uitvraagResource "Berichtenbox API-aanroepen namens burger of ondernemer" "Digikoppeling REST API via FSC (JWT bearer token)"
+        interactielaag -> uitvraagResource "Berichten-API-aanroepen namens burger of ondernemer" "Digikoppeling REST API via FSC (JWT bearer token)"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"

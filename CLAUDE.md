@@ -2,7 +2,7 @@
 
 ## Project
 
-FBS Berichtenbox - Proof of Concept voor het Federatief Berichtenstelsel (FBS).
+MOZa PoC Federatief Berichtenstelsel (FBS) - Proof of Concept binnen MijnOverheid Zakelijk.
 Monorepo met Maven, Quarkus en Kotlin. Architectuurdocumentatie in Structurizr DSL (C4 model).
 
 ## Taal
@@ -11,7 +11,8 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **Domeinbegrippen blijven Nederlands:** bericht, magazijn, ontvanger, afzender, ophalen, aanleveren, sessie. Ook in code (`meldFout`, `toegestaan`, `drempel`).
-- **Vaste technische idiomen blijven Engels en worden NIET vertaald.** Patroon-, concurrency- en infrastructuurjargon hebben een herkenbare Engelse standaardvorm; vertalen maakt ze juist minder leesbaar. Voorbeelden: circuit breaker, bulkhead, (half-open) probe, acquire/release pairing, starvation, retry, backoff, timeout, permit, semaphore, stream, connection. Dus `probe`/`pairing`/`starvation`/`stream`/`connection`, niet `proef`/`paring`/`uithongeren`/`stroom`/`verbinding`.
+- **Vaste technische idiomen blijven Engels en worden NIET vertaald.** Patroon-, concurrency- en infrastructuurjargon hebben een herkenbare Engelse standaardvorm; vertalen maakt ze juist minder leesbaar. Voorbeelden: circuit breaker, bulkhead, (half-open) probe, acquire/release pairing, starvation, retry, backoff, timeout, permit, semaphore, stream, connection, **root**. Dus `probe`/`pairing`/`starvation`/`stream`/`connection`/`root`, niet `proef`/`paring`/`uithongeren`/`stroom`/`verbinding`/`wortel` — ook niet in samenstellingen: `module-root`, `root-pom`.
+- **Werkwoorden vertalen wél, en dan naar de Nederlandse vakterm.** `call`/`caller` wordt `aanroepen`/`aanroeper`, niet `bellen`/`beller`; kun je geen natuurlijke Nederlandse vorm vinden, laat het dan Engels staan.
 - **Twijfel?** Is de Engelse vorm de term die in de docs/libraries van dát patroon staat? Dan niet vertalen.
 - **Uitzondering: user-facing tekst.** Deze grens geldt voor identifiers en code-comments, niet voor Nederlandse tekst die rechtstreeks aan een gebruiker of operator getoond wordt (foutmeldingen, UI-labels, alerts). Die blijft Nederlands, ook als de onderliggende oorzaak een technisch idioom is: een UI-string als `'geen verbinding: ' + fout` is prima, ook al heet de variabele in de code zelf `connection`.
 
@@ -42,8 +43,8 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
-- **Monorepo structuur:** `services/<service-naam>/` als Maven module
-- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag` en `services/demo-console` (bedieningspaneel voor demo's). Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`).
+- **Monorepo structuur:** drie module-roots met elk een betekenis: `services/<service-naam>/` en `libraries/<library-naam>/` vormen het stelsel, `demo/<module-naam>/` bevat demonstratiecode die nooit in productie draait. `.github/scripts/demo-grens.sh` faalt zodra een pom van het stelsel de naam van een demo-module noemt — als dependency, parent of plugin; andersom mag wel.
+- **Actieve modules:** `services/berichtenmagazijn` en `services/berichtenuitvraag`; demonstratiecode in `demo/demo-console` (bedieningspaneel voor demo's, zie `demo/README.md`). Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`).
 - **Magazijnregister:** één magazijn per deelnemende organisatie; het `magazijnId` dat door DTO's/SSE stroomt ís de afzender-OIN (publiek, geen PII). Config-conventie: `magazijnen."<OIN>".{url,naam}` — de map-key is de OIN, dus dubbele OIN's zijn structureel onmogelijk. `ConfigMagazijnregister` valideert keys/URLs fail-fast bij boot (https-eis buiten dev/test). Consumers (sessiecache-aggregatie, `MagazijnRouter`-routering) lezen uitsluitend de `Magazijnregister`-facade; database-opslag + beheer-interface volgen later.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
@@ -145,7 +146,7 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl libraries/fbs-common -am                   # Tests fbs-common (pure JVM)
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
-./mvnw clean test -pl services/demo-console -am                  # Tests demo-console (pure JVM)
+./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (pure JVM)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
 ./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo + detekt
@@ -305,7 +306,8 @@ géén uitgeschakeld component**).
 | `libraries/fbs-berichtensessiecache/`  | In-process sessiecache-library (`Sessiecache`-facade, Redis)    |
 | `services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml` | OpenAPI spec frontend-API |
 | `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
-| `services/demo-console/`               | Demo-bedieningspaneel (pure-JVM-tests, geen JaCoCo-gate)        |
+| `demo/`                                | Demonstratiecode: modules, FSC-harness, stubgenerator — nooit productie (`demo/README.md`) |
+| `demo/demo-console/`                   | Demo-bedieningspaneel (pure-JVM-tests, geen JaCoCo-gate)        |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
@@ -357,12 +359,12 @@ Implementatieplannen worden opgeslagen in `docs/plans/` met oplopend nummer:
 - **Titel en inleiding zijn functioneel en niet-technisch.** De Product Owner leest mee en moet aanleiding, effect voor gebruikers, wenselijk gedrag en acceptatiecriteria kunnen volgen zonder Kotlin/Quarkus/Redis-kennis. Geen klasse-namen, file:line-verwijzingen, framework-jargon in het bovenste deel van het issue.
 - **Technische details horen in een aparte sectie verderop** (bv. "Technische context", "Oplossingsrichtingen"). Daar mogen wel code-locaties, klasse-namen, libraries en concrete refactor-opties.
 - **Acceptatiecriteria functioneel formuleren** in termen van gedrag voor de gebruiker of het systeem (latency-grenzen, foutgedrag, beschikbaarheid), niet in termen van implementatie ("gebruik X-pattern").
-- **Alles hangt onder epic [#238](https://github.com/MinBZK/MijnOverheidZakelijk/issues/238)**, en daarbinnen onder de groep-issue waar het werk bij hoort: [#349](https://github.com/MinBZK/MijnOverheidZakelijk/issues/349) PoC (standaardkeuze — services, keten, CI/CD, deploy, documentatie), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552) authenticatie/autorisatie, [#787](https://github.com/MinBZK/MijnOverheidZakelijk/issues/787) simulatie-engine, [#947](https://github.com/MinBZK/MijnOverheidZakelijk/issues/947) Model AppManager. Past het bij geen enkele groep: rechtstreeks onder #238, en meld dat bij het opleveren. Koppel via de sub-issue-relatie, niet via een `> Onderdeel van #N.`-regel in de tekst — `gh` (2.46) kent daar geen commando voor, dus via GraphQL:
+- **Alles hangt onder epic [#238](https://github.com/MinBZK/MijnOverheidZakelijk/issues/238)**, en daarbinnen onder de groep-issue waar het werk bij hoort: [#349](https://github.com/MinBZK/MijnOverheidZakelijk/issues/349) PoC (productcode, keten, CI/CD, deploy, documentatie), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552) authenticatie/autorisatie, [#787](https://github.com/MinBZK/MijnOverheidZakelijk/issues/787) demo (simulatie-engine, berichtenbox-UI, demo-omgeving, scenario's en vraagstukken die de demo bespreekbaar maakt), [#947](https://github.com/MinBZK/MijnOverheidZakelijk/issues/947) Model AppManager. Geen standaardkeuze: kies de groep die de aanleiding raakt. Past het bij geen enkele groep: rechtstreeks onder #238, en meld dat bij het opleveren. Koppel via de sub-issue-relatie, niet via een `> Onderdeel van #N.`-regel in de tekst — `gh` (2.46) kent daar geen commando voor, dus via GraphQL:
 
 ```bash
 issue_id() { gh api graphql -f query="{repository(owner:\"MinBZK\",name:\"MijnOverheidZakelijk\"){issue(number:$1){id}}}" --jq '.data.repository.issue.id'; }
 gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){subIssue{number}}}' \
-  -f p="$(issue_id 349)" -f c="$(issue_id <n>)"
+  -f p="$(issue_id <groep>)" -f c="$(issue_id <n>)"
 ```
 
 ## Teststrategie

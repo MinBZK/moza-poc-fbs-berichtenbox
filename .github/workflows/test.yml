@@ -19,7 +19,7 @@ on:
       demo-only:
         description: >-
           Uitkomst van de gedeelde wijzigingsdetectie in deploy.yml: 'true' wanneer de PR
-          uitsluitend demo-console raakt. Leeg (de default) betekent "niet meegegeven", en dan
+          uitsluitend demo/ raakt. Leeg (de default) betekent "niet meegegeven", en dan
           bepaalt deze workflow het zelf — zo blijft hij zelfstandig bruikbaar op een
           gestapelde PR.
         type: string
@@ -141,7 +141,7 @@ jobs:
         shard: >-
           ${{ fromJSON(
             (inputs.demo-only || needs.changes.outputs.demo-only) == 'true'
-            && '[{"id":"demo-console","modules":"services/demo-console"}]'
+            && '[{"id":"demo","modules":"demo/*"}]'
             || '[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"overig","modules":"!services/berichtenmagazijn"}]'
           ) }}
     runs-on: ubuntu-latest
@@ -167,7 +167,32 @@ jobs:
       - name: Test
         env:
           MODULES: ${{ matrix.shard.modules }}
-        run: ./mvnw -B test -pl "$MODULES" -am
+        # `-pl` kent geen globs; de demo-shard geeft er wel een mee. Die expansie hier is opzet:
+        # een handmatige lijst van demo-modules zou stil verouderen, en een module die nergens
+        # genoemd wordt blijft dan ongetest terwijl de shard groen rapporteert — precies de
+        # faalwijze die de andere shard met zijn complement (`!services/berichtenmagazijn`)
+        # vermijdt.
+        run: |
+          set -euo pipefail
+
+          if [ "$MODULES" = "demo/*" ]; then
+            modules=()
+
+            for pom in demo/*/pom.xml; do
+              [ -f "$pom" ] || continue
+              modules+=("${pom%/pom.xml}")
+            done
+
+            # Leeg betekent hier "niets gemeten": zonder deze guard zou `-pl ''` de hele reactor
+            # testen (duur, maar stil) of falen op een lege modulelijst.
+            [ ${#modules[@]} -gt 0 ] \
+              || { echo "::error::Geen Maven-module onder demo/ gevonden — de demo-shard meet niets."; exit 1; }
+
+            MODULES=$(IFS=,; echo "${modules[*]}")
+            echo "Demo-shard test: $MODULES"
+          fi
+
+          ./mvnw -B test -pl "$MODULES" -am
       # De rapporten gaan naar de `test`-job, die er één coverage-comment van maakt; los per
       # shard zou elke shard zijn eigen halve comment plaatsen. Retentie kort: ze zijn na die
       # ene comment nergens meer voor nodig.
@@ -179,6 +204,7 @@ jobs:
           path: |
             services/*/target/site/jacoco/jacoco.xml
             libraries/*/target/site/jacoco/jacoco.xml
+            demo/*/target/site/jacoco/jacoco.xml
           if-no-files-found: error
           retention-days: 1
 
@@ -276,13 +302,13 @@ jobs:
       # gegenereerde OpenAPI-klassen (`api.**`) tellen als onafgedekt mee — dat drukt het
       # cijfer kunstmatig (bv. ~38% i.p.v. ~95% voor dezelfde module). Het site/jacoco-
       # rapport hanteert dezelfde excludes als de 90%-gate, dus de comment spiegelt de gate.
-      # Glob op `services/*` + `libraries/*` zodat nieuwe modules (services én gedeelde
-      # libraries zoals fbs-common) automatisch meegenomen worden.
+      # Glob op `services/*`, `libraries/*` én `demo/*` zodat nieuwe modules automatisch
+      # meegenomen worden — ook een demo-module mét coverage-gate (demo-console heeft er geen,
+      # de magazijn-simulator krijgt er wel een).
       #
-      # demo-only sluit deze stap uit: services/demo-console/pom.xml heeft geen
-      # jacoco-maven-plugin (geen coverage-gate voor de wegwerp-module), dus bij een
-      # demo-only-run bestaat er nergens een jacoco.xml — de comment-stap zou dan niets te
-      # rapporteren hebben.
+      # demo-only sluit deze stap uit: demo/demo-console/pom.xml heeft geen jacoco-maven-plugin
+      # (geen coverage-gate voor de wegwerp-module), dus bij een demo-only-run bestaat er nergens
+      # een jacoco.xml — de comment-stap zou dan niets te rapporteren hebben.
       - name: JaCoCo coverage als PR-comment
         if: github.event_name == 'pull_request' && inputs.demo-only != 'true' && needs.changes.outputs.demo-only != 'true' && needs.shard.result == 'success'
         uses: madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920 # v1.8.0
@@ -290,6 +316,7 @@ jobs:
           paths: |
             ${{ github.workspace }}/services/*/target/site/jacoco/jacoco.xml
             ${{ github.workspace }}/libraries/*/target/site/jacoco/jacoco.xml
+            ${{ github.workspace }}/demo/*/target/site/jacoco/jacoco.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           title: "JaCoCo coverage"
           min-coverage-overall: 0

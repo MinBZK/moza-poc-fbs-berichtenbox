@@ -479,7 +479,7 @@ Voor de definitie van het bewijstype "geboortegegevens" heeft afstemming plaatsg
 | **Hergebruik OOTS-V netwerk** | Virtueel gescheiden eDelivery instantie op het bestaande netwerk | Voorkomt opzetten van nieuw eDelivery netwerk; strikte scheiding met OOTS-gegevensuitwisseling |
 | **PID** | PID-verstrekkingsproces wordt gesimuleerd (vooraf geladen PID) | Beschikbaarheid van een PID is randvoorwaardelijk maar geen onderdeel van de scope |
 
-## 9. Relevantie voor het FBS Berichtenbox project
+## 9. Relevantie voor deze FBS-PoC
 
 ### 9.1 Vergelijkbaar architectuurpatroon
 
