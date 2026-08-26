@@ -11,7 +11,7 @@ verwacht.
 
 | Pad | Wat |
 |---|---|
-| `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten. Heeft een eigen image en een ZAD-component in de deployment `demo`; zie `demo-console/README.md` |
+| `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten. Heeft een eigen image; een ZAD-component in de deployment `demo` is beoogd maar bestaat op het moment van schrijven nog niet (geen `deploy-demo.yml`, geen `environment/zad-demo/`) — zie `demo-console/README.md` |
 | `environment/` | FSC-federatieharness (peers, PKI, contract-bootstrap) én de ZAD-runbooks. `zad-demo/` voor de gedeelde demo-omgeving is beoogd maar bestaat op het moment van schrijven nog niet — zie `demo-console/README.md` |
 | `generated/` | Gegenereerde stub-mappings (git-ignored); komt uit `genereer-magazijnen.py` |
 | `genereer-magazijnen.py` | Genereert de stub-magazijnen en de profiel-persona's |

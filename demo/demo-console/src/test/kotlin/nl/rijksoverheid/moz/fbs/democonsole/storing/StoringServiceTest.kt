@@ -127,6 +127,21 @@ class StoringServiceTest {
     }
 
     @Test
+    fun `reset meldt een fout zonder message met de exceptienaam, in plaats van hem stil te laten vallen`() {
+        // Een IllegalStateException zonder message zou anders door mapNotNull() verdwijnen: de
+        // fouten-lijst blijft dan leeg terwijl de instantie wel degelijk faalde, en reset() meldt
+        // ten onrechte "alles gelukt".
+        every { instantie.proxies() } throws IllegalStateException()
+
+        val fout = assertThrows(IllegalStateException::class.java) { service.reset() }
+
+        assertTrue(
+            fout.message!!.contains("IllegalStateException"),
+            "melding moet de fout zonder message toch tonen, was: ${fout.message}",
+        )
+    }
+
+    @Test
     fun `reset herstelt een gezonde instantie ook als een eerdere instantie geen proxies kent`() {
         // Eén kapotte instantie mag de rest niet gijzelen: reset() gaat alle instanties langs en
         // meldt de fouten pas aan het eind, verzameld.
