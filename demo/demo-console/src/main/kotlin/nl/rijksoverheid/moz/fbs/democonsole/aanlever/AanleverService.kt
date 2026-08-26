@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 
+import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException

@@ -9,8 +9,8 @@ import jakarta.ws.rs.core.MediaType
 data class PersonaDto(val id: String, val label: String, val ontvanger: String, val bron: String)
 
 /**
- * De keuzelijst van demo-identiteiten voor een berichtenbox. Bewust niet in de OpenAPI-spec van
- * de uitvraag: het is demo-gereedschap dat vervalt zodra er echte authenticatie is.
+ * De keuzelijst van demo-identiteiten voor een berichtenbox. Geen contract van het stelsel: dit
+ * endpoint hoort bij de demo-console en staat daarom in geen enkele OpenAPI-spec.
  */
 @Path("/api/demo/personas")
 @Produces(MediaType.APPLICATION_JSON)

@@ -32,9 +32,26 @@ class DemoPersonaTest {
         assertEquals(true, fout.message!!.contains("PASPOORT"))
     }
 
+    @ParameterizedTest
+    @CsvSource(
+        "BSN, 123456789",
+        "BSN, 000000000",
+        "BSN, 99999365",
+        "RSIN, 123456789",
+        "KVK, 00000000",
+        "KVK, 1234567",
+        "KVK, 123456789",
+        "KVK, 1234567a",
+        "KVK, ''",
+        "bsn, 999993653",
+    )
+    fun `weigert een nummer of type dat de keten niet accepteert`(type: String, waarde: String) {
+        assertThrows(IllegalArgumentException::class.java) { persona(type = type, waarde = waarde) }
+    }
+
     @Test
-    fun `weigert een nummer dat de elfproef niet doorstaat`() {
-        assertThrows(IllegalArgumentException::class.java) { persona(type = "BSN", waarde = "123456789") }
+    fun `weigert een leeg type`() {
+        assertThrows(IllegalArgumentException::class.java) { persona(type = " ") }
     }
 
     @Test

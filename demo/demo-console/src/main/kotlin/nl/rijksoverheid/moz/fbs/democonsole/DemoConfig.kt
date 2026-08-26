@@ -1,15 +1,14 @@
-package nl.rijksoverheid.moz.fbs.democonsole.aanlever
+package nl.rijksoverheid.moz.fbs.democonsole
 
 import io.smallrye.config.ConfigMapping
-import io.smallrye.config.WithDefault
 import java.util.Optional
 
 /**
- * Alles wat onder de prefix `demo` staat. Eén mapping voor de hele prefix: SmallRye eist dat
- * elke `demo.*`-property op een member van deze interface uitkomt, dus een tweede root ernaast
- * zou bij boot op SRCFG00050 stuklopen. `@ConfigMapping` leest map-keys mét aanhalingstekens
- * betrouwbaar; een kale `@ConfigProperty Map` doet dat niet. Spiegelt het patroon van
- * ConfigMagazijnregister in fbs-magazijnregister.
+ * Alles wat onder de prefix `demo` staat. Elke `demo.*`-property moet op een member van een
+ * mapping uitkomen, anders weigert SmallRye de boot met SRCFG00050 — daarom staat losse
+ * demo-configuratie die hier niet past buiten de prefix. `@ConfigMapping` leest map-keys mét
+ * aanhalingstekens betrouwbaar; een kale `@ConfigProperty Map` doet dat niet. Spiegelt het
+ * patroon van ConfigMagazijnregister in fbs-magazijnregister.
  */
 @ConfigMapping(prefix = "demo")
 interface DemoConfig {
@@ -39,10 +38,11 @@ interface DemoConfig {
          * OIN's van de organisaties waarvan deze persona berichten ontvangt; moet sporen met de
          * profielservice-voorkeuren, anders weigert het magazijn de aanlevering (403). Leeg = de
          * generator voert voor deze persona niets op; hij bestaat dan alleen om mee op te halen.
+         * Elke OIN moet een `demo.magazijnen`-URL hebben, anders weigert de module te starten.
          */
         fun magazijnen(): Optional<List<String>>
 
-        @WithDefault("keten")
+        /** `keten` of `dataset`. Verplicht: een default zou stil op `keten` uitkomen. */
         fun bron(): String
     }
 }

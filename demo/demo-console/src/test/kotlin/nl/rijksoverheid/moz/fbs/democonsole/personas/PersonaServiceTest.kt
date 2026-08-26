@@ -1,15 +1,20 @@
 package nl.rijksoverheid.moz.fbs.democonsole.personas
 
-import nl.rijksoverheid.moz.fbs.democonsole.aanlever.DemoConfig
+import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 
 class PersonaServiceTest {
 
     @Test
-    fun `levert een lege lijst als er geen persona is ingericht`() {
-        assertEquals(emptyList<DemoPersona>(), service(emptyMap()).alle())
+    fun `weigert te starten als er geen persona is ingericht`() {
+        val fout = assertThrows(IllegalArgumentException::class.java) { service(emptyMap()) }
+
+        assertTrue(fout.message!!.contains("demo.personas"), fout.message)
     }
 
     @Test
@@ -21,32 +26,63 @@ class PersonaServiceTest {
     }
 
     @Test
-    fun `sorteert meerdere persona's op label, ongeacht de volgorde in de configuratie`() {
+    fun `sorteert op label ongeacht hoofdletters en ongeacht de volgorde in de configuratie`() {
         val personas = service(
             mapOf(
                 "vandijk" to instelling("Garage Van Dijk B.V.", "KVK", "12345678"),
                 "pietersen" to instelling("J. Pietersen", "BSN", "999993653"),
+                "dejong" to instelling("de Jong Transport", "KVK", "12345678"),
                 "bakkerij" to instelling("Bakkerij De Vroege Vogel", "BSN", "999996666"),
             ),
         ).alle()
 
-        assertEquals(listOf("bakkerij", "vandijk", "pietersen"), personas.map { it.id })
+        // Hoofdlettergevoelig sorteren zou "de Jong Transport" achteraan zetten.
+        assertEquals(listOf("bakkerij", "dejong", "vandijk", "pietersen"), personas.map { it.id })
     }
 
     @Test
-    fun `weigert bij het starten een persona met een onbruikbaar nummer`() {
+    fun `houdt bij gelijke labels een vaste volgorde aan`() {
+        val personas = service(
+            mapOf(
+                "tweede" to instelling("Gelijke Naam B.V.", "KVK", "12345678"),
+                "eerste" to instelling("Gelijke Naam B.V.", "KVK", "12345678"),
+            ),
+        ).alle()
+
+        assertEquals(listOf("eerste", "tweede"), personas.map { it.id })
+    }
+
+    @Test
+    fun `noemt de persona-id als een nummer onbruikbaar is`() {
         val fout = assertThrows(IllegalArgumentException::class.java) {
-            service(mapOf("typfout" to instelling("Typfout B.V.", "KVK", "1234567"))).alle()
+            service(mapOf("typfout" to instelling("Typfout B.V.", "KVK", "1234567")))
         }
 
-        assertEquals(true, fout.message!!.contains("typfout"))
+        assertTrue(fout.message!!.contains("typfout"), fout.message)
+    }
+
+    @Test
+    fun `weigert een opt-in op een magazijn zonder aanlever-URL`() {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            service(mapOf("pietersen" to instelling("J. Pietersen", "BSN", "999993653", listOf("00000000000000999999"))))
+        }
+
+        assertTrue(fout.message!!.contains("00000000000000999999"), fout.message)
+        assertTrue(fout.message!!.contains("pietersen"), fout.message)
+    }
+
+    @Test
+    fun `weigert een leeg magazijn-OIN, zoals een afsluitende komma oplevert`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            service(mapOf("pietersen" to instelling("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO, ""))))
+        }
     }
 
     @Test
     fun `neemt de bron over uit de configuratie`() {
         val personas = service(
             mapOf(
-                "keten" to instelling("A", "KVK", "12345678"),
+                "keten" to instelling("A", "KVK", "12345678", listOf(TestPersonas.RVO)),
                 "verzonnen" to instelling("B", "KVK", "12345678", bron = "dataset"),
             ),
         ).alle()
@@ -55,15 +91,30 @@ class PersonaServiceTest {
     }
 
     @Test
-    fun `levert alleen de persona's die berichten van een organisatie ontvangen aan de generator`() {
+    fun `weigert een dataset-persona die ook ketenberichten zou krijgen`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            service(mapOf("mengvorm" to instelling("Mengvorm", "KVK", "12345678", listOf(TestPersonas.RVO), "dataset")))
+        }
+    }
+
+    @Test
+    fun `weigert een onbekende bron`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            service(mapOf("mock" to instelling("Mock", "KVK", "12345678", bron = "mock")))
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("optIns")
+    fun `alleen persona's met een opt-in krijgen gegenereerde berichten`(magazijnen: List<String>?, verwacht: List<String>) {
         val personas = service(
             mapOf(
-                "pietersen" to instelling("J. Pietersen", "BSN", "999993653", magazijnen = listOf(RVO)),
+                "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", magazijnen),
                 "grootbedrijf" to instelling("Grootbedrijf B.V.", "KVK", "90000001"),
             ),
         ).metMagazijnen()
 
-        assertEquals(listOf("pietersen"), personas.map { it.id })
+        assertEquals(verwacht, personas.map { it.id })
     }
 
     private fun service(personas: Map<String, DemoConfig.PersonaInstelling>) = PersonaService(VasteDemoConfig(personas))
@@ -72,12 +123,21 @@ class PersonaServiceTest {
         label: String,
         type: String,
         waarde: String,
-        magazijnen: List<String> = emptyList(),
+        magazijnen: List<String>? = null,
         bron: String = "keten",
     ) = VastePersona(label, type, waarde, magazijnen, bron)
 
     private companion object {
 
-        const val RVO = "00000000000000100000"
+        @JvmStatic
+        fun optIns() = listOf(
+            org.junit.jupiter.params.provider.Arguments.of(null, emptyList<String>()),
+            org.junit.jupiter.params.provider.Arguments.of(emptyList<String>(), emptyList<String>()),
+            org.junit.jupiter.params.provider.Arguments.of(listOf(TestPersonas.RVO), listOf("pietersen")),
+            org.junit.jupiter.params.provider.Arguments.of(
+                listOf(TestPersonas.RVO, TestPersonas.BELASTINGDIENST),
+                listOf("pietersen"),
+            ),
+        )
     }
 }

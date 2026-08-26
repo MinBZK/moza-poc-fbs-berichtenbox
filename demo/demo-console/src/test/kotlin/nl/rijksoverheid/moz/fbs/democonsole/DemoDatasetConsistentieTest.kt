@@ -6,7 +6,7 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.GeneratorProducer
-import nl.rijksoverheid.moz.fbs.democonsole.generator.Identificatiecheck
+import nl.rijksoverheid.moz.fbs.democonsole.personas.Identificatiecheck
 import nl.rijksoverheid.moz.fbs.democonsole.personas.TestPersonas
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -46,6 +46,7 @@ class DemoDatasetConsistentieTest {
     fun `elke gegenereerde opdracht is door de profiel-stubs toegestaan`() {
         val opdrachten = generator().genereer(aantal = 200, random = Random(2))
 
+        assertTrue(opdrachten.isNotEmpty(), "zonder opdrachten toetst deze test niets")
         controleerTegenProfielStubs(opdrachten)
     }
 

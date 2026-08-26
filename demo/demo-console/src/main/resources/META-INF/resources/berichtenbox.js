@@ -421,10 +421,11 @@ async function leesProblem(respons) {
   }
 }
 
-// De keuzelijst komt van de demo-console zelf (same-origin, dus geen CORS), niet uit deze
-// pagina: het identificatienummer hoort in de configuratie te staan, en dezelfde lijst voedt de
-// berichtgenerator. Mislukt het ophalen, dan blijft de lijst leeg en zegt de pagina waarom —
-// stil een lege Berichtenbox tonen zou als "geen berichten" gelezen worden.
+// Same-origin, anders dan de rest van deze pagina (die praat met de uitvraag op poort 8086):
+// geen CORS nodig. Eén lijst voor de keuzelijst én de berichtgenerator, zodat de twee niet
+// uiteen kunnen lopen. Mislukt het ophalen, dan blijven Ophalen en Vernieuw uit: met een lege
+// keuzelijst zou de volgende klik een lege X-Ontvanger sturen en een 400 opleveren die naar de
+// verkeerde component wijst.
 async function laadPersonas() {
   try {
     const respons = await fetch('/api/demo/personas');
@@ -433,20 +434,32 @@ async function laadPersonas() {
 
     const personas = await respons.json();
 
+    if (!Array.isArray(personas)) throw new Error('onverwacht antwoord: geen lijst');
+
     el('persona').replaceChildren(...personas.map((persona) => {
+      if (!persona.ontvanger || !persona.label) throw new Error(`onvolledige persona: ${JSON.stringify(persona)}`);
+
       const optie = document.createElement('option');
 
       optie.value = persona.ontvanger;
-      optie.textContent = persona.label;
+      optie.textContent = persona.bron === 'dataset' ? `${persona.label} (gegenereerde dataset)` : persona.label;
 
       return optie;
     }));
 
-    toonLeeg(personas.length === 0
-      ? 'Geen persona ingericht (demo.personas in de demo-console).'
-      : 'Kies een persona en klik op Ophalen.');
-  } catch (fout) {
-    toonLeeg(`Personalijst niet op te halen: ${fout.message}`);
+    if (personas.length === 0) {
+      toonLeeg('Geen persona ingericht (demo.personas in de demo-console).', true);
+
+      return;
+    }
+
+    el('ophalen').disabled = false;
+    el('vernieuw').disabled = false;
+
+    toonLeeg('Kies een persona en klik op Ophalen.');
+  } catch (oorzaak) {
+    console.error('personalijst ophalen mislukt', oorzaak);
+    toonLeeg(`Personalijst niet op te halen: ${oorzaak.message}`, true);
   }
 }
 

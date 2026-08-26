@@ -11,12 +11,11 @@
     <h1>Berichtenbox</h1>
     <div class="persona">
       <label>Ingelogd als
-        <!-- Leeg: de keuzelijst wordt gevuld uit /api/demo/personas, zodat het
-             identificatienummer alleen in de configuratie van de demo staat. -->
+        <!-- Gevuld door laadPersonas() in berichtenbox.js -->
         <select id="persona"></select>
       </label>
-      <button id="ophalen">Ophalen</button>
-      <button id="vernieuw" title="Roept alleen /berichten aan (leest de cache), zonder opnieuw op te halen — toont berichten die live in de cache zijn opgevoerd">Vernieuw</button>
+      <button id="ophalen" disabled>Ophalen</button>
+      <button id="vernieuw" disabled title="Roept alleen /berichten aan (leest de cache), zonder opnieuw op te halen — toont berichten die live in de cache zijn opgevoerd">Vernieuw</button>
       <a href="index.html">&rarr; bedieningspaneel</a>
     </div>
   </header>

@@ -29,7 +29,7 @@ ongewijzigde code.
 ```bash
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
-./mvnw clean test -pl demo/demo-console -am                   # pure JVM
+./mvnw clean test -pl demo/demo-console -am                   # pure JVM + één @QuarkusTest, geen Docker
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist

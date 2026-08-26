@@ -198,7 +198,7 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 
 | Persona | Identificatie | Bevraagt |
 |---|---|---|
-| J. Pietersen (ZZP) | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
+| J. Pietersen | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
 | Bakkerij De Vroege Vogel | BSN `999996666` | RVO |
 | Garage Van Dijk B.V. | KVK `12345678` | Belastingdienst |
 | Grootbedrijf B.V. | KVK `90000001` | n stub-magazijnen (fase 6) |

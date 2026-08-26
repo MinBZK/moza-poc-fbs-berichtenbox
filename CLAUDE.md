@@ -146,7 +146,7 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl libraries/fbs-common -am                   # Tests fbs-common (pure JVM)
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
-./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (pure JVM)
+./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (pure JVM + één @QuarkusTest)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
 ./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo + detekt
@@ -307,7 +307,7 @@ géén uitgeschakeld component**).
 | `services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml` | OpenAPI spec frontend-API |
 | `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
 | `demo/`                                | Demonstratiecode: modules, FSC-harness, stubgenerator — nooit productie (`demo/README.md`) |
-| `demo/demo-console/`                   | Demo-bedieningspaneel (pure-JVM-tests, geen JaCoCo-gate)        |
+| `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests plus één `@QuarkusTest` zonder Docker) |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |

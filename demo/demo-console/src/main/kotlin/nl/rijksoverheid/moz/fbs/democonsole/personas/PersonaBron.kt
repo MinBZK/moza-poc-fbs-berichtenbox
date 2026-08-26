@@ -1,9 +1,10 @@
 package nl.rijksoverheid.moz.fbs.democonsole.personas
 
 /**
- * Waar de berichten van een persona vandaan komen. De proeftuin toont naast de keten ook een
- * gegenereerde dataset; welke van de twee je ziet hoort een expliciete keuze te zijn, want een
- * pagina die stil terugvalt toont verzonnen berichten alsof ze uit de keten komen.
+ * Waar de berichten van een persona vandaan komen: uit de keten, of uit een gegenereerde
+ * dataset. De waarde staat per persona in de configuratie en kent geen terugval — een
+ * berichtenbox die ongevraagd op de dataset uitkomt, toont verzonnen berichten alsof ze
+ * uit de keten komen.
  */
 enum class PersonaBron {
 
