@@ -104,8 +104,8 @@ de simulator plus de bediening eromheen.
 het teambesluit bij spike MinBZK/MijnOverheidZakelijk#1005 — valt dat anders uit, dan landt de
 simulator op `services/magazijn-simulator` — is `demo/` een module-wortel naast `services/` en
 `libraries/`:
-`demo-console` staat er al, de simulator komt ernaast. De richting van de koppeling is een afspraak:
-een module uit het stelsel mag niet van een demo-module afhangen, andersom wel.
+`demo-console` staat er al, de simulator komt ernaast. `.github/scripts/demo-grens.sh` bewaakt de
+richting van de koppeling — een module uit het stelsel mag niet van een demo-module afhangen.
 
 Let op dat "demo" niet betekent "wordt niet uitgerold": de simulator krijgt een eigen ZAD-component
 en dus een eigen image. `.github/scripts/wijzigingsfilter.sh` sluit daarom alleen de aantoonbaar

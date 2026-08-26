@@ -1,6 +1,7 @@
 # De scripts onder .github/scripts/ beslissen wát de rest van de CI doet: wijzigingsfilter.sh
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
-# merge-guard.sh bewaakt de compose-overlays. Een fout daarin is stil — een overgeslagen job
+# merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
+# demonstratiecode afhangt. Een fout daarin is stil — een overgeslagen job
 # rapporteert 'skipped' en dat telt als succes voor branch protection. Vandaar een eigen, lichte
 # workflow: shellcheck, actionlint en de bash-unittests, zonder de docker build van de
 # FSC-harness.
@@ -99,6 +100,7 @@ jobs:
           declare -A VERWACHTE_ASSERTIES=(
             [.github/scripts/test-wijzigingsfilter.sh]=80
             [.github/scripts/test-uitrol-poort.sh]=62
+            [.github/scripts/test-demo-grens.sh]=62
           )
 
           while IFS= read -r t; do
