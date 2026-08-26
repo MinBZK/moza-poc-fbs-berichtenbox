@@ -60,4 +60,31 @@ class ToxiproxyAdressenTest {
         assertTrue(fout.message!!.contains("magazijn-a"), "melding moet de gevraagde naam noemen")
         assertTrue(fout.message!!.contains("profiel"), "melding moet de beschikbare namen noemen")
     }
+
+    @Test
+    fun `een proxy met een lege url telt niet mee, de rest wel`() {
+        // De ZAD-vorm: TOXIPROXY_MAGAZIJN_A_URL leeg gezet, de andere proxies gewoon geconfigureerd.
+        val gemengd = adressen("profiel" to "http://een:8474", "magazijn-a" to "")
+
+        assertEquals(setOf("profiel"), gemengd.namen())
+        assertEquals(listOf("http://een:8474"), gemengd.unieke())
+    }
+
+    @Test
+    fun `zijn alle url's leeg of blanco, dan is het register net zo leeg als zonder configuratie`() {
+        val geenEen = adressen("magazijn-a" to "", "magazijn-b" to "   ")
+
+        assertTrue(geenEen.namen().isEmpty())
+        assertTrue(geenEen.unieke().isEmpty())
+    }
+
+    @Test
+    fun `een proxy met een lege url wordt geweigerd als was hij nooit geconfigureerd`() {
+        val gemengd = adressen("profiel" to "http://een:8474", "magazijn-a" to "")
+
+        val fout = assertThrows(BadRequestException::class.java) { gemengd.adres("magazijn-a") }
+
+        assertTrue(fout.message!!.contains("magazijn-a"), "melding moet de gevraagde naam noemen")
+        assertTrue(fout.message!!.contains("profiel"), "melding moet alleen de geconfigureerde namen noemen")
+    }
 }
