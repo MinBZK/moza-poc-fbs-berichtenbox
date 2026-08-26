@@ -73,7 +73,7 @@ demo_modules() {
   uit_schijf=$(schijf_demo_modules)
 
   # Leeg betekent "niets vastgesteld", niet "er zijn er geen": een kapotte sed, een verschoven
-  # werkmap of een lege demo-wortel geeft dezelfde lege lijst als een correcte meting.
+  # werkmap of een lege demo-root geeft dezelfde lege lijst als een correcte meting.
   if [ -z "$uit_reactor" ]; then
     echo "FOUT: geen enkele <module>demo/…</module> in $REPO_ROOT/pom.xml — de demo-modulelijst meet niets." >&2
 

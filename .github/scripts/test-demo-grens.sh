@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fixture-tests voor demo-grens.sh en demo-modules.sh. De controle is stil als hij niets vindt, dus
-# de dure faalwijze is dat hij niets meer méét: een afwijkende pom-vorm, een lege wortel, een
+# de dure faalwijze is dat hij niets meer méét: een afwijkende pom-vorm, een lege root, een
 # verschoven glob of een stukgelopen parser levert dan een groene run zonder dat er iets
 # gecontroleerd is.
 #
@@ -28,12 +28,12 @@ trap 'rm -rf "$WERKMAP"' EXIT
 # teller die dáár ophoogt is na afloop weer weg — alle fixtures zouden dezelfde map delen en
 # elkaars modules zien.
 nieuw_repo() {
-  local wortel
-  wortel=$(mktemp -d "$WERKMAP/repo-XXXXXX")
+  local root
+  root=$(mktemp -d "$WERKMAP/repo-XXXXXX")
 
-  mkdir -p "$wortel/demo" "$wortel/services" "$wortel/libraries"
+  mkdir -p "$root/demo" "$root/services" "$root/libraries"
 
-  cat > "$wortel/pom.xml" <<'POM'
+  cat > "$root/pom.xml" <<'POM'
 <project>
     <groupId>nl.rijksoverheid.moz</groupId>
     <artifactId>moza-poc-fbs-berichtenbox</artifactId>
@@ -45,7 +45,7 @@ nieuw_repo() {
 </project>
 POM
 
-  echo "$wortel"
+  echo "$root"
 }
 
 dependency_regels() {
@@ -56,12 +56,12 @@ dependency_regels() {
   done
 }
 
-# $1 = wortel, $2 = modulepad (bv. demo/demo-console), $3 = pom-vorm, rest = dependencies.
+# $1 = root, $2 = modulepad (bv. demo/demo-console), $3 = pom-vorm, rest = dependencies.
 # De drie vormen bestaan omdat ze alle drie in het wild voorkomen en de parser ze alle drie moet
 # aankunnen: een geformatteerde pom, een compact parent-blok op één regel, en een module die
 # bewust niet van de reactor-parent erft.
 voeg_module() {
-  local wortel=$1 pad=$2 vorm=$3
+  local root=$1 pad=$2 vorm=$3
   shift 3
 
   local naam=${pad##*/}
@@ -92,7 +92,7 @@ voeg_module() {
 
   deps=$(dependency_regels "$@")
 
-  mkdir -p "$wortel/$pad"
+  mkdir -p "$root/$pad"
 
   # De vorm zonder eigen artifactId hoort hard te falen; hij mag hier dus niet stilzwijgend een
   # naam krijgen.
@@ -102,7 +102,7 @@ voeg_module() {
     eigen=""
   fi
 
-  cat > "$wortel/$pad/pom.xml" <<POM
+  cat > "$root/$pad/pom.xml" <<POM
 <project>
 $parent
 $eigen
@@ -114,37 +114,37 @@ POM
   # Élke module in de reactor registreren, zoals in de echte repository: de controles leiden hun
   # modulelijst daaruit af, dus een fixture die alleen de demo-kant registreert zou een gat
   # verbergen in plaats van blootleggen.
-  sed -i "s:    </modules>:        <module>$pad</module>\n    </modules>:" "$wortel/pom.xml"
+  sed -i "s:    </modules>:        <module>$pad</module>\n    </modules>:" "$root/pom.xml"
 }
 
 # Haalt een module weer uit de reactor. Nodig zodra een fixture de map verwijdert: een reactor die
 # naar een verdwenen module wijst, is een eigen fout en die zou de fixture eerder laten falen dan
 # het gedrag dat hij wil toetsen.
 verwijder_module() {
-  local wortel=$1 pad=$2
+  local root=$1 pad=$2
 
-  sed -i "\|<module>$pad</module>|d" "$wortel/pom.xml"
+  sed -i "\|<module>$pad</module>|d" "$root/pom.xml"
 }
 
 root_dependency() {
-  local wortel=$1
+  local root=$1
   shift
 
-  local blok="$wortel/root-deps.xml"
+  local blok="$root/root-deps.xml"
 
   # Via een bestand en `sed r` in plaats van een `s`-substitutie: die zou `&` en `\` in een
   # artifactId als vervangingsopdracht lezen. Ankeren op de openingstag, want `r` voegt ná de
   # matchende regel in — op de sluittag belandt de dependency buiten het blok.
   dependency_regels "$@" > "$blok"
-  sed -i -e "/^    <dependencies>/{r $blok" -e '}' "$wortel/pom.xml"
+  sed -i -e "/^    <dependencies>/{r $blok" -e '}' "$root/pom.xml"
 }
 
-# $1 = omschrijving, $2 = wortel, $3 = verwachte exitcode, $4 = patroon dat in de uitvoer moet staan.
+# $1 = omschrijving, $2 = root, $3 = verwachte exitcode, $4 = patroon dat in de uitvoer moet staan.
 toets() {
-  local omschrijving=$1 wortel=$2 verwachte_code=$3 patroon=$4
+  local omschrijving=$1 root=$2 verwachte_code=$3 patroon=$4
   local uitvoer code=0
 
-  uitvoer=$(REPO_ROOT="$wortel" controleer 2>&1) || code=$?
+  uitvoer=$(REPO_ROOT="$root" controleer 2>&1) || code=$?
 
   if [ "$code" -ne "$verwachte_code" ]; then
     fout "$omschrijving — verwacht exitcode $verwachte_code, gekregen $code
@@ -329,14 +329,14 @@ voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 printf '<project></project>\n' > "$w/services/berichtenuitvraag/pom.xml"
 toets "een stelsel-pom zonder artifactId valt niet stil weg" "$w" 1 "geen enkele artifactId gelezen"
 
-# De wortel-guard moet dezelfde verzameling meten als de scan: telt hij pom's mee die de scan
-# pruned (uit target/), dan is hij tevreden over een wortel waar niets gecontroleerd is.
+# De root-guard moet dezelfde verzameling meten als de scan: telt hij pom's mee die de scan
+# pruned (uit target/), dan is hij tevreden over een root waar niets gecontroleerd is.
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 mkdir -p "$w/libraries/target"
 printf '<project><artifactId>restant</artifactId></project>\n' > "$w/libraries/target/pom.xml"
-toets "een pom in target/ telt niet als gecontroleerde wortel" "$w" 1 "geen enkele pom onder libraries/"
+toets "een pom in target/ telt niet als gecontroleerde root" "$w" 1 "geen enkele pom onder libraries/"
 
 # --- cardinaliteit: nul, één, meerdere -----------------------------------------------------------
 # Met één demo-module verbergt de suite of de controle "de eerste/enige" pakt of écht per module
@@ -359,7 +359,7 @@ toets "twee schone demo-modules tellen allebei mee" "$w" 0 "geen van de 2 demo-m
 w=$(nieuw_repo)
 voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
-toets "een lege demo-wortel meldt dat er niets gemeten is" "$w" 1 \
+toets "een lege demo-root meldt dat er niets gemeten is" "$w" 1 \
   "geen enkele <module>demo/"
 
 # --- pom-vormen ------------------------------------------------------------------------------------
@@ -406,7 +406,7 @@ sed -i 's:<dependency><groupId>nl.rijksoverheid.moz</groupId><artifactId>quarkus
   "$w/services/berichtenuitvraag/pom.xml"
 toets "twee dependencies op één regel" "$w" 1 "noemt demo-module 'demo-console'"
 
-# Een reactor-module buiten de bekende wortels valt buiten élke lijst in de keten — de scan, de
+# Een reactor-module buiten de bekende roots valt buiten élke lijst in de keten — de scan, de
 # CodeQL-lussen, de jacoco-globs en de fuzz-allowlist — zonder dat er iets roods verschijnt.
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
@@ -415,7 +415,7 @@ voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 mkdir -p "$w/platform/kern"
 printf '<project><artifactId>kern</artifactId></project>\n' > "$w/platform/kern/pom.xml"
 sed -i 's:    </modules>:        <module>platform/kern</module>\n    </modules>:' "$w/pom.xml"
-toets "een reactor-module buiten de bekende wortels" "$w" 1 "buiten de bekende wortels"
+toets "een reactor-module buiten de bekende roots" "$w" 1 "buiten de bekende roots"
 
 # `find` levert bij een onleesbare submap gedeeltelijke uitvoer én een foutstatus. Genegeerd zou dat
 # een halve boom opleveren die als volledige meting doorgaat — met een overtreding die niemand ziet.
@@ -425,7 +425,7 @@ voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
 voeg_module "$w" libraries/geheim meerregelig demo-console
 # De reactor mag er niet meer naar wijzen: het lezen van díe pom faalt dan eerder dan het
-# doorzoeken van de wortel, en dan toetst de fixture een andere guard dan bedoeld.
+# doorzoeken van de root, en dan toetst de fixture een andere guard dan bedoeld.
 verwijder_module "$w" libraries/geheim
 chmod 000 "$w/libraries/geheim"
 
@@ -434,7 +434,7 @@ if [ "$(id -u)" -eq 0 ]; then
   chmod 755 "$w/libraries/geheim"
   ok "onleesbare submap (niet uit te lokken als root)"
 else
-  toets "een onleesbare submap onder een wortel" "$w" 1 "Permission denied"
+  toets "een onleesbare submap onder een root" "$w" 1 "Permission denied"
   chmod 755 "$w/libraries/geheim"
 fi
 
@@ -463,10 +463,10 @@ w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
 voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
-mkdir -p "$w/nieuwewortel/foo"
-printf '<project><artifactId>foo</artifactId></project>\n' > "$w/nieuwewortel/foo/pom.xml"
-sed -i 's:    </modules>:        <module>\n            nieuwewortel/foo\n        </module>\n    </modules>:' "$w/pom.xml"
-toets "een gespreide module-registratie buiten de bekende wortels" "$w" 1 "buiten de bekende wortels"
+mkdir -p "$w/nieuweroot/foo"
+printf '<project><artifactId>foo</artifactId></project>\n' > "$w/nieuweroot/foo/pom.xml"
+sed -i 's:    </modules>:        <module>\n            nieuweroot/foo\n        </module>\n    </modules>:' "$w/pom.xml"
+toets "een gespreide module-registratie buiten de bekende roots" "$w" 1 "buiten de bekende roots"
 
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
@@ -486,7 +486,7 @@ printf '<project><artifactId>generator</artifactId><dependencies><dependency><ar
   > "$w/tooling/generator/pom.xml"
 sed -i 's|    <dependencies>|    <modules><module>../../tooling/generator</module></modules>\n    <dependencies>|' \
   "$w/services/berichtenuitvraag/pom.xml"
-toets "een geneste module buiten de bekende wortels" "$w" 1 "buiten de bekende wortels"
+toets "een geneste module buiten de bekende roots" "$w" 1 "buiten de bekende roots"
 
 # Maven lost `${…}` in een modulepad op tegen de properties; de ruwe XML laat dan niet zien welke
 # module er gebouwd wordt. Doorlaten zou die module buiten élke controle in de keten houden — en
@@ -529,7 +529,7 @@ voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 rmdir "$w/services" "$w/libraries"
 toets "nul stelsel-modules meldt dat er niets gemeten is" "$w" 1 "geen enkele pom onder"
 
-# Eén wortel is genoeg om een totaalteller boven zijn drempel te houden; die helft van het stelsel
+# Eén root is genoeg om een totaalteller boven zijn drempel te houden; die helft van het stelsel
 # blijft dan ongemeten terwijl de melding groen is.
 for weg in services libraries; do
   w=$(nieuw_repo)
@@ -565,10 +565,10 @@ toets "de tweede demo-pom zonder artifactId valt niet stil weg" "$w" 1 "geen art
 
 # --- demo-modules.sh: reactor tegenover schijf ------------------------------------------------------
 lijst_toets() {
-  local omschrijving=$1 wortel=$2 verwachte_code=$3 patroon=$4
+  local omschrijving=$1 root=$2 verwachte_code=$3 patroon=$4
   local uitvoer code=0
 
-  uitvoer=$(REPO_ROOT="$wortel" demo_modules 2>&1) || code=$?
+  uitvoer=$(REPO_ROOT="$root" demo_modules 2>&1) || code=$?
 
   if [ "$code" -eq "$verwachte_code" ] && grep -qF "$patroon" <<<"$uitvoer"; then
     ok "$omschrijving"
@@ -663,7 +663,7 @@ printf '<project><artifactId>generator</artifactId><dependencies><dependency><ar
   > "$w/tooling/generator/pom.xml"
 sed -i 's|</project>|    <profiles><profile><activation><activeByDefault>true</activeByDefault></activation><modules><module>tooling/generator</module></modules></profile></profiles>\n</project>|' \
   "$w/pom.xml"
-toets "een module in een actief profiel telt mee in de reactor" "$w" 1 "buiten de bekende wortels"
+toets "een module in een actief profiel telt mee in de reactor" "$w" 1 "buiten de bekende roots"
 
 # Maar het bestaan is niet af te dwingen: een release-only profiel mag naar een map wijzen die er
 # in een gewone checkout niet is. Dat hard laten falen zou een groene build rood maken.
@@ -684,7 +684,7 @@ sed -i 's|    </modules>|        <module>services/spook</module>\n    </modules>
 toets "een ontbrekende module uit het gewone blok faalt hard" "$w" 1 "bestaat niet"
 
 # Diezelfde profielmodule blijft wél gedekt zodra hij op schijf staat: de grensbewaking scant de
-# wortels van schijf, niet alleen de reactor.
+# roots van schijf, niet alleen de reactor.
 w=$(nieuw_repo)
 voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
 voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
@@ -700,25 +700,25 @@ toets "een profielmodule op schijf blijft onder de grensbewaking vallen" "$w" 1 
 # --- hygiëne ------------------------------------------------------------------------------------------
 w=$(nieuw_repo)
 rm -rf "${w:?}/demo"
-lijst_toets "een ontbrekende demo-wortel meldt wat er mist" "$w" 1 "bestaat niet"
+lijst_toets "een ontbrekende demo-root meldt wat er mist" "$w" 1 "bestaat niet"
 
-# De wortels staan op twee plekken ingetypt: hier en in de module-lussen van codeql.yml. Lopen ze
-# uiteen, dan dekt de ene guard een wortel die de andere overslaat — en dat is stil, want beide
+# De roots staan op twee plekken ingetypt: hier en in de module-lussen van codeql.yml. Lopen ze
+# uiteen, dan dekt de ene guard een root die de andere overslaat — en dat is stil, want beide
 # blijven groen over wat ze wél zien. Béíde lussen toetsen: codeql.yml controleert de classes én de
 # geëxtraheerde bronbestanden, en met alleen de unieke waarden zou één gemuteerde lus wegvallen
 # tegen de andere.
 codeql_lussen=$( { grep -oE 'for module in [a-z*/ ]+; do' "$HERE/../workflows/codeql.yml" || true; } \
   | sed 's/for module in //; s/; do//; s:/\*::g')
-eigen_wortels="${STELSEL_WORTELS[*]} demo"
+eigen_roots="${STELSEL_ROOTS[*]} demo"
 codeql_aantal=$(grep -c . <<<"$codeql_lussen" || true)
-codeql_afwijkend=$(grep -cvxF "$eigen_wortels" <<<"$codeql_lussen" || true)
+codeql_afwijkend=$(grep -cvxF "$eigen_roots" <<<"$codeql_lussen" || true)
 
 if [ "$codeql_aantal" -ne 2 ]; then
   fout "codeql.yml heeft $codeql_aantal modulelussen in plaats van 2; deze kruiscontrole meet niet wat hij hoort te meten"
 elif [ "$codeql_afwijkend" -ne 0 ]; then
-  fout "een modulelus in codeql.yml wijkt af van de grensbewaking ($eigen_wortels): $(tr '\n' ' ' <<<"$codeql_lussen")"
+  fout "een modulelus in codeql.yml wijkt af van de grensbewaking ($eigen_roots): $(tr '\n' ' ' <<<"$codeql_lussen")"
 else
-  ok "beide modulelussen in codeql.yml hanteren dezelfde wortels als de grensbewaking"
+  ok "beide modulelussen in codeql.yml hanteren dezelfde roots als de grensbewaking"
 fi
 
 w=$(nieuw_repo)

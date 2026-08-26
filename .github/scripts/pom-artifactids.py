@@ -41,9 +41,9 @@ def modulepaden(pom: str) -> list[tuple[str, bool]]:
     zelf ook meldt.
     """
     gevonden: list[tuple[str, bool]] = []
-    wortel = lees(pom).getroot()
+    root = lees(pom).getroot()
 
-    for blok in wortel:
+    for blok in root:
         if lokale_naam(blok.tag) == "modules":
             gevonden += [(pad, True) for pad in module_elementen(blok)]
 
@@ -65,15 +65,15 @@ def module_elementen(blok: ET.Element) -> list[str]:
     ]
 
 
-def reactor(wortel_pom: str) -> list[str]:
+def reactor(root_pom: str) -> list[str]:
     """Alle modulepaden van de reactor, transitief.
 
     Maven laat een module zélf modules declareren, en zo'n geneste module staat niet in de
     root-pom. Wie alleen daar kijkt, mist hem — en dan valt hij buiten élke controle in deze keten
     terwijl de build hem gewoon meeneemt. Vandaar de hele boom aflopen in plaats van één niveau.
     """
-    basis = os.path.dirname(os.path.abspath(wortel_pom)) or "."
-    te_doen = [os.path.abspath(wortel_pom)]
+    basis = os.path.dirname(os.path.abspath(root_pom)) or "."
+    te_doen = [os.path.abspath(root_pom)]
     gezien: set[str] = set()
     gevonden: list[str] = []
 

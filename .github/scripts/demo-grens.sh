@@ -66,26 +66,26 @@ demo_artifacts() {
   done <<<"$modules"
 }
 
-STELSEL_WORTELS=(libraries services)
+STELSEL_ROOTS=(libraries services)
 
 # Alle pom's die de grens moeten respecteren: de root-pom (waar élke module van erft, dus één regel
-# daar koppelt het hele stelsel aan demo-code) plus alles onder de stelsel-wortels. `target/` eruit:
+# daar koppelt het hele stelsel aan demo-code) plus alles onder de stelsel-roots. `target/` eruit:
 # een build kan daar pom-kopieën achterlaten, en die tellen niet mee als module.
 stelsel_poms() {
-  local wortel gevonden
+  local root gevonden
 
   printf '%s\n' "$REPO_ROOT/pom.xml"
 
-  for wortel in "${STELSEL_WORTELS[@]}"; do
-    # Een wortel die helemaal weg is, is de per-wortel-guard van `controleer` — daar staat de
+  for root in "${STELSEL_ROOTS[@]}"; do
+    # Een root die helemaal weg is, is de per-root-guard van `controleer` — daar staat de
     # bruikbare melding. Hier alleen doorlopen zodat die guard aan bod komt.
-    [ -d "$REPO_ROOT/$wortel" ] || continue
+    [ -d "$REPO_ROOT/$root" ] || continue
 
     # Status vasthouden en stderr laten staan: `find` levert bij een onleesbare submap gedeeltelijke
     # uitvoer én een foutstatus. Onderdrukt en genegeerd zou dat een halve boom opleveren die als
     # volledige meting doorgaat — met een overtreding die niemand ziet.
-    if ! gevonden=$(find "$REPO_ROOT/$wortel" -name target -prune -o -name pom.xml -print); then
-      echo "FOUT: $wortel/ is niet volledig te doorzoeken — de meting is afgebroken." >&2
+    if ! gevonden=$(find "$REPO_ROOT/$root" -name target -prune -o -name pom.xml -print); then
+      echo "FOUT: $root/ is niet volledig te doorzoeken — de meting is afgebroken." >&2
 
       return 1
     fi
@@ -95,7 +95,7 @@ stelsel_poms() {
 }
 
 controleer() {
-  local bevindingen=0 demo pom afhankelijkheid wortel aantal ids
+  local bevindingen=0 demo pom afhankelijkheid root aantal ids
 
   # Niet `mapfile < <(demo_artifacts)`: die vorm gooit de exitcode van de procesvervanging weg, en
   # dan blijft een module die niet parseert stil buiten de lijst zolang er één andere wél parseert.
@@ -107,13 +107,13 @@ controleer() {
   local -a demos
   mapfile -t demos <<<"$demolijst"
 
-  # Een reactor-module buiten de bekende wortels valt buiten élke lijst in deze keten — de scan
+  # Een reactor-module buiten de bekende roots valt buiten élke lijst in deze keten — de scan
   # hieronder, de CodeQL-lussen, de jacoco-globs en de fuzz-allowlist. Dan is de grens niet meer
-  # bewaakt zonder dat er iets roods verschijnt, dus is een nieuwe wortel een expliciete keuze.
+  # bewaakt zonder dat er iets roods verschijnt, dus is een nieuwe root een expliciete keuze.
   local onbekend
   onbekend=$(reactor_modules \
-    | awk -v wortels="${STELSEL_WORTELS[*]} demo" '
-      BEGIN { aantal = split(wortels, bekend, " ") }
+    | awk -v roots="${STELSEL_ROOTS[*]} demo" '
+      BEGIN { aantal = split(roots, bekend, " ") }
       {
         for (i = 1; i <= aantal; i++) {
           if (index($0, bekend[i] "/") == 1) next
@@ -123,8 +123,8 @@ controleer() {
       }')
 
   if [ -n "$onbekend" ]; then
-    echo "FOUT: reactor-module(s) buiten de bekende wortels: $(tr '\n' ' ' <<<"$onbekend")"
-    echo "      Voeg de wortel toe aan STELSEL_WORTELS en aan de module-lussen van codeql.yml en test.yml."
+    echo "FOUT: reactor-module(s) buiten de bekende roots: $(tr '\n' ' ' <<<"$onbekend")"
+    echo "      Voeg de root toe aan STELSEL_ROOTS en aan de module-lussen van codeql.yml en test.yml."
 
     return 1
   fi
@@ -132,16 +132,16 @@ controleer() {
   local pomlijst
   pomlijst=$(stelsel_poms) || return 1
 
-  # Per wortel tellen uit diezelfde lijst, niet uit een tweede `find`: een guard die anders meet dan
-  # de scan is geen guard. Verdwijnt er één wortel (hernoemd, geherstructureerd, verkeerde
+  # Per root tellen uit diezelfde lijst, niet uit een tweede `find`: een guard die anders meet dan
+  # de scan is geen guard. Verdwijnt er één root (hernoemd, geherstructureerd, verkeerde
   # REPO_ROOT), dan blijft een totaalteller ruim boven nul terwijl die helft ongemeten is.
-  for wortel in "${STELSEL_WORTELS[@]}"; do
+  for root in "${STELSEL_ROOTS[@]}"; do
     # Op prefix vergelijken en niet met grep: REPO_ROOT gaat daar ongeëscaped een reguliere
     # expressie in, en een metateken in het pad maakt de telling stil onbruikbaar.
-    aantal=$(awk -v prefix="$REPO_ROOT/$wortel/" 'index($0, prefix) == 1' <<<"$pomlijst" | grep -c . || true)
+    aantal=$(awk -v prefix="$REPO_ROOT/$root/" 'index($0, prefix) == 1' <<<"$pomlijst" | grep -c . || true)
 
     if [ "$aantal" -eq 0 ]; then
-      echo "FOUT: geen enkele pom onder $wortel/ — die helft van het stelsel is niet gecontroleerd."
+      echo "FOUT: geen enkele pom onder $root/ — die helft van het stelsel is niet gecontroleerd."
 
       return 1
     fi
@@ -173,7 +173,7 @@ controleer() {
     return 1
   fi
 
-  echo "OK: $(grep -c . <<<"$pomlijst") pom('s) van het stelsel (root + ${STELSEL_WORTELS[*]}) noemen geen van de ${#demos[@]} demo-module(s)."
+  echo "OK: $(grep -c . <<<"$pomlijst") pom('s) van het stelsel (root + ${STELSEL_ROOTS[*]}) noemen geen van de ${#demos[@]} demo-module(s)."
 }
 
 # Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.

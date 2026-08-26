@@ -48,7 +48,7 @@ belangrijk, want de CI leunt er nu op de verkeerde manier op — zie de kosten h
 
 ## Voorstel
 
-**`demo/` wordt naast `services/` en `libraries/` een derde module-wortel. `services/demo-console`
+**`demo/` wordt naast `services/` en `libraries/` een derde module-root. `services/demo-console`
 verhuist naar `demo/demo-console`; de magazijn-simulator landt meteen op `demo/magazijn-simulator`.
 De rest van `demo/` blijft staan waar het staat.**
 
@@ -71,7 +71,7 @@ Waarom zo:
 - **Het moment is nu of over jaren.** De simulator is het enige nieuwe demo-artefact op de rol.
   Verhuist hij mee, dan kost de operatie twee `git mv`'s en een dag CI-werk. Verhuist hij niet, dan
   is de volgende aanleiding een derde module, en dan verhuizen er drie.
-- **Modules en scripts in één wortel is geen probleem.** De plekken die over modules itereren
+- **Modules en scripts in één root is geen probleem.** De plekken die over modules itereren
   (`codeql.yml:106`, `codeql.yml:157`) filteren al op `[ -f "$module/pom.xml" ]`, en de
   JaCoCo-globs (`test.yml:180`, `test.yml:291`) matchen alleen paden met `target/site/jacoco/`. Een
   tussenlaag `demo/modules/` zou alleen `-pl demo/modules/demo-console` opleveren en niets oplossen.
@@ -102,7 +102,7 @@ wél houdbaar.
 |---|---|---|
 | Modulepaden | `pom.xml:21` (+ regel voor de simulator), `relativePath` in de module-poms | triviaal |
 | `git mv` + package blijft gelijk | `services/demo-console` → `demo/demo-console` | triviaal |
-| Spec-hergebruik simulator | `../berichtenmagazijn/…` wordt `../../services/berichtenmagazijn/…` in `api.spec.file` | triviaal, maar de relatieve verwijzing kruist nu een wortel — noem dat bij de property |
+| Spec-hergebruik simulator | `../berichtenmagazijn/…` wordt `../../services/berichtenmagazijn/…` in `api.spec.file` | triviaal, maar de relatieve verwijzing kruist nu een root — noem dat bij de property |
 | **Uitrolfilter precies maken** | `wijzigingsfilter.sh:55` (`NIET_DEPLOYBAAR`) | **de echte post — zie hieronder** |
 | Test-scope | `wijzigingsfilter.sh:62` (`BUITEN_DEMO_CONSOLE` wordt `^demo/`), `test.yml:144` (shard) | klein, maar let op de drift-val hieronder |
 | Zelftoets van het filter | `test-wijzigingsfilter.sh:93`, `:103`, `:154`, `:159`, `:309` | klein |
@@ -190,7 +190,7 @@ en de FSC-harness van deze repository. Een tweede repository levert versie-koppe
 CI-keten en cross-repo-PR's op voor werk dat vandaag in één commit past. Niet doen zolang de demo
 zich per commit met het stelsel meebeweegt.
 
-**D. `demo/` wordt module-wortel én de rest van `demo/` verhuist mee naar een eigen indeling.**
+**D. `demo/` wordt module-root én de rest van `demo/` verhuist mee naar een eigen indeling.**
 Grondiger, maar het raakt circa tien vaste paden in `fsc-harness-overlays.yml` en het
 image-bouwpad in `deploy.yml:390` zonder dat een meelezer er iets voor terugkrijgt.
 
@@ -223,7 +223,7 @@ een rode build met een uitleg erbij.
 ## Openstaande beslissingen voor het team
 
 1. **Gaan we verhuizen?** Voorstel hierboven, alternatief B als terugvaloptie.
-2. **Heet de wortel `demo/`?** Hij bevat straks ook de FSC-harness, die eerder een lokale
+2. **Heet de root `demo/`?** Hij bevat straks ook de FSC-harness, die eerder een lokale
    infrastructuur-standaard-in is dan een demo. `demo/` blijft het kortste woord dat klopt voor een
    meelezer; alternatieven zoals `simulatie/` dekken de harness juist slechter.
 3. **Vóór of ná stap 1 van de simulator?** Vóór is goedkoper — dan verhuist er één module in plaats
@@ -239,7 +239,7 @@ Deze PR voert het voorstel uit, in de volgorde van de kostentabel:
 | Wat | Bestand |
 |---|---|
 | `services/demo-console` → `demo/demo-console` (rename, historie behouden) | — |
-| Modulepad + comment over de drie wortels | `pom.xml` |
+| Modulepad + comment over de drie roots | `pom.xml` |
 | `^demo/` vervangen door `DEMO_BUITEN_UITROLPOORT`; `BUITEN_DEMO_CONSOLE` → `BUITEN_DEMO` (`^demo/`) | `.github/scripts/wijzigingsfilter.sh` |
 | Fixtures verlegd, plus nieuwe voor een demo-module mét image, de scripts direct onder `demo/` en de prefix-buren | `.github/scripts/test-wijzigingsfilter.sh` |
 | Demo-shard, JaCoCo-globs en artefactpaden | `.github/workflows/test.yml` |
@@ -247,7 +247,7 @@ Deze PR voert het voorstel uit, in de volgorde van de kostentabel:
 | Padfilter en assertiedrempel | `.github/workflows/ci-scripts.yml` |
 | Modulepad in de warmup-laag van het fuzz-base-image | `.clusterfuzzlite/base/Dockerfile` |
 | Wat er onder `demo/` staat en waarom | `demo/README.md` |
-| Paden en de drie wortels | `README.md`, `CLAUDE.md`, `docs/ontwikkelen.md`, `docs/demo-runbook.md` |
+| Paden en de drie roots | `README.md`, `CLAUDE.md`, `docs/ontwikkelen.md`, `docs/demo-runbook.md` |
 | Simulator landt op `demo/magazijn-simulator`; openstaande beslissing 7 afgehandeld | `docs/plans/2026-08-21-magazijn-simulator-design.md` |
 
 Drie dingen die tijdens de uitvoering veranderden ten opzichte van het voorstel:
@@ -275,7 +275,7 @@ Twee keuzes daarin zijn het vermelden waard. De pom's worden **als XML gelezen e
 regex**: Maven sluit op XML-vorm, een regex op tekstvorm, en dat verschil is een bypass-generator —
 een gespreid element, een attribuut op de tag, een CDATA-sectie of een `&#45;`-entity levert een
 dependency op die Maven gewoon resolvet en die een regex niet ziet. En de modulelijst komt
-**transitief uit de reactor**, niet uit een ingetypte wortellijst: een module mag zélf modules
+**transitief uit de reactor**, niet uit een ingetypte rootlijst: een module mag zélf modules
 declareren, en zo'n geneste module viel anders buiten élke controle in de keten terwijl de build hem
 gewoon meenam.
 

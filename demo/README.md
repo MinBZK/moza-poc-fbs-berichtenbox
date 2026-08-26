@@ -6,7 +6,7 @@ bibliotheken); wie wil weten wat het stelsel is, hoeft deze map niet te lezen.
 
 Andersom geldt het niet: niet alle demo-hulpmiddelen staan hier. De stub-mappings (`../wiremock/`),
 de storingsinjectie (`../toxiproxy/`), de Bruno-collecties (`../bruno/`) en de compose-stacks in de
-repository-wortel horen er functioneel bij, maar staan op de plek die hun eigen gereedschap
+repository-root horen er functioneel bij, maar staan op de plek die hun eigen gereedschap
 verwacht.
 
 | Pad | Wat |
