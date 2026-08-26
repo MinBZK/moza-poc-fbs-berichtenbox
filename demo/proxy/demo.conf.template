@@ -1,0 +1,44 @@
+# Eén origin voor de hele demo: de berichtenbox van de proeftuin, het bedieningspaneel en de
+# keten-API's. Dat is geen sierlijkheid maar noodzaak — zonder gedeelde origin komt de personalijst
+# niet aan (die valt binnen de proeftuin-container onder zijn eigen `location /api/` en zou bij de
+# uitvraag uitkomen), en kan het paneel de berichtenbox niet laten verversen.
+#
+# Online geldt dit niet: daar proxyt de proeftuin zelf naar de uitvraag. Deze proxy is dus
+# demo-lijm, geen onderdeel van het stelsel.
+#
+# De bestemmingen komen uit env-vars omdat de podman-hostnet-modus geen container-DNS heeft: daar
+# is alles 127.0.0.1 met een eigen poort. nginx vult ze bij het starten in vanuit
+# /etc/nginx/templates/.
+server {
+    listen ${PROXY_PORT};
+
+    # Alles wat de proeftuin zelf serveert, inclusief /moza/berichtenbox/.
+    location / {
+        proxy_pass ${PROEFTUIN_UPSTREAM};
+        proxy_set_header Host $host;
+    }
+
+    # Het bedieningspaneel van de demo-console, dat de berichtenbox in een frame toont.
+    location /bediening/ {
+        proxy_pass ${CONSOLE_UPSTREAM}/;
+        proxy_set_header Host $host;
+    }
+
+    # Demo-gereedschap: personalijst, storingen, vullen, legen.
+    location /api/demo/ {
+        proxy_pass ${CONSOLE_UPSTREAM};
+        proxy_set_header Host $host;
+    }
+
+    # De keten. De ophaalronde is een SSE-stream: zonder deze vier regels komt de voortgang per
+    # organisatie pas aan het eind binnen en lijkt de pagina te hangen tot het traagste magazijn
+    # klaar is. De lange read-timeout dekt een ronde langs tientallen magazijnen.
+    location /api/v1/ {
+        proxy_pass ${UITVRAAG_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}

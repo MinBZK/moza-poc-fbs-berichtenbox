@@ -349,7 +349,36 @@ services:
       berichtenuitvraag:
         condition: service_started
     environment:
+      # Alleen in gebruik wanneer de container rechtstreeks op 8096 benaderd wordt; via de
+      # demo-proxy onderschept die /api/ al vóór het de container bereikt.
       BACKEND_ORIGIN: http://berichtenuitvraag:8086
+
+  # Eén origin voor de hele demo: berichtenbox, bedieningspaneel en keten-API's achter hetzelfde
+  # adres. Zie demo/proxy/demo.conf voor het waarom.
+  #
+  # Uitsluitend op loopback, om dezelfde reden als demo-console: /api/demo/legen doet via deze
+  # proxy net zo goed een TRUNCATE op beide magazijn-databases.
+  demo-proxy:
+    image: docker.io/library/nginx:1.31-alpine
+    profiles: [demo]
+    ports:
+      - "127.0.0.1:8097:8080"  # NIET via DEMO_BIND: zie de toelichting bij demo-console
+    depends_on:
+      proeftuin:
+        condition: service_started
+      demo-console:
+        condition: service_started
+      berichtenuitvraag:
+        condition: service_started
+    environment:
+      PROXY_PORT: "8080"
+      PROEFTUIN_UPSTREAM: http://proeftuin:8080
+      CONSOLE_UPSTREAM: http://demo-console:8095
+      UITVRAAG_UPSTREAM: http://berichtenuitvraag:8086
+      # Beperk envsubst tot deze vier, zodat nginx-eigen variabelen ($$host, $$uri) blijven staan.
+      NGINX_ENVSUBST_FILTER: '^(PROXY_PORT|(PROEFTUIN|CONSOLE|UITVRAAG)_UPSTREAM)$$'
+    volumes:
+      - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
 
 volumes:
   postgres-data-a:

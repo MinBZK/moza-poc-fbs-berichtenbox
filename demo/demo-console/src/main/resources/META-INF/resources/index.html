@@ -5,7 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FBS Demo-console</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+    /* Twee kolommen: de berichtenbox waar het om gaat, met de bediening ernaast. Ingeklapt
+       krijgt de berichtenbox de volle breedte — voor het moment in een demo waarop je niet meer
+       aan de knoppen zit maar laat zien wat de ondernemer ziet. */
+    body { font-family: system-ui, sans-serif; margin: 0; height: 100vh; display: grid;
+           grid-template-columns: 1fr 26rem; }
+    body.ingeklapt { grid-template-columns: 1fr 0; }
+    #box { border: 0; width: 100%; height: 100vh; }
+    #boxkolom { position: relative; background: #f4f4f4; }
+    #paneel { overflow-y: auto; height: 100vh; padding: 1rem; box-sizing: border-box;
+              border-left: 1px solid #ccc; }
+    body.ingeklapt #paneel { display: none; }
+    #klap { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 1; font-size: 0.85rem;
+            padding: 0.3rem 0.6rem; }
+    #geen-box { padding: 2rem; }
     button { font-size: 1rem; padding: 0.5rem 1rem; margin: 0.25rem 0; cursor: pointer; }
     input { font-size: 1rem; padding: 0.4rem; width: 5rem; }
     fieldset { margin: 1rem 0; }
@@ -13,9 +26,23 @@
   </style>
 </head>
 <body>
+  <div id="boxkolom">
+    <button id="klap" onclick="klap()">Bediening verbergen</button>
+    <iframe id="box" title="Berichtenbox" hidden></iframe>
+    <div id="geen-box" hidden>
+      <h2>Berichtenbox niet bereikbaar</h2>
+      <p>Deze pagina toont de berichtenbox van de proeftuin in een frame. Dat werkt alleen via de
+        demo-proxy, die alles achter één adres zet: <a href="http://127.0.0.1:8097/bediening/">
+        http://127.0.0.1:8097/bediening/</a>.</p>
+      <p>De wegwerp-berichtenbox staat er zolang nog naast:
+        <a href="berichtenbox.html">berichtenbox.html</a>.</p>
+    </div>
+  </div>
+
+  <div id="paneel">
   <h1>FBS Demo-console</h1>
-  <p><a href="berichtenbox.html">&rarr; Berichtenbox (ondernemer-weergave)</a></p>
-  <p>Wegwerp-bediening voor de demo-stack. Leeg vóór je opnieuw vult.</p>
+  <p>Bediening voor de demo-stack. Leeg vóór je opnieuw vult.
+    <button onclick="verversBox()">Berichtenbox verversen</button></p>
 
   <fieldset>
     <legend>Beheer</legend>
@@ -76,9 +103,47 @@
 
   <h2>Resultaat</h2>
   <pre id="uit">—</pre>
+  </div>
 
   <script>
     const uit = document.getElementById('uit');
+
+    // Het frame laadt alleen als deze pagina via de demo-proxy geopend is; alleen daar staat de
+    // proeftuin op dezelfde origin. Een frame dat cross-origin niet laadt geeft geen foutmelding
+    // die JavaScript kan zien, dus toetsen we het pad vooraf in plaats van achteraf te raden.
+    const BOX_PAD = '/moza/berichtenbox/';
+
+    fetch(BOX_PAD, { method: 'HEAD' })
+      .then((respons) => toonBox(respons.ok))
+      .catch(() => toonBox(false));
+
+    function toonBox(bereikbaar) {
+      document.getElementById('box').hidden = !bereikbaar;
+      document.getElementById('geen-box').hidden = bereikbaar;
+
+      if (bereikbaar) document.getElementById('box').src = BOX_PAD;
+    }
+
+    // Zelfde origin, dus een gerichte herlaad kan zonder dat de proeftuin daar iets voor hoeft te
+    // bouwen. Bewust een knop en niet automatisch na elke actie: een herlaad zet de berichtenbox
+    // terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
+    function verversBox() {
+      const box = document.getElementById('box');
+
+      if (box.hidden) return;
+
+      try {
+        box.contentWindow.location.reload();
+      } catch (e) {
+        box.src = BOX_PAD;
+      }
+    }
+
+    function klap() {
+      const ingeklapt = document.body.classList.toggle('ingeklapt');
+
+      document.getElementById('klap').textContent = ingeklapt ? 'Bediening tonen' : 'Bediening verbergen';
+    }
 
     async function post(pad, bevestig) {
       if (bevestig && !confirm('Zeker weten? Dit verwijdert alle berichten uit beide magazijnen.')) return;

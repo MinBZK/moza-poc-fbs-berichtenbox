@@ -24,6 +24,22 @@
 #     een eigen bestandsnaam, het magazijnregister wordt onder dezelfde naam herschreven en is
 #     daarom hier niet zichtbaar. `demo/podman-prepare.sh hostnet` maakt beide.
 services:
+  # Uitzondering op punt 2 hierboven: de proeftuin houdt 8080. Zijn image pint `listen 8080` in het
+  # nginx-template en laat alleen BACKEND_ORIGIN door NGINX_ENVSUBST_FILTER, dus de luisterpoort is
+  # van buitenaf niet te zetten. De demo-proxy wijkt daarom uit naar zijn gepubliceerde poort.
+  proeftuin:
+    network_mode: host
+    ports: !reset []
+
+  demo-proxy:
+    network_mode: host
+    ports: !reset []
+    environment:
+      PROXY_PORT: "8097"
+      PROEFTUIN_UPSTREAM: http://127.0.0.1:8080
+      CONSOLE_UPSTREAM: http://127.0.0.1:8095
+      UITVRAAG_UPSTREAM: http://127.0.0.1:8086
+
   redis:
     network_mode: host
     ports: !reset []
