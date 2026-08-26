@@ -52,7 +52,7 @@ eruit.
 | `storing/StoringResource.kt` (wijzig) | Levert alleen nog HTTP-vorm; validatie zit in het register |
 | `omgeving/OmgevingResource.kt` (nieuw) | `GET /api/demo/omgeving` — API-basis en beschikbare storingen |
 | `omgeving/OmgevingConfig.kt` (nieuw) | `@ConfigMapping` voor de browser-zichtbare uitvraag-basis |
-| `tempo/TempoKlok.kt` (nieuw) | Naad rond de Quarkus-scheduler, zodat `TempoService` pure-JVM testbaar is |
+| `tempo/TempoKlok.kt` (nieuw) | Seam rond de Quarkus-scheduler, zodat `TempoService` pure-JVM testbaar is |
 | `tempo/TempoService.kt` (nieuw) | De stroom: grenzen, tellers, auto-stop |
 | `tempo/TempoResource.kt` (nieuw) | `POST /tempo/start`, `POST /tempo/stop`, `GET /tempo` |
 | `herstel/HerstelService.kt` (nieuw) | Tempo stoppen, storingen resetten, legen, basisvulling |
@@ -886,7 +886,7 @@ class TempoServiceTest {
 Draai: `./mvnw clean test -pl demo/demo-console -am -Dtest=TempoServiceTest`
 Verwacht: compilatiefout — `TempoKlok` en `TempoService` bestaan niet.
 
-- [ ] **Stap 4: schrijf de naad rond de scheduler**
+- [ ] **Stap 4: schrijf de seam rond de scheduler**
 
 `TempoKlok.kt`:
 
