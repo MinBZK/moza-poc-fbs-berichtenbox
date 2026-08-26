@@ -18,7 +18,7 @@ De proeftuin (`MinBZK/moza-poc`, Eleventy, publiek repo) toont een Berichtenbox 
 verzonnen magazijnen, plus twee voorgevulde mappen. Er komt niets uit de keten en de simulatie-engine
 is er niet zichtbaar.
 
-Aan onze kant bestaat al een tweede Berichtenbox: de wegwerp-UI in `services/demo-console` (`:8095`,
+Aan onze kant bestaat al een tweede Berichtenbox: de wegwerp-UI in `demo/demo-console` (`:8095`,
 fase 2a). Die praat wél met de keten, en doet dat rechtstreeks vanuit de browser: `berichtenbox.js`
 zet `X-Ontvanger` op elke `fetch` naar `http://<host>:8086/api/v1`, en de uitvraag heeft daarvoor een
 CORS-allowlist die alleen in het compose-demo-profiel aan staat (`QUARKUS_HTTP_CORS_ENABLED` +
@@ -354,7 +354,7 @@ tussenstation en geen halve oplevering.
 
 | Waar | Wat |
 |---|---|
-| `services/demo-console` | `GET /api/demo/personas`; persona's uit configuratie, inclusief `bron`. Later: `berichtenbox.{html,css,js}` weg, `/beheer` blijft |
+| `demo/demo-console` | `GET /api/demo/personas`; persona's uit configuratie, inclusief `bron`. Later: `berichtenbox.{html,css,js}` weg, `/beheer` blijft |
 | `compose.yaml` | proeftuin-container als service in het `demo`-profiel, met de bestemming naar uitvraag en demo-console |
 | ZAD-projectspec `mpfb-8wh` | niets, zolang de proeftuin via zijn eigen proxy binnenkomt; de uitvraag moet publiek bereikbaar zijn |
 | `docs/ontwikkelen.md` | hoe je de demo mét proeftuin start, en hoe je hem op een preview van de keten richt |
