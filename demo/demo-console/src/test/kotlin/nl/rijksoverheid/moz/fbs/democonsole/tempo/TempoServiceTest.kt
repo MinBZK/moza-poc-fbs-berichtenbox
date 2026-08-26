@@ -128,6 +128,25 @@ class TempoServiceTest {
     }
 
     @Test
+    fun `een tik die al onderweg was toen stop draaide, levert niets meer af`() {
+        // Race die HandKlok.tik() niet dekt: die belt via zijn eigen taak-veld, dat stop() al op
+        // null zet, dus een tik ná stop() bereikt tik() daar nooit. Hier houden we de taak apart
+        // vast — zoals een scheduler-thread die de tik al gepakt had vlak vóór stop() gestartOp
+        // op null zette — en roepen 'm daarna alsnog aan. De guard `gestartOp ?: return` moet die
+        // uitgedeelde tik laten verlopen, anders landt er een bericht ná de herstelknop.
+        service.start(5)
+
+        val inFlightTik = klok.taak!!
+
+        service.stop()
+        inFlightTik.invoke()
+
+        assertFalse(service.status().loopt)
+        assertEquals(0, service.status().geleverd)
+        verify(exactly = 0) { aanleverService.leverAan(any()) }
+    }
+
+    @Test
     fun `de stroom stopt vanzelf bij het maximum aantal berichten`() {
         // Op een gedeelde omgeving klikt iemand de SSO-sessie weg terwijl de stroom doorloopt.
         service.start(1)
