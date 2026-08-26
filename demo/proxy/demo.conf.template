@@ -16,6 +16,11 @@
 server {
     listen ${PROXY_BIND}:${PROXY_PORT};
 
+    # Niets bewaren. De onderdelen van de demo worden tijdens het werken eraan vervangen — een
+    # nieuwe build van de proeftuin, een herstart van de console — en zonder deze regel toont de
+    # browser heuristisch de vorige versie. Dan zoek je een fout die er niet meer is.
+    add_header Cache-Control "no-store" always;
+
     # Alles wat de proeftuin zelf serveert, inclusief /moza/berichtenbox/.
     location / {
         proxy_pass ${PROEFTUIN_UPSTREAM};
