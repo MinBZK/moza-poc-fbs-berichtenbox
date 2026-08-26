@@ -42,4 +42,11 @@ class OmgevingResourceTest {
     fun `een omgeving zonder storingen levert een lege lijst en geen fout`() {
         assertEquals(emptyList<String>(), resource(null).omgeving().storingen)
     }
+
+    @Test
+    fun `een omgeving met precies één storing levert een lijst met dat ene element`() {
+        // Onderscheidt "geeft het enige element terug" van "discrimineert per naam" — een lijst
+        // van meerdere elementen dekt dat verschil niet.
+        assertEquals(listOf("redis"), resource(null, "redis").omgeving().storingen)
+    }
 }
