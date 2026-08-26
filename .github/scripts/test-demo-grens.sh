@@ -509,6 +509,18 @@ sed -i 's|</project>|    <profiles><profile><modules><module>services/spook</mod
 sed -i 's|    </modules>|        <module>services/spook</module>\n    </modules>|' "$w/pom.xml"
 toets "een module in beide blokken volgt de strengste eis" "$w" 1 "bestaat niet"
 
+# Een module die in de ene pom optioneel is en in de andere verplicht, moet de verplichte
+# declaratie nog steeds laten falen. Anders bepaalt de volgorde van de wandeling of een echte
+# reactor-fout gemeld wordt of stil verdwijnt.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's|</project>|    <profiles><profile><modules><module>services/spook</module></modules></profile></profiles>\n</project>|' "$w/pom.xml"
+sed -i 's|    <dependencies>|    <modules><module>../spook</module></modules>\n    <dependencies>|' \
+  "$w/services/berichtenuitvraag/pom.xml"
+toets "optioneel in de ene pom, verplicht in de andere" "$w" 1 "bestaat niet"
+
 # --- de meting zelf ---------------------------------------------------------------------------------
 # Verdwijnt libraries/ of services/ (hernoemd, geherstructureerd, verkeerde REPO_ROOT), dan zou de
 # lus nul keer draaien en de OK-regel alsnog verschijnen.

@@ -101,9 +101,9 @@ def reactor(wortel_pom: str) -> list[str]:
             if module_pom in gezien:
                 continue
 
-            gezien.add(module_pom)
-
             if not os.path.isfile(module_pom):
+                # Bewust niet in `gezien`: een module die hier optioneel is, kan verderop in de boom
+                # uit een gewoon <modules>-blok komen, en die declaratie hoort dan alsnog te falen.
                 if not verplicht:
                     print(f"Overgeslagen: {pom} declareert {module_pom} in een profiel, maar die bestaat niet.", file=sys.stderr)
 
@@ -112,6 +112,7 @@ def reactor(wortel_pom: str) -> list[str]:
                 print(f"FOUT: {pom} declareert module {module_pom}, maar die bestaat niet.", file=sys.stderr)
                 raise SystemExit(1)
 
+            gezien.add(module_pom)
             gevonden.append(os.path.relpath(os.path.dirname(module_pom), basis))
             te_doen.append(module_pom)
 

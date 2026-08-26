@@ -288,22 +288,52 @@ bevat_regel() {
   esac
 }
 
-# Ontdekken op wát een job doet en niet op hoe hij heet: een uitrol-job die de naamconventie niet
-# volgt (`deploy-acceptatie-…`) zou anders buiten deze controle vallen, en dan certificeert de
-# poort een uitrol die hij nooit beoordeeld heeft. De zad-actions-deploy-stap is het kenmerk.
-uitrol_jobs=$(awk '
-  /^  [a-z0-9_-]+:$/ { job = $1; sub(/:$/, "", job) }
-  /uses: RijksICTGilde\/zad-actions\/deploy@/ { if (job != "") print job }
-' "$DEPLOY_YML" | sort -u)
+# Élke job in deploy.yml moet zich classificeren: hij hangt onder de poort, of hij staat hieronder
+# als bewust géén uitrol-job. Een allowlist en geen ontdekkingspatroon, want elk patroon op tekst —
+# op de jobnaam, op de deploy-stap — laat een deelverzameling door, en dan certificeert de poort
+# een uitrol die hij nooit beoordeeld heeft. Wie een job toevoegt, moet één van beide kiezen; dat
+# is een zichtbare regel in de diff in plaats van een stilte.
+GEEN_UITROL_JOBS='changes meta build build-externe-stubs build-contract-bootstrap checks-test checks-detekt checks-pins checks-fuzz gate uitrol-poort'
 
-if [ -z "$uitrol_jobs" ]; then
-  mislukt "geen enkele uitrol-job gevonden in $DEPLOY_YML; deze controle meet niets"
+alle_jobs=$(sed -n '/^jobs:/,$p' "$DEPLOY_YML" | grep -oE '^  [A-Za-z0-9_.-]+:' | tr -d ' :')
+
+if [ -z "$alle_jobs" ]; then
+  mislukt "geen enkele job gevonden in $DEPLOY_YML; deze controle meet niets"
 else
   while IFS= read -r job; do
+    case " $GEEN_UITROL_JOBS " in
+      *" $job "*) continue ;;
+    esac
+
     bevat_regel "$poort_needs" "$job" \
-      || mislukt "uitrol-job $job staat niet in de needs van uitrol-poort — valt buiten de beoordeling"
-  done <<<"$uitrol_jobs"
+      || mislukt "job $job staat niet in de needs van uitrol-poort en niet in GEEN_UITROL_JOBS — classificeer hem"
+  done <<<"$alle_jobs"
+
+  ok "elke job in deploy.yml hangt onder de uitrol-poort of staat als niet-uitrol geclassificeerd"
 fi
+
+# De andere richting: een job die de deploy-actie draait, mag niet in GEEN_UITROL_JOBS staan. Zonder
+# deze controle zou de allowlist een uitrol kunnen witwassen. Ook een reusable workflow telt mee —
+# `deploy.yml` roept er al vier zo aan, dus dat is de vorm die een volgende uitrol-as krijgt.
+uitrol_jobs=$(awk '
+  /^  [A-Za-z0-9_.\x27"-]+:[[:space:]]*$/ { job = $1; gsub(/[:\x27"]/, "", job); next }
+  /uses:[[:space:]]*[\x27"]?RijksICTGilde\/zad-actions\/deploy@/ { if (job != "") print job }
+  /uses:[[:space:]]*[\x27"]?\.\/\.github\/workflows\// {
+    bestand = $NF
+    gsub(/[\x27"]/, "", bestand)
+    sub(/^\.\//, "", bestand)
+
+    if (job != "" && system("grep -q \"RijksICTGilde/zad-actions/deploy@\" " basis bestand) == 0) print job
+  }
+' basis="$(dirname "$DEPLOY_YML")/../../" "$DEPLOY_YML" | sort -u)
+
+while IFS= read -r job; do
+  [ -n "$job" ] || continue
+
+  case " $GEEN_UITROL_JOBS " in
+    *" $job "*) mislukt "job $job draait de zad-actions-deploy maar staat in GEEN_UITROL_JOBS" ;;
+  esac
+done <<<"$uitrol_jobs"
 
 for voorvoegsel in deploy-preview- deploy-test-; do
   aantal=$(grep -c "^$voorvoegsel" <<<"$poort_needs" || true)

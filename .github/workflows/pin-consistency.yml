@@ -45,7 +45,11 @@ jobs:
             #
             # Status vasthouden: 1 is "geen match" (de tak hieronder meldt dat precies), alles
             # daarboven is een echte fout en mag deze guard niet stilzwijgend passeren.
-            ruwe_pins=$(git grep -hoIE "${img}:[A-Za-z0-9._-]+" -- . ) || rc=$?
+            #
+            # `--cached` leest de blobs uit de index: een onleesbaar of ontbrekend werkboombestand
+            # verkleint de zoekruimte anders stilzwijgend (git grep meldt dat op stderr en eindigt
+            # gewoon met 0), en dan meldt de guard "uniform" over een pin die hij niet gezien heeft.
+            ruwe_pins=$(git grep --cached -hoIE "${img}:[A-Za-z0-9._-]+" -- . ) || rc=$?
             rc=${rc:-0}
 
             if [ "$rc" -gt 1 ]; then
