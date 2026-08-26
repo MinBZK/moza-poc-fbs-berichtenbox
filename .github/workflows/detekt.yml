@@ -127,6 +127,12 @@ jobs:
         with:
           sarif_file: libraries/fbs-common/target/detekt.sarif
           category: detekt-fbs-common
+      - name: Upload SARIF — fbs-magazijnregister
+        if: ${{ always() && hashFiles('libraries/fbs-magazijnregister/target/detekt.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        with:
+          sarif_file: libraries/fbs-magazijnregister/target/detekt.sarif
+          category: detekt-fbs-magazijnregister
       - name: Upload SARIF — fbs-berichtensessiecache
         if: ${{ always() && hashFiles('libraries/fbs-berichtensessiecache/target/detekt.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
