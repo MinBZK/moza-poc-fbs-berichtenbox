@@ -11,8 +11,8 @@ verwacht.
 
 | Pad | Wat |
 |---|---|
-| `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten |
-| `environment/` | FSC-federatieharness: peers, PKI en contract-bootstrap voor de lokale en de ZAD-federatie |
+| `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten. Heeft een eigen image en een ZAD-component in de deployment `demo`; zie `demo-console/README.md` |
+| `environment/` | FSC-federatieharness (peers, PKI, contract-bootstrap) én de ZAD-runbooks, waaronder `zad-demo/` voor de gedeelde demo-omgeving |
 | `generated/` | Gegenereerde stub-mappings (git-ignored); komt uit `genereer-magazijnen.py` |
 | `genereer-magazijnen.py` | Genereert de stub-magazijnen en de profiel-persona's |
 | `smoke.sh` | Rookproef over de demo-stack |
