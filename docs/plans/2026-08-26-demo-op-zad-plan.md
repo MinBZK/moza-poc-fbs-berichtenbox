@@ -1736,52 +1736,23 @@ open tot fase 2 klaar is, haal dan de sluitregel weg en zet hem in de PR van fas
 
 # Fase 2 — ZAD
 
-> **Blokkade vóór deze fase:** bevestiging van het ZAD-team dat ODCN ruimte heeft voor ~1,5 Gi extra
-> requests aan eigen pods, plus een extra platform-geleverde database (de `postgresql-database`-
-> dienst is deployment-gebonden en komt er vanzelf bij; geen component dat wij draaien) en vier
-> ingressen. Stel die vraag tijdens fase 1.
+> **Herzien.** Dit plan beschreef eerder een eigen, preview-loze deployment `demo` in alle drie de
+> projecten, met een gespiegelde uitvraag, magazijnen en stubs. Dat is vervallen: de demo draait op
+> de bestaande keten in `test` en de console wordt daar één component bij. Het ontwerp legt uit
+> waarom een eigen deployment op zichzelf beter zou zijn en waarom het toch `test` wordt — kort
+> gezegd: alleen een component ín dezelfde deployment als de magazijnen erft hun
+> `test-database`-secret, en dat secret is wat het legen mogelijk maakt.
+>
+> De taken hieronder zijn navenant kleiner dan de drie die er stonden. Ze zijn met opzet grover
+> beschreven dan die van fase 1: het meeste werk gebeurt in Operations Manager en in
+> `RijksICTGilde/rig-cluster-projects`, waar geen commit-en-test-cyclus omheen zit.
 
-## Taak 8: De demo-deployment neerzetten
+## Taak 8: Het console-component aanmaken in `mpfm-w3h/test`
 
-ZAD past component-configuratie (`env_vars`, `aliases`, poorten) alleen toe bij **creatie** van een
-component, niet bij een re-POST. De eenmalige creatie gaat daarom via een script, net als bij de
-FSC-peers.
+ZAD past component-configuratie (`env_vars`, `aliases`, poorten) alleen bij creatie toe, niet bij
+een re-POST. Het component moet dus in één keer compleet aangemaakt worden.
 
-**Bestanden:**
-- Nieuw: `demo/environment/zad-demo/deploy/upsert-demo.sh`
-- Nieuw: `demo/environment/zad-demo/deploy/README.md`
-- Nieuw: `demo/environment/zad-demo/deploy/verify-zad.md`
-- Nieuw: `demo/environment/zad-demo/proxies/*.json`
-
-- [ ] **Stap 1: neem het bestaande script als vorm**
-
-Lees `demo/environment/magazijn-a/deploy/zad/upsert-peer.sh` en neem daaruit over: de
-`validate`/`plan`/`apply`-modus, de `ZAD_*`-env-vars met defaults, de `fsc_tb`-achtige
-curl-wrapper met foutafhandeling, en de `--dry-run`-uitvoer. Wat je **niet** overneemt is alles
-rond PKI en federatie; deze deployment heeft geen peer.
-
-- [ ] **Stap 2: leg de componenten vast**
-
-Het script zet per project de deployment `demo` neer met deze componenten. Poorten en aliassen
-staan hier volledig, want ze zijn na creatie alleen met opnieuw aanmaken te wijzigen.
-
-`mpfb-8wh` (uitvraag):
-
-| Component | Image | Inbound | Aliassen / env |
-|---|---|---|---|
-| `redis` | `redis/redis-stack-server:7.4.0-v3` | 6379 | `REDIS_ARGS=--save "" --appendonly no` |
-| `uitvraag` | `ghcr.io/minbzk/fbs-berichtenuitvraag:<tag>` | 8086 | `MAGAZIJN_A_URL`, `MAGAZIJN_B_URL` (direct, `$DEPLOYMENT_NAME`), `PROFIEL_SERVICE_URL=https://toxiproxy-profiel-$DEPLOYMENT_NAME-mpfpsm-lcl.…`, `REDIS_HOSTS=redis://$DEPLOYMENT_NAME-toxiproxy-redis:16379`, `QUARKUS_HTTP_CORS_ENABLED=true`, `QUARKUS_HTTP_CORS_ORIGINS=https://democonsole-$DEPLOYMENT_NAME-mpfm-w3h.…` |
-| `toxiproxy-aanmeld` | `ghcr.io/shopify/toxiproxy:2.12.0` | 18086 (publish-on-web) | proxies.json-attachment |
-| `toxiproxy-redis` | idem | 16379 (géén publish-on-web) | proxies.json-attachment |
-
-`mpfm-w3h` (magazijnen):
-
-| Component | Image | Inbound | Aliassen / env |
-|---|---|---|---|
-| `magazijna`, `magazijnb` | `ghcr.io/minbzk/fbs-berichtenmagazijn:<tag>` | 8090 | Als in `test`, met `NOTIFICATIE_URL=https://toxiproxy-notificatie-$DEPLOYMENT_NAME-mpfpsm-lcl.…` en `AANMELD_URL=https://toxiproxy-aanmeld-$DEPLOYMENT_NAME-mpfb-8wh.…/api/v1/aanmeldingen`; `DB_SCHEMA` en `MAGAZIJN_OIN` per component |
-| `democonsole` | `ghcr.io/minbzk/fbs-demo-console:<tag>` | 8095 (publish-on-web + authorization-wall) | zie hieronder |
-
-`democonsole` krijgt als aliassen:
+**Aliassen:**
 
 ```yaml
 MAGAZIJN_A_URL: http://$DEPLOYMENT_NAME-magazijna:8090
@@ -1794,362 +1765,65 @@ MAGAZIJN_B_DB_USER: $DATABASE_SERVER_USER
 MAGAZIJN_B_DB_PASSWORD: $DATABASE_PASSWORD
 UITVRAAG_BASIS: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1
 UITVRAAG_URL: http://$DEPLOYMENT_NAME-uitvraag:8086
-REDIS_HOSTS: redis://$DEPLOYMENT_NAME-redis:6379
-TOXIPROXY_PROFIEL_URL: http://demo-toxiproxy-profiel.rig-prd-mpfpsm-lcl:8474
-TOXIPROXY_NOTIFICATIE_URL: http://demo-toxiproxy-notificatie.rig-prd-mpfpsm-lcl:8474
-TOXIPROXY_AANMELD_URL: http://demo-toxiproxy-aanmeld.rig-prd-mpfb-8wh:8474
-TOXIPROXY_REDIS_URL: http://demo-toxiproxy-redis.rig-prd-mpfb-8wh:8474
 ```
 
-en als `user-env-vars` `MAGAZIJN_A_DB_SCHEMA` en `MAGAZIJN_B_DB_SCHEMA`, met dezelfde waarden als
-`DB_SCHEMA` van `magazijna` respectievelijk `magazijnb` in deze deployment. **Lopen die uiteen, dan
-leegt de console een leeg schema en meldt hij nul verwijderde berichten zonder te klagen** — stap 4
-van `verify-zad.md` vangt dat.
+`UITVRAAG_BASIS` en `UITVRAAG_URL` zijn bewust verschillend: het eerste belandt in een browser en
+moet publiek zijn, inclusief het `/api/v1`-pad; het tweede roept de console zelf server-side aan en
+mag cluster-intern zijn.
 
-`UITVRAAG_URL` en `UITVRAAG_BASIS` verschillen bewust: het eerste is intern (de console roept het
-zelf aan), het tweede belandt in een browser en moet publiek zijn.
+**`user-env-vars`:** `MAGAZIJN_A_DB_SCHEMA` en `MAGAZIJN_B_DB_SCHEMA`, met exact de waarden van
+`DB_SCHEMA` van `magazijna` respectievelijk `magazijnb` in dezelfde deployment. Wijken ze af, dan
+leegt de console een leeg schema en meldt nul verwijderde berichten zonder te klagen — stap 4 van de
+verificatie hieronder vangt dat.
 
-`mpfpsm-lcl` (externe stubs):
+**Poort:** 8095 inbound, met `publish-on-web`.
 
-| Component | Image | Inbound | Aliassen |
-|---|---|---|---|
-| `profiel`, `notificatie` | `ghcr.io/minbzk/fbs-externe-stubs:<tag>` | 8080 | als in `test` |
-| `toxiproxy-profiel` | `ghcr.io/shopify/toxiproxy:2.12.0` | 18089 (publish-on-web) | proxies.json-attachment |
-| `toxiproxy-notificatie` | idem | 18084 (publish-on-web) | proxies.json-attachment |
+**Diensten:** `postgresql-database` (levert het gedeelde `test-database`-secret), `publish-on-web`
+en `authorization-wall`.
 
-- [ ] **Stap 3: schrijf de proxy-configuraties**
+**Op projectniveau in `mpfm-w3h`:** `keycloak` bij de `services:`, zodat de authorization-wall zijn
+client heeft.
 
-Eén bestand per instantie onder `demo/environment/zad-demo/proxies/`, elk met precies één proxy —
-de instanties zijn gescheiden omdat een ZAD-component één poort publiceert.
+**Op `uitvraag` in `mpfb-8wh/test`:** `QUARKUS_HTTP_CORS_ENABLED=true` en
+`QUARKUS_HTTP_CORS_ORIGINS` met de console-origin. Methods en headers ongezet laten; Quarkus
+spiegelt die uit het preflight-verzoek.
 
-`toxiproxy-profiel.json`:
-```json
-[{ "name": "profiel", "listen": "0.0.0.0:18089", "upstream": "demo-profiel:8080", "enabled": true }]
-```
+## Taak 9: De console meenemen in de uitrol
 
-`toxiproxy-notificatie.json`:
-```json
-[{ "name": "notificatie", "listen": "0.0.0.0:18084", "upstream": "demo-notificatie:8080", "enabled": true }]
-```
+- Voeg `democonsole` toe aan de componentlijst van `deploy-test-magazijnen` in `deploy.yml`, met
+  `ghcr.io/<owner>/fbs-demo-console:<tag>`.
+- Doe hetzelfde voor `deploy-preview-magazijnen`, óf besluit bewust dat previews de console op een
+  oudere tag houden. Die keuze hangt samen met de uitsluiting van `demo/demo-console/` in
+  `DEMO_BUITEN_UITROLPOORT`: zolang die staat, levert een consolewijziging `deploy=false` en werkt
+  geen preview bij. Leg het besluit vast in het commentaar bij die uitsluiting.
+- Draai `.github/scripts/test-uitrol-poort.sh` en `test-wijzigingsfilter.sh` na elke wijziging.
 
-`toxiproxy-aanmeld.json`:
-```json
-[{ "name": "aanmeld", "listen": "0.0.0.0:18086", "upstream": "demo-uitvraag:8086", "enabled": true }]
-```
+## Taak 10: Runbook, verificatie en documentatie
 
-`toxiproxy-redis.json`:
-```json
-[{ "name": "redis", "listen": "0.0.0.0:16379", "upstream": "demo-redis:6379", "enabled": true }]
-```
+**Runbook** onder `demo/environment/zad-demo/` (die map valt binnen `DEMO_BUITEN_UITROLPOORT`, dus
+runbook-wijzigingen kopen geen previews): de handmatige OM-stappen uit taak 8, en een
+`verify-zad.md` met vier stappen en hun verwachte uitkomst.
 
-De proxy-namen zijn gelijk aan de sleutels in `demo.toxiproxy.*` van taak 1; die koppeling is wat
-de knoppen in het paneel laat werken.
-
-- [ ] **Stap 4: leg de handmatige projectconfiguratie vast in de README**
-
-Wat niet via de API kan en in `RijksICTGilde/rig-cluster-projects` hoort, met per punt de reden:
-
-1. `keycloak` bij de `services:` van `mpfm-w3h` — voorwaarde voor de authorization-wall.
-2. `authorization-wall` bij de `services:` van `mpfm-w3h` én in de `uses-services` van
-   `democonsole` — de legen-knop doet een `TRUNCATE`, dus die URL hoort niet open te staan.
-3. `cross-domain-access` met vijf paren, elk een outbound-regel bij `democonsole` en een
-   inbound-regel bij de tegenpartij: naar `toxiproxy-profiel` en `toxiproxy-notificatie` in
-   `mpfpsm-lcl` (8474), naar `toxiproxy-aanmeld` en `toxiproxy-redis` in `mpfb-8wh` (8474), en naar
-   `redis` in `mpfb-8wh` (6379). Alle overige hops lopen over een publieke ingress of binnen één
-   deployment en hebben geen regel nodig.
-4. De Toxiproxy-image-pin in de projectspec gelijkhouden aan `compose.yaml` — de guard in
-   `pin-consistency.yml` reikt niet tot een andere repository.
-
-- [ ] **Stap 5: schrijf `verify-zad.md`**
-
-Vier stappen, met verwachte uitkomst per stap:
-
-1. `curl -s https://democonsole-demo-mpfm-w3h.…/api/demo/omgeving` na SSO-login → `storingen`
-   bevat exact `aanmeld`, `notificatie`, `profiel`, `redis` en géén magazijn-proxies.
+1. `GET /api/demo/omgeving` na SSO-login → `uitvraagBasis` wijst naar de publieke uitvraag-URL
+   inclusief `/api/v1`, en `storingen` bevat wat er in deze omgeving werkelijk aan proxies staat.
 2. `POST /api/demo/herstel` → de omgeving vult; de Berichtenbox toont berichten voor de persona's.
-3. `POST /api/demo/storing/profiel/uit` → een ophaalronde degradeert zichtbaar; daarna
-   `POST /api/demo/storing/reset` → weer normaal.
-4. **De schema-controle:** `GET /api/demo/status` direct na een basisvulling noteren, dan
-   `POST /api/demo/legen`, dan opnieuw `GET /api/demo/status`. Het eerste antwoord moet per magazijn
-   een aantal groter dan nul geven en het tweede nul. Geeft het legen nul verwijderde berichten
-   terwijl de Berichtenbox nog vult, dan wijzen `MAGAZIJN_*_DB_SCHEMA` naar het verkeerde schema.
+3. De Berichtenbox-weergave openen en een ophaalronde draaien.
+4. **De schemacontrole.** `GET /api/demo/status` na een basisvulling noteren, dan
+   `POST /api/demo/legen`, dan opnieuw `GET /api/demo/status`. Eerst een aantal groter dan nul per
+   magazijn, daarna nul. Blijft het legen op nul verwijderde berichten staan terwijl de Berichtenbox
+   wél vult, dan wijzen `MAGAZIJN_*_DB_SCHEMA` naar het verkeerde schema.
 
-- [ ] **Stap 6: controleer het script zonder iets te wijzigen**
+**Documentatie:** de ZAD-URL en de SSO-login in `demo/demo-console/README.md` en
+`docs/demo-runbook.md` van beoogd naar bestaand omzetten, `demo/README.md` gelijktrekken, en de
+ZAD-sectie van `CLAUDE.md` uitbreiden met `democonsole` als component van `mpfm-w3h/test`.
 
-Draai: `demo/environment/zad-demo/deploy/upsert-demo.sh validate` en daarna `… plan`
-Verwacht: `plan` toont de te maken componenten en wijzigt niets.
+**Tot slot:** `docs/plans/2026-07-21-demo-platform-design.md` zet ZAD-deployment van het
+demo-platform nog onder "Bewust buiten scope". Die passage krijgt een verwijzing naar dit ontwerp.
 
-- [ ] **Stap 7: shellcheck**
+**Vóór fase 2 begint** moet één beslissing genomen zijn: komen de storingsknoppen mee naar ZAD? Dat
+kost vier Toxiproxy-containers plus drie ingressen, per deployment inclusief previews, en een
+permanente extra hop in het verkeerspad van `test`. De rest van de demo werkt zonder.
 
-Draai: `docker run --rm -v "$PWD:/mnt:ro" koalaman/shellcheck:stable -x -S warning demo/environment/zad-demo/deploy/upsert-demo.sh`
-Verwacht: schoon.
-
-- [ ] **Stap 8: commit**
-
-```bash
-git add demo/environment/zad-demo
-git commit -m "feat(demo): runbook en upsert-script voor de ZAD-demo-omgeving"
-```
-
----
-
-## Taak 9: De uitrol-workflow en de image-pin
-
-**Bestanden:**
-- Nieuw: `.github/workflows/deploy-demo.yml`
-- Wijzig: `.github/workflows/pin-consistency.yml`
-
-- [ ] **Stap 1: schrijf de workflow**
-
-`.github/workflows/deploy-demo.yml`:
-
-```yaml
-# Werkt de gedeelde demo-omgeving bij: de preview-loze deployment `demo` in de drie ZAD-projecten.
-#
-# ALLEEN handmatig, bewust. Aan `push: main` hangen zou de demo bij elke merge herstarten — precies
-# het probleem dat de eigen deployment moest voorkomen. De images bestaan al voor elke main-commit
-# (deploy.yml bouwt ze), dus bijwerken is een tag kiezen.
-#
-# De EENMALIGE creatie van deployments en componenten staat NIET hier, maar in
-# demo/environment/zad-demo/deploy/upsert-demo.sh: ZAD past component-config alleen bij creatie toe.
-# Deze workflow doet uitsluitend tag-updates.
-
-name: Deploy demo (ZAD)
-
-on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Image-tag, bv. main-a1b2c3d (leeg = de laatste main-build)'
-        required: false
-        type: string
-
-permissions: read-all
-
-env:
-  REGISTRY: ghcr.io
-  PROJECT_UITVRAAG: mpfb-8wh
-  PROJECT_EXTERNE_STUBS: mpfpsm-lcl
-  PROJECT_MAGAZIJNEN: mpfm-w3h
-  DEPLOYMENT: demo
-  # Pins in sync met compose.yaml; bewaakt door pin-consistency.yml.
-  REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
-  TOXIPROXY_IMAGE: ghcr.io/shopify/toxiproxy:2.12.0
-
-# Nooit twee uitrollen tegelijk op dezelfde deployment, en nooit halverwege afbreken: een
-# afgebroken deploy laat de deployment in een inconsistente staat achter.
-concurrency:
-  group: deploy-demo
-  cancel-in-progress: false
-
-jobs:
-  tag:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      tag: ${{ steps.kies.outputs.tag }}
-      owner: ${{ steps.kies.outputs.owner }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Kies de image-tag
-        id: kies
-        env:
-          GEVRAAGD: ${{ inputs.tag }}
-          REPO_OWNER: ${{ github.repository_owner }}
-        run: |
-          set -euo pipefail
-
-          # Leeg = de huidige main-commit. Dezelfde vorm als de meta-job van deploy.yml, zodat de
-          # tag die hier gekozen wordt gegarandeerd door die workflow gepusht is.
-          if [ -n "$GEVRAAGD" ]; then
-            tag=$GEVRAAGD
-          else
-            tag="main-$(git rev-parse --short=7 origin/main)"
-          fi
-
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "owner=${REPO_OWNER,,}" >> "$GITHUB_OUTPUT"
-          echo "Uitrollen met tag $tag" >> "$GITHUB_STEP_SUMMARY"
-
-  magazijnen:
-    needs: tag
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment:
-      name: demo
-    steps:
-      - name: Deploy magazijnen-project (demo)
-        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
-        with:
-          api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
-          project-id: ${{ env.PROJECT_MAGAZIJNEN }}
-          deployment-name: ${{ env.DEPLOYMENT }}
-          components: |
-            [
-              {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.tag.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.tag.outputs.tag }}"},
-              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.tag.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.tag.outputs.tag }}"},
-              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.tag.outputs.owner }}/fbs-demo-console:${{ needs.tag.outputs.tag }}"}
-            ]
-
-  externe-stubs:
-    needs: tag
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment:
-      name: demo
-    steps:
-      - name: Deploy externe-stubs-project (demo)
-        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
-        with:
-          api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
-          project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
-          deployment-name: ${{ env.DEPLOYMENT }}
-          components: |
-            [
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.tag.outputs.owner }}/fbs-externe-stubs:${{ needs.tag.outputs.tag }}"},
-              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.tag.outputs.owner }}/fbs-externe-stubs:${{ needs.tag.outputs.tag }}"},
-              {"name": "toxiproxy-profiel", "image": "${{ env.TOXIPROXY_IMAGE }}"},
-              {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
-            ]
-
-  uitvraag:
-    needs: tag
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment:
-      name: demo
-    steps:
-      - name: Deploy uitvraag-project (demo)
-        uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
-        with:
-          api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
-          project-id: ${{ env.PROJECT_UITVRAAG }}
-          deployment-name: ${{ env.DEPLOYMENT }}
-          components: |
-            [
-              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
-              {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.tag.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.tag.outputs.tag }}"},
-              {"name": "toxiproxy-aanmeld", "image": "${{ env.TOXIPROXY_IMAGE }}"},
-              {"name": "toxiproxy-redis", "image": "${{ env.TOXIPROXY_IMAGE }}"}
-            ]
-```
-
-- [ ] **Stap 2: breid de pin-guard uit**
-
-In `pin-consistency.yml`, in de lus van de job `infra-image-pins`:
-
-```bash
-          for img in redis/redis-stack-server shopify/toxiproxy; do
-```
-
-Werk de foutmelding in diezelfde lus bij zodat hij ook `deploy-demo.yml` noemt als plek die mee moet
-bewegen.
-
-- [ ] **Stap 3: draai de guard lokaal**
-
-Draai:
-```bash
-for img in redis/redis-stack-server shopify/toxiproxy; do
-  git ls-files | xargs grep -hoIE "${img}:[A-Za-z0-9._-]+" | sort -u
-done
-```
-Verwacht: per image precies één regel. Twee regels betekent drift die de guard straks rood maakt.
-
-- [ ] **Stap 4: controleer de workflow-syntaxis**
-
-Draai: `docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:latest -color`
-Verwacht: geen bevindingen.
-
-- [ ] **Stap 5: commit**
-
-```bash
-git add .github/workflows/deploy-demo.yml .github/workflows/pin-consistency.yml
-git commit -m "ci: handmatige uitrol van de ZAD-demo-omgeving"
-```
-
----
-
-## Taak 10: Uitrollen, verifiëren en de documentatie sluiten
-
-**Bestanden:**
-- Wijzig: `docs/demo-runbook.md`
-- Wijzig: `CLAUDE.md`
-- Wijzig: `docs/plans/2026-07-21-demo-platform-design.md`
-- Wijzig: `docs/plans/2026-08-26-demo-op-zad-design.md`
-
-- [ ] **Stap 1: zet de omgeving neer**
-
-Draai `upsert-demo.sh apply` per project, en voer daarna de handmatige projectconfiguratie uit de
-README van taak 8 uit (keycloak, authorization-wall, de vijf cross-domain-paren).
-
-- [ ] **Stap 2: rol de images uit**
-
-```bash
-gh workflow run deploy-demo.yml
-gh run watch "$(gh run list --workflow=deploy-demo.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --exit-status
-```
-
-- [ ] **Stap 3: doorloop `verify-zad.md`**
-
-Alle vier de stappen, inclusief de schema-controle. Noteer de uitkomsten in de PR-body — dat is het
-bewijs voor acceptatiecriterium 2.
-
-- [ ] **Stap 4: werk het runbook bij**
-
-Voeg aan `docs/demo-runbook.md` een sectie "De demo op ZAD" toe met: de URL, dat er via SSO
-ingelogd wordt, welke knopgroepen daar ontbreken en waarom (magazijn-storingen en de
-veel-magazijnen-schuif wachten op de simulator), en hoe je hem bijwerkt (`gh workflow run
-deploy-demo.yml`).
-
-- [ ] **Stap 5: werk `CLAUDE.md` bij**
-
-In de ZAD-sectie, bij de projecten en deployment-namen, na de zin over `test` en `pr-<n>`:
-
-```markdown
-Naast `test` en `pr-<n>` draait in alle drie de projecten de deployment `demo`: de gedeelde
-demo-omgeving met de demo-console en vier Toxiproxy's. Die is preview-loos (previews klonen uit
-`test`, dus wat niet in `test` staat komt niet in een preview) en wordt met de hand bijgewerkt via
-`.github/workflows/deploy-demo.yml` — een demo die bij elke merge herstart is onbruikbaar tijdens
-een presentatie.
-```
-
-- [ ] **Stap 6: haal de achterhaalde uitspraak weg**
-
-In `docs/plans/2026-07-21-demo-platform-design.md`, onder "Bewust buiten scope", vervang de
-ZAD-alinea:
-
-```markdown
-- **ZAD-deployment van het demo-platform.** *Achterhaald sinds
-  `2026-08-26-demo-op-zad-design.md`:* de demo draait inmiddels óók op ZAD, in een eigen
-  preview-loze deployment `demo`. De oorspronkelijke bedenking gold Toxiproxy onder Argo CD met
-  `selfHeal`/`prune`; die bleek niet te kloppen, want toxics zijn runtime-toestand in de
-  Toxiproxy-admin-API en geen manifest.
-```
-
-- [ ] **Stap 7: zet het ontwerp op Uitgevoerd**
-
-Wijzig de kop van `docs/plans/2026-08-26-demo-op-zad-design.md` naar `**Status:** Uitgevoerd`.
-
-- [ ] **Stap 8: commit en open de PR voor fase 2**
-
-```bash
-git add docs CLAUDE.md
-git commit -m "docs: de demo draait op ZAD"
-git push
-gh pr create --draft --base main \
-  --title "feat: demo-omgeving op ZAD (fase 2 van #936)" \
-  --body-file <(cat <<'BODY'
-Fase 2 van `docs/plans/2026-08-26-demo-op-zad-plan.md`. De uitkomsten van `verify-zad.md` staan
-hieronder als bewijs voor acceptatiecriterium 2.
-
-Closes MinBZK/MijnOverheidZakelijk#936
-BODY
-)
-```
-
----
 
 ## Zelfcontrole van dit plan
 
