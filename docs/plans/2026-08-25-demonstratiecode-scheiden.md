@@ -86,8 +86,7 @@ Wat er naast de map bij hoort:
   productiemodules er niet van mogen afhangen. Zonder dat blijft de regel impliciet.
 - **De grens machinaal bewaken.** Een controle in `ci-scripts.yml` die faalt zodra een pom onder
   `services/` of `libraries/` de naam van een `demo/`-module noemt; zonder die controle is de
-  scheiding een afspraak die alleen in review houdt. Volgt in een eigen PR — zie "Wat hier bewust
-  níet in zit".
+  scheiding een afspraak die alleen in review houdt.
 - **Geen hernoeming van artifactIds.** `demo-console` en `magazijn-simulator` houden hun naam. Een
   `demo-`-prefix zou de image-namen meeslepen (`fbs-demo-console` → nieuwe ZAD-componentnaam) en de
   map draagt de boodschap al.
@@ -266,13 +265,19 @@ Drie dingen die tijdens de uitvoering veranderden ten opzichte van het voorstel:
   demo-console-PR draaide een ronde die per definitie niets nieuws raakte. Sinds 2026-06-01 waren
   dat vier commits op main.
 
-### Wat hier bewust níet in zit
+### De grensbewaking
 
-De machinale grensbewaking uit het voorstel — een controle die faalt zodra een pom van het stelsel
-de naam van een demo-module noemt — volgt in een eigen PR. Die is als los onderwerp beter te
-beoordelen dan als bijlage bij een verhuizing, en hij is fors: een XML-lezer voor pom's plus een
-eigen fixture-suite. Tot die er is, blijft de richting van de koppeling een afspraak; `demo-console`
-respecteert hem vandaag (nul reactor-afhankelijkheden).
+De machinale grens uit het voorstel staat in `.github/scripts/demo-grens.sh`, met `demo-modules.sh`
+voor de modulelijst en `pom-artifactids.py` als lezer. Die kwam als eigen PR, omdat hij als los
+onderwerp beter te beoordelen is dan als bijlage bij een verhuizing.
+
+Twee keuzes daarin zijn het vermelden waard. De pom's worden **als XML gelezen en niet met een
+regex**: Maven sluit op XML-vorm, een regex op tekstvorm, en dat verschil is een bypass-generator —
+een gespreid element, een attribuut op de tag, een CDATA-sectie of een `&#45;`-entity levert een
+dependency op die Maven gewoon resolvet en die een regex niet ziet. En de modulelijst komt
+**transitief uit de reactor**, niet uit een ingetypte wortellijst: een module mag zélf modules
+declareren, en zo'n geneste module viel anders buiten élke controle in de keten terwijl de build hem
+gewoon meenam.
 
 ## Besluit
 

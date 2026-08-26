@@ -29,8 +29,13 @@ elfproef-validatie staat lokaal in `demo-console/src/main/kotlin/…/generator/I
 naast het gezaghebbende `libraries/fbs-common/…/identificatie/Identificatienummer.kt`. Wie de
 elfproef wijzigt, wijzigt beide.
 
-Die richting is vandaag een afspraak en geen controle: één `<dependency>` op een demo-module in een
-pom van het stelsel zou er in review doorheen kunnen glippen. TODO(#1005): dat machinaal bewaken.
+`.github/scripts/demo-grens.sh` bewaakt de richting: het faalt zodra een pom van het stelsel — de
+modules onder `services/` en `libraries/`, én de root-pom waar ze allemaal van erven — de naam van
+een demo-module noemt: als dependency, als parent, als plugin of in een profiel. De pom's worden
+daarvoor als XML gelezen en niet met een regex doorzocht, zodat een gespreid element of een
+CDATA-sectie de controle niet omzeilt. Kies een demo-module dus een naam die niet met een bestaande
+dependency botst. Zonder die controle is de scheiding een afspraak die alleen in review houdt, en
+dan is één `<dependency>` erbij genoeg om demo-code naar productie te laten meeliften.
 
 ## Wat dit betekent voor de CI
 
