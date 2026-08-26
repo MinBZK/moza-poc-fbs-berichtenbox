@@ -26,9 +26,10 @@ legen levert het dubbele aantal berichten op.
 
 ## Op ZAD
 
-De gedeelde demo staat op `https://democonsole-demo-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl`,
-achter Keycloak-SSO. Inloggen met je rijksaccount; daarna zijn zowel het paneel als de Berichtenbox
-bereikbaar.
+Dit is de beoogde situatie zodra de gedeelde demo-omgeving is uitgerold (`demo/environment/zad-demo/`
+en `.github/workflows/deploy-demo.yml` bestaan op het moment van schrijven nog niet): de demo staat
+dan op `https://democonsole-demo-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl`, achter Keycloak-SSO.
+Inloggen met je rijksaccount; daarna zijn zowel het paneel als de Berichtenbox bereikbaar.
 
 Eén knopgroep ontbreekt daar bewust, omdat de magazijnen hun gedrag in een volgende fase uit de
 simulator krijgen: de storingsknoppen op magazijn A en B. Het paneel verbergt ze zelf op basis van
@@ -47,6 +48,7 @@ bij een merge — een demo-omgeving die halverwege een presentatie herstart is g
 | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json` |
 | Opvoeren | Een burst van *n* willekeurige berichten |
 | Stroom starten / stoppen | Eén willekeurig bericht per interval; stopt vanzelf na 500 berichten of 60 minuten |
+| Stroom-status | Loopt de stroom, met welk interval en hoeveel berichten al geleverd |
 | Storingen | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie |
 | Cache verlopen | Wist de sessiecache in Redis |
 | Foutieve aanlevering, Ontdubbeling | Losse scenario's; zie het runbook |

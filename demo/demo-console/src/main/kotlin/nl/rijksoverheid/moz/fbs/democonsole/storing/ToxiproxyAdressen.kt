@@ -13,7 +13,12 @@ import jakarta.ws.rs.BadRequestException
  */
 internal class ToxiproxyAdressen(config: ToxiproxyConfig) {
 
-    private val perProxy: Map<String, String> = config.toxiproxy().mapValues { (_, instantie) -> instantie.url() }
+    // Een lege of blanco URL schakelt de proxy uit. Zo kan een omgeving een proxy laten ontbreken
+    // (bv. de magazijn-storingen op ZAD) door de env-var simpelweg leeg te laten — zonder apart
+    // codepad of profiel voor die omgeving. De sleutel blijft anders altijd bestaan: de env-var-
+    // fallback in application.properties zit op de waarde, niet op het al-dan-niet-zetten ervan.
+    private val perProxy: Map<String, String> =
+        config.toxiproxy().mapValues { (_, instantie) -> instantie.url() }.filterValues { it.isNotBlank() }
 
     fun namen(): Set<String> = perProxy.keys
 
