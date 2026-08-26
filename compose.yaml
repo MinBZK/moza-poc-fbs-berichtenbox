@@ -329,6 +329,28 @@ services:
       # export voor het script:  export DEMO_MAGAZIJN_STUBS=40 && python3 demo/genereer-magazijnen.py
       DEMO_MAGAZIJN_STUBS: "${DEMO_MAGAZIJN_STUBS:-12}"
 
+  # Berichtenbox van de proeftuin (MinBZK/moza-poc) als container, zodat de demo geen Node, npm ci
+  # of Eleventy op de machine vraagt. Zijn nginx zet /api/ server-side door naar BACKEND_ORIGIN, dus
+  # de browser praat met één origin en er is geen CORS nodig.
+  #
+  # De tag staat achter een env-var en is gepind op een sha-tag uit hun main: `latest` bestaat wel,
+  # maar verschuift stil onder een lopende demo door. Een release-tag (bv. gebruikersonderzoeken-
+  # 2026-08) kan net zo goed:  PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 docker compose ...
+  #
+  # Alleen het leespad loopt hier: /api/demo/personas valt onder dezelfde `location /api/` en zou
+  # dus ook bij de uitvraag uitkomen. Een tweede bestemming vraagt een wijziging in moza-poc, want
+  # NGINX_ENVSUBST_FILTER laat daar op dit moment alleen BACKEND_ORIGIN door.
+  proeftuin:
+    image: ghcr.io/minbzk/moza-poc:${PROEFTUIN_TAG:-sha-934de70}
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:8096:8080"
+    depends_on:
+      berichtenuitvraag:
+        condition: service_started
+    environment:
+      BACKEND_ORIGIN: http://berichtenuitvraag:8086
+
 volumes:
   postgres-data-a:
   postgres-data-b:

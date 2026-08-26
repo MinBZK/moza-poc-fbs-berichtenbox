@@ -194,6 +194,23 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 
 ---
 
+## 5b. Berichtenbox van de proeftuin
+
+`docker compose --profile demo up` start ook de proeftuin-container, op
+<http://127.0.0.1:8096/moza/berichtenbox/>. Geen Node of Eleventy nodig; de tag is gepind en met een
+env-var te wisselen:
+
+```bash
+PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 docker compose --profile demo up -d proeftuin
+```
+
+Zijn nginx zet `/api/` server-side door naar de uitvraag, dus de browser praat met één origin en er
+is geen CORS in het spel. Wat er nog niet doorheen komt is de personalijst: `/api/demo/personas`
+valt onder datzelfde pad en komt dus bij de uitvraag uit in plaats van bij de demo-console. Dat
+vraagt een tweede bestemming in `MinBZK/moza-poc`, die daar nog gemaakt moet worden.
+
+---
+
 ## 6. Persona's (Berichtenbox → "Ingelogd als")
 
 Bron: `demo.personas.*` in `demo/demo-console/src/main/resources/application.properties`. De
