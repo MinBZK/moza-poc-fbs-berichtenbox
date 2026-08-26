@@ -14,6 +14,7 @@ Modi:
               die door een constante `if: false` nooit draaien — allebei zouden ze als bewijs tellen
               voor een controle die alleen naar aanwezigheid kijkt
   --outputs   de outputs van één job als `sleutel=waarde` (job-id via de omgevingsvariabele JOB)
+  --with      de inputs die één job aan een aangeroepen workflow doorgeeft, als `sleutel=waarde`
 
 Uitvoer: één job-id per regel op stdout, diagnostiek op stderr, exitcode 1 zodra de workflow niet te
 lezen is of een gevolgde reusable workflow ontbreekt. Stilte is hier geen geldige uitkomst.
@@ -65,9 +66,19 @@ def draait_deploy(job: dict, pad: str) -> bool:
     return any(draait_deploy(hulpjob, doel) for hulpjob in lees(doel).values() if isinstance(hulpjob, dict))
 
 
-# Een `if` die tot een constante onwaarheid uitkomt. Een expressie met echte context is statisch
-# niet te beoordelen en telt daarom gewoon mee; deze twee vormen zetten een stap onmiskenbaar uit.
-UIT = {"false", "${{ false }}", "${{false}}"}
+# Waarden die GitHub als onwaar leest. Een expressie met echte context is statisch niet te
+# beoordelen en telt daarom gewoon mee; deze vormen zetten een stap of job onmiskenbaar uit.
+UIT = {"false", "0", "", "null", "!true"}
+
+
+def staat_uit(waarde: object) -> bool:
+    """Of deze `if`-waarde een constante onwaarheid is, ongeacht de spelling."""
+    tekst = str(waarde).strip()
+
+    if tekst.startswith("${{") and tekst.endswith("}}"):
+        tekst = tekst[3:-2].strip()
+
+    return tekst.lower() in UIT
 
 
 def runs(jobs: dict) -> list[str]:
@@ -78,11 +89,16 @@ def runs(jobs: dict) -> list[str]:
         if not isinstance(job, dict):
             continue
 
+        # Ook de `if` van de job zelf: die zet elke stap eronder uit, en zonder deze controle telde
+        # een uitgezette job als bewijs dat de keten iets doet.
+        if "if" in job and staat_uit(job["if"]):
+            continue
+
         for stap in job.get("steps") or []:
             if not isinstance(stap, dict) or not stap.get("run"):
                 continue
 
-            if str(stap.get("if", "")).strip().lower() in UIT:
+            if "if" in stap and staat_uit(stap["if"]):
                 continue
 
             for regel in str(stap["run"]).splitlines():
@@ -93,7 +109,7 @@ def runs(jobs: dict) -> list[str]:
 
 
 def main() -> int:
-    modi = ("--jobs", "--uitrol", "--runs", "--outputs")
+    modi = ("--jobs", "--uitrol", "--runs", "--outputs", "--with")
 
     if len(sys.argv) != 3 or sys.argv[1] not in modi:
         print(f"gebruik: {sys.argv[0]} {'|'.join(modi)} <workflow.yml>", file=sys.stderr)
@@ -105,6 +121,19 @@ def main() -> int:
     if modus == "--runs":
         for blok in runs(jobs):
             print(blok)
+
+        return 0
+
+    if modus == "--with":
+        naam = os.environ.get("JOB", "")
+        job = jobs.get(naam)
+
+        if not isinstance(job, dict):
+            print(f"FOUT: {pad} heeft geen job '{naam}' — deze controle meet niets.", file=sys.stderr)
+            return 1
+
+        for sleutel, waarde in (job.get("with") or {}).items():
+            print(f"{sleutel}={waarde}")
 
         return 0
 

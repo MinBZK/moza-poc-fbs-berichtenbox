@@ -97,7 +97,7 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=87
+            [.github/scripts/test-wijzigingsfilter.sh]=96
             [.github/scripts/test-uitrol-poort.sh]=72
             [.github/scripts/test-demo-grens.sh]=62
           )
@@ -158,8 +158,15 @@ jobs:
 
           # Zonder deze guard meldt de stap groen zodra er geen `test-*.sh` meer onder
           # .github/scripts/ staat — verwijderd, of buiten dat pad of die naamvorm gebracht.
+          #
+          # En een ondergrens op het aantal: een suite die mét zijn VERWACHTE_ASSERTIES-sleutel
+          # verdwijnt, laat beide guards hierboven tevreden — terwijl demo-grens.sh geen andere
+          # aanroep in de keten heeft en de architectuurgrens dan geruisloos weg is.
           if [ "$gedraaid" -eq 0 ]; then
             echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."
+            fail=1
+          elif [ "$gedraaid" -lt "${#VERWACHTE_ASSERTIES[@]}" ] || [ "$gedraaid" -lt 3 ]; then
+            echo "FOUT: $gedraaid suites gedraaid; er horen er minstens ${#VERWACHTE_ASSERTIES[@]} te zijn."
             fail=1
           fi
 

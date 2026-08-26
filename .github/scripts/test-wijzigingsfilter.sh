@@ -505,8 +505,22 @@ printf 'run=true\ndeploy=false\ndemo-only=true\nfuzz=false\n'
 FILTER
 chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
 
-uitvoer=$("$publicatie_werkmap/publiceer-uitkomsten.sh" 2>/dev/null)
-vergelijk "een geldige set wordt ongewijzigd gepubliceerd" "$uitvoer" 'demo-only=true
+# Stdout én GITHUB_OUTPUT: dat zijn twee schrijfacties, en alleen de eerste toetsen laat de tweede
+# ongepind — juist het kanaal waar de rest van de keten op leest.
+publiceer_en_vergelijk() {
+  local omschrijving=$1 verwacht=$2
+  local uitbestand="$publicatie_werkmap/uit.txt"
+
+  : > "$uitbestand"
+
+  local uitvoer
+  uitvoer=$(GITHUB_OUTPUT="$uitbestand" "$publicatie_werkmap/publiceer-uitkomsten.sh" 2>/dev/null)
+
+  vergelijk "$omschrijving (stdout)" "$uitvoer" "$verwacht"
+  vergelijk "$omschrijving (GITHUB_OUTPUT)" "$(cat "$uitbestand")" "$verwacht"
+}
+
+publiceer_en_vergelijk "een geldige set wordt ongewijzigd gepubliceerd" 'demo-only=true
 deploy=false
 fuzz=false
 run=true'
@@ -517,26 +531,29 @@ for geval in "exit 1" "printf 'run=true\n'" "printf 'run=true\nrun=false\ndeploy
   printf '#!/usr/bin/env bash\n%s\n' "$geval" > "$publicatie_werkmap/wijzigingsfilter.sh"
   chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
 
-  uitvoer=$("$publicatie_werkmap/publiceer-uitkomsten.sh" 2>/dev/null)
-  vergelijk "fail-safe bij een filter dat '$geval' doet" "$uitvoer" "$ALLES_AAN"
+  publiceer_en_vergelijk "fail-safe bij een filter dat '$geval' doet" "$ALLES_AAN"
 done
 
 # GITHUB_OUTPUT krijgt exact dezelfde regels; een afwijkende vorm laat de runner het hele
 # outputbestand weigeren en dan blijven álle outputs leeg.
+# Gesorteerd, want het script ontdubbelt met `sort -u`; de fail-safe-terugval hierboven is een
+# vaste tekst en staat daarom in de volgorde van het contract.
 cat > "$publicatie_werkmap/wijzigingsfilter.sh" <<'FILTER'
 #!/usr/bin/env bash
 printf 'run=true\ndeploy=true\ndemo-only=false\nfuzz=true\n'
 FILTER
 chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
 
-GITHUB_OUTPUT="$publicatie_werkmap/uit.txt" "$publicatie_werkmap/publiceer-uitkomsten.sh" >/dev/null 2>&1
-
-# Gesorteerd, want het script ontdubbelt met `sort -u`; de fail-safe-terugval is een vaste tekst en
-# staat daarom in de volgorde van het contract.
-vergelijk "de uitkomsten belanden in GITHUB_OUTPUT" "$(cat "$publicatie_werkmap/uit.txt")" 'demo-only=false
+publiceer_en_vergelijk "een volledige set komt gesorteerd door beide kanalen" 'demo-only=false
 deploy=true
 fuzz=true
 run=true'
+
+# Het script moet uitvoerbaar zijn: de workflows roepen het rechtstreeks aan, en zonder exec-bit
+# breekt de stap af met een melding die nergens naar wijst.
+[ -x "$REPO_ROOT/.github/scripts/publiceer-uitkomsten.sh" ] \
+  && ok "publiceer-uitkomsten.sh is uitvoerbaar" \
+  || fout "publiceer-uitkomsten.sh is niet uitvoerbaar; de directe aanroep in de workflows faalt"
 
 # De workflows lezen steps.filter.outputs.<sleutel>. Hernoem één kant en de andere leest leeg —
 # bij `deploy` betekent leeg "niet uitrollen", stil en groen.
@@ -572,6 +589,42 @@ else
   [ "$bedradingsfouten" -eq 0 ] \
     && ok "elke uitkomst van het filter wordt ongewijzigd doorgegeven als job-output"
 fi
+
+# En de andere hop: wat de callers als input dóórgeven. De outputs kloppen dan wel, maar één
+# hardgecodeerde `with:`-waarde laat de tests wegvallen — `wijzigingen-relevant: 'false'` slaat elke
+# shard over en de test-job telt dat als OK, terwijl `deploy` gewoon true blijft en de previews die
+# ongetoetste images uitrollen. De invariant die het filter intern bewaakt is op dit niveau anders
+# te omzeilen zonder dat iets rood wordt.
+#
+# Sleutelnamen verschillen per aangeroepen workflow (`wijzigingen-relevant` leest `run`,
+# `fuzz-relevant` leest `fuzz`); wat vaststaat is dat élke waarde een ongewijzigde
+# needs.changes.outputs-verwijzing moet zijn.
+for caller in checks-test checks-detekt checks-fuzz; do
+  inputs=$(JOB="$caller" python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --with "$REPO_ROOT/.github/workflows/deploy.yml" || true)
+
+  if [ -z "$inputs" ]; then
+    fout "$caller geeft geen enkele input door; deze controle meet niets"
+
+    continue
+  fi
+
+  callerfouten=0
+
+  while IFS= read -r regel; do
+    waarde=${regel#*=}
+
+    case "$waarde" in
+      '${{ needs.changes.outputs.'*' }}') ;;
+      *)
+        fout "$caller geeft '${regel%%=*}' niet door uit de wijzigingsdetectie maar als '$waarde'"
+        callerfouten=$((callerfouten + 1))
+        ;;
+    esac
+  done <<<"$inputs"
+
+  [ "$callerfouten" -eq 0 ] \
+    && ok "$caller geeft elke input ongewijzigd door uit de wijzigingsdetectie"
+done
 
 # --- sourcen mag main niet uitvoeren ------------------------------------------------------------
 if [ -z "$(bash -c "source '$HERE/wijzigingsfilter.sh'" 2>/dev/null)" ]; then
