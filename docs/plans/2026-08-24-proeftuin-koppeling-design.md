@@ -232,13 +232,23 @@ en `BACKEND_API_2` uit de template.
 | Bestemming | env-var wijst naar `http://berichtenuitvraag:8086` / `http://demo-console:8095` binnen het compose-netwerk | de publieke adressen van uitvraag en demo-console |
 | https | niet vereist | de ZAD-ingress levert het |
 
-**Lokaal is een container, geen installatie.** De proeftuin publiceert al een image per PR
-(`ghcr.io/minbzk/moza-poc/preview`); een stabiele tag erbij maakt hem opneembaar als service in
-`compose.yaml` onder het bestaande `demo`-profiel. Wie de demo draait heeft dan geen Node, geen `npm
-ci` en geen Eleventy op zijn machine nodig — `docker compose --profile demo up` start de hele demo
-inclusief Berichtenbox. Dat de proeftuin binnen hetzelfde compose-netwerk zit, maakt de bestemming
+**Lokaal is een container, geen installatie.** De proeftuin publiceert twee packages: per PR een
+preview (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`) en op elke push naar `main` een stabiel
+image (`ghcr.io/minbzk/moza-poc:latest` plus een onveranderlijke `sha-<7>`), met daarnaast
+release-tags uit `release.yml`. Een `sha-`-tag pinnen in `compose.yaml` onder het bestaande
+`demo`-profiel maakt hem meteen opneembaar; `latest` verschuift stil onder de demo door en is
+daarom niet de juiste keuze. Wie de demo draait heeft dan geen Node, geen `npm ci` en geen Eleventy
+op zijn machine nodig — `docker compose --profile demo up` start de hele demo inclusief Berichtenbox. Dat de proeftuin binnen hetzelfde compose-netwerk zit, maakt de bestemming
 bovendien een containernaam in plaats van een host-poort. `npm run dev` blijft er gewoon naast staan
 voor wie aan de proeftuin zelf werkt.
+
+**Wat er vandaag al doorheen komt.** De nginx van de proeftuin heeft al een `location /api/` die
+naar `BACKEND_ORIGIN` doorzet. Het leespad (`/api/v1/...`, inclusief de SSE-stream en de
+`X-Ontvanger`-header) is dus te beproeven zonder één regel in `moza-poc` te wijzigen — en daarmee de
+bufferingsval die dit ontwerp als het grootste risico aanwijst. Wat wél een wijziging daar vraagt is
+`/api/demo/personas`: dat pad valt onder dezelfde `location /api/` en zou bij de uitvraag uitkomen.
+Een tweede bestemming is bovendien nu onmogelijk, want `NGINX_ENVSUBST_FILTER` laat alleen
+`BACKEND_ORIGIN` door — zie "Configuratie".
 
 **Het leespad online is niet geblokkeerd door #936.** De uitvraag draait al op ZAD; een werkende
 online koppeling kan er dus zijn vóórdat de bediening daar staat. Wat wél op #936 wacht, is
@@ -430,10 +440,11 @@ Elke stap wordt een sub-issue onder #937, zodat het werk in beide repo's op éé
 
 1. Welke persona's en welke nummers? Afstemmen met stap 5 van het simulator-ontwerp en met het
    persona-werk dat elders loopt, zodat er geen derde set ontstaat.
-2. Welke image-tag van de proeftuin gebruiken we in compose? Vandaag publiceert de proeftuin alleen
-   per PR; een stabiele tag is nodig om hem als service op te nemen. Dit is de enige echte
-   afhankelijkheid die ontstaat door de wegwerp-Berichtenbox op te ruimen: zonder eigen UI staat of
-   valt de lokale demo met een image uit een ander repo. Een gepinde tag houdt dat beheersbaar.
+2. Welke image-tag van de proeftuin pinnen we in compose — een `sha-`-tag of een release-tag? Beide
+   bestaan al, dus dit blokkeert niets; het is een keuze tussen "volgt main op de voet" en "volgt de
+   release-cadans". Wat blijft staan is de afhankelijkheid die ontstaat door de wegwerp-Berichtenbox
+   op te ruimen: zonder eigen UI staat of valt de lokale demo met een image uit een ander repo. Zet
+   de tag daarom achter een env-var, zodat omzetten één regel is.
 3. Toont de proeftuin de voortgang per organisatie tijdens het ophalen, of alleen het eindresultaat?
    Dat bepaalt of trage magazijnen zichtbaar zijn of alleen merkbaar als wachttijd.
 4. Wat is het pollinterval bij het verversen, en stopt het als het tabblad niet zichtbaar is?
