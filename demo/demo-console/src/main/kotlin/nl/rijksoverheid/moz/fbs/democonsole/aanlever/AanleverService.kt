@@ -25,7 +25,7 @@ data class AanleverResultaat(
  * (`demo.magazijnen."<OIN>".url`); per URL wordt één REST-client gebouwd en hergebruikt.
  */
 @ApplicationScoped
-class AanleverService(config: MagazijnenConfig) {
+class AanleverService(config: DemoConfig) {
 
     private val log = Logger.getLogger(AanleverService::class.java.name)
 

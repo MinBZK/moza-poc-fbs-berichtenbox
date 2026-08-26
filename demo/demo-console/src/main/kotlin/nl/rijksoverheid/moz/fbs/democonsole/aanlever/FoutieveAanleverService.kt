@@ -13,7 +13,7 @@ data class FoutResultaat(val status: Int, val body: String)
  * zodat de 400 aantoonbaar op de domeinvalidatie slaat, niet op een ontbrekend veld.
  */
 @ApplicationScoped
-class FoutieveAanleverService(config: MagazijnenConfig) {
+class FoutieveAanleverService(config: DemoConfig) {
 
     private val client: MagazijnAanleverClient =
         QuarkusRestClientBuilder.newBuilder()
@@ -38,7 +38,7 @@ class FoutieveAanleverService(config: MagazijnenConfig) {
             }
             """.trimIndent()
 
-        private fun magazijnAUrl(config: MagazijnenConfig): String =
+        private fun magazijnAUrl(config: DemoConfig): String =
             config.magazijnen()["00000000000000100000"]?.url()
                 ?: error("geen URL geconfigureerd voor magazijn A (00000000000000100000)")
     }

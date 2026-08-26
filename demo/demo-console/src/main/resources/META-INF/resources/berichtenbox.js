@@ -421,6 +421,37 @@ async function leesProblem(respons) {
   }
 }
 
+// De keuzelijst komt van de demo-console zelf (same-origin, dus geen CORS), niet uit deze
+// pagina: het identificatienummer hoort in de configuratie te staan, en dezelfde lijst voedt de
+// berichtgenerator. Mislukt het ophalen, dan blijft de lijst leeg en zegt de pagina waarom —
+// stil een lege Berichtenbox tonen zou als "geen berichten" gelezen worden.
+async function laadPersonas() {
+  try {
+    const respons = await fetch('/api/demo/personas');
+
+    if (!respons.ok) throw new Error(`status ${respons.status}`);
+
+    const personas = await respons.json();
+
+    el('persona').replaceChildren(...personas.map((persona) => {
+      const optie = document.createElement('option');
+
+      optie.value = persona.ontvanger;
+      optie.textContent = persona.label;
+
+      return optie;
+    }));
+
+    toonLeeg(personas.length === 0
+      ? 'Geen persona ingericht (demo.personas in de demo-console).'
+      : 'Kies een persona en klik op Ophalen.');
+  } catch (fout) {
+    toonLeeg(`Personalijst niet op te halen: ${fout.message}`);
+  }
+}
+
+laadPersonas();
+
 el('ophalen').addEventListener('click', ophalen);
 // Alleen de lijst (cache) verversen, zonder _ophalen — toont live in de cache opgevoerde berichten.
 el('vernieuw').addEventListener('click', laadLijst);
