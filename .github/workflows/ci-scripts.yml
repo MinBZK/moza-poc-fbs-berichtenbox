@@ -97,7 +97,7 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=83
+            [.github/scripts/test-wijzigingsfilter.sh]=87
             [.github/scripts/test-uitrol-poort.sh]=72
             [.github/scripts/test-demo-grens.sh]=62
           )

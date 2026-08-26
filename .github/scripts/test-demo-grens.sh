@@ -705,19 +705,24 @@ lijst_toets "een ontbrekende demo-wortel meldt wat er mist" "$w" 1 "bestaat niet
 # De wortels staan op twee plekken ingetypt: hier en in de module-lussen van codeql.yml. Lopen ze
 # uiteen, dan dekt de ene guard een wortel die de andere overslaat — en dat is stil, want beide
 # blijven groen over wat ze wél zien.
-# Bewijs uit de `run:`-blokken en niet uit het ruwe bestand: een commentaarregel met dezelfde
-# lus-tekst zou een verdwenen wortellus als aanwezig laten tellen.
-codeql_wortels=$( { python3 "$HERE/workflow-jobs.py" --runs "$HERE/../workflows/codeql.yml" \
+# Bewijs uit de uitvoerbare regels van de `run:`-blokken: een commentaarregel met dezelfde lus-tekst
+# zou een verdwenen wortellus als aanwezig laten tellen.
+#
+# Béíde lussen toetsen, niet de unieke set: codeql.yml controleert de classes én de geëxtraheerde
+# bronbestanden, en met alleen de unieke waarden zou één gemuteerde lus wegvallen tegen de andere.
+codeql_lussen=$( { python3 "$HERE/workflow-jobs.py" --runs "$HERE/../workflows/codeql.yml" \
   | grep -oE 'for wortel in [a-z ]+; do' || true; } \
-  | sed 's/for wortel in //; s/; do//' | sort -u)
+  | sed 's/for wortel in //; s/; do//')
 eigen_wortels="${STELSEL_WORTELS[*]} demo"
+codeql_aantal=$(grep -c . <<<"$codeql_lussen" || true)
+codeql_afwijkend=$(grep -cvxF "$eigen_wortels" <<<"$codeql_lussen" || true)
 
-if [ -z "$codeql_wortels" ]; then
-  fout "geen wortellijst gevonden in codeql.yml; deze kruiscontrole meet niets"
-elif [ "$codeql_wortels" = "$eigen_wortels" ]; then
-  ok "codeql.yml hanteert dezelfde wortels als de grensbewaking"
+if [ "$codeql_aantal" -ne 2 ]; then
+  fout "codeql.yml heeft $codeql_aantal wortellussen in plaats van 2; deze kruiscontrole meet niet wat hij hoort te meten"
+elif [ "$codeql_afwijkend" -ne 0 ]; then
+  fout "een wortellus in codeql.yml wijkt af van de grensbewaking ($eigen_wortels): $(tr '\n' ' ' <<<"$codeql_lussen")"
 else
-  fout "codeql.yml hanteert andere wortels ($codeql_wortels) dan de grensbewaking ($eigen_wortels)"
+  ok "beide wortellussen in codeql.yml hanteren dezelfde wortels als de grensbewaking"
 fi
 
 w=$(nieuw_repo)

@@ -479,48 +479,64 @@ fi
 # De hele wijziging bestaat om vier gekopieerde detecties te vervangen door één script. Wie er een
 # terugdraait naar inline logica, maakt zonder deze controle geen enkele test rood.
 #
-# Het bewijs komt uit de `run:`-blokken en niet uit het ruwe bestand: een grep over het hele
-# bestand vindt het scriptpad ook in een comment, en dan telt een weggestubde detectie met een
-# achtergebleven toelichting als "roept het filter aan".
+# Het bewijs komt uit de uitvoerbare regels van de `run:`-blokken: een comment met hetzelfde pad,
+# of een stap die door `if: false` nooit draait, telt niet mee.
 for wf in deploy test detekt cflite_pr; do
   aanroepen=$(python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --runs "$REPO_ROOT/.github/workflows/$wf.yml" \
-    | grep -c '\.github/scripts/wijzigingsfilter\.sh' || true)
+    | grep -c '\.github/scripts/publiceer-uitkomsten\.sh' || true)
 
   [ "$aanroepen" -gt 0 ] \
-    && ok "$wf.yml roept het gedeelde filter aan in een run-stap" \
-    || fout "$wf.yml roept het gedeelde filter niet meer aan — de detectie is teruggedreven"
+    && ok "$wf.yml publiceert de uitkomsten via het gedeelde script" \
+    || fout "$wf.yml publiceert de uitkomsten niet meer via het gedeelde script — de detectie is teruggedreven"
 done
 
-# Het vangnet dat de uitkomst valideert staat noodgedwongen in de workflows zelf (het moet ook
-# werken als het script ontbreekt) en is daarmee vatbaar voor exact de drift die dit script
-# wegneemt. Vandaar een vingerafdruk over de vier blokken.
-#
-# Het blok móét gevonden worden: vier keer niets levert vier keer dezelfde md5 van de lege string
-# op, en dat las als "identiek" terwijl er nergens meer gevalideerd werd.
-vingers=""
-blokken_gevonden=0
+# De publicatie zelf: gedrag, niet tekst. Dit blok stond eerder vier keer inline in de workflows,
+# waar geen enkele test het kon draaien — en dan is één extra regel erin genoeg om elke PR naar de
+# demo-shard te scopen zonder dat iets rood wordt.
+publicatie_werkmap=$(mktemp -d)
+trap 'rm -rf "$publicatie_werkmap"' EXIT
 
-for wf in deploy test detekt cflite_pr; do
-  blok=$(python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --runs "$REPO_ROOT/.github/workflows/$wf.yml" \
-    | sed -n '/uitkomsten=\$(\.github/,/^ *fi$/p' | sed 's/^ *//;/^#/d;/^$/d')
+cp "$REPO_ROOT/.github/scripts/publiceer-uitkomsten.sh" "$publicatie_werkmap/"
 
-  if [ -z "$blok" ]; then
-    fout "$wf.yml valideert de uitkomst van het filter niet meer — een onbruikbare uitkomst gaat dan door voor een geldige"
+# Een filter dat een geldige, volledige set levert wordt ongewijzigd doorgegeven.
+cat > "$publicatie_werkmap/wijzigingsfilter.sh" <<'FILTER'
+#!/usr/bin/env bash
+printf 'run=true\ndeploy=false\ndemo-only=true\nfuzz=false\n'
+FILTER
+chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
 
-    continue
-  fi
+uitvoer=$("$publicatie_werkmap/publiceer-uitkomsten.sh" 2>/dev/null)
+vergelijk "een geldige set wordt ongewijzigd gepubliceerd" "$uitvoer" 'demo-only=true
+deploy=false
+fuzz=false
+run=true'
 
-  blokken_gevonden=$((blokken_gevonden + 1))
-  vingers="$vingers$(md5sum <<<"$blok" | cut -d' ' -f1)\n"
+# En elke twijfel valt terug op alles draaien: een filter dat omvalt, een halve set levert, of een
+# sleutel dubbel geeft. Zonder die terugval zou een lege uitkomst als "niets te doen" doorgaan.
+for geval in "exit 1" "printf 'run=true\n'" "printf 'run=true\nrun=false\ndeploy=true\ndemo-only=false\n'"; do
+  printf '#!/usr/bin/env bash\n%s\n' "$geval" > "$publicatie_werkmap/wijzigingsfilter.sh"
+  chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
+
+  uitvoer=$("$publicatie_werkmap/publiceer-uitkomsten.sh" 2>/dev/null)
+  vergelijk "fail-safe bij een filter dat '$geval' doet" "$uitvoer" "$ALLES_AAN"
 done
 
-if [ "$blokken_gevonden" -ne 4 ]; then
-  fout "$blokken_gevonden van de 4 workflows valideren de uitkomst; de vingerafdruk meet dan niets"
-elif [ "$(printf '%b' "$vingers" | grep -c .)" -eq 4 ] && [ "$(printf '%b' "$vingers" | sort -u | grep -c .)" = 1 ]; then
-  ok "de vier workflows valideren de uitkomst identiek"
-else
-  fout "de validatie van de uitkomst is tussen de workflows uiteengelopen"
-fi
+# GITHUB_OUTPUT krijgt exact dezelfde regels; een afwijkende vorm laat de runner het hele
+# outputbestand weigeren en dan blijven álle outputs leeg.
+cat > "$publicatie_werkmap/wijzigingsfilter.sh" <<'FILTER'
+#!/usr/bin/env bash
+printf 'run=true\ndeploy=true\ndemo-only=false\nfuzz=true\n'
+FILTER
+chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
+
+GITHUB_OUTPUT="$publicatie_werkmap/uit.txt" "$publicatie_werkmap/publiceer-uitkomsten.sh" >/dev/null 2>&1
+
+# Gesorteerd, want het script ontdubbelt met `sort -u`; de fail-safe-terugval is een vaste tekst en
+# staat daarom in de volgorde van het contract.
+vergelijk "de uitkomsten belanden in GITHUB_OUTPUT" "$(cat "$publicatie_werkmap/uit.txt")" 'demo-only=false
+deploy=true
+fuzz=true
+run=true'
 
 # De workflows lezen steps.filter.outputs.<sleutel>. Hernoem één kant en de andere leest leeg —
 # bij `deploy` betekent leeg "niet uitrollen", stil en groen.

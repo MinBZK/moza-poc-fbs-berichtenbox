@@ -79,17 +79,7 @@ jobs:
 
           # Bufferen, op de vier sleutels filteren en pas dan publiceren: zie de toelichting bij
           # dezelfde stap in deploy.yml.
-          uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
-          uitkomsten=$(grep -E '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten" | sort -u) || true
-
-          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .) || true
-
-          if [ "$(grep -c . <<<"$uitkomsten")" != 4 ] || [ "$sleutels" != 4 ]; then
-            echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
-            uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
-          fi
-
-          printf '%s\n' "$uitkomsten" >> "$GITHUB_OUTPUT"
+          .github/scripts/publiceer-uitkomsten.sh
 
   detekt:
     needs: changes

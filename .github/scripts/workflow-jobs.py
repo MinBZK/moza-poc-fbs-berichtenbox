@@ -10,8 +10,9 @@ certificeert de uitrol-poort een uitrol die hij nooit beoordeeld heeft.
 Modi:
   --jobs      alle job-id's
   --uitrol    de job-id's die de zad-actions-deploy draaien, ook via een lokale reusable workflow
-  --runs      de inhoud van elk `run:`-blok, zodat een controle bewijs uit uitvoerbare stappen haalt
-              en niet uit een commentaarregel die toevallig hetzelfde pad noemt
+  --runs      de uitvoerbare regels van elk `run:`-blok: zonder commentaarregels, en zonder stappen
+              die door een constante `if: false` nooit draaien — allebei zouden ze als bewijs tellen
+              voor een controle die alleen naar aanwezigheid kijkt
   --outputs   de outputs van één job als `sleutel=waarde` (job-id via de omgevingsvariabele JOB)
 
 Uitvoer: één job-id per regel op stdout, diagnostiek op stderr, exitcode 1 zodra de workflow niet te
@@ -64,8 +65,13 @@ def draait_deploy(job: dict, pad: str) -> bool:
     return any(draait_deploy(hulpjob, doel) for hulpjob in lees(doel).values() if isinstance(hulpjob, dict))
 
 
+# Een `if` die tot een constante onwaarheid uitkomt. Een expressie met echte context is statisch
+# niet te beoordelen en telt daarom gewoon mee; deze twee vormen zetten een stap onmiskenbaar uit.
+UIT = {"false", "${{ false }}", "${{false}}"}
+
+
 def runs(jobs: dict) -> list[str]:
-    """De inhoud van elk `run:`-blok in de workflow."""
+    """De uitvoerbare regels van elk `run:`-blok in de workflow."""
     gevonden = []
 
     for job in jobs.values():
@@ -73,8 +79,15 @@ def runs(jobs: dict) -> list[str]:
             continue
 
         for stap in job.get("steps") or []:
-            if isinstance(stap, dict) and stap.get("run"):
-                gevonden.append(str(stap["run"]))
+            if not isinstance(stap, dict) or not stap.get("run"):
+                continue
+
+            if str(stap.get("if", "")).strip().lower() in UIT:
+                continue
+
+            for regel in str(stap["run"]).splitlines():
+                if not regel.lstrip().startswith("#"):
+                    gevonden.append(regel)
 
     return gevonden
 
