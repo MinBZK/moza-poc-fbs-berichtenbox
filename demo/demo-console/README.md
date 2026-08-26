@@ -26,17 +26,22 @@ legen levert het dubbele aantal berichten op.
 
 ## Op ZAD
 
-Dit is de beoogde situatie zodra de gedeelde demo-omgeving is uitgerold (`demo/environment/zad-demo/`
-en `.github/workflows/deploy-demo.yml` bestaan op het moment van schrijven nog niet): de demo staat
-dan op `https://democonsole-demo-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl`, achter Keycloak-SSO.
-Inloggen met je rijksaccount; daarna zijn zowel het paneel als de Berichtenbox bereikbaar.
+De demo draait op de keten die al op ZAD staat: de bestaande uitvraag, de twee magazijnen en de
+externe stubs in de deployment `test`. De console wordt daar één component bij, achter Keycloak-SSO;
+inloggen met je rijksaccount, daarna zijn zowel het paneel als de Berichtenbox bereikbaar.
 
-Eén knopgroep ontbreekt daar bewust, omdat de magazijnen hun gedrag in een volgende fase uit de
-simulator krijgen: de storingsknoppen op magazijn A en B. Het paneel verbergt ze zelf op basis van
-`GET /api/demo/omgeving`.
+Dit is de beoogde situatie: het `democonsole`-component bestaat op het moment van schrijven nog niet
+op ZAD. Zie `docs/plans/2026-08-26-demo-op-zad-design.md` voor de topologie en voor de reden waarom
+de demo in `test` woont en niet in een eigen deployment.
 
-Uitrollen gaat met de hand via de workflow `deploy-demo.yml` (`workflow_dispatch`), niet automatisch
-bij een merge — een demo-omgeving die halverwege een presentatie herstart is geen demo-omgeving.
+Knopgroepen waarvan de backend er niet is, verbergt het paneel zelf op basis van
+`GET /api/demo/omgeving` — een proxy waarvan de URL leeg is, verdwijnt uit de lijst en zijn knop
+daarmee uit het paneel.
+
+Drie dingen horen bij het wonen in `test`. De demo rolt mee met elke merge naar main, dus de
+omgeving kan tijdens een presentatie herstarten. Previews klonen `test` en krijgen de console dus
+mee. En de legen-knop wist de database van `test`, waar nieuwe previews van klonen — die knop is
+onomkeerbaar.
 
 ## De knoppen
 
