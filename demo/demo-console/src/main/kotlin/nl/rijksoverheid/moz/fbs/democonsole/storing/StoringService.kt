@@ -18,10 +18,21 @@ class StoringService(private val register: ToxiproxyRegister) {
         controleer(register.client(proxy).zetProxy(proxy, ProxyPatch(enabled = false)), "uitschakelen van $proxy")
     }
 
-    // Herstel: elke proxy op elke instantie weer aan, alle toxics weg.
+    // Herstel: elke proxy op elke instantie weer aan, alle toxics weg. Elke instantie krijgt zijn
+    // eigen poging, los van de andere: op een gedeelde omgeving met meerdere instanties mag één
+    // kapotte instantie de storingen op de overige, gezonde instanties niet laten staan. Fouten
+    // worden verzameld en pas aan het eind gemeld, zodat de melding alles noemt wat misging.
     fun reset() {
-        register.instanties().forEach { instantie ->
-            herstel(instantie)
+        val instanties = register.instanties()
+
+        check(instanties.isNotEmpty()) {
+            "Geen enkele proxy geconfigureerd: er is niets om te herstellen. Controleer de TOXIPROXY_*_URL-configuratie."
+        }
+
+        val fouten = instanties.mapNotNull { instantie -> runCatching { herstel(instantie) }.exceptionOrNull()?.message }
+
+        check(fouten.isEmpty()) {
+            "Herstel is niet overal gelukt:\n" + fouten.joinToString("\n")
         }
     }
 
