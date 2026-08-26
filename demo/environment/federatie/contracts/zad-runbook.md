@@ -220,6 +220,6 @@ aanroepen (dat is een provider-endpoint), en de provider kan de her-distributie 
 probleem niet zien. Lokaal loste één script dat op door bij beide managers te kijken; op ZAD kan dat
 niet.
 
-De uitweg is een handmatige duw: zet op het provider-component tijdelijk
+De uitweg is een handmatige push: zet op het provider-component tijdelijk
 `FSC_FORCEER_DISTRIBUTIE=1`, laat één ronde lopen, en zet hem weer uit. Aan laten staan kost een
 extra API-call per contract per ronde zonder dat er iets mis is.
