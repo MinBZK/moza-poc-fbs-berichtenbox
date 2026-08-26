@@ -18,10 +18,6 @@ interface TempoKlok {
 @ApplicationScoped
 class SchedulerTempoKlok(private val scheduler: Scheduler) : TempoKlok {
 
-    // Eigen administratie i.p.v. de scheduler bevragen: unscheduleJob op een niet-geplande taak
-    // is per versie verschillend (stil of een fout), en de stop-knop mag nooit zelf omvallen.
-    private var gepland = false
-
     override fun start(intervalSeconden: Int, tik: () -> Unit) {
         stop()
 
@@ -29,16 +25,13 @@ class SchedulerTempoKlok(private val scheduler: Scheduler) : TempoKlok {
             .setInterval("${intervalSeconden}s")
             .setTask { tik() }
             .schedule()
-
-        gepland = true
     }
 
+    // Onvoorwaardelijk unschedulen: unscheduleJob op een onbekende identity geeft in deze
+    // Quarkus-versie stil null terug (geen exception), dus een eigen "is er iets gepland"-guard
+    // voegt niets toe en kan bij een falende schedule() de stop-knop juist permanent blokkeren.
     override fun stop() {
-        if (gepland) {
-            scheduler.unscheduleJob(JOB)
-
-            gepland = false
-        }
+        scheduler.unscheduleJob(JOB)
     }
 
     private companion object {
