@@ -20,8 +20,9 @@ class DemoPersonaTest {
         "BSN, 999993653",
         "RSIN, 999993653",
         "KVK, 12345678",
+        "KVK, 00000001",
     )
-    fun `accepteert de ontvanger-types die de uitvraag kent`(type: String, waarde: String) {
+    fun `accepteert de ontvanger-types die de demo aanbiedt`(type: String, waarde: String) {
         assertEquals("$type:$waarde", persona(type = type, waarde = waarde).ontvanger)
     }
 
@@ -52,6 +53,28 @@ class DemoPersonaTest {
     @Test
     fun `weigert een leeg type`() {
         assertThrows(IllegalArgumentException::class.java) { persona(type = " ") }
+    }
+
+    @Test
+    fun `noemt het identificatienummer niet in de foutmelding`() {
+        // Die meldingen belanden via het opstarten in de applicatielog; een nummer hoort daar niet in.
+        val fout = assertThrows(IllegalArgumentException::class.java) { persona(type = "BSN", waarde = "999993652") }
+
+        assertEquals(false, fout.message!!.contains("999993652"))
+    }
+
+    @Test
+    fun `weigert hetzelfde magazijn twee keer`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            persona(magazijnen = listOf("00000000000000100000", "00000000000000100000"))
+        }
+    }
+
+    @Test
+    fun `weigert een dataset-persona met magazijnen`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            persona(magazijnen = listOf("00000000000000100000"), bron = PersonaBron.DATASET)
+        }
     }
 
     @Test

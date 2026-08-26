@@ -52,6 +52,8 @@ internal object TestPersonas {
     // Relatief aan de module-root, de werkdirectory van Surefire.
     private const val BESTAND = "src/main/resources/application.properties"
 
+    private val MAGAZIJN_SLEUTEL = Regex("""demo\.magazijnen\."(\d+)"\.url""")
+
     private val SLEUTEL = Regex("""demo\.personas\.([^.]+)\.([^.]+)""")
 
     /**
@@ -62,23 +64,38 @@ internal object TestPersonas {
     fun uitApplicationProperties(): PersonaService {
         val eigenschappen = Properties()
 
-        // Uit het bestand, niet van het classpath: in een @QuarkusTest levert de classloader een
-        // ándere application.properties op dan de bron, waardoor deze parser leeg terugkwam.
-        Files.newInputStream(Path.of(BESTAND)).use { eigenschappen.load(it) }
+        // Uit het bestand, niet van het classpath: deze test moet falen op de bron die in de repo
+        // staat en die de demo-inrichter bijwerkt, niet op een build-kopie ervan.
+        val pad = Path.of(BESTAND)
+
+        check(Files.isReadable(pad)) { "$BESTAND niet leesbaar — draait de test vanaf de module-root?" }
+
+        Files.newInputStream(pad).use { eigenschappen.load(it) }
+
+        // Deze parser kent geen profiel-sleutels en geen expressies; stilzwijgend negeren zou een
+        // divergentie met SmallRye opleveren die pas bij het starten van de demo blijkt.
+        eigenschappen.stringPropertyNames().forEach {
+            check(!it.startsWith("%") || !it.contains(".demo.personas.")) { "profiel-sleutel '$it' wordt hier niet gelezen" }
+        }
 
         val velden = eigenschappen.stringPropertyNames()
             .mapNotNull { sleutel -> SLEUTEL.matchEntire(sleutel)?.let { it.groupValues[1] to (it.groupValues[2] to eigenschappen.getProperty(sleutel)) } }
             .groupBy({ it.first }, { it.second })
             .mapValues { (_, paren) -> paren.toMap() }
 
+        velden.values.flatMap { it.values }.forEach {
+            check(!it.contains("\${")) { "expressie in demo.personas.*: '$it' wordt hier niet geëxpandeerd" }
+        }
+
         val magazijnen = eigenschappen.stringPropertyNames()
             .mapNotNull { MAGAZIJN_SLEUTEL.matchEntire(it)?.groupValues?.get(1) }
             .associateWith { VastMagazijn }
 
+        check(velden.isNotEmpty()) { "geen demo.personas-sleutel gevonden in $BESTAND; klopt SLEUTEL nog?" }
+        check(magazijnen.isNotEmpty()) { "geen demo.magazijnen-sleutel gevonden in $BESTAND; klopt MAGAZIJN_SLEUTEL nog?" }
+
         return PersonaService(VasteDemoConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }, magazijnen))
     }
-
-    private val MAGAZIJN_SLEUTEL = Regex("""demo\.magazijnen\."(\d+)"\.url""")
 
     private fun vastePersona(id: String, veld: Map<String, String>): VastePersona {
         fun vereist(naam: String) = veld[naam] ?: error("demo-persona '$id' mist de property '$naam'")

@@ -5,7 +5,7 @@ import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.MediaType
 
-/** Eén persona zoals een berichtenbox hem nodig heeft: tonen, meesturen, en weten wat je ziet. */
+/** Eén persona: `label` in de keuzelijst, `ontvanger` als `X-Ontvanger`-header, `bron` als presentatie. */
 data class PersonaDto(val id: String, val label: String, val ontvanger: String, val bron: String)
 
 /**
@@ -18,6 +18,6 @@ class PersonaResource(private val personaService: PersonaService) {
 
     @GET
     fun personas(): List<PersonaDto> = personaService.alle().map {
-        PersonaDto(it.id, it.label, it.ontvanger, it.bron.name.lowercase())
+        PersonaDto(it.id, it.label, it.ontvanger, it.bron.wire)
     }
 }

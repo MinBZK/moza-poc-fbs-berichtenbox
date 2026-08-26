@@ -29,7 +29,7 @@ interface DemoConfig {
         /** Wat de keuzelijst toont. Dient tevens als aanhef in gegenereerde berichten. */
         fun label(): String
 
-        /** BSN, RSIN of KVK: het type uit de `X-Ontvanger`-header. */
+        /** BSN, RSIN of KVK; de keten kent daarnaast OIN, dat de demo bewust niet aanbiedt. */
         fun type(): String
 
         fun waarde(): String

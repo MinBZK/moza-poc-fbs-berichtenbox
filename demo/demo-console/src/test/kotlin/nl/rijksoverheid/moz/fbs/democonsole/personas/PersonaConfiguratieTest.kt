@@ -1,10 +1,12 @@
 package nl.rijksoverheid.moz.fbs.democonsole.personas
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.quarkus.runtime.Startup
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
+import nl.rijksoverheid.moz.fbs.democonsole.generator.GeneratorProducer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -32,15 +34,19 @@ class PersonaConfiguratieTest {
     lateinit var personasUrl: URL
 
     @Test
-    fun `levert de ingerichte persona's met hun ontvanger-header en bron`() {
-        assertEquals(
-            listOf(
-                Triple("bakkerij", "BSN:999996666", PersonaBron.KETEN),
-                Triple("vandijk", "KVK:12345678", PersonaBron.KETEN),
-                Triple("grootbedrijf", "KVK:90000001", PersonaBron.KETEN),
-                Triple("pietersen", "BSN:999993653", PersonaBron.KETEN),
-            ),
-            personaService.alle().map { Triple(it.id, it.ontvanger, it.bron) },
+    fun `levert de ingerichte persona's in de volgorde van de keuzelijst`() {
+        assertEquals(listOf("bakkerij", "vandijk", "grootbedrijf", "pietersen"), personaService.alle().map { it.id })
+    }
+
+    @Test
+    fun `beide beans worden bij het starten gebouwd, niet pas bij de eerste aanroep`() {
+        // Zonder deze assertie kan @Startup verdwijnen zonder dat één test rood wordt: injectie
+        // bouwt de bean toch wel, dus geen enkele andere test merkt het verschil.
+        assertTrue(PersonaService::class.java.isAnnotationPresent(Startup::class.java))
+        assertTrue(
+            GeneratorProducer::class.java
+                .getDeclaredMethod("generator", PersonaService::class.java)
+                .isAnnotationPresent(Startup::class.java),
         )
     }
 
@@ -51,7 +57,11 @@ class PersonaConfiguratieTest {
 
     @Test
     fun `laat de generator alleen persona's opvoeren die bij een organisatie horen`() {
-        assertEquals(listOf("bakkerij", "vandijk", "pietersen"), personaService.metMagazijnen().map { it.id })
+        assertEquals(
+            personaService.alle().filterNot { it.magazijnen.isEmpty() }.map { it.id },
+            personaService.metMagazijnen().map { it.id },
+        )
+        assertEquals(listOf("grootbedrijf"), (personaService.alle() - personaService.metMagazijnen().toSet()).map { it.id })
     }
 
     @Test

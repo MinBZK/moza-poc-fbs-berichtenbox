@@ -1,10 +1,15 @@
 package nl.rijksoverheid.moz.fbs.democonsole.personas
 
 /**
- * Minimale identificatienummer-validatie voor de demo-personas. Geïnlined i.p.v.
- * hergebruik van fbs-common, omdat die library de productie-JAX-RS-stack (LDV-filters)
- * meebrengt die een wegwerp-console niet hoort te erven. Doel is fail-fast bij een typfout
- * in de persona-lijst, zodat het magazijn straks geen 400 midden in een demo geeft.
+ * Minimale identificatienummer-validatie voor de demo-personas; een uitgeklede kopie van
+ * `Identificatienummer` in fbs-common. Die library niet als dependency, omdat haar filters en
+ * boot-validators (LDV, TLS, Redis) zich in deze module vanzelf zouden aanzetten. Doel is
+ * fail-fast bij een typfout in de persona-lijst, zodat het magazijn straks geen 400 geeft
+ * midden in een demo.
+ *
+ * De waarde staat bewust in géén enkele foutmelding: die meldingen belanden via het opstarten
+ * in de applicatielog, en daar hoort een identificatienummer niet in. De configuratieregel zelf
+ * wijst de operator naar de foute waarde.
  */
 object Identificatiecheck {
 
@@ -14,20 +19,20 @@ object Identificatiecheck {
         when (type) {
             "BSN", "RSIN" -> vereisElfproef(type, waarde)
             "KVK" -> require(waarde.matches(Regex("^[0-9]{8}$")) && waarde != "00000000") {
-                "$type moet 8 cijfers zijn (niet louter nullen), was: '$waarde'"
+                "$type moet 8 cijfers zijn (niet louter nullen)"
             }
 
-            else -> throw IllegalArgumentException("onbekend ontvanger-type: $type")
+            else -> throw IllegalArgumentException("onbekend ontvanger-type: '$type'")
         }
     }
 
     private fun vereisElfproef(type: String, waarde: String) {
         require(waarde.matches(Regex("^[0-9]{9}$")) && waarde != "000000000") {
-            "$type moet 9 cijfers zijn (niet louter nullen), was: '$waarde'"
+            "$type moet 9 cijfers zijn (niet louter nullen)"
         }
 
         val som = waarde.mapIndexed { index, teken -> Character.getNumericValue(teken) * ELFPROEF_GEWICHTEN[index] }.sum()
 
-        require(som % 11 == 0) { "$type doorstaat de elfproef niet: '$waarde'" }
+        require(som % 11 == 0) { "$type doorstaat de elfproef niet" }
     }
 }

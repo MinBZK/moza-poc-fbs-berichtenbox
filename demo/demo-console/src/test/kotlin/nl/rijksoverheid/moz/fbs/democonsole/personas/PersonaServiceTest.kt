@@ -2,10 +2,12 @@ package nl.rijksoverheid.moz.fbs.democonsole.personas
 
 import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
 
 class PersonaServiceTest {
@@ -31,7 +33,7 @@ class PersonaServiceTest {
             mapOf(
                 "vandijk" to instelling("Garage Van Dijk B.V.", "KVK", "12345678"),
                 "pietersen" to instelling("J. Pietersen", "BSN", "999993653"),
-                "dejong" to instelling("de Jong Transport", "KVK", "12345678"),
+                "dejong" to instelling("de Jong Transport", "KVK", "87654321"),
                 "bakkerij" to instelling("Bakkerij De Vroege Vogel", "BSN", "999996666"),
             ),
         ).alle()
@@ -45,7 +47,7 @@ class PersonaServiceTest {
         val personas = service(
             mapOf(
                 "tweede" to instelling("Gelijke Naam B.V.", "KVK", "12345678"),
-                "eerste" to instelling("Gelijke Naam B.V.", "KVK", "12345678"),
+                "eerste" to instelling("Gelijke Naam B.V.", "KVK", "87654321"),
             ),
         ).alle()
 
@@ -73,9 +75,60 @@ class PersonaServiceTest {
 
     @Test
     fun `weigert een leeg magazijn-OIN, zoals een afsluitende komma oplevert`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
             service(mapOf("pietersen" to instelling("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO, ""))))
         }
+
+        assertTrue(fout.message!!.contains("komma"), fout.message)
+    }
+
+    @Test
+    fun `weigert twee persona's op hetzelfde identificatienummer`() {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            service(
+                mapOf(
+                    "eerste" to instelling("Eerste B.V.", "KVK", "12345678"),
+                    "tweede" to instelling("Tweede B.V.", "KVK", "12345678"),
+                ),
+            )
+        }
+
+        assertTrue(fout.message!!.contains("eerste") && fout.message!!.contains("tweede"), fout.message)
+        assertFalse(fout.message!!.contains("12345678"), "het nummer hoort niet in de melding")
+    }
+
+    @Test
+    fun `weigert hetzelfde magazijn twee keer bij één persona`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            service(
+                mapOf(
+                    "pietersen" to instelling("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO, TestPersonas.RVO)),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `meldt alle onbruikbare persona's in één keer`() {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            service(
+                mapOf(
+                    "eerste" to instelling("Eerste B.V.", "KVK", "1234567"),
+                    "tweede" to instelling("Tweede B.V.", "KVK", "7654321"),
+                ),
+            )
+        }
+
+        assertTrue(fout.message!!.contains("eerste") && fout.message!!.contains("tweede"), fout.message)
+    }
+
+    @Test
+    fun `weigert te starten zonder magazijn`() {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            PersonaService(VasteDemoConfig(mapOf("a" to instelling("A", "KVK", "12345678")), emptyMap()))
+        }
+
+        assertTrue(fout.message!!.contains("demo.magazijnen"), fout.message)
     }
 
     @Test
@@ -83,7 +136,7 @@ class PersonaServiceTest {
         val personas = service(
             mapOf(
                 "keten" to instelling("A", "KVK", "12345678", listOf(TestPersonas.RVO)),
-                "verzonnen" to instelling("B", "KVK", "12345678", bron = "dataset"),
+                "verzonnen" to instelling("B", "KVK", "87654321", bron = "dataset"),
             ),
         ).alle()
 
@@ -110,6 +163,7 @@ class PersonaServiceTest {
         val personas = service(
             mapOf(
                 "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", magazijnen),
+                "bakkerij" to instelling("Bakkerij De Vroege Vogel", "BSN", "999996666", listOf(TestPersonas.BELASTINGDIENST)),
                 "grootbedrijf" to instelling("Grootbedrijf B.V.", "KVK", "90000001"),
             ),
         ).metMagazijnen()
@@ -131,12 +185,12 @@ class PersonaServiceTest {
 
         @JvmStatic
         fun optIns() = listOf(
-            org.junit.jupiter.params.provider.Arguments.of(null, emptyList<String>()),
-            org.junit.jupiter.params.provider.Arguments.of(emptyList<String>(), emptyList<String>()),
-            org.junit.jupiter.params.provider.Arguments.of(listOf(TestPersonas.RVO), listOf("pietersen")),
-            org.junit.jupiter.params.provider.Arguments.of(
+            Arguments.of(null, listOf("bakkerij")),
+            Arguments.of(emptyList<String>(), listOf("bakkerij")),
+            Arguments.of(listOf(TestPersonas.RVO), listOf("bakkerij", "pietersen")),
+            Arguments.of(
                 listOf(TestPersonas.RVO, TestPersonas.BELASTINGDIENST),
-                listOf("pietersen"),
+                listOf("bakkerij", "pietersen"),
             ),
         )
     }

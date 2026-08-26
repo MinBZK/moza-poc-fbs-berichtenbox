@@ -196,6 +196,10 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 
 ## 6. Persona's (Berichtenbox → "Ingelogd als")
 
+Bron: `demo.personas.*` in `demo/demo-console/src/main/resources/application.properties`. De
+berichtenbox haalt de lijst op bij `GET /api/demo/personas`; wijzig je hem daar, dan volgt de
+keuzelijst vanzelf.
+
 | Persona | Identificatie | Bevraagt |
 |---|---|---|
 | J. Pietersen | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |

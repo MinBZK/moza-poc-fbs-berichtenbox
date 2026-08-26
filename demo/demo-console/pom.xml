@@ -18,7 +18,7 @@
     <dependencies>
         <!-- Bewust GEEN fbs-common: die bevat JAX-RS-filters (LogboekContext) die de
              LDV-wrapper vereisen. Een wegwerp-console erft die productie-stack niet; de
-             elfproef-validatie is lokaal geïnlined (generator/Identificatiecheck.kt). -->
+             elfproef-validatie is lokaal geïnlined (personas/Identificatiecheck.kt). -->
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
