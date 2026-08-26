@@ -98,7 +98,7 @@ jobs:
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
             [.github/scripts/test-wijzigingsfilter.sh]=82
-            [.github/scripts/test-uitrol-poort.sh]=64
+            [.github/scripts/test-uitrol-poort.sh]=72
             [.github/scripts/test-demo-grens.sh]=62
           )
 
@@ -143,6 +143,16 @@ jobs:
             elif [ "$gemeten" -lt "$verwacht" ]; then
               echo "FOUT: $t leverde $gemeten asserties, verwacht minstens $verwacht."
               fail=1
+            else
+              # Het aantal is zelf-gerapporteerd, dus een uitgeholde suite die alleen nog de
+              # ASSERTIES-regel print zou de drempel halen zonder iets te toetsen. Tel daarom de
+              # geslaagde asserties in de uitvoer mee: die moeten er minstens evenveel zijn.
+              geteld=$(grep -c '^OK: ' <<<"$uitvoer" || true)
+
+              if [ "$geteld" -lt "$verwacht" ]; then
+                echo "FOUT: $t meldt ASSERTIES=$gemeten maar print $geteld geslaagde asserties; de suite toetst minder dan hij rapporteert."
+                fail=1
+              fi
             fi
           done < <(find .github/scripts -name 'test-*.sh' | sort)
 
