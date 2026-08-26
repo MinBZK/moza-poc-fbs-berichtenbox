@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Leest jobs uit een GitHub Actions-workflow, voor de uitrol-poort-controle in test-uitrol-poort.sh.
+
+Een echte YAML-parser en geen regex. Dezelfde reden als bij `pom-artifactids.py` voor XML: GitHub
+sluit op YAML-vorm en een regex op tekstvorm, en dat verschil is een bypass-generator. Een
+gequoteerde jobnaam, een `#`-commentaar achter de sleutel, een blok-scalar of een YAML-anchor
+levert telkens een job op die GitHub gewoon draait en die een patroon niet ziet — en dan
+certificeert de uitrol-poort een uitrol die hij nooit beoordeeld heeft.
+
+Modi:
+  --jobs      alle job-id's
+  --uitrol    de job-id's die de zad-actions-deploy draaien, ook via een lokale reusable workflow
+  --runs      de uitvoerbare regels van elk `run:`-blok: zonder commentaarregels, en zonder stappen
+              die door een constante `if: false` nooit draaien — allebei zouden ze als bewijs tellen
+              voor een controle die alleen naar aanwezigheid kijkt
+  --outputs   de outputs van één job als `sleutel=waarde` (job-id via de omgevingsvariabele JOB)
+  --with      de inputs die één job aan een aangeroepen workflow doorgeeft, als `sleutel=waarde`
+
+Uitvoer: één job-id per regel op stdout, diagnostiek op stderr, exitcode 1 zodra de workflow niet te
+lezen is of een gevolgde reusable workflow ontbreekt. Stilte is hier geen geldige uitkomst.
+"""
+
+import os
+import sys
+
+import yaml
+
+DEPLOY_ACTIE = "RijksICTGilde/zad-actions/deploy@"
+
+
+def lees(pad: str) -> dict:
+    try:
+        with open(pad, encoding="utf-8") as bestand:
+            inhoud = yaml.safe_load(bestand)
+    except (OSError, yaml.YAMLError) as fout:
+        print(f"FOUT: {pad} is niet als YAML te lezen: {fout}", file=sys.stderr)
+        raise SystemExit(1)
+
+    if not isinstance(inhoud, dict) or not isinstance(inhoud.get("jobs"), dict):
+        print(f"FOUT: {pad} bevat geen jobs-blok — deze controle meet niets.", file=sys.stderr)
+        raise SystemExit(1)
+
+    return inhoud["jobs"]
+
+
+def draait_deploy(job: dict, pad: str) -> bool:
+    """Of deze job de zad-actions-deploy draait, rechtstreeks of via een lokale reusable workflow."""
+    for stap in job.get("steps") or []:
+        if isinstance(stap, dict) and DEPLOY_ACTIE in str(stap.get("uses", "")):
+            return True
+
+    verwijzing = str(job.get("uses", ""))
+
+    if not verwijzing.startswith("./"):
+        return False
+
+    # Een reusable workflow uit deze repository: doorvolgen, want de deploy-stap staat dan in dát
+    # bestand. Ontbreekt het, dan is de uitkomst onbekend en niet "geen uitrol".
+    doel = os.path.join(os.path.dirname(os.path.abspath(pad)), "..", "..", verwijzing[2:])
+    doel = os.path.normpath(doel)
+
+    if not os.path.isfile(doel):
+        print(f"FOUT: {pad} verwijst naar {verwijzing}, maar dat bestand bestaat niet.", file=sys.stderr)
+        raise SystemExit(1)
+
+    return any(draait_deploy(hulpjob, doel) for hulpjob in lees(doel).values() if isinstance(hulpjob, dict))
+
+
+# Waarden die GitHub als onwaar leest. Een expressie met echte context is statisch niet te
+# beoordelen en telt daarom gewoon mee; deze vormen zetten een stap of job onmiskenbaar uit.
+UIT = {"false", "0", "", "null", "!true"}
+
+
+def staat_uit(waarde: object) -> bool:
+    """Of deze `if`-waarde een constante onwaarheid is, ongeacht de spelling."""
+    # YAML leest `if: null` en `if: ~` als None; zonder deze tak wordt dat de tekst "None" en telt
+    # een stap die nooit draait alsnog als bewijs.
+    if waarde is None:
+        return True
+
+    tekst = str(waarde).strip()
+
+    if tekst.startswith("${{") and tekst.endswith("}}"):
+        tekst = tekst[3:-2].strip()
+
+    # Quotes eromheen horen bij de expressie, niet bij de waarde: `${{ '' }}` is dezelfde
+    # onwaarheid als een lege string.
+    if len(tekst) >= 2 and tekst[0] == tekst[-1] and tekst[0] in "\"'":
+        tekst = tekst[1:-1].strip()
+
+    return tekst.lower() in UIT
+
+
+def runs(jobs: dict) -> list[str]:
+    """De uitvoerbare regels van elk `run:`-blok in de workflow."""
+    gevonden = []
+
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+
+        # Ook de `if` van de job zelf: die zet elke stap eronder uit, en zonder deze controle telde
+        # een uitgezette job als bewijs dat de keten iets doet.
+        if "if" in job and staat_uit(job["if"]):
+            continue
+
+        for stap in job.get("steps") or []:
+            if not isinstance(stap, dict) or not stap.get("run"):
+                continue
+
+            if "if" in stap and staat_uit(stap["if"]):
+                continue
+
+            for regel in str(stap["run"]).splitlines():
+                if not regel.lstrip().startswith("#"):
+                    gevonden.append(regel)
+
+    return gevonden
+
+
+def main() -> int:
+    modi = ("--jobs", "--uitrol", "--runs", "--outputs", "--with")
+
+    if len(sys.argv) != 3 or sys.argv[1] not in modi:
+        print(f"gebruik: {sys.argv[0]} {'|'.join(modi)} <workflow.yml>", file=sys.stderr)
+        return 2
+
+    modus, pad = sys.argv[1], sys.argv[2]
+    jobs = lees(pad)
+
+    if modus == "--runs":
+        for blok in runs(jobs):
+            print(blok)
+
+        return 0
+
+    if modus == "--with":
+        naam = os.environ.get("JOB", "")
+        job = jobs.get(naam)
+
+        if not isinstance(job, dict):
+            print(f"FOUT: {pad} heeft geen job '{naam}' — deze controle meet niets.", file=sys.stderr)
+            return 1
+
+        for sleutel, waarde in (job.get("with") or {}).items():
+            print(f"{sleutel}={waarde}")
+
+        return 0
+
+    if modus == "--outputs":
+        naam = os.environ.get("JOB", "")
+        job = jobs.get(naam)
+
+        if not isinstance(job, dict):
+            print(f"FOUT: {pad} heeft geen job '{naam}' — deze controle meet niets.", file=sys.stderr)
+            return 1
+
+        for sleutel, waarde in (job.get("outputs") or {}).items():
+            print(f"{sleutel}={waarde}")
+
+        return 0
+
+    for naam, job in jobs.items():
+        if modus == "--jobs":
+            print(naam)
+        elif isinstance(job, dict) and draait_deploy(job, pad):
+            print(naam)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -39,9 +39,14 @@ onverwacht() {
 
 # Resultaten per voorvoegsel, als regels `jobnaam=resultaat`. Faalt jq, dan is het needs-object
 # onbruikbaar en mag dat niet als "geen jobs gevonden" doorgaan.
+#
+# De status teruggeven en hier géén `fout` aanroepen: deze functie draait in een
+# command-substitutie, dus daar zou de `exit` alleen de subshell doden en zou de foutmelding de
+# teruggegeven waarde wórden — de aanroeper leest dan een onbruikbare regel als resultaat en meldt
+# iets over deploy.yml terwijl het probleem het workflow-contract is.
 resultaten() {
   jq -r --arg p "$1" 'to_entries[] | select(.key | startswith($p)) | "\(.key)=\(.value.result)"' \
-    <<<"$NEEDS" || fout "NEEDS is geen bruikbare toJSON(needs)-uitvoer."
+    <<<"$NEEDS"
 }
 
 telling() {
@@ -115,10 +120,15 @@ beoordeel() {
 
   # De andere as hoort volledig stil te zijn. Draaide daar tóch iets, dan matcht de `if` van die
   # jobs breder dan bedoeld en rolt een event uit dat dat niet hoort te doen.
-  eis_as "$(resultaten "$stille_as")" skipped " op de as die bij dit event niet hoort te draaien"
+  local stil uitrol
 
-  local uitrol
-  uitrol=$(resultaten "$as")
+  stil=$(resultaten "$stille_as") \
+    || fout "NEEDS is geen bruikbare toJSON(needs)-uitvoer — het oordeel is onbepaald."
+
+  eis_as "$stil" skipped " op de as die bij dit event niet hoort te draaien"
+
+  uitrol=$(resultaten "$as") \
+    || fout "NEEDS is geen bruikbare toJSON(needs)-uitvoer — het oordeel is onbepaald."
 
   if [ "$DEPLOY" = true ]; then
     [ "$GATE" = success ] \
@@ -128,7 +138,8 @@ beoordeel() {
     # overgeslagen uitrol: valt een build om of wijkt hij voor een nieuwere commit, dan slaan de
     # uitrol-jobs over via hun eigen `if`. Zonder hun stand wijst de melding naar het gevolg.
     local bouw
-    bouw=$(resultaten build)
+    bouw=$(resultaten build) \
+      || fout "NEEDS is geen bruikbare toJSON(needs)-uitvoer — het oordeel is onbepaald."
 
     eis_as "$uitrol" success " (bouw: $(tr '\n' ' ' <<<"$bouw"))"
 
