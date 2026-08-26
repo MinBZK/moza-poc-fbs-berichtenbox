@@ -29,7 +29,7 @@ interface DemoConfig {
         /** Wat de keuzelijst toont. Dient tevens als aanhef in gegenereerde berichten. */
         fun label(): String
 
-        /** BSN, RSIN of KVK; de keten kent daarnaast OIN, dat de demo bewust niet aanbiedt. */
+        /** BSN, RSIN of KVK. De keten kent daarnaast OIN, maar dat identificeert een afzender-organisatie, geen ontvanger. */
         fun type(): String
 
         fun waarde(): String

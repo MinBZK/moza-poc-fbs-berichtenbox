@@ -3,12 +3,13 @@ package nl.rijksoverheid.moz.fbs.democonsole.personas
 import java.util.Locale
 
 /**
- * Hoe een berichtenbox de inhoud van deze persona presenteert: als uitvraag bij de keten, of als
- * gegenereerde dataset buiten de keten om. Niet te verwarren met `dataset/basis.json` in deze
- * module: die berichten worden juist bij de echte magazijnen aangeleverd en horen dus bij [KETEN].
+ * Hoe een berichtenbox de herkomst van deze persona's berichten benoemt. Beide waarden halen op
+ * via de keten; `dataset` merkt de keuzelijst-optie aan als gegenereerde vulling. Niet te verwarren
+ * met `dataset/basis.json` in deze module: die berichten worden bij de echte magazijnen aangeleverd
+ * en horen dus bij [KETEN].
  *
- * Geen default en geen terugval: stil op `keten` uitkomen laat een berichtenbox verzonnen inhoud
- * presenteren alsof ze uit de keten komt.
+ * Geen default en geen terugval: stil op `keten` uitkomen laat een berichtenbox gegenereerde
+ * inhoud presenteren zonder dat merkteken, alsof ze echt is.
  */
 enum class PersonaBron {
 
@@ -16,13 +17,13 @@ enum class PersonaBron {
     DATASET,
     ;
 
-    /** De vorm die over de lijn gaat; ook wat [van] accepteert. */
+    /** De vorm die over de lijn gaat; [van] leest hem terug, hoofdletterongevoelig. */
     val wire: String get() = name.lowercase(Locale.ROOT)
 
     companion object {
 
         fun van(waarde: String): PersonaBron =
             entries.firstOrNull { it.name.equals(waarde, ignoreCase = true) }
-                ?: throw IllegalArgumentException("onbekende bron '$waarde'; toegestaan: ${entries.joinToString { it.wire }}")
+                ?: throw IllegalArgumentException("onbekende bron; toegestaan: ${entries.joinToString { it.wire }}")
     }
 }

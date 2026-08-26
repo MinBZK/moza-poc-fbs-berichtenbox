@@ -57,10 +57,7 @@ class PersonaConfiguratieTest {
 
     @Test
     fun `laat de generator alleen persona's opvoeren die bij een organisatie horen`() {
-        assertEquals(
-            personaService.alle().filterNot { it.magazijnen.isEmpty() }.map { it.id },
-            personaService.metMagazijnen().map { it.id },
-        )
+        assertEquals(listOf("bakkerij", "vandijk", "pietersen"), personaService.metMagazijnen().map { it.id })
         assertEquals(listOf("grootbedrijf"), (personaService.alle() - personaService.metMagazijnen().toSet()).map { it.id })
     }
 

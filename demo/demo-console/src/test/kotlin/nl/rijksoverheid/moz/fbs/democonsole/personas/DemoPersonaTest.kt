@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.democonsole.personas
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -27,10 +29,11 @@ class DemoPersonaTest {
     }
 
     @Test
-    fun `weigert een ontvanger-type dat niet in de header past`() {
+    fun `weigert een ontvanger-type dat de demo niet aanbiedt en noemt wat wel mag`() {
         val fout = assertThrows(IllegalArgumentException::class.java) { persona(type = "PASPOORT", waarde = "12345678") }
 
-        assertEquals(true, fout.message!!.contains("PASPOORT"))
+        assertTrue(fout.message!!.contains("BSN"), fout.message)
+        assertFalse(fout.message!!.contains("PASPOORT"), "de aangeboden waarde hoort niet in de melding")
     }
 
     @ParameterizedTest
@@ -55,12 +58,32 @@ class DemoPersonaTest {
         assertThrows(IllegalArgumentException::class.java) { persona(type = " ") }
     }
 
-    @Test
-    fun `noemt het identificatienummer niet in de foutmelding`() {
-        // Die meldingen belanden via het opstarten in de applicatielog; een nummer hoort daar niet in.
-        val fout = assertThrows(IllegalArgumentException::class.java) { persona(type = "BSN", waarde = "999993652") }
+    @ParameterizedTest
+    @CsvSource(
+        "BSN, 999993652",
+        "BSN, 12345",
+        "BSN, 000000000",
+        "RSIN, 999993652",
+        "KVK, 1234567",
+        "KVK, 00000000",
+        "999993653, BSN",
+    )
+    fun `noemt geen identificatienummer in de foutmelding, ook niet bij verwisselde velden`(type: String, waarde: String) {
+        val fout = assertThrows(IllegalArgumentException::class.java) { persona(type = type, waarde = waarde) }
 
-        assertEquals(false, fout.message!!.contains("999993652"))
+        // Elke reeks van acht of meer cijfers is een identificatienummer; het type mag de melding
+        // wel noemen, dat is geen persoonsgegeven.
+        assertFalse(NUMMER.containsMatchIn(fout.message!!), fout.message)
+    }
+
+    @Test
+    fun `weigert een nummer als persona-id, want de id komt wel in meldingen`() {
+        assertThrows(IllegalArgumentException::class.java) { persona(id = "999993653") }
+    }
+
+    @Test
+    fun `accepteert twee verschillende magazijnen`() {
+        assertEquals(2, persona(magazijnen = listOf("00000000000000100000", "00000001823288444000")).magazijnen.size)
     }
 
     @Test
@@ -86,6 +109,8 @@ class DemoPersonaTest {
     fun `weigert een leeg label`() {
         assertThrows(IllegalArgumentException::class.java) { persona(label = " ") }
     }
+
+    private val NUMMER = Regex("[0-9]{8,}")
 
     private fun persona(
         id: String = "pietersen",

@@ -52,7 +52,8 @@ internal object TestPersonas {
     // Relatief aan de module-root, de werkdirectory van Surefire.
     private const val BESTAND = "src/main/resources/application.properties"
 
-    private val MAGAZIJN_SLEUTEL = Regex("""demo\.magazijnen\."(\d+)"\.url""")
+    // Aanhalingstekens zijn optioneel: een OIN bevat geen punt, dus SmallRye accepteert beide vormen.
+    private val MAGAZIJN_SLEUTEL = Regex("""demo\.magazijnen\."?(\d+)"?\.url""")
 
     private val SLEUTEL = Regex("""demo\.personas\.([^.]+)\.([^.]+)""")
 
@@ -64,18 +65,20 @@ internal object TestPersonas {
     fun uitApplicationProperties(): PersonaService {
         val eigenschappen = Properties()
 
-        // Uit het bestand, niet van het classpath: deze test moet falen op de bron die in de repo
-        // staat en die de demo-inrichter bijwerkt, niet op een build-kopie ervan.
+        // Uit het bestand, niet van het classpath: PersonaConfiguratieTest is een @QuarkusTest, en
+        // daar levert de classloader een andere application.properties dan de bron in de repo —
+        // deze parser kwam dan leeg terug.
         val pad = Path.of(BESTAND)
 
         check(Files.isReadable(pad)) { "$BESTAND niet leesbaar — draait de test vanaf de module-root?" }
 
         Files.newInputStream(pad).use { eigenschappen.load(it) }
 
-        // Deze parser kent geen profiel-sleutels en geen expressies; stilzwijgend negeren zou een
-        // divergentie met SmallRye opleveren die pas bij het starten van de demo blijkt.
+        // Deze parser leest geen profiel-sleutels: stilzwijgend negeren zou een divergentie met
+        // SmallRye opleveren die pas bij het starten van de demo blijkt. Over de hele demo-prefix,
+        // want een profiel-scoped magazijn zou de persona die ernaar wijst ten onrechte doen falen.
         eigenschappen.stringPropertyNames().forEach {
-            check(!it.startsWith("%") || !it.contains(".demo.personas.")) { "profiel-sleutel '$it' wordt hier niet gelezen" }
+            check(!it.startsWith("%") || !it.contains(".demo.")) { "profiel-sleutel '$it' wordt hier niet gelezen" }
         }
 
         val velden = eigenschappen.stringPropertyNames()
@@ -83,6 +86,8 @@ internal object TestPersonas {
             .groupBy({ it.first }, { it.second })
             .mapValues { (_, paren) -> paren.toMap() }
 
+        // Van de magazijn-sleutels wordt alleen de OIN in de key gelezen, nooit de waarde; daar is
+        // een expressie dus onschadelijk (de URL's gebruiken er al een).
         velden.values.flatMap { it.values }.forEach {
             check(!it.contains("\${")) { "expressie in demo.personas.*: '$it' wordt hier niet geëxpandeerd" }
         }
@@ -104,7 +109,9 @@ internal object TestPersonas {
             label = vereist("label"),
             type = vereist("type"),
             waarde = vereist("waarde"),
-            magazijnen = veld["magazijnen"]?.split(",")?.map { it.trim() },
+            // Zoals io.smallrye.config.common.utils.StringUtil.split: geen trim, lege segmenten
+            // vervallen. Trimmen zou een spatie na de komma verbergen die de echte boot laat falen.
+            magazijnen = veld["magazijnen"]?.split(",")?.filter { it.isNotEmpty() },
             bron = vereist("bron"),
         )
     }

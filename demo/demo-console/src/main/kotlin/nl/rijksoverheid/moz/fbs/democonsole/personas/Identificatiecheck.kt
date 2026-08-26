@@ -2,16 +2,18 @@ package nl.rijksoverheid.moz.fbs.democonsole.personas
 
 /**
  * Minimale identificatienummer-validatie voor de demo-personas; een uitgeklede kopie van
- * `Identificatienummer` in fbs-common. Die library niet als dependency, omdat haar filters en
- * boot-validators (LDV, TLS, Redis) zich in deze module vanzelf zouden aanzetten. Doel is
- * fail-fast bij een typfout in de persona-lijst, zodat het magazijn straks geen 400 geeft
- * midden in een demo.
+ * `Identificatienummer` in fbs-common, die deze module bewust niet als dependency heeft — de
+ * afweging staat in `demo/demo-console/pom.xml`. Doel is fail-fast bij een typfout in de
+ * persona-lijst, zodat het magazijn straks geen 400 geeft midden in een demo.
  *
- * De waarde staat bewust in géén enkele foutmelding: die meldingen belanden via het opstarten
- * in de applicatielog, en daar hoort een identificatienummer niet in. De configuratieregel zelf
- * wijst de operator naar de foute waarde.
+ * Geen enkele melding echoot de aangeboden waarde, ook niet die van `type`: deze meldingen
+ * belanden via het opstarten in de applicatielog, en wie `type` en `waarde` verwisselt zou daar
+ * anders zijn identificatienummer in terugvinden. De persona-id die de aanroeper eraan plakt is
+ * de locator; wat toegestaan is staat in de melding zelf.
  */
 object Identificatiecheck {
+
+    private const val TOEGESTAAN = "BSN, RSIN, KVK"
 
     private val ELFPROEF_GEWICHTEN = intArrayOf(9, 8, 7, 6, 5, 4, 3, 2, -1)
 
@@ -22,7 +24,7 @@ object Identificatiecheck {
                 "$type moet 8 cijfers zijn (niet louter nullen)"
             }
 
-            else -> throw IllegalArgumentException("onbekend ontvanger-type: '$type'")
+            else -> throw IllegalArgumentException("onbekend ontvanger-type; toegestaan: $TOEGESTAAN")
         }
     }
 

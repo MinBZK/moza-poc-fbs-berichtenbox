@@ -74,12 +74,58 @@ class PersonaServiceTest {
     }
 
     @Test
-    fun `weigert een leeg magazijn-OIN, zoals een afsluitende komma oplevert`() {
+    fun `weigert een leeg magazijn-OIN`() {
         val fout = assertThrows(IllegalArgumentException::class.java) {
             service(mapOf("pietersen" to instelling("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO, ""))))
         }
 
-        assertTrue(fout.message!!.contains("komma"), fout.message)
+        assertTrue(fout.message!!.contains("pietersen"), fout.message)
+    }
+
+    @Test
+    fun `weigert een magazijn-OIN met witruimte eromheen, zoals een spatie na de komma oplevert`() {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            service(mapOf("pietersen" to instelling("J. Pietersen", "BSN", "999993653", listOf(" " + TestPersonas.RVO))))
+        }
+
+        assertTrue(fout.message!!.contains("witruimte"), fout.message)
+    }
+
+    @Test
+    fun `staat hetzelfde nummer toe onder twee verschillende types`() {
+        val personas = service(
+            mapOf(
+                "bsn" to instelling("A B.V.", "BSN", "999993653"),
+                "rsin" to instelling("B B.V.", "RSIN", "999993653"),
+            ),
+        ).alle()
+
+        assertEquals(listOf("bsn", "rsin"), personas.map { it.id })
+    }
+
+    @Test
+    fun `houdt melding en bijgevoegde oorzaken in dezelfde volgorde`() {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            service(
+                mapOf(
+                    "zebra" to instelling("Zebra B.V.", "KVK", "1234567"),
+                    "alfa" to instelling("Alfa B.V.", "KVK", "7654321"),
+                ),
+            )
+        }
+
+        assertTrue(fout.message!!.indexOf("alfa") < fout.message!!.indexOf("zebra"), fout.message)
+        assertEquals(listOf("demo-persona 'alfa'", "demo-persona 'zebra'"), fout.suppressed.map { it.message })
+    }
+
+    @Test
+    fun `noemt het identificatienummer niet in de opstartregel`() {
+        val regel = PersonaService.logregel(
+            service(mapOf("pietersen" to instelling("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO)))).alle(),
+        )
+
+        assertTrue(regel.contains("pietersen"), regel)
+        assertFalse(regel.contains("999993653"), regel)
     }
 
     @Test
@@ -123,12 +169,23 @@ class PersonaServiceTest {
     }
 
     @Test
-    fun `weigert te starten zonder magazijn`() {
+    fun `wijst naar demo-magazijnen als een persona een opt-in heeft maar er geen magazijn is`() {
         val fout = assertThrows(IllegalArgumentException::class.java) {
-            PersonaService(VasteDemoConfig(mapOf("a" to instelling("A", "KVK", "12345678")), emptyMap()))
+            PersonaService(
+                VasteDemoConfig(mapOf("a" to instelling("A B.V.", "KVK", "12345678", listOf(TestPersonas.RVO))), emptyMap()),
+            )
         }
 
-        assertTrue(fout.message!!.contains("demo.magazijnen"), fout.message)
+        assertTrue(fout.message!!.contains("geen magazijn ingericht"), fout.message)
+    }
+
+    @Test
+    fun `laat een inrichting zonder magazijn toe zolang geen persona er een noemt`() {
+        val personas = PersonaService(
+            VasteDemoConfig(mapOf("verzonnen" to instelling("Verzonnen B.V.", "KVK", "12345678", bron = "dataset")), emptyMap()),
+        ).alle()
+
+        assertEquals(listOf("verzonnen"), personas.map { it.id })
     }
 
     @Test
