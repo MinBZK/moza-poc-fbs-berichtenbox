@@ -159,16 +159,23 @@ jobs:
           # Zonder deze guard meldt de stap groen zodra er geen `test-*.sh` meer onder
           # .github/scripts/ staat — verwijderd, of buiten dat pad of die naamvorm gebracht.
           #
-          # En een ondergrens op het aantal: een suite die mét zijn VERWACHTE_ASSERTIES-sleutel
-          # verdwijnt, laat beide guards hierboven tevreden — terwijl demo-grens.sh geen andere
-          # aanroep in de keten heeft en de architectuurgrens dan geruisloos weg is.
           if [ "$gedraaid" -eq 0 ]; then
             echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."
             fail=1
-          elif [ "$gedraaid" -lt "${#VERWACHTE_ASSERTIES[@]}" ] || [ "$gedraaid" -lt 3 ]; then
-            echo "FOUT: $gedraaid suites gedraaid; er horen er minstens ${#VERWACHTE_ASSERTIES[@]} te zijn."
-            fail=1
           fi
+
+          # En een benoemde set, geen aantal: een suite die mét zijn VERWACHTE_ASSERTIES-sleutel
+          # verdwijnt laat de guards hierboven tevreden, en een vervangende stub die één `OK:`
+          # print haalt elke telling. Deze drie dragen elk een controle die nergens anders in de
+          # keten wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf.
+          for verplicht in .github/scripts/test-wijzigingsfilter.sh \
+                           .github/scripts/test-uitrol-poort.sh \
+                           .github/scripts/test-demo-grens.sh; do
+            if [ ! -f "$verplicht" ]; then
+              echo "FOUT: $verplicht ontbreekt; die controle draait nergens meer in de keten."
+              fail=1
+            fi
+          done
 
 
           if [ "$fail" -ne 0 ]; then

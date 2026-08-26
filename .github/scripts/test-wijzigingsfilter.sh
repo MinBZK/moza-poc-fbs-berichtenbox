@@ -591,40 +591,121 @@ else
 fi
 
 # En de andere hop: wat de callers als input dóórgeven. De outputs kloppen dan wel, maar één
-# hardgecodeerde `with:`-waarde laat de tests wegvallen — `wijzigingen-relevant: 'false'` slaat elke
-# shard over en de test-job telt dat als OK, terwijl `deploy` gewoon true blijft en de previews die
-# ongetoetste images uitrollen. De invariant die het filter intern bewaakt is op dit niveau anders
-# te omzeilen zonder dat iets rood wordt.
+# verwisselde `with:`-waarde laat de tests wegvallen — `wijzigingen-relevant` voeden met `demo-only`
+# slaat elke shard over en de test-job telt dat als OK, terwijl `deploy` gewoon true blijft en de
+# previews die ongetoetste images uitrollen.
 #
-# Sleutelnamen verschillen per aangeroepen workflow (`wijzigingen-relevant` leest `run`,
-# `fuzz-relevant` leest `fuzz`); wat vaststaat is dat élke waarde een ongewijzigde
-# needs.changes.outputs-verwijzing moet zijn.
-for caller in checks-test checks-detekt checks-fuzz; do
-  inputs=$(JOB="$caller" python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --with "$REPO_ROOT/.github/workflows/deploy.yml" || true)
+# De sleutelnamen verschillen per aangeroepen workflow (`wijzigingen-relevant` leest `run`), dus er
+# is geen naamregel — vandaar de tabel. Alleen de vórm eisen ("het is een needs.changes-verwijzing")
+# is niet genoeg: dan mag elke uitkomst elke input voeden, en juist dát is de aanval.
+declare -A CALLER_BEDRADING=(
+  [checks-test.wijzigingen-relevant]=run
+  [checks-test.demo-only]=demo-only
+  [checks-detekt.wijzigingen-relevant]=run
+  [checks-fuzz.fuzz-relevant]=fuzz
+)
 
-  if [ -z "$inputs" ]; then
-    fout "$caller geeft geen enkele input door; deze controle meet niets"
+# De callers uit de workflow zelf halen: een nieuwe caller-job die niet in de tabel staat, hoort op
+# te vallen in plaats van stil buiten deze controle te vallen.
+callers=$(python3 - "$REPO_ROOT/.github/workflows/deploy.yml" <<'PY'
+import sys
+import yaml
 
-    continue
+with open(sys.argv[1], encoding="utf-8") as bestand:
+    jobs = yaml.safe_load(bestand)["jobs"]
+
+for naam, job in jobs.items():
+    if isinstance(job, dict) and str(job.get("uses", "")).startswith("./") and job.get("with"):
+        print(naam)
+PY
+)
+
+if [ -z "$callers" ]; then
+  fout "geen enkele caller met inputs gevonden in deploy.yml; deze controle meet niets"
+else
+  bedradingsfouten=0
+  gecontroleerd=0
+
+  while IFS= read -r caller; do
+    inputs=$(JOB="$caller" python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --with "$REPO_ROOT/.github/workflows/deploy.yml" || true)
+
+    while IFS= read -r regel; do
+      sleutel=${regel%%=*}
+      waarde=${regel#*=}
+      verwacht=${CALLER_BEDRADING[$caller.$sleutel]:-}
+
+      if [ -z "$verwacht" ]; then
+        fout "$caller geeft input '$sleutel' door die niet in CALLER_BEDRADING staat — leg vast welke uitkomst daarbij hoort"
+        bedradingsfouten=$((bedradingsfouten + 1))
+      elif [ "$waarde" != "\${{ needs.changes.outputs.$verwacht }}" ]; then
+        fout "$caller voedt '$sleutel' met '$waarde' in plaats van met de uitkomst '$verwacht'"
+        bedradingsfouten=$((bedradingsfouten + 1))
+      else
+        gecontroleerd=$((gecontroleerd + 1))
+      fi
+    done <<<"$inputs"
+  done <<<"$callers"
+
+  # En andersom: een input die uit de workflow verdwijnt, laat de aangeroepen workflow terugvallen
+  # op zijn default — bij `demo-only` is dat leeg, en dan bepaalt de aangeroepen workflow het zelf.
+  for ingang in "${!CALLER_BEDRADING[@]}"; do
+    caller=${ingang%%.*}
+    sleutel=${ingang#*.}
+
+    JOB="$caller" python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --with "$REPO_ROOT/.github/workflows/deploy.yml" 2>/dev/null \
+      | grep -q "^$sleutel=" || {
+        fout "$caller geeft '$sleutel' niet meer door; de aangeroepen workflow valt dan terug op zijn default"
+        bedradingsfouten=$((bedradingsfouten + 1))
+      }
+  done
+
+  if [ "$bedradingsfouten" -eq 0 ] && [ "$gecontroleerd" -eq "${#CALLER_BEDRADING[@]}" ]; then
+    ok "elke caller voedt zijn inputs met de uitkomst die erbij hoort"
+  elif [ "$bedradingsfouten" -eq 0 ]; then
+    fout "$gecontroleerd van de ${#CALLER_BEDRADING[@]} vastgelegde bedradingen gecontroleerd; deze controle meet niet alles"
   fi
+fi
 
-  callerfouten=0
+# De shard-verdeling zelf: haal de complement-shard uit de matrix en alleen berichtenmagazijn draait
+# nog. De andere modules worden dan niet getest, elke shard slaagt, en de aggregator meldt groen.
+matrix=$(python3 - "$REPO_ROOT/.github/workflows/test.yml" <<'PY'
+import sys
+import yaml
 
-  while IFS= read -r regel; do
-    waarde=${regel#*=}
+with open(sys.argv[1], encoding="utf-8") as bestand:
+    jobs = yaml.safe_load(bestand)["jobs"]
 
-    case "$waarde" in
-      '${{ needs.changes.outputs.'*' }}') ;;
-      *)
-        fout "$caller geeft '${regel%%=*}' niet door uit de wijzigingsdetectie maar als '$waarde'"
-        callerfouten=$((callerfouten + 1))
-        ;;
-    esac
-  done <<<"$inputs"
+print(str(((jobs.get("shard") or {}).get("strategy") or {}).get("matrix", {}).get("shard", "")))
+PY
+)
 
-  [ "$callerfouten" -eq 0 ] \
-    && ok "$caller geeft elke input ongewijzigd door uit de wijzigingsdetectie"
+ontbreekt=""
+
+for deel in '"modules":"services/berichtenmagazijn"' '"modules":"!services/berichtenmagazijn"' '"modules":"demo/*"'; do
+  grep -qF "$deel" <<<"$matrix" || ontbreekt="$ontbreekt $deel"
 done
+
+[ -z "$ontbreekt" ] \
+  && ok "de shard-matrix dekt berichtenmagazijn, zijn complement en de demo-modules" \
+  || fout "de shard-matrix mist:$ontbreekt — die modules worden dan niet getest terwijl elke shard slaagt"
+
+# ci-scripts.yml is de enige aanroeper van de drie suites, en geen enkele suite zegt iets over dát
+# bestand: de stap eruit knippen laat de check groen (alleen actionlint blijft dan over).
+ci_runs=$(python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --runs "$REPO_ROOT/.github/workflows/ci-scripts.yml" || true)
+
+if [ -z "$ci_runs" ]; then
+  fout "ci-scripts.yml heeft geen uitvoerbare run-stappen; de suites draaien dan nergens"
+else
+  ci_ontbreekt=""
+
+  for nodig in "find .github/scripts -name 'test-*.sh'" "shellcheck"; do
+    grep -qF "$nodig" <<<"$ci_runs" || ci_ontbreekt="$ci_ontbreekt '$nodig'"
+  done
+
+  [ -z "$ci_ontbreekt" ] \
+    && ok "ci-scripts.yml draait de bash-suites en shellcheck" \
+    || fout "ci-scripts.yml mist:$ci_ontbreekt — die controles draaien dan nergens meer"
+fi
 
 # --- sourcen mag main niet uitvoeren ------------------------------------------------------------
 if [ -z "$(bash -c "source '$HERE/wijzigingsfilter.sh'" 2>/dev/null)" ]; then

@@ -73,10 +73,20 @@ UIT = {"false", "0", "", "null", "!true"}
 
 def staat_uit(waarde: object) -> bool:
     """Of deze `if`-waarde een constante onwaarheid is, ongeacht de spelling."""
+    # YAML leest `if: null` en `if: ~` als None; zonder deze tak wordt dat de tekst "None" en telt
+    # een stap die nooit draait alsnog als bewijs.
+    if waarde is None:
+        return True
+
     tekst = str(waarde).strip()
 
     if tekst.startswith("${{") and tekst.endswith("}}"):
         tekst = tekst[3:-2].strip()
+
+    # Quotes eromheen horen bij de expressie, niet bij de waarde: `${{ '' }}` is dezelfde
+    # onwaarheid als een lege string.
+    if len(tekst) >= 2 and tekst[0] == tekst[-1] and tekst[0] in "\"'":
+        tekst = tekst[1:-1].strip()
 
     return tekst.lower() in UIT
 
