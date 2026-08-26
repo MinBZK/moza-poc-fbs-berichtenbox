@@ -89,8 +89,8 @@ bijzaak — het toont dat het contract implementeerbaar is door iemand die onze 
 
 ## Module-opzet
 
-Nieuwe Maven-module **`services/magazijn-simulator`** — een eigen module in de reactor, naast
-`berichtenmagazijn`, `berichtenuitvraag` en `demo-console`. Package
+Nieuwe Maven-module **`demo/magazijn-simulator`** — een eigen module in de reactor, naast
+`demo/demo-console` en de twee services van het stelsel. Package
 `nl.rijksoverheid.moz.fbs.magazijnsimulator`. Quarkus + Kotlin + Panache + PostgreSQL 18 + Flyway,
 conform de bestaande conventies (surrogate PK per tabel, FK op surrogate PK, RESTRICT, `bytea`
 zonder `@Lob`).
@@ -100,20 +100,17 @@ en #936 voor het draaibaar maken ervan) — niet het geheel: de demo-console en 
 horen er net zo goed bij. Vandaar de specifiekere modulenaam; wie "simulatie-engine" zegt, bedoelt
 de simulator plus de bediening eromheen.
 
-**Waarom onder `services/` en niet onder `demo/`.** Het demo-karakter pleit voor `demo/`, maar de
-reactor kent vandaag alleen `libraries/*` en `services/*` als module-root, en het enige bestaande
-demo-only artefact — `services/demo-console` — staat al onder `services/`. Eén module apart
-neerzetten levert twee conventies naast elkaar op. Wil het team een `demo/`-module-root, dan is dat
-een eigen opruimactie waarin `demo-console` en de simulator sámen verhuizen; die staat los van dit
-ontwerp. `demo/` blijft ondertussen wat het is: scripts en gegenereerde artefacten, geen
-Maven-modules.
+**Waarom onder `demo/`.** De simulator hoort nooit in productie te draaien. Onder voorbehoud van
+het teambesluit bij spike MinBZK/MijnOverheidZakelijk#1005 — valt dat anders uit, dan landt de
+simulator op `services/magazijn-simulator` — is `demo/` een module-wortel naast `services/` en
+`libraries/`:
+`demo-console` staat er al, de simulator komt ernaast. De richting van de koppeling is een afspraak:
+een module uit het stelsel mag niet van een demo-module afhangen, andersom wel.
 
-Het bezwaar dat demo-code beter niet naast de code van het stelsel staat is terecht — voor
-meelezers is het verschil nu niet te zien, en de simulator maakt dat groter. Dat is een vraag over
-de indeling van de hele repository, niet over deze ene module, en die ligt als spike op de backlog:
-MinBZK/MijnOverheidZakelijk#1005. Valt daar het besluit vóór stap 1, dan landt de simulator meteen
-op de nieuwe plek; valt het later, dan verhuist hij mee. Wat we níet doen is de simulator
-vooruitlopend ergens anders neerzetten dan `demo-console`.
+Let op dat "demo" niet betekent "wordt niet uitgerold": de simulator krijgt een eigen ZAD-component
+en dus een eigen image. `.github/scripts/wijzigingsfilter.sh` sluit daarom alleen de aantoonbaar
+niet-uitgerolde delen van `demo/` van bouwen en deployen uit; `demo/magazijn-simulator/` valt daar
+buiten en houdt zijn build. Zie `demo/README.md`.
 
 ### Spec-hergebruik (optie A)
 
@@ -121,7 +118,7 @@ De generator staat al geparametriseerd in de parent-`pluginManagement`; een modu
 twee properties. De simulator-pom krijgt:
 
 ```xml
-<api.spec.file>${project.basedir}/../berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml</api.spec.file>
+<api.spec.file>${project.basedir}/../../services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml</api.spec.file>
 <api.base.package>nl.rijksoverheid.moz.fbs.magazijnsimulator</api.base.package>
 ```
 
@@ -530,7 +527,7 @@ bij die net zo goed getest horen te worden.
   `quarkus-jacoco`-extensie telt alleen `@QuarkusTest`-dekking, dus pure unit-tests dragen niet bij
   aan de drempel — integratietests zijn dus nodig, niet optioneel. Blijkt 90 % onhaalbaar, dan is dat
   een eigen afweging en zetten we hem bewust lager in plaats van hem stilzwijgend weg te laten.
-  Dat `services/demo-console` vandaag helemaal geen gate heeft, is een gat op zich; dat staat als
+  Dat `demo/demo-console` vandaag helemaal geen gate heeft, is een gat op zich; dat staat als
   MinBZK/MijnOverheidZakelijk#1006 op de backlog en dekt beide modules. Detekt geldt onverkort.
 
 ## Stappen
@@ -585,5 +582,5 @@ en niet alleen in dit document.
 6. Blijft de module `magazijn-simulator` heten, of wil het team de term "simulatie-engine" uit #787
    in de modulenaam terugzien? Nu beslissen is goedkoop; na de eerste code kost het een
    package-rename.
-7. Waar landt demo-code in de repository? De spike staat als #1005 op de backlog. Valt dat besluit
-   vóór stap 1, dan begint de simulator meteen op de goede plek.
+7. Waar landt demo-code in de repository? Spike #1005 heeft `demo/` als module-wortel ingericht en
+   de simulator begint daar; het teambesluit bij die spike moet dat nog bekrachtigen.

@@ -26,8 +26,6 @@ voor het portaal.
 - **Berichtenuitvraag** — frontend-API voor het portaal: bevraagt alle magazijnen van de ontvanger,
   streamt voortgang via SSE, bedient lijst, zoeken, detail en bijlagen, en neemt aanmeldingen
   van magazijnen aan.
-- **Demo-console** — bedieningspaneel voor demonstraties (magazijnen legen, dataset laden,
-  berichten opvoeren). Draait alleen mee in de demo-stack.
 
 De uitvraag heeft geen losse berichtensessiecache-service meer: die is opgegaan in
 `berichtenuitvraag` als in-process library, met Redis als gedeelde backing store.
@@ -43,12 +41,13 @@ De belangrijkste paden:
 |---------------------------------------|---------------------------------------------------------------------------------|
 | `services/berichtenmagazijn/`         | Magazijn-service (PostgreSQL + Flyway, Aanlever-API)                             |
 | `services/berichtenuitvraag/`         | Uitvraag-service (frontend-API, aggregatie, SSE)                                 |
-| `services/demo-console/`              | Demo-bedieningspaneel                                                            |
 | `libraries/fbs-common/`               | Gedeelde JAX-RS filters, exception mappers, identificatienummers (BSN/RSIN/KvK/OIN), Profiel-client |
 | `libraries/fbs-magazijnregister/`     | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)                    |
 | `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                           |
 | `bruno/`                              | Bruno-collecties met voorbeeldrequests per service                                |
-| `demo/`                               | Demo-stack: stubgenerator, rookproef; `demo/environment/` bevat de FSC-federatieharness |
+| `demo/`                               | Demonstratiecode — draait nooit in productie; zie [`demo/README.md`](demo/README.md) |
+| `demo/demo-console/`                  | Demo-bedieningspaneel (Maven-module)                                             |
+| `demo/environment/`                   | FSC-federatieharness (peers, PKI, contract-bootstrap)                            |
 | `docs/`                               | Architectuur (C4/Structurizr), runbooks, plannen, verantwoording                  |
 | `wiremock/`, `toxiproxy/`             | Stubs en fault-injection voor de lokale keten                                     |
 | `compose.yaml`                        | Lokale infrastructuur en de volledige demo-stack (`--profile demo`)               |
