@@ -64,7 +64,14 @@ De cross-project-URL's templaten al op `$DEPLOYMENT_NAME`, dus `demo` lost vanze
 
 Dit is de enige harde plaatsingseis; al het andere is met netwerkregels op te lossen.
 
-De `postgresql-database`-dienst is `binding=ServiceBinding.DEPLOYMENT`. In `mpfm-w3h/test` delen
+De `postgresql-database`-dienst is een **platformdienst van ZAD**, geen component dat wij zelf
+draaien: het platform provisioneert de database op een gedeelde instantie en levert de
+verbindingsgegevens als secret. In de gerenderde manifests van `mpfm-w3h/test` staat dan ook geen
+enkele postgres-pod — alleen `test-database-secret.sops.yaml`. Dat is iets anders dan
+`magazijna-fscpg` in de deployment `fsc-magazijna`: dát is wél zelf-gehost (`postgres:17` met
+`persistent-storage`), met een eigen image-pin en eigen volume.
+
+Die dienst is `binding=ServiceBinding.DEPLOYMENT`. In `mpfm-w3h/test` delen
 `magazijna` en `magazijnb` daardoor één secret `test-database`, dus één server, één database en
 één user. Wat ze scheidt is `DB_SCHEMA`, dat per component in de versleutelde `user-env-vars`
 staat — `magazijna-user-secret.sops.yaml` en `magazijnb-user-secret.sops.yaml` dragen allebei een
@@ -143,11 +150,16 @@ heeft. FSC in de demo is een vervolgstap.
 
 De `test`-stacks vragen samen 1139 Mi aan requests (uitvraag 213, magazijnen 698, externe stubs
 228). De `demo`-deployment spiegelt dat en telt de console (~250 Mi) en vier Toxiproxy's
-(~128 Mi) erbij op: ruwweg **1,5 Gi extra requests**, plus een tweede `postgresql-database` en
-vier ingressen.
+(~128 Mi) erbij op: ruwweg **1,5 Gi extra requests**. Dat getal is uitsluitend onze eigen pods.
 
-Of ODCN die ruimte heeft is niet uit de projectspecs af te lezen. Dat is een vraag aan het
-ZAD-team, en het antwoord moet er zijn voordat fase 2 begint.
+Daarnaast provisioneert het platform voor de deployment `demo` een eigen database — de dienst is
+deployment-gebonden, dus die komt er automatisch bij zodra de componenten ernaar verwijzen. Die
+kost geen geheugen in onze namespace, maar wel opslag en verbindingen op de gedeelde
+PostgreSQL-instantie. Reken verder op vier extra ingressen.
+
+Of ODCN die ruimte heeft is niet uit de projectspecs af te lezen. Is het geheugen er, dan blijft
+als vraag aan het ZAD-team over of een extra platform-database en vier ingressen op de gedeelde
+infrastructuur bezwaarlijk zijn.
 
 ## Wat er in de code verandert
 
@@ -401,8 +413,9 @@ op de gedeelde omgeving.
 
 ## Openstaande afhankelijkheden
 
-- Bevestiging van het ZAD-team dat ODCN ~1,5 Gi extra requests aankan. Stellen tijdens fase 1,
-  beantwoord vóór fase 2.
+- Bevestiging van het ZAD-team dat ODCN ~1,5 Gi extra requests aankan, plus een extra
+  platform-geleverde database en vier ingressen op de gedeelde infrastructuur. Stellen tijdens
+  fase 1, beantwoord vóór fase 2.
 - De schemanamen van de magazijnen in de `demo`-deployment moeten bekend zijn voordat de console
   geconfigureerd wordt; ze staan versleuteld in de `user-env-vars` van `test`.
 - **Het verbergmechanisme dekt niet alle knoppen die op ZAD zonder werkende backend staan.**

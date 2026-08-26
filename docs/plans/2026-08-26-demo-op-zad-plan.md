@@ -1737,7 +1737,9 @@ open tot fase 2 klaar is, haal dan de sluitregel weg en zet hem in de PR van fas
 # Fase 2 — ZAD
 
 > **Blokkade vóór deze fase:** bevestiging van het ZAD-team dat ODCN ruimte heeft voor ~1,5 Gi extra
-> requests, een tweede `postgresql-database` en vier ingressen. Stel die vraag tijdens fase 1.
+> requests aan eigen pods, plus een extra platform-geleverde database (de `postgresql-database`-
+> dienst is deployment-gebonden en komt er vanzelf bij; geen component dat wij draaien) en vier
+> ingressen. Stel die vraag tijdens fase 1.
 
 ## Taak 8: De demo-deployment neerzetten
 
