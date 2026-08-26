@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Fase 1 (lokaal) uitgevoerd; fase 2 (ZAD) blijft concept.
 
 # Demo draaibaar op laptop én ZAD — implementatieplan
 
