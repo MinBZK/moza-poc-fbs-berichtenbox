@@ -63,6 +63,20 @@ internal object TestPersonas {
      * parser is niet die van SmallRye; `PersonaConfiguratieTest` toetst dat de twee hetzelfde lezen.
      */
     fun uitApplicationProperties(): PersonaService {
+        val eigenschappen = laadEigenschappen()
+
+        val magazijnen = eigenschappen.stringPropertyNames()
+            .mapNotNull { MAGAZIJN_SLEUTEL.matchEntire(it)?.groupValues?.get(1) }
+            .associateWith { VastMagazijn }
+
+        check(magazijnen.isNotEmpty()) { "geen demo.magazijnen-sleutel gevonden in $BESTAND; klopt MAGAZIJN_SLEUTEL nog?" }
+
+        val velden = personaVelden(eigenschappen)
+
+        return PersonaService(VasteDemoConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }, magazijnen))
+    }
+
+    private fun laadEigenschappen(): Properties {
         val eigenschappen = Properties()
 
         // Uit het bestand, niet van het classpath: PersonaConfiguratieTest is een @QuarkusTest, en
@@ -81,10 +95,17 @@ internal object TestPersonas {
             check(!it.startsWith("%") || !it.contains(".demo.")) { "profiel-sleutel '$it' wordt hier niet gelezen" }
         }
 
+        return eigenschappen
+    }
+
+    /** Per persona-id de gelezen velden: `demo.personas.<id>.<veld>` = waarde. */
+    private fun personaVelden(eigenschappen: Properties): Map<String, Map<String, String>> {
         val velden = eigenschappen.stringPropertyNames()
-            .mapNotNull { sleutel -> SLEUTEL.matchEntire(sleutel)?.let { it.groupValues[1] to (it.groupValues[2] to eigenschappen.getProperty(sleutel)) } }
-            .groupBy({ it.first }, { it.second })
+            .mapNotNull { SLEUTEL.matchEntire(it) }
+            .groupBy({ it.groupValues[1] }, { it.groupValues[2] to eigenschappen.getProperty(it.value) })
             .mapValues { (_, paren) -> paren.toMap() }
+
+        check(velden.isNotEmpty()) { "geen demo.personas-sleutel gevonden in $BESTAND; klopt SLEUTEL nog?" }
 
         // Van de magazijn-sleutels wordt alleen de OIN in de key gelezen, nooit de waarde; daar is
         // een expressie dus onschadelijk (de URL's gebruiken er al een).
@@ -92,14 +113,7 @@ internal object TestPersonas {
             check(!it.contains("\${")) { "expressie in demo.personas.*: '$it' wordt hier niet geëxpandeerd" }
         }
 
-        val magazijnen = eigenschappen.stringPropertyNames()
-            .mapNotNull { MAGAZIJN_SLEUTEL.matchEntire(it)?.groupValues?.get(1) }
-            .associateWith { VastMagazijn }
-
-        check(velden.isNotEmpty()) { "geen demo.personas-sleutel gevonden in $BESTAND; klopt SLEUTEL nog?" }
-        check(magazijnen.isNotEmpty()) { "geen demo.magazijnen-sleutel gevonden in $BESTAND; klopt MAGAZIJN_SLEUTEL nog?" }
-
-        return PersonaService(VasteDemoConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }, magazijnen))
+        return velden
     }
 
     private fun vastePersona(id: String, veld: Map<String, String>): VastePersona {

@@ -33,7 +33,7 @@ object Identificatiecheck {
             "$type moet 9 cijfers zijn (niet louter nullen)"
         }
 
-        val som = waarde.mapIndexed { index, teken -> Character.getNumericValue(teken) * ELFPROEF_GEWICHTEN[index] }.sum()
+        val som = waarde.mapIndexed { index, teken -> teken.digitToInt() * ELFPROEF_GEWICHTEN[index] }.sum()
 
         require(som % 11 == 0) { "$type doorstaat de elfproef niet" }
     }

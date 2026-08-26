@@ -1,7 +1,9 @@
 package nl.rijksoverheid.moz.fbs.democonsole.personas
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -19,10 +21,11 @@ class PersonaBronTest {
     }
 
     @Test
-    fun `noemt de toegestane waarden bij een onbekende bron`() {
-        val fout = assertThrows(IllegalArgumentException::class.java) { PersonaBron.van("mock") }
+    fun `noemt bij een onbekende bron de toegestane waarden, niet de aangeboden waarde`() {
+        val melding = assertThrows(IllegalArgumentException::class.java) { PersonaBron.van("mock") }.message!!
 
-        assertEquals(true, fout.message!!.contains("keten"))
-        assertEquals(true, fout.message!!.contains("dataset"))
+        assertTrue(melding.contains("keten"), melding)
+        assertTrue(melding.contains("dataset"), melding)
+        assertFalse(melding.contains("mock"), "de aangeboden waarde hoort niet in de melding")
     }
 }

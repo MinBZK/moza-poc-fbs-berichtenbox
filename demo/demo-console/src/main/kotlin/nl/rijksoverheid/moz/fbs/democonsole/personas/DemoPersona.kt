@@ -27,7 +27,7 @@ data class DemoPersona(
 
         Identificatiecheck.valideer(type, waarde)
 
-        magazijnen.forEach { require(it.isNotBlank()) { "leeg magazijn-OIN in de lijst" } }
+        require(magazijnen.none { it.isBlank() }) { "leeg magazijn-OIN in de lijst" }
 
         require(magazijnen.distinct().size == magazijnen.size) {
             "magazijn-OIN dubbel in de lijst; dat trekt de verdeling van gegenereerde berichten scheef"

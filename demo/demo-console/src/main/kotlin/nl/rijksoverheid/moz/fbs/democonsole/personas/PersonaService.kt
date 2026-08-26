@@ -32,7 +32,7 @@ class PersonaService(config: DemoConfig) {
         // willekeurig zijn, en drie kapotte persona's kosten drie herstarts.
         config.personas().forEach { (id, instelling) ->
             try {
-                gelezen += lees(id, instelling, bekendeMagazijnen)
+                gelezen += leesPersona(id, instelling, bekendeMagazijnen)
             } catch (fout: IllegalArgumentException) {
                 onbruikbaar += id to fout
             } catch (fout: IllegalStateException) {
@@ -55,7 +55,7 @@ class PersonaService(config: DemoConfig) {
         return gesorteerd
     }
 
-    private fun lees(id: String, instelling: DemoConfig.PersonaInstelling, bekendeMagazijnen: Set<String>): DemoPersona {
+    private fun leesPersona(id: String, instelling: DemoConfig.PersonaInstelling, bekendeMagazijnen: Set<String>): DemoPersona {
         val magazijnen = instelling.magazijnen().orElse(emptyList())
 
         magazijnen.forEach {
@@ -86,11 +86,15 @@ class PersonaService(config: DemoConfig) {
         // eigen persona-id, zodat er geen willekeurige tot dé oorzaak gepromoveerd wordt.
         val gesorteerd = onbruikbaar.sortedBy { it.first }
 
-        throw IllegalArgumentException(
-            gesorteerd.joinToString("\n", prefix = "onbruikbare demo-persona's:\n") { (id, fout) -> "  - $id: ${fout.message ?: fout}" },
-        ).apply {
-            gesorteerd.forEach { (id, fout) -> addSuppressed(IllegalArgumentException("demo-persona '$id'", fout)) }
+        val melding = gesorteerd.joinToString("\n", prefix = "onbruikbare demo-persona's:\n") { (id, oorzaak) ->
+            "  - $id: ${oorzaak.message ?: oorzaak}"
         }
+
+        val fout = IllegalArgumentException(melding)
+
+        gesorteerd.forEach { (id, oorzaak) -> fout.addSuppressed(IllegalArgumentException("demo-persona '$id'", oorzaak)) }
+
+        throw fout
     }
 
     private fun vereisUniekeOntvangers(gelezen: List<DemoPersona>) {
