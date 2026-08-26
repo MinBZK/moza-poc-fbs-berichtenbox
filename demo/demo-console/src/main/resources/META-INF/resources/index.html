@@ -19,6 +19,7 @@
 
   <fieldset>
     <legend>Beheer</legend>
+    <button onclick="post('/api/demo/herstel', true)">Herstel demo (stoppen, resetten, legen, vullen)</button>
     <button onclick="post('/api/demo/legen', true)">Magazijnen legen</button>
     <button onclick="get('/api/demo/status')">Status (aantal berichten)</button>
     <button onclick="post('/api/demo/sessie/verlopen')">Cache verlopen (sessies wissen)</button>
