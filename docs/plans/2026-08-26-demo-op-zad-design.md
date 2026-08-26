@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Fase 1 (lokaal) uitgevoerd; fase 2 (ZAD) blijft concept.
 
 # Demo draaibaar op de laptop én op ZAD — ontwerp
 
@@ -173,10 +173,14 @@ demo.toxiproxy."magazijn-a".url=${TOXIPROXY_MAGAZIJN_A_URL:http://localhost:8474
 demo.toxiproxy."magazijn-b".url=${TOXIPROXY_MAGAZIJN_B_URL:http://localhost:8474}
 ```
 
-Lokaal wijzen alle zes naar dezelfde instantie, dus daar verandert het gedrag niet. Op ZAD staan er
-vier en ontbreken `magazijn-a`/`magazijn-b`; een knop voor een onbekende proxy geeft dan een 400
-met de beschikbare namen in plaats van een 500. Het register vervangt daarmee de
-`INFRA_PROXIES`-allowlist in `StoringResource`: die lijst ís nu het register.
+Lokaal wijzen alle zes naar dezelfde instantie, dus daar verandert het gedrag niet. Op ZAD draaien
+er vier; `magazijn-a` en `magazijn-b` worden expliciet uitgeschakeld door hun env-var leeg te
+zetten (`TOXIPROXY_MAGAZIJN_A_URL=`, `_B_URL=`) — de configuratiesleutel zelf blijft altijd bestaan,
+want de env-var-fallback in `application.properties` zit op de waarde, niet op het al-dan-niet-
+zetten ervan. Een lege waarde filtert `ToxiproxyAdressen` weg (zie
+`ToxiproxyAdressen.perProxy`), waarna een knop voor die proxy een 400 geeft met de beschikbare
+namen in plaats van een 500. Het register vervangt daarmee de `INFRA_PROXIES`-allowlist in
+`StoringResource`: die lijst ís nu het register.
 
 `StoringService.reset()` gaat over alle geregistreerde instanties in plaats van over één. De
 bestaande controle — een Toxiproxy zonder proxies betekent dat de keten nergens doorheen loopt —
@@ -330,7 +334,7 @@ Redis vandaag; het runbook noemt hem als handmatig na te lopen punt.
 |---|---|
 | `uitvraag` (demo) | `PROFIEL_SERVICE_URL`, `REDIS_HOSTS`, `QUARKUS_HTTP_CORS_ENABLED`, `QUARKUS_HTTP_CORS_ORIGINS` |
 | `magazijna` / `magazijnb` (demo) | `NOTIFICATIE_URL`, `AANMELD_URL`, `DB_SCHEMA`, `MAGAZIJN_OIN` |
-| `democonsole` | `UITVRAAG_BASIS`, `MAGAZIJN_A_URL`/`_B_URL`, de DB-aliassen + `MAGAZIJN_A_DB_SCHEMA`/`_B_DB_SCHEMA`, de vier `TOXIPROXY_*_URL`, `REDIS_HOSTS` |
+| `democonsole` | `UITVRAAG_BASIS`, `UITVRAAG_URL`, `MAGAZIJN_A_URL`/`_B_URL`, de DB-aliassen + `MAGAZIJN_A_DB_SCHEMA`/`_B_DB_SCHEMA`, alle zes `TOXIPROXY_*_URL` (`TOXIPROXY_MAGAZIJN_A_URL=` en `_B_URL=` expliciet leeg — leeg schakelt die proxy uit, zie hierboven), `REDIS_HOSTS`, `MAGAZIJN_STUBS_ADMIN_URL` en `DEMO_MAGAZIJN_STUBS` (horen bij de veel-magazijnen-schuif; buiten scope voor fase 2, zie "Bewust buiten scope") |
 | vier `toxiproxy-*` | `proxies.json` als attachment, één proxy per instantie |
 
 De DB-aliassen van de console verwijzen naar dezelfde platformvariabelen als die van de magazijnen:
@@ -399,6 +403,13 @@ op de gedeelde omgeving.
   beantwoord vóór fase 2.
 - De schemanamen van de magazijnen in de `demo`-deployment moeten bekend zijn voordat de console
   geconfigureerd wordt; ze staan versleuteld in de `user-env-vars` van `test`.
+- **Het verbergmechanisme dekt niet alle knoppen die op ZAD zonder werkende backend staan.**
+  `index.html` verbergt alleen knoppen met een `data-proxy`-attribuut wanneer die proxy niet in
+  het register voorkomt (zie hierboven). De veel-magazijnen-knoppen en de ontdubbelingsknop dragen
+  dat attribuut niet en blijven dus zichtbaar en falend op ZAD, ook al staan ze — via de
+  veel-magazijnen-schuif — buiten scope voor fase 2. Fase 2 moet hier een keuze maken: het
+  mechanisme uitbreiden naar een generieke "backend ontbreekt"-check, of deze knoppen een eigen
+  verbergconditie geven.
 
 ## Bewust buiten scope
 
