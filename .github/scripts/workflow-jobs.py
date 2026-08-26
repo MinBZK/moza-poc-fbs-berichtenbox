@@ -8,8 +8,11 @@ levert telkens een job op die GitHub gewoon draait en die een patroon niet ziet 
 certificeert de uitrol-poort een uitrol die hij nooit beoordeeld heeft.
 
 Modi:
-  --jobs     alle job-id's
-  --uitrol   de job-id's die de zad-actions-deploy draaien, ook via een lokale reusable workflow
+  --jobs      alle job-id's
+  --uitrol    de job-id's die de zad-actions-deploy draaien, ook via een lokale reusable workflow
+  --runs      de inhoud van elk `run:`-blok, zodat een controle bewijs uit uitvoerbare stappen haalt
+              en niet uit een commentaarregel die toevallig hetzelfde pad noemt
+  --outputs   de outputs van één job als `sleutel=waarde` (job-id via de omgevingsvariabele JOB)
 
 Uitvoer: één job-id per regel op stdout, diagnostiek op stderr, exitcode 1 zodra de workflow niet te
 lezen is of een gevolgde reusable workflow ontbreekt. Stilte is hier geen geldige uitkomst.
@@ -61,8 +64,23 @@ def draait_deploy(job: dict, pad: str) -> bool:
     return any(draait_deploy(hulpjob, doel) for hulpjob in lees(doel).values() if isinstance(hulpjob, dict))
 
 
+def runs(jobs: dict) -> list[str]:
+    """De inhoud van elk `run:`-blok in de workflow."""
+    gevonden = []
+
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+
+        for stap in job.get("steps") or []:
+            if isinstance(stap, dict) and stap.get("run"):
+                gevonden.append(str(stap["run"]))
+
+    return gevonden
+
+
 def main() -> int:
-    modi = ("--jobs", "--uitrol")
+    modi = ("--jobs", "--uitrol", "--runs", "--outputs")
 
     if len(sys.argv) != 3 or sys.argv[1] not in modi:
         print(f"gebruik: {sys.argv[0]} {'|'.join(modi)} <workflow.yml>", file=sys.stderr)
@@ -70,6 +88,25 @@ def main() -> int:
 
     modus, pad = sys.argv[1], sys.argv[2]
     jobs = lees(pad)
+
+    if modus == "--runs":
+        for blok in runs(jobs):
+            print(blok)
+
+        return 0
+
+    if modus == "--outputs":
+        naam = os.environ.get("JOB", "")
+        job = jobs.get(naam)
+
+        if not isinstance(job, dict):
+            print(f"FOUT: {pad} heeft geen job '{naam}' — deze controle meet niets.", file=sys.stderr)
+            return 1
+
+        for sleutel, waarde in (job.get("outputs") or {}).items():
+            print(f"{sleutel}={waarde}")
+
+        return 0
 
     for naam, job in jobs.items():
         if modus == "--jobs":

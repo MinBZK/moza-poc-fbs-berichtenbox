@@ -705,7 +705,10 @@ lijst_toets "een ontbrekende demo-wortel meldt wat er mist" "$w" 1 "bestaat niet
 # De wortels staan op twee plekken ingetypt: hier en in de module-lussen van codeql.yml. Lopen ze
 # uiteen, dan dekt de ene guard een wortel die de andere overslaat — en dat is stil, want beide
 # blijven groen over wat ze wél zien.
-codeql_wortels=$( { grep -oE 'for wortel in [a-z ]+; do' "$HERE/../workflows/codeql.yml" || true; } \
+# Bewijs uit de `run:`-blokken en niet uit het ruwe bestand: een commentaarregel met dezelfde
+# lus-tekst zou een verdwenen wortellus als aanwezig laten tellen.
+codeql_wortels=$( { python3 "$HERE/workflow-jobs.py" --runs "$HERE/../workflows/codeql.yml" \
+  | grep -oE 'for wortel in [a-z ]+; do' || true; } \
   | sed 's/for wortel in //; s/; do//' | sort -u)
 eigen_wortels="${STELSEL_WORTELS[*]} demo"
 

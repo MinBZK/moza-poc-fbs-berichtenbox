@@ -434,17 +434,28 @@ matrix=$(sed -n 's/.*service: \[\(.*\)\].*/\1/p' "$REPO_ROOT/.github/workflows/d
 if [ -z "$matrix" ]; then
   fout "geen service-matrix gevonden in deploy.yml; deze kruiscontrole meet niets"
 else
+  vergeleken=0
+
   while IFS= read -r uitgesloten; do
     case "$uitgesloten" in
       '^demo/'*'/') module=${uitgesloten#^demo/}; module=${module%/} ;;
       *) continue ;;
     esac
 
+    vergeleken=$((vergeleken + 1))
+
     grep -q "\b$module\b" <<<"$matrix" \
       && fout "$module staat in de build-matrix van deploy.yml én in DEMO_BUITEN_UITROLPOORT; zijn imagebuild wordt stil overgeslagen"
   done <<<"${DEMO_BUITEN_UITROLPOORT//|/$'\n'}"
 
-  ok "geen enkel pad uit DEMO_BUITEN_UITROLPOORT staat in de build-matrix van deploy.yml"
+  # Nul vergelijkingen is geen schone uitkomst maar een stille: een gedragsneutrale herformulering
+  # van het patroon laat de `case` niets matchen, en dan meldt de `ok` hieronder iets over een
+  # vergelijking die nooit gemaakt is.
+  if [ "$vergeleken" -eq 0 ]; then
+    fout "geen enkel demo-modulepad uit DEMO_BUITEN_UITROLPOORT herkend; deze kruiscontrole meet niets"
+  else
+    ok "geen enkel pad uit DEMO_BUITEN_UITROLPOORT staat in de build-matrix van deploy.yml"
+  fi
 fi
 
 [ -f "$REPO_ROOT/docs/architecture/workspace.dsl" ] \
@@ -467,21 +478,45 @@ fi
 # --- het contract met de workflows --------------------------------------------------------------
 # De hele wijziging bestaat om vier gekopieerde detecties te vervangen door één script. Wie er een
 # terugdraait naar inline logica, maakt zonder deze controle geen enkele test rood.
+#
+# Het bewijs komt uit de `run:`-blokken en niet uit het ruwe bestand: een grep over het hele
+# bestand vindt het scriptpad ook in een comment, en dan telt een weggestubde detectie met een
+# achtergebleven toelichting als "roept het filter aan".
 for wf in deploy test detekt cflite_pr; do
-  grep -q '\.github/scripts/wijzigingsfilter\.sh' "$REPO_ROOT/.github/workflows/$wf.yml" \
-    && ok "$wf.yml roept het gedeelde filter aan" \
+  aanroepen=$(python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --runs "$REPO_ROOT/.github/workflows/$wf.yml" \
+    | grep -c '\.github/scripts/wijzigingsfilter\.sh' || true)
+
+  [ "$aanroepen" -gt 0 ] \
+    && ok "$wf.yml roept het gedeelde filter aan in een run-stap" \
     || fout "$wf.yml roept het gedeelde filter niet meer aan — de detectie is teruggedreven"
 done
 
 # Het vangnet dat de uitkomst valideert staat noodgedwongen in de workflows zelf (het moet ook
 # werken als het script ontbreekt) en is daarmee vatbaar voor exact de drift die dit script
 # wegneemt. Vandaar een vingerafdruk over de vier blokken.
-vingers=$(for wf in deploy test detekt cflite_pr; do
-  sed -n '/uitkomsten=\$(\.github/,/^ *fi$/p' "$REPO_ROOT/.github/workflows/$wf.yml" \
-    | sed 's/^ *//;/^#/d;/^$/d' | md5sum | cut -d' ' -f1
-done)
+#
+# Het blok móét gevonden worden: vier keer niets levert vier keer dezelfde md5 van de lege string
+# op, en dat las als "identiek" terwijl er nergens meer gevalideerd werd.
+vingers=""
+blokken_gevonden=0
 
-if [ "$(sort -u <<<"$vingers" | grep -c .)" = 1 ]; then
+for wf in deploy test detekt cflite_pr; do
+  blok=$(python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --runs "$REPO_ROOT/.github/workflows/$wf.yml" \
+    | sed -n '/uitkomsten=\$(\.github/,/^ *fi$/p' | sed 's/^ *//;/^#/d;/^$/d')
+
+  if [ -z "$blok" ]; then
+    fout "$wf.yml valideert de uitkomst van het filter niet meer — een onbruikbare uitkomst gaat dan door voor een geldige"
+
+    continue
+  fi
+
+  blokken_gevonden=$((blokken_gevonden + 1))
+  vingers="$vingers$(md5sum <<<"$blok" | cut -d' ' -f1)\n"
+done
+
+if [ "$blokken_gevonden" -ne 4 ]; then
+  fout "$blokken_gevonden van de 4 workflows valideren de uitkomst; de vingerafdruk meet dan niets"
+elif [ "$(printf '%b' "$vingers" | grep -c .)" -eq 4 ] && [ "$(printf '%b' "$vingers" | sort -u | grep -c .)" = 1 ]; then
   ok "de vier workflows valideren de uitkomst identiek"
 else
   fout "de validatie van de uitkomst is tussen de workflows uiteengelopen"
@@ -497,6 +532,29 @@ if [ "$gelezen" = "$geleverd" ]; then
   ok "de workflows lezen exact de sleutels die het script levert"
 else
   fout "sleutelnamen in de workflows en het script lopen uiteen"
+fi
+
+# En de bedrading zelf: elke output van de `changes`-job moet de gelijknamige filter-uitkomst
+# doorgeven. Eén hardgecodeerde waarde daar — `demo-only: 'true'` — scopet elke PR naar de
+# demo-shard, laat de services ongetest en rolt de previews alsnog uit, zonder dat iets rood wordt.
+bedrading=$(JOB=changes python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --outputs "$REPO_ROOT/.github/workflows/deploy.yml" || true)
+
+if [ -z "$bedrading" ]; then
+  fout "de changes-job van deploy.yml levert geen outputs; deze controle meet niets"
+else
+  bedradingsfouten=0
+
+  while IFS= read -r sleutel; do
+    verwacht="$sleutel=\${{ steps.filter.outputs.$sleutel }}"
+
+    grep -qxF "$verwacht" <<<"$bedrading" || {
+      fout "de changes-job geeft '$sleutel' niet door uit het filter (verwacht: $verwacht)"
+      bedradingsfouten=$((bedradingsfouten + 1))
+    }
+  done <<<"$geleverd"
+
+  [ "$bedradingsfouten" -eq 0 ] \
+    && ok "elke uitkomst van het filter wordt ongewijzigd doorgegeven als job-output"
 fi
 
 # --- sourcen mag main niet uitvoeren ------------------------------------------------------------
