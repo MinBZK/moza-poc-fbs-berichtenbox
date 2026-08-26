@@ -389,8 +389,12 @@ done
 # De wortels komen uit de reactor en staan hier niet ingetypt, en de vergelijking is per hele naam:
 # een substring-match zou `services/bericht` laten wegvallen tegen `services/berichtenmagazijn` en
 # daarmee precies het gat verbergen dat deze controle moet vinden.
-fuzz_wortels=$(python3 "$REPO_ROOT/.github/scripts/pom-artifactids.py" --reactor "$REPO_ROOT/pom.xml" \
-  | cut -d/ -f1 | sort -u | sed "s:^:$REPO_ROOT/:")
+#
+# `|| true` op beide metingen: zonder dat sterft de suite ín de toewijzing (`set -e` plus
+# `pipefail`) en zijn juist de "meet niets"-takken eronder onbereikbaar — dan volgt een rode check
+# zonder diagnose, en draaien de asserties hierná niet meer.
+fuzz_wortels=$( { python3 "$REPO_ROOT/.github/scripts/pom-artifactids.py" --reactor "$REPO_ROOT/pom.xml" \
+  | cut -d/ -f1 | sort -u | sed "s:^:$REPO_ROOT/:"; } || true)
 
 allowlist=$(sed -n 's/^MODULES=(\(.*\))[[:space:]]*$/\1/p' "$REPO_ROOT/.clusterfuzzlite/build.sh" | tr ' ' '\n' | grep -v '^$' || true)
 
@@ -399,9 +403,12 @@ if [ -z "$fuzz_wortels" ]; then
 elif [ -z "$allowlist" ]; then
   fout "geen MODULES-lijst gevonden in .clusterfuzzlite/build.sh; de fuzz-kruiscontrole meet niets"
 else
+  # Twee oppervlakken: wat build.sh daadwerkelijk ontdekt (`src/test/kotlin`, alleen `.kt`) en wat
+  # een Jazzer-doel is waar dan ook in de module. Loopt dat uiteen, dan bestaat het doel wél maar
+  # bouwt de ronde er geen driver voor — groen zonder ooit te fuzzen.
   # shellcheck disable=SC2086  # de wortels zijn paden zonder spaties (conventie) en moeten hier splitsen
-  fuzz_modules=$(grep -rl 'fuzzerTestOneInput' --include='*.kt' --include='*.java' $fuzz_wortels 2>/dev/null \
-    | sed "s:^$REPO_ROOT/::; s:/src/.*::" | sort -u)
+  fuzz_doelen=$( { grep -rl 'fuzzerTestOneInput' --include='*.kt' --include='*.java' $fuzz_wortels 2>/dev/null || true; } | sort -u)
+  fuzz_modules=$( { sed "s:^$REPO_ROOT/::; s:/src/.*::" <<<"$fuzz_doelen" | grep -v '^$' | sort -u; } || true)
 
   if [ -z "$fuzz_modules" ]; then
     fout "geen enkel Jazzer-doel gevonden; de fuzz-kruiscontrole meet niets"
@@ -417,6 +424,22 @@ else
     else
       ok "elke module met een Jazzer-doel staat in de fuzz-allowlist"
     fi
+
+    # build.sh ontdekt alleen `$MODULE/src/test/kotlin/**.kt`. Een doel daarbuiten — een Java-doel,
+    # of Kotlin onder een ander pad — levert geen driver op, en dan fuzzt de ronde er nooit tegen.
+    buiten=$(grep -v "/src/test/kotlin/.*\.kt$" <<<"$fuzz_doelen" | sed "s:^$REPO_ROOT/::" | grep -v '^$' || true)
+
+    [ -z "$buiten" ] \
+      && ok "elk Jazzer-doel staat op het pad dat build.sh ontdekt" \
+      || fout "Jazzer-doel(en) buiten src/test/kotlin/*.kt; build.sh bouwt daar geen driver voor: $(tr '\n' ' ' <<<"$buiten")"
+
+    # De wrappernaam is `basename -s .kt` in één gedeelde map: twee gelijknamige doelen in
+    # verschillende modules overschrijven elkaar, en één ervan wordt nooit gefuzzd.
+    dubbel=$(sed 's:.*/::' <<<"$fuzz_doelen" | sort | uniq -d || true)
+
+    [ -z "$dubbel" ] \
+      && ok "elke fuzzer-bestandsnaam is uniek over alle modules" \
+      || fout "fuzzer-bestandsnaam komt meer dan eens voor; de wrappers overschrijven elkaar: $(tr '\n' ' ' <<<"$dubbel")"
   fi
 fi
 
