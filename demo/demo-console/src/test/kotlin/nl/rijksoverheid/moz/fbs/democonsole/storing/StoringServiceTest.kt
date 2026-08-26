@@ -113,4 +113,31 @@ class StoringServiceTest {
 
         assertTrue(fout.message!!.contains("proxies.json"), "melding moet naar de oorzaak wijzen, was: ${fout.message}")
     }
+
+    @Test
+    fun `reset faalt als er geen enkele proxy geconfigureerd is`() {
+        // Lege TOXIPROXY_*_URL's schakelen elke proxy uit; het register is dan leeg. Zonder guard
+        // zou de lege forEach niets doen en de resource "alles normaal" laten melden.
+        val fout = assertThrows(IllegalStateException::class.java) { StoringService(registerMet()).reset() }
+
+        assertTrue(
+            fout.message!!.contains("Geen enkele proxy geconfigureerd"),
+            "melding moet naar de oorzaak wijzen, was: ${fout.message}",
+        )
+    }
+
+    @Test
+    fun `reset herstelt een gezonde instantie ook als een eerdere instantie geen proxies kent`() {
+        // Eén kapotte instantie mag de rest niet gijzelen: reset() gaat alle instanties langs en
+        // meldt de fouten pas aan het eind, verzameld.
+        every { instantie.proxies() } returns emptyMap()
+        every { tweede.proxies() } returns mapOf("redis" to ProxyStatus(enabled = false, toxics = emptyList()))
+        every { tweede.zetProxy(any(), any()) } returns ok()
+
+        assertThrows(IllegalStateException::class.java) {
+            StoringService(registerMet("profiel" to instantie, "redis" to tweede)).reset()
+        }
+
+        verify { tweede.zetProxy("redis", ProxyPatch(enabled = true)) }
+    }
 }
