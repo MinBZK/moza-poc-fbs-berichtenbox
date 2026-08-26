@@ -2,7 +2,7 @@
   "priority": 1,
   "request": {
     "method": "GET",
-    "urlPathPattern": "/api/profielservice/v1/KVK/12345678"
+    "urlPathPattern": "/api/profielservice/v1/KVK/90000014"
   },
   "response": {
     "status": 200,
