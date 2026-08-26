@@ -302,7 +302,10 @@ services:
       # POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases; op 0.0.0.0 is dat
       # vanaf het hele netwerk bereikbaar. De Berichtenbox-UI praat sowieso alleen vanaf
       # localhost (vaste API-basis localhost:8086 plus de CORS-allowlist van de uitvraag).
-      - "127.0.0.1:8095:8095"  # NIET via DEMO_BIND: zie de toelichting hierboven
+      # NIET via DEMO_BIND — dat adres stuurt de niet-destructieve diensten. Wie de demo van buiten
+      # de machine wil bedienen (of van buiten een dev-container, die een eigen netns heeft), zet
+      # DEMO_BEDIENING_BIND bewust ruimer en accepteert daarmee dat het legen bereikbaar wordt.
+      - "${DEMO_BEDIENING_BIND:-127.0.0.1}:8095:8095"
     depends_on:
       berichtenmagazijn-a:
         condition: service_started
@@ -362,7 +365,7 @@ services:
     image: docker.io/library/nginx:1.31-alpine
     profiles: [demo]
     ports:
-      - "127.0.0.1:8097:8080"  # NIET via DEMO_BIND: zie de toelichting bij demo-console
+      - "${DEMO_BEDIENING_BIND:-127.0.0.1}:8097:8080"  # zie de toelichting bij demo-console
     depends_on:
       proeftuin:
         condition: service_started
@@ -371,12 +374,14 @@ services:
       berichtenuitvraag:
         condition: service_started
     environment:
+      # Binnen het containernetwerk; wat er van buiten bereikbaar is bepaalt de ports-regel.
+      PROXY_BIND: "0.0.0.0"
       PROXY_PORT: "8080"
       PROEFTUIN_UPSTREAM: http://proeftuin:8080
       CONSOLE_UPSTREAM: http://demo-console:8095
       UITVRAAG_UPSTREAM: http://berichtenuitvraag:8086
       # Beperk envsubst tot deze vier, zodat nginx-eigen variabelen ($$host, $$uri) blijven staan.
-      NGINX_ENVSUBST_FILTER: '^(PROXY_PORT|(PROEFTUIN|CONSOLE|UITVRAAG)_UPSTREAM)$$'
+      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|UITVRAAG)_UPSTREAM)$$'
     volumes:
       - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
 

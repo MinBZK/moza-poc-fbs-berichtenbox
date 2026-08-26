@@ -35,6 +35,10 @@ services:
     network_mode: host
     ports: !reset []
     environment:
+      # In een gedeelde netns is er geen ports-regel die de blootstelling begrenst, dus doet het
+      # luisteradres dat werk. Loopback tenzij DEMO_BEDIENING_BIND anders zegt — zelfde afweging
+      # als bij demo-console: via deze proxy is /api/demo/legen een TRUNCATE.
+      PROXY_BIND: "${DEMO_BEDIENING_BIND:-127.0.0.1}"
       PROXY_PORT: "8097"
       PROEFTUIN_UPSTREAM: http://127.0.0.1:8080
       CONSOLE_UPSTREAM: http://127.0.0.1:8095
