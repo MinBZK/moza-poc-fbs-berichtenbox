@@ -98,8 +98,8 @@ jobs:
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
             [.github/scripts/test-wijzigingsfilter.sh]=82
-            [.github/scripts/test-uitrol-poort.sh]=62
-            [.github/scripts/test-demo-grens.sh]=59
+            [.github/scripts/test-uitrol-poort.sh]=63
+            [.github/scripts/test-demo-grens.sh]=61
           )
 
           # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt

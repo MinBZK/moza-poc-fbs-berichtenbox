@@ -385,22 +385,38 @@ done
 
 # De fuzz-allowlist in .clusterfuzzlite/build.sh is handwerk: een module met een Jazzer-doel die
 # daar niet in staat, wordt niet gebouwd en niet gefuzzd terwijl de ronde groen rapporteert.
-fuzz_modules=$(grep -rl 'fuzzerTestOneInput' --include='*.kt' --include='*.java' "$REPO_ROOT/libraries" "$REPO_ROOT/services" "$REPO_ROOT/demo" 2>/dev/null \
-  | sed "s:^$REPO_ROOT/::; s:/src/.*::" | sort -u)
+#
+# De wortels komen uit de reactor en staan hier niet ingetypt, en de vergelijking is per hele naam:
+# een substring-match zou `services/bericht` laten wegvallen tegen `services/berichtenmagazijn` en
+# daarmee precies het gat verbergen dat deze controle moet vinden.
+fuzz_wortels=$(python3 "$REPO_ROOT/.github/scripts/pom-artifactids.py" --reactor "$REPO_ROOT/pom.xml" \
+  | cut -d/ -f1 | sort -u | sed "s:^:$REPO_ROOT/:")
 
-if [ -z "$fuzz_modules" ]; then
-  fout "geen enkel Jazzer-doel gevonden; deze kruiscontrole meet niets"
+allowlist=$(sed -n 's/^MODULES=(\(.*\))[[:space:]]*$/\1/p' "$REPO_ROOT/.clusterfuzzlite/build.sh" | tr ' ' '\n' | grep -v '^$' || true)
+
+if [ -z "$fuzz_wortels" ]; then
+  fout "geen enkele reactor-wortel gevonden; de fuzz-kruiscontrole meet niets"
+elif [ -z "$allowlist" ]; then
+  fout "geen MODULES-lijst gevonden in .clusterfuzzlite/build.sh; de fuzz-kruiscontrole meet niets"
 else
-  ontbrekend=""
+  # shellcheck disable=SC2086  # de wortels zijn paden zonder spaties (conventie) en moeten hier splitsen
+  fuzz_modules=$(grep -rl 'fuzzerTestOneInput' --include='*.kt' --include='*.java' $fuzz_wortels 2>/dev/null \
+    | sed "s:^$REPO_ROOT/::; s:/src/.*::" | sort -u)
 
-  while IFS= read -r module; do
-    grep -q "MODULES=(.*$module" "$REPO_ROOT/.clusterfuzzlite/build.sh" || ontbrekend="$ontbrekend $module"
-  done <<<"$fuzz_modules"
-
-  if [ -n "$ontbrekend" ]; then
-    fout "module(s) met een Jazzer-doel ontbreken in de MODULES-lijst van .clusterfuzzlite/build.sh:$ontbrekend"
+  if [ -z "$fuzz_modules" ]; then
+    fout "geen enkel Jazzer-doel gevonden; de fuzz-kruiscontrole meet niets"
   else
-    ok "elke module met een Jazzer-doel staat in de fuzz-allowlist"
+    ontbrekend=""
+
+    while IFS= read -r module; do
+      grep -qxF "$module" <<<"$allowlist" || ontbrekend="$ontbrekend $module"
+    done <<<"$fuzz_modules"
+
+    if [ -n "$ontbrekend" ]; then
+      fout "module(s) met een Jazzer-doel ontbreken in de MODULES-lijst van .clusterfuzzlite/build.sh:$ontbrekend"
+    else
+      ok "elke module met een Jazzer-doel staat in de fuzz-allowlist"
+    fi
   fi
 fi
 

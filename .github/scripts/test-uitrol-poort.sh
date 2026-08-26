@@ -288,12 +288,22 @@ bevat_regel() {
   esac
 }
 
-# Ruim matchen op de jobnaam: `[a-z-]*` zou een job met een cijfer (`deploy-preview-magazijn2`)
-# niet eens als uitrol-job herkennen, en die valt dan stil buiten deze controle.
-while IFS= read -r job; do
-  bevat_regel "$poort_needs" "$job" \
-    || mislukt "uitrol-job $job staat niet in de needs van uitrol-poort — valt buiten de beoordeling"
-done < <(sed -n 's/^  \(deploy-\(preview\|test\)-[A-Za-z0-9_-]*\):$/\1/p' "$DEPLOY_YML")
+# Ontdekken op wát een job doet en niet op hoe hij heet: een uitrol-job die de naamconventie niet
+# volgt (`deploy-acceptatie-…`) zou anders buiten deze controle vallen, en dan certificeert de
+# poort een uitrol die hij nooit beoordeeld heeft. De zad-actions-deploy-stap is het kenmerk.
+uitrol_jobs=$(awk '
+  /^  [a-z0-9_-]+:$/ { job = $1; sub(/:$/, "", job) }
+  /uses: RijksICTGilde\/zad-actions\/deploy@/ { if (job != "") print job }
+' "$DEPLOY_YML" | sort -u)
+
+if [ -z "$uitrol_jobs" ]; then
+  mislukt "geen enkele uitrol-job gevonden in $DEPLOY_YML; deze controle meet niets"
+else
+  while IFS= read -r job; do
+    bevat_regel "$poort_needs" "$job" \
+      || mislukt "uitrol-job $job staat niet in de needs van uitrol-poort — valt buiten de beoordeling"
+  done <<<"$uitrol_jobs"
+fi
 
 for voorvoegsel in deploy-preview- deploy-test-; do
   aantal=$(grep -c "^$voorvoegsel" <<<"$poort_needs" || true)

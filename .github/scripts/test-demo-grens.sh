@@ -488,6 +488,27 @@ sed -i 's|    <dependencies>|    <modules><module>../../tooling/generator</modul
   "$w/services/berichtenuitvraag/pom.xml"
 toets "een geneste module buiten de bekende wortels" "$w" 1 "buiten de bekende wortels"
 
+# Maven lost `${…}` in een modulepad op tegen de properties; de ruwe XML laat dan niet zien welke
+# module er gebouwd wordt. Doorlaten zou die module buiten élke controle in de keten houden — en
+# in een profiel viel dat sinds kort stil weg in plaats van hard.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's|</project>|    <properties><t>tooling/verstopt</t></properties>\n    <profiles><profile><activation><activeByDefault>true</activeByDefault></activation><modules><module>${t}</module></modules></profile></profiles>\n</project>|' \
+  "$w/pom.xml"
+toets "property-interpolatie in een modulepad" "$w" 1 "property-interpolatie in een modulepad"
+
+# Staat dezelfde module in het gewone blok én in een profiel, dan telt de strengste eis. Anders
+# bepaalt de volgorde in het XML-bestand of een ontbrekende module fataal is of wordt overgeslagen.
+w=$(nieuw_repo)
+voeg_module "$w" demo/demo-console meerregelig quarkus-kotlin
+voeg_module "$w" services/berichtenuitvraag meerregelig quarkus-rest
+voeg_module "$w" libraries/fbs-common meerregelig quarkus-rest
+sed -i 's|</project>|    <profiles><profile><modules><module>services/spook</module></modules></profile></profiles>\n</project>|' "$w/pom.xml"
+sed -i 's|    </modules>|        <module>services/spook</module>\n    </modules>|' "$w/pom.xml"
+toets "een module in beide blokken volgt de strengste eis" "$w" 1 "bestaat niet"
+
 # --- de meting zelf ---------------------------------------------------------------------------------
 # Verdwijnt libraries/ of services/ (hernoemd, geherstructureerd, verkeerde REPO_ROOT), dan zou de
 # lus nul keer draaien en de OK-regel alsnog verschijnen.

@@ -37,18 +37,26 @@ jobs:
             # -I slaat binaire bestanden over (pins staan in tekst), zodat geen stderr-ruis;
             # stderr verder NIET dempen — een echte grep/xargs-fout moet zichtbaar zijn.
             #
-            # `-z`/`-0`: `git ls-files` citeert paden met niet-ASCII of witruimte, en een `xargs`
-            # die op witruimte splitst geeft die bestanden dan niet aan grep. Het resultaat is een
-            # kortere pinlijst die uniform lijkt — een afwijkende pin in zo'n bestand verdwijnt.
-            # De status vasthouden en niet in een procesvervanging laten verdampen: `xargs` meldt
-            # met 123 dat grep een bestand niet kon lezen, en dat mag deze guard niet overslaan.
-            if ! ruwe_pins=$(git ls-files -z | xargs -0 -r grep -hoIE "${img}:[A-Za-z0-9._-]+"); then
-              echo "::error::kon de bestanden niet volledig doorzoeken op ${img} — deze guard meet niets."
+            # `git grep` en niet `git ls-files | xargs grep`: die vorm splitst geciteerde paden
+            # (niet-ASCII, witruimte) op witruimte en slaat die bestanden dus over — een
+            # afwijkende pin daarin verdwijnt en de guard meldt "uniform". `xargs` maakt het
+            # bovendien onmogelijk 1 (geen match) van 2 (leesfout) te onderscheiden zodra de
+            # bestandenlijst over meerdere aanroepen verdeeld wordt.
+            #
+            # Status vasthouden: 1 is "geen match" (de tak hieronder meldt dat precies), alles
+            # daarboven is een echte fout en mag deze guard niet stilzwijgend passeren.
+            ruwe_pins=$(git grep -hoIE "${img}:[A-Za-z0-9._-]+" -- . ) || rc=$?
+            rc=${rc:-0}
+
+            if [ "$rc" -gt 1 ]; then
+              echo "::error::git grep faalde (rc=$rc) bij het zoeken naar ${img} — deze guard meet niets."
               fail=1
+              unset rc
 
               continue
             fi
 
+            unset rc
             mapfile -t pins < <(printf '%s\n' "$ruwe_pins" | grep -v '^$' | sort -u)
             printf '%s pin(s): %s\n' "$img" "${pins[*]:-<geen>}"
             if [ "${#pins[@]}" -eq 0 ]; then

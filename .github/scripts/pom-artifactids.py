@@ -80,10 +80,24 @@ def reactor(wortel_pom: str) -> list[str]:
     while te_doen:
         pom = te_doen.pop(0)
 
+        # Eerst alle declaraties van déze pom samenvoegen: staat een module zowel in <modules> als
+        # in een profiel, dan telt de strengste eis. Zonder die samenvoeging bepaalt de volgorde
+        # in het XML-bestand of een ontbrekende module fataal is of wordt overgeslagen.
+        verplichtheid: dict[str, bool] = {}
+
         for module, verplicht in modulepaden(pom):
+            # Maven lost `${…}` op tegen de properties; de ruwe XML laat dan niet zien welke module
+            # er gebouwd wordt. Zo'n pad is niet statisch te volgen, en stil doorlaten zou die
+            # module buiten élke controle in de keten houden.
+            if "${" in module:
+                print(f"FOUT: {pom} gebruikt property-interpolatie in een modulepad ({module}); die is niet statisch te volgen.", file=sys.stderr)
+                raise SystemExit(1)
+
             map_pad = os.path.normpath(os.path.join(os.path.dirname(pom), module))
             module_pom = map_pad if map_pad.endswith(".xml") else os.path.join(map_pad, "pom.xml")
+            verplichtheid[module_pom] = verplichtheid.get(module_pom, False) or verplicht
 
+        for module_pom, verplicht in verplichtheid.items():
             if module_pom in gezien:
                 continue
 
@@ -91,11 +105,11 @@ def reactor(wortel_pom: str) -> list[str]:
 
             if not os.path.isfile(module_pom):
                 if not verplicht:
-                    print(f"Overgeslagen: {pom} declareert {module} in een profiel, maar {module_pom} bestaat niet.", file=sys.stderr)
+                    print(f"Overgeslagen: {pom} declareert {module_pom} in een profiel, maar die bestaat niet.", file=sys.stderr)
 
                     continue
 
-                print(f"FOUT: {pom} declareert module {module}, maar {module_pom} bestaat niet.", file=sys.stderr)
+                print(f"FOUT: {pom} declareert module {module_pom}, maar die bestaat niet.", file=sys.stderr)
                 raise SystemExit(1)
 
             gevonden.append(os.path.relpath(os.path.dirname(module_pom), basis))
