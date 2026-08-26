@@ -13,9 +13,10 @@ import java.util.logging.Logger
  * bedieningspaneel voor iedere storing dezelfde onbruikbare regel. Tijdens een demo moet juist
  * binnen seconden zichtbaar zijn wát er stuk is.
  *
- * De melding gaat onverkort naar de client — dit is een wegwerpconsole die alleen op loopback
- * luistert, en de bediener heeft die tekst nodig. Geen RFC 9457: die vorm hoort bij de
- * productie-API's, niet bij dit paneel.
+ * De melding gaat onverkort naar de client. Lokaal luistert de console alleen op loopback; op de
+ * gedeelde omgeving staat hij achter Keycloak-SSO, dus in beide gevallen leest alleen een bediener
+ * mee die de tekst nodig heeft. Geen RFC 9457: die vorm hoort bij de productie-API's, niet bij dit
+ * paneel.
  */
 @Provider
 class DemoFoutMapper : ExceptionMapper<Exception> {

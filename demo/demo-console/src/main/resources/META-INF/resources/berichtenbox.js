@@ -1,10 +1,20 @@
 'use strict';
 
-// Host uit de browser-locatie: de demo wordt niet altijd op localhost geopend, maar ook op een
-// VM- of container-adres. De poort ligt wél vast — die is in compose.yaml en beide overlays
-// gelijk. Elk adres waarop de demo geopend wordt, moet in de CORS-allowlist van de uitvraag
-// staan (`DEMO_HOST`), anders blokkeert de preflight.
-const BASIS = `http://${window.location.hostname}:8086/api/v1`;
+// Adres van de uitvraag-API. De console levert het op /api/demo/omgeving, want de demo draait ook
+// op ZAD, waar geen poort 8086 bestaat en het schema https is. Zolang die waarde leeg is (de
+// lokale stack) valt de pagina terug op de browser-locatie plus de vaste dev-poort; elk adres
+// waarop de demo dan geopend wordt moet in de CORS-allowlist van de uitvraag staan (`DEMO_HOST`).
+let BASIS = `http://${window.location.hostname}:8086/api/v1`;
+
+const omgevingGeladen = fetch('/api/demo/omgeving')
+  .then((respons) => (respons.ok ? respons.json() : null))
+  .then((omgeving) => {
+    if (omgeving && omgeving.uitvraagBasis) BASIS = omgeving.uitvraagBasis;
+  })
+  .catch(() => {
+    // Console onbereikbaar: de fallback hierboven blijft staan. Dit mag de pagina niet blokkeren —
+    // een unhandled rejection zou elke knop stil laten falen.
+  });
 
 // magazijnId per bericht onthouden: de lijst levert het mee, maar PATCH en DELETE vereisen het
 // als queryparameter en het detail-endpoint geeft het niet opnieuw terug.
@@ -57,6 +67,8 @@ function toon(element, zichtbaar) {
 // Zonder dat blijft de fout als unhandled rejection liggen en doet de knop zichtbaar niets —
 // juist de storing die de demo moet tonen, blijft dan onzichtbaar.
 async function api(pad, opties = {}) {
+  await omgevingGeladen;
+
   const headers = Object.assign({ 'X-Ontvanger': huidigeOntvanger() }, opties.headers || {});
 
   try {

@@ -215,6 +215,8 @@ persona, klik **Ophalen** (start de sessie + haalt op), daarna **Vernieuw** (lee
 ## 7. Bedieningspaneel
 
 **Beheer**
+- *Herstel demo* — stopt een lopende stroom, legt de magazijnen leeg en laadt de basisvulling
+  opnieuw; brengt de omgeving in één klik terug naar de begintoestand.
 - *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases (leeg vóór je opnieuw vult).
 - *Status* — aantal berichten per magazijn.
 - *Cache verlopen* — wist alle sessie-keys in Redis (`berichtensessiecache:v1:*`); de volgende
@@ -223,6 +225,9 @@ persona, klik **Ophalen** (start de sessie + haalt op), daarna **Vernieuw** (lee
 **Vullen**
 - *Basisvulling laden* — vaste dataset via de echte aanlever-API (validatie + publicatieketen lopen mee).
 - *Random berichten opvoeren* — N random berichten; tegelijk het "nieuwe berichten tijdens de sessie"-scenario.
+- *Stroom starten/stoppen/status* — levert elke *n* seconden (1–3600) automatisch één gegenereerd
+  bericht aan, tot een handmatige stop of tot de ingebouwde grens (500 berichten of 60 minuten,
+  wat het eerst komt). Een tweede *start* vervangt de lopende stroom in plaats van te stapelen.
 
 **Storingen (fase 3)** — de twee echte magazijnen via Toxiproxy: A/B traag (~6 s) of uit; *reset* herstelt.
 
