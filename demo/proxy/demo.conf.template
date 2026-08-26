@@ -9,10 +9,10 @@
 # De bestemmingen komen uit env-vars omdat de podman-hostnet-modus geen container-DNS heeft: daar
 # is alles 127.0.0.1 met een eigen poort. nginx vult ze bij het starten in vanuit
 # /etc/nginx/templates/.
-# De Host-header wordt bewust niet doorgezet: de demo-console weigert een Host die niet bij zijn
-# eigen adres hoort met een lege 400, en dat gebeurt zodra je de demo via een ander adres opent dan
-# 127.0.0.1. nginx zet zonder die regel de upstream als Host, en geen van deze diensten doet aan
-# virtual hosting.
+# De Host-header wordt niet doorgezet: geen van deze diensten doet aan virtual hosting, en zo
+# hangt de demo niet af van hoe streng een dienst de Host-header toetst. Quarkus weigert onder
+# profiel dev een Host die niet naar localhost wijst; de demo-console zet die eis daarom uit,
+# maar deze proxy hoeft daar niet op te leunen.
 server {
     listen ${PROXY_BIND}:${PROXY_PORT};
 

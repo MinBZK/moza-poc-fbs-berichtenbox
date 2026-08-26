@@ -258,6 +258,11 @@ services:
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
+      # Onder dev eist Quarkus dat de Host-header naar localhost wijst. De demo komt binnen via de
+      # demo-proxy of via de proeftuin, die de Host van de bezoeker doorzet; zonder dit levert elke
+      # aanroep van een ander adres dan localhost een lege 400 op. Alleen hier, in de demo-compose:
+      # de service zelf houdt de standaardinstelling.
+      QUARKUS_HTTP_HOST_VALIDATION_REQUIRE_LOCALHOST: "false"
       # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf).
       REDIS_HOSTS: redis://toxiproxy:16379
       MAGAZIJN_A_URL: http://toxiproxy:18090
