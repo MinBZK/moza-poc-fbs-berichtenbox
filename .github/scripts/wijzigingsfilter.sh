@@ -39,27 +39,41 @@ GEEN_PREVIEW_WORKFLOWS='test|detekt|codeql|scorecard|architecture|pin-consistenc
 # shellcheck disable=SC2034  # alleen door de kruiscontrole in test-wijzigingsfilter.sh gelezen
 UITROL_RELEVANT='deploy'
 
+# De delen van demo/ die buiten de uitrolpoort vallen. Nadrukkelijk niet "die geen image voeden":
+# het contract-bootstrap-image komt uit demo/environment/, maar hangt in deploy.yml aan `run` en
+# niet aan `deploy` — een wijziging daar bouwt het dus nog steeds.
+#
+# Bewust per pad opgesomd en niet als kaal `^demo/`: onder demo/ staan Maven-modules, en zo'n
+# module kan een eigen image en ZAD-component hebben. Een kale `^demo/`-uitsluiting zou die
+# imagebuild overslaan, en dat faalt stil — een overgeslagen job telt als succes voor branch
+# protection. TODO(#938): de build-matrix van deploy.yml noemt vandaag alleen de twee
+# services, dus een demo-module met eigen image vereist óók daar een regel.
+#
+# De opsomming staat aan de veilige kant van zijn eigen veroudering: een demo-onderdeel dat hier
+# ontbreekt valt uit de uitsluiting en kost een overbodige build. Andersom — een allowlist van
+# paden die wél een image voeden — zou een vergeten pad juist een overgeslagen build opleveren, en
+# dat is precies de stille faalwijze die dit script moet uitsluiten.
+#
+# demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.
+DEMO_BUITEN_UITROLPOORT='^demo/demo-console/|^demo/environment/|^demo/[^/]*\.(sh|py)$'
+
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.
-# Uitgesloten: de Bruno-collectie, de demo-stack, demo-console, de fuzz-configuratie, de CI-scripts
-# en de workflows uit GEEN_PREVIEW_WORKFLOWS. Zonder dat filter kostte een PR aan bijvoorbeeld de
-# fuzz-configuratie tóch twee jib-builds plus drie previews — uitrollen van een image dat per
-# definitie gelijk is aan main. demo-console zit in geen enkel uitgerold image: het staat niet in
-# de build-matrix van deploy.yml en heeft geen ZAD-component.
+# Uitgesloten: de Bruno-collectie, de niet-uitgerolde delen van demo/, de fuzz-configuratie, de
+# CI-scripts en de workflows uit GEEN_PREVIEW_WORKFLOWS. Zonder dat filter kostte een PR aan
+# bijvoorbeeld de fuzz-configuratie tóch twee jib-builds plus drie previews — uitrollen van een
+# image dat per definitie gelijk is aan main.
 #
-# Het contract-bootstrap-image komt óók uit demo/, maar hangt in deploy.yml aan `run`, niet aan
-# `deploy` — een demo/-wijziging bouwt het dus nog steeds. Uitrollen gebeurt alleen op push naar
-# main; op een PR beproeft fsc-harness-overlays.yml het image. Een uitzondering hier zou de hele
-# deploy-keten (twee jib-images, de stubs en drie previews) openzetten voor een wijziging die daar
-# niets mee te maken heeft.
-NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|^demo/|^services/demo-console/|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
+# Het contract-bootstrap-image wordt op een PR beproefd door fsc-harness-overlays.yml en pas
+# uitgerold op push naar main. Een uitzondering hier zou de hele deploy-keten (twee jib-images, de
+# stubs en drie previews) openzetten voor een wijziging die daar niets mee te maken heeft.
+NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|$DEMO_BUITEN_UITROLPOORT|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
 
-# demo-console heeft bewust geen afhankelijkheid op fbs-common of een andere reactor-module (zie
-# services/demo-console/pom.xml) — het enige blad in de module-graaf zonder koppeling. Raakt de PR
-# verder niets buiten services/demo-console/ en demo/ (de Python-generator + smoke.sh, die alleen
-# de demo-stack aansturen), dan hoeven berichtenmagazijn/berichtenuitvraag/libraries niet mee
-# gebouwd en getest te worden.
-BUITEN_DEMO_CONSOLE="$NIET_CODE|^services/demo-console/|^demo/"
+# Raakt de PR niets buiten demo/, dan hoeven berichtenmagazijn, berichtenuitvraag en de libraries
+# niet mee gebouwd en getest te worden. `-am` trekt bovendien op wat een demo-module wél uit het
+# stelsel gebruikt, dus die kant blijft gedekt. Dat een demo-module níets uit de reactor gebruikt is
+# geen gegarandeerde eigenschap; die richting bewaakt vandaag niets.
+BUITEN_DEMO="$NIET_CODE|^demo/"
 
 # Allowlist in plaats van een uitsluiting: alleen bronnen die de fuzz-doelen of hun build raken.
 # Wordt gecombineerd met de code-uitkomst, anders koopt een README onder services/ een volledige
@@ -134,19 +148,32 @@ classificeer() {
     echo "run=false"
   fi
 
+  local deploy=false
+
   if [ "$bot_pr" = "true" ]; then
     echo "deploy=false"
   elif grep_fail_safe "$bestanden" -vE "$NIET_DEPLOYBAAR"; then
+    deploy=true
     echo "deploy=true"
   else
     echo "Geen wijziging die de images of de uitrol raakt — bouwen en deployen overgeslagen." >&2
     echo "deploy=false"
   fi
 
-  if grep_fail_safe "$bestanden" -vE "$BUITEN_DEMO_CONSOLE"; then
+  # `demo-only` scopet de test-job naar de demo-modules; `deploy` rolt previews uit van de twee
+  # services. Die twee mogen nooit samen aanstaan: de uitrolpoort accepteert een geslaagde
+  # test-check, en bij een demo-only-run zijn die services in díe run niet getest. De uitrol zou
+  # dan ongetoetste code dragen zonder dat er iets roods verschijnt.
+  #
+  # Een demo-module met een eigen image (uitzondering op DEMO_BUITEN_UITROLPOORT) valt dus terug op de
+  # volle test-scope. Dat is de dure maar juiste kant: wat uitgerold wordt, hoort getest te zijn.
+  if grep_fail_safe "$bestanden" -vE "$BUITEN_DEMO"; then
+    echo "demo-only=false"
+  elif [ "$deploy" = "true" ]; then
+    echo "Uitsluitend demo/ geraakt, maar de wijziging raakt de uitrol — volle test-scope." >&2
     echo "demo-only=false"
   else
-    echo "Uitsluitend demo-console geraakt — test-job scoped naar die module." >&2
+    echo "Uitsluitend demo/ geraakt — test-job scoped naar de demo-modules." >&2
     echo "demo-only=true"
   fi
 

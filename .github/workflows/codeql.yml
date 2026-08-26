@@ -103,7 +103,7 @@ jobs:
       - name: Controleer dat elke module classes opleverde
         run: |
           set -euo pipefail
-          for module in libraries/* services/*; do
+          for module in libraries/* services/* demo/*; do
             [ -f "$module/pom.xml" ] || continue
 
             if [ -z "$(find "$module/target/classes" -name '*.class' -print -quit 2>/dev/null)" ]; then
@@ -154,7 +154,7 @@ jobs:
             echo "|---|---|"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          for module in libraries/* services/*; do
+          for module in libraries/* services/* demo/*; do
             [ -f "$module/pom.xml" ] || continue
             aantal=$(grep -cF "/$module/" <<<"$bestanden" || true)
             echo "| $module | $aantal |" | tee -a "$GITHUB_STEP_SUMMARY"
