@@ -196,9 +196,13 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 
 ## 6. Persona's (Berichtenbox → "Ingelogd als")
 
+Bron: `demo.personas.*` in `demo/demo-console/src/main/resources/application.properties`. De
+berichtenbox haalt de lijst op bij `GET /api/demo/personas`, dus de keuzelijst volgt een wijziging
+in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
+
 | Persona | Identificatie | Bevraagt |
 |---|---|---|
-| J. Pietersen (ZZP) | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
+| J. Pietersen | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
 | Bakkerij De Vroege Vogel | BSN `999996666` | RVO |
 | Garage Van Dijk B.V. | KVK `12345678` | Belastingdienst |
 | Grootbedrijf B.V. | KVK `90000001` | n stub-magazijnen (fase 6) |

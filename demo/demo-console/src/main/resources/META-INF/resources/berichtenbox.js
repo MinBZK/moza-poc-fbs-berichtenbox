@@ -433,6 +433,50 @@ async function leesProblem(respons) {
   }
 }
 
+// Same-origin, anders dan de rest van deze pagina (die praat met de uitvraag op poort 8086):
+// geen CORS nodig. Eén lijst voor de keuzelijst én de berichtgenerator, zodat de twee niet
+// uiteen kunnen lopen. Mislukt het ophalen, dan blijven Ophalen en Vernieuw uit: met een lege
+// keuzelijst zou de volgende klik een lege X-Ontvanger sturen en een 400 opleveren die naar de
+// verkeerde component wijst.
+async function laadPersonas() {
+  try {
+    const respons = await fetch('/api/demo/personas');
+
+    if (!respons.ok) throw new Error(`status ${respons.status}`);
+
+    const personas = await respons.json();
+
+    if (!Array.isArray(personas)) throw new Error('onverwacht antwoord: geen lijst');
+
+    el('persona').replaceChildren(...personas.map((persona) => {
+      if (!persona.ontvanger || !persona.label) throw new Error(`onvolledige persona: ${JSON.stringify(persona)}`);
+
+      const optie = document.createElement('option');
+
+      optie.value = persona.ontvanger;
+      optie.textContent = persona.bron === 'dataset' ? `${persona.label} (gegenereerde dataset)` : persona.label;
+
+      return optie;
+    }));
+
+    if (personas.length === 0) {
+      toonLeeg('Geen persona ingericht (demo.personas in de demo-console).', true);
+
+      return;
+    }
+
+    el('ophalen').disabled = false;
+    el('vernieuw').disabled = false;
+
+    toonLeeg('Kies een persona en klik op Ophalen.');
+  } catch (oorzaak) {
+    console.error('personalijst ophalen mislukt', oorzaak);
+    toonLeeg(`Personalijst niet op te halen: ${oorzaak.message}`, true);
+  }
+}
+
+laadPersonas();
+
 el('ophalen').addEventListener('click', ophalen);
 // Alleen de lijst (cache) verversen, zonder _ophalen — toont live in de cache opgevoerde berichten.
 el('vernieuw').addEventListener('click', laadLijst);

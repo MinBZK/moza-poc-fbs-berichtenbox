@@ -11,15 +11,11 @@
     <h1>Berichtenbox</h1>
     <div class="persona">
       <label>Ingelogd als
-        <select id="persona">
-          <option value="BSN:999993653">J. Pietersen (ZZP)</option>
-          <option value="BSN:999996666">Bakkerij De Vroege Vogel</option>
-          <option value="KVK:12345678">Garage Van Dijk B.V.</option>
-          <option value="KVK:90000001">Grootbedrijf B.V. (veel magazijnen)</option>
-        </select>
+        <!-- Gevuld door laadPersonas() in berichtenbox.js -->
+        <select id="persona"></select>
       </label>
-      <button id="ophalen">Ophalen</button>
-      <button id="vernieuw" title="Roept alleen /berichten aan (leest de cache), zonder opnieuw op te halen — toont berichten die live in de cache zijn opgevoerd">Vernieuw</button>
+      <button id="ophalen" disabled>Ophalen</button>
+      <button id="vernieuw" disabled title="Roept alleen /berichten aan (leest de cache), zonder opnieuw op te halen — toont berichten die live in de cache zijn opgevoerd">Vernieuw</button>
       <a href="index.html">&rarr; bedieningspaneel</a>
     </div>
   </header>
