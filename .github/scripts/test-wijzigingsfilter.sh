@@ -116,10 +116,6 @@ verwacht "een bronbestand met een meta-naam in een submap" 'services/berichtenma
 
 verwacht "een docs-map bínnen een module is gewoon code" 'services/berichtenmagazijn/docs/hulp.sh' "$ALLES_AAN"
 
-# `^demo/demo-console/` eindigt op een slash; zonder die anker-slash zou een gelijknamige
-# prefix-buur ongemerkt uit de uitrol vallen.
-verwacht "prefix-buur van demo-console valt niet in de uitrol-uitsluiting" 'demo/demo-console-extra/Console.kt' "$DEMO_MET_IMAGE"
-
 verwacht "een workflow met .yaml-extensie valt buiten de toets-lijst" '.github/workflows/test.yaml' 'run=true
 deploy=true
 demo-only=false
@@ -187,10 +183,10 @@ demo-only=false
 fuzz=false'
 
 # --- test-scope -------------------------------------------------------------------------------
-verwacht "uitsluitend demo-console" 'demo/demo-console/src/main/kotlin/Console.kt' 'run=true
-deploy=false
-demo-only=true
-fuzz=false'
+# De console is een component van `test` en valt daarom NIET meer onder DEMO_BUITEN_UITROLPOORT:
+# uitsluitend-demo blijft het, maar de uitrol-invariant trekt de test-scope alsnog open, want wat
+# uitgerold wordt hoort volledig getest te zijn.
+verwacht "uitsluitend demo-console" 'demo/demo-console/src/main/kotlin/Console.kt' "$DEMO_MET_IMAGE"
 
 verwacht "demo-console plus een andere module — volledige build" 'demo/demo-console/src/main/kotlin/Console.kt
 services/berichtenuitvraag/src/main/kotlin/Uitvraag.kt' "$ALLES_AAN"
@@ -233,7 +229,7 @@ verwacht "een 'demo/demo-console'-pad bínnen een module is gewone code" \
 # De pom van een demo-module: wél code en test-scope demo, maar geen fuzz-ronde — de fuzz-doelen
 # staan alleen in libraries/ en services/. Zonder het `^`-anker op `pom\.xml` in FUZZ_RELEVANT
 # koopt elke bump op een demo-pom een volledige ronde.
-verwacht "de pom van een demo-module koopt geen fuzz-ronde" 'demo/demo-console/pom.xml' "$DEMO_STACK"
+verwacht "de pom van een demo-module koopt geen fuzz-ronde" 'demo/demo-console/pom.xml' "$DEMO_MET_IMAGE"
 
 # --- bot-PR ----------------------------------------------------------------------------------
 verwacht "bot-PR met code — toetsen ja, uitrollen nee" 'pom.xml' 'run=true
@@ -376,9 +372,6 @@ for f in "$REPO_ROOT"/.github/workflows/*.yml "$REPO_ROOT"/.github/workflows/*.y
     *) fout "workflow $n is nergens ingedeeld — kost nu stilzwijgend drie previews per PR" ;;
   esac
 done
-
-[ -d "$REPO_ROOT/demo/demo-console" ] \
-  || fout "demo/demo-console/ bestaat niet meer; de uitsluiting in DEMO_BUITEN_UITROLPOORT is dode letter"
 
 [ -d "$REPO_ROOT/demo/environment" ] \
   || fout "demo/environment/ bestaat niet meer; de uitsluiting in DEMO_BUITEN_UITROLPOORT is dode letter"

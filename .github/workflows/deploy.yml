@@ -149,8 +149,9 @@ jobs:
   # mogelijk. Op een push naar main staat alles aan.
   #
   # Twee gevallen rollen niet uit:
-  # - Wijzigingen die de uitgerolde applicatie niet raken (documentatie, repo-meta, bruno, demo,
-  #   demo-console). Welke paden dat precies zijn staat in .github/scripts/wijzigingsfilter.sh.
+  # - Wijzigingen die de uitgerolde applicatie niet raken (documentatie, repo-meta, bruno, en de
+  #   niet-uitgerolde delen van demo/). Welke paden dat precies zijn staat in
+  #   .github/scripts/wijzigingsfilter.sh.
   # - PR's van een bot: `zad-actions` weigert die zelf (`skip-bot-prs`, default true), dus de
   #   preview komt er toch niet. Zonder deze uitsluiting bouwden en pushten we er wél images voor
   #   die nooit een pod bereiken.
@@ -375,10 +376,11 @@ jobs:
           docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
 
-  # De demo-console levert een eigen image en een eigen ZAD-component, maar rolt niet mee met een
-  # preview: hij draait in de preview-loze deployment `demo`, die met de hand wordt bijgewerkt via
-  # deploy-demo.yml. Daarom aan `run` en niet aan `deploy`, net als build-contract-bootstrap — zo
-  # valt een kapotte jib-configuratie op vóór de merge zonder de previews open te zetten.
+  # De demo-console is een component van `test` in het magazijnen-project en rolt dus mee met
+  # de rest van de keten, previews inbegrepen. De job hangt aan `run` en niet aan `deploy`: `run`
+  # is de ruimere uitkomst van de twee, dus een PR die de uitrol niet raakt bouwt het image tóch
+  # en laat een kapotte jib-configuratie vallen vóór de merge. Omdat `deploy=true` altijd
+  # `run=true` impliceert, is deze job er ook wanneer deploy-*-magazijnen hem nodig heeft.
   build-democonsole:
     if: github.event_name == 'push' || needs.changes.outputs.run == 'true'
     needs: [meta, changes]
@@ -659,9 +661,10 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
+      && needs.build-democonsole.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    needs: [meta, build, build-externe-stubs, gate, changes]
+    needs: [meta, build, build-externe-stubs, build-democonsole, gate, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -682,7 +685,8 @@ jobs:
           components: |
             [
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
+              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
             ]
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
@@ -792,10 +796,11 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.build-contract-bootstrap.result == 'success'
+      && needs.build-democonsole.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, gate]
+    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, build-democonsole, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Dekt ook de tweede stap (deployment `fsc-magazijna`) — die hoort bij hetzelfde project.
@@ -814,7 +819,8 @@ jobs:
           components: |
             [
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
+              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
             ]
 
       # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in
