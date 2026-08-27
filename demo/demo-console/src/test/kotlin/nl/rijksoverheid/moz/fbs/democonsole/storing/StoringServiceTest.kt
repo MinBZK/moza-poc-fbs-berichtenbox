@@ -10,8 +10,16 @@ import org.junit.jupiter.api.Test
 
 class StoringServiceTest {
 
-    private val toxiproxy = mockk<ToxiproxyClient>(relaxed = false)
-    private val service = StoringService(toxiproxy)
+    private val instantie = mockk<ToxiproxyClient>(relaxed = false)
+    private val tweede = mockk<ToxiproxyClient>(relaxed = false)
+
+    private fun registerMet(vararg clients: Pair<String, ToxiproxyClient>) =
+        mockk<ToxiproxyRegister> {
+            every { client(any()) } answers { clients.toMap()[firstArg()] ?: error("niet geconfigureerd") }
+            every { instanties() } returns clients.map { it.second }.distinct()
+        }
+
+    private val service = StoringService(registerMet("magazijn-a" to instantie, "magazijn-b" to instantie))
 
     // Response via MockK (relaxed sluit .use()/close() af) i.p.v. Response.ok().build(),
     // dat een JAX-RS RuntimeDelegate vereist die in een pure unittest kan ontbreken.
@@ -23,36 +31,36 @@ class StoringServiceTest {
 
     @Test
     fun `traag voegt een latency-toxic van 6000ms toe`() {
-        every { toxiproxy.voegToxicToe(any(), any()) } returns ok()
+        every { instantie.voegToxicToe(any(), any()) } returns ok()
 
         service.traag("magazijn-a", 6000)
 
-        verify { toxiproxy.voegToxicToe("magazijn-a", ToxicVerzoek("latency", mapOf("latency" to 6000))) }
+        verify { instantie.voegToxicToe("magazijn-a", ToxicVerzoek("latency", mapOf("latency" to 6000))) }
     }
 
     @Test
     fun `uit schakelt de proxy uit`() {
-        every { toxiproxy.zetProxy(any(), any()) } returns ok()
+        every { instantie.zetProxy(any(), any()) } returns ok()
 
         service.uit("magazijn-b")
 
-        verify { toxiproxy.zetProxy("magazijn-b", ProxyPatch(enabled = false)) }
+        verify { instantie.zetProxy("magazijn-b", ProxyPatch(enabled = false)) }
     }
 
     @Test
     fun `reset schakelt uitgeschakelde proxies weer in en wist toxics`() {
-        every { toxiproxy.proxies() } returns mapOf(
+        every { instantie.proxies() } returns mapOf(
             "magazijn-a" to ProxyStatus(enabled = false, toxics = listOf(ToxicStatus("latency_downstream"))),
             "magazijn-b" to ProxyStatus(enabled = true, toxics = emptyList()),
         )
-        every { toxiproxy.zetProxy(any(), any()) } returns ok()
-        every { toxiproxy.verwijderToxic(any(), any()) } returns noContent()
+        every { instantie.zetProxy(any(), any()) } returns ok()
+        every { instantie.verwijderToxic(any(), any()) } returns noContent()
 
         service.reset()
 
-        verify { toxiproxy.zetProxy("magazijn-a", ProxyPatch(enabled = true)) }
-        verify { toxiproxy.verwijderToxic("magazijn-a", "latency_downstream") }
-        verify(exactly = 0) { toxiproxy.zetProxy("magazijn-b", any()) }
+        verify { instantie.zetProxy("magazijn-a", ProxyPatch(enabled = true)) }
+        verify { instantie.verwijderToxic("magazijn-a", "latency_downstream") }
+        verify(exactly = 0) { instantie.zetProxy("magazijn-b", any()) }
     }
 
     @Test
@@ -60,7 +68,7 @@ class StoringServiceTest {
         // Ontbrekende of misvormde proxies.json: Toxiproxy start gezond op met nul proxies,
         // terwijl al het uitvraag- en magazijnverkeer erdoorheen loopt. De lus over een lege map
         // zou stil slagen en "alles normaal" bevestigen terwijl de keten dood is.
-        every { toxiproxy.proxies() } returns emptyMap()
+        every { instantie.proxies() } returns emptyMap()
 
         val fout = assertThrows(IllegalStateException::class.java) { service.reset() }
 
@@ -69,13 +77,82 @@ class StoringServiceTest {
 
     @Test
     fun `een niet-2xx-respons van Toxiproxy faalt met een duidelijke melding`() {
-        every { toxiproxy.zetProxy(any(), any()) } returns respons(404)
+        every { instantie.zetProxy(any(), any()) } returns respons(404)
 
         try {
-            service.uit("onbekend")
+            service.uit("magazijn-a")
             throw AssertionError("verwacht een IllegalStateException")
         } catch (fout: IllegalStateException) {
             check(fout.message!!.contains("404"))
         }
+    }
+
+    @Test
+    fun `reset gaat elke instantie langs`() {
+        // Op ZAD staat elke stroom op zijn eigen Toxiproxy; een reset die er maar één langsgaat
+        // laat de rest van de storingen aan staan.
+        every { instantie.proxies() } returns mapOf("profiel" to ProxyStatus(enabled = false))
+        every { tweede.proxies() } returns mapOf("redis" to ProxyStatus(enabled = false))
+        every { instantie.zetProxy(any(), any()) } returns ok()
+        every { tweede.zetProxy(any(), any()) } returns ok()
+
+        StoringService(registerMet("profiel" to instantie, "redis" to tweede)).reset()
+
+        verify { instantie.zetProxy("profiel", ProxyPatch(enabled = true)) }
+        verify { tweede.zetProxy("redis", ProxyPatch(enabled = true)) }
+    }
+
+    @Test
+    fun `reset faalt zodra een van de instanties geen enkele proxy kent`() {
+        every { instantie.proxies() } returns mapOf("profiel" to ProxyStatus(enabled = true))
+        every { tweede.proxies() } returns emptyMap()
+
+        val fout = assertThrows(IllegalStateException::class.java) {
+            StoringService(registerMet("profiel" to instantie, "redis" to tweede)).reset()
+        }
+
+        assertTrue(fout.message!!.contains("proxies.json"), "melding moet naar de oorzaak wijzen, was: ${fout.message}")
+    }
+
+    @Test
+    fun `reset faalt als er geen enkele proxy geconfigureerd is`() {
+        // Lege TOXIPROXY_*_URL's schakelen elke proxy uit; het register is dan leeg. Zonder guard
+        // zou de lege forEach niets doen en de resource "alles normaal" laten melden.
+        val fout = assertThrows(IllegalStateException::class.java) { StoringService(registerMet()).reset() }
+
+        assertTrue(
+            fout.message!!.contains("Geen enkele proxy geconfigureerd"),
+            "melding moet naar de oorzaak wijzen, was: ${fout.message}",
+        )
+    }
+
+    @Test
+    fun `reset meldt een fout zonder message met de exceptienaam, in plaats van hem stil te laten vallen`() {
+        // Een IllegalStateException zonder message zou anders door mapNotNull() verdwijnen: de
+        // fouten-lijst blijft dan leeg terwijl de instantie wel degelijk faalde, en reset() meldt
+        // ten onrechte "alles gelukt".
+        every { instantie.proxies() } throws IllegalStateException()
+
+        val fout = assertThrows(IllegalStateException::class.java) { service.reset() }
+
+        assertTrue(
+            fout.message!!.contains("IllegalStateException"),
+            "melding moet de fout zonder message toch tonen, was: ${fout.message}",
+        )
+    }
+
+    @Test
+    fun `reset herstelt een gezonde instantie ook als een eerdere instantie geen proxies kent`() {
+        // Eén kapotte instantie mag de rest niet gijzelen: reset() gaat alle instanties langs en
+        // meldt de fouten pas aan het eind, verzameld.
+        every { instantie.proxies() } returns emptyMap()
+        every { tweede.proxies() } returns mapOf("redis" to ProxyStatus(enabled = false, toxics = emptyList()))
+        every { tweede.zetProxy(any(), any()) } returns ok()
+
+        assertThrows(IllegalStateException::class.java) {
+            StoringService(registerMet("profiel" to instantie, "redis" to tweede)).reset()
+        }
+
+        verify { tweede.zetProxy("redis", ProxyPatch(enabled = true)) }
     }
 }

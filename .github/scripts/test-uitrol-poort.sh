@@ -32,18 +32,18 @@ needs_json() {
   printf '%s' "$json"
 }
 
-# Drie previews, drie test-deploys en drie bouw-jobs uit telkens drie resultaten. `-` staat voor
-# een leeg resultaat, zodat woordsplitsing die waarde niet opslokt.
+# Drie previews, drie test-deploys en vier bouw-jobs uit telkens drie resp. vier resultaten. `-`
+# staat voor een leeg resultaat, zodat woordsplitsing die waarde niet opslokt.
 fixture() {
   local -a p t b
   read -r -a p <<<"$1"
   read -r -a t <<<"$2"
-  read -r -a b <<<"${3:-success success success}"
+  read -r -a b <<<"${3:-success success success success}"
 
   local -a namen=(
     "deploy-preview-uitvraag=${p[0]}" "deploy-preview-externe-stubs=${p[1]}" "deploy-preview-magazijnen=${p[2]}"
     "deploy-test-uitvraag=${t[0]}" "deploy-test-externe-stubs=${t[1]}" "deploy-test-magazijnen=${t[2]}"
-    "build=${b[0]}" "build-externe-stubs=${b[1]}" "build-contract-bootstrap=${b[2]}"
+    "build=${b[0]}" "build-externe-stubs=${b[1]}" "build-contract-bootstrap=${b[2]}" "build-democonsole=${b[3]}"
   )
 
   printf '%s\n' "${namen[@]}" | sed 's/=-$/=/'
@@ -175,36 +175,37 @@ done
 # melding te staan, anders wijst de fout naar het gevolg in plaats van naar de oorzaak.
 verwacht_poort "een verdrongen build staat in de melding" 1 "bouw: build=cancelled" \
   pull_request "$PR_REF" false success true success \
-  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "cancelled success success")"
+  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "cancelled success success success")"
 
 # --- G. kardinaliteit, op beide assen -------------------------------------------------------------
-DRIE_BOUW='build=success
+BOUW='build=success
 build-externe-stubs=success
-build-contract-bootstrap=success'
+build-contract-bootstrap=success
+build-democonsole=success'
 
 verwacht_poort "nul previews in needs blokkeert" 1 "in plaats van 3" \
-  pull_request "$PR_REF" false success true success "$DRIE_BOUW"
+  pull_request "$PR_REF" false success true success "$BOUW"
 verwacht_poort "één preview in needs blokkeert" 1 "in plaats van 3" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
-$DRIE_BOUW"
+$BOUW"
 verwacht_poort "twee previews in needs blokkeert" 1 "in plaats van 3" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
-$DRIE_BOUW"
+$BOUW"
 verwacht_poort "vier previews in needs blokkeert" 1 "in plaats van 3" \
   pull_request "$PR_REF" false success true success "$(fixture "$DRIE_OK" "$DRIE_UIT")
 deploy-preview-nieuw=success"
 verwacht_poort "nul test-deploys in needs blokkeert op een push" 1 "in plaats van 3" \
-  push "$MAIN" false success true success "$DRIE_BOUW"
+  push "$MAIN" false success true success "$BOUW"
 verwacht_poort "twee test-deploys in needs blokkeert op een push" 1 "in plaats van 3" \
   push "$MAIN" false success true success "deploy-test-uitvraag=success
 deploy-test-externe-stubs=success
-$DRIE_BOUW"
+$BOUW"
 verwacht_poort "een ontbrekende stille as blokkeert ook" 1 "in plaats van 3" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
 deploy-preview-magazijnen=success
-$DRIE_BOUW"
+$BOUW"
 
 # --- H. onbruikbare invoer -------------------------------------------------------------------------
 for kapot in '' '{oeps' 'null' '[1,2,3]'; do
@@ -424,7 +425,7 @@ done
 
 # `changes` en `gate` leveren het oordeel, de bouw-jobs de diagnose; ontbreekt er één, dan leest
 # zijn resultaat als leeg.
-for job in changes gate build build-externe-stubs build-contract-bootstrap; do
+for job in changes gate build build-externe-stubs build-contract-bootstrap build-democonsole; do
   bevat_regel "$poort_needs" "$job" \
     || mislukt "uitrol-poort heeft $job niet in zijn needs; het resultaat is dan altijd leeg"
 done

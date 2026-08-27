@@ -11,8 +11,8 @@ verwacht.
 
 | Pad | Wat |
 |---|---|
-| `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten |
-| `environment/` | FSC-federatieharness: peers, PKI en contract-bootstrap voor de lokale en de ZAD-federatie |
+| `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten. Heeft een eigen image; een ZAD-component in de bestaande deployment `test` van `mpfm-w3h` is beoogd maar bestaat op het moment van schrijven nog niet — zie `demo-console/README.md` |
+| `environment/` | FSC-federatieharness (peers, PKI, contract-bootstrap) én de ZAD-runbooks. `zad-demo/` met de handmatige OM-stappen voor de demo-console is beoogd maar bestaat op het moment van schrijven nog niet — zie `demo-console/README.md` |
 | `generated/` | Gegenereerde stub-mappings (git-ignored); komt uit `genereer-magazijnen.py` |
 | `genereer-magazijnen.py` | Genereert de stub-magazijnen en de profiel-persona's |
 | `smoke.sh` | Rookproef over de demo-stack |
@@ -42,8 +42,9 @@ dan is één `<dependency>` erbij genoeg om demo-code naar productie te laten me
 Demo ≠ "wordt niet uitgerold". De FSC-harness levert het contract-bootstrap-image en een demo-module
 kan een eigen ZAD-component hebben. `.github/scripts/wijzigingsfilter.sh` sluit daarom niet `demo/`
 als geheel van bouwen en uitrollen uit, maar de delen die buiten de uitrolpoort vallen
-(`DEMO_BUITEN_UITROLPOORT`) — het contract-bootstrap-image uit `environment/` hangt aan `run` en niet
-aan `deploy`, dus dat wordt daar niet door geraakt. Een nieuwe demo-module valt buiten de uitsluiting
+(`DEMO_BUITEN_UITROLPOORT`) — het contract-bootstrap-image uit `environment/` en het
+demo-console-image (`build-democonsole`) hangen allebei aan `run` en niet aan `deploy`, dus die
+worden daar niet door geraakt. Een nieuwe demo-module valt buiten de uitsluiting
 en houdt zijn build: vergeten kost een overbodige build, niet een overgeslagen build.
 
 Voor de test-scope geldt `demo/` wél als geheel: raakt een PR niets buiten deze map, dan test de

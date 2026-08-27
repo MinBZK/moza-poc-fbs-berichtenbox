@@ -375,6 +375,46 @@ jobs:
           docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
 
+  # De demo-console levert een eigen image en een eigen ZAD-component, maar rolt niet mee met een
+  # preview: hij draait in de preview-loze deployment `demo`, die met de hand wordt bijgewerkt via
+  # deploy-demo.yml. Daarom aan `run` en niet aan `deploy`, net als build-contract-bootstrap — zo
+  # valt een kapotte jib-configuratie op vóór de merge zonder de previews open te zetten.
+  build-democonsole:
+    if: github.event_name == 'push' || needs.changes.outputs.run == 'true'
+    needs: [meta, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: build-democonsole-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build + push image (jib)
+        env:
+          GROUP: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./mvnw -B package -DskipTests \
+            -pl demo/demo-console -am \
+            -Dquarkus.container-image.build=true \
+            -Dquarkus.container-image.push=true \
+            -Dquarkus.container-image.registry="$REGISTRY" \
+            -Dquarkus.container-image.group="$GROUP" \
+            -Dquarkus.container-image.tag="$TAG" \
+            -Dquarkus.container-image.username="$GHCR_USER"
+
   # De vier toetsende workflows draaien als aangeroepen (`workflow_call`) job ín deze workflow,
   # zodat de deploy er met `needs:` aan kan hangen. Vóór #173 draaiden ze zelfstandig en wachtte
   # een `gate`-job er in een poll-lus op: ~461 s per run een runner die niets deed dan `sleep 15`.
@@ -813,6 +853,7 @@ jobs:
       - build
       - build-externe-stubs
       - build-contract-bootstrap
+      - build-democonsole
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
       - deploy-preview-magazijnen

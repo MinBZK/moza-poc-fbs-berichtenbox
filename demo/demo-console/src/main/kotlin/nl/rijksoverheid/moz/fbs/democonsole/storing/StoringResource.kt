@@ -38,10 +38,6 @@ class StoringResource(private val storingService: StoringService) {
     @POST
     @Path("/{proxy}/uit")
     fun infraUit(@PathParam("proxy") proxy: String): Map<String, String> {
-        if (proxy !in INFRA_PROXIES) {
-            throw BadRequestException("onbekende proxy '$proxy'; toegestaan: $INFRA_PROXIES")
-        }
-
         storingService.uit(proxy)
 
         return mapOf("status" to "$proxy uit")
@@ -56,9 +52,5 @@ class StoringResource(private val storingService: StoringService) {
     private companion object {
 
         const val LATENCY_MS = 6000
-
-        // Alleen infra-proxies waarvoor een knop bestaat; magazijn a/b lopen via hun eigen
-        // getypeerde endpoints. Voorkomt dat het paneel een willekeurige proxy uitschakelt.
-        val INFRA_PROXIES = setOf("profiel", "redis", "notificatie", "aanmeld")
     }
 }
