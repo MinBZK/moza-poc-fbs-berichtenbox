@@ -9,19 +9,23 @@ document beschrijft wat er precies in de weg zit en welke route het wél oplost.
 **Issue:** volgt uit dit ontwerp. Hangt samen met MinBZK/MijnOverheidZakelijk#936 (uitgevoerd voor
 de console) en #938 (magazijn-simulator).
 
-## Wat er nu niet werkt
+## De aanleiding
+
+> Stap 1 hieronder is uitgevoerd, dus van de twee knoppen in deze tabel werkt de eerste inmiddels.
+> De beschrijving blijft staan omdat ze de reden van stap 2 draagt.
 
 Op ZAD staat de console als `democonsole` in `mpfm-w3h/test` en in elke preview daarvan. Alles wat
 hij doet is óf binnen zijn eigen deployment (de magazijnen, de database) óf over de publieke
-ingress (de uitvraag). Twee knopgroepen vallen daarbuiten, en die zijn uitgezet:
+ingress (de uitvraag). Twee knopgroepen vallen daarbuiten:
 
-| Knop | Wat hij nodig heeft | Waar dat staat |
-|---|---|---|
-| Cache verlopen | Redis, poort 6379 | `mpfb-8wh`, ander project |
-| Storingen | vier Toxiproxy-admin-API's, poort 8474 | `mpfb-8wh` en `mpfpsm-lcl` |
+| Knop | Wat hij nodig heeft | Waar dat staat | Nu |
+|---|---|---|---|
+| Cache verlopen | Redis, poort 6379 | `mpfb-8wh`, ander project | werkt (stap 1) |
+| Storingen | vier Toxiproxy-admin-API's, poort 8474 | `mpfb-8wh` en `mpfpsm-lcl` | open (stap 2) |
 
-De console laat ze zelf weg op grond van `GET /api/demo/omgeving`: lege `TOXIPROXY_*_URL`-waarden en
-`SESSIECACHE_BEREIKBAAR=false`.
+De console laat weg wat een omgeving niet kan bedienen, op grond van `GET /api/demo/omgeving`: lege
+`TOXIPROXY_*_URL`-waarden halen de storingsknoppen uit het paneel. `SESSIECACHE_BEREIKBAAR` deed
+hetzelfde voor de cache-verval-knop en staat op ZAD inmiddels op `true`.
 
 ## Drie eigenschappen van ZAD die de oude opzet blokkeren
 

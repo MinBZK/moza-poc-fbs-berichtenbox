@@ -1737,6 +1737,11 @@ open tot fase 2 klaar is, haal dan de sluitregel weg en zet hem in de PR van fas
 > onbruikbaar zodra previews meetellen; de nabrander in het ontwerp legt uit waarom en welke route
 > het wél oplost. De storingsknoppen zijn daarom uit fase 2 gehaald, samen met de cache-verval-knop
 > die op dezelfde netwerkregel-beperking stuit.
+>
+> Van die twee is de cache-verval-knop inmiddels alsnog werkend, in het vervolg dat hieronder onder
+> "Wat hierna nog open staat" stond: de deploy-workflow schrijft de netwerkregel per deployment bij,
+> dus hij volgt ook een preview. De storingsknoppen wachten nog — die vragen bovendien eigen
+> componenten.
 
 ## Taak 8: Het console-component aanmaken in `mpfm-w3h/test`
 
@@ -1751,13 +1756,15 @@ en de reden per keuze; hier alleen de vorm.
 - [x] `democonsole` aanmaken: poort 8095, diensten `postgresql-database`, `publish-on-web` en
       `authorization-wall`, en de aliassen voor de magazijn-URL's, de database en de uitvraag.
       `UITVRAAG_BASIS` (browser, mét `/api/v1`) en `UITVRAAG_URL` (server-side) delen op ZAD hun
-      host: de uitvraag staat in een ander project, dus cluster-interne DNS zou een netwerkregel
-      vragen die geen preview volgt.
+      host: de uitvraag staat in een ander project, dus cluster-interne DNS zou een netwerkregel per
+      deployment vragen. Dat kán inmiddels, maar het levert niets op — de publieke ingress klopt in
+      elke deployment vanzelf.
 - [x] `MAGAZIJN_A_DB_SCHEMA`/`_B_DB_SCHEMA` als env-vars, exact gelijk aan de `DB_SCHEMA` van
       `magazijna` respectievelijk `magazijnb`. Wijken ze af, dan leegt de console een leeg schema en
       meldt nul verwijderde berichten zonder te klagen.
 - [x] De zes `TOXIPROXY_*_URL` leeg zetten en `SESSIECACHE_BEREIKBAAR=false`, zodat het paneel de
-      knoppen weglaat die deze omgeving niet kan bedienen.
+      knoppen weglaat die deze omgeving niet kan bedienen. Die laatste staat inmiddels op `true`:
+      met de netwerkregel erbij kán de omgeving de sessiecache wél bedienen.
 - [x] `QUARKUS_HTTP_CORS_ENABLED` en `QUARKUS_HTTP_CORS_ORIGINS` op `uitvraag` in `mpfb-8wh`. Eén
       reguliere expressie over alle console-origins van dit project, want previews komen en gaan.
       Zonder backslashes: een geëscapete variant laat de SOPS-stap van Operations Manager falen en
