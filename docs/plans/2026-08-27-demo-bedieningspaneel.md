@@ -5,7 +5,7 @@
 ## Aanleiding
 
 Sinds het paneel naast de berichtenbox van de proeftuin in een frame staat
-(`2026-08-…-proeftuin-in-compose`), is het bedieningsoppervlak nog 26rem breed. Wat in een
+(`2026-08-24-proeftuin-koppeling-design.md`), is het bedieningsoppervlak nog 26rem breed. Wat in een
 centerkolom van 40rem net werkte, werkt daar niet meer. Drie klachten uit het gebruik:
 
 1. **Je ziet niet of je een knop hebt ingedrukt.** Elke knop schreef zijn uitkomst naar één
@@ -81,8 +81,20 @@ je zoekt. Net als bij `reset()` maakt één onbereikbare instantie alleen zijn e
 
 `GET /api/demo/veel-magazijnen` geeft `{actief, totaal}`, geteld uit de WireMock-mappings en niet
 uit een veld in het geheugen: zo klopt het paneel ook na een herstart van de console of van de
-stubs. Alleen onze eigen overlay-id's tellen als storing; de base-mappings van schijf hebben hun
-eigen id's.
+stubs. Alleen onze eigen overlay-id's tellen als storing, en dan op unieke id — de base-mappings
+van schijf hebben eigen id's, en dubbele overlays zouden het actieve aantal onder nul duwen.
+
+Beide endpoints maken van twijfel een fout in plaats van een telling. `mappings()` levert daarom
+een `Response`: de default rest-client-mapper staat uit, dus zonder de status zelf te lezen komt
+een foutbody binnen als een lege mappings-lijst — en dat leest als "alles actief", precies de
+richting die dit paneel niet mag hebben. Een lege lijst wordt om dezelfde reden geweigerd: stubs
+zonder mappings serveren niets.
+
+`GET /api/demo/omgeving` kreeg er `stubMagazijnen` bij, het ingerichte aantal uit de configuratie.
+Daarmee weet het paneel vóór de eerste uitlezing of deze omgeving die chip kent. Zonder dat
+onderscheid is "niet ingericht" niet te scheiden van "niet kunnen lezen" — dan verdwijnt de chip
+juist wanneer er iets stuk is — en pollt het paneel elke vijf seconden een endpoint dat in zo'n
+omgeving alleen maar een fout in het log kan opleveren.
 
 ### Waar je gebleven was
 
@@ -143,8 +155,28 @@ Ongeldige invoer wordt in de browser gestopt, die het veld dan zelf aanwijst.
   terugweg apart — wegschrijven, en een verse pagina met die stand erin — plus een onbekend
   tabblad, een verdwenen persona en storage die gooit.
 
-Een browser is er in deze omgeving niet, dus de opmaak zelf — contrast, uitlijning, of het geheel
-in 26rem past — is met het oog te beoordelen op <http://127.0.0.1:8097/bediening/>.
+Een browser is er in deze omgeving niet, dus uitlijning en of het geheel in 26rem past zijn met
+het oog te beoordelen op <http://127.0.0.1:8097/bediening/>. Contrastverhoudingen zijn wél
+nagerekend: alle tekstparen halen 4.5:1 en de focusringen 3:1, met een eigen donkere ring voor de
+klapknop omdat de gele ring van het paneel op de lichte kolom maar 1,3:1 haalt.
+
+### Wat de review opleverde
+
+Een ronde met vijf review-agents bracht drie dingen aan het licht die alle drie dezelfde vorm
+hadden — het paneel zou "gezond" melden terwijl er iets stuk was:
+
+- Een afgebroken body-read liet `bezig` op `true` staan. De poll viel dan permanent uit en de
+  chips bleven de rest van de sessie op hun laatste waarde staan, zonder dat iets dat verried.
+  Opgelost met een `finally`, plus een aparte terugval voor een respons waarvan het lezen afbreekt.
+- Een foutantwoord van WireMock kwam binnen als een lege mappings-lijst en werd "alles actief".
+- Een mislukte eerste uitlezing verborg de magazijnen-chip, wat niet te onderscheiden was van een
+  omgeving zonder stub-magazijnen.
+
+Daarnaast: een 200 met `mislukt > 0` kreeg een groene melding met vinkje (nu geel of rood), een
+gecrashte samenvatter viel stil terug op "Gelukt" (nu een waarschuwing met de JSON open), een
+onbereikbare console meldde "geen persona met een BSN ingericht", en de bevestiging kondigde
+zichzelf niet aan voor een schermlezer. De oorzaak van `ONBEKEND` gaat nu naar het log; zonder die
+regel was in een demo niet te achterhalen of het om een weggevallen instantie of een timeout ging.
 
 ## Wat niet gedaan is
 

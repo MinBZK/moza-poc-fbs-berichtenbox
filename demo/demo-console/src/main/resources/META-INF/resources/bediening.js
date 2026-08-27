@@ -1,6 +1,5 @@
-/* Bediening van de demo-stack. Los van index.html zodat de opmaak leesbaar blijft en er geen
- * inline `onclick` meer nodig is: elke knop draagt zijn methode en pad als data-attribuut, en één
- * listener op het paneel voert ze uit. */
+/* Bediening van de demo-stack. Los van index.html zodat de opmaak leesbaar blijft: elke actieknop
+ * draagt zijn methode en pad als data-attribuut, en één listener op het document voert ze uit. */
 
 const BOX_PAD = '/moza/berichtenbox/';
 
@@ -24,14 +23,18 @@ const MAGAZIJN_NAMEN = {
     'magazijn-b': 'Bel.dienst',
 };
 
-/* Loopt er een actie, dan slaat de poll over: de statusbalk zou anders de toestand van halverwege
- * een herstel tonen, en de melding van "Bezig…" overschrijven. */
+/* Loopt er een actie, dan slaat de poll over — de statusbalk zou anders de toestand van halverwege
+ * een herstel tonen. */
 let bezig = false;
 
-/* Onthouden zodra de omgeving stub-magazijnen blijkt te hebben. Daarna blijft de chip staan, ook
- * als de volgende uitlezing mislukt — anders verdwijnt bij een storing juist het teken dat er iets
- * mis is. */
-let kentStubMagazijnen = false;
+/* Volgnummer per ververs-ronde. Een poll die al onderweg was toen je klikte, mag de verse toestand
+ * van ná die actie niet overschrijven. */
+let ververslus = 0;
+
+/* Of deze omgeving stub-magazijnen kent, uit /api/demo/omgeving; null zolang dat nog niet gelezen
+ * is. Uit de configuratie en niet uit een geslaagde uitlezing: anders is "niet ingericht" niet te
+ * onderscheiden van "niet kunnen lezen", en verdwijnt de chip juist wanneer er iets stuk is. */
+let heeftStubMagazijnen = null;
 
 const melding = document.getElementById('melding');
 const meldingTekst = document.getElementById('melding-tekst');
@@ -40,8 +43,8 @@ const meldingJson = document.getElementById('melding-json');
 
 // ---------------------------------------------------------------- waar je gebleven was
 
-/* Storage kan gooien — een private window, of een browser die site-data blokkeert. Het paneel moet
- * dan gewoon werken, alleen zonder geheugen; vandaar dat lezen en schrijven allebei stil terugvallen. */
+/* Storage kan gooien wanneer site-data geblokkeerd is, en de bewaarde waarde kan onleesbaar zijn.
+ * Het paneel moet dan gewoon werken, alleen zonder geheugen. */
 function leesStand() {
     try {
         return JSON.parse(sessionStorage.getItem(STAND_SLEUTEL)) || {};
@@ -70,8 +73,8 @@ function bewaarVelden() {
     bewaarStand({ velden: velden });
 }
 
-/* De keuzelijst met persona's komt pas binnen na een netwerkaanroep; die zet vulPersonas() zelf
- * terug, zodra hij weet welke opties er zijn. */
+/* Keuzelijsten worden pas na een netwerkaanroep gevuld en herstellen zichzelf daar, zodra ze
+ * weten welke opties er zijn. */
 function herstelStand() {
     const stand = leesStand();
     const velden = stand.velden || {};
@@ -91,9 +94,9 @@ function herstelStand() {
 
 // ---------------------------------------------------------------- berichtenbox in het frame
 
-/* Het frame laadt alleen als deze pagina via de demo-proxy geopend is; alleen daar staat de
- * proeftuin op dezelfde origin. Een frame dat cross-origin niet laadt geeft geen foutmelding die
- * JavaScript kan zien, dus toetsen we het pad vooraf in plaats van achteraf te raden. */
+/* Zonder de demo-proxy bestaat dit pad niet op deze origin en toont het frame een 404-pagina. Een
+ * frame dat mis laadt geeft geen gebeurtenis die JavaScript van een geslaagde kan onderscheiden,
+ * dus toetsen we het pad vooraf in plaats van achteraf te raden. */
 function bepaalBox() {
     fetch(BOX_PAD, { method: 'HEAD' })
         .then((respons) => toonBox(respons.ok))
@@ -145,7 +148,10 @@ function toonMelding(tekst, soort, ruw) {
     melding.className = 'melding' + (soort ? ' melding--' + soort : '');
     meldingTekst.textContent = tekst;
     meldingRuw.hidden = !ruw;
-    meldingRuw.open = false;
+
+    // Bij twijfel staat het antwoord meteen open: dan is de ruwe JSON het enige aanknopingspunt,
+    // en tijdens een demo klapt niemand een <details> uit.
+    meldingRuw.open = Boolean(ruw) && soort === 'let-op';
     meldingJson.textContent = ruw || '';
 }
 
@@ -218,23 +224,35 @@ function storingenTekst(storingen) {
 function samenvatting(soort, body) {
     const formatter = SAMENVATTINGEN[soort];
 
-    if (!formatter) return null;
+    if (!formatter) return { tekst: null, soort: 'goed' };
 
     try {
-        return formatter(body);
+        return { tekst: formatter(body), soort: vullingSoort(body) };
     } catch (fout) {
-        // Een antwoord in een andere vorm dan verwacht mag geen lege melding geven: de ruwe JSON
-        // eronder is dan het enige wat er nog te zien valt.
-        return null;
+        // Een antwoord in een andere vorm dan verwacht is zelf een signaal: als gewoon "Gelukt"
+        // tonen laat een keten die iets anders teruggeeft er gezond uitzien.
+        return { tekst: 'Geslaagd, maar het antwoord had een onverwachte vorm — zie de JSON hieronder', soort: 'let-op' };
     }
+}
+
+/* HTTP 200 zegt alleen dat de console het verzoek verwerkte, niet dat de berichten aankwamen. Een
+ * groene melding boven "100 mislukt" is het verkeerde signaal. */
+function vullingSoort(body) {
+    const vulling = body && body.vulling ? body.vulling : body;
+
+    if (!vulling || typeof vulling.aangeboden !== 'number') return 'goed';
+
+    if (vulling.aangeboden > 0 && vulling.geslaagd === 0) return 'fout';
+
+    return vulling.mislukt || vulling.markeringMislukt ? 'let-op' : 'goed';
 }
 
 // ---------------------------------------------------------------- acties uitvoeren
 
-/* Drie gescheiden uitkomsten, want tijdens een demo moet één blik volstaan om te zien wát er stuk
- * is: de console niet bereikbaar, de actie geweigerd (met de melding uit de body), of gelukt.
- * Zonder de .ok-toets levert elke storing dezelfde onbruikbare 'SyntaxError' op, omdat het parsen
- * dan over een foutbody struikelt. */
+/* Vier uitkomsten die tijdens een demo verschillend moeten lezen: geen verbinding, antwoord
+ * afgebroken, onleesbaar antwoord, en geweigerd met de melding uit de body. De body wordt eerst als
+ * tekst gelezen zodat een niet-JSON foutpagina een leesbare melding oplevert in plaats van een
+ * SyntaxError. */
 async function roep(pad, methode) {
     let respons;
 
@@ -244,7 +262,15 @@ async function roep(pad, methode) {
         return { gelukt: false, tekst: 'Geen verbinding met de demo-console: ' + fout, ruw: null };
     }
 
-    const tekst = await respons.text();
+    // fetch() lost al op zodra de headers binnen zijn; het lezen van de body kan daarna alsnog
+    // afbreken — precies bij de trage knoppen, in een demo over een wankele verbinding.
+    let tekst;
+
+    try {
+        tekst = await respons.text();
+    } catch (fout) {
+        return { gelukt: false, tekst: 'Antwoord afgebroken (HTTP ' + respons.status + '): ' + fout, ruw: null };
+    }
 
     let body;
 
@@ -317,31 +343,50 @@ async function voerUit(knop) {
     zetUitkomst(knop, 'bezig');
     toonMelding('Bezig…', null, null);
 
-    const uitkomst = await roep(pad, knop.dataset.methode);
+    // Alles opruimen in een finally: een bezig-vlag die blijft hangen zet de poll stil, en dan
+    // toont de balk de rest van de sessie verouderde waarden zonder dat iets dat verraadt.
+    try {
+        const uitkomst = await roep(pad, knop.dataset.methode);
 
-    knop.disabled = false;
-    zetUitkomst(knop, uitkomst.gelukt ? 'gelukt' : 'mislukt');
+        zetUitkomst(knop, uitkomst.gelukt ? 'gelukt' : 'mislukt');
 
-    if (uitkomst.gelukt) {
-        const tekst = samenvatting(knop.dataset.samenvatting, uitkomst.body);
+        if (uitkomst.gelukt) {
+            const samengevat = samenvatting(knop.dataset.samenvatting, uitkomst.body);
 
-        toonMelding(tekst || 'Gelukt', 'goed', uitkomst.ruw);
-    } else {
-        toonMelding(uitkomst.tekst, 'fout', uitkomst.ruw);
+            toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw);
+        } else {
+            toonMelding(uitkomst.tekst, 'fout', uitkomst.ruw);
+        }
+    } catch (fout) {
+        zetUitkomst(knop, 'mislukt');
+        toonMelding('Onverwachte fout in het paneel: ' + fout, 'fout', null);
+    } finally {
+        knop.disabled = false;
+
+        // Een knop die tijdens de actie op disabled ging, verliest de focus naar <body>. Alleen
+        // teruggeven als hij daar nog staat, zodat we hem niet weghalen bij wie intussen verder
+        // getabd is.
+        if (document.activeElement === document.body) knop.focus();
+
+        bezig = false;
+
+        verversToestand();
     }
-
-    bezig = false;
-
-    verversToestand();
 }
 
 // ---------------------------------------------------------------- bevestiging
 
 /* In het paneel zelf en niet via confirm(): die dialoog valt buiten het scherm dat je deelt, en
  * dwingt bovendien tot één tekst voor knoppen die heel verschillende dingen doen. */
-function sluitBevestiging() {
+function sluitBevestiging(terugNaar) {
     document.querySelectorAll('.bevestig').forEach((blok) => blok.remove());
+
+    // De focus stond op een knop die we net weghalen; zonder dit valt hij terug op <body> en
+    // begint toetsenbordnavigatie weer bovenaan de pagina.
+    if (terugNaar) terugNaar.focus();
 }
+
+let bevestigTeller = 0;
 
 function vraagBevestiging(knop) {
     sluitBevestiging();
@@ -351,26 +396,33 @@ function vraagBevestiging(knop) {
     const knoppen = document.createElement('div');
     const ja = document.createElement('button');
     const nee = document.createElement('button');
+    const vraagId = 'bevestig-vraag-' + ++bevestigTeller;
 
+    // alertdialog met een verwijzing naar de vraag: anders hoort een schermlezer alleen "Nee, laat
+    // staan" en nooit de zin die zegt wát er precies weggaat.
     blok.className = 'bevestig';
+    blok.setAttribute('role', 'alertdialog');
+    blok.setAttribute('aria-labelledby', vraagId);
     vraag.className = 'bevestig__vraag';
+    vraag.id = vraagId;
     vraag.textContent = knop.dataset.bevestig + ' Doorgaan?';
     knoppen.className = 'bevestig__knoppen';
 
     nee.type = 'button';
     nee.className = 'knop';
     nee.textContent = 'Nee, laat staan';
-    nee.addEventListener('click', () => {
-        sluitBevestiging();
-        knop.focus();
-    });
+    nee.addEventListener('click', () => sluitBevestiging(knop));
 
     ja.type = 'button';
     ja.className = 'knop knop--gevaar';
     ja.textContent = 'Ja, doorgaan';
     ja.addEventListener('click', () => {
-        sluitBevestiging();
+        sluitBevestiging(knop);
         voerUit(knop);
+    });
+
+    blok.addEventListener('keydown', (gebeurtenis) => {
+        if (gebeurtenis.key === 'Escape') sluitBevestiging(knop);
     });
 
     knoppen.append(nee, ja);
@@ -378,7 +430,7 @@ function vraagBevestiging(knop) {
     knop.closest('.knoppen').insertBefore(blok, knop.nextSibling);
 
     // Focus op de veilige keuze: de gebruiker kwam hier met een klik of een Enter, en een tweede
-    // aanslag mag geen twee magazijnen leegtrekken.
+    // aanslag mag niet ongewild een destructieve actie uitvoeren.
     nee.focus();
 }
 
@@ -397,7 +449,7 @@ function kiesTab(gekozen) {
         document.getElementById(tab.getAttribute('aria-controls')).hidden = !actief;
     });
 
-    sluitBevestiging();
+    sluitBevestiging(null);
     bewaarStand({ tab: gekozen.id });
 }
 
@@ -426,20 +478,34 @@ function tabToets(gebeurtenis) {
     doel.focus();
 }
 
+/* De stip is een kleurvlek; het aria-label draagt dezelfde boodschap in tekst. Het begint met het
+ * zichtbare label, zodat spraakbediening op "Storingen" blijft werken. */
 function markeerTab(id, letOp) {
-    document.getElementById(id).dataset.letOp = String(letOp);
+    const tab = document.getElementById(id);
+
+    tab.dataset.letOp = String(letOp);
+
+    if (letOp) tab.setAttribute('aria-label', tab.dataset.label + ' — er staat iets aan');
+    else tab.removeAttribute('aria-label');
 }
 
 // ---------------------------------------------------------------- toestandsbalk
 
+/* De chips maken van null een zichtbare "onbekend", maar de reden staat alleen in het antwoord van
+ * de console — en die draagt de exacte oorzaak in zijn body. Zonder deze regel heeft een bediener
+ * die "onbekend" ziet geen enkel aanknopingspunt. */
 async function lees(pad) {
     try {
         const respons = await fetch(pad);
 
-        return respons.ok ? await respons.json() : null;
+        if (respons.ok) return await respons.json();
+
+        console.error('toestand niet te lezen:', pad, respons.status, await respons.text());
     } catch (fout) {
-        return null;
+        console.error('toestand niet te lezen:', pad, fout);
     }
+
+    return null;
 }
 
 function zetChip(id, tekst, soort) {
@@ -460,7 +526,12 @@ function toonBerichten(status) {
 }
 
 function toonStroom(tempo) {
-    if (!tempo) return zetChip('chip-stroom', 'onbekend', 'let-op');
+    if (!tempo) {
+        zetChip('chip-stroom', 'onbekend', 'let-op');
+        markeerTab('tab-demo', true);
+
+        return;
+    }
 
     if (tempo.loopt) {
         zetChip('chip-stroom', 'elke ' + tempo.intervalSeconden + ' s · ' + tempo.geleverd, 'let-op');
@@ -479,6 +550,15 @@ function toonStoringen(storingen) {
         return;
     }
 
+    // Nul geconfigureerde proxies is iets anders dan nul storingen: er wordt dan niets bewaakt, en
+    // "geen storingen" in het groen is daar een geruststelling die nergens op slaat.
+    if (!Object.keys(storingen).length) {
+        zetChip('chip-storingen', 'niet ingericht', null);
+        markeerTab('tab-storingen', false);
+
+        return;
+    }
+
     const afwijkend = Object.entries(storingen).filter(([, toestand]) => toestand !== 'normaal');
 
     if (!afwijkend.length) {
@@ -491,16 +571,15 @@ function toonStoringen(storingen) {
 }
 
 function toonMagazijnen(veel) {
-    const chip = document.getElementById('chip-magazijnen');
+    // Verbergen mag alleen op gezag van de configuratie. Verbergen omdat de uitlezing mislukte zou
+    // van een storing een omgeving-zonder-stub-magazijnen maken — visueel niet te onderscheiden.
+    if (heeftStubMagazijnen !== true) return;
 
-    if (veel && veel.totaal > 0) kentStubMagazijnen = true;
-
-    if (!kentStubMagazijnen) return;
-
-    chip.hidden = false;
+    document.getElementById('chip-magazijnen').hidden = false;
 
     if (!veel) {
         zetChip('chip-magazijnen', 'onbekend', 'let-op');
+        markeerTab('tab-scenarios', true);
 
         return;
     }
@@ -511,17 +590,25 @@ function toonMagazijnen(veel) {
     markeerTab('tab-scenarios', beperkt);
 }
 
-/* Vier losse uitlezingen, elk met een eigen terugval: een Toxiproxy die niet antwoordt mag de
- * berichtentelling niet meeslepen, want juist dan wil je weten hoeveel er nog staat. */
+/* Elke uitlezing valt apart terug: een endpoint dat niet antwoordt maakt alleen zijn eigen chip
+ * onbekend, want juist bij een storing wil je de overige tellingen nog zien. */
 async function verversToestand() {
     if (bezig) return;
+
+    const beurt = ++ververslus;
 
     const [status, tempo, storingen, veel] = await Promise.all([
         lees('/api/demo/status'),
         lees('/api/demo/tempo'),
         lees('/api/demo/storing'),
-        lees('/api/demo/veel-magazijnen'),
+        // Niet vragen naar wat deze omgeving niet heeft: dat levert elke vijf seconden een fout in
+        // het log op, zonder dat er iets te tonen valt.
+        heeftStubMagazijnen === false ? null : lees('/api/demo/veel-magazijnen'),
     ]);
+
+    // Een ronde die al liep toen er geklikt werd, mag de verse toestand van ná die actie niet
+    // terugdraaien.
+    if (beurt !== ververslus) return;
 
     toonBerichten(status);
     toonStroom(tempo);
@@ -531,28 +618,35 @@ async function verversToestand() {
 
 // ---------------------------------------------------------------- omgeving en persona's
 
-/* Niet elke omgeving heeft elke proxy: op ZAD ontbreken de magazijn-storingen, omdat de magazijnen
- * hun gedrag daar uit de simulator krijgen. Een knop tonen die gegarandeerd een 400 geeft, kost
- * tijdens een demo uitleg die niets toevoegt. Console onbereikbaar: laat alles staan — die knoppen
- * falen dan zichtbaar, wat beter is dan een leeg tabblad zonder uitleg. */
+/* Een proxy die deze omgeving niet aanbiedt krijgt geen knop: een knop die gegarandeerd een 400
+ * geeft kost tijdens een demo uitleg die niets toevoegt. Console onbereikbaar: laat alles staan —
+ * knoppen die zichtbaar falen zijn beter dan een leeg tabblad zonder uitleg. */
 async function pasOmgevingToe() {
     const omgeving = await lees('/api/demo/omgeving');
 
-    if (!omgeving) return;
+    heeftStubMagazijnen = omgeving ? omgeving.stubMagazijnen > 0 : true;
 
-    const beschikbaar = new Set(omgeving.storingen);
+    if (omgeving) {
+        const beschikbaar = new Set(omgeving.storingen);
 
-    document.querySelectorAll('button[data-proxy]').forEach((knop) => {
-        knop.hidden = !beschikbaar.has(knop.dataset.proxy);
-    });
+        document.querySelectorAll('button[data-proxy]').forEach((knop) => {
+            knop.hidden = !beschikbaar.has(knop.dataset.proxy);
+        });
 
-    document.querySelectorAll('.groep[data-groep]').forEach((groep) => {
-        const knoppen = Array.from(groep.querySelectorAll('button[data-proxy]'));
+        // De reset-groep hangt niet aan één proxy maar valt met de andere weg: reset() weigert een
+        // leeg register, dus zonder proxies is ook die knop een gegarandeerde fout.
+        document.querySelectorAll('.groep[data-groep]').forEach((groep) => {
+            const knoppen = Array.from(groep.querySelectorAll('button[data-proxy]'));
 
-        groep.hidden = knoppen.every((knop) => knop.hidden);
-    });
+            groep.hidden = beschikbaar.size === 0 || (knoppen.length > 0 && knoppen.every((knop) => knop.hidden));
+        });
 
-    document.getElementById('geen-storingen').hidden = beschikbaar.size > 0;
+        document.getElementById('geen-storingen').hidden = beschikbaar.size > 0;
+    }
+
+    // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de
+    // volgende poll leeg.
+    verversToestand();
 }
 
 /* De ontdubbeling loopt op een BSN, dus alleen persona's met een BSN kunnen hem spelen. Een vrij
@@ -560,10 +654,24 @@ async function pasOmgevingToe() {
 async function vulPersonas() {
     const keuze = document.getElementById('ontdubbelPersona');
     const knop = document.querySelector('button[data-samenvatting="ontdubbeling"]');
-    const personas = (await lees('/api/demo/personas')) || [];
-    const metBsn = personas.filter((persona) => persona.ontvanger.startsWith('BSN:'));
+    const personas = await lees('/api/demo/personas');
 
     keuze.replaceChildren();
+
+    // De lijst niet kunnen lezen is iets anders dan niets ingericht hebben: met de verkeerde reden
+    // afhaken stuurt de bediener de configuratie in terwijl de console even weg was. De knop blijft
+    // daarom aan — die faalt dan zichtbaar met de echte fout.
+    if (personas === null) {
+        const onbekend = document.createElement('option');
+
+        onbekend.textContent = 'persona-lijst niet op te halen';
+        keuze.append(onbekend);
+        keuze.disabled = true;
+
+        return;
+    }
+
+    const metBsn = personas.filter((persona) => persona.ontvanger.startsWith('BSN:'));
 
     if (!metBsn.length) {
         const leeg = document.createElement('option');
@@ -623,15 +731,19 @@ document.addEventListener('click', (gebeurtenis) => {
     }
 });
 
+document.querySelectorAll('[role="tab"]').forEach((tab) => {
+    tab.dataset.label = tab.textContent.trim();
+});
+
 document.querySelector('[role="tablist"]').addEventListener('keydown', tabToets);
 
-// `input` en niet `change`: bij `change` gaat een getal dat je net intikte verloren zodra je
-// ververst zonder eerst het veld te verlaten.
+// `input` en niet `change`: bij `change` gaat een getal dat je net intikte verloren zodra je de
+// pagina herlaadt zonder eerst het veld te verlaten.
 document.getElementById('paneel').addEventListener('input', (gebeurtenis) => {
     if (VELDEN.includes(gebeurtenis.target.id)) bewaarVelden();
 });
 
-// Het merkteken hoort bij elke actieknop; het hier aanhangen scheelt dezelfde span twintig keer in
+// Het merkteken hoort bij elke actieknop; het hier aanhangen scheelt dezelfde span bij elke knop in
 // de opmaak — en voorkomt dat één knop hem mist en als enige niets laat zien.
 document.querySelectorAll('button[data-pad]').forEach((knop) => {
     const merk = document.createElement('span');

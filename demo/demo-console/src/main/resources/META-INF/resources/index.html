@@ -28,7 +28,7 @@
         <p class="merk__toelichting">Regelt de demo-stack. Geen onderdeel van de proeftuin.</p>
       </header>
 
-      <div class="chips" id="chips" aria-label="Toestand van de demo-stack">
+      <div class="chips" id="chips" role="group" aria-label="Toestand van de demo-stack">
         <span class="chip" id="chip-berichten"><span class="chip__naam">berichten</span> …</span>
         <span class="chip" id="chip-stroom"><span class="chip__naam">stroom</span> …</span>
         <span class="chip" id="chip-storingen"><span class="chip__naam">storingen</span> …</span>
@@ -113,7 +113,7 @@
       </section>
 
       <section role="tabpanel" id="blad-storingen" aria-labelledby="tab-storingen" tabindex="0" hidden>
-        <div class="groep">
+        <div class="groep" data-groep="reset">
           <div class="knoppen">
             <button type="button" class="knop knop--primair" data-methode="POST" data-pad="/api/demo/storing/reset"
                     data-samenvatting="status">Alles normaal</button>

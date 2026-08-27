@@ -16,8 +16,8 @@ class VeelMagazijnenService(
     @param:ConfigProperty(name = "veel-magazijnen.aantal") private val aantal: Int,
 ) {
 
-    // Alleen onze eigen overlay-id's tellen als storing: de base-mappings van schijf hebben hun
-    // eigen id's, en die meetellen zou elk magazijn dubbel als gestoord zien.
+    // Alleen onze eigen overlay-id's tellen als storing: de base-mappings van schijf hebben eigen
+    // id's en zouden elk magazijn meetellen als gestoord.
     private val overlayIds: Set<String> = (1..aantal).map(::overlayId).toSet()
 
     fun zetActief(k: Int): Map<String, Int> {
@@ -39,9 +39,31 @@ class VeelMagazijnenService(
     /**
      * Hoeveel magazijnen er nú antwoorden. Uit WireMock gelezen en niet in het geheugen bijgehouden,
      * zodat het paneel na een herstart van de console of van de stubs nog steeds klopt.
+     *
+     * Elke twijfel wordt een fout en niet een telling: dit getal bestaat om een storing aan te
+     * wijzen, dus het mag nooit "alles actief" melden op grond van een antwoord dat we niet
+     * begrepen. Het paneel maakt van die fout een chip "onbekend".
      */
     fun status(): Map<String, Int> {
-        val gestoord = wiremock.mappings().mappings.count { it.id in overlayIds }
+        val mappings = wiremock.mappings().use { respons ->
+            check(respons.status in 200..299) {
+                "WireMock-fout bij het uitlezen van de mappings: HTTP ${respons.status}"
+            }
+
+            respons.readEntity(WireMockMappings::class.java).mappings
+        }
+
+        // Nul mappings betekent niet "geen storingen" maar "de stubs serveren niets": elk
+        // magazijnverzoek loopt dan op een 404. Dat als alles-actief tonen verbergt juist de
+        // kapotte stack die je zoekt.
+        check(mappings.isNotEmpty()) {
+            "WireMock kent geen enkele mapping: de stub-magazijnen antwoorden nergens op. " +
+                "Draai demo/genereer-magazijnen.py opnieuw en herstart de stubs."
+        }
+
+        // Unieke id's, niet voorkomens: twee mappings met dezelfde overlay-id zouden het aantal
+        // actieve magazijnen onder nul duwen.
+        val gestoord = mappings.mapNotNull { it.id }.toSet().count { it in overlayIds }
 
         return mapOf("actief" to aantal - gestoord, "totaal" to aantal)
     }

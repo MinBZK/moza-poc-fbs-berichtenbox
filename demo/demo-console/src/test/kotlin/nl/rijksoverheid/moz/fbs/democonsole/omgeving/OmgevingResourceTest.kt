@@ -9,11 +9,11 @@ import java.util.Optional
 
 class OmgevingResourceTest {
 
-    private fun resource(basis: String?, vararg proxies: String): OmgevingResource {
+    private fun resource(basis: String?, vararg proxies: String, stubMagazijnen: Int = 12): OmgevingResource {
         val config = mockk<OmgevingConfig> { every { uitvraagBasis() } returns Optional.ofNullable(basis) }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
 
-        return OmgevingResource(config, register)
+        return OmgevingResource(config, register, stubMagazijnen)
     }
 
     @Test
@@ -48,5 +48,17 @@ class OmgevingResourceTest {
         // Onderscheidt "geeft het enige element terug" van "discrimineert per naam" — een lijst
         // van meerdere elementen dekt dat verschil niet.
         assertEquals(listOf("redis"), resource(null, "redis").omgeving().storingen)
+    }
+
+    @Test
+    fun `het ingerichte aantal stub-magazijnen komt mee`() {
+        // Het paneel moet vooraf weten of deze omgeving stub-magazijnen kent, anders leest een
+        // mislukte uitlezing als "niet ingericht".
+        assertEquals(40, resource(null, stubMagazijnen = 40).omgeving().stubMagazijnen)
+    }
+
+    @Test
+    fun `een omgeving zonder stub-magazijnen meldt nul`() {
+        assertEquals(0, resource(null, stubMagazijnen = 0).omgeving().stubMagazijnen)
     }
 }
