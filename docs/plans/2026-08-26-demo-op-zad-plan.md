@@ -1746,42 +1746,51 @@ een re-POST. Het component moet dus in één keer compleet aangemaakt worden.
 De volledige stappen staan als runbook in `demo/environment/zad-demo/README.md`, met de commando's
 en de reden per keuze; hier alleen de vorm.
 
-- [ ] `keycloak` en `authorization-wall` als projectdienst selecteren, met een `restrict-access`-
+- [x] `keycloak` en `authorization-wall` als projectdienst selecteren, met een `restrict-access`-
       besluit: iedereen met een rijksaccount, of alleen wie een rol draagt.
-- [ ] `democonsole` aanmaken: poort 8095, diensten `postgresql-database`, `publish-on-web` en
+- [x] `democonsole` aanmaken: poort 8095, diensten `postgresql-database`, `publish-on-web` en
       `authorization-wall`, en de aliassen voor de magazijn-URL's, de database en de uitvraag.
       `UITVRAAG_BASIS` (browser, mét `/api/v1`) en `UITVRAAG_URL` (server-side) delen op ZAD hun
       host: de uitvraag staat in een ander project, dus cluster-interne DNS zou een netwerkregel
       vragen die geen preview volgt.
-- [ ] `MAGAZIJN_A_DB_SCHEMA`/`_B_DB_SCHEMA` als env-vars, exact gelijk aan de `DB_SCHEMA` van
+- [x] `MAGAZIJN_A_DB_SCHEMA`/`_B_DB_SCHEMA` als env-vars, exact gelijk aan de `DB_SCHEMA` van
       `magazijna` respectievelijk `magazijnb`. Wijken ze af, dan leegt de console een leeg schema en
       meldt nul verwijderde berichten zonder te klagen.
-- [ ] De zes `TOXIPROXY_*_URL` leeg zetten en `SESSIECACHE_BEREIKBAAR=false`, zodat het paneel de
+- [x] De zes `TOXIPROXY_*_URL` leeg zetten en `SESSIECACHE_BEREIKBAAR=false`, zodat het paneel de
       knoppen weglaat die deze omgeving niet kan bedienen.
-- [ ] `QUARKUS_HTTP_CORS_ENABLED` en `QUARKUS_HTTP_CORS_ORIGINS` op `uitvraag` in `mpfb-8wh`.
+- [x] `QUARKUS_HTTP_CORS_ENABLED` en `QUARKUS_HTTP_CORS_ORIGINS` op `uitvraag` in `mpfb-8wh`. Eén
+      reguliere expressie over alle console-origins van dit project, want previews komen en gaan.
+      Zonder backslashes: een geëscapete variant laat de SOPS-stap van Operations Manager falen en
+      blokkeert dan élke uitrol van dat project.
+- [x] `keycloak` óók aan het component binden. `authorization-wall` noemt hem bij zijn voorwaarden
+      maar trekt de binding niet mee; zonder die stap rendert er geen oauth2-proxy-sidecar en staat
+      het paneel open op het internet.
+- [x] De profielservice-stub het `fbs-demo-profiel`-image geven. Zonder de persona-voorkeuren valt
+      elke ontvanger terug op de gedeelde catch-all, die voor iedereen hetzelfde ene magazijn
+      teruggeeft — dan bevraagt de uitvraag maar één magazijn en toont de demo geen federatie.
 
 ## Taak 9: De console meenemen in de uitrol
 
-- [ ] `democonsole` toevoegen aan de componentlijst van `deploy-test-magazijnen` én
+- [x] `democonsole` toevoegen aan de componentlijst van `deploy-test-magazijnen` én
       `deploy-preview-magazijnen` in `deploy.yml`, met `build-democonsole` in hun `needs`.
-- [ ] `^demo/demo-console/` uit `DEMO_BUITEN_UITROLPOORT` halen. De console rolt nu mee, dus een
+- [x] `^demo/demo-console/` uit `DEMO_BUITEN_UITROLPOORT` halen. De console rolt nu mee, dus een
       consolewijziging hóórt een preview te kopen — anders draait de preview een console van een
       oudere tag en bewijst hij niets over de wijziging.
-- [ ] `.github/scripts/test-uitrol-poort.sh` en `test-wijzigingsfilter.sh` draaien; de fixtures voor
+- [x] `.github/scripts/test-uitrol-poort.sh` en `test-wijzigingsfilter.sh` draaien; de fixtures voor
       demo-console verhuizen van "geen uitrol" naar "wél uitrol".
 
 ## Taak 10: Runbook, verificatie en documentatie
 
-- [ ] `demo/environment/zad-demo/README.md` — de eenmalige OM-stappen, en wat er bewust niet
+- [x] `demo/environment/zad-demo/README.md` — de eenmalige OM-stappen, en wat er bewust niet
       meekomt. Die map valt binnen `DEMO_BUITEN_UITROLPOORT`, dus runbook-wijzigingen kopen geen
       previews.
-- [ ] `demo/environment/zad-demo/verify-zad.md` — vier stappen. De vierde is de schemacontrole:
+- [x] `demo/environment/zad-demo/verify-zad.md` — vier stappen. De vierde is de schemacontrole:
       status noteren, legen, status opnieuw. Nul verwijderde berichten terwijl de Berichtenbox wél
       vult, wijst op een verkeerd `MAGAZIJN_*_DB_SCHEMA`.
-- [ ] `demo/demo-console/README.md`, `docs/demo-runbook.md` en `demo/README.md` van beoogd naar
+- [x] `demo/demo-console/README.md`, `docs/demo-runbook.md` en `demo/README.md` van beoogd naar
       bestaand, en de ZAD-sectie van `CLAUDE.md` uitbreiden met `democonsole` en met de drie
       ZAD-eigenschappen die bepalen wat een component wél en niet kan.
-- [ ] `docs/plans/2026-07-21-demo-platform-design.md` zet ZAD-deployment van het demo-platform nog
+- [x] `docs/plans/2026-07-21-demo-platform-design.md` zet ZAD-deployment van het demo-platform nog
       onder "Bewust buiten scope"; die passage krijgt een verwijzing hierheen.
 
 ## Wat hierna nog open staat
