@@ -204,24 +204,9 @@ jobs:
           # Op sleutelnaam filteren, niet op vorm: alleen deze vier sleutels met true/false horen
           # in $GITHUB_OUTPUT. Een regel in een andere vorm laat de runner het hele outputbestand
           # weigeren ("Invalid format"); de stap faalt, alle outputs blijven leeg en de uitrol-jobs
-          # slaan stil over.
-          #
-          # Bufferen in plaats van rechtstreeks doorsluizen om dezelfde reden: een script dat
-          # halverwege afbreekt of ontbreekt (checkout gefaald) publiceert anders een halve set.
-          # Elke onvolledige uitkomst valt hier terug op alles draaien.
-          uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
-          uitkomsten=$(grep -E '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten" | sort -u) || true
-
-          # Tellen op unieke sleutels, niet op regels: `run=true` én `run=false` zijn twee regels
-          # maar één sleutel, en zouden een ontbrekende `deploy` anders maskeren.
-          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .) || true
-
-          if [ "$(grep -c . <<<"$uitkomsten")" != 4 ] || [ "$sleutels" != 4 ]; then
-            echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
-            uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
-          fi
-
-          printf '%s\n' "$uitkomsten" >> "$GITHUB_OUTPUT"
+          # slaan stil over. Het valideren en publiceren zit daarom in één script met eigen
+          # fixtures — inline stond het vier keer en kon geen enkele test het gedrag rood krijgen.
+          .github/scripts/publiceer-uitkomsten.sh
 
   # Afgeleide waarden op één plek: image-tag + lowercase GHCR-owner (GHCR eist lowercase).
   #
@@ -438,13 +423,13 @@ jobs:
   # gestapelde PR ze zelfstandig draait en een PR naar main ze precies één keer draait, hier.
   # `cflite_pr.yml` heeft géén eigen trigger en draait uitsluitend als aangeroepen workflow.
   #
-  # LET OP: door de aanroep krijgen de check-runs het caller-job-voorvoegsel: `checks-test / test`
+  # LET OP: door de aanroep krijgen de check-runs het aanroeper-job-voorvoegsel: `checks-test / test`
   # in plaats van `test`. Branch protection op main pint op die namen; wijzig je hier een job-id,
   # dan moet de required context mee. Een required context die nooit meer verschijnt, blokkeert
   # elke merge.
   #
-  # De caller-jobs staan bewust ALTIJD aan; het overslaan gebeurt binnen de aangeroepen
-  # workflow. Een overgeslagen caller-job draait die workflow namelijk nooit, waardoor de
+  # De aanroeper-jobs staan bewust ALTIJD aan; het overslaan gebeurt binnen de aangeroepen
+  # workflow. Een overgeslagen aanroeper-job draait die workflow namelijk nooit, waardoor de
   # geneste check-run (`checks-test / test`) niet bestaat — en een required context die niet
   # verschijnt blokkeert de merge voorgoed. Anders dan een overgeslagen job ín deze workflow,
   # die wél als 'skipped' (= succes) doortelt.
@@ -461,7 +446,7 @@ jobs:
     with:
       wijzigingen-relevant: ${{ needs.changes.outputs.run }}
       demo-only: ${{ needs.changes.outputs.demo-only }}
-    # De aangeroepen workflow mag nooit meer rechten hebben dan de caller-job toekent;
+    # De aangeroepen workflow mag nooit meer rechten hebben dan de aanroeper-job toekent;
     # pull-requests: write is voor de JaCoCo-coverage-comment.
     permissions:
       contents: read
@@ -481,7 +466,7 @@ jobs:
   checks-pins:
     uses: ./.github/workflows/pin-consistency.yml
     # pull-requests: write voor de melding over een verouderde fuzz-basis-image-pin; een
-    # aangeroepen workflow kan nooit meer krijgen dan de caller-job toekent.
+    # aangeroepen workflow kan nooit meer krijgen dan de aanroeper-job toekent.
     permissions:
       contents: read
       pull-requests: write

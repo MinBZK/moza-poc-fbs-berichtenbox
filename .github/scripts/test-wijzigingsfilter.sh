@@ -74,10 +74,10 @@ deploy=false
 demo-only=false
 fuzz=false'
 
-# Een Maven-module onder demo/ die buiten DEMO_BUITEN_UITROLPOORT valt: uitrol-relevant, want hij
-# kan een eigen image voeden. `demo-only` valt daarmee terug op false — een preview rolt de services
-# uit, en die horen in diezelfde run getest te zijn. Geen fuzz-ronde: de fuzz-doelen staan alleen in
-# libraries/ en services/.
+# Een Maven-module onder demo/ die buiten DEMO_BUITEN_UITROLPOORT valt: uitrol-relevant, want hij kan
+# een eigen image voeden. `demo-only` valt daarmee terug op false — een preview rolt de services
+# uit, en die horen in diezelfde run getest te zijn. Geen fuzz-ronde: de fuzz-doelen staan alleen
+# in libraries/ en services/.
 DEMO_MET_IMAGE='run=true
 deploy=true
 demo-only=false
@@ -118,12 +118,7 @@ verwacht "een docs-map bínnen een module is gewoon code" 'services/berichtenmag
 
 # `^demo/demo-console/` eindigt op een slash; zonder die anker-slash zou een gelijknamige
 # prefix-buur ongemerkt uit de uitrol vallen.
-verwacht "prefix-buur van demo-console valt niet in de uitrol-uitsluiting" \
-  'demo/demo-console-extra/Console.kt' "$DEMO_MET_IMAGE"
-
-# Hetzelfde anker aan de environment-kant.
-verwacht "prefix-buur van environment valt niet in de uitrol-uitsluiting" \
-  'demo/environment-simulator/Stack.kt' "$DEMO_MET_IMAGE"
+verwacht "prefix-buur van demo-console valt niet in de uitrol-uitsluiting" 'demo/demo-console-extra/Console.kt' "$DEMO_MET_IMAGE"
 
 verwacht "een workflow met .yaml-extensie valt buiten de toets-lijst" '.github/workflows/test.yaml' 'run=true
 deploy=true
@@ -138,7 +133,10 @@ verwacht "een 'demo'-map bínnen een module scopet de tests niet weg" 'services/
 # Isoleert het `^`-anker van BUITEN_DEMO: op een uitrol-relevant pad zou de invariant demo-only
 # tóch op false zetten en zou de fixture ook zonder anker slagen.
 verwacht "een 'demo'-map in een niet-uitrol-relevant pad scopet de tests niet weg" \
-  'bruno/berichtenmagazijn/demo/ophalen.bru' "$GEEN_PREVIEW"
+  'bruno/berichtenmagazijn/demo/ophalen.bru' 'run=true
+deploy=false
+demo-only=false
+fuzz=false'
 
 verwacht "een 'bruno'-map bínnen een module blijft uitrol-relevant" 'services/berichtenmagazijn/src/test/bruno/Contract.kt' "$ALLES_AAN"
 
@@ -189,35 +187,52 @@ demo-only=false
 fuzz=false'
 
 # --- test-scope -------------------------------------------------------------------------------
-verwacht "uitsluitend demo-console" 'demo/demo-console/src/main/kotlin/Console.kt' "$DEMO_STACK"
+verwacht "uitsluitend demo-console" 'demo/demo-console/src/main/kotlin/Console.kt' 'run=true
+deploy=false
+demo-only=true
+fuzz=false'
 
 verwacht "demo-console plus een andere module — volledige build" 'demo/demo-console/src/main/kotlin/Console.kt
 services/berichtenuitvraag/src/main/kotlin/Uitvraag.kt' "$ALLES_AAN"
 
-verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' "$DEMO_STACK"
-
 # De kern van de padprecieze uitsluiting: een demo-module die een eigen image kan voeden moet zijn
-# build en preview houden. Een kale `^demo/`-uitsluiting zou hem stil overslaan — en een
-# overgeslagen job telt als succes voor branch protection.
+# build en preview houden. Een kale `^demo/`-uitsluiting zou hem stil overslaan — een overgeslagen
+# job telt als succes voor branch protection.
 verwacht "demo-module met een eigen image kost wél een uitrol" \
   'demo/magazijn-simulator/src/main/kotlin/Simulator.kt' "$DEMO_MET_IMAGE"
 
-# De scripts die de demo-stack aansturen staan direct onder demo/ en voeden geen image.
+verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' "$DEMO_STACK"
+
+# Het derde alternatief van DEMO_BUITEN_UITROLPOORT (`^demo/[^/]*\.(sh|py)$`) dekt de scripts die de
+# demo-stack aansturen. Zonder deze twee fixtures kon het compleet verdwijnen — of tot één
+# extensie versmallen — zonder dat er iets rood werd.
 verwacht "een shellscript direct onder demo/" 'demo/smoke.sh' "$DEMO_STACK"
 
 verwacht "de magazijn-generator direct onder demo/" 'demo/genereer-magazijnen.py' "$DEMO_STACK"
 
-# `[^/]*` steekt geen slash over, de extensielijst is kort en het `$`-anker sluit af: alle drie
-# bewust, zodat onbekende demo-paden aan de bouwende kant vallen in plaats van stil overgeslagen te
-# worden.
+# `[^/]*` steekt geen slash over en de extensielijst is kort: allebei bewust, zodat onbekende
+# demo-paden aan de bouwende kant vallen in plaats van stil overgeslagen te worden.
 verwacht "een script in een submap onder demo/ houdt zijn uitrol" 'demo/scripts/smoke.sh' "$DEMO_MET_IMAGE"
 
 verwacht "een ander bestand direct onder demo/ houdt zijn uitrol" 'demo/compose.yaml' "$DEMO_MET_IMAGE"
 
+# Het `$`-anker van de extensielijst: zonder dat anker zou een backup- of afgeleid bestand de
+# uitsluiting binnenglippen en zijn build verliezen.
 verwacht "een afgeleid bestand met .sh in de naam houdt zijn uitrol" 'demo/smoke.sh.bak' "$DEMO_MET_IMAGE"
 
+# De prefix-buur aan de environment-kant; hetzelfde anker-argument als bij demo-console.
+verwacht "prefix-buur van environment valt niet in de uitrol-uitsluiting" \
+  'demo/environment-simulator/Stack.kt' "$DEMO_MET_IMAGE"
+
+# De `^`-ankers: dezelfde mapnamen dieper in een pad zijn gewone code en horen de volle keten te
+# kopen. Een fixture op een uitrol-relevant pad zou dit niet aantonen — die valt al door de
+# invariant terug op demo-only=false.
+verwacht "een 'demo/demo-console'-pad bínnen een module is gewone code" \
+  'services/berichtenuitvraag/src/test/resources/demo/demo-console/fixture.json' "$ALLES_AAN"
+
 # De pom van een demo-module: wél code en test-scope demo, maar geen fuzz-ronde — de fuzz-doelen
-# staan alleen in libraries/ en services/.
+# staan alleen in libraries/ en services/. Zonder het `^`-anker op `pom\.xml` in FUZZ_RELEVANT
+# koopt elke bump op een demo-pom een volledige ronde.
 verwacht "de pom van een demo-module koopt geen fuzz-ronde" 'demo/demo-console/pom.xml' "$DEMO_STACK"
 
 # --- bot-PR ----------------------------------------------------------------------------------
@@ -368,6 +383,66 @@ done
 [ -d "$REPO_ROOT/demo/environment" ] \
   || fout "demo/environment/ bestaat niet meer; de uitsluiting in DEMO_BUITEN_UITROLPOORT is dode letter"
 
+# De fuzz-allowlist in .clusterfuzzlite/build.sh is handwerk: een module met een Jazzer-doel die
+# daar niet in staat, wordt niet gebouwd en niet gefuzzd terwijl de ronde groen rapporteert.
+#
+# De roots komen uit de reactor en staan hier niet ingetypt, en de vergelijking is per hele naam:
+# een substring-match zou `services/bericht` laten wegvallen tegen `services/berichtenmagazijn` en
+# daarmee precies het gat verbergen dat deze controle moet vinden.
+#
+# `|| true` op beide metingen: zonder dat sterft de suite ín de toewijzing (`set -e` plus
+# `pipefail`) en zijn juist de "meet niets"-takken eronder onbereikbaar — dan volgt een rode check
+# zonder diagnose, en draaien de asserties hierná niet meer.
+fuzz_roots=$( { python3 "$REPO_ROOT/.github/scripts/pom-artifactids.py" --reactor "$REPO_ROOT/pom.xml" \
+  | cut -d/ -f1 | sort -u | sed "s:^:$REPO_ROOT/:"; } || true)
+
+allowlist=$(sed -n 's/^MODULES=(\(.*\))[[:space:]]*$/\1/p' "$REPO_ROOT/.clusterfuzzlite/build.sh" | tr ' ' '\n' | grep -v '^$' || true)
+
+if [ -z "$fuzz_roots" ]; then
+  fout "geen enkele reactor-root gevonden; de fuzz-kruiscontrole meet niets"
+elif [ -z "$allowlist" ]; then
+  fout "geen MODULES-lijst gevonden in .clusterfuzzlite/build.sh; de fuzz-kruiscontrole meet niets"
+else
+  # Twee oppervlakken: wat build.sh daadwerkelijk ontdekt (`src/test/kotlin`, alleen `.kt`) en wat
+  # een Jazzer-doel is waar dan ook in de module. Loopt dat uiteen, dan bestaat het doel wél maar
+  # bouwt de ronde er geen driver voor — groen zonder ooit te fuzzen.
+  # shellcheck disable=SC2086  # de roots zijn paden zonder spaties (conventie) en moeten hier splitsen
+  fuzz_doelen=$( { grep -rl 'fuzzerTestOneInput' --include='*.kt' --include='*.java' $fuzz_roots 2>/dev/null || true; } | sort -u)
+  fuzz_modules=$( { sed "s:^$REPO_ROOT/::; s:/src/.*::" <<<"$fuzz_doelen" | grep -v '^$' | sort -u; } || true)
+
+  if [ -z "$fuzz_modules" ]; then
+    fout "geen enkel Jazzer-doel gevonden; de fuzz-kruiscontrole meet niets"
+  else
+    ontbrekend=""
+
+    while IFS= read -r module; do
+      grep -qxF "$module" <<<"$allowlist" || ontbrekend="$ontbrekend $module"
+    done <<<"$fuzz_modules"
+
+    if [ -n "$ontbrekend" ]; then
+      fout "module(s) met een Jazzer-doel ontbreken in de MODULES-lijst van .clusterfuzzlite/build.sh:$ontbrekend"
+    else
+      ok "elke module met een Jazzer-doel staat in de fuzz-allowlist"
+    fi
+
+    # build.sh ontdekt alleen `$MODULE/src/test/kotlin/**.kt`. Een doel daarbuiten — een Java-doel,
+    # of Kotlin onder een ander pad — levert geen driver op, en dan fuzzt de ronde er nooit tegen.
+    buiten=$(grep -v "/src/test/kotlin/.*\.kt$" <<<"$fuzz_doelen" | sed "s:^$REPO_ROOT/::" | grep -v '^$' || true)
+
+    [ -z "$buiten" ] \
+      && ok "elk Jazzer-doel staat op het pad dat build.sh ontdekt" \
+      || fout "Jazzer-doel(en) buiten src/test/kotlin/*.kt; build.sh bouwt daar geen driver voor: $(tr '\n' ' ' <<<"$buiten")"
+
+    # De wrappernaam is `basename -s .kt` in één gedeelde map: twee gelijknamige doelen in
+    # verschillende modules overschrijven elkaar, en één ervan wordt nooit gefuzzd.
+    dubbel=$(sed 's:.*/::' <<<"$fuzz_doelen" | sort | uniq -d || true)
+
+    [ -z "$dubbel" ] \
+      && ok "elke fuzzer-bestandsnaam is uniek over alle modules" \
+      || fout "fuzzer-bestandsnaam komt meer dan eens voor; de wrappers overschrijven elkaar: $(tr '\n' ' ' <<<"$dubbel")"
+  fi
+fi
+
 compgen -G "$REPO_ROOT/demo/*.sh" >/dev/null \
   || fout "geen *.sh direct onder demo/; het sh-alternatief in DEMO_BUITEN_UITROLPOORT is dode letter"
 
@@ -378,11 +453,12 @@ compgen -G "$REPO_ROOT/demo/*.py" >/dev/null \
 # handwerk, dus het kan verlopen: zodra een demo-module in de build-matrix van deploy.yml staat,
 # zou een PR aan die module zijn eigen imagebuild overslaan — en overgeslagen telt als succes.
 matrix=$(sed -n 's/.*service: \[\(.*\)\].*/\1/p' "$REPO_ROOT/.github/workflows/deploy.yml")
-vergeleken=0
 
 if [ -z "$matrix" ]; then
   fout "geen service-matrix gevonden in deploy.yml; deze kruiscontrole meet niets"
 else
+  vergeleken=0
+
   while IFS= read -r uitgesloten; do
     case "$uitgesloten" in
       '^demo/'*'/') module=${uitgesloten#^demo/}; module=${module%/} ;;
@@ -396,8 +472,8 @@ else
   done <<<"${DEMO_BUITEN_UITROLPOORT//|/$'\n'}"
 
   # Nul vergelijkingen is geen schone uitkomst maar een stille: een gedragsneutrale herformulering
-  # van het patroon laat de `case` niets matchen, en dan meldt de `ok` iets over een vergelijking
-  # die nooit gemaakt is.
+  # van het patroon laat de `case` niets matchen, en dan meldt de `ok` hieronder iets over een
+  # vergelijking die nooit gemaakt is.
   if [ "$vergeleken" -eq 0 ]; then
     fout "geen enkel demo-modulepad uit DEMO_BUITEN_UITROLPOORT herkend; deze kruiscontrole meet niets"
   else
@@ -425,25 +501,82 @@ fi
 # --- het contract met de workflows --------------------------------------------------------------
 # De hele wijziging bestaat om vier gekopieerde detecties te vervangen door één script. Wie er een
 # terugdraait naar inline logica, maakt zonder deze controle geen enkele test rood.
+#
+# Het bewijs komt uit de uitvoerbare regels van de `run:`-blokken: een comment met hetzelfde pad,
+# of een stap die door `if: false` nooit draait, telt niet mee.
 for wf in deploy test detekt cflite_pr; do
-  grep -q '\.github/scripts/wijzigingsfilter\.sh' "$REPO_ROOT/.github/workflows/$wf.yml" \
-    && ok "$wf.yml roept het gedeelde filter aan" \
-    || fout "$wf.yml roept het gedeelde filter niet meer aan — de detectie is teruggedreven"
+  aanroepen=$(python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --runs "$REPO_ROOT/.github/workflows/$wf.yml" \
+    | grep -c '\.github/scripts/publiceer-uitkomsten\.sh' || true)
+
+  [ "$aanroepen" -gt 0 ] \
+    && ok "$wf.yml publiceert de uitkomsten via het gedeelde script" \
+    || fout "$wf.yml publiceert de uitkomsten niet meer via het gedeelde script — de detectie is teruggedreven"
 done
 
-# Het vangnet dat de uitkomst valideert staat noodgedwongen in de workflows zelf (het moet ook
-# werken als het script ontbreekt) en is daarmee vatbaar voor exact de drift die dit script
-# wegneemt. Vandaar een vingerafdruk over de vier blokken.
-vingers=$(for wf in deploy test detekt cflite_pr; do
-  sed -n '/uitkomsten=\$(\.github/,/^ *fi$/p' "$REPO_ROOT/.github/workflows/$wf.yml" \
-    | sed 's/^ *//;/^#/d;/^$/d' | md5sum | cut -d' ' -f1
-done)
+# De publicatie zelf: gedrag, niet tekst. Dit blok stond eerder vier keer inline in de workflows,
+# waar geen enkele test het kon draaien — en dan is één extra regel erin genoeg om elke PR naar de
+# demo-shard te scopen zonder dat iets rood wordt.
+publicatie_werkmap=$(mktemp -d)
+trap 'rm -rf "$publicatie_werkmap"' EXIT
 
-if [ "$(sort -u <<<"$vingers" | grep -c .)" = 1 ]; then
-  ok "de vier workflows valideren de uitkomst identiek"
-else
-  fout "de validatie van de uitkomst is tussen de workflows uiteengelopen"
-fi
+cp "$REPO_ROOT/.github/scripts/publiceer-uitkomsten.sh" "$publicatie_werkmap/"
+
+# Een filter dat een geldige, volledige set levert wordt ongewijzigd doorgegeven.
+cat > "$publicatie_werkmap/wijzigingsfilter.sh" <<'FILTER'
+#!/usr/bin/env bash
+printf 'run=true\ndeploy=false\ndemo-only=true\nfuzz=false\n'
+FILTER
+chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
+
+# Stdout én GITHUB_OUTPUT: dat zijn twee schrijfacties, en alleen de eerste toetsen laat de tweede
+# ongepind — juist het kanaal waar de rest van de keten op leest.
+publiceer_en_vergelijk() {
+  local omschrijving=$1 verwacht=$2
+  local uitbestand="$publicatie_werkmap/uit.txt"
+
+  : > "$uitbestand"
+
+  local uitvoer
+  uitvoer=$(GITHUB_OUTPUT="$uitbestand" "$publicatie_werkmap/publiceer-uitkomsten.sh" 2>/dev/null)
+
+  vergelijk "$omschrijving (stdout)" "$uitvoer" "$verwacht"
+  vergelijk "$omschrijving (GITHUB_OUTPUT)" "$(cat "$uitbestand")" "$verwacht"
+}
+
+publiceer_en_vergelijk "een geldige set wordt ongewijzigd gepubliceerd" 'demo-only=true
+deploy=false
+fuzz=false
+run=true'
+
+# En elke twijfel valt terug op alles draaien: een filter dat omvalt, een halve set levert, of een
+# sleutel dubbel geeft. Zonder die terugval zou een lege uitkomst als "niets te doen" doorgaan.
+for geval in "exit 1" "printf 'run=true\n'" "printf 'run=true\nrun=false\ndeploy=true\ndemo-only=false\n'"; do
+  printf '#!/usr/bin/env bash\n%s\n' "$geval" > "$publicatie_werkmap/wijzigingsfilter.sh"
+  chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
+
+  publiceer_en_vergelijk "fail-safe bij een filter dat '$geval' doet" "$ALLES_AAN"
+done
+
+# GITHUB_OUTPUT krijgt exact dezelfde regels; een afwijkende vorm laat de runner het hele
+# outputbestand weigeren en dan blijven álle outputs leeg.
+# Gesorteerd, want het script ontdubbelt met `sort -u`; de fail-safe-terugval hierboven is een
+# vaste tekst en staat daarom in de volgorde van het contract.
+cat > "$publicatie_werkmap/wijzigingsfilter.sh" <<'FILTER'
+#!/usr/bin/env bash
+printf 'run=true\ndeploy=true\ndemo-only=false\nfuzz=true\n'
+FILTER
+chmod +x "$publicatie_werkmap/wijzigingsfilter.sh"
+
+publiceer_en_vergelijk "een volledige set komt gesorteerd door beide kanalen" 'demo-only=false
+deploy=true
+fuzz=true
+run=true'
+
+# Het script moet uitvoerbaar zijn: de workflows roepen het rechtstreeks aan, en zonder exec-bit
+# breekt de stap af met een melding die nergens naar wijst.
+[ -x "$REPO_ROOT/.github/scripts/publiceer-uitkomsten.sh" ] \
+  && ok "publiceer-uitkomsten.sh is uitvoerbaar" \
+  || fout "publiceer-uitkomsten.sh is niet uitvoerbaar; de directe aanroep in de workflows faalt"
 
 # De workflows lezen steps.filter.outputs.<sleutel>. Hernoem één kant en de andere leest leeg —
 # bij `deploy` betekent leeg "niet uitrollen", stil en groen.
@@ -455,6 +588,146 @@ if [ "$gelezen" = "$geleverd" ]; then
   ok "de workflows lezen exact de sleutels die het script levert"
 else
   fout "sleutelnamen in de workflows en het script lopen uiteen"
+fi
+
+# En de bedrading zelf: elke output van de `changes`-job moet de gelijknamige filter-uitkomst
+# doorgeven. Eén hardgecodeerde waarde daar — `demo-only: 'true'` — scopet elke PR naar de
+# demo-shard, laat de services ongetest en rolt de previews alsnog uit, zonder dat iets rood wordt.
+bedrading=$(JOB=changes python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --outputs "$REPO_ROOT/.github/workflows/deploy.yml" || true)
+
+if [ -z "$bedrading" ]; then
+  fout "de changes-job van deploy.yml levert geen outputs; deze controle meet niets"
+else
+  bedradingsfouten=0
+
+  while IFS= read -r sleutel; do
+    verwacht="$sleutel=\${{ steps.filter.outputs.$sleutel }}"
+
+    grep -qxF "$verwacht" <<<"$bedrading" || {
+      fout "de changes-job geeft '$sleutel' niet door uit het filter (verwacht: $verwacht)"
+      bedradingsfouten=$((bedradingsfouten + 1))
+    }
+  done <<<"$geleverd"
+
+  [ "$bedradingsfouten" -eq 0 ] \
+    && ok "elke uitkomst van het filter wordt ongewijzigd doorgegeven als job-output"
+fi
+
+# En de andere hop: wat de aanroepers als input dóórgeven. De outputs kloppen dan wel, maar één
+# verwisselde `with:`-waarde laat de tests wegvallen — `wijzigingen-relevant` voeden met `demo-only`
+# slaat elke shard over en de test-job telt dat als OK, terwijl `deploy` gewoon true blijft en de
+# previews die ongetoetste images uitrollen.
+#
+# De sleutelnamen verschillen per aangeroepen workflow (`wijzigingen-relevant` leest `run`), dus er
+# is geen naamregel — vandaar de tabel. Alleen de vórm eisen ("het is een needs.changes-verwijzing")
+# is niet genoeg: dan mag elke uitkomst elke input voeden, en juist dát is de aanval.
+declare -A AANROEPER_BEDRADING=(
+  [checks-test.wijzigingen-relevant]=run
+  [checks-test.demo-only]=demo-only
+  [checks-detekt.wijzigingen-relevant]=run
+  [checks-fuzz.fuzz-relevant]=fuzz
+)
+
+# De aanroepers uit de workflow zelf halen: een nieuwe aanroeper-job die niet in de tabel staat, hoort op
+# te vallen in plaats van stil buiten deze controle te vallen.
+aanroepers=$(python3 - "$REPO_ROOT/.github/workflows/deploy.yml" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as bestand:
+    jobs = yaml.safe_load(bestand)["jobs"]
+
+for naam, job in jobs.items():
+    if isinstance(job, dict) and str(job.get("uses", "")).startswith("./") and job.get("with"):
+        print(naam)
+PY
+)
+
+if [ -z "$aanroepers" ]; then
+  fout "geen enkele aanroeper met inputs gevonden in deploy.yml; deze controle meet niets"
+else
+  bedradingsfouten=0
+  gecontroleerd=0
+
+  while IFS= read -r aanroeper; do
+    inputs=$(JOB="$aanroeper" python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --with "$REPO_ROOT/.github/workflows/deploy.yml" || true)
+
+    while IFS= read -r regel; do
+      sleutel=${regel%%=*}
+      waarde=${regel#*=}
+      verwacht=${AANROEPER_BEDRADING[$aanroeper.$sleutel]:-}
+
+      if [ -z "$verwacht" ]; then
+        fout "$aanroeper geeft input '$sleutel' door die niet in AANROEPER_BEDRADING staat — leg vast welke uitkomst daarbij hoort"
+        bedradingsfouten=$((bedradingsfouten + 1))
+      elif [ "$waarde" != "\${{ needs.changes.outputs.$verwacht }}" ]; then
+        fout "$aanroeper voedt '$sleutel' met '$waarde' in plaats van met de uitkomst '$verwacht'"
+        bedradingsfouten=$((bedradingsfouten + 1))
+      else
+        gecontroleerd=$((gecontroleerd + 1))
+      fi
+    done <<<"$inputs"
+  done <<<"$aanroepers"
+
+  # En andersom: een input die uit de workflow verdwijnt, laat de aangeroepen workflow terugvallen
+  # op zijn default — bij `demo-only` is dat leeg, en dan bepaalt de aangeroepen workflow het zelf.
+  for ingang in "${!AANROEPER_BEDRADING[@]}"; do
+    aanroeper=${ingang%%.*}
+    sleutel=${ingang#*.}
+
+    JOB="$aanroeper" python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --with "$REPO_ROOT/.github/workflows/deploy.yml" 2>/dev/null \
+      | grep -q "^$sleutel=" || {
+        fout "$aanroeper geeft '$sleutel' niet meer door; de aangeroepen workflow valt dan terug op zijn default"
+        bedradingsfouten=$((bedradingsfouten + 1))
+      }
+  done
+
+  if [ "$bedradingsfouten" -eq 0 ] && [ "$gecontroleerd" -eq "${#AANROEPER_BEDRADING[@]}" ]; then
+    ok "elke aanroeper voedt zijn inputs met de uitkomst die erbij hoort"
+  elif [ "$bedradingsfouten" -eq 0 ]; then
+    fout "$gecontroleerd van de ${#AANROEPER_BEDRADING[@]} vastgelegde bedradingen gecontroleerd; deze controle meet niet alles"
+  fi
+fi
+
+# De shard-verdeling zelf: haal de complement-shard uit de matrix en alleen berichtenmagazijn draait
+# nog. De andere modules worden dan niet getest, elke shard slaagt, en de aggregator meldt groen.
+matrix=$(python3 - "$REPO_ROOT/.github/workflows/test.yml" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as bestand:
+    jobs = yaml.safe_load(bestand)["jobs"]
+
+print(str(((jobs.get("shard") or {}).get("strategy") or {}).get("matrix", {}).get("shard", "")))
+PY
+)
+
+ontbreekt=""
+
+for deel in '"modules":"services/berichtenmagazijn"' '"modules":"!services/berichtenmagazijn"' '"modules":"demo/*"'; do
+  grep -qF "$deel" <<<"$matrix" || ontbreekt="$ontbreekt $deel"
+done
+
+[ -z "$ontbreekt" ] \
+  && ok "de shard-matrix dekt berichtenmagazijn, zijn complement en de demo-modules" \
+  || fout "de shard-matrix mist:$ontbreekt — die modules worden dan niet getest terwijl elke shard slaagt"
+
+# ci-scripts.yml is de enige aanroeper van de drie suites, en geen enkele suite zegt iets over dát
+# bestand: de stap eruit knippen laat de check groen (alleen actionlint blijft dan over).
+ci_runs=$(python3 "$REPO_ROOT/.github/scripts/workflow-jobs.py" --runs "$REPO_ROOT/.github/workflows/ci-scripts.yml" || true)
+
+if [ -z "$ci_runs" ]; then
+  fout "ci-scripts.yml heeft geen uitvoerbare run-stappen; de suites draaien dan nergens"
+else
+  ci_ontbreekt=""
+
+  for nodig in "find .github/scripts -name 'test-*.sh'" "shellcheck"; do
+    grep -qF "$nodig" <<<"$ci_runs" || ci_ontbreekt="$ci_ontbreekt '$nodig'"
+  done
+
+  [ -z "$ci_ontbreekt" ] \
+    && ok "ci-scripts.yml draait de bash-suites en shellcheck" \
+    || fout "ci-scripts.yml mist:$ci_ontbreekt — die controles draaien dan nergens meer"
 fi
 
 # --- sourcen mag main niet uitvoeren ------------------------------------------------------------

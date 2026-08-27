@@ -1,10 +1,9 @@
 # De scripts onder .github/scripts/ beslissen wát de rest van de CI doet: wijzigingsfilter.sh
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
-# demonstratiecode afhangt. Een fout daarin is stil — een overgeslagen job
-# rapporteert 'skipped' en dat telt als succes voor branch protection. Vandaar een eigen, lichte
-# workflow: shellcheck, actionlint en de bash-unittests, zonder de docker build van de
-# FSC-harness.
+# demonstratiecode afhangt. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped'
+# en dat telt als succes voor branch protection. Vandaar een eigen, lichte workflow: shellcheck,
+# actionlint en de bash-unittests, zonder de docker build van de FSC-harness.
 name: CI-scripts
 
 # Op een PR bewust ZONDER pad-filter. Twee redenen. Ten eerste kruiscontroleren de unittests de
@@ -24,7 +23,7 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', 'demo/demo-console/**', 'demo/environment/**']
+    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
 
 permissions:
   contents: read
@@ -37,7 +36,7 @@ jobs:
   scripts:
     # Expliciete naam, want deze wordt de status-check-context zodra de check als required wordt
     # gezet — en de kale job-id `scripts` is daarvoor te generiek. Een standalone workflow krijgt
-    # geen `<caller-job> / <job>`-voorvoegsel dat hem onderscheidt.
+    # geen `<aanroeper-job> / <job>`-voorvoegsel dat hem onderscheidt.
     name: ci-scripts
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -98,10 +97,22 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=80
-            [.github/scripts/test-uitrol-poort.sh]=62
+            [.github/scripts/test-wijzigingsfilter.sh]=98
+            [.github/scripts/test-uitrol-poort.sh]=72
             [.github/scripts/test-demo-grens.sh]=62
           )
+
+          # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt
+          # hernoemd, laat alleen een verweesde sleutel achter — `find` levert hem niet meer, de
+          # `gedraaid`-guard hieronder telt de overige suites en de stap wordt groen. Voor
+          # demo-grens.sh is dat extra duur: die controle heeft geen andere aanroep in de keten,
+          # dus één hernoeming haalt de architectuurgrens er geruisloos uit.
+          for t in "${!VERWACHTE_ASSERTIES[@]}"; do
+            if [ ! -f "$t" ]; then
+              echo "FOUT: $t staat in VERWACHTE_ASSERTIES maar bestaat niet meer."
+              fail=1
+            fi
+          done
 
           while IFS= read -r t; do
             gedraaid=$((gedraaid + 1))
@@ -124,18 +135,47 @@ jobs:
             elif [ -z "$gemeten" ]; then
               echo "FOUT: $t rapporteert geen ASSERTIES=-regel; het aantal is niet te bewaken."
               fail=1
+            elif ! [[ "$gemeten" =~ ^[0-9]+$ ]]; then
+              # Zonder deze tak valt de vergelijking hieronder met 'integer expression expected'
+              # om, grijpt `set -e` niet in op een elif-conditie, en wordt de stap groen.
+              echo "FOUT: $t rapporteert ASSERTIES=$gemeten; dat is geen aantal."
+              fail=1
             elif [ "$gemeten" -lt "$verwacht" ]; then
               echo "FOUT: $t leverde $gemeten asserties, verwacht minstens $verwacht."
               fail=1
+            else
+              # Het aantal is zelf-gerapporteerd, dus een uitgeholde suite die alleen nog de
+              # ASSERTIES-regel print zou de drempel halen zonder iets te toetsen. Tel daarom de
+              # geslaagde asserties in de uitvoer mee: die moeten er minstens evenveel zijn.
+              geteld=$(grep -c '^OK: ' <<<"$uitvoer" || true)
+
+              if [ "$geteld" -lt "$verwacht" ]; then
+                echo "FOUT: $t meldt ASSERTIES=$gemeten maar print $geteld geslaagde asserties; de suite toetst minder dan hij rapporteert."
+                fail=1
+              fi
             fi
           done < <(find .github/scripts -name 'test-*.sh' | sort)
 
           # Zonder deze guard meldt de stap groen zodra er geen `test-*.sh` meer onder
           # .github/scripts/ staat — verwijderd, of buiten dat pad of die naamvorm gebracht.
+          #
           if [ "$gedraaid" -eq 0 ]; then
             echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."
             fail=1
           fi
+
+          # En een benoemde set, geen aantal: een suite die mét zijn VERWACHTE_ASSERTIES-sleutel
+          # verdwijnt laat de guards hierboven tevreden, en een vervangende stub die één `OK:`
+          # print haalt elke telling. Deze drie dragen elk een controle die nergens anders in de
+          # keten wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf.
+          for verplicht in .github/scripts/test-wijzigingsfilter.sh \
+                           .github/scripts/test-uitrol-poort.sh \
+                           .github/scripts/test-demo-grens.sh; do
+            if [ ! -f "$verplicht" ]; then
+              echo "FOUT: $verplicht ontbreekt; die controle draait nergens meer in de keten."
+              fail=1
+            fi
+          done
 
 
           if [ "$fail" -ne 0 ]; then

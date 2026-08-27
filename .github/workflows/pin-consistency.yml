@@ -36,7 +36,32 @@ jobs:
           for img in redis/redis-stack-server; do
             # -I slaat binaire bestanden over (pins staan in tekst), zodat geen stderr-ruis;
             # stderr verder NIET dempen — een echte grep/xargs-fout moet zichtbaar zijn.
-            mapfile -t pins < <(git ls-files | xargs grep -hoIE "${img}:[A-Za-z0-9._-]+" | sort -u)
+            #
+            # `git grep` en niet `git ls-files | xargs grep`: die vorm splitst geciteerde paden
+            # (niet-ASCII, witruimte) op witruimte en slaat die bestanden dus over — een
+            # afwijkende pin daarin verdwijnt en de guard meldt "uniform". `xargs` maakt het
+            # bovendien onmogelijk 1 (geen match) van 2 (leesfout) te onderscheiden zodra de
+            # bestandenlijst over meerdere aanroepen verdeeld wordt.
+            #
+            # Status vasthouden: 1 is "geen match" (de tak hieronder meldt dat precies), alles
+            # daarboven is een echte fout en mag deze guard niet stilzwijgend passeren.
+            #
+            # `--cached` leest de blobs uit de index: een onleesbaar of ontbrekend werkboombestand
+            # verkleint de zoekruimte anders stilzwijgend (git grep meldt dat op stderr en eindigt
+            # gewoon met 0), en dan meldt de guard "uniform" over een pin die hij niet gezien heeft.
+            ruwe_pins=$(git grep --cached -hoIE "${img}:[A-Za-z0-9._-]+" -- . ) || rc=$?
+            rc=${rc:-0}
+
+            if [ "$rc" -gt 1 ]; then
+              echo "::error::git grep faalde (rc=$rc) bij het zoeken naar ${img} — deze guard meet niets."
+              fail=1
+              unset rc
+
+              continue
+            fi
+
+            unset rc
+            mapfile -t pins < <(printf '%s\n' "$ruwe_pins" | grep -v '^$' | sort -u)
             printf '%s pin(s): %s\n' "$img" "${pins[*]:-<geen>}"
             if [ "${#pins[@]}" -eq 0 ]; then
               # Nul matches = image overal hernoemd/verwijderd (of regex matcht niet meer).

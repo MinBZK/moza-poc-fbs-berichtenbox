@@ -24,7 +24,7 @@ on:
     branches-ignore: [main]
   workflow_dispatch:
 
-# Geen `read-all`: als aangeroepen workflow mag dit nooit meer zijn dan de caller-job toekent, en
+# Geen `read-all`: als aangeroepen workflow mag dit nooit meer zijn dan de aanroeper-job toekent, en
 # die kent alleen toe wat hier daadwerkelijk nodig is. De `changes`-job leest de bestandenlijst van
 # de PR; de `detekt`-job verhoogt zelf naar security-events: write voor de SARIF-upload.
 permissions:
@@ -40,7 +40,7 @@ jobs:
   # gegate, maar de workflow zelf draait wél door — zo wordt de required status check ook bij een
   # docs-only PR gerapporteerd: een via `if` overgeslagen job telt als 'skipped' = succes voor
   # branch protection.
-  # Draait alleen wanneer de caller de uitkomst niet meegaf; zie de toelichting in test.yml.
+  # Draait alleen wanneer de aanroeper de uitkomst niet meegaf; zie de toelichting in test.yml.
   changes:
     if: inputs.wijzigingen-relevant == ''
     runs-on: ubuntu-latest
@@ -79,17 +79,7 @@ jobs:
 
           # Bufferen, op de vier sleutels filteren en pas dan publiceren: zie de toelichting bij
           # dezelfde stap in deploy.yml.
-          uitkomsten=$(.github/scripts/wijzigingsfilter.sh) || uitkomsten=""
-          uitkomsten=$(grep -E '^(run|deploy|demo-only|fuzz)=(true|false)$' <<<"$uitkomsten" | sort -u) || true
-
-          sleutels=$(cut -d= -f1 <<<"$uitkomsten" | sort -u | grep -c .) || true
-
-          if [ "$(grep -c . <<<"$uitkomsten")" != 4 ] || [ "$sleutels" != 4 ]; then
-            echo "::error::Wijzigingsdetectie leverde geen vier geldige uitkomsten — alles draait fail-safe."
-            uitkomsten=$'run=true\ndeploy=true\ndemo-only=false\nfuzz=true'
-          fi
-
-          printf '%s\n' "$uitkomsten" >> "$GITHUB_OUTPUT"
+          .github/scripts/publiceer-uitkomsten.sh
 
   detekt:
     needs: changes
@@ -117,10 +107,56 @@ jobs:
       # (detekt.yml maxIssues) laat de stap falen bij nieuwe complexiteit boven budget.
       - name: Run detekt
         run: ./mvnw -B detekt:check
-      # SARIF ook uploaden als detekt faalt (bv. budget-overschrijding), zodat bevindingen
-      # zichtbaar blijven in het code-scanning-dashboard. Per module een aparte upload met
-      # eigen `category`: code scanning weigert sinds 2025 meerdere SARIF-runs onder dezelfde
-      # category. De hashFiles-guard slaat upload over als een module geen rapport opleverde.
+      # De uploadstappen hieronder zijn per module ingetypt, en `if: hashFiles(...) != ''` maakt
+      # van "deze module heeft geen rapport" een stille overslag. Een nieuwe module zou daardoor
+      # ongelint in het dashboard ontbreken terwijl deze required check groen blijft. Vandaar
+      # eerst de kruiscontrole: elk rapport op schijf moet een uploadstap hebben, en elke module
+      # in de reactor moet een rapport hebben opgeleverd.
+      - name: Controleer dat elke module een rapport heeft en dat elk rapport geüpload wordt
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+
+          fout=0
+
+          # De modulelijst komt uit de reactor zelf (transitief, via de XML-parser), niet uit een
+          # `find` over ingetypte roots: een nieuwe root of een geneste module zou anders
+          # buiten deze controle vallen — juist de module die niemand mist.
+          modules=$(.github/scripts/pom-artifactids.py --reactor pom.xml)
+
+          # Leeg betekent "niets gemeten", niet "niets te doen".
+          [ -n "$modules" ] \
+            || { echo "::error::Geen enkele Maven-module in de reactor — deze controle meet niets."; exit 1; }
+
+          while IFS= read -r module; do
+            # Een aggregator (packaging pom) heeft geen bronnen en levert dus geen rapport. Een
+            # mislukte lezing telt niet als "geen aggregator": dan meldt de stap straks dat de
+            # module niet gelint is, terwijl het probleem bij de lezing zat.
+            if ! packaging=$(.github/scripts/pom-artifactids.py --packaging "$module/pom.xml"); then
+              echo "::error::packaging van $module is niet te lezen — deze controle is niet betrouwbaar."
+              exit 1
+            fi
+
+            [ "$packaging" = "pom" ] && continue
+
+            rapport="$module/target/detekt.sarif"
+
+            if [ ! -f "$rapport" ]; then
+              echo "::error::$module leverde geen detekt.sarif op — die module is niet gelint."
+              fout=1
+
+              continue
+            fi
+
+            if ! grep -qF "sarif_file: $rapport" "$WORKFLOW_BESTAND"; then
+              echo "::error::$rapport heeft geen uploadstap in detekt.yml — de bevindingen halen het dashboard niet."
+              fout=1
+            fi
+          done <<<"$modules"
+
+          exit "$fout"
+        env:
+          WORKFLOW_BESTAND: .github/workflows/detekt.yml
       - name: Upload SARIF — fbs-common
         if: ${{ always() && hashFiles('libraries/fbs-common/target/detekt.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
@@ -151,3 +187,9 @@ jobs:
         with:
           sarif_file: services/berichtenuitvraag/target/detekt.sarif
           category: detekt-berichtenuitvraag
+      - name: Upload SARIF — demo-console
+        if: ${{ always() && hashFiles('demo/demo-console/target/detekt.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        with:
+          sarif_file: demo/demo-console/target/detekt.sarif
+          category: detekt-demo-console
