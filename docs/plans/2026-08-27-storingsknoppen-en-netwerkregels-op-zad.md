@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Stap 1 uitgevoerd (automatisering), stap 2 concept. Zie "Wat er staat" onderaan.
 
 # Storingsknoppen en cluster-intern verkeer op ZAD — ontwerp
 
@@ -51,7 +51,7 @@ de `test`-uitvraag in sturen, en dan bewijst hij niet meer wat hij lijkt te bewi
 Twee stappen, in deze volgorde. De eerste staat op zichzelf en maakt de cache-verval-knop al
 bruikbaar; de tweede leunt erop.
 
-### Stap 1: netwerkregels per deployment
+### Stap 1: netwerkregels per deployment — uitgevoerd
 
 `PATCH /api/v2/projects/{p}/services/cross-domain-access/config/deployment/{d}/outbound` en
 `.../inbound` bestaan. De deploy-workflow kan de regel voor een preview dus bijschrijven op het
@@ -69,6 +69,18 @@ Aandachtspunten:
   bestaat, en de pod heeft hem pas nodig zodra iemand op de knop drukt. Ná de deploy volstaat.
 - **Twee API-keys per hop.** De regels staan in twee projecten, dus de stap heeft de sleutels van
   beide nodig — een job die vandaag maar één project aanraakt, raakt er dan twee.
+
+Zo is het geworden: `.github/scripts/cross-domain-preview.sh` zet of verwijdert de per-deployment
+invulling; `deploy.yml` roept hem aan in `deploy-preview-uitvraag` (inbound, want Redis staat daar)
+en `deploy-preview-magazijnen` (outbound, want de console staat daar), en `cleanup-preview.yml` doet
+de tegenhanger per matrix-leg. De regel zelf staat één keer op projectniveau zonder peer-deployment;
+`demo/environment/zad-demo/README.md` beschrijft die eenmalige stap.
+
+Twee dingen die bij de uitvoering bleken. `zadctl service config set cross-domain-access` is een PUT
+over de héle configuratie en zou de bestaande regels overschrijven — de `PATCH …/inbound` en
+`…/outbound` zijn add/remove per regelnaam en zijn daarom wat het script gebruikt. En de
+preview-deploy-jobs hadden geen `actions/checkout`: de deploy-stap is een action en heeft de repo
+niet nodig, een script wel.
 
 ### Stap 2: de console maakt zijn eigen proxies aan
 
@@ -113,3 +125,16 @@ de afweging die bij dit werk hoort en die eerder al als open stond aangemerkt.
 | De admin-poorten publiek publiceren, zodat de netwerkregels niet nodig zijn | Wie erbij kan, kan de demo stukmaken. Een authorization-wall ervoor sluit juist de console buiten, want die heeft geen SSO-sessie. |
 | De storingsknoppen alleen in `test`, previews uitgezonderd | Previews klonen `test` integraal; wat in `test` staat, komt mee. |
 | Wachten op #938 en de storingen uit de simulator halen | Dekt de magazijn-storingen, niet de vier stromen hier (profiel, notificatie, aanmeld, Redis). |
+
+## Wat er staat
+
+| | Status |
+|---|---|
+| Script + tests, `deploy.yml`, `cleanup-preview.yml`, runbook | Uitgevoerd |
+| De regel op projectniveau in `mpfb-8wh` (inbound) | Gezet |
+| De regel op projectniveau in `mpfm-w3h` (outbound) | **Open** — vraagt een sessie op dat project |
+| `REDIS_HOSTS`-alias en `SESSIECACHE_BEREIKBAAR=true` op de console | **Open**, zelfde reden |
+| Stap 2 (de storingsknoppen) | Concept |
+
+Zolang de outbound-regel ontbreekt, zet de inbound-kant alleen niets open: een ontvanger die
+toestemming geeft aan een aanroeper die zelf niet naar buiten mag, verandert geen verkeer.
