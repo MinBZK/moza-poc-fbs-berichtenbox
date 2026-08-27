@@ -4,48 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FBS Demo-console</title>
-  <style>
-    /* Twee kolommen: de berichtenbox waar het om gaat, met de bediening ernaast. Ingeklapt
-       krijgt de berichtenbox de volle breedte — voor het moment in een demo waarop je niet meer
-       aan de knoppen zit maar laat zien wat de ondernemer ziet.
-
-       De pagina zelf schuift niet; alleen het paneel doet dat. Daarvoor is `min-height: 0` op de
-       kolommen nodig: een grid-item staat standaard op `min-height: auto` en krimpt dus niet onder
-       zijn inhoud, waardoor het eigen `overflow-y` nooit aanslaat en de inhoud de pagina langer
-       duwt — een scrollbalk die niets doet. */
-    html, body { height: 100%; }
-    body { font-family: system-ui, sans-serif; margin: 0; display: grid;
-           grid-template-columns: 1fr 26rem; grid-template-rows: 100%; overflow: hidden; }
-    body.ingeklapt { grid-template-columns: 1fr 0; }
-    #boxkolom { position: relative; background: #f4f4f4; min-height: 0; overflow: hidden; }
-    #box { display: block; border: 0; width: 100%; height: 100%; }
-    #paneel { min-height: 0; overflow-y: auto; padding: 1rem; box-sizing: border-box;
-              border-left: 1px solid #ccc; }
-    body.ingeklapt #paneel { display: none; }
-
-    /* Te smal voor twee kolommen: onder elkaar, en dan schuift de pagina wél. */
-    @media (max-width: 60rem) {
-      body { grid-template-columns: 100%; grid-template-rows: 60vh auto; overflow: auto; }
-      body.ingeklapt { grid-template-columns: 100%; grid-template-rows: 100% ; }
-      #paneel { overflow-y: visible; border-left: 0; border-top: 1px solid #ccc; }
-    }
-    /* Zo klein mogelijk: de berichtenbox is waar je naar kijkt, dit is alleen de handgreep.
-       De richting van het teken zegt wat er gebeurt — » duwt de bediening weg, « haalt hem terug. */
-    #klap { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 1; border: 0;
-            background: transparent; color: #767676; font-size: 1.1rem; line-height: 1;
-            padding: 0.35rem 0.5rem; border-radius: 4px; }
-    #klap:hover { color: #111; background: rgba(0, 0, 0, 0.07); }
-    #klap:focus-visible { outline: 2px solid #0055cc; outline-offset: 2px; }
-    #geen-box { padding: 2rem; }
-    button { font-size: 1rem; padding: 0.5rem 1rem; margin: 0.25rem 0; cursor: pointer; }
-    input { font-size: 1rem; padding: 0.4rem; width: 5rem; }
-    fieldset { margin: 1rem 0; }
-    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; white-space: pre-wrap; }
-  </style>
+  <link rel="stylesheet" href="bediening.css">
 </head>
 <body>
   <div id="boxkolom">
-    <button id="klap" onclick="klap()" aria-controls="paneel" aria-expanded="true"
+    <button id="klap" data-actie="klap" aria-controls="paneel" aria-expanded="true"
             aria-label="Bediening verbergen" title="Bediening verbergen">&#187;</button>
     <iframe id="box" title="Berichtenbox" hidden></iframe>
     <div id="geen-box" hidden>
@@ -59,184 +22,235 @@
   </div>
 
   <div id="paneel">
-  <h1>FBS Demo-console</h1>
-  <p>Bediening voor de demo-stack. Leeg vóór je opnieuw vult.
-    <button onclick="verversBox()">Berichtenbox verversen</button></p>
+    <div class="paneel-kop">
+      <header class="merk">
+        <h1>Demo-bediening</h1>
+        <p class="merk__toelichting">Regelt de demo-stack. Geen onderdeel van de proeftuin.</p>
+      </header>
 
-  <fieldset>
-    <legend>Beheer</legend>
-    <button onclick="post('/api/demo/herstel', true)">Herstel demo (stoppen, resetten, legen, vullen)</button>
-    <button onclick="post('/api/demo/legen', true)">Magazijnen legen</button>
-    <button onclick="get('/api/demo/status')">Status (aantal berichten)</button>
-    <button onclick="post('/api/demo/sessie/verlopen')">Cache verlopen (sessies wissen)</button>
-  </fieldset>
+      <div class="chips" id="chips" aria-label="Toestand van de demo-stack">
+        <span class="chip" id="chip-berichten"><span class="chip__naam">berichten</span> …</span>
+        <span class="chip" id="chip-stroom"><span class="chip__naam">stroom</span> …</span>
+        <span class="chip" id="chip-storingen"><span class="chip__naam">storingen</span> …</span>
+        <span class="chip" id="chip-magazijnen" hidden><span class="chip__naam">magazijnen</span> …</span>
+      </div>
 
-  <fieldset>
-    <legend>Vullen</legend>
-    <button onclick="post('/api/demo/basisvulling')">Basisvulling laden</button>
-    <br>
-    <label>Random berichten: <input id="aantal" type="number" value="10" min="1" max="500"></label>
-    <button onclick="post('/api/demo/random?aantal=' + document.getElementById('aantal').value)">Opvoeren</button>
-    <br>
-    <label>Stroom: elke <input id="tempoInterval" type="number" value="10" min="1" max="3600"> seconden</label>
-    <button onclick="post('/api/demo/tempo/start?interval=' + document.getElementById('tempoInterval').value)">Stroom starten</button>
-    <button onclick="post('/api/demo/tempo/stop')">Stroom stoppen</button>
-    <button onclick="get('/api/demo/tempo')">Stroom-status</button>
-  </fieldset>
+      <div class="melding" id="melding" role="status" aria-live="polite" hidden>
+        <p class="melding__tekst" id="melding-tekst"></p>
+        <details class="melding__ruw" id="melding-ruw" hidden>
+          <summary>Antwoord van de console</summary>
+          <pre id="melding-json"></pre>
+        </details>
+      </div>
 
-  <fieldset>
-    <legend>Storingen (fase 3)</legend>
-    <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/traag')">Magazijn A (RVO) traag</button>
-    <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/uit')">Magazijn A (RVO) uit</button>
-    <br>
-    <button data-proxy="magazijn-b" onclick="post('/api/demo/storing/magazijn/b/traag')">Magazijn B (Belastingdienst) traag</button>
-    <button data-proxy="magazijn-b" onclick="post('/api/demo/storing/magazijn/b/uit')">Magazijn B (Belastingdienst) uit</button>
-    <br>
-    <button onclick="post('/api/demo/storing/reset')">Alles normaal (reset)</button>
-  </fieldset>
+      <div class="tabs" role="tablist" aria-label="Bediening">
+        <button type="button" class="tab" role="tab" id="tab-demo"
+                aria-controls="blad-demo" aria-selected="true">Demo</button>
+        <button type="button" class="tab" role="tab" id="tab-storingen"
+                aria-controls="blad-storingen" aria-selected="false" tabindex="-1">Storingen</button>
+        <button type="button" class="tab" role="tab" id="tab-scenarios"
+                aria-controls="blad-scenarios" aria-selected="false" tabindex="-1">Scenario&rsquo;s</button>
+        <button type="button" class="tab" role="tab" id="tab-info"
+                aria-controls="blad-info" aria-selected="false" tabindex="-1">Info</button>
+      </div>
+    </div>
 
-  <fieldset>
-    <legend>Technische scenario's (fase 5)</legend>
-    <button data-proxy="redis" onclick="post('/api/demo/storing/redis/uit')">Redis uit (scenario 12)</button>
-    <button data-proxy="profiel" onclick="post('/api/demo/storing/profiel/uit')">Profielservice uit (scenario 9)</button>
-    <br>
-    <button data-proxy="notificatie" onclick="post('/api/demo/storing/notificatie/uit')">Notificatie uit (scenario 10)</button>
-    <button data-proxy="aanmeld" onclick="post('/api/demo/storing/aanmeld/uit')">Uitvraag/aanmeld uit (scenario 11)</button>
-    <p><small>Herstellen: gebruik "Alles normaal (reset)" hierboven.</small></p>
-    <br>
-    <button onclick="post('/api/demo/foutieve-aanlevering')">Foutieve aanlevering (scenario 8)</button>
-    <br>
-    <label>Ontdubbeling voor BSN: <input id="ontdubbelBsn" type="text" value="999993653" style="width:8rem"></label>
-    <button onclick="post('/api/demo/ontdubbeling?bsn=' + document.getElementById('ontdubbelBsn').value)">Ontdubbeling (scenario 13)</button>
-    <p><small>Let op: laat de persona eerst <em>Ophalen</em> (actieve sessie), anders verschijnt er niets.</small></p>
-  </fieldset>
+    <div class="tabinhoud">
 
-  <fieldset>
-    <legend>Veel magazijnen (fase 6)</legend>
-    <p><small>Persona <em>Grootbedrijf B.V.</em> in de Berichtenbox haalt op bij alle stub-magazijnen.
-      Het ingerichte aantal n ligt vast bij genereren/opstarten (<code>DEMO_MAGAZIJN_STUBS</code>).</small></p>
-    <label>Actief aantal: <input id="actiefAantal" type="number" value="2" min="0"></label>
-    <button onclick="post('/api/demo/veel-magazijnen/actief/' + document.getElementById('actiefAantal').value)">Zet actief</button>
-    <button onclick="post('/api/demo/veel-magazijnen/reset')">Alle magazijnen aan (reset)</button>
-  </fieldset>
+      <section role="tabpanel" id="blad-demo" aria-labelledby="tab-demo" tabindex="0">
+        <div class="groep">
+          <p class="groep__kop">Begin en einde</p>
+          <div class="knoppen">
+            <button type="button" class="knop knop--primair" data-methode="POST" data-pad="/api/demo/herstel"
+                    data-samenvatting="herstel"
+                    data-bevestig="Stopt de stroom, zet alle storingen uit, leegt beide magazijnen en laadt de basisvulling opnieuw.">Herstel
+              demo</button>
+            <button type="button" class="knop knop--subtiel" data-actie="ververs-box">Berichtenbox verversen</button>
+          </div>
+          <p class="uitleg">Verversen zet de berichtenbox terug op zijn beginstand — daarom een knop
+            en niet automatisch na elke actie.</p>
+        </div>
 
-  <h2>Resultaat</h2>
-  <pre id="uit">—</pre>
+        <div class="groep">
+          <p class="groep__kop">Vullen</p>
+          <div class="knoppen">
+            <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/basisvulling"
+                    data-samenvatting="vulling">Basisvulling laden</button>
+            <button type="button" class="knop knop--gevaar" data-methode="POST" data-pad="/api/demo/legen"
+                    data-samenvatting="berichten"
+                    data-bevestig="Leegt beide magazijn-databases volledig: berichten, bijlagen, status en logboek.">Magazijnen
+              legen</button>
+          </div>
+          <p class="uitleg">Twee keer vullen zonder legen geeft dubbele berichten.</p>
+        </div>
+
+        <div class="groep">
+          <p class="groep__kop">Losse berichten</p>
+          <label class="veld">Aantal
+            <input id="aantal" type="number" value="10" min="1" max="500">
+          </label>
+          <div class="knoppen">
+            <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/random?aantal={aantal}"
+                    data-samenvatting="vulling">Random berichten opvoeren<span class="scenario">#5</span></button>
+          </div>
+        </div>
+
+        <div class="groep">
+          <p class="groep__kop">Stroom</p>
+          <label class="veld">Elke
+            <input id="tempoInterval" type="number" value="10" min="1" max="3600"> seconden
+          </label>
+          <div class="knoppen">
+            <button type="button" class="knop" data-methode="POST"
+                    data-pad="/api/demo/tempo/start?interval={tempoInterval}"
+                    data-samenvatting="tempo">Stroom starten</button>
+            <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/tempo/stop"
+                    data-samenvatting="tempo">Stroom stoppen</button>
+          </div>
+          <p class="uitleg">Stopt vanzelf na 500 berichten of 60 minuten. Een tweede start vervangt
+            de lopende stroom.</p>
+        </div>
+      </section>
+
+      <section role="tabpanel" id="blad-storingen" aria-labelledby="tab-storingen" tabindex="0" hidden>
+        <div class="groep">
+          <div class="knoppen">
+            <button type="button" class="knop knop--primair" data-methode="POST" data-pad="/api/demo/storing/reset"
+                    data-samenvatting="status">Alles normaal</button>
+          </div>
+          <p class="uitleg">Zet elke proxy weer aan en haalt alle vertraging weg. Draai dit na elk
+            storingsscenario.</p>
+        </div>
+
+        <div class="groep" data-groep="magazijnen">
+          <p class="groep__kop">Magazijn A — RVO</p>
+          <div class="knoppen">
+            <button type="button" class="knop" data-proxy="magazijn-a" data-methode="POST"
+                    data-pad="/api/demo/storing/magazijn/a/traag"
+                    data-samenvatting="status">Traag<span class="scenario">#2 #4</span></button>
+            <button type="button" class="knop" data-proxy="magazijn-a" data-methode="POST"
+                    data-pad="/api/demo/storing/magazijn/a/uit"
+                    data-samenvatting="status">Uit<span class="scenario">#3 #7</span></button>
+          </div>
+        </div>
+
+        <div class="groep" data-groep="magazijnen">
+          <p class="groep__kop">Magazijn B — Belastingdienst</p>
+          <div class="knoppen">
+            <button type="button" class="knop" data-proxy="magazijn-b" data-methode="POST"
+                    data-pad="/api/demo/storing/magazijn/b/traag"
+                    data-samenvatting="status">Traag<span class="scenario">#2 #4</span></button>
+            <button type="button" class="knop" data-proxy="magazijn-b" data-methode="POST"
+                    data-pad="/api/demo/storing/magazijn/b/uit"
+                    data-samenvatting="status">Uit<span class="scenario">#3</span></button>
+          </div>
+        </div>
+
+        <div class="groep" data-groep="infra">
+          <p class="groep__kop">Omliggende diensten</p>
+          <div class="knoppen">
+            <button type="button" class="knop" data-proxy="redis" data-methode="POST"
+                    data-pad="/api/demo/storing/redis/uit"
+                    data-samenvatting="status">Redis uit<span class="scenario">#12</span></button>
+            <button type="button" class="knop" data-proxy="profiel" data-methode="POST"
+                    data-pad="/api/demo/storing/profiel/uit"
+                    data-samenvatting="status">Profielservice uit<span class="scenario">#9</span></button>
+            <button type="button" class="knop" data-proxy="notificatie" data-methode="POST"
+                    data-pad="/api/demo/storing/notificatie/uit"
+                    data-samenvatting="status">Notificatie uit<span class="scenario">#10</span></button>
+            <button type="button" class="knop" data-proxy="aanmeld" data-methode="POST"
+                    data-pad="/api/demo/storing/aanmeld/uit"
+                    data-samenvatting="status">Uitvraag/aanmeld uit<span class="scenario">#11</span></button>
+          </div>
+        </div>
+
+        <p class="uitleg" id="geen-storingen" hidden>Deze omgeving heeft geen storingsknoppen: de
+          magazijnen krijgen hun gedrag hier uit de simulator.</p>
+      </section>
+
+      <section role="tabpanel" id="blad-scenarios" aria-labelledby="tab-scenarios" tabindex="0" hidden>
+        <div class="groep">
+          <p class="groep__kop">Sessie</p>
+          <div class="knoppen">
+            <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/sessie/verlopen"
+                    data-samenvatting="sessie">Cache verlopen<span class="scenario">#6</span></button>
+          </div>
+          <p class="uitleg">Wist alle sessie-keys; de volgende <code>GET /berichten</code> geeft 409
+            tot de persona opnieuw ophaalt.</p>
+        </div>
+
+        <div class="groep">
+          <p class="groep__kop">Foutieve aanlevering</p>
+          <div class="knoppen">
+            <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/foutieve-aanlevering"
+                    data-samenvatting="foutieve-aanlevering">Ongeldig bericht
+              aanbieden<span class="scenario">#8</span></button>
+          </div>
+        </div>
+
+        <div class="groep">
+          <p class="groep__kop">Ontdubbeling</p>
+          <label class="veld">Persona
+            <select id="ontdubbelPersona"></select>
+          </label>
+          <div class="knoppen">
+            <button type="button" class="knop" data-methode="POST"
+                    data-pad="/api/demo/ontdubbeling?bsn={ontdubbelPersona}"
+                    data-samenvatting="ontdubbeling">Tweemaal hetzelfde event
+              sturen<span class="scenario">#13</span></button>
+          </div>
+          <p class="uitleg">Laat de persona eerst <em>Ophalen</em> in de berichtenbox. Zonder actieve
+            sessie verschijnt er niets.</p>
+        </div>
+
+        <div class="groep">
+          <p class="groep__kop">Veel magazijnen</p>
+          <label class="veld">Actief aantal
+            <input id="actiefAantal" type="number" value="2" min="0">
+          </label>
+          <div class="knoppen">
+            <button type="button" class="knop" data-methode="POST"
+                    data-pad="/api/demo/veel-magazijnen/actief/{actiefAantal}"
+                    data-samenvatting="veel-magazijnen">Zet actief<span class="scenario">#3</span></button>
+            <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/veel-magazijnen/reset"
+                    data-samenvatting="veel-magazijnen">Alle magazijnen aan</button>
+          </div>
+          <p class="uitleg">Persona <em>Grootbedrijf B.V.</em> haalt op bij alle stub-magazijnen. Het
+            ingerichte totaal ligt vast bij het genereren (<code>DEMO_MAGAZIJN_STUBS</code>).</p>
+        </div>
+      </section>
+
+      <section role="tabpanel" id="blad-info" aria-labelledby="tab-info" tabindex="0" hidden>
+        <div class="groep">
+          <p class="groep__kop">Uitlezen</p>
+          <div class="knoppen">
+            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/status"
+                    data-samenvatting="berichten">Berichten per magazijn</button>
+            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/tempo"
+                    data-samenvatting="tempo">Stroom</button>
+            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/storing"
+                    data-samenvatting="storingen">Storingen</button>
+            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
+                    data-samenvatting="omgeving">Omgeving</button>
+            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/personas"
+                    data-samenvatting="personas">Persona&rsquo;s</button>
+          </div>
+          <p class="uitleg">De volledige JSON staat onder <em>Antwoord van de console</em> in de
+            melding bovenaan.</p>
+        </div>
+
+        <div class="groep">
+          <p class="groep__kop">Toestandsbalk</p>
+          <div class="knoppen">
+            <button type="button" class="knop knop--subtiel" data-actie="ververs-toestand">Nu bijwerken</button>
+          </div>
+          <p class="uitleg">De balk bovenaan werkt zichzelf elke vijf seconden bij en na elke actie.</p>
+        </div>
+      </section>
+
+    </div>
   </div>
 
-  <script>
-    const uit = document.getElementById('uit');
-
-    // Het frame laadt alleen als deze pagina via de demo-proxy geopend is; alleen daar staat de
-    // proeftuin op dezelfde origin. Een frame dat cross-origin niet laadt geeft geen foutmelding
-    // die JavaScript kan zien, dus toetsen we het pad vooraf in plaats van achteraf te raden.
-    const BOX_PAD = '/moza/berichtenbox/';
-
-    fetch(BOX_PAD, { method: 'HEAD' })
-      .then((respons) => toonBox(respons.ok))
-      .catch(() => toonBox(false));
-
-    function toonBox(bereikbaar) {
-      document.getElementById('box').hidden = !bereikbaar;
-      document.getElementById('geen-box').hidden = bereikbaar;
-
-      if (bereikbaar) document.getElementById('box').src = BOX_PAD;
-    }
-
-    // Zelfde origin, dus een gerichte herlaad kan zonder dat de proeftuin daar iets voor hoeft te
-    // bouwen. Bewust een knop en niet automatisch na elke actie: een herlaad zet de berichtenbox
-    // terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
-    function verversBox() {
-      const box = document.getElementById('box');
-
-      if (box.hidden) return;
-
-      try {
-        box.contentWindow.location.reload();
-      } catch (e) {
-        box.src = BOX_PAD;
-      }
-    }
-
-    function klap() {
-      const ingeklapt = document.body.classList.toggle('ingeklapt');
-      const knop = document.getElementById('klap');
-      const bijschrift = ingeklapt ? 'Bediening tonen' : 'Bediening verbergen';
-
-      knop.textContent = ingeklapt ? '\u00AB' : '\u00BB';
-      knop.setAttribute('aria-expanded', String(!ingeklapt));
-      knop.setAttribute('aria-label', bijschrift);
-      knop.title = bijschrift;
-    }
-
-    async function post(pad, bevestig) {
-      if (bevestig && !confirm('Zeker weten? Dit verwijdert alle berichten uit beide magazijnen.')) return;
-
-      await roep(pad, { method: 'POST' });
-    }
-
-    async function get(pad) {
-      await roep(pad, {});
-    }
-
-    // Tijdens een demo moet één blik volstaan om te zien wát er stuk is. Daarom drie gescheiden
-    // uitkomsten: de console niet bereikbaar, de actie geweigerd (met de melding uit de body),
-    // of gelukt. Zonder de .ok-toets levert elke storing dezelfde onbruikbare 'SyntaxError' op,
-    // omdat r.json() dan over een foutbody struikelt.
-    async function roep(pad, opties) {
-      toon('Bezig…');
-
-      let r;
-
-      try {
-        r = await fetch(pad, opties);
-      } catch (e) {
-        toon('Geen verbinding met de demo-console: ' + e);
-
-        return;
-      }
-
-      const tekst = await r.text();
-
-      let body;
-
-      try {
-        body = JSON.parse(tekst);
-      } catch (e) {
-        toon(`Onleesbaar antwoord (HTTP ${r.status}):\n${tekst || '(lege body)'}`);
-
-        return;
-      }
-
-      if (!r.ok) {
-        toon(`Mislukt (HTTP ${r.status}): ${body.fout || tekst}`);
-
-        return;
-      }
-
-      toon(JSON.stringify(body, null, 2));
-    }
-
-    function toon(tekst) { uit.textContent = tekst; }
-
-    // Niet elke omgeving heeft elke proxy: op ZAD ontbreken de magazijn-storingen, omdat de
-    // magazijnen hun gedrag daar uit de simulator krijgen. Een knop tonen die gegarandeerd een
-    // 400 geeft, kost tijdens een demo uitleg die niets toevoegt.
-    fetch('/api/demo/omgeving')
-      .then((respons) => (respons.ok ? respons.json() : null))
-      .then((omgeving) => {
-        if (!omgeving) return;
-
-        const beschikbaar = new Set(omgeving.storingen);
-
-        document.querySelectorAll('button[data-proxy]').forEach((knop) => {
-          if (!beschikbaar.has(knop.dataset.proxy)) knop.hidden = true;
-        });
-      })
-      .catch(() => {
-        // Console onbereikbaar: laat alle knoppen staan. Ze falen dan zichtbaar, wat beter is dan
-        // een leeg paneel zonder uitleg.
-      });
-  </script>
+  <script src="bediening.js"></script>
 </body>
 </html>

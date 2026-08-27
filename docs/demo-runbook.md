@@ -251,27 +251,40 @@ persona, klik **Ophalen** (start de sessie + haalt op), daarna **Vernieuw** (lee
 
 ## 7. Bedieningspaneel
 
-**Beheer**
-- *Herstel demo* — stopt een lopende stroom, legt de magazijnen leeg en laadt de basisvulling
-  opnieuw; brengt de omgeving in één klik terug naar de begintoestand.
-- *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases (leeg vóór je opnieuw vult).
-- *Status* — aantal berichten per magazijn.
-- *Cache verlopen* — wist alle sessie-keys in Redis (`berichtensessiecache:v1:*`); de volgende
-  `GET /berichten` geeft dan 409 tot je opnieuw ophaalt.
+Bovenaan staat een **toestandsbalk** die zichzelf elke vijf seconden bijwerkt en na elke actie:
+berichten per magazijn, of de stroom loopt, welke storingen aanstaan en hoeveel stub-magazijnen
+actief zijn. Het tabblad waar iets aanstaat krijgt een stip. Zo hoef je er niet naar te vragen —
+en zie je meteen wanneer je na een scenario nog moet resetten.
 
-**Vullen**
+Daaronder verschijnt de uitkomst van je laatste actie, samengevat in één regel, met de volledige
+JSON uitklapbaar eronder. De knop die je indrukte houdt zelf een ✓ of ✗ vast. Destructieve knoppen
+vragen om bevestiging in het paneel; de vraag noemt wat er precies gebeurt.
+
+**Tabblad Demo**
+- *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg en
+  laadt de basisvulling opnieuw; in één klik terug naar de begintoestand.
+- *Berichtenbox verversen* — herlaadt het frame. Bewust een knop: verversen zet de berichtenbox
+  terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
 - *Basisvulling laden* — vaste dataset via de echte aanlever-API (validatie + publicatieketen lopen mee).
-- *Random berichten opvoeren* — N random berichten; tegelijk het "nieuwe berichten tijdens de sessie"-scenario.
-- *Stroom starten/stoppen/status* — levert elke *n* seconden (1–3600) automatisch één gegenereerd
-  bericht aan, tot een handmatige stop of tot de ingebouwde grens (500 berichten of 60 minuten,
-  wat het eerst komt). Een tweede *start* vervangt de lopende stroom in plaats van te stapelen.
+- *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases. Twee keer vullen zonder legen
+  geeft dubbele berichten.
+- *Random berichten opvoeren* — N random berichten; tegelijk scenario 5.
+- *Stroom* — levert elke *n* seconden (1–3600) automatisch één gegenereerd bericht aan, tot een
+  handmatige stop of tot de ingebouwde grens (500 berichten of 60 minuten, wat het eerst komt). Een
+  tweede start vervangt de lopende stroom in plaats van te stapelen.
 
-**Storingen (fase 3)** — de twee echte magazijnen via Toxiproxy: A/B traag (~6 s) of uit; *reset* herstelt.
+**Tabblad Storingen** — *Alles normaal* bovenaan, daaronder de twee echte magazijnen (traag ~6 s of
+uit) en de omliggende diensten (Redis, profielservice, notificatie, uitvraag/aanmeld). Knoppen voor
+een proxy die deze omgeving niet heeft, staan er niet: op ZAD krijgen de magazijnen hun gedrag uit
+de simulator.
 
-**Technische scenario's (fase 5)** — Redis/profiel/notificatie/aanmeld uit; foutieve aanlevering; ontdubbeling.
-Herstellen via *Alles normaal (reset)* in de Storingen-sectie.
+**Tabblad Scenario's** — *Cache verlopen* (wist alle sessie-keys; de volgende `GET /berichten` geeft
+409 tot je opnieuw ophaalt), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
+persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
+`k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
 
-**Veel magazijnen (fase 6)** — *Actief aantal* zet magazijnen `k+1..n` op storing (503); *reset* zet alles weer aan.
+**Tabblad Info** — de losse uitlezingen (berichten, stroom, storingen, omgeving, persona's) voor als
+je de ruwe JSON wilt zien.
 
 ---
 
@@ -299,24 +312,25 @@ volgen in fase 7.
 | # | Scenario | Zo speel je het |
 |---|---|---|
 | 1 | Berichten succesvol opgehaald | Basisvulling → persona Pietersen → **Ophalen** |
-| 2 | Trager dan normaal (>5 s) | *Magazijn A/B traag* → Ophalen; magazijn meldt pas na ~6 s "voltooid" |
-| 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: *Magazijn A/B uit*. Veel: persona Grootbedrijf → *Actief aantal* op bv. 2 → Ophalen → n−2 FOUT + partiële lijst |
-| 4 | Enkele magazijnen antwoorden laat | *Magazijn A traag* terwijl B normaal → Ophalen |
-| 5 | Nieuwe berichten tijdens de sessie | Persona haalt op → *Random opvoeren* → **Vernieuw** toont de nieuwe berichten |
-| 6 | Cache-tijd verloopt | *Cache verlopen* (knop), of ~2 min niets doen (demo-TTL is `PT2M`) → volgende actie geeft 409 |
-| 7 | Bijlage wordt niet opgehaald | *Magazijn A uit* → open een RVO-bericht (uit de cache) → bijlage-download faalt |
-| 8 | Foutieve aanlevering | *Foutieve aanlevering* → 400 RFC 9457 problem+json in het paneel |
+| 2 | Trager dan normaal (>5 s) | Storingen → *Magazijn A* of *B* → *Traag* → Ophalen; magazijn meldt pas na ~6 s "voltooid" |
+| 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit*. Veel: persona Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → Ophalen → n−2 FOUT + partiële lijst |
+| 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → Ophalen |
+| 5 | Nieuwe berichten tijdens de sessie | Persona haalt op → *Random berichten opvoeren* → **Vernieuw** toont de nieuwe berichten |
+| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen*, of ~2 min niets doen (demo-TTL is `PT2M`) → volgende actie geeft 409 |
+| 7 | Bijlage wordt niet opgehaald | *Magazijn A* → *Uit* → open een RVO-bericht (uit de cache) → bijlage-download faalt |
+| 8 | Foutieve aanlevering | Scenario's → *Ongeldig bericht aanbieden* → 400 RFC 9457 problem+json in de melding |
 | 9 | Profielservice weg | *Profielservice uit* → Ophalen kan de magazijnenlijst niet resolven |
-| 10 | Notificatieservice weg | *Notificatie uit* → *Random opvoeren* → bericht verschijnt tóch via Vernieuw (aanmeld slaagt; notificatie retryt) |
-| 11 | Uitvraagsysteem eruit | *Uitvraag/aanmeld uit* → *Random opvoeren* → bericht verschijnt níet bij Vernieuw; reset → outbox levert alsnog af |
+| 10 | Notificatieservice weg | *Notificatie uit* → *Random berichten opvoeren* → bericht verschijnt tóch via Vernieuw (aanmeld slaagt; notificatie retryt) |
+| 11 | Uitvraagsysteem eruit | *Uitvraag/aanmeld uit* → *Random berichten opvoeren* → bericht verschijnt níet bij Vernieuw; reset → outbox levert alsnog af |
 | 12 | Redis weg | *Redis uit* → `GET /berichten` geeft 502 problem+json (geen kale 500); *Cache verlopen* blijft werken |
-| 13 | Ontdubbeling | Persona **eerst Ophalen** (actieve sessie!) → *Ontdubbeling* → precies één nieuw bericht |
+| 13 | Ontdubbeling | Persona **eerst Ophalen** (actieve sessie!) → Scenario's → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht |
 | 14 | Load/stress | **Fase 7** — k6-script, nog te bouwen |
 
 **Rode vlag (markeren als belangrijk):** nog te bouwen (fase 7 — productiecode door de hele keten).
 
-Na een storingsscenario altijd *Alles normaal (reset)* (Storingen-sectie) en voor veel-magazijnen
-*Alle magazijnen aan (reset)*.
+Na een storingsscenario altijd *Alles normaal* (tabblad Storingen) en voor veel-magazijnen *Alle
+magazijnen aan* (tabblad Scenario's). De toestandsbalk bovenaan het paneel zegt of dat gelukt is:
+zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een stip.
 
 ---
 
