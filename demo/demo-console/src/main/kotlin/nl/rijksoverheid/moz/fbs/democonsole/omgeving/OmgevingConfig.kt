@@ -3,14 +3,22 @@ package nl.rijksoverheid.moz.fbs.democonsole.omgeving
 import io.smallrye.config.ConfigMapping
 import java.util.Optional
 
-/**
- * Het adres van de uitvraag zoals de *browser* het moet gebruiken. Bewust los van
- * `quarkus.rest-client.uitvraag.url`, dat de console zelf server-side aanroept en container-interne
- * DNS mag zijn: dat adres is vanuit een browser onbereikbaar. Leeg laten betekent "leid het af uit
- * de browser-locatie", wat lokaal het gewenste gedrag is.
- */
+/** Wat deze omgeving de statische pagina's over zichzelf te vertellen heeft. */
 @ConfigMapping(prefix = "demo.omgeving")
 interface OmgevingConfig {
 
+    /**
+     * Het adres van de uitvraag zoals de *browser* het moet gebruiken. Bewust los van
+     * `quarkus.rest-client.uitvraag.url`, dat de console zelf server-side aanroept en
+     * container-interne DNS mag zijn: dat adres is vanuit een browser onbereikbaar. Leeg laten
+     * betekent "leid het af uit de browser-locatie", wat lokaal het gewenste gedrag is.
+     */
     fun uitvraagBasis(): Optional<String>
+
+    /**
+     * Kan deze omgeving bij de sessiecache van de uitvraag? Lokaal deelt de console het
+     * compose-netwerk met Redis; op een gedeelde omgeving staat Redis in een ander project, en
+     * verkeer daarheen is er alleen als er een netwerkregel voor geschreven is.
+     */
+    fun sessiecache(): Boolean
 }
