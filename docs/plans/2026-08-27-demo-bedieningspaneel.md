@@ -149,6 +149,11 @@ Ongeldige invoer wordt in de browser gestopt, die het veld dan zelf aanwijst.
   base-mappings die niet mogen meetellen.
 - Beide endpoints tegen de draaiende demo-stack: `traag` en `uit` worden herkend, `k=3` van 12
   wordt geteld, en beide resets brengen de stack terug op normaal.
+- `PaneelContractTest` (`@QuarkusTest`, geen Docker) pint over HTTP de drie afspraken waar
+  `bediening.js` aan hangt en die nergens anders vastliggen: de paden, de kleine letters van de
+  storingstoestanden en de sleutels `actief`/`totaal`. De services zijn er vervangen door vaste
+  dubbels — hun logica heeft eigen unittests. Geverifieerd dat de test ook echt rood wordt: zonder
+  `@get:JsonValue` levert het endpoint `"NORMAAL"` en faalt hij.
 - Het paneel met jsdom tegen de draaiende console: chips gevuld, tabbladen en pijltjesnavigatie,
   de knop-feedback (bezig → gelukt), de samengevatte melding met ruwe JSON eronder, en de
   bevestiging die zonder "Ja" niets leegt. Voor het bewaren van de stand ook de heenweg en de
