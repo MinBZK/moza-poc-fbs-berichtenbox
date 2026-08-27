@@ -39,8 +39,13 @@ class ProeftuinPersonaTest {
         overgenomen.forEach {
             val persona = ingericht.getValue(it.path("id").asText())
 
-            assertTrue(persona.magazijnen.isNotEmpty(), "keten-persona '${persona.id}' heeft geen opt-in")
             assertEquals(PersonaBron.KETEN, persona.bron, "bron van '${persona.id}'")
+
+            // Een persona die alleen ophaalt krijgt zijn berichten van de stub-magazijnen; die
+            // staan niet in demo.magazijnen en dus ook niet in zijn opt-ins.
+            if (!it.path("opthaaltAlleen").asBoolean()) {
+                assertTrue(persona.magazijnen.isNotEmpty(), "keten-persona '${persona.id}' heeft geen opt-in")
+            }
         }
     }
 }
