@@ -1,4 +1,4 @@
-**Status:** Stap 1 uitgevoerd (automatisering), stap 2 concept. Zie "Wat er staat" onderaan.
+**Status:** Stap 1 uitgevoerd en geverifieerd; stap 2 concept. Zie "Wat er staat" onderaan.
 
 # Storingsknoppen en cluster-intern verkeer op ZAD — ontwerp
 
@@ -132,9 +132,15 @@ de afweging die bij dit werk hoort en die eerder al als open stond aangemerkt.
 |---|---|
 | Script + tests, `deploy.yml`, `cleanup-preview.yml`, runbook | Uitgevoerd |
 | De regel op projectniveau in `mpfb-8wh` (inbound) | Gezet |
-| De regel op projectniveau in `mpfm-w3h` (outbound) | **Open** — vraagt een sessie op dat project |
-| `REDIS_HOSTS`-alias en `SESSIECACHE_BEREIKBAAR=true` op de console | **Open**, zelfde reden |
+| De regel op projectniveau in `mpfm-w3h` (outbound) | Gezet |
+| `REDIS_HOSTS`, `REDIS_PASSWORD` en `SESSIECACHE_BEREIKBAAR=true` op de console | Gezet |
 | Stap 2 (de storingsknoppen) | Concept |
 
-Zolang de outbound-regel ontbreekt, zet de inbound-kant alleen niets open: een ontvanger die
-toestemming geeft aan een aanroeper die zelf niet naar buiten mag, verandert geen verkeer.
+De cache-verval-knop werkt, op `test` en op een preview. Eén ding kwam er bij de verificatie
+bovenop dat hier niet stond: de Redis op ZAD eist een wachtwoord, en de console kende de property
+niet. Dat de verbinding er dóórheen kwam en met `NOAUTH` antwoordde, was meteen het bewijs dat de
+netwerkregel deed wat hij moest.
+
+Dat wachtwoord is de enige waarde die met de hand gelijk gehouden moet worden: hij staat in de
+`user-env-vars` van zowel `uitvraag` als `democonsole`, en de API geeft hem niet terug. Loopt hij
+uiteen, dan faalt alleen deze knop, en pas op het moment dat iemand hem gebruikt.
