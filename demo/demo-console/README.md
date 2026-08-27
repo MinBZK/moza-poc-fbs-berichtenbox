@@ -63,6 +63,10 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 | Scenario's | Veel magazijnen | Zet *k* van de *n* gegenereerde stub-magazijnen actief, of alle *n* weer aan; *n* ligt vast bij het draaien van `demo/genereer-magazijnen.py` |
 | Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
 
+Een refresh laat je staan waar je was: het paneel bewaart het actieve tabblad, de in-/uitgeklapte
+stand en de invoervelden in `sessionStorage`. Sluit je het tabblad, dan is het weg — een volgende
+demo begint schoon.
+
 De opmaak staat los van de proeftuin: een eigen tokenlaag (`--bediening-*`) in `bediening.css`, met
 de opbouw van NL Design System maar eigen waarden en een donkere chrome. Wie tijdens een demo
 meekijkt, moet het paneel niet aanzien voor het product dat ernaast in het frame staat.

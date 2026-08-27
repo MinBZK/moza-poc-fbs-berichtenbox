@@ -3,6 +3,17 @@
  * listener op het paneel voert ze uit. */
 
 const BOX_PAD = '/moza/berichtenbox/';
+
+/* Waar je gebleven was, zodat een refresh je niet terugzet op het eerste tabblad met het paneel
+ * open over de berichtenbox heen. In sessionStorage en niet in localStorage: dit overleeft een
+ * refresh maar niet het sluiten van het tabblad, zodat een volgende demo schoon begint in plaats
+ * van stilzwijgend de instellingen van de vorige te erven.
+ *
+ * De prefix is geen sierlijkheid: via de demo-proxy staan de proeftuin en dit paneel op dezelfde
+ * origin, en delen ze dus dezelfde storage. */
+const STAND_SLEUTEL = 'fbs-demo-bediening:stand';
+
+const VELDEN = ['aantal', 'tempoInterval', 'actiefAantal', 'ontdubbelPersona'];
 const POLL_MS = 5000;
 const UITKOMST_MS = 4000;
 
@@ -26,6 +37,57 @@ const melding = document.getElementById('melding');
 const meldingTekst = document.getElementById('melding-tekst');
 const meldingRuw = document.getElementById('melding-ruw');
 const meldingJson = document.getElementById('melding-json');
+
+// ---------------------------------------------------------------- waar je gebleven was
+
+/* Storage kan gooien — een private window, of een browser die site-data blokkeert. Het paneel moet
+ * dan gewoon werken, alleen zonder geheugen; vandaar dat lezen en schrijven allebei stil terugvallen. */
+function leesStand() {
+    try {
+        return JSON.parse(sessionStorage.getItem(STAND_SLEUTEL)) || {};
+    } catch (fout) {
+        return {};
+    }
+}
+
+function bewaarStand(wijziging) {
+    try {
+        sessionStorage.setItem(STAND_SLEUTEL, JSON.stringify(Object.assign(leesStand(), wijziging)));
+    } catch (fout) {
+        return;
+    }
+}
+
+function bewaarVelden() {
+    const velden = {};
+
+    VELDEN.forEach((id) => {
+        const veld = document.getElementById(id);
+
+        if (veld) velden[id] = veld.value;
+    });
+
+    bewaarStand({ velden: velden });
+}
+
+/* De keuzelijst met persona's komt pas binnen na een netwerkaanroep; die zet vulPersonas() zelf
+ * terug, zodra hij weet welke opties er zijn. */
+function herstelStand() {
+    const stand = leesStand();
+    const velden = stand.velden || {};
+
+    if (stand.ingeklapt) klap();
+
+    const tab = stand.tab ? document.getElementById(stand.tab) : null;
+
+    if (tab && tab.getAttribute('role') === 'tab') kiesTab(tab);
+
+    VELDEN.forEach((id) => {
+        const veld = document.getElementById(id);
+
+        if (veld && veld.tagName !== 'SELECT' && velden[id]) veld.value = velden[id];
+    });
+}
 
 // ---------------------------------------------------------------- berichtenbox in het frame
 
@@ -72,6 +134,8 @@ function klap() {
     knop.setAttribute('aria-expanded', String(!ingeklapt));
     knop.setAttribute('aria-label', bijschrift);
     knop.title = bijschrift;
+
+    bewaarStand({ ingeklapt: ingeklapt });
 }
 
 // ---------------------------------------------------------------- melding
@@ -334,6 +398,7 @@ function kiesTab(gekozen) {
     });
 
     sluitBevestiging();
+    bewaarStand({ tab: gekozen.id });
 }
 
 function tabToets(gebeurtenis) {
@@ -518,6 +583,14 @@ async function vulPersonas() {
         optie.textContent = persona.label;
         keuze.append(optie);
     });
+
+    const bewaard = (leesStand().velden || {}).ontdubbelPersona;
+
+    // Een persona die er niet meer is — andere configuratie, ander stub-register — valt terug op
+    // de eerste in de lijst in plaats van op een lege keuze die de knop laat falen.
+    if (bewaard && Array.from(keuze.options).some((optie) => optie.value === bewaard)) {
+        keuze.value = bewaard;
+    }
 }
 
 // ---------------------------------------------------------------- bedrading
@@ -552,6 +625,12 @@ document.addEventListener('click', (gebeurtenis) => {
 
 document.querySelector('[role="tablist"]').addEventListener('keydown', tabToets);
 
+// `input` en niet `change`: bij `change` gaat een getal dat je net intikte verloren zodra je
+// ververst zonder eerst het veld te verlaten.
+document.getElementById('paneel').addEventListener('input', (gebeurtenis) => {
+    if (VELDEN.includes(gebeurtenis.target.id)) bewaarVelden();
+});
+
 // Het merkteken hoort bij elke actieknop; het hier aanhangen scheelt dezelfde span twintig keer in
 // de opmaak — en voorkomt dat één knop hem mist en als enige niets laat zien.
 document.querySelectorAll('button[data-pad]').forEach((knop) => {
@@ -561,6 +640,7 @@ document.querySelectorAll('button[data-pad]').forEach((knop) => {
     knop.append(merk);
 });
 
+herstelStand();
 bepaalBox();
 pasOmgevingToe();
 vulPersonas();

@@ -84,6 +84,22 @@ uit een veld in het geheugen: zo klopt het paneel ook na een herstart van de con
 stubs. Alleen onze eigen overlay-id's tellen als storing; de base-mappings van schijf hebben hun
 eigen id's.
 
+### Waar je gebleven was
+
+Een refresh zette je terug op het eerste tabblad, met het paneel weer open over de berichtenbox
+heen en de getalvelden terug op hun default. Het paneel bewaart daarom het actieve tabblad, de
+in-/uitgeklapte stand en de invoervelden (aantal, interval, actief aantal, gekozen persona).
+
+In `sessionStorage` en niet in `localStorage`: dit overleeft een refresh maar niet het sluiten van
+het tabblad, zodat een volgende demo schoon begint in plaats van stilzwijgend de instellingen van
+de vorige te erven. De sleutel draagt een prefix, want via de demo-proxy staan de proeftuin en het
+paneel op dezelfde origin en delen ze dezelfde storage.
+
+Wat er niet in gaat: de scrollpositie (verspringt op een tabblad dat korter is dan waar je stond)
+en de melding en chips, die per definitie van het moment zijn. Onbekende waarden — een tabblad dat
+niet meer bestaat, een persona die uit de configuratie is — vallen stil terug op de standaard, en
+storage die gooit (een private window) laat het paneel gewoon werken, alleen zonder geheugen.
+
 ### Tabbladen, en drie knopgewichten
 
 Vier bladen: **Demo** (wat je in elke demo doet), **Storingen**, **Scenario's**, **Info**. Tabs en
@@ -123,7 +139,9 @@ Ongeldige invoer wordt in de browser gestopt, die het veld dan zelf aanwijst.
   wordt geteld, en beide resets brengen de stack terug op normaal.
 - Het paneel met jsdom tegen de draaiende console: chips gevuld, tabbladen en pijltjesnavigatie,
   de knop-feedback (bezig → gelukt), de samengevatte melding met ruwe JSON eronder, en de
-  bevestiging die zonder "Ja" niets leegt.
+  bevestiging die zonder "Ja" niets leegt. Voor het bewaren van de stand ook de heenweg en de
+  terugweg apart — wegschrijven, en een verse pagina met die stand erin — plus een onbekend
+  tabblad, een verdwenen persona en storage die gooit.
 
 Een browser is er in deze omgeving niet, dus de opmaak zelf — contrast, uitlijning, of het geheel
 in 26rem past — is met het oog te beoordelen op <http://127.0.0.1:8097/bediening/>.
