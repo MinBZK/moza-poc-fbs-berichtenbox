@@ -137,6 +137,12 @@ env:
   # cleanup-preview.yml zoekt de comment op deze tekst, dus drift tussen plaatsen en opruimen laat
   # hem stil achter op een gesloten PR.
   COMMENT_HEADER: '## 🚀 Preview Deployment'
+  # De cross-domain-regel die de demo-console bij de sessiecache laat. De regel zelf staat op
+  # projectniveau zónder peer-deployment; die vult elke deployment zelf in, want een regel waarvan
+  # de peer-deployment open blijft wordt bij het genereren overgeslagen. Dezelfde naam staat in
+  # cleanup-preview.yml — lopen die twee uit elkaar, dan blijft de regel achter op een deployment
+  # die niet meer bestaat.
+  CROSS_DOMAIN_REGEL: democonsole-naar-redis
 
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
@@ -624,6 +630,16 @@ jobs:
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
+      # Redis staat in dít project en de console in het magazijnen-project, dus deze kant draagt de
+      # inbound-regel. Ná de deploy: de regel noemt een deployment, en die moet bestaan.
+      - name: Sessiecache openzetten voor de console van deze preview
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+        run: >-
+          .github/scripts/cross-domain-preview.sh zet
+          "${{ env.PROJECT_UITVRAAG }}" "pr-${{ github.event.pull_request.number }}"
+          inbound "${{ env.CROSS_DOMAIN_REGEL }}"
+
   deploy-preview-externe-stubs:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
     # het transitief overgeslagen `checks-fuzz` onder `gate`.
@@ -699,6 +715,16 @@ jobs:
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
             ]
+
+      # De tegenhanger van de inbound-regel bij de uitvraag: de ontvanger beslist, dus één kant
+      # alleen zet niets open.
+      - name: De console van deze preview bij de sessiecache laten
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+        run: >-
+          .github/scripts/cross-domain-preview.sh zet
+          "${{ env.PROJECT_MAGAZIJNEN }}" "pr-${{ github.event.pull_request.number }}"
+          outbound "${{ env.CROSS_DOMAIN_REGEL }}"
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.

@@ -131,7 +131,8 @@ van `verify-zad.md` is er om dat te vangen.
 De zes lege `TOXIPROXY_*`-waarden schakelen de storingsknoppen uit: het paneel leest
 `GET /api/demo/omgeving` en laat een knop weg zodra zijn proxy niet geconfigureerd is. Er staat op
 ZAD geen Toxiproxy; waarom niet, staat onderaan bij "Wat er bewust niet meekomt".
-`SESSIECACHE_BEREIKBAAR=false` doet hetzelfde voor de cache-verval-knop.
+`SESSIECACHE_BEREIKBAAR=false` doet hetzelfde voor de cache-verval-knop; stap 5 zet hem aan zodra
+het verkeer naar de sessiecache openstaat.
 
 ## 4. CORS op de uitvraag
 
@@ -167,7 +168,56 @@ for o in https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl htt
 done
 ```
 
-## 5. Uitrollen en verifiëren
+## 5. De sessiecache openzetten
+
+De cache-verval-knop wist de sessies in Redis, en Redis staat in `mpfb-8wh` terwijl de console in
+`mpfm-w3h` woont. Cluster-intern verkeer tussen projecten bestaat alleen met een
+`cross-domain-access`-regel, en zo'n regel noemt altijd één concrete peer-deployment — blijft die
+open, dan slaat Operations Manager hem bij het genereren over.
+
+Daarom: de regel zelf één keer op projectniveau **zonder** peer-deployment, en per deployment een
+patch die hem invult. Voor `test` doe je dat hier met de hand; voor previews doen `deploy.yml` en
+`cleanup-preview.yml` het met `.github/scripts/cross-domain-preview.sh`.
+
+De ontvanger beslist, dus beide projecten dragen een regel — één kant alleen zet niets open.
+
+```bash
+API=https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api
+
+# mpfb-8wh: hier staat Redis, dus hier hoort de inbound-regel.
+curl -s -X PATCH -H "X-API-Key: $SLEUTEL_UITVRAAG" -H 'Content-Type: application/json' \
+  "$API/v2/projects/mpfb-8wh/services/cross-domain-access/config/project/inbound" \
+  -d '{"add":[{"name":"democonsole-naar-redis","to":{"component":"redis","port":6379},"from":{"project":"mpfm-w3h","component":"democonsole"}}]}'
+
+# mpfm-w3h: hier staat de console, dus hier hoort de outbound-regel.
+curl -s -X PATCH -H "X-API-Key: $SLEUTEL_MAGAZIJNEN" -H 'Content-Type: application/json' \
+  "$API/v2/projects/mpfm-w3h/services/cross-domain-access/config/project/outbound" \
+  -d '{"add":[{"name":"democonsole-naar-redis","from":{"component":"democonsole"},"to":{"project":"mpfb-8wh","component":"redis","port":6379}}]}'
+```
+
+`zadctl service config set cross-domain-access` kan dit niet: dat is een PUT over de héle
+configuratie en zou de bestaande regels overschrijven. De `PATCH …/inbound` en `…/outbound`
+hierboven zijn add/remove per regelnaam.
+
+Daarna de invulling voor `test`, met hetzelfde script dat CI voor previews gebruikt:
+
+```bash
+ZAD_API_KEY=$SLEUTEL_UITVRAAG   .github/scripts/cross-domain-preview.sh zet mpfb-8wh test inbound  democonsole-naar-redis
+ZAD_API_KEY=$SLEUTEL_MAGAZIJNEN .github/scripts/cross-domain-preview.sh zet mpfm-w3h test outbound democonsole-naar-redis
+```
+
+En de console erheen wijzen. Het adres is cross-namespace, dus met de volledige servicenaam; de
+namespace van een project is zijn eigen naam met het cluster-voorvoegsel ervoor:
+
+```bash
+zadctl alias add -c democonsole \
+  'REDIS_HOSTS=redis://$DEPLOYMENT_NAME-redis.rig-prd-mpfb-8wh.svc.cluster.local:6379'
+zadctl env set -c democonsole SESSIECACHE_BEREIKBAAR=true
+```
+
+Zonder die laatste regel blijft het paneel de knop verbergen, ook al werkt hij dan.
+
+## 6. Uitrollen en verifiëren
 
 ```bash
 zadctl deployment refresh test
@@ -200,8 +250,9 @@ door de proxy van `test` sturen. Zie het vervolgontwerp voor de route die dat w�
 maakt de proxies zelf aan via de admin-API, en de netwerkregels komen per preview mee uit de
 deploy-workflow.
 
-**De cache-verval-knop.** Dezelfde netwerkregel-beperking: Redis staat in `mpfb-8wh`. Het paneel
-verbergt de knop op grond van `SESSIECACHE_BEREIKBAAR=false`.
+**De cache-verval-knop** werkt wél, sinds stap 5. Hij vraagt als enige knop cluster-intern verkeer
+naar een ander project, en daarom een `cross-domain-access`-regel per deployment. Voor previews
+zetten `deploy.yml` en `cleanup-preview.yml` die zelf.
 
 **De veel-magazijnen-schuif.** Wacht op de magazijn-simulator (#938).
 
