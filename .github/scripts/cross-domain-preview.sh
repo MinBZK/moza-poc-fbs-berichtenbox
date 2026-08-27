@@ -58,6 +58,31 @@ patch_body() {
   esac
 }
 
+# De projectregel moet bestaan vóór een deployment hem invult. Operations Manager laat het
+# genereren nooit falen op een kapotte regel: een deployment-patch zonder projectregel wordt een
+# regel op zichzelf, mist dan component en poort, en wordt met een waarschuwing in de log
+# overgeslagen. De API accepteert de patch wél. Zonder deze controle meldt de stap dus groen over
+# een netwerkregel die er nooit komt, en valt dat pas op wanneer iemand tijdens een demo op de knop
+# drukt.
+vereis_projectregel() {
+  local api_url=$1 api_key=$2 project=$3 richting=$4 regel=$5
+  local config
+
+  if ! config=$("$CURL" -sf -H "X-API-Key: $api_key" \
+    "$api_url/v2/projects/$project/services/cross-domain-access/config"); then
+    fout "Cross-domain-configuratie van $project niet op te vragen; kan de projectregel niet controleren."
+  fi
+
+  # De naam moet in dít antwoord staan; welke richting is niet uit de platte tekst te halen zonder
+  # JSON-parser, en een regelnaam is uniek per project in de praktijk. Een naam die alleen in de
+  # andere richting bestaat is daarmee niet te onderscheiden — de melding zegt dat.
+  case "$config" in
+    *"\"$regel\""*) return 0 ;;
+  esac
+
+  fout "Geen $richting-regel '$regel' op projectniveau in $project. Een deployment-patch vult een bestaande regel aan; zonder die regel wordt hij bij het genereren overgeslagen en komt er geen netwerkregel. Zie demo/environment/zad-demo/README.md."
+}
+
 # Wacht tot de taak een eindtoestand heeft. Zonder deze lus meldt de stap groen zodra de API het
 # verzoek heeft aangenomen (HTTP 202), en dat zegt niets over de uitkomst.
 wacht_op_taak() {
@@ -107,6 +132,10 @@ main() {
   [ -n "$api_key" ] || fout "ZAD_API_KEY ontbreekt; zonder sleutel valt er niets te zetten."
 
   local api_url=${ZAD_API_URL:-$STANDAARD_API_URL}
+  if [ "$actie" = zet ]; then
+    vereis_projectregel "$api_url" "$api_key" "$project" "$richting" "$regel"
+  fi
+
   local body antwoord taak
   body=$(patch_body "$actie" "$deployment" "$richting" "$regel")
 

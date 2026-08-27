@@ -199,6 +199,12 @@ curl -s -X PATCH -H "X-API-Key: $SLEUTEL_MAGAZIJNEN" -H 'Content-Type: applicati
 configuratie en zou de bestaande regels overschrijven. De `PATCH …/inbound` en `…/outbound`
 hierboven zijn add/remove per regelnaam.
 
+Die twee projectregels moeten er staan vóór een deployment ze invult. Operations Manager laat het
+genereren namelijk nooit falen op een kapotte regel: een deployment-patch zonder projectregel wordt
+een regel op zichzelf, mist component en poort, en verdwijnt met een waarschuwing in de log. De API
+accepteert de patch wel. Het script hieronder controleert daarom eerst of de projectregel bestaat —
+anders zou het groen melden over een netwerkregel die er nooit komt.
+
 Daarna de invulling voor `test`, met hetzelfde script dat CI voor previews gebruikt:
 
 ```bash

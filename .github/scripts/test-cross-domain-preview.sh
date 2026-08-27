@@ -49,7 +49,7 @@ bevat() {
 # en een geregisseerd antwoord teruggeeft: `patch_antwoord` voor de PATCH, `taakstatus` voor het
 # pollen erna. Met `patch_rc` doet de stub alsof curl zelf faalde.
 maak_stub() {
-  local map=$1 patch_antwoord=$2 taakstatus=$3 patch_rc=${4:-0}
+  local map=$1 patch_antwoord=$2 taakstatus=$3 patch_rc=${4:-0} projectregels=${5:-'"regel","democonsole-naar-redis"'}
 
   cat >"$map/curl" <<STUB
 #!/usr/bin/env bash
@@ -62,6 +62,12 @@ done
 
 if printf '%s' "\$*" | grep -q '/tasks/'; then
   printf '{"task_id":"t-1","status":"$taakstatus"}'
+  exit 0
+fi
+
+# De GET op de projectconfiguratie: het PATCH-pad draagt /config/deployment/, dit niet.
+if printf '%s' "\$*" | grep -q 'cross-domain-access/config' && ! printf '%s' "\$*" | grep -q '/config/deployment/'; then
+  printf '{"configurations":[{"target":"project","config":{"inbound":[{"name":$projectregels}]}}]}'
   exit 0
 fi
 
@@ -133,7 +139,9 @@ rm -f "$werkmap/aanroepen" "$werkmap/bodies"
 draai "$werkmap" zet mpfm-w3h pr-7 outbound democonsole-naar-redis
 gelijk "een geslaagde patch eindigt met 0" 0 "$RC"
 
-aanroepen=$(cat "$werkmap/aanroepen")
+aanroepen=$(tr '\n' ' ' <"$werkmap/aanroepen")
+bevat "de projectconfiguratie wordt eerst opgevraagd" \
+  '/v2/projects/mpfm-w3h/services/cross-domain-access/config ' "$aanroepen"
 bevat "de patch gaat naar het deployment-pad van de richting" \
   '/v2/projects/mpfm-w3h/services/cross-domain-access/config/deployment/pr-7/outbound' "$aanroepen"
 bevat "de patch draagt de API-sleutel" 'X-API-Key: sleutel' "$aanroepen"
@@ -160,6 +168,27 @@ draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
 gelijk "een gefaalde taak stopt het script" 1 "$RC"
 bevat "en noemt de eindtoestand" "eindigde als 'failed'" "$UITVOER"
 
+# --- de projectregel moet bestaan ---------------------------------------------------------------
+# Operations Manager laat het genereren nooit falen op een kapotte regel: een deployment-patch
+# zonder projectregel wordt een regel op zichzelf, mist component en poort, en wordt met een
+# waarschuwing overgeslagen. De API accepteert de patch wél. Zonder deze controle zou de stap dus
+# groen melden over een netwerkregel die er nooit komt.
+maak_stub "$werkmap" '{"task_id":"t-1"}' completed 0 '"een-andere-regel"'
+draai "$werkmap" zet mpfm-w3h pr-7 outbound democonsole-naar-redis
+gelijk "een ontbrekende projectregel stopt het script" 1 "$RC"
+bevat "en zegt dat de regel op projectniveau ontbreekt" 'op projectniveau' "$UITVOER"
+
+# Opruimen mag daar niet op stuklopen: is de projectregel al weg, dan moet de deployment-patch er
+# júist nog af kunnen.
+rm -f "$werkmap/aanroepen"
+draai "$werkmap" verwijder mpfm-w3h pr-7 outbound democonsole-naar-redis
+gelijk "opruimen vraagt niet om een projectregel" 0 "$RC"
+case "$(tr '\n' ' ' <"$werkmap/aanroepen")" in
+  *'cross-domain-access/config '*) fout "opruimen vroeg de projectconfiguratie tóch op" ;;
+  *) ok "opruimen vraagt de projectconfiguratie niet op" ;;
+esac
+
+maak_stub "$werkmap" '{"task_id":"t-1"}' completed
 # --- de regelnaam in de workflows -----------------------------------------------------------------
 # deploy.yml zet de regel en cleanup-preview.yml haalt hem weg, elk met hun eigen kopie van de naam.
 # Lopen die uit elkaar, dan blijft de regel achter op een deployment die niet meer bestaat — en dat
