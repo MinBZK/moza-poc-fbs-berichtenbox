@@ -1,5 +1,5 @@
-**Status:** Fase 1 (lokaal) uitgevoerd. Fase 2 in uitvoering voor de console; de storingsinjectie
-is verworpen — zie de nabrander onder "Storingsinjectie".
+**Status:** Fase 1 (lokaal) uitgevoerd. Fase 2 uitgevoerd voor de console; de storingsinjectie is
+verworpen — zie de nabrander onder "Storingsinjectie".
 
 # Demo draaibaar op de laptop én op ZAD — ontwerp
 

@@ -11,6 +11,16 @@ component.
 CONSOLE=https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
 ```
 
+## 0. Staat de muur
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' "$CONSOLE/"
+```
+
+Verwacht `403`. Krijg je `200`, stop dan: het paneel staat open op het internet en iedereen die het
+adres kent kan de magazijnen legen. `keycloak` is dan niet aan het component gebonden — zie stap 2
+van `README.md`.
+
 ## 1. De omgeving beschrijft zichzelf
 
 Open `$CONSOLE/api/demo/omgeving`.

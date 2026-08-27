@@ -1,6 +1,5 @@
-**Status:** Fase 1 (lokaal) uitgevoerd. Fase 2: taken 9 en 10 uitgevoerd, taak 8 (het component
-aanmaken in Operations Manager) staat open. De storingsknoppen zijn uit fase 2 gehaald — zie de
-herziening onder "Fase 2".
+**Status:** Fase 1 (lokaal) uitgevoerd. Fase 2 uitgevoerd voor de console; de storingsknoppen zijn
+eruit gehaald — zie de herziening onder "Fase 2".
 
 # Demo draaibaar op laptop én ZAD — implementatieplan
 

@@ -51,8 +51,7 @@ zadctl service config set keycloak --set 'restrict-access.enabled=false'
 ```
 
 Wil je het wél beperken, zet dan `restrict-access.enabled=true` met een `restrict-access.realm-role`
-en deel die rol uit in Keycloak. Controleer met `zadctl service list` dat beide diensten
-geselecteerd staan vóór je verder gaat.
+en deel die rol uit in Keycloak.
 
 ## 2. Het component aanmaken
 
@@ -90,6 +89,24 @@ UITVRAAG_URL: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.ri
 
 Kies een tag die echt bestaat: `deploy.yml` pusht `main-<sha7>` en `pr-<n>-<sha7>`, nooit een kale
 `:main`. De eerstvolgende merge naar main werkt hem alsnog bij.
+
+**Bind daarna `keycloak` óók aan het component.** `authorization-wall` noemt `keycloak` bij zijn
+voorwaarden, maar `--service authorization-wall` trekt de binding op het component niet mee: de
+dienst wordt wél op projectniveau geselecteerd, en daar blijft het bij. Zonder deze stap rendert
+er geen oauth2-proxy-sidecar en **staat het paneel open op het internet**, met de legen-knop erop.
+
+```bash
+zadctl service assign keycloak -c democonsole
+```
+
+Controleer het meteen, en niet pas bij de verificatie:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/
+```
+
+`403` is goed: dat is de muur. `200` betekent dat hij er niet staat — bind dan `keycloak` alsnog, of
+haal `publish-on-web` van het component tot het klopt.
 
 ## 3. De omgevingsvariabelen die geen alias kunnen zijn
 
