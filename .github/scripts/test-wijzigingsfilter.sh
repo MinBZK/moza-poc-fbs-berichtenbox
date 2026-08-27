@@ -188,6 +188,12 @@ fuzz=false'
 # uitgerold wordt hoort volledig getest te zijn.
 verwacht "uitsluitend demo-console" 'demo/demo-console/src/main/kotlin/Console.kt' "$DEMO_MET_IMAGE"
 
+# Dezelfde eis vanaf de resources-kant. Het pad terugzetten in DEMO_BUITEN_UITROLPOORT laat elke
+# consolewijziging weer buiten de uitrol vallen, waarna de preview een console van een oudere tag
+# draait terwijl de check groen meldt — een stille regressie, dus een assertie en geen afspraak.
+verwacht "een gewijzigde consolepagina koopt ook een uitrol" \
+  'demo/demo-console/src/main/resources/META-INF/resources/index.html' "$DEMO_MET_IMAGE"
+
 verwacht "demo-console plus een andere module — volledige build" 'demo/demo-console/src/main/kotlin/Console.kt
 services/berichtenuitvraag/src/main/kotlin/Uitvraag.kt' "$ALLES_AAN"
 
