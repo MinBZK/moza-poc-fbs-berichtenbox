@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.democonsole.veelmagazijnen
 
 import jakarta.ws.rs.BadRequestException
+import jakarta.ws.rs.GET
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
@@ -10,6 +11,9 @@ import jakarta.ws.rs.core.MediaType
 @Path("/api/demo/veel-magazijnen")
 @Produces(MediaType.APPLICATION_JSON)
 class VeelMagazijnenResource(private val service: VeelMagazijnenService) {
+
+    @GET
+    fun status(): Map<String, Int> = service.status()
 
     @POST
     @Path("/actief/{k}")

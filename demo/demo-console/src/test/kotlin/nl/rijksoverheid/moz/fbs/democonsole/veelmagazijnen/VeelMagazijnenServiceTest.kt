@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.core.Response
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -92,5 +93,68 @@ class VeelMagazijnenServiceTest {
         service.reset()
 
         verify { wiremock.herlaad() }
+    }
+
+    private fun mappingsMet(vararg ids: String) =
+        WireMockMappings(ids.map { WireMockMapping(it) } + WireMockMapping(BASIS_MAPPING_ID))
+
+    @Test
+    fun `status telt de magazijnen zonder storing als actief`() {
+        every { wiremock.mappings() } returns mappingsMet(
+            VeelMagazijnenService.overlayId(4),
+            VeelMagazijnenService.overlayId(5),
+        )
+
+        assertEquals(mapOf("actief" to 3, "totaal" to 5), service.status())
+    }
+
+    @Test
+    fun `status zonder overlays meldt alles actief`() {
+        every { wiremock.mappings() } returns mappingsMet()
+
+        assertEquals(mapOf("actief" to 5, "totaal" to 5), service.status())
+    }
+
+    @Test
+    fun `status met precies een overlay meldt er een minder`() {
+        // Onderscheidt "telt of er uberhaupt een overlay is" van "telt hoeveel"; met twee
+        // overlays valt dat verschil niet op.
+        every { wiremock.mappings() } returns mappingsMet(VeelMagazijnenService.overlayId(5))
+
+        assertEquals(mapOf("actief" to 4, "totaal" to 5), service.status())
+    }
+
+    @Test
+    fun `status met alles op storing meldt nul actief`() {
+        every { wiremock.mappings() } returns mappingsMet(*(1..5).map(VeelMagazijnenService::overlayId).toTypedArray())
+
+        assertEquals(mapOf("actief" to 0, "totaal" to 5), service.status())
+    }
+
+    @Test
+    fun `status telt alleen onze eigen overlays, niet de base-mappings`() {
+        // De stub-magazijnen laden n base-mappings van schijf. Die meetellen zou elk magazijn
+        // dubbel als storing zien en het paneel structureel nul actief laten melden.
+        every { wiremock.mappings() } returns WireMockMappings(
+            (1..5).map { WireMockMapping("00000000-0000-0000-0000-%012d".format(it)) },
+        )
+
+        assertEquals(mapOf("actief" to 5, "totaal" to 5), service.status())
+    }
+
+    @Test
+    fun `status negeert een mapping zonder id`() {
+        // WireMock geeft de id van een inline gedefinieerde stub niet altijd mee; zonder deze
+        // afhandeling loopt de telling stuk op een null.
+        every { wiremock.mappings() } returns WireMockMappings(
+            listOf(WireMockMapping(null), WireMockMapping(VeelMagazijnenService.overlayId(5))),
+        )
+
+        assertEquals(mapOf("actief" to 4, "totaal" to 5), service.status())
+    }
+
+    private companion object {
+
+        const val BASIS_MAPPING_ID = "00000000-0000-0000-0000-000000000001"
     }
 }

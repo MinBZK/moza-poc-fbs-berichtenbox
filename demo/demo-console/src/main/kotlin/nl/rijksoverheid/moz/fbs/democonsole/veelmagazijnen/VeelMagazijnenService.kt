@@ -16,6 +16,10 @@ class VeelMagazijnenService(
     @param:ConfigProperty(name = "veel-magazijnen.aantal") private val aantal: Int,
 ) {
 
+    // Alleen onze eigen overlay-id's tellen als storing: de base-mappings van schijf hebben hun
+    // eigen id's, en die meetellen zou elk magazijn dubbel als gestoord zien.
+    private val overlayIds: Set<String> = (1..aantal).map(::overlayId).toSet()
+
     fun zetActief(k: Int): Map<String, Int> {
         require(k in 0..aantal) { "k moet tussen 0 en $aantal liggen, was $k" }
 
@@ -30,6 +34,16 @@ class VeelMagazijnenService(
         }
 
         return mapOf("actief" to k, "totaal" to aantal)
+    }
+
+    /**
+     * Hoeveel magazijnen er nú antwoorden. Uit WireMock gelezen en niet in het geheugen bijgehouden,
+     * zodat het paneel na een herstart van de console of van de stubs nog steeds klopt.
+     */
+    fun status(): Map<String, Int> {
+        val gestoord = wiremock.mappings().mappings.count { it.id in overlayIds }
+
+        return mapOf("actief" to aantal - gestoord, "totaal" to aantal)
     }
 
     fun reset(): Map<String, Int> {
