@@ -704,21 +704,25 @@ lijst_toets "een ontbrekende demo-root meldt wat er mist" "$w" 1 "bestaat niet"
 
 # De roots staan op twee plekken ingetypt: hier en in de module-lussen van codeql.yml. Lopen ze
 # uiteen, dan dekt de ene guard een root die de andere overslaat — en dat is stil, want beide
-# blijven groen over wat ze wél zien. Béíde lussen toetsen: codeql.yml controleert de classes én de
-# geëxtraheerde bronbestanden, en met alleen de unieke waarden zou één gemuteerde lus wegvallen
-# tegen de andere.
-codeql_lussen=$( { grep -oE 'for module in [a-z*/ ]+; do' "$HERE/../workflows/codeql.yml" || true; } \
-  | sed 's/for module in //; s/; do//; s:/\*::g')
+# blijven groen over wat ze wél zien.
+# Bewijs uit de uitvoerbare regels van de `run:`-blokken: een commentaarregel met dezelfde lus-tekst
+# zou een verdwenen rootlus als aanwezig laten tellen.
+#
+# Béíde lussen toetsen, niet de unieke set: codeql.yml controleert de classes én de geëxtraheerde
+# bronbestanden, en met alleen de unieke waarden zou één gemuteerde lus wegvallen tegen de andere.
+codeql_lussen=$( { python3 "$HERE/workflow-jobs.py" --runs "$HERE/../workflows/codeql.yml" \
+  | grep -oE 'for root in [a-z ]+; do' || true; } \
+  | sed 's/for root in //; s/; do//')
 eigen_roots="${STELSEL_ROOTS[*]} demo"
 codeql_aantal=$(grep -c . <<<"$codeql_lussen" || true)
 codeql_afwijkend=$(grep -cvxF "$eigen_roots" <<<"$codeql_lussen" || true)
 
 if [ "$codeql_aantal" -ne 2 ]; then
-  fout "codeql.yml heeft $codeql_aantal modulelussen in plaats van 2; deze kruiscontrole meet niet wat hij hoort te meten"
+  fout "codeql.yml heeft $codeql_aantal rootlussen in plaats van 2; deze kruiscontrole meet niet wat hij hoort te meten"
 elif [ "$codeql_afwijkend" -ne 0 ]; then
-  fout "een modulelus in codeql.yml wijkt af van de grensbewaking ($eigen_roots): $(tr '\n' ' ' <<<"$codeql_lussen")"
+  fout "een rootlus in codeql.yml wijkt af van de grensbewaking ($eigen_roots): $(tr '\n' ' ' <<<"$codeql_lussen")"
 else
-  ok "beide modulelussen in codeql.yml hanteren dezelfde roots als de grensbewaking"
+  ok "beide rootlussen in codeql.yml hanteren dezelfde roots als de grensbewaking"
 fi
 
 w=$(nieuw_repo)

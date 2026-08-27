@@ -94,8 +94,10 @@ bind_lek=$(jq -r --arg re "$LEK" --arg kaal "$KAAL_LEK" '.services | to_entries[
 # is er niets meer om op te matchen. Per image-familie dus eisen dát de directive er is én dat hij
 # op loopback staat — dezelfde vorm als de postgres-controle hieronder, die dit al deed.
 #
-# Alleen families die in deze repo voorkomen; een service zonder van deze images valt terug op de
-# waarde-checks hierboven.
+# Alleen families die in deze repo voorkomen; een third-party image daarbuiten valt terug op de
+# waarde-checks hierboven. Een service die hier gebouwd wordt heeft géén `image:` en paste daardoor
+# in geen enkele familie — die krijgt hieronder een eigen tak, want anders doet de guard een
+# positieve uitspraak over onze eigen service zonder hem bekeken te hebben.
 bind_mist=$(jq -r '.services | to_entries[] | . as $s
   | ($s.value.image // "") as $img
   | ((($s.value.command // []) + ($s.value.entrypoint // [])) | map(select(type == "string")) | join(" ")) as $cmd
@@ -116,6 +118,13 @@ bind_mist=$(jq -r '.services | to_entries[] | . as $s
       # application.properties, dus afwezigheid betekent hier een wildcard-bind.
       (if (($env.QUARKUS_HTTP_HOST // "") | tostring | test("^127\\.")) then empty
        else "\($s.key): QUARKUS_HTTP_HOST=\($env.QUARKUS_HTTP_HOST // "<niet gezet>") staat niet op 127.x" end)
+    elif ($s.value.build != null) then
+      # Een service die hier gebouwd wordt is onze eigen code en bakt dezelfde
+      # quarkus.http.host=0.0.0.0 in. Zonder deze tak viel die service door naar empty (er is geen
+      # image, dus geen familie past) en meldde de guard alle listeners op loopback over een
+      # service die hij nooit bekeken had.
+      (if (($env.QUARKUS_HTTP_HOST // "") | tostring | test("^127\\.")) then empty
+       else "\($s.key): build-service met QUARKUS_HTTP_HOST=\($env.QUARKUS_HTTP_HOST // "<niet gezet>") staat niet op 127.x" end)
     else empty end' <<<"$MERGED")
 
 # De overlay hoort elke `ports:` uit de basis te resetten; een gepubliceerde poort in een gedeelde

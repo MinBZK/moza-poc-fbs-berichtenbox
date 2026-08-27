@@ -289,13 +289,133 @@ bevat_regel() {
   esac
 }
 
-# Ruim matchen op de jobnaam: `[a-z-]*` zou een job met een cijfer (`deploy-preview-magazijn2`)
-# niet eens als uitrol-job herkennen, en die valt dan stil buiten deze controle.
-while IFS= read -r job; do
-  bevat_regel "$poort_needs" "$job" \
-    || mislukt "uitrol-job $job staat niet in de needs van uitrol-poort — valt buiten de beoordeling"
-done < <(sed -n 's/^  \(deploy-\(preview\|test\)-[A-Za-z0-9_-]*\):$/\1/p' "$DEPLOY_YML")
+# Élke job in deploy.yml moet zich classificeren: hij hangt onder de poort, of hij staat hieronder
+# als bewust géén uitrol-job. Een allowlist en geen ontdekkingspatroon: wie een job toevoegt, moet
+# één van beide kiezen, en dat is een zichtbare regel in de diff in plaats van een stilte.
+GEEN_UITROL_JOBS='changes meta build build-externe-stubs build-contract-bootstrap checks-test checks-detekt checks-pins checks-fuzz gate uitrol-poort'
 
+# De joblijst komt uit een YAML-parser en niet uit een regex. GitHub sluit op YAML-vorm, een regex
+# op tekstvorm: een gequoteerde jobnaam, een `#`-commentaar achter de sleutel of een blok-scalar
+# levert een job op die GitHub gewoon draait en die het patroon niet ziet.
+if ! alle_jobs=$(python3 "$HERE/workflow-jobs.py" --jobs "$DEPLOY_YML"); then
+  mislukt "kon de jobs van $DEPLOY_YML niet lezen; deze controle meet niets"
+elif [ -z "$alle_jobs" ]; then
+  mislukt "geen enkele job gevonden in $DEPLOY_YML; deze controle meet niets"
+else
+  while IFS= read -r job; do
+    case " $GEEN_UITROL_JOBS " in
+      *" $job "*) continue ;;
+    esac
+
+    bevat_regel "$poort_needs" "$job" \
+      || mislukt "job $job staat niet in de needs van uitrol-poort en niet in GEEN_UITROL_JOBS — classificeer hem"
+  done <<<"$alle_jobs"
+
+  ok "elke job in deploy.yml hangt onder de uitrol-poort of staat als niet-uitrol geclassificeerd"
+fi
+
+# De andere richting: een job die de deploy-actie draait, mag niet in GEEN_UITROL_JOBS staan. Zonder
+# deze controle zou de allowlist een uitrol kunnen witwassen. Een lokale reusable workflow wordt
+# doorgevolgd — deploy.yml roept er al vier zo aan, dus dat is de vorm die een volgende uitrol-as
+# waarschijnlijk krijgt.
+if ! uitrol_jobs=$(python3 "$HERE/workflow-jobs.py" --uitrol "$DEPLOY_YML"); then
+  mislukt "kon de uitrol-jobs van $DEPLOY_YML niet bepalen; deze controle meet niets"
+elif [ -z "$uitrol_jobs" ]; then
+  mislukt "geen enkele uitrol-job gevonden in $DEPLOY_YML; deze controle meet niets"
+else
+  while IFS= read -r job; do
+    case " $GEEN_UITROL_JOBS " in
+      *" $job "*) mislukt "job $job draait de zad-actions-deploy maar staat in GEEN_UITROL_JOBS" ;;
+    esac
+  done <<<"$uitrol_jobs"
+
+  ok "geen enkele job met een deploy-stap staat als niet-uitrol geclassificeerd"
+fi
+
+# --- de joblezer rechtstreeks -----------------------------------------------------------------
+# De vormen die een regex op tekst laat passeren en GitHub gewoon draait. Zonder deze fixtures
+# leunt de classificatie hierboven op een lezer die niemand rood kan krijgen.
+werkmap=$(mktemp -d)
+trap 'rm -rf "$werkmap"' EXIT
+
+lezer_toets() {
+  local omschrijving=$1 inhoud=$2 modus=$3 verwacht=$4
+  local bestand="$werkmap/wf-$RANDOM.yml" gekregen
+
+  printf '%s\n' "$inhoud" > "$bestand"
+  gekregen=$(python3 "$HERE/workflow-jobs.py" "$modus" "$bestand" 2>&1 | tr '\n' ' ' | sed 's/ *$//') || true
+
+  if [ "$gekregen" = "$verwacht" ]; then
+    ok "$omschrijving"
+  else
+    mislukt "$omschrijving
+  verwacht: $verwacht
+  gekregen: $gekregen"
+  fi
+}
+
+lezer_toets "een gequoteerde jobnaam is gewoon een job" \
+  'jobs:
+  "deploy-acceptatie":
+    steps:
+      - uses: RijksICTGilde/zad-actions/deploy@v1' --jobs 'deploy-acceptatie'
+
+lezer_toets "commentaar achter de jobsleutel verbergt de job niet" \
+  'jobs:
+  checks-extra: # alleen controles
+    steps:
+      - uses: RijksICTGilde/zad-actions/deploy@v1' --uitrol 'checks-extra'
+
+lezer_toets "een blok-scalar in uses telt mee" \
+  'jobs:
+  deploy-blok:
+    steps:
+      - uses: >-
+          RijksICTGilde/zad-actions/deploy@v1' --uitrol 'deploy-blok'
+
+lezer_toets "een anchor-kloon is een eigen job" \
+  'jobs:
+  deploy-basis: &basis
+    steps:
+      - uses: RijksICTGilde/zad-actions/deploy@v1
+  deploy-kloon: *basis' --uitrol 'deploy-basis deploy-kloon'
+
+# Een reusable workflow uit deze repository draagt de deploy-stap in het ándere bestand; niet
+# doorvolgen maakt zo'n uitrol onzichtbaar. Ontbreekt dat bestand, dan is de uitkomst onbekend en
+# niet "geen uitrol".
+mkdir -p "$werkmap/.github/workflows"
+printf 'jobs:\n  rol-uit:\n    steps:\n      - uses: RijksICTGilde/zad-actions/deploy@v1\n' \
+  > "$werkmap/.github/workflows/hulp.yml"
+printf 'jobs:\n  deploy-via-hulp:\n    uses: ./.github/workflows/hulp.yml\n' \
+  > "$werkmap/.github/workflows/hoofd.yml"
+
+lezer_uitvoer=$(python3 "$HERE/workflow-jobs.py" --uitrol "$werkmap/.github/workflows/hoofd.yml" 2>&1 || true)
+[ "$lezer_uitvoer" = "deploy-via-hulp" ] \
+  && ok "een uitrol via een lokale reusable workflow wordt gevolgd" \
+  || mislukt "een uitrol via een reusable workflow blijft onzichtbaar: $lezer_uitvoer"
+
+rm -f "$werkmap/.github/workflows/hulp.yml"
+lezer_uitvoer=$(python3 "$HERE/workflow-jobs.py" --uitrol "$werkmap/.github/workflows/hoofd.yml" 2>&1 || true)
+grep -q 'bestaat niet' <<<"$lezer_uitvoer" \
+  && ok "een ontbrekende reusable workflow meldt dat de uitkomst onbekend is" \
+  || mislukt "een ontbrekende reusable workflow gaat door voor 'geen uitrol': $lezer_uitvoer"
+
+# Hier telt de melding, niet de uitkomst: een workflow zonder jobs mag geen lege lijst opleveren
+# die als "niets te classificeren" doorgaat.
+lezer_bestand="$werkmap/zonder-jobs.yml"
+printf 'on: push\n' > "$lezer_bestand"
+
+# Uitvoer eerst vangen: de lezer eindigt hier terecht non-zero, en met `pipefail` zou een pipeline
+# naar grep die status overnemen — dan faalt de fixture op de goede uitkomst.
+lezer_uitvoer=$(python3 "$HERE/workflow-jobs.py" --jobs "$lezer_bestand" 2>&1 || true)
+
+if grep -q 'bevat geen jobs-blok' <<<"$lezer_uitvoer"; then
+  ok "een workflow zonder jobs-blok meldt dat er niets te meten is"
+else
+  mislukt "een workflow zonder jobs-blok levert geen melding; een lege lijst gaat dan door voor 'niets te classificeren'"
+fi
+
+# --- de as-telling ------------------------------------------------------------------------------
 for voorvoegsel in deploy-preview- deploy-test-; do
   aantal=$(grep -c "^$voorvoegsel" <<<"$poort_needs" || true)
 
