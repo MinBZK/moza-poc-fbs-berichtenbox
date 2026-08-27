@@ -1795,13 +1795,13 @@ en de reden per keuze; hier alleen de vorm.
 
 ## Wat hierna nog open staat
 
-Twee brokken, elk een eigen ontwerp en PR waard:
-
-- **De netwerkregels per preview.** Cluster-intern verkeer van de console naar een ander project
-  volgt geen preview, tenzij de deploy-workflow de regel per deployment bijschrijft en
-  `cleanup-preview.yml` hem weer opruimt. Dat maakt de cache-verval-knop bruikbaar.
-- **De storingsknoppen.** Vier Toxiproxy-componenten over twee projecten, plus de wijziging die de
-  console zijn proxies zelf laat aanmaken via de admin-API. Hangt op de netwerkregels hierboven.
+- **De netwerkregels per preview** — gedaan. Cluster-intern verkeer van de console naar een ander
+  project volgt geen preview tenzij de deploy-workflow de regel per deployment bijschrijft en
+  `cleanup-preview.yml` hem weer opruimt; dat doet `.github/scripts/cross-domain-preview.sh` nu, en
+  daarmee werkt de cache-verval-knop.
+- **De storingsknoppen** — open. Vier Toxiproxy-componenten over twee projecten, plus de wijziging
+  die de console zijn proxies zelf laat aanmaken via de admin-API. Leunde op de netwerkregels
+  hierboven, en die staan nu.
 
 ## Zelfcontrole van dit plan
 

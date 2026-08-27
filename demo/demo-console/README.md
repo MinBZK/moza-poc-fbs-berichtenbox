@@ -44,10 +44,14 @@ de verificatie erna.
 
 Knopgroepen waarvan de backend er niet is, verbergt het paneel zelf op basis van
 `GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, en een
-onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat de storingen, de
-cache-verval-knop en de veel-magazijnen-schuif — alle drie vragen cluster-intern verkeer naar een
-ánder project, en zo'n netwerkregel noemt daar altijd één vaste deployment, dus hij volgt geen
-preview.
+onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat de storingen en de
+veel-magazijnen-schuif.
+
+De cache-verval-knop wérkt daar, ook op een preview. Hij vraagt als enige overgebleven knop
+cluster-intern verkeer naar een ander project, en zo'n netwerkregel noemt op ZAD altijd één vaste
+deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` hem per preview bij en weer weg.
+Wat de storingen en de veel-magazijnen-schuif nog missen is dus niet die regel, maar hun eigen
+componenten.
 
 Drie dingen horen bij het wonen in `test`. De demo rolt mee met elke merge naar main, dus de
 omgeving kan tijdens een presentatie herstarten. Previews klonen `test` en krijgen de console dus
