@@ -19,6 +19,7 @@
 
   <fieldset>
     <legend>Beheer</legend>
+    <button onclick="post('/api/demo/herstel', true)">Herstel demo (stoppen, resetten, legen, vullen)</button>
     <button onclick="post('/api/demo/legen', true)">Magazijnen legen</button>
     <button onclick="get('/api/demo/status')">Status (aantal berichten)</button>
     <button onclick="post('/api/demo/sessie/verlopen')">Cache verlopen (sessies wissen)</button>
@@ -30,26 +31,31 @@
     <br>
     <label>Random berichten: <input id="aantal" type="number" value="10" min="1" max="500"></label>
     <button onclick="post('/api/demo/random?aantal=' + document.getElementById('aantal').value)">Opvoeren</button>
+    <br>
+    <label>Stroom: elke <input id="tempoInterval" type="number" value="10" min="1" max="3600"> seconden</label>
+    <button onclick="post('/api/demo/tempo/start?interval=' + document.getElementById('tempoInterval').value)">Stroom starten</button>
+    <button onclick="post('/api/demo/tempo/stop')">Stroom stoppen</button>
+    <button onclick="get('/api/demo/tempo')">Stroom-status</button>
   </fieldset>
 
   <fieldset>
     <legend>Storingen (fase 3)</legend>
-    <button onclick="post('/api/demo/storing/magazijn/a/traag')">Magazijn A (RVO) traag</button>
-    <button onclick="post('/api/demo/storing/magazijn/a/uit')">Magazijn A (RVO) uit</button>
+    <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/traag')">Magazijn A (RVO) traag</button>
+    <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/uit')">Magazijn A (RVO) uit</button>
     <br>
-    <button onclick="post('/api/demo/storing/magazijn/b/traag')">Magazijn B (Belastingdienst) traag</button>
-    <button onclick="post('/api/demo/storing/magazijn/b/uit')">Magazijn B (Belastingdienst) uit</button>
+    <button data-proxy="magazijn-b" onclick="post('/api/demo/storing/magazijn/b/traag')">Magazijn B (Belastingdienst) traag</button>
+    <button data-proxy="magazijn-b" onclick="post('/api/demo/storing/magazijn/b/uit')">Magazijn B (Belastingdienst) uit</button>
     <br>
     <button onclick="post('/api/demo/storing/reset')">Alles normaal (reset)</button>
   </fieldset>
 
   <fieldset>
     <legend>Technische scenario's (fase 5)</legend>
-    <button onclick="post('/api/demo/storing/redis/uit')">Redis uit (scenario 12)</button>
-    <button onclick="post('/api/demo/storing/profiel/uit')">Profielservice uit (scenario 9)</button>
+    <button data-proxy="redis" onclick="post('/api/demo/storing/redis/uit')">Redis uit (scenario 12)</button>
+    <button data-proxy="profiel" onclick="post('/api/demo/storing/profiel/uit')">Profielservice uit (scenario 9)</button>
     <br>
-    <button onclick="post('/api/demo/storing/notificatie/uit')">Notificatie uit (scenario 10)</button>
-    <button onclick="post('/api/demo/storing/aanmeld/uit')">Uitvraag/aanmeld uit (scenario 11)</button>
+    <button data-proxy="notificatie" onclick="post('/api/demo/storing/notificatie/uit')">Notificatie uit (scenario 10)</button>
+    <button data-proxy="aanmeld" onclick="post('/api/demo/storing/aanmeld/uit')">Uitvraag/aanmeld uit (scenario 11)</button>
     <p><small>Herstellen: gebruik "Alles normaal (reset)" hierboven.</small></p>
     <br>
     <button onclick="post('/api/demo/foutieve-aanlevering')">Foutieve aanlevering (scenario 8)</button>
@@ -123,6 +129,25 @@
     }
 
     function toon(tekst) { uit.textContent = tekst; }
+
+    // Niet elke omgeving heeft elke proxy: op ZAD ontbreken de magazijn-storingen, omdat de
+    // magazijnen hun gedrag daar uit de simulator krijgen. Een knop tonen die gegarandeerd een
+    // 400 geeft, kost tijdens een demo uitleg die niets toevoegt.
+    fetch('/api/demo/omgeving')
+      .then((respons) => (respons.ok ? respons.json() : null))
+      .then((omgeving) => {
+        if (!omgeving) return;
+
+        const beschikbaar = new Set(omgeving.storingen);
+
+        document.querySelectorAll('button[data-proxy]').forEach((knop) => {
+          if (!beschikbaar.has(knop.dataset.proxy)) knop.hidden = true;
+        });
+      })
+      .catch(() => {
+        // Console onbereikbaar: laat alle knoppen staan. Ze falen dan zichtbaar, wat beter is dan
+        // een leeg paneel zonder uitleg.
+      });
   </script>
 </body>
 </html>
