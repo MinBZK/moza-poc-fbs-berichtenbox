@@ -612,6 +612,12 @@ jobs:
       name: pr-${{ github.event.pull_request.number }}
       url: ${{ steps.deploy.outputs.url }}
     steps:
+      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
+      # draait een script uit .github/scripts/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Deploy uitvraag-project
         id: deploy
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
@@ -700,6 +706,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
+      # draait een script uit .github/scripts/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Deploy magazijnen-project
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:

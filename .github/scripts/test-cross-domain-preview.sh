@@ -160,6 +160,35 @@ draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
 gelijk "een gefaalde taak stopt het script" 1 "$RC"
 bevat "en noemt de eindtoestand" "eindigde als 'failed'" "$UITVOER"
 
+# --- de regelnaam in de workflows -----------------------------------------------------------------
+# deploy.yml zet de regel en cleanup-preview.yml haalt hem weg, elk met hun eigen kopie van de naam.
+# Lopen die uit elkaar, dan blijft de regel achter op een deployment die niet meer bestaat — en dat
+# faalt stil: de resolver slaat zo'n regel over, logt dat, en niemand leest die log.
+regelnaam() {
+  sed -n 's/^  CROSS_DOMAIN_REGEL: *//p' "$REPO_ROOT/.github/workflows/$1" | tr -d "'\"" | head -1
+}
+
+zet_naam=$(regelnaam deploy.yml)
+weg_naam=$(regelnaam cleanup-preview.yml)
+
+if [ -z "$zet_naam" ]; then
+  fout "deploy.yml draagt geen CROSS_DOMAIN_REGEL — deze controle meet niets"
+else
+  ok "deploy.yml noemt een regelnaam"
+fi
+
+gelijk "deploy.yml en cleanup-preview.yml noemen dezelfde regel" "$zet_naam" "$weg_naam"
+
+# En de andere kant: een stap die de regel zet zonder tegenhanger die hem opruimt, laat na elke
+# gesloten PR een regel achter.
+for wf in deploy.yml cleanup-preview.yml; do
+  if grep -q 'cross-domain-preview\.sh' "$REPO_ROOT/.github/workflows/$wf"; then
+    ok "$wf roept cross-domain-preview.sh aan"
+  else
+    fout "$wf roept cross-domain-preview.sh niet meer aan"
+  fi
+done
+
 # --- sourcen ------------------------------------------------------------------------------------
 # Deze suite sourcet het script voor patch_body; zou main dan meedraaien, dan zou hij bij het
 # sourcen al een echte API aanroepen.
