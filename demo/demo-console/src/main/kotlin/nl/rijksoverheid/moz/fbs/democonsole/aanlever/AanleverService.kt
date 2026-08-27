@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 
+import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
@@ -25,7 +26,7 @@ data class AanleverResultaat(
  * (`demo.magazijnen."<OIN>".url`); per URL wordt één REST-client gebouwd en hergebruikt.
  */
 @ApplicationScoped
-class AanleverService(config: MagazijnenConfig) {
+class AanleverService(config: DemoConfig) {
 
     private val log = Logger.getLogger(AanleverService::class.java.name)
 

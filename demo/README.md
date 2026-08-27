@@ -25,7 +25,7 @@ De demo-runbook staat in [`../docs/demo-runbook.md`](../docs/demo-runbook.md).
 Een module onder `demo/` mag afhangen van het stelsel; andersom niet. `demo-console` doet vandaag
 zelfs dat eerste niet: het heeft bewust geen enkele reactor-afhankelijkheid, zodat de wegwerp-module
 de productie-stack (LDV-wrapper, JAX-RS-filters) niet erft. De prijs is duplicatie: de
-elfproef-validatie staat lokaal in `demo-console/src/main/kotlin/…/generator/Identificatiecheck.kt`,
+elfproef-validatie staat lokaal in `demo-console/src/main/kotlin/…/personas/Identificatiecheck.kt`,
 naast het gezaghebbende `libraries/fbs-common/…/identificatie/Identificatienummer.kt`. Wie de
 elfproef wijzigt, wijzigt beide.
 

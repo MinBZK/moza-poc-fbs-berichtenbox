@@ -1,25 +1,30 @@
 package nl.rijksoverheid.moz.fbs.democonsole.generator
 
+import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Produces
+import nl.rijksoverheid.moz.fbs.democonsole.personas.PersonaService
 import java.time.Clock
 
 /**
  * Levert de gedeelde generator-configuratie als CDI-bean. De organisaties (één per magazijn)
- * en de persona-opt-ins staan hier centraal en moeten sporen met de profielservice-stubs
- * onder `wiremock/demo-profiel/` — anders faalt aanleveren met 403.
+ * staan hier centraal; de persona's komen uit de configuratie, zodat de keuzelijst van een
+ * berichtenbox en de gegenereerde berichten dezelfde set gebruiken.
+ *
+ * `@Startup`: de invarianten van de generator (minstens één persona, elke opt-in-OIN bekend)
+ * zitten in zijn init-blok. Zonder dit wordt de bean lazy gebouwd en klapt een fout in de
+ * inrichting pas bij de eerste klik, midden in een demonstratie.
  */
 class GeneratorProducer {
 
     @Produces
     @ApplicationScoped
-    fun generator(): DemoBerichtGenerator =
+    @Startup
+    fun generator(personaService: PersonaService): DemoBerichtGenerator =
         DemoBerichtGenerator(
-            personas = listOf(
-                Persona("J. Pietersen", "BSN", "999993653", listOf(RVO, BELASTINGDIENST)),
-                Persona("Bakkerij De Vroege Vogel", "BSN", "999996666", listOf(RVO)),
-                Persona("Garage Van Dijk B.V.", "KVK", "12345678", listOf(BELASTINGDIENST)),
-            ),
+            personas = personaService.metMagazijnen().map {
+                Persona(it.label, it.type, it.waarde, it.magazijnen)
+            },
             organisaties = mapOf(
                 RVO to Organisatie(RVO, "RVO", RVO_SJABLONEN),
                 BELASTINGDIENST to Organisatie(BELASTINGDIENST, "Belastingdienst", BELASTINGDIENST_SJABLONEN),

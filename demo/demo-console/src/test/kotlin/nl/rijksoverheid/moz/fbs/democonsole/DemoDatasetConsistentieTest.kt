@@ -6,7 +6,8 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.GeneratorProducer
-import nl.rijksoverheid.moz.fbs.democonsole.generator.Identificatiecheck
+import nl.rijksoverheid.moz.fbs.democonsole.personas.Identificatiecheck
+import nl.rijksoverheid.moz.fbs.democonsole.personas.TestPersonas
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -18,7 +19,7 @@ import kotlin.streams.asSequence
 
 /**
  * Bewaakt dat de vier bronnen die samen de demo-vulling bepalen niet uiteenlopen: de
- * persona-lijst in [GeneratorProducer], de curated `dataset/basis.json`, de magazijn-URL's in
+ * persona-lijst in `application.properties`, de curated `dataset/basis.json`, de magazijn-URL's in
  * `application.properties` en de profielservice-stubs onder `wiremock/demo-profiel/`.
  *
  * Divergeert er één, dan weigert het magazijn élke aanlevering met een 403 en meldt de console
@@ -28,19 +29,24 @@ class DemoDatasetConsistentieTest {
 
     private val mapper = ObjectMapper().registerKotlinModule()
 
+    /** De echte generator: organisaties uit [GeneratorProducer], persona's uit `application.properties`. */
+    private fun generator() = GeneratorProducer().generator(TestPersonas.uitApplicationProperties())
+
     @Test
     fun `de echte generator-configuratie voldoet aan haar eigen invarianten`() {
         // GeneratorProducer is lazy: zonder deze aanroep raakt CI de echte persona- en
-        // organisatielijst nooit aan en blijkt een typfout daarin pas bij de eerste klik.
-        val generator = GeneratorProducer().generator()
+        // organisatielijst nooit aan en blijkt een typfout daarin pas bij de eerste klik. De
+        // persona's komen uit application.properties, dezelfde bron als bij het starten.
+        val generator = generator()
 
         assertTrue(generator.genereer(aantal = 5, random = Random(1)).isNotEmpty())
     }
 
     @Test
     fun `elke gegenereerde opdracht is door de profiel-stubs toegestaan`() {
-        val opdrachten = GeneratorProducer().generator().genereer(aantal = 200, random = Random(2))
+        val opdrachten = generator().genereer(aantal = 200, random = Random(2))
 
+        assertTrue(opdrachten.isNotEmpty(), "zonder opdrachten toetst deze test niets")
         controleerTegenProfielStubs(opdrachten)
     }
 
@@ -63,7 +69,7 @@ class DemoDatasetConsistentieTest {
     @Test
     fun `elk magazijn uit de datasets heeft een URL in de configuratie`() {
         val geconfigureerd = magazijnenUitConfig()
-        val gebruikt = (Basisdataset(mapper).laad() + GeneratorProducer().generator().genereer(200, Random(3)))
+        val gebruikt = (Basisdataset(mapper).laad() + generator().genereer(200, Random(3)))
             .map { it.magazijnOin }
             .toSet()
 
