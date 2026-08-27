@@ -85,6 +85,7 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `UITVRAAG_BASIS` | leeg | Browser-zichtbaar adres van de uitvraag-API, **inclusief** het `/api/v1`-pad (bv. `https://uitvraag.example/api/v1`); leeg = afleiden uit de browser-locatie. `berichtenbox.js` gebruikt de waarde ongewijzigd als request-basis en de paginering strípt `/api/v1` uit de HAL-links op die aanname — zonder het pad faalt elke call zichtbaar voor de gebruiker (foutmelding in het paneel of een `alert`) |
 | `UITVRAAG_URL` | `http://localhost:8086` | Adres dat de console zélf aanroept voor de ontdubbeling-webhook |
 | `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop |
+| `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
 | `SESSIECACHE_BEREIKBAAR` | `true` | Op `false` laat het paneel de cache-verval-knop weg. Voor omgevingen waar Redis niet bereikbaar is; een knop die gegarandeerd faalt kost tijdens een demo uitleg die niets toevoegt |
 | `DEMO_MAGAZIJN_STUBS` | `12` | Aantal stub-magazijnen voor de veel-magazijnen-schuif |
 | `MAGAZIJN_STUBS_ADMIN_URL` | `http://localhost:8092` | WireMock-admin van de stub-magazijnen, voor diezelfde schuif |

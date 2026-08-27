@@ -223,6 +223,20 @@ zadctl env set -c democonsole SESSIECACHE_BEREIKBAAR=true
 
 Zonder die laatste regel blijft het paneel de knop verbergen, ook al werkt hij dan.
 
+**En het wachtwoord.** De Redis op ZAD eist er een; zonder komt de verbinding er wél doorheen — de
+netwerkregel doet zijn werk — maar antwoordt Redis `NOAUTH Authentication required` op de eerste
+opdracht. Dat is een fout die pas bij een druk op de knop verschijnt.
+
+De waarde staat in de `user-env-vars` van `uitvraag` in `mpfb-8wh` en is via de API niet te lezen
+(`(set, not returned by the API)`); haal hem uit Operations Manager en zet dezelfde waarde hier:
+
+```bash
+zadctl env add -c democonsole REDIS_PASSWORD=<dezelfde waarde als bij uitvraag>
+```
+
+Loopt die waarde ooit uiteen met die van de uitvraag, dan faalt alleen deze knop, en pas op het
+moment dat iemand hem gebruikt.
+
 ## 6. Uitrollen en verifiëren
 
 ```bash
