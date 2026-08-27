@@ -1,7 +1,8 @@
 # De scripts onder .github/scripts/ beslissen wát de rest van de CI doet: wijzigingsfilter.sh
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
-# demonstratiecode afhangt. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped'
+# demonstratiecode afhangt, en jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
+# handtekening controleert. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped'
 # en dat telt als succes voor branch protection. Vandaar een eigen, lichte workflow: shellcheck,
 # actionlint en de bash-unittests, zonder de docker build van de FSC-harness.
 name: CI-scripts
@@ -67,6 +68,13 @@ jobs:
           # Vangt onder meer een `needs.<job>.result` die verwijst naar een job die niet in
           # `needs:` staat, en een `cancelled()` op een plek waar die niet mag staan.
           /tmp/actionlint
+      - name: Elke setup-java verifieert de handtekening van de JDK
+        # De suite hierboven toetst de guard tegen fixtures; deze stap laat hem los op de
+        # werkelijke workflows. Los, zodat een falende guard als eigen regel in de log staat en
+        # niet als één van de twintig meldingen van de unittest-stap.
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/jdk-handtekening.py .github/workflows
+
       - name: shellcheck + bash-unittests
         # Ook draaien als actionlint viel: twee losse signalen zijn in één run meer waard dan één.
         if: ${{ !cancelled() }}
@@ -100,6 +108,7 @@ jobs:
             [.github/scripts/test-wijzigingsfilter.sh]=98
             [.github/scripts/test-uitrol-poort.sh]=72
             [.github/scripts/test-demo-grens.sh]=62
+            [.github/scripts/test-jdk-handtekening.sh]=22
           )
 
           # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt
@@ -170,7 +179,8 @@ jobs:
           # keten wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf.
           for verplicht in .github/scripts/test-wijzigingsfilter.sh \
                            .github/scripts/test-uitrol-poort.sh \
-                           .github/scripts/test-demo-grens.sh; do
+                           .github/scripts/test-demo-grens.sh \
+                           .github/scripts/test-jdk-handtekening.sh; do
             if [ ! -f "$verplicht" ]; then
               echo "FOUT: $verplicht ontbreekt; die controle draait nergens meer in de keten."
               fail=1
