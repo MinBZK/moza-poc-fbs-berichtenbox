@@ -62,8 +62,8 @@ bruikbaar; de tweede leunt erop.
 moment dat hij de preview aanmaakt, en `cleanup-preview.yml` kan hem weer opruimen bij het sluiten
 van de PR.
 
-Elke hop vraagt twee regels — een outbound bij de bellende kant en een inbound bij de gebelde kant,
-in twee verschillende projecten. De ontvanger beslist, dus geen van beide is alleen genoeg.
+Elke hop vraagt twee regels — een outbound bij de aanroepende kant en een inbound bij de aangeroepen
+kant, in twee verschillende projecten. De ontvanger beslist, dus geen van beide is alleen genoeg.
 
 Aandachtspunten:
 
