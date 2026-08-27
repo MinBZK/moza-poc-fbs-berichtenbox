@@ -467,7 +467,7 @@ jobs:
           # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
           # de `build`-matrix, `build-externe-stubs`, `build-contract-bootstrap` en
           # `build-democonsole` in deploy.yml; een vergeten package laat weesversies achter.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-fsc-contract-bootstrap fbs-demo-console; do
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
               fail=1

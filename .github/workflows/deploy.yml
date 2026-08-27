@@ -344,6 +344,14 @@ jobs:
           docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
+          # Dezelfde mappings plus de voorkeuren van de demo-persona's; zie
+          # wiremock/demo-profiel/Dockerfile voor waarom die niet in het gedeelde image passen.
+          # Eén job, want het demo-image layert op de mappings van het gedeelde image: los
+          # bouwen zou ze uit elkaar kunnen laten lopen zonder dat iets dat merkt.
+          DEMO_IMG="$REGISTRY/$OWNER/fbs-demo-profiel:$TAG"
+          docker build -t "$DEMO_IMG" -f wiremock/demo-profiel/Dockerfile wiremock
+          docker push "$DEMO_IMG"
+
   # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
   # interne manager-API heeft daar geen route en de tenant-baseline-NetworkPolicy laat alleen
   # verkeer binnen hetzelfde deployment toe. Eén image, twee rollen — welke, leest het entrypoint
@@ -636,7 +644,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      # profiel + notificatie = zelfde image, losse componenten (eigen subdomein per stub).
+      # profiel + notificatie = losse componenten (eigen subdomein per stub). De profiel-stub draait
+      # het demo-image: dat layert op dezelfde gedeelde mappings en voegt de voorkeuren van de
+      # demo-persona's toe. Zonder die voorkeuren geeft de catch-all voor élke ontvanger hetzelfde
+      # ene magazijn terug, en valt er van de federatie niets te zien.
       - name: Deploy externe-stubs-project
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
@@ -648,7 +659,7 @@ jobs:
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: |
             [
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
               {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -783,7 +794,7 @@ jobs:
           deployment-name: test
           components: |
             [
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
               {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
             ]
 
