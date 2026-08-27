@@ -34,6 +34,10 @@ magazijnen-project `mpfm-w3h`, en rolt mee naar elke preview.
 rijksaccount. Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de
 authorization-wall, niet een kapot component.
 
+Elke preview draagt zijn eigen console op `democonsole-pr-<n>-mpfm-w3h…`, met de tag van díe PR.
+Een wijziging aan de demo is daar dus te beoordelen vóór hij samengevoegd wordt, inclusief de
+Berichtenbox-weergave: de uitvraag laat elke console-origin van dit project toe.
+
 `docs/plans/2026-08-26-demo-op-zad-design.md` legt de topologie uit en waarom de demo in `test`
 woont en niet in een eigen deployment. `demo/environment/zad-demo/` bevat de eenmalige OM-stappen en
 de verificatie erna.

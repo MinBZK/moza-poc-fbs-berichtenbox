@@ -55,7 +55,7 @@ Verwacht: de berichten uit de basisvulling verschijnen, uit beide magazijnen. Di
 die de hele keten aanraakt — console → magazijn → uitvraag → sessiecache → terug.
 
 Blijft de lijst leeg terwijl stap 2 wel berichten telde, kijk dan in de browserconsole naar een
-CORS-fout: dan noemt `QUARKUS_HTTP_CORS_ORIGINS` op de uitvraag deze console-origin niet.
+CORS-fout: dan dekt de regex in `QUARKUS_HTTP_CORS_ORIGINS` op de uitvraag deze console-origin niet.
 
 ## 4. De schemacontrole
 

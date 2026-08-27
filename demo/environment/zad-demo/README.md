@@ -138,20 +138,34 @@ ZAD geen Toxiproxy; waarom niet, staat onderaan bij "Wat er bewust niet meekomt"
 De Berichtenbox-pagina wordt vanaf de console geserveerd en roept de uitvraag cross-origin aan. In
 het uitvraag-project:
 
+Elke deployment heeft een eigen console-origin (`democonsole-test-…`, `democonsole-pr-<n>-…`), en
+previews komen en gaan. Eén regex dekt ze allemaal; Quarkus leest een waarde tussen schuine strepen
+als reguliere expressie.
+
 ```bash
 zadctl -p mpfb-8wh env add -c uitvraag \
   QUARKUS_HTTP_CORS_ENABLED=true \
-  QUARKUS_HTTP_CORS_ORIGINS=https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
+  'QUARKUS_HTTP_CORS_ORIGINS=/https://democonsole-.+-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/'
 ```
+
+**Geen backslashes in die waarde.** Een geëscapete variant
+(`https:\/\/democonsole-…\.rig\.…`) laat de SOPS-stap van Operations Manager falen op
+`uitvraag-user-secret.to-sops.yaml`, en dan blokkeert élke uitrol van dit project tot de waarde
+terug is. De ongeëscapete punten matchen breder dan strikt nodig, maar alleen binnen een domein dat
+we zelf beheren.
 
 Methods en headers blijven ongezet; Quarkus spiegelt die uit het preflight-verzoek, zoals compose
 het lokaal ook doet. De property heet `quarkus.http.cors.enabled` en niet `quarkus.http.cors`.
 
-Een preview heeft een eigen console-origin (`democonsole-pr-<n>-mpfm-w3h...`). Zolang
-`QUARKUS_HTTP_CORS_ORIGINS` alleen de `test`-origin noemt, werkt de Berichtenbox-weergave in een
-preview niet; het bedieningspaneel wél, want dat praat met zijn eigen console. Wil je previews
-volledig, zet dan de origins per deployment
-(`zadctl -p mpfb-8wh env add -d pr-<n> -c uitvraag ...`).
+Controleer het met een preflight, en toets meteen dat het géén wildcard werd:
+
+```bash
+for o in https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://kwaadaardig.example; do
+  curl -s -o /dev/null -D - -X OPTIONS -H "Origin: $o" -H 'Access-Control-Request-Method: GET' \
+    https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/berichten |
+    grep -i access-control-allow-origin || echo "geweigerd: $o"
+done
+```
 
 ## 5. Uitrollen en verifiëren
 
