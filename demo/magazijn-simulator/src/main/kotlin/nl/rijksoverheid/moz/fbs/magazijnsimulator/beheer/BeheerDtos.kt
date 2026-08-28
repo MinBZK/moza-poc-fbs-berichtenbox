@@ -31,12 +31,17 @@ data class SeedVerzoek(
     }
 }
 
-/** Wat er is klaargezet. */
+/**
+ * Wat er is klaargezet. [overgeslagen] telt de berichten die er al stonden: vullen is herhaalbaar, en
+ * dat verschil zichtbaar maken is beter dan een tweede ronde die "gelukt" meldt zonder dat er iets
+ * veranderde.
+ */
 data class SeedUitkomst(
     val magazijnen: Int,
     val ontvangers: Int,
     val berichten: Int,
     val bijlagen: Int,
+    val overgeslagen: Int,
     val duurMs: Long,
 )
 

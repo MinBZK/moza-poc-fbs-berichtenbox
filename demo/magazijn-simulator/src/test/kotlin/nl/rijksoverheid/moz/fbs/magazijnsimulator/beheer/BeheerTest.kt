@@ -13,6 +13,8 @@ import org.hamcrest.Matchers.hasSize
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
  * Het bedieningspaneel: vullen, terugzetten en bijsturen.
@@ -181,6 +183,88 @@ class BeheerTest : MagazijnTestBasis() {
         given()
             .contentType(ContentType.JSON)
             .body("""{"modus": "SOMS"}""")
+            .`when`().put("/beheer/magazijnen/$MAGAZIJN/gedrag")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    /**
+     * Twee keer vullen zonder ertussen te legen. De bericht-nummers zijn afgeleid, dus de tweede
+     * ronde biedt exact dezelfde rijen aan; zonder opvang zou dat een 500 zijn waarin niets staat
+     * over de oorzaak of de uitweg. Wie tijdens de voorbereiding besluit dat twintig berichten te
+     * weinig zijn, draait gewoon opnieuw.
+     */
+    @Test
+    fun `twee keer vullen zonder legen slaat over wat er al staat`() {
+        val eerste = seed(aantal = 3)
+
+        assertEquals(0, eerste.getInt("overgeslagen"))
+
+        val tweede = seed(aantal = 3)
+
+        assertEquals(0, tweede.getInt("berichten"))
+        assertEquals(eerste.getInt("berichten"), tweede.getInt("overgeslagen"))
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", equalTo(3))
+    }
+
+    @Test
+    fun `meer berichten vragen vult aan in plaats van te knallen`() {
+        seed(aantal = 3)
+
+        val uitgebreid = seed(aantal = 5)
+
+        assertEquals(uitgebreid.getInt("magazijnen") * 2, uitgebreid.getInt("berichten"))
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", equalTo(5))
+    }
+
+    /** Een typefout in een JSON-lijst hoort geen serverfout te worden. */
+    @Test
+    fun `dezelfde ontvanger twee keer opgeven levert geen dubbele berichten op`() {
+        val uitkomst = seed(aantal = 3, ontvangers = listOf(ONTVANGER, ONTVANGER))
+
+        assertEquals(1, uitkomst.getInt("ontvangers"))
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", equalTo(3))
+    }
+
+    /**
+     * De grenzen van het gedrag komen hier uit een JSON-body en zijn dus invoer. Een negatieve
+     * latency of een foutkans van twee hoort een 400 te zijn die zegt wat er mis is, geen 500 die de
+     * aanroeper naar een niet-bestaande supportafdeling stuurt.
+     */
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            """{"modus": "TRAAG", "latencyP50Ms": -5}""",
+            """{"modus": "TRAAG", "latencyP50Ms": 900, "latencyP95Ms": 10}""",
+            """{"modus": "HAPERT", "foutkans": 2.0}""",
+            """{"modus": "HAPERT", "foutkans": -0.1}""",
+            """{"modus": "STUK", "foutStatus": 99}""",
+            """{"modus": "STUK", "foutStatus": 600}""",
+        ],
+    )
+    fun `een gedragswaarde buiten het bereik is een clientfout`(body: String) {
+        given()
+            .contentType(ContentType.JSON)
+            .body(body)
             .`when`().put("/beheer/magazijnen/$MAGAZIJN/gedrag")
             .then()
             .statusCode(400)

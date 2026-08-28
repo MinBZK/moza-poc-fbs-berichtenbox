@@ -15,8 +15,12 @@ data class DemoBericht(val bericht: Bericht, val bijlagen: List<Bijlage>)
  * Verzint de berichten waarmee een demo gevuld wordt.
  *
  * **Alles is afgeleid, niets is geloot.** Dezelfde aanroep levert dezelfde berichten op, tot en met
- * de bericht-id's: die komen uit een hash van magazijn en volgnummer. Een demo die je oefent is
- * daarmee dezelfde demo als je hem geeft, en een bevinding is na te spelen.
+ * de bericht-id's: die komen uit een hash van magazijn, ontvanger en volgnummer. Een demo die je
+ * oefent is daarmee dezelfde demo als je hem geeft, en een bevinding is na te spelen.
+ *
+ * De ontvanger hoort in die hash. Zonder hem zouden twee ondernemers binnen hetzelfde magazijn
+ * dezelfde nummers krijgen, en die zijn per magazijn uniek — de tweede ondernemer zou er dan gewoon
+ * geen berichten bij krijgen.
  *
  * De id's verschillen wél over magazijnen heen. Twee magazijnen mogen in werkelijkheid hetzelfde
  * nummer uitdelen, en de simulator laat dat toe, maar de sessiecache van de uitvraag slaat berichten
@@ -84,7 +88,9 @@ object DemoBerichten {
             emptyList()
         }
 
-        DemoBericht(bericht.copy(bijlagen = bijlagen.map { it.metadata() }), bijlagen)
+        // De bijlagen gaan apart mee: de bulk-opslag schrijft kolommen en kijkt niet naar
+        // `Bericht.bijlagen`, dus ze daar óók in zetten zou dood werk zijn.
+        DemoBericht(bericht, bijlagen)
     }
 
     private fun inhoud(magazijnOin: String, volgnummer: Int): String =

@@ -21,6 +21,10 @@ import jakarta.ws.rs.ext.Provider
  * enum-waarde die niet bestaat. De `@Priority` beslist waar de type-afstand gelijk is; een lagere
  * waarde wint.
  *
+ * Een JSON-body die halverwege afbreekt bereikt deze mappers niet: Quarkus vertaalt zo'n parse-fout
+ * al vóór de mapper-keuze naar een `WebApplicationException`. Die komt via
+ * [ProblemExceptionMapper] alsnog als `problem+json` naar buiten.
+ *
  * De melding van Jackson gaat níét mee naar de client. Die noemt veldnamen, klassenamen en soms een
  * stuk van de aangeboden waarde; dat laatste kan een BSN zijn.
  */

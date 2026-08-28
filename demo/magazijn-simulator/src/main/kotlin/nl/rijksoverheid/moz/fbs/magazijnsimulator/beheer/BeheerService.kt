@@ -39,20 +39,40 @@ class BeheerService(
      * modus — zo hoeft wie alleen "zet hem op stuk" bedoelt, geen latency en foutkans mee te sturen.
      */
     fun zetGedrag(oin: String, verzoek: GedragVerzoek): MagazijnOverzicht? {
-        val standaard = Gedrag.standaardVoor(verzoek.modus)
-        val gedrag = Gedrag(
-            modus = verzoek.modus,
-            latencyP50Ms = verzoek.latencyP50Ms ?: standaard.latencyP50Ms,
-            latencyP95Ms = verzoek.latencyP95Ms ?: standaard.latencyP95Ms,
-            foutkans = verzoek.foutkans ?: standaard.foutkans,
-            foutStatus = verzoek.foutStatus ?: standaard.foutStatus,
-        )
+        val gedrag = bouwGedrag(verzoek)
 
         if (!magazijnen.stelGedragBij(oin, gedrag)) return null
 
         log.infof("Gedrag van magazijn %s gezet op %s", oin, gedrag.modus)
 
         return overzicht().firstOrNull { it.oin == oin }
+    }
+
+    /**
+     * Bouwt het gevraagde gedrag, met de standaardwaardes van de modus voor wat het verzoek weglaat.
+     *
+     * De grenzen worden hier als invoer getoetst en niet aan [Gedrag] overgelaten. Dat type bewaakt
+     * zichzelf met `require`, en dat is de goede keuze voor interne consistentie — maar op deze weg
+     * komt de waarde uit een JSON-body, en dan hoort een negatieve latency of een foutkans van twee
+     * een 400 te zijn die zegt wat er mis is, geen 500 die de aanroeper naar een niet-bestaande
+     * supportafdeling stuurt.
+     */
+    private fun bouwGedrag(verzoek: GedragVerzoek): Gedrag {
+        val standaard = Gedrag.standaardVoor(verzoek.modus)
+        val p50 = verzoek.latencyP50Ms ?: standaard.latencyP50Ms
+        val p95 = verzoek.latencyP95Ms ?: standaard.latencyP95Ms
+        val foutkans = verzoek.foutkans ?: standaard.foutkans
+        val foutStatus = verzoek.foutStatus ?: standaard.foutStatus
+
+        vereis(p50 >= 0) { "latencyP50Ms mag niet negatief zijn (kreeg $p50)" }
+        vereis(p95 >= p50) { "latencyP95Ms ($p95) hoort niet onder latencyP50Ms ($p50) te liggen" }
+        vereis(foutkans in 0.0..1.0) { "foutkans hoort tussen 0 en 1 te liggen (kreeg $foutkans)" }
+        vereis(foutStatus in FOUT_STATUS_BEREIK) {
+            "foutStatus hoort een HTTP-foutcode te zijn, tussen ${FOUT_STATUS_BEREIK.first} en " +
+                "${FOUT_STATUS_BEREIK.last} (kreeg $foutStatus)"
+        }
+
+        return Gedrag(verzoek.modus, p50, p95, foutkans, foutStatus)
     }
 
     fun seed(verzoek: SeedVerzoek): SeedUitkomst {
@@ -63,16 +83,24 @@ class BeheerService(
         }
         vereis(verzoek.bijlageElke >= 0) { "bijlageElke mag niet negatief zijn (kreeg ${verzoek.bijlageElke})" }
 
-        val ontvangers = verzoek.ontvangers.map { Identificatie.uitHeader(it) }
+        // Ontdubbelen: dezelfde ontvanger twee keer in de lijst zou binnen één magazijn twee keer
+        // dezelfde bericht-nummers opleveren, en die zijn per magazijn uniek. Een typefout in een
+        // JSON-lijst hoort geen serverfout te worden.
+        val ontvangers = verzoek.ontvangers.map { Identificatie.uitHeader(it) }.distinct()
         val begin = System.nanoTime()
         val nu = klok.instant()
+
+        // Eén momentopname van de set: `alle()` geeft een levende weergave terug, en dan zou het
+        // aantal in het rapport van een ander moment kunnen komen dan de lus die schreef.
+        val teVullen = magazijnen.alle().toList()
         var berichten = 0
         var bijlagen = 0
+        var overgeslagen = 0
 
-        // Per magazijn één transactie. Alles in één transactie zou bij honderd magazijnen een erg
-        // grote worden, en per magazijn afronden betekent dat een mislukking halverwege een
-        // begrijpelijke toestand achterlaat in plaats van een halve demo.
-        magazijnen.alle().forEach { magazijn ->
+        // Per magazijn één transactie. Alles in één zou bij honderd magazijnen een erg grote worden,
+        // en omdat vullen herhaalbaar is, is opnieuw draaien na een mislukking halverwege gewoon de
+        // uitweg: wat er al stond wordt overgeslagen.
+        teVullen.forEach { magazijn ->
             val teSchrijven = ontvangers.flatMap { ontvanger ->
                 DemoBerichten.voor(
                     magazijnOin = magazijn.oin,
@@ -87,23 +115,26 @@ class BeheerService(
 
             berichten += uitkomst.berichten
             bijlagen += uitkomst.bijlagen
+            overgeslagen += uitkomst.overgeslagen
         }
 
         val duurMs = (System.nanoTime() - begin) / NANOS_PER_MS
 
         log.infof(
-            "Demo gevuld: %d berichten en %d bijlagen over %d magazijnen in %d ms",
+            "Demo gevuld: %d berichten en %d bijlagen over %d magazijnen in %d ms (%d stonden er al)",
             berichten,
             bijlagen,
-            magazijnen.alle().size,
+            teVullen.size,
             duurMs,
+            overgeslagen,
         )
 
         return SeedUitkomst(
-            magazijnen = magazijnen.alle().size,
+            magazijnen = teVullen.size,
             ontvangers = ontvangers.size,
             berichten = berichten,
             bijlagen = bijlagen,
+            overgeslagen = overgeslagen,
             duurMs = duurMs,
         )
     }
@@ -122,5 +153,7 @@ class BeheerService(
 
     private companion object {
         const val NANOS_PER_MS = 1_000_000
+
+        val FOUT_STATUS_BEREIK = 400..599
     }
 }

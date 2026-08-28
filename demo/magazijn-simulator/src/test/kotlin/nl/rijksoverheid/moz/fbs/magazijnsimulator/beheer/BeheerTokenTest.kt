@@ -7,6 +7,8 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
 import java.util.Optional
@@ -41,6 +43,42 @@ class BeheerTokenTest {
         given()
             .header(HEADER, "iets anders")
             .`when`().get("/beheer/magazijnen")
+            .then()
+            .statusCode(401)
+    }
+
+    /** Even lang als het echte token, zodat ook de tijdconstante vergelijking geraakt wordt. */
+    @Test
+    fun `een token van dezelfde lengte maar andere inhoud komt er niet door`() {
+        given()
+            .header(HEADER, "X".repeat(TOKEN.length))
+            .`when`().get("/beheer/magazijnen")
+            .then()
+            .statusCode(401)
+    }
+
+    /**
+     * Wat de afscherming draagt is de normalisatie van het pad. Zonder die ene regel opent
+     * `//beheer/legen` het beheerpad zonder token, en dat is precies het soort gat waarlangs de
+     * WireMock-admin-API van de stubs open stond. Geen enkele andere test raakt hem.
+     */
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "/beheer/magazijnen",
+            "//beheer/magazijnen",
+            "///beheer/magazijnen",
+            "/beheer//magazijnen",
+            "/beheer/magazijnen/",
+            "/./beheer/magazijnen",
+            "/iets/../beheer/magazijnen",
+            "/%62eheer/magazijnen",
+        ],
+    )
+    fun `geen enkele schrijfwijze van het pad komt langs de afscherming`(pad: String) {
+        given()
+            .urlEncodingEnabled(false)
+            .`when`().get(pad)
             .then()
             .statusCode(401)
     }
