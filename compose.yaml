@@ -245,6 +245,10 @@ services:
       POSTGRES_USER: magazijnsimulator
       POSTGRES_PASSWORD: magazijnsimulator
       POSTGRES_DB: magazijnsimulator
+    # Meer verbindingen dan de standaard honderd: de simulator houdt er zelf al zestig aan, en met
+    # de rest van de stack erbij is honderd te krap. Die grens raken levert dezelfde storing op als
+    # een te kleine pool — de Berichtenbox ziet magazijnen die er niet zijn.
+    command: ["postgres", "-c", "max_connections=200"]
     volumes:
       - postgres-data-simulator:/var/lib/postgresql
     healthcheck:

@@ -96,7 +96,10 @@ services:
     network_mode: host
     ports: !reset []
     healthcheck: !reset null
-    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+    # De verbindingsgrens uit de basis blijft staan: `command` vervangt de hele lijst, dus wie hier
+    # alleen het luisteradres zet, zet Postgres ongemerkt terug op honderd verbindingen — en dan
+    # loopt de simulator bij een grote fan-out in dezelfde storing die die grens juist voorkomt.
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1", "-c", "max_connections=200"]
     environment:
       PGPORT: "5435"
 

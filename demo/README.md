@@ -17,6 +17,7 @@ verwacht.
 | `generated/` | Gegenereerde artefacten (git-ignored): het magazijnregister voor de uitvraag, de set voor de simulator en de profiel-stubs van de vier ondernemers; komt uit `genereer-magazijnen.py` |
 | `genereer-magazijnen.py` | Genereert uit één getal n: het register, de set van de simulator en de vier ondernemers (3, 15, 45 en 100 aangesloten organisaties) |
 | `smoke.sh` | Rookproef over de demo-stack |
+| `meet-fanout.sh` | Meet per ondernemer de tijd tot het eerste bericht en tot de complete lijst, uit de SSE-stroom van de uitvraag |
 | `podman-prepare.sh`, `podman-up.sh` | Demo-stack draaien onder Podman |
 
 De demo-runbook staat in [`../docs/demo-runbook.md`](../docs/demo-runbook.md).

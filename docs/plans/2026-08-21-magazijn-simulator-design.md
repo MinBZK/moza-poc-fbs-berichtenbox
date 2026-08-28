@@ -1,4 +1,4 @@
-**Status:** In uitvoering — stap 1 t/m 5 gebouwd (`demo/magazijn-simulator`), stap 6 en 7 nog niet.
+**Status:** In uitvoering — stap 1 t/m 6 gedaan (`demo/magazijn-simulator`, meting hieronder), stap 7 nog niet.
 
 # Magazijn-simulator — veel magazijnen met echte state — ontwerp
 
@@ -451,8 +451,9 @@ Verwacht beeld per persona — te meten, niet aangenomen:
 ## Grenzen en meetpunten
 
 Dit ontwerp gaat ervan uit dat **alle** magazijnen in de fan-out ook daadwerkelijk bevraagd worden.
-De begrenzing die de uitvraag op het aantal gelijktijdige magazijn-aanroepen legt, staat als aparte
-backlog-issue en speelt in dit document geen rol.
+De begrenzing die de uitvraag op het aantal gelijktijdige magazijn-aanroepen legt, moet daarvoor mee
+omhoog; de meting hieronder laat zien wat er gebeurt als dat niet gebeurt, en
+MinBZK/MijnOverheidZakelijk#1038 gaat over wat er dan in het echt hoort te gebeuren.
 
 | Grens | Waarde | Hoe we hem meten |
 |---|---|---|
@@ -473,6 +474,70 @@ Verwacht dat de demo hier optimalisatiepunten oplevert; dat is een doel en geen 
 6 vindt hoort als issue op de backlog, niet stilzwijgend in dit document. Twee daarvan staan er al —
 #996 hierboven en MinBZK/MijnOverheidZakelijk#997 over de onvolledige lijst bij veel aangesloten
 organisaties.
+
+## Meting (stap 6)
+
+Gemeten met `demo/meet-fanout.sh`, dat de SSE-stroom van de uitvraag meeleest en per regel een
+tijdstempel wegschrijft. Elke ronde begint met een lege sessiecache, anders meet de tweede ronde het
+cache-pad en lijkt de fan-out gratis. Alles draaide op één machine van zes kernen: de uitvraag, zijn
+Redis, de twee echte magazijnen met elk een eigen PostgreSQL, de simulator met 98 magazijnen op nog
+een PostgreSQL, het bedieningspaneel en de stubs. De getallen hieronder zijn daarmee **pessimistisch**
+— in het echte stelsel staat elk magazijn op eigen ijzer.
+
+Mediaan over drie ronden, 20 berichten per magazijn:
+
+| Ondernemer | Organisaties | Tijd tot eerste bericht | Tijd tot compleet | Geslaagd |
+|---|---|---|---|---|
+| kleine-eenmanszaak | 3 | 16 ms | 0,1 s | 3 van 3 |
+| klein-bedrijf | 15 | 23 ms | 2,8 s | 15 van 15 |
+| grootbedrijf | 45 | 58 ms | 3,3 s | 41 van 45 |
+| landelijk-concern | 100 | 94 ms | 6,4 s | 91 van 100 |
+
+Drie dingen vallen op.
+
+**De lijst begint altijd binnen een tiende seconde te vullen.** Van 3 naar 100 organisaties loopt de
+tijd tot het eerste bericht van 16 naar 94 ms. Dat is het getal dat een ondernemer als "reageert het"
+ervaart, en het is nagenoeg ongevoelig voor de fan-out.
+
+**Wat niet slaagde, was bedoeld om niet te slagen.** De verdeling zet bij 98 magazijnen er twee uit,
+drie op serverfout, één op weigeren en één op onbruikbaar antwoord, plus vier die de helft van de
+tijd haperen — samen zeven tot tien bij fan-out 100 en drie tot vijf bij 45. Dat is precies wat er
+uitviel. Alles dat kón antwoorden, antwoordde.
+
+**"Compleet" hangt aan het traagste magazijn, niet aan het aantal.** Zolang een onbereikbaar magazijn
+nog geprobeerd wordt, duurt de ronde de volle timeout van tien seconden; zodra zijn circuit breaker
+open staat wordt hij overgeslagen en zakt dezelfde ronde naar twee à drie seconden. De eerste
+ophaalronde na een herstart is dus de traagste die je ziet — goed om te weten vóór je hem aan een
+zaal laat zien.
+
+### Waar het plafond ligt
+
+**De begrenzing op gelijktijdige bevragingen is de harde grens, en die zit in de uitvraag.** Het
+bulkhead laat standaard twintig magazijn-aanroepen tegelijk toe en wijst de rest onmiddellijk af met
+"tijdelijk niet beschikbaar" — geen wachtrij, geen tweede poging binnen dezelfde ronde. Gemeten met
+die standaardwaarde: een ondernemer met 45 organisaties krijgt er 20 te zien en 25 afwijzingen, bij
+100 organisaties 20 om 80. De demo zet de knop daarom op 120. Dit staat als eigen ticket op de
+backlog: MinBZK/MijnOverheidZakelijk#1038.
+
+**De simulator moet als één-voor-honderd worden ingesteld.** Elke per-service-default komt hier op
+een honderdste van zijn bedoelde last uit. Met de Quarkus-standaard van twintig database-connecties
+viel bij fan-out 100 vrijwel alles om — inclusief magazijnen die op normaal stonden, wat als
+"onbereikbaar" in beeld komt en dus een verkeerd verhaal vertelt. Met zestig hield één ronde op de
+drie het nog niet; met honderdtwintig, en PostgreSQL op tweehonderd verbindingen, is het stabiel. Dit
+is een eigenschap van de simulator, niet van de Berichtenbox.
+
+**Het aantal magazijnen in het register kost niets.** Van 98 naar 250 gesimuleerde magazijnen:
+opstarttijd van de uitvraag 2,8 → 3,0 s en geheugen 352 → 361 MB; van de simulator 4,2 → 4,5 s en
+450 → 424 MB. Eén REST-client per magazijn en twee regels register per magazijn zijn op deze
+schaal geen kostenpost. De grens die we zochten ligt daar dus niet.
+
+### Conclusie voor #938
+
+**Demonstreren met honderd organisaties** — 98 gesimuleerd plus de twee echte magazijnen — met de
+vier ondernemers op 3, 15, 45 en 100. Dat is haalbaar op een laptop, kost geen merkbare opstarttijd
+of geheugen, en laat het gedrag zien dat de vraag stelt: de lijst vult zich meteen, en het compleet
+worden hangt aan de traagste organisatie en niet aan het aantal. Het realisme zit in de
+gedragsverdeling — een handvol traag, een paar eruit — en niet in het getal.
 
 ## Wat vervalt
 
@@ -585,9 +650,10 @@ bij die net zo goed getest horen te worden.
    eigen PostgreSQL, de vier ondernemers zitten in de gegenereerde profiel-stubs, en de twee
    magazijn-proxies zijn uit Toxiproxy. `demo/smoke.sh` toetst de fan-out 3 / 15 / 45 / 100 als
    vijfde stap; het generatiescript weigert onder n = 98 met een leesbare melding.
-6. **Meten en vastleggen.** Meetscript op de SSE-stream; tijd tot het eerste bericht en tijd tot
-   compleet, per persona; opstarttijd en geheugengebruik van de uitvraag bij n = 50 / 100 / 250.
-   Uitkomsten terug in dit document en in #938.
+6. ~~**Meten en vastleggen.**~~ **Gedaan** (MinBZK/MijnOverheidZakelijk#1012). `demo/meet-fanout.sh`
+   op de SSE-stroom; de uitkomsten staan hierboven onder "Meting (stap 6)". De harde grens bleek de
+   begrenzing op gelijktijdige bevragingen in de uitvraag, niet het aantal magazijnen; die staat als
+   MinBZK/MijnOverheidZakelijk#1038 op de backlog.
 7. **ZAD.** Component, database, register-attachment, persona's in het stubs-image.
 
 Stap 1 t/m 5 leveren de lokale demo; stap 6 levert de onderbouwing die #938 vraagt. Stap 7 is
