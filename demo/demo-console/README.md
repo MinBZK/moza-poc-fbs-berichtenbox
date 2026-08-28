@@ -27,21 +27,37 @@ legen levert het dubbele aantal berichten op.
 ## Op ZAD
 
 De demo draait op de keten die al op ZAD staat: de bestaande uitvraag, de twee magazijnen en de
-externe stubs in de deployment `test`. De console wordt daar één component bij, achter Keycloak-SSO;
-inloggen met je rijksaccount, daarna zijn zowel het paneel als de Berichtenbox bereikbaar.
+externe stubs. De console is daar het component `democonsole` in de deployment `test` van het
+magazijnen-project `mpfm-w3h`, en rolt mee naar elke preview.
 
-Dit is de beoogde situatie: het `democonsole`-component bestaat op het moment van schrijven nog niet
-op ZAD. Zie `docs/plans/2026-08-26-demo-op-zad-design.md` voor de topologie en voor de reden waarom
-de demo in `test` woont en niet in een eigen deployment.
+<https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl> — inloggen met je
+rijksaccount. Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de
+authorization-wall, niet een kapot component.
+
+Elke preview draagt zijn eigen console op `democonsole-pr-<n>-mpfm-w3h…`, met de tag van díe PR.
+Een wijziging aan de demo is daar dus te beoordelen vóór hij samengevoegd wordt, inclusief de
+Berichtenbox-weergave: de uitvraag laat elke console-origin van dit project toe.
+
+`docs/plans/2026-08-26-demo-op-zad-design.md` legt de topologie uit en waarom de demo in `test`
+woont en niet in een eigen deployment. `demo/environment/zad-demo/` bevat de eenmalige OM-stappen en
+de verificatie erna.
 
 Knopgroepen waarvan de backend er niet is, verbergt het paneel zelf op basis van
-`GET /api/demo/omgeving` — een proxy waarvan de URL leeg is, verdwijnt uit de lijst en zijn knop
-daarmee uit het paneel.
+`GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, en een
+onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat de storingen en de
+veel-magazijnen-schuif.
+
+De cache-verval-knop wérkt daar, ook op een preview. Hij vraagt als enige overgebleven knop
+cluster-intern verkeer naar een ander project, en zo'n netwerkregel noemt op ZAD altijd één vaste
+deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` hem per preview bij en weer weg.
+Wat de storingen en de veel-magazijnen-schuif nog missen is dus niet die regel, maar hun eigen
+componenten.
 
 Drie dingen horen bij het wonen in `test`. De demo rolt mee met elke merge naar main, dus de
 omgeving kan tijdens een presentatie herstarten. Previews klonen `test` en krijgen de console dus
-mee. En de legen-knop wist de database van `test`, waar nieuwe previews van klonen — die knop is
-onomkeerbaar.
+mee. En de legen-knop op de console ín `test` wist de database van `test`, waar nieuwe previews van
+klonen — die knop is onomkeerbaar. Op een preview raakt legen alleen die preview: elke deployment
+heeft zijn eigen database.
 
 ## De knoppen
 
@@ -73,5 +89,7 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `UITVRAAG_BASIS` | leeg | Browser-zichtbaar adres van de uitvraag-API, **inclusief** het `/api/v1`-pad (bv. `https://uitvraag.example/api/v1`); leeg = afleiden uit de browser-locatie. `berichtenbox.js` gebruikt de waarde ongewijzigd als request-basis en de paginering strípt `/api/v1` uit de HAL-links op die aanname — zonder het pad faalt elke call zichtbaar voor de gebruiker (foutmelding in het paneel of een `alert`) |
 | `UITVRAAG_URL` | `http://localhost:8086` | Adres dat de console zélf aanroept voor de ontdubbeling-webhook |
 | `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop |
+| `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
+| `SESSIECACHE_BEREIKBAAR` | `true` | Op `false` laat het paneel de cache-verval-knop weg. Voor omgevingen waar Redis niet bereikbaar is; een knop die gegarandeerd faalt kost tijdens een demo uitleg die niets toevoegt |
 | `DEMO_MAGAZIJN_STUBS` | `12` | Aantal stub-magazijnen voor de veel-magazijnen-schuif |
 | `MAGAZIJN_STUBS_ADMIN_URL` | `http://localhost:8092` | WireMock-admin van de stub-magazijnen, voor diezelfde schuif |

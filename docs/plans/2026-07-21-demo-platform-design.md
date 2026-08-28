@@ -305,9 +305,10 @@ overkoepelende ontwerp, niet het uitvoeringsplan van fase 0.
 
 - **Issue #571** (filteren op map in de sessiecache) blijft open. De demo werkt eromheen
   met client-side filteren; dat is een bewuste schuld, geen vergeten werk.
-- **ZAD-deployment van het demo-platform.** De demo draait lokaal. Op ZAD zou Toxiproxy
-  niet werken zoals bedoeld: Argo CD draait met `selfHeal: true` + `prune: true`, dus
-  handmatige ingrepen worden teruggedraaid.
+- **ZAD-deployment van het demo-platform.** Achterhaald: `2026-08-26-demo-op-zad-design.md`
+  draait dit besluit om en zet de console als component in de bestaande deployment `test`.
+  De aarzeling hier ging over Toxiproxy, en die blijft terecht — de storingsknoppen zijn het
+  enige deel dat niet meekomt naar ZAD.
 - **Productiekwaliteit van de demo-console.** Geen 90%-coveragegate, geen NL Design
   System, geen toegankelijkheidstraject. De module is expliciet wegwerp.
 

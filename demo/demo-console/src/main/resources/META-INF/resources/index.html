@@ -68,7 +68,7 @@
     <button onclick="post('/api/demo/herstel', true)">Herstel demo (stoppen, resetten, legen, vullen)</button>
     <button onclick="post('/api/demo/legen', true)">Magazijnen legen</button>
     <button onclick="get('/api/demo/status')">Status (aantal berichten)</button>
-    <button onclick="post('/api/demo/sessie/verlopen')">Cache verlopen (sessies wissen)</button>
+    <button id="cache-verlopen" onclick="post('/api/demo/sessie/verlopen')">Cache verlopen (sessies wissen)</button>
   </fieldset>
 
   <fieldset>
@@ -219,9 +219,10 @@
 
     function toon(tekst) { uit.textContent = tekst; }
 
-    // Niet elke omgeving heeft elke proxy: op ZAD ontbreken de magazijn-storingen, omdat de
-    // magazijnen hun gedrag daar uit de simulator krijgen. Een knop tonen die gegarandeerd een
-    // 400 geeft, kost tijdens een demo uitleg die niets toevoegt.
+    // Niet elke omgeving kan alles: op ZAD ontbreken de magazijn-storingen omdat de magazijnen
+    // hun gedrag daar uit de simulator krijgen, en staat de sessiecache in een ander project dan
+    // de console. Een knop tonen die gegarandeerd faalt, kost tijdens een demo uitleg die niets
+    // toevoegt.
     fetch('/api/demo/omgeving')
       .then((respons) => (respons.ok ? respons.json() : null))
       .then((omgeving) => {
@@ -232,6 +233,8 @@
         document.querySelectorAll('button[data-proxy]').forEach((knop) => {
           if (!beschikbaar.has(knop.dataset.proxy)) knop.hidden = true;
         });
+
+        if (omgeving.sessiecache === false) document.getElementById('cache-verlopen').hidden = true;
       })
       .catch(() => {
         // Console onbereikbaar: laat alle knoppen staan. Ze falen dan zichtbaar, wat beter is dan

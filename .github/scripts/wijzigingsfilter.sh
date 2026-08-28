@@ -43,13 +43,17 @@ UITROL_RELEVANT='deploy'
 # het contract-bootstrap-image komt uit demo/environment/, maar hangt in deploy.yml aan `run` en
 # niet aan `deploy` — een wijziging daar bouwt het dus nog steeds.
 #
+# demo/demo-console/ stond hier tot de console een component van `test` werd. Nu rolt hij mee met
+# de keten, previews inbegrepen, dus een consolewijziging hóórt een preview te kopen: anders draait
+# de preview een console van een oudere tag en bewijst hij niets over de wijziging. Dat is de dure
+# kant van de afweging — een console-PR kost twee jib-builds, de stubs en drie previews — en
+# bewust gekozen boven een preview die stil achterloopt.
+#
 # Bewust per pad opgesomd en niet als kaal `^demo/`: onder demo/ staan Maven-modules, en zo'n
 # module kan een eigen image en ZAD-component hebben. Een kale `^demo/`-uitsluiting zou die
 # imagebuild overslaan, en dat faalt stil — een overgeslagen job telt als succes voor branch
-# protection. demo-console heeft inmiddels zo'n eigen bouwjob (`build-democonsole` in deploy.yml,
-# aan `run` en niet aan de preview-matrix). TODO(#938): een volgende demo-module met een eigen
-# image (bv. uit de magazijn-simulator) vraagt dezelfde behandeling — een eigen job, geen
-# matrix-regel.
+# protection. TODO(#938): een volgende demo-module met een eigen image (bv. uit de
+# magazijn-simulator) vraagt dezelfde afweging — een eigen job, geen matrix-regel.
 #
 # De opsomming staat aan de veilige kant van zijn eigen veroudering: een demo-onderdeel dat hier
 # ontbreekt valt uit de uitsluiting en kost een overbodige build. Andersom — een allowlist van
@@ -57,7 +61,7 @@ UITROL_RELEVANT='deploy'
 # dat is precies de stille faalwijze die dit script moet uitsluiten.
 #
 # demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.
-DEMO_BUITEN_UITROLPOORT='^demo/demo-console/|^demo/environment/|^demo/[^/]*\.(sh|py)$'
+DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/[^/]*\.(sh|py)$'
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.

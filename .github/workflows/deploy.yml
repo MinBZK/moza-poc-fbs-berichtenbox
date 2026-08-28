@@ -137,6 +137,12 @@ env:
   # cleanup-preview.yml zoekt de comment op deze tekst, dus drift tussen plaatsen en opruimen laat
   # hem stil achter op een gesloten PR.
   COMMENT_HEADER: '## 🚀 Preview Deployment'
+  # De cross-domain-regel die de demo-console bij de sessiecache laat. De regel zelf staat op
+  # projectniveau zónder peer-deployment; die vult elke deployment zelf in, want een regel waarvan
+  # de peer-deployment open blijft wordt bij het genereren overgeslagen. Dezelfde naam staat in
+  # cleanup-preview.yml — lopen die twee uit elkaar, dan blijft de regel achter op een deployment
+  # die niet meer bestaat.
+  CROSS_DOMAIN_REGEL: democonsole-naar-redis
 
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
@@ -149,8 +155,9 @@ jobs:
   # mogelijk. Op een push naar main staat alles aan.
   #
   # Twee gevallen rollen niet uit:
-  # - Wijzigingen die de uitgerolde applicatie niet raken (documentatie, repo-meta, bruno, demo,
-  #   demo-console). Welke paden dat precies zijn staat in .github/scripts/wijzigingsfilter.sh.
+  # - Wijzigingen die de uitgerolde applicatie niet raken (documentatie, repo-meta, bruno, en de
+  #   niet-uitgerolde delen van demo/). Welke paden dat precies zijn staat in
+  #   .github/scripts/wijzigingsfilter.sh.
   # - PR's van een bot: `zad-actions` weigert die zelf (`skip-bot-prs`, default true), dus de
   #   preview komt er toch niet. Zonder deze uitsluiting bouwden en pushten we er wél images voor
   #   die nooit een pod bereiken.
@@ -280,7 +287,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: '21'
@@ -343,6 +350,14 @@ jobs:
           docker build -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
+          # Dezelfde mappings plus de voorkeuren van de demo-persona's; zie
+          # wiremock/demo-profiel/Dockerfile voor waarom die niet in het gedeelde image passen.
+          # Eén job, want het demo-image layert op de mappings van het gedeelde image: los
+          # bouwen zou ze uit elkaar kunnen laten lopen zonder dat iets dat merkt.
+          DEMO_IMG="$REGISTRY/$OWNER/fbs-demo-profiel:$TAG"
+          docker build -t "$DEMO_IMG" -f wiremock/demo-profiel/Dockerfile wiremock
+          docker push "$DEMO_IMG"
+
   # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
   # interne manager-API heeft daar geen route en de tenant-baseline-NetworkPolicy laat alleen
   # verkeer binnen hetzelfde deployment toe. Eén image, twee rollen — welke, leest het entrypoint
@@ -375,10 +390,11 @@ jobs:
           docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
 
-  # De demo-console levert een eigen image en een eigen ZAD-component, maar rolt niet mee met een
-  # preview: hij draait in de preview-loze deployment `demo`, die met de hand wordt bijgewerkt via
-  # deploy-demo.yml. Daarom aan `run` en niet aan `deploy`, net als build-contract-bootstrap — zo
-  # valt een kapotte jib-configuratie op vóór de merge zonder de previews open te zetten.
+  # De demo-console is een component van `test` in het magazijnen-project en rolt dus mee met
+  # de rest van de keten, previews inbegrepen. De job hangt aan `run` en niet aan `deploy`: `run`
+  # is de ruimere uitkomst van de twee, dus een PR die de uitrol niet raakt bouwt het image tóch
+  # en laat een kapotte jib-configuratie vallen vóór de merge. Omdat `deploy=true` altijd
+  # `run=true` impliceert, is deze job er ook wanneer deploy-*-magazijnen hem nodig heeft.
   build-democonsole:
     if: github.event_name == 'push' || needs.changes.outputs.run == 'true'
     needs: [meta, changes]
@@ -394,7 +410,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: '21'
@@ -596,6 +612,12 @@ jobs:
       name: pr-${{ github.event.pull_request.number }}
       url: ${{ steps.deploy.outputs.url }}
     steps:
+      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
+      # draait een script uit .github/scripts/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Deploy uitvraag-project
         id: deploy
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
@@ -613,6 +635,16 @@ jobs:
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
+
+      # Redis staat in dít project en de console in het magazijnen-project, dus deze kant draagt de
+      # inbound-regel. Ná de deploy: de regel noemt een deployment, en die moet bestaan.
+      - name: Sessiecache openzetten voor de console van deze preview
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+        run: >-
+          .github/scripts/cross-domain-preview.sh zet
+          "${{ env.PROJECT_UITVRAAG }}" "pr-${{ github.event.pull_request.number }}"
+          inbound "${{ env.CROSS_DOMAIN_REGEL }}"
 
   deploy-preview-externe-stubs:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
@@ -634,7 +666,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      # profiel + notificatie = zelfde image, losse componenten (eigen subdomein per stub).
+      # profiel + notificatie = losse componenten (eigen subdomein per stub). De profiel-stub draait
+      # het demo-image: dat layert op dezelfde gedeelde mappings en voegt de voorkeuren van de
+      # demo-persona's toe. Zonder die voorkeuren geeft de catch-all voor élke ontvanger hetzelfde
+      # ene magazijn terug, en valt er van de federatie niets te zien.
       - name: Deploy externe-stubs-project
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
@@ -646,7 +681,7 @@ jobs:
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: |
             [
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
               {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -659,9 +694,10 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
+      && needs.build-democonsole.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    needs: [meta, build, build-externe-stubs, gate, changes]
+    needs: [meta, build, build-externe-stubs, build-democonsole, gate, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -670,6 +706,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
+      # draait een script uit .github/scripts/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Deploy magazijnen-project
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
@@ -682,8 +724,19 @@ jobs:
           components: |
             [
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
+              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
             ]
+
+      # De tegenhanger van de inbound-regel bij de uitvraag: de ontvanger beslist, dus één kant
+      # alleen zet niets open.
+      - name: De console van deze preview bij de sessiecache laten
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
+        run: >-
+          .github/scripts/cross-domain-preview.sh zet
+          "${{ env.PROJECT_MAGAZIJNEN }}" "pr-${{ github.event.pull_request.number }}"
+          outbound "${{ env.CROSS_DOMAIN_REGEL }}"
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
@@ -779,7 +832,7 @@ jobs:
           deployment-name: test
           components: |
             [
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
               {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -792,10 +845,11 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.build-contract-bootstrap.result == 'success'
+      && needs.build-democonsole.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, gate]
+    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, build-democonsole, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Dekt ook de tweede stap (deployment `fsc-magazijna`) — die hoort bij hetzelfde project.
@@ -814,7 +868,8 @@ jobs:
           components: |
             [
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"}
+              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
+              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
             ]
 
       # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in

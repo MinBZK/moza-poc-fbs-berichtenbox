@@ -1,4 +1,5 @@
-**Status:** Fase 1 (lokaal) uitgevoerd; fase 2 (ZAD) blijft concept.
+**Status:** Fase 1 (lokaal) uitgevoerd. Fase 2 uitgevoerd voor de console; de storingsinjectie is
+verworpen — zie de nabrander onder "Storingsinjectie".
 
 # Demo draaibaar op de laptop én op ZAD — ontwerp
 
@@ -142,6 +143,35 @@ en lopen de downstream-URL's van de uitvraag en de magazijnen daar permanent doo
 ook wanneer er niemand demonstreert. Of dat de storingsknoppen waard is, is een aparte beslissing.
 De console werkt zonder: legen, vullen, tempo, herstel en de Berichtenbox-weergave hangen er niet
 van af.
+
+> **Nabrander bij de uitvoering: deze opzet werkt niet, en de storingsknoppen zijn er daarom
+> uitgelaten.** Drie eigenschappen van ZAD, geverifieerd in `RijksICTGilde/RIG-Cluster` en op de
+> OM-API:
+>
+> - De inhoud van een attachment wordt ongewijzigd gemount; `$DEPLOYMENT_NAME`-substitutie bestaat
+>   alleen voor aliassen. Een `proxies.json` noemt dus een vaste upstream, die in een preview de
+>   verkeerde is.
+> - `command` staat niet in `AddComponentRequest`/`UpdateComponentRequest` en kent `zadctl` niet.
+>   Het startcommando dat Toxiproxy naar `proxies.json` wijst is dus UI-handwerk, per component.
+> - Een `cross-domain-access`-regel noemt altijd één concrete peer-deployment; blijft die open, dan
+>   wordt de regel bij het genereren overgeslagen (`merge.py`/`resolve.py`). De console kan de
+>   admin-API's in een preview dus niet bereiken.
+>
+> Het gevolg zonder maatregelen is de slechtste soort: een preview zou zijn keten-verkeer
+> stilzwijgend door de Toxiproxy-instanties van `test` sturen en dáár de profiel-stub, de
+> notificatie-stub en de uitvraag aanspreken.
+>
+> Er is wél een route die het oplost, en die vervangt dit ontwerp zodra de storingsknoppen aan de
+> beurt zijn: Toxiproxy start met zijn eigen default-`CMD` (`-host=0.0.0.0`, geverifieerd op de
+> image-config van 2.12.0) en dus zónder proxies, en de **console maakt de proxies zelf aan** via
+> de admin-API. Listen en upstream komen dan uit console-configuratie, en die komt uit aliassen —
+> die kennen `$DEPLOYMENT_NAME` wél. Dat schrapt de attachments én het `command`. Wat blijft, zijn
+> de netwerkregels, en die zijn per preview bij te schrijven met
+> `PATCH …/services/cross-domain-access/config/deployment/{d}/{inbound,outbound}` vanuit de
+> deploy-workflow.
+>
+> Dezelfde netwerkregel-beperking raakt de cache-verval-knop: Redis staat in `mpfb-8wh`, de console
+> in `mpfm-w3h`. Het paneel verbergt die knop op grond van `SESSIECACHE_BEREIKBAAR=false`.
 
 ### Overwogen alternatieven voor de storingsinjectie
 
