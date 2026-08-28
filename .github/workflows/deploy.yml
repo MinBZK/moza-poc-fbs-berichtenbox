@@ -137,12 +137,31 @@ env:
   # cleanup-preview.yml zoekt de comment op deze tekst, dus drift tussen plaatsen en opruimen laat
   # hem stil achter op een gesloten PR.
   COMMENT_HEADER: '## 🚀 Preview Deployment'
-  # De cross-domain-regel die de demo-console bij de sessiecache laat. De regel zelf staat op
-  # projectniveau zónder peer-deployment; die vult elke deployment zelf in, want een regel waarvan
-  # de peer-deployment open blijft wordt bij het genereren overgeslagen. Dezelfde naam staat in
-  # cleanup-preview.yml — lopen die twee uit elkaar, dan blijft de regel achter op een deployment
-  # die niet meer bestaat.
-  CROSS_DOMAIN_REGEL: democonsole-naar-redis
+  # De cross-domain-regels die de demo-console bij de sessiecache en bij de vier Toxiproxy-admin-API's
+  # laten. Elke regel staat op projectniveau zónder peer-deployment; die vult elke deployment zelf
+  # in, want een regel waarvan de peer-deployment open blijft wordt bij het genereren overgeslagen.
+  # Dezelfde namen staan in cleanup-preview.yml — lopen die twee uit elkaar, dan blijft een regel
+  # achter op een deployment die niet meer bestaat.
+  #
+  # Eén regel opent één poort op één component bij één peer, dus elke hop is een eigen regel. De
+  # console is altijd de aanroepende kant, dus het magazijnen-project draagt de outbound-kant van
+  # álle regels en is per definitie de vereniging van de twee lijsten erboven —
+  # test-cross-domain-preview.sh bewaakt dat.
+  CROSS_DOMAIN_REGELS_UITVRAAG: >-
+    democonsole-naar-redis
+    democonsole-naar-toxiproxy-aanmeld
+    democonsole-naar-toxiproxy-redis
+  CROSS_DOMAIN_REGELS_EXTERNE_STUBS: >-
+    democonsole-naar-toxiproxy-profiel
+    democonsole-naar-toxiproxy-notificatie
+  CROSS_DOMAIN_REGELS_MAGAZIJNEN: >-
+    democonsole-naar-redis
+    democonsole-naar-toxiproxy-aanmeld
+    democonsole-naar-toxiproxy-redis
+    democonsole-naar-toxiproxy-profiel
+    democonsole-naar-toxiproxy-notificatie
+  # Publiek infra-image, net als Redis. Pin in sync met compose.yaml (zie pin-consistency.yml).
+  TOXIPROXY_IMAGE: ghcr.io/shopify/toxiproxy:2.12.0
 
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
@@ -633,18 +652,21 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "toxiproxy-aanmeld", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-redis", "image": "${{ env.TOXIPROXY_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
-      # Redis staat in dít project en de console in het magazijnen-project, dus deze kant draagt de
-      # inbound-regel. Ná de deploy: de regel noemt een deployment, en die moet bestaan.
-      - name: Sessiecache openzetten voor de console van deze preview
+      # De sessiecache en twee Toxiproxy-admin-API's staan in dít project en de console in het
+      # magazijnen-project, dus deze kant draagt de inbound-regels. Ná de deploy: een regel noemt een
+      # deployment, en die moet bestaan.
+      - name: Sessiecache en storingen openzetten voor de console van deze preview
         env:
           ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
         run: >-
           .github/scripts/cross-domain-preview.sh zet
           "${{ env.PROJECT_UITVRAAG }}" "pr-${{ github.event.pull_request.number }}"
-          inbound "${{ env.CROSS_DOMAIN_REGEL }}"
+          inbound ${{ env.CROSS_DOMAIN_REGELS_UITVRAAG }}
 
   deploy-preview-externe-stubs:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
@@ -666,10 +688,19 @@ jobs:
     permissions:
       contents: read
     steps:
+      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
+      # draait een script uit .github/scripts/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       # profiel + notificatie = losse componenten (eigen subdomein per stub). De profiel-stub draait
       # het demo-image: dat layert op dezelfde gedeelde mappings en voegt de voorkeuren van de
       # demo-persona's toe. Zonder die voorkeuren geeft de catch-all voor élke ontvanger hetzelfde
       # ene magazijn terug, en valt er van de federatie niets te zien.
+      #
+      # De twee Toxiproxy's staan in dezelfde deployment als hun upstream, zodat de proxy die de
+      # console aanmaakt naar de stub van díe preview wijst en niet naar die van `test`.
       - name: Deploy externe-stubs-project
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
@@ -682,8 +713,20 @@ jobs:
           components: |
             [
               {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
-              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
+              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "toxiproxy-profiel", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
             ]
+
+      # De admin-API's van die twee Toxiproxy's staan in dít project, dus deze kant draagt hun
+      # inbound-regels. Ná de deploy: een regel noemt een deployment, en die moet bestaan.
+      - name: Storingen openzetten voor de console van deze preview
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+        run: >-
+          .github/scripts/cross-domain-preview.sh zet
+          "${{ env.PROJECT_EXTERNE_STUBS }}" "pr-${{ github.event.pull_request.number }}"
+          inbound ${{ env.CROSS_DOMAIN_REGELS_EXTERNE_STUBS }}
 
   deploy-preview-magazijnen:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
@@ -728,15 +771,16 @@ jobs:
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
             ]
 
-      # De tegenhanger van de inbound-regel bij de uitvraag: de ontvanger beslist, dus één kant
-      # alleen zet niets open.
-      - name: De console van deze preview bij de sessiecache laten
+      # De tegenhanger van de inbound-regels in de twee andere projecten: de ontvanger beslist, dus
+      # één kant alleen zet niets open. De console is overal de aanroepende kant, dus dit project
+      # draagt de outbound-kant van álle regels.
+      - name: De console van deze preview bij de sessiecache en de storingen laten
         env:
           ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
         run: >-
           .github/scripts/cross-domain-preview.sh zet
           "${{ env.PROJECT_MAGAZIJNEN }}" "pr-${{ github.event.pull_request.number }}"
-          outbound "${{ env.CROSS_DOMAIN_REGEL }}"
+          outbound ${{ env.CROSS_DOMAIN_REGELS_MAGAZIJNEN }}
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
@@ -778,6 +822,8 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "toxiproxy-aanmeld", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-redis", "image": "${{ env.TOXIPROXY_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -833,7 +879,9 @@ jobs:
           components: |
             [
               {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
-              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
+              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "toxiproxy-profiel", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
             ]
 
   deploy-test-magazijnen:

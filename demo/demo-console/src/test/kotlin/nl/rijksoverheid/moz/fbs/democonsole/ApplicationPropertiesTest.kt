@@ -6,17 +6,19 @@ import java.io.File
 import java.util.Properties
 
 /**
- * Pint twee eigenschappen van `application.properties` die alleen buiten een testomgeving stuk
+ * Pint drie eigenschappen van `application.properties` die alleen buiten een testomgeving stuk
  * kunnen gaan.
  *
- * De eerste: de scheduler start geforceerd. `SchedulerTempoKlok` plant
- * zijn tik-taak uitsluitend programmatisch (`Scheduler.newJob(...)`); er is geen
- * `@Scheduled`-business-methode die de scheduler in de default 'normal'-modus zou starten.
- * Zonder `start-mode=forced` blijft de scheduler uit en gooit `newJob()` een
- * `UnsupportedOperationException` zodra de tempo-knoppen worden gebruikt — de berichtenstroom
- * start dan nergens, zonder dat een test tegen de scheduler-test-dubbel dat opmerkt. Bewust géén
- * `@QuarkusTest`: dit leest het bestand rechtstreeks van disk, zodat de test ook zonder Docker
- * draait.
+ * De eerste: de scheduler start geforceerd. `SchedulerTempoKlok` plant zijn tik-taak uitsluitend
+ * programmatisch (`Scheduler.newJob(...)`), en zonder een gestarte scheduler gooit `newJob()` een
+ * `UnsupportedOperationException` zodra de tempo-knoppen worden gebruikt — de berichtenstroom start
+ * dan nergens, zonder dat een test tegen de scheduler-test-dubbel dat opmerkt. `ProxyBootstrap`
+ * draagt weliswaar een `@Scheduled`-methode, waarmee de scheduler ook in de default 'normal'-modus
+ * zou starten, maar de tempo-knoppen mogen niet afhangen van het voortbestaan van een methode in een
+ * andere klasse.
+ *
+ * Bewust géén `@QuarkusTest`: dit leest het bestand rechtstreeks van disk, zodat de test ook zonder
+ * Docker draait.
  */
 class ApplicationPropertiesTest {
 
@@ -36,5 +38,13 @@ class ApplicationPropertiesTest {
         // en dat is een fout die pas bij een druk op de knop verschijnt, niet bij het starten.
         // De lege default houdt het lokaal werkend: SmallRye leest een lege waarde als afwezig.
         assertEquals("\${REDIS_PASSWORD:}", properties.getProperty("quarkus.redis.password"))
+    }
+
+    @Test
+    fun `de reconcile-interval staat buiten de demo-prefix`() {
+        // `demo.*` is geclaimd door @ConfigMapping(prefix="demo"): elke property daaronder moet op
+        // een mapping-member vallen, anders faalt het booten met SRCFG00050. Deze waarde hoort bij
+        // geen enkele mapping, dus hij staat er bewust naast — net als veel-magazijnen.aantal.
+        assertEquals("\${TOXIPROXY_RECONCILE_INTERVAL:30s}", properties.getProperty("toxiproxy.reconcile-interval"))
     }
 }

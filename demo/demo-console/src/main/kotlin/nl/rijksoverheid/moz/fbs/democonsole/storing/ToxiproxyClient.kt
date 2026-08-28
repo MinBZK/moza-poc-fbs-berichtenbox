@@ -17,6 +17,9 @@ data class ToxicVerzoek(val type: String, val attributes: Map<String, Int>)
 /** Proxy aan/uit: `{"enabled":false}`. */
 data class ProxyPatch(val enabled: Boolean)
 
+/** Nieuwe proxy: `{"name":"profiel","listen":"0.0.0.0:18089","upstream":"profiel-service:8080"}`. */
+data class ProxyVerzoek(val name: String, val listen: String, val upstream: String, val enabled: Boolean = true)
+
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ToxicStatus(val name: String)
 
@@ -25,7 +28,7 @@ data class ProxyStatus(val enabled: Boolean, val toxics: List<ToxicStatus> = emp
 
 /**
  * Client voor de Toxiproxy-admin-API. Alleen de calls die de demo nodig heeft: proxies
- * lezen (voor reset), proxy aan/uit, latency-toxic toevoegen/verwijderen.
+ * lezen (voor reset), proxy aanmaken, proxy aan/uit, latency-toxic toevoegen/verwijderen.
  */
 @Path("/proxies")
 @RegisterRestClient(configKey = "toxiproxy")
@@ -33,6 +36,11 @@ interface ToxiproxyClient {
 
     @GET
     fun proxies(): Map<String, ProxyStatus>
+
+    /** Maakt een proxy aan; bestaat hij al, dan antwoordt Toxiproxy 409 en verandert er niets. */
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    fun maakProxy(verzoek: ProxyVerzoek): Response
 
     @POST
     @Path("/{proxy}")
