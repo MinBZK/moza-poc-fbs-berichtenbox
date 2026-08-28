@@ -484,6 +484,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ORG: ${{ needs.doel.outputs.owner }}
+          PR: ${{ needs.doel.outputs.pr }}
           PREFIX: pr-${{ needs.doel.outputs.pr }}-
           # Overgangsgeval: PR's uit de tijd vóór de per-commit-tags hebben nog een kale
           # `pr-<n>`-versie in ghcr staan. Die valt niet onder de prefix, dus expliciet meenemen.
@@ -491,6 +492,7 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
+          blijvers=""
 
           # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
@@ -529,14 +531,48 @@ jobs:
             fi
 
             for id in $ids; do
-              if gh api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE; then
+              # De foutmelding is het enige onderscheid tussen de weigeringen; ze komen allemaal
+              # als 4xx terug, dus de exitcode zegt niet wat er aan de hand is. Hem meenemen in de
+              # waarschuwing scheelt bovendien een duik in het ruwe joblog.
+              if err=$(gh api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE 2>&1); then
                 echo "$pkg: versie $id verwijderd."
+              elif printf '%s' "$err" | grep -qF 'downloads cannot be deleted'; then
+                # GitHub weigert een publieke versie te verwijderen zodra zijn downloadteller boven
+                # de 5000 uitkomt. Die teller kan er ver naast zitten — waargenomen op een versie
+                # die geen enkele afnemer had en waarvan de package-pagina 0 downloads meldde — en
+                # corrigeert zichzelf: dezelfde verwijdering slaagde een dag later wél. Herdraaien
+                # is dus de oplossing, en daarom blijft dit een rode job: groen melden zou de enige
+                # aanleiding wegnemen om dat te doen.
+                echo "::warning::$pkg: versie $id niet verwijderd — GitHub's downloadteller blokkeert het. Die teller loopt achter; herdraai deze workflow later."
+                blijvers="${blijvers}| \`$pkg\` | [$id](https://github.com/orgs/$ORG/packages/container/$pkg/$id) |"$'\n'
+                fail=1
               else
-                echo "::warning::$pkg: versie $id niet verwijderd."
+                echo "::warning::$pkg: versie $id niet verwijderd: $err"
                 fail=1
               fi
             done
           done
+
+          # De teller-weigeringen bij elkaar in de job-samenvatting, met het commando dat ze
+          # opruimt: uit het joblog alleen valt niet af te lezen dat wachten-en-herdraaien hier de
+          # hele remedie is.
+          if [ -n "$blijvers" ]; then
+            {
+              echo "### Achtergebleven ghcr-versies"
+              echo
+              echo "GitHub weigerde deze versies te verwijderen omdat zijn downloadteller boven de"
+              echo "5000 staat. Die teller loopt achter en corrigeert zichzelf; herdraai deze"
+              echo "workflow later opnieuw:"
+              echo
+              echo '```'
+              echo "gh workflow run cleanup-preview.yml -f pr=$PR"
+              echo '```'
+              echo
+              echo "| package | versie |"
+              echo "| --- | --- |"
+              printf '%s' "$blijvers"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           # Achterblijvende images zijn geen reden om de PR-afsluiting te blokkeren, maar het
           # moet wel als rode job zichtbaar zijn — anders groeit de ghcr-berg ongemerkt door.
