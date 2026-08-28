@@ -53,22 +53,49 @@ In de demo komt dat bestand uit `demo/genereer-magazijnen.py` en gaat het via
 die geen OIN is, een lege naam of een lege set blokkeert de boot — anders komt de fout pas bij het
 eerste verkeer boven, midden in een demo, bij één van de honderd magazijnen.
 
+## Wat de ondernemer doet, blijft staan
+
+Elk gesimuleerd magazijn heeft echte opslag: PostgreSQL onder alle magazijnen samen, met
+`magazijn_db_id` als discriminator op elke query. Honderd echte magazijnen zouden honderd databases
+zijn; dit is er één, en de kosten blijven constant in het aantal.
+
+Alle zes de operaties van de spec werken: aanleveren, lijst opvragen, detail, bijlage downloaden,
+status bijwerken en verwijderen. Een bericht dat als gelezen is gemarkeerd blijft gelezen, een map
+blijft staan, en een verwijderd bericht is weg voor de ondernemer maar niet gewist — soft-delete,
+net als bij het echte magazijn.
+
+### Twee dingen die bewust afwijken van het echte magazijn
+
+Allebei zijn het beleidskeuzes van dát magazijn die niet in de spec staan, en allebei zouden ze hier
+iets kosten zonder iets te tonen.
+
+- **Bijlagen mogen elk MIME-type hebben.** Het echte magazijn beperkt ze tot `application/pdf`; de
+  spec laat elk type toe. Een berichtenbox waarin alleen PDF's bestaan, laat het bijlage-pad maar
+  half zien.
+- **Geen abonnementscontrole bij de Profiel-service.** Het echte magazijn weigert een aanlevering
+  met 403 als de ontvanger die afzender niet heeft aangevinkt. Dat zou hier een externe
+  afhankelijkheid in honderdvoud opleveren, en autorisatiediepte staat in het ontwerp expliciet
+  buiten de eerste versie.
+
+Wat er wél is overgenomen, tot in de randen: de volgorde van 403 en 404, de merge-patch-semantiek
+(een ontbrekend én een expliciet `null` veld laten de waarde staan), een lege patch als 400, een
+tweede `DELETE` die opnieuw slaagt, de grens van 1 MiB in UTF-8-bytes, en dat `status` wegblijft
+zolang de ontvanger niets heeft gezet.
+
 ## Wat er nog niet is
 
-De simulator draagt op dit moment alleen de buitenkant: **hij slaat niets op.** Elke berichtenlijst
-is leeg, elk bericht bestaat niet, en aanleveren antwoordt met de 503 die de spec daarvoor kent — in
-plaats van een aanlevering te bevestigen die daarna nergens terug te vinden is.
-
-Wat er in de volgende stappen bij komt: opslag (PostgreSQL, mappen en leesstatus die blijven staan),
-gedrag per magazijn (traag, haperend, onbereikbaar), een beheerpad om demo's te vullen en terug te
+Gedrag per magazijn (traag, haperend, onbereikbaar), een beheerpad om demo's te vullen en terug te
 zetten, en de omzetting van de demo-omgeving. Zie het ontwerp.
 
 ## Draaien
 
 ```bash
-./mvnw clean test -pl demo/magazijn-simulator -am                   # tests (geen Docker nodig)
+./mvnw clean test -pl demo/magazijn-simulator -am                   # tests (Docker vereist)
 ./mvnw compile quarkus:dev -pl demo/magazijn-simulator -am          # dev mode (poort 8092)
 ```
+
+De tests starten hun eigen PostgreSQL via Quarkus Dev Services; dev-mode verwacht de database uit
+`compose.yaml`.
 
 ```bash
 curl -H 'X-Ontvanger: KVK:90000001' \

@@ -9,15 +9,15 @@ import org.hamcrest.Matchers.startsWith
 import org.junit.jupiter.api.Test
 
 /**
- * Wat elk van de zes operaties doet zolang de simulator nog niets opslaat. Dat is geen tijdelijke
- * uitzondering maar de toestand van een leeg magazijn — met één verschil: aanleveren kán niet, en
- * zegt dat ook, in plaats van een bevestiging te geven voor iets dat nergens terechtkomt.
+ * De randen van het foutpad: wat er gebeurt als een bericht niet bestaat, als de invoer niet klopt,
+ * en of alles wat naar buiten komt de vorm heeft die de spec voorschrijft.
  *
- * Elk antwoord noemt het magazijn waar het vandaan komt. Bij honderd magazijnen is "niet gevonden"
- * zonder die vermelding niet te onderscheiden van "op het verkeerde magazijn uitgekomen".
+ * Elk niet-gevonden-antwoord noemt het magazijn waar het vandaan komt. Bij honderd magazijnen is
+ * "niet gevonden" zonder die vermelding niet te onderscheiden van "op het verkeerde magazijn
+ * uitgekomen".
  */
 @QuarkusTest
-class LeegMagazijnTest {
+class FoutpadenTest {
 
     @Test
     fun `een bericht opvragen levert 404 met het magazijn erbij`() {
@@ -67,30 +67,49 @@ class LeegMagazijnTest {
     }
 
     /**
-     * Bewust 503 en geen 201: een bevestigde aanlevering die daarna nergens te vinden is, valt pas
-     * stroomafwaarts op — bij de uitvraag, of pas in een demo.
+     * Domein-invarianten die de spec niet afdwingt maar het echte magazijn wél: hier de elfproef op
+     * een BSN. Een simulator die dit accepteert, laat een aanlevering slagen die in werkelijkheid
+     * met 400 wordt geweigerd.
      */
     @Test
-    fun `aanleveren zegt dat er nog niets opgeslagen kan worden`() {
+    fun `een ontvanger die de elfproef niet doorstaat levert 400 problem+json`() {
         given()
-            .header(ONTVANGER_HEADER, ONTVANGER)
             .contentType(ContentType.JSON)
             .body(
                 """
                 {
                   "afzender": "$MAGAZIJN",
-                  "ontvanger": {"type": "KVK", "waarde": "90000001"},
-                  "onderwerp": "Aanlevering tijdens de fundament-stap",
+                  "ontvanger": {"type": "BSN", "waarde": "123456789"},
+                  "onderwerp": "Ongeldige ontvanger",
                   "inhoud": "Deze aanlevering hoort geweigerd te worden."
                 }
                 """.trimIndent(),
             )
             .`when`().post("$BASIS/aanleveringen")
             .then()
-            .statusCode(503)
+            .statusCode(400)
             .contentType(PROBLEM_JSON)
-            .body("status", equalTo(503))
-            .body("detail", containsString(MAGAZIJN))
+            .body("status", equalTo(400))
+    }
+
+    @Test
+    fun `afzender en ontvanger mogen niet hetzelfde nummer zijn`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "$MAGAZIJN",
+                  "ontvanger": {"type": "OIN", "waarde": "$MAGAZIJN"},
+                  "onderwerp": "Aan zichzelf",
+                  "inhoud": "Deze aanlevering hoort geweigerd te worden."
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("$BASIS/aanleveringen")
+            .then()
+            .statusCode(400)
+            .contentType(PROBLEM_JSON)
     }
 
     @Test

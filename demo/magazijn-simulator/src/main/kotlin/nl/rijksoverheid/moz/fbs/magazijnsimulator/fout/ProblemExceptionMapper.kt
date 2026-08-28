@@ -41,15 +41,36 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
             // dragen. Het exception-object levert de stack, en het correlatie-id koppelt log en
             // antwoord aan elkaar.
             log.errorf(exception, "Serverfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
+
+            // Bij een 5xx gaat de melding niet naar de client: die kan interne details dragen, en er
+            // is hier niets dat dat nog kan onderscheiden.
+            return problemResponse(status = status, title = title, foutId = foutId)
         }
 
-        // Geen `detail`: de message van een exception die niet uit onze eigen code komt, kan interne
-        // details dragen, en er is hier niets dat dat nog kan onderscheiden. De statusregel zelf
-        // staat al in `title`.
-        return problemResponse(status = status, title = title, foutId = foutId)
+        return problemResponse(status = status, title = title, detail = veiligDetail(exception.message), foutId = foutId)
+    }
+
+    /**
+     * Bij een 4xx is de melding juist nuttig — "Bericht X bestaat niet in magazijn Y" is precies wat
+     * een aanroeper nodig heeft. Alleen niet als hij eruitziet als interne toestand: een stacktrace
+     * of een bestandsverwijzing hoort nooit een client te bereiken, en aan een exception van elders
+     * is niet te zien waar zijn melding vandaan komt.
+     */
+    private fun veiligDetail(melding: String?): String? {
+        val opgeschoond = melding?.filter { it.code >= EERSTE_LEESBARE_TEKEN }?.trim()
+
+        if (opgeschoond.isNullOrBlank()) return null
+
+        return if (INTERNE_SPOREN.containsMatchIn(opgeschoond)) null else opgeschoond
     }
 
     private companion object {
         const val SERVERFOUT_VANAF = 500
+
+        /** Alles onder spatie is een controlteken; die horen niet in een antwoord. */
+        const val EERSTE_LEESBARE_TEKEN = 0x20
+
+        /** Stacktrace-achtige inhoud: een `at `-frame of een bron-verwijzing met regelnummer. */
+        val INTERNE_SPOREN = Regex("""\bat [\w.$]+\(|\.(java|kt):\d+""")
     }
 }

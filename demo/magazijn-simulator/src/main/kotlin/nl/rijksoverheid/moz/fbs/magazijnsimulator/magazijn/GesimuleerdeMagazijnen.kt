@@ -4,64 +4,58 @@ import io.quarkus.runtime.StartupEvent
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.MagazijnRepository
 import org.jboss.logging.Logger
 
 /**
- * De set magazijnen die deze simulator voorstelt, ingelezen bij het starten.
+ * De set magazijnen die deze simulator voorstelt, en de brug tussen de configuratie en de
+ * database-rijen die alle andere tabellen discrimineren.
  *
- * Fail-fast op de configuratie: een OIN-key die geen OIN is, of een lege set, hoort de boot te
- * blokkeren. De uitvraag krijgt zijn register uit hetzelfde generator-artefact, dus een fout hier
- * levert anders pas bij het eerste verkeer een 404 op — midden in een demo, bij één van de honderd
- * magazijnen, en dan is de oorzaak ver weg.
+ * De configuratie is de bron, niet de database: het generatiescript levert één artefact dat zowel
+ * deze set als het register van de uitvraag vult, zodat beide kanten niet uit elkaar kunnen lopen.
+ * Bij het starten wordt de tabel daarmee in overeenstemming gebracht.
+ *
+ * De database-id gaat mee in [GesimuleerdMagazijn] zodat geen enkele query hem hoeft op te zoeken;
+ * bij een fan-out van honderd is dat honderd bespaarde rondjes per ophaalronde.
  */
 @ApplicationScoped
-class GesimuleerdeMagazijnen(private val config: MagazijnSimulatorConfig) {
+class GesimuleerdeMagazijnen(
+    private val config: MagazijnSimulatorConfig,
+    private val repository: MagazijnRepository,
+) {
 
     private val log = Logger.getLogger(GesimuleerdeMagazijnen::class.java)
+    private lateinit var naamPerOin: Map<String, String>
     private lateinit var magazijnen: Map<String, GesimuleerdMagazijn>
 
+    /** De configuratie afkeuren kan zonder database, en hoort dus vóór de rest te gebeuren. */
     @PostConstruct
     fun init() {
-        val entries = config.magazijnen()
-
-        // `check` en niet `require`, net als de controles hieronder: dit zijn alle vier fouten in
-        // de configuratie van de omgeving, geen fouten van een aanroeper. Twee exception-types voor
-        // hetzelfde soort fout worden vanzelf contract zodra een test ze uit elkaar houdt.
-        check(entries.isNotEmpty()) {
-            "Geen magazijnen geconfigureerd (magazijnsimulator.magazijnen.\"<OIN>\".naam)"
-        }
-
-        magazijnen = entries.entries.associate { (key, entry) ->
-            check(OIN_PATROON.matches(key)) {
-                "Ongeldige OIN-key in magazijn-simulator-config: '$key' moet precies 20 cijfers zijn " +
-                    "(magazijnsimulator.magazijnen.\"$key\".naam)"
-            }
-
-            check(key.any { it != '0' }) {
-                "Ongeldige OIN-key in magazijn-simulator-config: '$key' kan niet geheel uit nullen bestaan"
-            }
-
-            val naam = entry.naam().trim()
-
-            check(naam.isNotBlank()) {
-                "magazijnsimulator.magazijnen.\"$key\".naam mag niet leeg of alleen whitespace zijn"
-            }
-
-            key to GesimuleerdMagazijn(oin = key, naam = naam)
-        }
+        naamPerOin = MagazijnConfiguratie.valideer(config.magazijnen())
     }
 
     /**
-     * Het observeren van [StartupEvent] dwingt bean-instantiatie — en daarmee de [init]-validatie —
-     * af tijdens boot, ook als er nog geen verkeer is geweest.
+     * Het observeren van [StartupEvent] doet twee dingen: het dwingt bean-instantiatie — en daarmee
+     * de configuratie-validatie — af tijdens boot, en het brengt de tabel in overeenstemming vóór
+     * het eerste verkeer. Zou dit lui bij de eerste request gebeuren, dan zou een fout in de
+     * configuratie zich als een 404 op één magazijn voordoen in plaats van als een boot die faalt.
      */
     fun bijOpstart(@Observes startup: StartupEvent) {
+        val dbIdPerOin = repository.brengInOvereenstemming(naamPerOin)
+
+        magazijnen = naamPerOin.mapValues { (oin, naam) ->
+            GesimuleerdMagazijn(
+                dbId = checkNotNull(dbIdPerOin[oin]) { "Magazijn $oin is niet aangemaakt in de database" },
+                oin = oin,
+                naam = naam,
+            )
+        }
+
         log.infof("Magazijn-simulator stelt %d magazijn(en) voor", magazijnen.size)
     }
 
     fun voorOin(oin: String): GesimuleerdMagazijn? = magazijnen[oin]
 
-    private companion object {
-        private val OIN_PATROON = Regex("^[0-9]{20}$")
-    }
+    /** Alle magazijnen, voor code die de hele set langsgaat in plaats van er één te kiezen. */
+    fun alle(): Collection<GesimuleerdMagazijn> = magazijnen.values
 }

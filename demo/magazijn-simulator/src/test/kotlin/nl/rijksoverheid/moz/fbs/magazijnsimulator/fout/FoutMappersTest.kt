@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
  * De drie mappers die ervoor zorgen dat er nooit iets anders dan `problem+json` naar buiten komt.
@@ -35,7 +37,7 @@ class FoutMappersTest {
 
     @Test
     fun `een exception van elders krijgt alsnog een problem-body met dezelfde status`() {
-        val uitkomst = ProblemExceptionMapper().toResponse(NotFoundException("interne details"))
+        val uitkomst = ProblemExceptionMapper().toResponse(NotFoundException("Bericht bestaat niet"))
 
         assertEquals(404, uitkomst.status)
         assertEquals(PROBLEM_JSON, uitkomst.mediaType.toString())
@@ -44,8 +46,37 @@ class FoutMappersTest {
 
         assertEquals("Not Found", problem.title)
         assertEquals(404, problem.status)
-        // De melding van zo'n exception kan interne details dragen en hoort de client niet te halen;
-        // een `detail` dat alleen de titel herhaalt voegt niets toe, dus die blijft weg.
+        // Bij een 4xx is de melding juist nuttig: dat is wat de aanroeper nodig heeft om te zien wat
+        // er mis is.
+        assertEquals("Bericht bestaat niet", problem.detail)
+    }
+
+    /**
+     * Een melding die eruitziet als interne toestand hoort een client nooit te bereiken. Aan een
+     * exception van elders is niet te zien waar zijn melding vandaan komt, dus dat wordt op vorm
+     * beoordeeld.
+     */
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "java.lang.NullPointerException\n\tat nl.rijksoverheid.Foo.bar(Foo.kt:42)",
+            "Fout in BerichtService.kt:118",
+            "kapot in Repository.java:9",
+        ],
+    )
+    fun `een melding die naar interne toestand ruikt blijft weg`(melding: String) {
+        val problem = ProblemExceptionMapper().toResponse(NotFoundException(melding)).entity as Problem
+
+        assertNull(problem.detail)
+    }
+
+    @Test
+    fun `een 5xx geeft de melding niet door, ook niet als hij onschuldig lijkt`() {
+        val exception = WebApplicationException("kan de database niet bereiken op host db-01", 503)
+
+        val problem = ProblemExceptionMapper().toResponse(exception).entity as Problem
+
+        assertEquals(503, problem.status)
         assertNull(problem.detail)
     }
 

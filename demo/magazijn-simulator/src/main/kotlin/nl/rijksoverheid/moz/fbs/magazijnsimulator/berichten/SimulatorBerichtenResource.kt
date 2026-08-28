@@ -1,18 +1,22 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.InternalServerErrorException
+import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
-import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.core.UriBuilder
 import jakarta.ws.rs.core.UriInfo
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.BerichtenApi
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.BerichtenLijst
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.problemResponse
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtStatusWijziging
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
+import org.jboss.logging.Logger
 import java.util.UUID
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Bericht as BerichtDto
 
 /**
  * Alle operaties onder `/berichten` voor het magazijn dat het pad-filter heeft gekozen. Net als bij
@@ -21,17 +25,17 @@ import java.util.UUID
  * onbereikbaar.
  *
  * Bewust géén eigen `@Path`: de paden komen uit [BerichtenApi]. Het magazijn-prefix is er door het
- * pad-filter afgehaald en komt in de HAL-links terug via
- * [nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad.basisUri].
+ * pad-filter afgehaald en komt in de HAL-links terug via [MagazijnPad.basisUri].
  *
- * **Nog geen opslag.** De simulator draagt in deze stap alleen de buitenkant: de lijst is leeg en
- * elk bericht bestaat niet. Dat is geen tijdelijke hack maar de toestand van een leeg magazijn, en
- * dus spec-conform — opslag komt er in de volgende stap onder.
+ * De HTTP-laag blijft dun: welke statuscode bij welke situatie hoort, staat in [BerichtService],
+ * omdat juist die volgorde het gedrag van een echt magazijn naspeelt.
  */
 @ApplicationScoped
 class SimulatorBerichtenResource(
+    private val service: BerichtService,
     private val magazijnContext: MagazijnContext,
     @param:Context private val uriInfo: UriInfo,
+    @param:Context private val request: ContainerRequestContext,
 ) : BerichtenApi {
 
     override fun getBerichten(
@@ -39,42 +43,63 @@ class SimulatorBerichtenResource(
         afzender: String?,
         page: Int?,
         pageSize: Int?,
-    ): BerichtenLijst = BerichtenLijstMapper.leeg(
-        page = page ?: DEFAULT_PAGE,
-        pageSize = pageSize ?: DEFAULT_PAGE_SIZE,
-        afzender = afzender,
-        baseUri = MagazijnPad.basisUri(uriInfo, magazijnContext.magazijn.oin),
-    )
+    ): BerichtenLijst {
+        val pagina = service.lijst(
+            ontvanger = Identificatie.uitHeader(xOntvanger),
+            afzender = afzender,
+            page = page ?: DEFAULT_PAGE,
+            pageSize = pageSize ?: DEFAULT_PAGE_SIZE,
+        )
 
-    override fun getBerichtById(berichtId: UUID, xOntvanger: String): Bericht =
-        throw berichtBestaatNiet(berichtId)
+        return BerichtDtoMapper.naarBerichtenLijst(pagina, afzender, basis())
+    }
 
-    override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray =
-        throw berichtBestaatNiet(berichtId)
+    override fun getBerichtById(berichtId: UUID, xOntvanger: String): BerichtDto =
+        BerichtDtoMapper.naarBericht(service.haalOp(berichtId, Identificatie.uitHeader(xOntvanger)), basis())
+
+    override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
+        val bijlage = service.haalBijlageOp(berichtId, bijlageId, Identificatie.uitHeader(xOntvanger))
+
+        // Een opgeslagen MIME-type dat niet te parsen is, duidt op een aanlever-fout of op met de
+        // hand aangepaste data. Dan liever geen bytes onder een verkeerd Content-Type serveren: 500,
+        // zodat het opvalt. De waarde blijft uit het antwoord en staat alleen in de log — een
+        // MIME-type is geen persoonsgegeven.
+        val mediaType = try {
+            MediaType.valueOf(bijlage.mimeType)
+        } catch (ex: IllegalArgumentException) {
+            log.warnf(ex, "Ongeldig MIME-type in opslag; geen inhoud geserveerd. bijlageId=%s", bijlageId)
+
+            throw InternalServerErrorException("Ongeldig MIME-type in bijlage")
+        }
+
+        request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mediaType.toString())
+
+        return bijlage.inhoud
+    }
 
     override fun updateBerichtStatus(
         berichtId: UUID,
         xOntvanger: String,
         berichtStatusPatch: BerichtStatusPatch,
-    ): Bericht = throw berichtBestaatNiet(berichtId)
+    ): BerichtDto {
+        val bericht = service.wijzigStatus(
+            berichtId = berichtId,
+            ontvanger = Identificatie.uitHeader(xOntvanger),
+            wijziging = BerichtStatusWijziging(berichtStatusPatch.gelezen, berichtStatusPatch.map),
+        )
 
-    override fun verwijderBericht(berichtId: UUID, xOntvanger: String): Unit =
-        throw berichtBestaatNiet(berichtId)
+        return BerichtDtoMapper.naarBericht(bericht, basis())
+    }
 
-    /**
-     * Noemt het magazijn in het antwoord. Bij honderd magazijnen is "bericht niet gevonden" zonder
-     * die vermelding niet te onderscheiden van "op het verkeerde magazijn uitgekomen", en dat
-     * verschil is precies waar deze stap over gaat.
-     */
-    private fun berichtBestaatNiet(berichtId: UUID) = WebApplicationException(
-        problemResponse(
-            status = Response.Status.NOT_FOUND.statusCode,
-            title = "Not Found",
-            detail = "Bericht $berichtId bestaat niet in magazijn ${magazijnContext.magazijn.oin}",
-        ),
-    )
+    override fun verwijderBericht(berichtId: UUID, xOntvanger: String) {
+        service.verwijder(berichtId, Identificatie.uitHeader(xOntvanger))
+    }
+
+    private fun basis(): UriBuilder = MagazijnPad.basisUri(uriInfo, magazijnContext.magazijn.oin)
 
     private companion object {
+        private val log: Logger = Logger.getLogger(SimulatorBerichtenResource::class.java)
+
         // Gelijk aan de defaults van `PageParam`/`PageSizeParam` in berichtenmagazijn-api.yaml.
         // De gegenereerde interface levert ze als `Int?`; een ontbrekende query-parameter mag niet
         // op een andere pagina uitkomen dan de spec belooft.

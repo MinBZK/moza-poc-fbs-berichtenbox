@@ -1,4 +1,4 @@
-**Status:** In uitvoering — stap 1 gebouwd (`demo/magazijn-simulator`), stap 2 t/m 7 nog niet.
+**Status:** In uitvoering — stap 1 en 2 gebouwd (`demo/magazijn-simulator`), stap 3 t/m 7 nog niet.
 
 # Magazijn-simulator — veel magazijnen met echte state — ontwerp
 
@@ -563,8 +563,11 @@ bij die net zo goed getest horen te worden.
    antwoorden als een leeg magazijn; aanleveren geeft de 503 uit de spec in plaats van een
    aanlevering te bevestigen die nergens terechtkomt. `MagazijnSpecContractTest` toetst de
    antwoorden tegen `berichtenmagazijn-api.yaml`.
-2. **Persistentie.** Flyway-migratie mét rollback-script, entities, repositories met discriminator,
-   alle zes de operaties uit de spec. Verificatie: de integratietests hierboven.
+2. ~~**Persistentie.**~~ **Gedaan** (MinBZK/MijnOverheidZakelijk#1008). Flyway-migratie mét
+   rollback-script, entities, repositories die állemaal op `magazijn_db_id` filteren, en de zes
+   operaties uit de spec. Twee dingen wijken bewust af van het echte magazijn omdat ze niet in de
+   spec staan: bijlagen mogen elk MIME-type hebben (het magazijn staat alleen `application/pdf` toe)
+   en er is geen abonnementscontrole bij de Profiel-service. Zie `demo/magazijn-simulator/README.md`.
 3. **Gedrag per magazijn.** Modi, vertraging, foutkans. Verificatie: unit-test op de verdeling plus
    een `@QuarkusTest` die een `STUK`-magazijn een 503 ziet geven.
 4. **Beheer-API + token.** Inrichten, seed, legen, gedrag. Verificatie: 100 magazijnen × 20 berichten

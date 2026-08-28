@@ -9,6 +9,7 @@ import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import org.junit.jupiter.params.provider.ValueSource
 
 /**
@@ -21,7 +22,7 @@ import org.junit.jupiter.params.provider.ValueSource
  * van honderd magazijnen stilzwijgend naar het verkeerde adres; hier valt het om.
  */
 @QuarkusTest
-class MagazijnPadFilterTest {
+class MagazijnPadFilterTest : MagazijnTestBasis() {
 
     @Test
     fun `berichtenlijst van een bekend magazijn is leeg en spec-vormig`() {

@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test
  * tweede exemplaar in git zou precies de drift toelaten die deze module moet uitsluiten.
  */
 @QuarkusTest
-class MagazijnSpecContractTest {
+class MagazijnSpecContractTest : MagazijnTestBasis() {
 
     /**
      * `withBasePathOverride` vertelt de validator dat de operaties van de spec hier achter het
@@ -111,7 +111,7 @@ class MagazijnSpecContractTest {
     }
 
     @Test
-    fun `de 503 op aanleveren voldoet aan het Problem-schema`() {
+    fun `een geslaagde aanlevering voldoet aan de spec, request en response`() {
         given()
             .filter(specValidatie)
             .contentType(ContentType.JSON)
@@ -127,7 +127,7 @@ class MagazijnSpecContractTest {
             )
             .`when`().post("$BASIS/aanleveringen")
             .then()
-            .statusCode(503)
+            .statusCode(201)
     }
 
     private companion object {
