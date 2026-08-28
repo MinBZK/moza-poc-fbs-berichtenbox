@@ -370,17 +370,35 @@ if [ "$MODUS" = "hostnet" ]; then
     PROXY_BRON="$WORTEL/demo/generated/proxies-host.json"
 fi
 
-wacht_op "toxiproxy" toxiproxy python3 -c '
+# Niet alleen de namen vergelijken maar ook waar elke proxy luistert en naartoe stuurt. De
+# demo-console maakt de proxies namelijk zélf aan en zet ze elke reconcile-ronde terug; staan haar
+# adressen niet op deze modus ingesteld, dan houdt Toxiproxy dezelfde zes namen over met upstreams
+# die hier niet bestaan. Op namen alleen is dat niet te zien, en de keten is dan stil kapot.
+#
+# Als tekst in een variabele en niet als shell-functie: `wacht_op` draait zijn commando onder
+# timeout(1), en die kan geen functie aanroepen.
+PROXY_CHECK='
 import json, sys, urllib.request
 
-verwacht = {p["name"] for p in json.load(open(sys.argv[1]))}
-actief = set(json.load(urllib.request.urlopen("http://127.0.0.1:8474/proxies", timeout=3)))
-ontbreekt = verwacht - actief
+def sleutel(proxy):
+    # Toxiproxy geeft een listen op 0.0.0.0 terug als "[::]:<poort>"; alleen de poort vergelijken.
+    return proxy["name"], proxy["listen"].rsplit(":", 1)[-1], proxy["upstream"]
 
-if ontbreekt:
-    print("proxies niet geladen: " + ", ".join(sorted(ontbreekt)), file=sys.stderr)
+verwacht = {sleutel(p) for p in json.load(open(sys.argv[1]))}
+actief = {sleutel(p) for p in json.load(urllib.request.urlopen("http://127.0.0.1:8474/proxies", timeout=3)).values()}
+afwijkend = verwacht - actief
+
+if afwijkend:
+    print("proxies wijken af van " + sys.argv[1] + ":", file=sys.stderr)
+
+    for naam, poort, upstream in sorted(afwijkend):
+        print(f"  verwacht {naam} op poort {poort} naar {upstream}", file=sys.stderr)
+
+    print("  actief: " + ", ".join(f"{n}:{p}->{u}" for n, p, u in sorted(actief)), file=sys.stderr)
     sys.exit(1)
-' "$PROXY_BRON"
+'
+
+wacht_op "toxiproxy" toxiproxy python3 -c "$PROXY_CHECK" "$PROXY_BRON"
 
 # Een poortprobe bewijst niet dat ónze container antwoordde: crasht hij op een bezette poort, dan
 # neemt de bestaande host-service het antwoord over. Daarom na afloop opnieuw de status.
@@ -395,6 +413,11 @@ wacht_op "berichtenmagazijn-b" berichtenmagazijn-b curl -sSf --max-time 3 http:/
 wacht_op "magazijn-simulator"  magazijn-simulator  curl -sSf --max-time 3 http://127.0.0.1:8092/q/health/ready
 wacht_op "uitvraag"            berichtenuitvraag   curl -sSf --max-time 3 http://127.0.0.1:8086/q/health/ready
 wacht_op "console"             demo-console        curl -sSf --max-time 3 http://127.0.0.1:8095/
+
+# Opnieuw, nu de console draait: die maakt de proxies zelf aan en overschrijft daarmee wat er uit
+# het bestand geladen was. Wijken haar adressen af van deze modus, dan blijkt dat pas hier — de
+# eerdere controle draaide voordat ze bestond.
+wacht_op "toxiproxy (na de console)" demo-console python3 -c "$PROXY_CHECK" "$PROXY_BRON"
 
 # Ook de infra opnieuw: die draagt tijdens het starten van de services de zwaarste last
 # (migraties, vier tegelijk verbindende clients) en is sinds de vorige controle niet meer bekeken.

@@ -201,3 +201,21 @@ services:
       MAGAZIJN_A_DB_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://127.0.0.1:5433/berichtenmagazijn
       MAGAZIJN_SIMULATOR_URL: http://127.0.0.1:8092
+      # De console maakt de proxies zelf aan en zet ze elke reconcile-ronde terug (ProxyBootstrap).
+      # Zonder deze zes paren overschrijft ze in een gedeelde netns de definities uit
+      # demo/generated/proxies-host.json met de container-DNS-namen uit haar eigen defaults — namen
+      # die hier niet resolven. Dat is niet zichtbaar aan de start: Toxiproxy blijft gezond en de
+      # proxy-namen kloppen nog, alleen elke verbinding erdoorheen sterft. De uitvraag verliest dan
+      # Redis en meldt zich DOWN, minuten nadat de stack succesvol leek te starten.
+      TOXIPROXY_PROFIEL_LISTEN: 127.0.0.1:18089
+      TOXIPROXY_PROFIEL_UPSTREAM: 127.0.0.1:8089
+      TOXIPROXY_NOTIFICATIE_LISTEN: 127.0.0.1:18084
+      TOXIPROXY_NOTIFICATIE_UPSTREAM: 127.0.0.1:8084
+      TOXIPROXY_AANMELD_LISTEN: 127.0.0.1:18086
+      TOXIPROXY_AANMELD_UPSTREAM: 127.0.0.1:8086
+      TOXIPROXY_REDIS_LISTEN: 127.0.0.1:16379
+      TOXIPROXY_REDIS_UPSTREAM: 127.0.0.1:6379
+      TOXIPROXY_MAGAZIJN_A_LISTEN: 127.0.0.1:18090
+      TOXIPROXY_MAGAZIJN_A_UPSTREAM: 127.0.0.1:8090
+      TOXIPROXY_MAGAZIJN_B_LISTEN: 127.0.0.1:18091
+      TOXIPROXY_MAGAZIJN_B_UPSTREAM: 127.0.0.1:8091
