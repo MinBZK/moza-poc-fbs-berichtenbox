@@ -11,33 +11,31 @@ import jakarta.ws.rs.ext.Provider
  * eigen violation-rapport in `application/json`, en dan is de simulator op zijn foutpad wél van een
  * echt magazijn te onderscheiden — precies wat hij niet mag zijn.
  *
- * `detail` noemt per schending het parameter-naampje en de melding. Zowel het aantal schendingen
- * als de lengte van het geheel is begrensd: een request met veel ongeldige velden mag geen
- * onbegrensde response opleveren.
+ * `detail` noemt per schending het parameter-naampje en de melding. Het aantal schendingen is
+ * begrensd zodat een request met honderden ongeldige velden geen even grote tussenstring bouwt; de
+ * lengte van het eindresultaat begrenst [problemResponse] zelf.
+ *
+ * Bewust géén gevalideerde wáárde in de melding: `X-Ontvanger` kan een BSN dragen, en dat hoort
+ * nooit in een antwoord of een log terecht te komen. De meldingen van Bean Validation noemen alleen
+ * de regel, niet de invoer.
  */
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {
 
-    override fun toResponse(exception: ConstraintViolationException): Response {
-        val detail = exception.constraintViolations
+    override fun toResponse(exception: ConstraintViolationException): Response = problemResponse(
+        status = Response.Status.BAD_REQUEST.statusCode,
+        title = "Bad Request",
+        detail = exception.constraintViolations
             .asSequence()
             .take(MAX_SCHENDINGEN)
             .joinToString("; ") { schending ->
                 val naam = schending.propertyPath.lastOrNull()?.name ?: schending.propertyPath.toString()
 
                 "$naam: ${schending.message}"
-            }
-            .take(MAX_DETAIL_LENGTE)
-
-        return problemResponse(
-            status = Response.Status.BAD_REQUEST.statusCode,
-            title = "Bad Request",
-            detail = detail,
-        )
-    }
+            },
+    )
 
     private companion object {
         const val MAX_SCHENDINGEN = 50
-        const val MAX_DETAIL_LENGTE = 500
     }
 }

@@ -1,5 +1,8 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 
+import jakarta.validation.ConstraintViolation
+import jakarta.validation.ConstraintViolationException
+import jakarta.validation.Path
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
@@ -12,9 +15,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * De twee mappers die ervoor zorgen dat er nooit iets anders dan `problem+json` naar buiten komt.
+ * De drie mappers die ervoor zorgen dat er nooit iets anders dan `problem+json` naar buiten komt.
  *
- * Ze grijpen op elkaar in: [UncaughtExceptionMapper] staat op `Exception` en zou zonder de
+ * Twee ervan grijpen op elkaar in: [UncaughtExceptionMapper] staat op `Exception` en zou zonder de
  * specifiekere [ProblemExceptionMapper] óók elke bewuste 404 opvangen en als 500 doorgeven. Dat is
  * geen theoretisch geval — het is de standaard-mapperkeuze van JAX-RS — en het is onzichtbaar tot
  * een client een 500 krijgt waar een 404 hoorde te staan.
@@ -57,8 +60,8 @@ class FoutMappersTest {
     }
 
     @Test
-    fun `een onverwachte fout wordt een 500 met een foutId en zonder de melding zelf`() {
-        val uitkomst = UncaughtExceptionMapper().toResponse(IllegalStateException("select * from berichten"))
+    fun `een onverwachte fout wordt een 500 zonder de melding zelf`() {
+        val uitkomst = UncaughtExceptionMapper().toResponse(IllegalStateException("select * from bericht"))
 
         assertEquals(500, uitkomst.status)
         assertEquals(PROBLEM_JSON, uitkomst.mediaType.toString())
@@ -66,11 +69,125 @@ class FoutMappersTest {
         val problem = uitkomst.entity as Problem
 
         assertEquals("Internal Server Error", problem.title)
-        assertFalse(problem.detail.contains("select * from berichten"))
-        assertTrue(problem.detail.contains("foutId"), "verwacht een correlatie-id, was: ${problem.detail}")
+        assertFalse(problem.detail.contains("select * from bericht"))
+    }
+
+    /**
+     * `instance` is het veld waarmee support een melding terugvindt, en het echte magazijn zet hem
+     * op élk foutantwoord. Ontbreekt hij hier, dan is de simulator juist op zijn foutpad te
+     * herkennen — precies wat hij niet mag zijn.
+     */
+    @Test
+    fun `elk foutantwoord draagt een correlatie-id in instance`() {
+        val antwoorden = listOf(
+            ProblemExceptionMapper().toResponse(NotFoundException()),
+            UncaughtExceptionMapper().toResponse(IllegalStateException()),
+            ConstraintViolationExceptionMapper().toResponse(schendingen("xOntvanger" to "moet aan het patroon voldoen")),
+            problemResponse(status = 404, title = "Not Found"),
+        )
+
+        antwoorden.forEach { antwoord ->
+            val instance = (antwoord.entity as Problem).instance
+
+            assertTrue(
+                instance.orEmpty().startsWith("urn:uuid:"),
+                "verwacht een urn:uuid-correlatie-id, was: $instance",
+            )
+        }
+    }
+
+    @Test
+    fun `twee foutantwoorden delen hun correlatie-id niet`() {
+        val eerste = (problemResponse(404, "Not Found").entity as Problem).instance
+        val tweede = (problemResponse(404, "Not Found").entity as Problem).instance
+
+        assertFalse(eerste == tweede, "elk antwoord hoort zijn eigen id te hebben")
+    }
+
+    @Test
+    fun `een schending wordt een 400 met veldnaam en melding`() {
+        val uitkomst = ConstraintViolationExceptionMapper().toResponse(schendingen("pageSize" to "moet ten hoogste 100 zijn"))
+
+        assertEquals(400, uitkomst.status)
+        assertEquals(PROBLEM_JSON, uitkomst.mediaType.toString())
+        assertEquals("pageSize: moet ten hoogste 100 zijn", (uitkomst.entity as Problem).detail)
+    }
+
+    @Test
+    fun `meerdere schendingen komen gescheiden terug`() {
+        val uitkomst = ConstraintViolationExceptionMapper().toResponse(
+            schendingen("page" to "moet ten minste 0 zijn", "pageSize" to "moet ten hoogste 100 zijn"),
+        )
+
+        // Op inhoud en niet op volgorde: `ConstraintViolationException` bewaart een `Set`, dus de
+        // volgorde ligt niet vast en een assertie daarop zou willekeurig omvallen.
+        val detail = (uitkomst.entity as Problem).detail
+
+        assertTrue(detail.contains("page: moet ten minste 0 zijn"), detail)
+        assertTrue(detail.contains("pageSize: moet ten hoogste 100 zijn"), detail)
+        assertTrue(detail.contains("; "), "verwacht twee schendingen gescheiden door '; ', was: $detail")
+    }
+
+    /**
+     * Een aanroeper die honderden ongeldige velden stuurt, mag geen even grote response terugkrijgen.
+     * Zowel het aantal schendingen als de totale lengte is begrensd; zonder deze test is die
+     * begrenzing weg te refactoren zonder dat iets rood wordt.
+     */
+    @Test
+    fun `heel veel schendingen leveren een begrensd antwoord op`() {
+        val veel = (1..500).map { "veld$it" to "melding die een beetje lengte heeft nummer $it" }
+
+        val detail = (ConstraintViolationExceptionMapper().toResponse(schendingen(*veel.toTypedArray())).entity as Problem).detail
+
+        assertTrue(detail.length <= MAX_DETAIL, "detail was ${detail.length} tekens")
+        assertFalse(detail.contains("veld500"), "de laatste schendingen horen niet meer mee te komen")
+    }
+
+    @Test
+    fun `zonder schendingen blijft detail weg in plaats van leeg`() {
+        assertNull((ConstraintViolationExceptionMapper().toResponse(schendingen()).entity as Problem).detail)
+    }
+
+    private fun schendingen(vararg velden: Pair<String, String>): ConstraintViolationException =
+        ConstraintViolationException(velden.map { (naam, melding) -> VasteSchending(naam, melding) }.toSet())
+
+    /**
+     * Een minimale [ConstraintViolation]: alleen `propertyPath` en `message` worden gelezen. Met een
+     * mock zou dit twintig `every {}`-regels kosten voor twee waardes.
+     */
+    private class VasteSchending(
+        private val naam: String,
+        private val melding: String,
+    ) : ConstraintViolation<Any> {
+        override fun getMessage(): String = melding
+        override fun getPropertyPath(): Path = VastPad(naam)
+        override fun getMessageTemplate(): String = melding
+        override fun getRootBean(): Any? = null
+        override fun getRootBeanClass(): Class<Any>? = null
+        override fun getLeafBean(): Any? = null
+        override fun getExecutableParameters(): Array<Any>? = null
+        override fun getExecutableReturnValue(): Any? = null
+        override fun getInvalidValue(): Any? = null
+        override fun getConstraintDescriptor(): jakarta.validation.metadata.ConstraintDescriptor<*>? = null
+        override fun <U : Any?> unwrap(type: Class<U>?): U = throw UnsupportedOperationException()
+    }
+
+    private class VastPad(private val naam: String) : Path {
+        override fun iterator(): MutableIterator<Path.Node> = mutableListOf<Path.Node>(VasteNode(naam)).iterator()
+        override fun toString(): String = naam
+    }
+
+    private class VasteNode(private val naam: String) : Path.Node {
+        override fun getName(): String = naam
+        override fun isInIterable(): Boolean = false
+        override fun getIndex(): Int? = null
+        override fun getKey(): Any? = null
+        override fun getKind(): jakarta.validation.ElementKind = jakarta.validation.ElementKind.PARAMETER
+        override fun <T : Path.Node?> `as`(nodeType: Class<T>?): T = throw UnsupportedOperationException()
     }
 
     private companion object {
         const val PROBLEM_JSON = "application/problem+json"
+        const val MAX_DETAIL = 500
     }
 }

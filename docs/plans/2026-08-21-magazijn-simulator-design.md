@@ -189,11 +189,18 @@ Twee dingen die daarbij horen en niet vanzelf spreken:
   en `/magazijn/<OIN>/api/v1/berichten` valt daarbuiten — het `@PreMatching`-filter zou dan nooit
   aan bod komen. De resources staan dus op de root en het hele prefix, `/api/v1` incluis, komt uit
   het filter en de link-opbouw.
-- **Het filter werkt op het gedecodeerde pad.** `UriInfo.getPath(false)` gooit in Quarkus REST
-  ("We do not support non-decoded parameters"). Dat is hier onschadelijk: een percent-gecodeerd
-  segment levert na decodering hooguit extra scheidingstekens op, en dat eindigt in een OIN die
-  niet in de set staat of een restpad dat geen resource matcht — in beide gevallen een 404, nooit
-  een ánder magazijn.
+- **Herkennen gebeurt op het gedecodeerde pad, herschrijven op het onbewerkte.**
+  `UriInfo.getPath(false)` gooit in Quarkus REST ("We do not support non-decoded parameters"), dus
+  het herkennen kán niet anders; het herschrijven werkt wél op de onbewerkte request-URI, zodat een
+  gecodeerd segment onderweg niet van betekenis verandert. Voor het prefix zelf maakt het verschil
+  niets uit — `/magazijn/` en `/api/v1/` bevatten geen tekens die gecodeerd worden — en waar het
+  wél uiteenloopt, wordt er niets weggeknipt, blijft het prefix staan en matcht geen enkele
+  resource. Dus 404, nooit een ánder magazijn.
+- **Een pad met accolades hoort een 404 te zijn, geen 500.** `/berichten/%7Bid%7D` is door elke
+  client te sturen, en Quarkus REST bouwt `UriInfo.requestUri` met een `UriBuilder` die accolades
+  als URI-template leest — het opvrágen van die URI gooit dan al. Een echt magazijn geeft daar een
+  404 omdat `{id}` geen UUID is. Het filter vangt dat af en doet hetzelfde; zonder die vangst zou
+  elke demo-log vollopen met "onverwachte fout".
 
 Een pad zonder `/magazijn/`-root, zonder OIN of met een onbekende OIN → 404
 `application/problem+json`. Bewust geen default-magazijn: een verkeerd geconfigureerd register moet

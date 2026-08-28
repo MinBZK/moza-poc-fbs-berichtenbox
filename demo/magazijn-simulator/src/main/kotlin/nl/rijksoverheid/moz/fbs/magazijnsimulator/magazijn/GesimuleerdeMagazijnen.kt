@@ -24,7 +24,10 @@ class GesimuleerdeMagazijnen(private val config: MagazijnSimulatorConfig) {
     fun init() {
         val entries = config.magazijnen()
 
-        require(entries.isNotEmpty()) {
+        // `check` en niet `require`, net als de controles hieronder: dit zijn alle vier fouten in
+        // de configuratie van de omgeving, geen fouten van een aanroeper. Twee exception-types voor
+        // hetzelfde soort fout worden vanzelf contract zodra een test ze uit elkaar houdt.
+        check(entries.isNotEmpty()) {
             "Geen magazijnen geconfigureerd (magazijnsimulator.magazijnen.\"<OIN>\".naam)"
         }
 

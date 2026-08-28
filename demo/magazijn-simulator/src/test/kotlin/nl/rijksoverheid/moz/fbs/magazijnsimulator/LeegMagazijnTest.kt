@@ -5,6 +5,7 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.startsWith
 import org.junit.jupiter.api.Test
 
 /**
@@ -132,6 +133,28 @@ class LeegMagazijnTest {
             .then()
             .statusCode(404)
             .header("API-Version", ApiInfo.SPEC_VERSION)
+    }
+
+    /**
+     * `instance` draagt het correlatie-id waarmee support een melding terugvindt. Het echte magazijn
+     * zet hem op elk foutantwoord; ontbreekt hij hier, dan is de simulator juist op zijn foutpad te
+     * herkennen.
+     */
+    @Test
+    fun `elk foutantwoord draagt een correlatie-id`() {
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten/$BERICHT_ID")
+            .then()
+            .statusCode(404)
+            .body("instance", startsWith("urn:uuid:"))
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("/magazijn/00000009000000009999/api/v1/berichten")
+            .then()
+            .statusCode(404)
+            .body("instance", startsWith("urn:uuid:"))
     }
 
     /**

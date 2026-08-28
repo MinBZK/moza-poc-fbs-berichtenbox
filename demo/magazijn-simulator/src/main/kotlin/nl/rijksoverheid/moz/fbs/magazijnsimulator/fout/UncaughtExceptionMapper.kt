@@ -10,8 +10,8 @@ import java.util.UUID
 
 /**
  * Vangnet voor alles waar geen specifiekere mapper voor bestaat: 500 `problem+json` met een
- * correlatie-id, zodat een onverwachte fout niet als standaard-foutpagina naar buiten komt en toch
- * in de log terug te vinden is.
+ * correlatie-id in `instance`, zodat een onverwachte fout niet als standaard-foutpagina naar buiten
+ * komt en toch in de log terug te vinden is.
  *
  * De melding van de exception blijft uit het antwoord — die kan interne details dragen. De
  * `@Priority` is een extra tiebreaker voor het onwaarschijnlijke geval dat ooit een andere mapper
@@ -31,7 +31,8 @@ class UncaughtExceptionMapper : ExceptionMapper<Exception> {
         return problemResponse(
             status = Response.Status.INTERNAL_SERVER_ERROR.statusCode,
             title = "Internal Server Error",
-            detail = "Er is een onverwachte interne fout opgetreden. Vermeld foutId $foutId bij contact met support.",
+            detail = "Er is een onverwachte interne fout opgetreden. Vermeld het id uit 'instance' bij support.",
+            foutId = foutId,
         )
     }
 }

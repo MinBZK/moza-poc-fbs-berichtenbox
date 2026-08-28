@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
+import java.net.URI
 
 /**
  * Het herkennen van het magazijn-prefix, los van HTTP. De integratiekant staat in
@@ -63,6 +64,59 @@ class MagazijnPadTest {
     )
     fun `het prefix gaat er af en de rest blijft heel`(pad: String, verwacht: String) {
         assertEquals(verwacht, MagazijnPad.padNaPrefix(pad, OIN))
+    }
+
+    /**
+     * Encoding-randen. Het filter werkt op het onbewerkte pad, en dat is precies waarom: op de
+     * gedecodeerde vorm zou `%2F` een extra scheidingsteken worden en zou `/%6Dagazijn/…` alsnog als
+     * magazijn-pad tellen. Allebei horen ze de veilige kant op te vallen.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["/MAGAZIJN/$OIN/api/v1/berichten", "/magazijn/$OIN/API/V1/berichten"])
+    fun `een afwijkende schrijfwijze telt niet als magazijn-pad`(pad: String) {
+        assertNull(MagazijnPad.oinUit(pad))
+    }
+
+    @Test
+    fun `een gecodeerd scheidingsteken in een segment splitst het pad niet`() {
+        // Gedecodeerd zou dit `/berichten/a/b` worden; onbewerkt blijft het één segment, net als bij
+        // een echt magazijn.
+        assertEquals("/berichten/a%2Fb", MagazijnPad.padNaPrefix("/magazijn/$OIN/api/v1/berichten/a%2Fb", OIN))
+    }
+
+    /**
+     * Loopt de herkenning (gedecodeerd) uit de pas met het herschrijven (onbewerkt), dan hoort er
+     * niets weggeknipt te worden: het prefix blijft staan, geen resource matcht, en dat is een 404.
+     * De gevaarlijke uitkomst zou zijn dat er wél iets wordt weggeknipt en het request bij een ánder
+     * magazijn belandt.
+     */
+    @Test
+    fun `een gecodeerde OIN laat het prefix staan in plaats van er half af te knippen`() {
+        val requestUri = URI("http://simulator:8092/magazijn/%30" + OIN.substring(1) + "/api/v1/berichten")
+
+        assertEquals(requestUri, MagazijnPad.zonderPrefix(requestUri, OIN))
+    }
+
+    @Test
+    fun `dubbele slashes na de root maken er geen OIN van`() {
+        assertNull(MagazijnPad.oinUit("/magazijn//$OIN/api/v1/berichten"))
+    }
+
+    @Test
+    fun `het herschrijven behoudt de query en haalt alleen het prefix weg`() {
+        val requestUri = URI("http://simulator:8092/magazijn/$OIN/api/v1/berichten?page=2&pageSize=5")
+
+        assertEquals(
+            URI("http://simulator:8092/berichten?page=2&pageSize=5"),
+            MagazijnPad.zonderPrefix(requestUri, OIN),
+        )
+    }
+
+    @Test
+    fun `het herschrijven laat een gecodeerd segment ongemoeid`() {
+        val requestUri = URI("http://simulator:8092/magazijn/$OIN/api/v1/berichten/a%2Fb")
+
+        assertEquals(URI("http://simulator:8092/berichten/a%2Fb"), MagazijnPad.zonderPrefix(requestUri, OIN))
     }
 
     @Test

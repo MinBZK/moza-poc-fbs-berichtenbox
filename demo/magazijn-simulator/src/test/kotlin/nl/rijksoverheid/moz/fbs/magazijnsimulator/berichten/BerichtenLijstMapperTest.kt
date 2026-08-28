@@ -60,6 +60,23 @@ class BerichtenLijstMapperTest {
         assertEquals("$BASIS/berichten?page=0&pageSize=20&afzender=$AFZENDER", links.self.href)
     }
 
+    /**
+     * Een pagina voorbij het einde is geen fout: het echte magazijn geeft daar een lege lijst op
+     * terug. `self` echoot dan de gevraagde pagina, terwijl `first` en `last` allebei op 0 wijzen —
+     * want met nul berichten is er maar één pagina.
+     */
+    @Test
+    fun `een gevraagde pagina voorbij het einde echoot in self maar niet in first en last`() {
+        val lijst = BerichtenLijstMapper.leeg(page = 3, pageSize = 20, afzender = null, baseUri = basis())
+
+        assertEquals(3, lijst.page)
+        assertEquals("$BASIS/berichten?page=3&pageSize=20", lijst.links.self.href)
+        assertEquals("$BASIS/berichten?page=0&pageSize=20", lijst.links.first.href)
+        assertEquals("$BASIS/berichten?page=0&pageSize=20", lijst.links.last.href)
+        assertNull(lijst.links.prev)
+        assertNull(lijst.links.next)
+    }
+
     @Test
     fun `zonder afzenderfilter staat die parameter er niet in`() {
         val links = BerichtenLijstMapper.leeg(0, 20, null, basis()).links

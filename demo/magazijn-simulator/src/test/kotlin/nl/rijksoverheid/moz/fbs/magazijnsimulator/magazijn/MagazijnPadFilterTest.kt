@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.endsWith
 import org.hamcrest.Matchers.emptyIterable
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.not
@@ -44,9 +45,11 @@ class MagazijnPadFilterTest {
             .`when`().get("/magazijn/$MAGAZIJN_EEN/api/v1/berichten")
             .then()
             .statusCode(200)
-            .body("_links.self.href", containsString("/magazijn/$MAGAZIJN_EEN/api/v1/berichten"))
-            .body("_links.first.href", containsString("/magazijn/$MAGAZIJN_EEN/api/v1/berichten"))
-            .body("_links.last.href", containsString("/magazijn/$MAGAZIJN_EEN/api/v1/berichten"))
+            // Exact en niet "bevat": een link die het prefix draagt maar er iets achter plakt, is
+            // net zo kapot als een link zonder prefix, en `containsString` ziet dat verschil niet.
+            .body("_links.self.href", endsWith("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
+            .body("_links.first.href", endsWith("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
+            .body("_links.last.href", endsWith("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
     }
 
     /**
@@ -118,6 +121,23 @@ class MagazijnPadFilterTest {
             .statusCode(404)
             .contentType("application/problem+json")
             .body("status", equalTo(404))
+    }
+
+    /**
+     * Accolades zijn geen geldige URI-tekens, maar gecodeerd is `%7Bid%7D` een pad dat elke client
+     * kan sturen. Quarkus REST bouwt `UriInfo.requestUri` met een `UriBuilder` die accolades als
+     * URI-template leest, dus dit is precies het pad waarlangs een onvindbaar bericht een 500 zou
+     * kunnen worden in plaats van de 404 die een echt magazijn geeft.
+     */
+    @Test
+    fun `een pad met gecodeerde accolades levert 404 problem+json en geen serverfout`() {
+        given()
+            .urlEncodingEnabled(false)
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("/magazijn/$MAGAZIJN_EEN/api/v1/berichten/%7Bid%7D")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
     }
 
     private companion object {

@@ -22,7 +22,7 @@ class GesimuleerdeMagazijnenTest {
 
     @Test
     fun `een lege set blokkeert de boot`() {
-        val fout = assertThrows<IllegalArgumentException> { magazijnenVan() }
+        val fout = assertThrows<IllegalStateException> { magazijnenVan() }
 
         assertEquals(true, fout.message?.contains("Geen magazijnen geconfigureerd"))
     }
