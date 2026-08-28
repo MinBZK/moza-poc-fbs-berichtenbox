@@ -1,4 +1,6 @@
-# Pull-through-mirror geeft HTTP 500 op `ghcr.io/shopify/toxiproxy`
+# Twee bevindingen: mirror-fout op ghcr.io/shopify, en een overruled deploy die verkeerd faalt
+
+## 1. Pull-through-mirror geeft HTTP 500 op `ghcr.io/shopify/toxiproxy`
 
 **Cluster:** odcn-production
 **Projecten:** `mpfb-8wh` en `mpfpsm-lcl` (MOZa PoC Federatief Berichtenstelsel)
@@ -54,8 +56,50 @@ Wij publiceren de image ongewijzigd door onder onze eigen namespace
 wél door de mirror komt. Dat werkt voor ons, maar het is een omweg: er staat nu een kopie die met de
 upstream mee moet bewegen. Zodra de mirror deze image kan bedienen, halen we die kopie weer weg.
 
-## Vraag
+### Vraag
 
 Kunnen jullie kijken wat de mirror op deze repository doet struikelen? En is er iets dat wij aan
 onze kant hadden kunnen zien of instellen — een namespace die aangemeld moet worden bijvoorbeeld —
 zodat we hier de volgende keer zelf uitkomen?
+
+## 2. Een overruled taak laat `zad-actions/deploy` falen op een misleidende melding
+
+**Waargenomen:** 28 augustus 2026, in `mpfb-8wh`, met `zad-actions` v4.
+
+Draait er in hetzelfde project een tweede taak, dan wordt de wachtstap van een lopende deploy
+overruled:
+
+```
+Deployment successful
+##[error]Could not extract URLs from result
+{
+  "status": "superseded",
+  "message": "Superseded while waiting for ArgoCD application 'mpfb-8wh-pr-248' to sync:
+              task adf57a8d-... (delete_component) for project 'mpfb-8wh' covers this task's scope"
+}
+```
+
+De deployment zelf is dan gewoon aangemaakt — `zadctl` eindigt met exitcode 0 en de action meldt
+"Deployment successful". Maar een `superseded` resultaat draagt geen `urls`, en daar loopt
+`deploy/action.yml` op stuk:
+
+```bash
+ALL_URLS=$(echo "$RESULT" | jq -c ".urls.\"${DEPLOYMENT_NAME}\".urls // {}")
+if [ -z "$ALL_URLS" ] || [ "$ALL_URLS" = "{}" ] || [ "$ALL_URLS" = "null" ]; then
+  echo "::error::Could not extract URLs from result"
+  exit 1
+fi
+```
+
+De job wordt rood met een melding die niets zegt over de werkelijke oorzaak, terwijl de uitrol
+geslaagd is. Opnieuw draaien lost het op, dus het is geen blokkade — wel iedere keer een
+zoektocht.
+
+**Zou het kloppender zijn** als een `superseded` wachtstap opnieuw gaat pollen in plaats van als
+fout te eindigen? En als dat niet kan: zou de action dit geval kunnen herkennen en er een melding
+bij kunnen geven die de superseding-taak noemt?
+
+**Wat wij eraan bijdroegen:** in dit geval kwam de tweede taak uit handmatig OM-werk van ons, naast
+een lopende CI-run. Dat is aan onze kant te vermijden. Maar hetzelfde kan gebeuren tussen twee
+pull requests die naar hetzelfde project uitrollen: OM vergrendelt op project, terwijl de
+concurrency-groep van een workflow doorgaans per deployment of per PR staat.

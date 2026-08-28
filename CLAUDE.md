@@ -288,6 +288,15 @@ Handig (v2, read-only tenzij anders): `GET /projects/{p}/deployments` (lijst),
 (zet image per component), `POST …/deployments/{d}/:refresh` (reconcile — **reactiveert
 géén uitgeschakeld component**).
 
+**OM vergrendelt op project, niet op deployment.** Draait er een tweede taak in hetzelfde project,
+dan wordt de wachtstap van een lopende deploy overruled: `zadctl` eindigt met 0 en `zad-actions`
+meldt "Deployment successful", maar het `superseded`-resultaat draagt geen `urls` en de job faalt
+alsnog op `Could not extract URLs from result` — een melding die de oorzaak niet noemt. De uitrol
+zelf is dan geslaagd; opnieuw draaien volstaat. Doe daarom **geen handmatig OM-werk terwijl er een
+deploy loopt** (`gh run list --workflow "Deploy ZAD"` toont dat), en verwacht hetzelfde wanneer twee
+PR's tegelijk naar hetzelfde project uitrollen — de concurrency-groepen in `deploy.yml` staan per
+project **en** PR, dus die race sluiten ze niet uit.
+
 **Valkuilen bij debuggen (geleerd uit een ImagePullBackOff-melding):**
 - De UI-melding **"uitgeschakeld: image ontbreekt"** + logs **"No resources found in
   namespace"** = `replicas: 0` in het gerenderde `*-deployment.yaml`. Er draait niets;
