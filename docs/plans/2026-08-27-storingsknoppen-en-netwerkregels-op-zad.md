@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Stap 1 uitgevoerd en geverifieerd; stap 2 concept. Zie "Wat er staat" onderaan.
 
 # Storingsknoppen en cluster-intern verkeer op ZAD — ontwerp
 
@@ -9,19 +9,23 @@ document beschrijft wat er precies in de weg zit en welke route het wél oplost.
 **Issue:** volgt uit dit ontwerp. Hangt samen met MinBZK/MijnOverheidZakelijk#936 (uitgevoerd voor
 de console) en #938 (magazijn-simulator).
 
-## Wat er nu niet werkt
+## De aanleiding
+
+> Stap 1 hieronder is uitgevoerd, dus van de twee knoppen in deze tabel werkt de eerste inmiddels.
+> De beschrijving blijft staan omdat ze de reden van stap 2 draagt.
 
 Op ZAD staat de console als `democonsole` in `mpfm-w3h/test` en in elke preview daarvan. Alles wat
 hij doet is óf binnen zijn eigen deployment (de magazijnen, de database) óf over de publieke
-ingress (de uitvraag). Twee knopgroepen vallen daarbuiten, en die zijn uitgezet:
+ingress (de uitvraag). Twee knopgroepen vallen daarbuiten:
 
-| Knop | Wat hij nodig heeft | Waar dat staat |
-|---|---|---|
-| Cache verlopen | Redis, poort 6379 | `mpfb-8wh`, ander project |
-| Storingen | vier Toxiproxy-admin-API's, poort 8474 | `mpfb-8wh` en `mpfpsm-lcl` |
+| Knop | Wat hij nodig heeft | Waar dat staat | Nu |
+|---|---|---|---|
+| Cache verlopen | Redis, poort 6379 | `mpfb-8wh`, ander project | werkt (stap 1) |
+| Storingen | vier Toxiproxy-admin-API's, poort 8474 | `mpfb-8wh` en `mpfpsm-lcl` | open (stap 2) |
 
-De console laat ze zelf weg op grond van `GET /api/demo/omgeving`: lege `TOXIPROXY_*_URL`-waarden en
-`SESSIECACHE_BEREIKBAAR=false`.
+De console laat weg wat een omgeving niet kan bedienen, op grond van `GET /api/demo/omgeving`: lege
+`TOXIPROXY_*_URL`-waarden halen de storingsknoppen uit het paneel. `SESSIECACHE_BEREIKBAAR` deed
+hetzelfde voor de cache-verval-knop en staat op ZAD inmiddels op `true`.
 
 ## Drie eigenschappen van ZAD die de oude opzet blokkeren
 
@@ -51,15 +55,15 @@ de `test`-uitvraag in sturen, en dan bewijst hij niet meer wat hij lijkt te bewi
 Twee stappen, in deze volgorde. De eerste staat op zichzelf en maakt de cache-verval-knop al
 bruikbaar; de tweede leunt erop.
 
-### Stap 1: netwerkregels per deployment
+### Stap 1: netwerkregels per deployment — uitgevoerd
 
 `PATCH /api/v2/projects/{p}/services/cross-domain-access/config/deployment/{d}/outbound` en
 `.../inbound` bestaan. De deploy-workflow kan de regel voor een preview dus bijschrijven op het
 moment dat hij de preview aanmaakt, en `cleanup-preview.yml` kan hem weer opruimen bij het sluiten
 van de PR.
 
-Elke hop vraagt twee regels — een outbound bij de bellende kant en een inbound bij de gebelde kant,
-in twee verschillende projecten. De ontvanger beslist, dus geen van beide is alleen genoeg.
+Elke hop vraagt twee regels — een outbound bij de aanroepende kant en een inbound bij de aangeroepen
+kant, in twee verschillende projecten. De ontvanger beslist, dus geen van beide is alleen genoeg.
 
 Aandachtspunten:
 
@@ -69,6 +73,18 @@ Aandachtspunten:
   bestaat, en de pod heeft hem pas nodig zodra iemand op de knop drukt. Ná de deploy volstaat.
 - **Twee API-keys per hop.** De regels staan in twee projecten, dus de stap heeft de sleutels van
   beide nodig — een job die vandaag maar één project aanraakt, raakt er dan twee.
+
+Zo is het geworden: `.github/scripts/cross-domain-preview.sh` zet of verwijdert de per-deployment
+invulling; `deploy.yml` roept hem aan in `deploy-preview-uitvraag` (inbound, want Redis staat daar)
+en `deploy-preview-magazijnen` (outbound, want de console staat daar), en `cleanup-preview.yml` doet
+de tegenhanger per matrix-leg. De regel zelf staat één keer op projectniveau zonder peer-deployment;
+`demo/environment/zad-demo/README.md` beschrijft die eenmalige stap.
+
+Twee dingen die bij de uitvoering bleken. `zadctl service config set cross-domain-access` is een PUT
+over de héle configuratie en zou de bestaande regels overschrijven — de `PATCH …/inbound` en
+`…/outbound` zijn add/remove per regelnaam en zijn daarom wat het script gebruikt. En de
+preview-deploy-jobs hadden geen `actions/checkout`: de deploy-stap is een action en heeft de repo
+niet nodig, een script wel.
 
 ### Stap 2: de console maakt zijn eigen proxies aan
 
@@ -113,3 +129,22 @@ de afweging die bij dit werk hoort en die eerder al als open stond aangemerkt.
 | De admin-poorten publiek publiceren, zodat de netwerkregels niet nodig zijn | Wie erbij kan, kan de demo stukmaken. Een authorization-wall ervoor sluit juist de console buiten, want die heeft geen SSO-sessie. |
 | De storingsknoppen alleen in `test`, previews uitgezonderd | Previews klonen `test` integraal; wat in `test` staat, komt mee. |
 | Wachten op #938 en de storingen uit de simulator halen | Dekt de magazijn-storingen, niet de vier stromen hier (profiel, notificatie, aanmeld, Redis). |
+
+## Wat er staat
+
+| | Status |
+|---|---|
+| Script + tests, `deploy.yml`, `cleanup-preview.yml`, runbook | Uitgevoerd |
+| De regel op projectniveau in `mpfb-8wh` (inbound) | Gezet |
+| De regel op projectniveau in `mpfm-w3h` (outbound) | Gezet |
+| `REDIS_HOSTS`, `REDIS_PASSWORD` en `SESSIECACHE_BEREIKBAAR=true` op de console | Gezet |
+| Stap 2 (de storingsknoppen) | Concept |
+
+De cache-verval-knop werkt, op `test` en op een preview. Eén ding kwam er bij de verificatie
+bovenop dat hier niet stond: de Redis op ZAD eist een wachtwoord, en de console kende de property
+niet. Dat de verbinding er dóórheen kwam en met `NOAUTH` antwoordde, was meteen het bewijs dat de
+netwerkregel deed wat hij moest.
+
+Dat wachtwoord is de enige waarde die met de hand gelijk gehouden moet worden: hij staat in de
+`user-env-vars` van zowel `uitvraag` als `democonsole`, en de API geeft hem niet terug. Loopt hij
+uiteen, dan faalt alleen deze knop, en pas op het moment dat iemand hem gebruikt.

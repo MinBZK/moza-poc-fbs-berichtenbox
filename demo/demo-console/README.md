@@ -44,10 +44,14 @@ de verificatie erna.
 
 Knopgroepen waarvan de backend er niet is, verbergt het paneel zelf op basis van
 `GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, en een
-onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat de storingen, de
-cache-verval-knop en de veel-magazijnen-schuif — alle drie vragen cluster-intern verkeer naar een
-ánder project, en zo'n netwerkregel noemt daar altijd één vaste deployment, dus hij volgt geen
-preview.
+onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat de storingen en de
+veel-magazijnen-schuif.
+
+De cache-verval-knop wérkt daar, ook op een preview. Hij vraagt als enige overgebleven knop
+cluster-intern verkeer naar een ander project, en zo'n netwerkregel noemt op ZAD altijd één vaste
+deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` hem per preview bij en weer weg.
+Wat de storingen en de veel-magazijnen-schuif nog missen is dus niet die regel, maar hun eigen
+componenten.
 
 Drie dingen horen bij het wonen in `test`. De demo rolt mee met elke merge naar main, dus de
 omgeving kan tijdens een presentatie herstarten. Previews klonen `test` en krijgen de console dus
@@ -85,6 +89,7 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `UITVRAAG_BASIS` | leeg | Browser-zichtbaar adres van de uitvraag-API, **inclusief** het `/api/v1`-pad (bv. `https://uitvraag.example/api/v1`); leeg = afleiden uit de browser-locatie. `berichtenbox.js` gebruikt de waarde ongewijzigd als request-basis en de paginering strípt `/api/v1` uit de HAL-links op die aanname — zonder het pad faalt elke call zichtbaar voor de gebruiker (foutmelding in het paneel of een `alert`) |
 | `UITVRAAG_URL` | `http://localhost:8086` | Adres dat de console zélf aanroept voor de ontdubbeling-webhook |
 | `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop |
+| `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
 | `SESSIECACHE_BEREIKBAAR` | `true` | Op `false` laat het paneel de cache-verval-knop weg. Voor omgevingen waar Redis niet bereikbaar is; een knop die gegarandeerd faalt kost tijdens een demo uitleg die niets toevoegt |
 | `DEMO_MAGAZIJN_STUBS` | `12` | Aantal stub-magazijnen voor de veel-magazijnen-schuif |
 | `MAGAZIJN_STUBS_ADMIN_URL` | `http://localhost:8092` | WireMock-admin van de stub-magazijnen, voor diezelfde schuif |
