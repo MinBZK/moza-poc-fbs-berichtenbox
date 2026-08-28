@@ -295,11 +295,18 @@ antwoordt een 503 en het magazijn ziet een dienst die wegviel — wat de demo wi
 Toxiproxy start met zijn eigen default-`CMD` (`-host=0.0.0.0`) prima op met nul proxies. Er is dus
 geen startcommando nodig, en dat scheelt het UI-handwerk dat een hercreatie niet overleeft.
 
+**Het image komt van ons eigen ghcr, niet van upstream.** De ZAD-mirror geeft op
+`rcr.rijksapps.nl/ghcr-rig/shopify/toxiproxy` een HTTP 500 — over meerdere pod-generaties heen,
+terwijl diezelfde tag rechtstreeks bij ghcr.io anoniem gewoon 200 geeft. `ghcr.io/minbzk/*` komt er
+wél doorheen, dus `toxiproxy/Dockerfile` publiceert het image ongewijzigd door als
+`fbs-toxiproxy` en `build-toxiproxy` in `deploy.yml` bouwt dat per commit. Kies bij het aanmaken een
+tag die echt bestaat, net als bij de console: `main-<sha7>` of `pr-<n>-<sha7>`.
+
 ```bash
 for c in profiel:18089 notificatie:18084; do
   naam=toxiproxy-${c%%:*}
   zadctl -p mpfpsm-lcl component add "$naam" \
-    --image ghcr.io/shopify/toxiproxy:2.12.0 \
+    --image ghcr.io/minbzk/fbs-toxiproxy:main-<sha7> \
     --deployment test \
     --ports "${c##*:}" --ports 8474 \
     --service publish-on-web \
@@ -311,7 +318,7 @@ done
 for c in aanmeld:18086; do
   naam=toxiproxy-${c%%:*}
   zadctl -p mpfb-8wh component add "$naam" \
-    --image ghcr.io/shopify/toxiproxy:2.12.0 \
+    --image ghcr.io/minbzk/fbs-toxiproxy:main-<sha7> \
     --deployment test \
     --ports "${c##*:}" --ports 8474 \
     --service publish-on-web \
@@ -321,7 +328,7 @@ for c in aanmeld:18086; do
 done
 
 zadctl -p mpfb-8wh component add toxiproxy-redis \
-  --image ghcr.io/shopify/toxiproxy:2.12.0 \
+  --image ghcr.io/minbzk/fbs-toxiproxy:main-<sha7> \
   --deployment test \
   --ports 16379 --ports 8474 \
   --service health-check
@@ -329,9 +336,12 @@ zadctl -p mpfb-8wh service config set health-check -c toxiproxy-redis \
   --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
 ```
 
-Houd de image-pin gelijk aan `compose.yaml` en aan `TOXIPROXY_IMAGE` in `deploy.yml`;
-`pin-consistency.yml` bewaakt die twee, de pin in de OM-projectspec valt daarbuiten (andere
-repository, net als bij Redis).
+De upstream-pin staat op één plek — `toxiproxy/Dockerfile` — en `pin-consistency.yml` houdt hem
+gelijk aan `compose.yaml`. De tag in de OM-projectspec valt buiten die guard (andere repository, net
+als bij Redis), maar die beweegt vanzelf mee met elke uitrol.
+
+Verdwijnt de mirror-storing bij RIG, dan kan `toxiproxy/Dockerfile` weg en wijzen de componenten
+weer rechtstreeks naar `ghcr.io/shopify/toxiproxy`.
 
 ### De netwerkregels voor de admin-API's
 

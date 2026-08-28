@@ -1,7 +1,7 @@
 # Houdt de pins van de zelf-gedeployde infra-images uniform over alle locaties.
 #
 # De pins staan (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
-# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE, TOXIPROXY_IMAGE) en de
+# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE), toxiproxy/Dockerfile en de
 # test-devservices-image-names. Dependabot's docker-compose-ecosystem ziet alléén
 # compose.yaml; de workflow-env en de Kotlin-test-strings niet. Een Dependabot-bump
 # zou dus drift veroorzaken. Deze guard maakt zo'n gedeeltelijke bump een harde fout,
