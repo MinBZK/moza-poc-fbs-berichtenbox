@@ -3,10 +3,15 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag
 import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
 import org.jboss.logging.Logger
 
+/** Eén magazijn-rij zoals de rest van de applicatie hem nodig heeft. */
+data class MagazijnRij(val dbId: Long, val oin: String, val naam: String, val gedrag: Gedrag)
+
 /**
- * De magazijn-rijen: de tabel die alle andere tabellen discrimineert.
+ * De magazijn-rijen: de tabel die alle andere tabellen discrimineert, en die het gedrag per magazijn
+ * draagt.
  *
  * Gevuld vanuit de configuratie bij het starten, niet via een beheer-aanroep. Anders is er een
  * opstartvolgorde — tot die aanroep geeft elk pad 404 terwijl het register van de uitvraag geldig
@@ -18,31 +23,33 @@ class MagazijnRepository : PanacheRepositoryBase<MagazijnEntity, Long> {
     private val log = Logger.getLogger(MagazijnRepository::class.java)
 
     /**
-     * Brengt de tabel in overeenstemming met de geconfigureerde set en geeft de database-id per OIN
-     * terug. Die id draagt de request-context daarna mee, zodat geen enkele query hem eerst hoeft op
-     * te zoeken — bij een fan-out van honderd is dat honderd bespaarde rondjes.
+     * Brengt de tabel in overeenstemming met de geconfigureerde set en geeft alle rijen terug.
      *
-     * Ontbrekende magazijnen worden aangemaakt en gewijzigde namen bijgewerkt. Rijen die niet meer
-     * in de configuratie staan blijven staan: hun berichten hangen eraan met een RESTRICT-FK, en ze
-     * zijn toch onbereikbaar omdat het pad-filter alleen geconfigureerde OIN's doorlaat. Wel een
-     * waarschuwing, want stil data laten rondslingeren is hoe een demo per ongeluk oude berichten
-     * toont.
+     * Ontbrekende magazijnen worden aangemaakt, en naam én gedrag worden bijgewerkt: de configuratie
+     * is de bron, dus een herstart zet een tijdens een demo bijgestelde storing weer terug op de
+     * vastgelegde verdeling. Dat is bedoeld gedrag — "terug naar de begintoestand" hoort ook het
+     * gedrag te omvatten en niet alleen de berichten.
+     *
+     * Rijen die niet meer in de configuratie staan blijven staan: hun berichten hangen eraan met een
+     * RESTRICT-FK, en ze zijn toch onbereikbaar omdat het pad-filter alleen geconfigureerde OIN's
+     * doorlaat. Wel een waarschuwing, want stil data laten rondslingeren is hoe een demo per ongeluk
+     * oude berichten toont.
      */
     @Transactional
-    fun brengInOvereenstemming(naamPerOin: Map<String, String>): Map<String, Long> {
+    fun brengInOvereenstemming(gewenst: Map<String, Paar>): List<MagazijnRij> {
         val bestaand = listAll().associateBy { it.oin }
 
-        naamPerOin.forEach { (oin, naam) ->
-            val rij = bestaand[oin]
-
-            if (rij == null) {
-                persist(MagazijnEntity().apply { this.oin = oin; this.naam = naam })
-            } else if (rij.naam != naam) {
-                rij.naam = naam
+        gewenst.forEach { (oin, instelling) ->
+            val rij = bestaand[oin] ?: MagazijnEntity().also { nieuw ->
+                nieuw.oin = oin
+                persist(nieuw)
             }
+
+            rij.naam = instelling.naam
+            rij.zet(instelling.gedrag)
         }
 
-        val verweesd = bestaand.keys - naamPerOin.keys
+        val verweesd = bestaand.keys - gewenst.keys
 
         if (verweesd.isNotEmpty()) {
             log.warnf(
@@ -60,7 +67,19 @@ class MagazijnRepository : PanacheRepositoryBase<MagazijnEntity, Long> {
         // Alleen wat gevraagd is. Zou een verweesde rij hier meekomen, dan bleef een magazijn dat
         // uit de configuratie is gehaald gewoon bereikbaar — terwijl het register van de uitvraag
         // hem niet meer kent.
-        return listAll().filter { it.oin in naamPerOin }.associate { it.oin to it.id }
+        return listAll()
+            .filter { it.oin in gewenst }
+            .map { MagazijnRij(dbId = it.id, oin = it.oin, naam = it.naam, gedrag = it.gedrag()) }
+    }
+
+    /** Stelt het gedrag van één magazijn bij; `false` als die OIN niet bestaat. */
+    @Transactional
+    fun zetGedrag(oin: String, gedrag: Gedrag): Boolean {
+        val rij = find("oin", oin).firstResult() ?: return false
+
+        rij.zet(gedrag)
+
+        return true
     }
 
     /**
@@ -69,4 +88,7 @@ class MagazijnRepository : PanacheRepositoryBase<MagazijnEntity, Long> {
      */
     internal fun referentie(magazijnDbId: Long): MagazijnEntity =
         getEntityManager().getReference(MagazijnEntity::class.java, magazijnDbId)
+
+    /** Naam plus gedrag van één magazijn, zoals de configuratie het voorschrijft. */
+    data class Paar(val naam: String, val gedrag: Gedrag)
 }

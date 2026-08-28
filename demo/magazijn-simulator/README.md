@@ -87,10 +87,52 @@ Wat er wél is overgenomen, tot in de randen: de volgorde van 403 en 404, de mer
 tweede `DELETE` die opnieuw slaagt, de grens van 1 MiB in UTF-8-bytes, en dat `status` wegblijft
 zolang de ontvanger niets heeft gezet.
 
+## Elk magazijn heeft een eigen karakter
+
+In werkelijkheid reageert niet elke organisatie even snel, en ligt er af en toe eentje eruit. Het
+interessante gedrag van de Berichtenbox zit juist in die randen; een demo waarin alles het altijd
+doet, laat niet zien wat een gebruiker merkt als het níét meezit.
+
+| Modus | Wat de aanroeper merkt |
+|---|---|
+| `NORMAAL` | een vlot en correct antwoord |
+| `TRAAG` | een correct antwoord, later — log-normaal verdeeld, dus met een lange staart |
+| `HAPERT` | meestal goed, met een zekere kans een serverfout |
+| `STUK` | consequent een serverfout |
+| `UIT` | geen antwoord binnen de tijd die de aanroeper hem gunt |
+| `WEIGERT` | een nette 4xx in `problem+json` |
+| `MALFORMED` | 200, maar met een body die het schema schendt |
+
+De laatste twee zijn er niet voor de sier. De Berichtenbox behandelt een *beschikbaarheids*-storing
+(timeout, 5xx, netwerk — telt mee voor de circuit breaker) anders dan een magazijn dat wél
+antwoordde maar iets onbruikbaars zei (telt níét mee). Met alleen de eerste vijf wordt die tweede
+tak in een demo nooit geraakt, terwijl juist die eerder een echte fout opleverde.
+
+**Het gedrag geldt op élke endpoint**, dus ook op gelezen markeren, verplaatsen naar een map en
+aanleveren. Dat is realistisch — een schrijfactie is net zo goed een aanroep naar een andere
+organisatie — maar het heeft een gevolg dat niet mag verrassen: een magazijn dat op storing staat
+weigert ook nieuwe berichten. Vullen doe je dus vóór de storing, of via het beheerpad, dat buiten de
+simulatie valt.
+
+### Wie welk karakter krijgt
+
+Uit het volgnummer, deterministisch en zonder loting: elke omgeving krijgt dezelfde verdeling, en
+een demo die je vandaag oefent gedraagt zich morgen hetzelfde. Over de volle achtennegentig komt dat
+neer op 72 normaal, 15 traag, 4 haperend, 3 stuk, 2 onbereikbaar, 1 weigerend en 1 onbruikbaar.
+
+Binnen één demo wisselt een haperend magazijn wél af — anders hapert het niet. Elk magazijn heeft
+daarvoor zijn eigen toevalsgenerator met een vaste startwaarde uit zijn OIN, zodat de reeks
+herhaalbaar is zonder saai te worden.
+
+```properties
+magazijnsimulator.magazijnen."00000009000000000005".index=5        # volgnummer bepaalt het gedrag
+magazijnsimulator.magazijnen."00000009000000000005".gedrag=STUK    # of overschrijf het expliciet
+```
+
 ## Wat er nog niet is
 
-Gedrag per magazijn (traag, haperend, onbereikbaar), een beheerpad om demo's te vullen en terug te
-zetten, en de omzetting van de demo-omgeving. Zie het ontwerp.
+Een beheerpad om demo's in één handeling te vullen, terug te zetten en bij te sturen, en de
+omzetting van de demo-omgeving. Zie het ontwerp.
 
 ## Draaien
 

@@ -1,4 +1,4 @@
-**Status:** In uitvoering — stap 1 en 2 gebouwd (`demo/magazijn-simulator`), stap 3 t/m 7 nog niet.
+**Status:** In uitvoering — stap 1 t/m 3 gebouwd (`demo/magazijn-simulator`), stap 4 t/m 7 nog niet.
 
 # Magazijn-simulator — veel magazijnen met echte state — ontwerp
 
@@ -568,8 +568,13 @@ bij die net zo goed getest horen te worden.
    operaties uit de spec. Twee dingen wijken bewust af van het echte magazijn omdat ze niet in de
    spec staan: bijlagen mogen elk MIME-type hebben (het magazijn staat alleen `application/pdf` toe)
    en er is geen abonnementscontrole bij de Profiel-service. Zie `demo/magazijn-simulator/README.md`.
-3. **Gedrag per magazijn.** Modi, vertraging, foutkans. Verificatie: unit-test op de verdeling plus
-   een `@QuarkusTest` die een `STUK`-magazijn een 503 ziet geven.
+3. ~~**Gedrag per magazijn.**~~ **Gedaan** (MinBZK/MijnOverheidZakelijk#1009). Zeven modi, log-normale
+   vertraging, foutkans, en de verdeling uit het volgnummer. Het gedrag geldt op élke endpoint —
+   openstaande beslissing 5 is daarmee beantwoord: ook op schrijfacties, want dat is wat er in het
+   echte stelsel ook gebeurt, en `/beheer` valt erbuiten zodat een kapot gezet magazijn te repareren
+   blijft. Het filter draait bewust ná het matchen: een `@PreMatching`-filter zou vóór de overstap
+   naar een worker-thread draaien en met zijn wachttijd de event-loop blokkeren, waardoor één traag
+   magazijn álle andere zou stilzetten.
 4. **Beheer-API + token.** Inrichten, seed, legen, gedrag. Verificatie: 100 magazijnen × 20 berichten
    geseed in < 10 s; 401 zonder token onder `%prod`.
 5. **Generator en compose omzetten.** WireMock-stub-service en `VeelMagazijnenService` eruit,
@@ -609,8 +614,10 @@ en niet alleen in dit document.
 3. Welke persona's nemen we over uit de proeftuin en de standaard-persona's? Vóór stap 5.
 4. Is n = 100 haalbaar binnen de opstarttijd en het geheugengebruik van de uitvraag, of ligt het
    plafond lager? Stap 6 beslist; het getal in dit document is een voorstel, geen meting.
-5. Gaat het gedrag ook op schrijfacties gelden, of eerst alleen op leesacties? Zie "Gedrag per
-   magazijn"; het verschil zit in het testoppervlak en in wat de Berichtenbox moet opvangen.
+5. ~~Gaat het gedrag ook op schrijfacties gelden, of eerst alleen op leesacties?~~ **Beantwoord in
+   stap 3: op alles.** Dat is wat er in het echte stelsel ook gebeurt, en het beheerpad valt erbuiten
+   zodat een kapot gezet magazijn te repareren blijft. De vlag om het tot leesacties te beperken is
+   niet gebouwd — hij zou een tweede gedragsvorm zijn die niemand demonstreert.
 6. Blijft de module `magazijn-simulator` heten, of wil het team de term "simulatie-engine" uit #787
    in de modulenaam terugzien? Stap 1 is onder die naam gebouwd, dus het is nu geen gratis keuze
    meer: hernoemen kost een module- én package-rename (`…fbs.magazijnsimulator`). Nog steeds klein

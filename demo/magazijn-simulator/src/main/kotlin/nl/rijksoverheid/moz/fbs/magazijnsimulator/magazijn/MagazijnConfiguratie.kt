@@ -1,7 +1,14 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn
 
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragVerdeling
+
+/** Wat de configuratie over één magazijn zegt, na validatie. */
+data class MagazijnInstelling(val naam: String, val gedrag: Gedrag)
+
 /**
- * Leest en valideert de geconfigureerde set magazijnen: `magazijnsimulator.magazijnen."<OIN>".naam`.
+ * Leest en valideert de geconfigureerde set magazijnen.
  *
  * Apart van [GesimuleerdeMagazijnen] gehouden zodat de validatie zonder CDI en zonder database te
  * toetsen is — het is pure invoerverwerking, en dat hoort niet aan een draaiende applicatie vast te
@@ -15,9 +22,8 @@ object MagazijnConfiguratie {
 
     private val OIN_PATROON = Regex("^[0-9]{20}$")
 
-    /** OIN naar naam, gevalideerd. Gooit bij een lege set of een onbruikbare regel. */
-    fun valideer(entries: Map<String, MagazijnSimulatorConfig.Inschrijving>): Map<String, String> {
-        // `check` en niet `require`, net als de controles hieronder: dit zijn alle vier fouten in de
+    fun valideer(entries: Map<String, MagazijnSimulatorConfig.Inschrijving>): Map<String, MagazijnInstelling> {
+        // `check` en niet `require`, net als de controles hieronder: dit zijn alle fouten in de
         // configuratie van de omgeving, geen fouten van een aanroeper. Twee exception-types voor
         // hetzelfde soort fout worden vanzelf contract zodra een test ze uit elkaar houdt.
         check(entries.isNotEmpty()) {
@@ -40,7 +46,37 @@ object MagazijnConfiguratie {
                 "magazijnsimulator.magazijnen.\"$key\".naam mag niet leeg of alleen whitespace zijn"
             }
 
-            key to naam
+            key to MagazijnInstelling(naam = naam, gedrag = gedragVan(key, entry))
         }
+    }
+
+    /**
+     * Het gedrag komt uit de vastgelegde verdeling bij het volgnummer, tenzij de configuratie er
+     * expliciet iets anders neerzet. Zo hoeft het generatiescript alleen een nummer te schrijven en
+     * staat de verdeling op één plek, terwijl één magazijn bewust anders zetten toch mogelijk blijft.
+     */
+    private fun gedragVan(oin: String, entry: MagazijnSimulatorConfig.Inschrijving): Gedrag {
+        val expliciet = entry.gedrag().orElse(null)
+
+        if (expliciet != null) {
+            val modus = GedragModus.entries.firstOrNull { it.name == expliciet.trim().uppercase() }
+
+            checkNotNull(modus) {
+                "magazijnsimulator.magazijnen.\"$oin\".gedrag is '$expliciet'; toegestaan: " +
+                    GedragModus.entries.joinToString()
+            }
+
+            return Gedrag.standaardVoor(modus)
+        }
+
+        val index = entry.index()
+
+        if (!index.isPresent) return Gedrag.NORMAAL
+
+        check(index.asInt >= 1) {
+            "magazijnsimulator.magazijnen.\"$oin\".index begint bij 1 (kreeg ${index.asInt})"
+        }
+
+        return GedragVerdeling.voorIndex(index.asInt)
     }
 }
