@@ -11,6 +11,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.vereis
+import org.jboss.logging.Logger
 import java.time.Clock
 import java.util.UUID
 
@@ -91,7 +92,14 @@ class BerichtService(
 
         if (bestaand.isVerwijderd) return
 
-        repository.softDelete(magazijnDbId(), berichtId, ontvanger, clock.instant())
+        val verwijderd = repository.softDelete(magazijnDbId(), berichtId, ontvanger, clock.instant())
+
+        if (!verwijderd) {
+            // Niets geraakt terwijl het bericht er net nog actief stond: iemand anders was net iets
+            // eerder. Het antwoord blijft 204 — de ontvanger krijgt wat hij vroeg — maar stil
+            // doorgaan zou een echte fout in de discriminator net zo onzichtbaar maken.
+            log.infof("Verwijderen raakte geen rij; bericht %s was al weg. magazijn=%s", berichtId, magazijnDbId())
+        }
     }
 
     /**
@@ -140,4 +148,8 @@ class BerichtService(
         NotFoundException("Bericht $berichtId bestaat niet in magazijn ${magazijnContext.magazijn.oin}")
 
     private fun magazijnDbId(): Long = magazijnContext.magazijn.dbId
+
+    private companion object {
+        private val log: Logger = Logger.getLogger(BerichtService::class.java)
+    }
 }

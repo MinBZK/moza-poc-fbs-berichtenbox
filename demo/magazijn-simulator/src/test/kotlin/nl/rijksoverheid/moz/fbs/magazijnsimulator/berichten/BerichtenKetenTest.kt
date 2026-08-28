@@ -268,6 +268,88 @@ class BerichtenKetenTest : MagazijnTestBasis() {
     }
 
     /**
+     * Eén bijlage per bericht laat de groepering ongemoeid: een implementatie die alle bijlagen op
+     * één hoop gooit, ziet er dan precies zo uit als een die per bericht bijhoudt. Twee bijlagen bij
+     * één bericht en twee berichten die elk hun eigen bijlagen houden, sluiten dat af.
+     */
+    @Test
+    fun `een bericht kan meerdere bijlagen hebben, in de volgorde van aanlevering`() {
+        val berichtId = leverAan(
+            EEN,
+            bijlagen = listOf(
+                Bijlagegegevens("eerst.pdf", "application/pdf", "een".toByteArray()),
+                Bijlagegegevens("daarna.png", "image/png", "twee".toByteArray()),
+            ),
+        )
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+            .body("bijlagen", hasSize<Any>(2))
+            .body("bijlagen.naam", contains("eerst.pdf", "daarna.png"))
+            .body("bijlagen.mimeType", contains("application/pdf", "image/png"))
+    }
+
+    @Test
+    fun `twee berichten in één lijst houden elk hun eigen bijlagen`() {
+        leverAan(EEN, onderwerp = "Eerst", bijlage = Bijlagegegevens("van-eerst.pdf", "application/pdf", "a".toByteArray()))
+        leverAan(
+            EEN,
+            onderwerp = "Daarna",
+            bijlagen = listOf(
+                Bijlagegegevens("van-daarna-1.pdf", "application/pdf", "b".toByteArray()),
+                Bijlagegegevens("van-daarna-2.pdf", "application/pdf", "c".toByteArray()),
+            ),
+        )
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten")
+            .then()
+            .statusCode(200)
+            // Nieuwste eerst, dus "Daarna" staat bovenaan.
+            .body("berichten[0].aantalBijlagen", equalTo(2))
+            .body("berichten[0].bijlagen.naam", contains("van-daarna-1.pdf", "van-daarna-2.pdf"))
+            .body("berichten[1].aantalBijlagen", equalTo(1))
+            .body("berichten[1].bijlagen.naam", contains("van-eerst.pdf"))
+    }
+
+    /**
+     * Twee `PATCH`-verzoeken tegelijk op een bericht zonder status-rij. Zouden die allebei een rij
+     * willen aanmaken, dan loopt de tweede tegen de unique-constraint en eindigt hij als 500 —
+     * terwijl het echte magazijn daar gewoon 200 geeft.
+     */
+    @Test
+    fun `twee gelijktijdige status-wijzigingen leveren allebei een geldig antwoord op`() {
+        val berichtId = leverAan(EEN)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+
+        try {
+            val taken = listOf("""{"gelezen": true}""", """{"map": "Archief"}""").map { body ->
+                pool.submit<Int> { patch(EEN, berichtId, body).then().extract().statusCode() }
+            }
+
+            taken.forEach { taak ->
+                org.junit.jupiter.api.Assertions.assertEquals(
+                    200,
+                    taak.get(10, java.util.concurrent.TimeUnit.SECONDS),
+                )
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+            .body("status", notNullValue())
+    }
+
+    /**
      * De simulator neemt de pdf-only-regel van het echte magazijn bewust niet over: die staat niet
      * in de spec, en een demo waarin alleen PDF's bestaan laat het bijlage-pad maar half zien.
      */
@@ -313,11 +395,16 @@ class BerichtenKetenTest : MagazijnTestBasis() {
         ontvangerType: String = "KVK",
         ontvangerWaarde: String = "90000001",
         bijlage: Bijlagegegevens? = null,
+        bijlagen: List<Bijlagegegevens> = listOfNotNull(bijlage),
     ): String {
-        val bijlagenJson = bijlage?.let {
-            """, "bijlagen": [{"naam": "${it.naam}", "mimeType": "${it.mimeType}",
-               "inhoud": "${Base64.getEncoder().encodeToString(it.inhoud)}"}]"""
-        }.orEmpty()
+        val bijlagenJson = if (bijlagen.isEmpty()) {
+            ""
+        } else {
+            bijlagen.joinToString(prefix = """, "bijlagen": [""", postfix = "]") {
+                """{"naam": "${it.naam}", "mimeType": "${it.mimeType}",
+                   "inhoud": "${Base64.getEncoder().encodeToString(it.inhoud)}"}"""
+            }
+        }
 
         return given()
             .contentType(ContentType.JSON)

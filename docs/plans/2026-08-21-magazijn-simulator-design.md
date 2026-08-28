@@ -270,7 +270,7 @@ Per stuk wat het later zou kosten, in de volgorde waarin het het makkelijkst als
 
 | Onderdeel | Later toevoegen |
 |---|---|
-| Bijlage-groottelimieten | Goedkoop: een validatie op de aanlever-endpoint. |
+| ~~Bijlage-groottelimieten~~ | **Gedaan in stap 2** — dezelfde grens van 25 MiB als het echte magazijn, want een bijlage die dáár met 400 wordt geweigerd, hoort de simulator ook te weigeren. |
 | Retentie | Goedkoop: één periodieke query op `publicatietijdstip`. |
 | Notificatie-outbox | Middel: een tabel plus poller. Interessant zodra we push-gedrag van veel magazijnen tegelijk willen tonen. |
 | Autorisatiediepte | Middel, en pas zinvol zodra de AuthZEN-PEP (#10) er staat. |

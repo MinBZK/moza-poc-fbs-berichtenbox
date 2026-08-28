@@ -12,8 +12,6 @@
 
 DROP TABLE IF EXISTS bericht_status;
 
-DROP INDEX IF EXISTS idx_bijlage_bericht_db_id;
-
 DROP TABLE IF EXISTS bijlage;
 
 DROP INDEX IF EXISTS idx_bericht_magazijn_ontvanger_actief;

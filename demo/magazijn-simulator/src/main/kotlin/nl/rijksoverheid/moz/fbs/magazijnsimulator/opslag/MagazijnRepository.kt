@@ -57,7 +57,10 @@ class MagazijnRepository : PanacheRepositoryBase<MagazijnEntity, Long> {
         // nieuwe rij komt pas bij de flush uit de database.
         flush()
 
-        return listAll().associate { it.oin to it.id }
+        // Alleen wat gevraagd is. Zou een verweesde rij hier meekomen, dan bleef een magazijn dat
+        // uit de configuratie is gehaald gewoon bereikbaar — terwijl het register van de uitvraag
+        // hem niet meer kent.
+        return listAll().filter { it.oin in naamPerOin }.associate { it.oin to it.id }
     }
 
     /**

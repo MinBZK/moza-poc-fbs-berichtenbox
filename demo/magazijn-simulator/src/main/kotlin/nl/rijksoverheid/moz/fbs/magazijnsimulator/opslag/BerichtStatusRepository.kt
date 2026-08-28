@@ -33,31 +33,45 @@ class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, Long>
     /**
      * Past een wijziging toe, en maakt de rij aan als hij nog niet bestond.
      *
-     * Merge-patch-semantiek van de spec: een veld dat `null` is blijft ongewijzigd — of het nu
-     * ontbrak in de JSON of expliciet op `null` stond. Een map is daarmee te overschrijven maar niet
-     * te wissen; dat is dezelfde beperking die het echte magazijn heeft, en de simulator hoort hem
-     * te delen.
+     * **In één opdracht, niet lezen-dan-schrijven.** Twee `PATCH`-verzoeken die tegelijk binnenkomen
+     * op een bericht zonder status-rij — twee tabbladen, een dubbelklik, een retry na een hikje —
+     * zouden allebei zien dat er niets staat en allebei een rij willen aanmaken. De tweede loopt dan
+     * tegen de unique-constraint en eindigt als 500, terwijl het echte magazijn daar gewoon 200
+     * geeft. `ON CONFLICT DO UPDATE` maakt er één atomaire stap van.
+     *
+     * De `COALESCE` draagt de merge-patch-semantiek van de spec: een veld dat `null` is blijft
+     * ongewijzigd — of het nu ontbrak in de JSON of expliciet op `null` stond. Een map is daarmee te
+     * overschrijven maar niet te wissen; dat is dezelfde beperking die het echte magazijn heeft, en
+     * de simulator hoort hem te delen. Bij een nieuwe rij valt `gelezen` terug op `false` en niet op
+     * de patch-waarde: wie alleen een map zet, heeft het bericht nog niet gelezen.
+     *
+     * De casts zijn nodig omdat PostgreSQL het type van een parameter die `null` kan zijn niet uit
+     * de context kan afleiden.
      */
-    internal fun pasToe(bericht: BerichtEntity, wijziging: BerichtStatusWijziging, tijdstip: Instant) {
-        val bestaand = find("bericht.id = ?1", bericht.id).firstResult()
+    fun pasToe(berichtDbId: Long, wijziging: BerichtStatusWijziging, tijdstip: Instant) {
+        // Openstaande wijzigingen eerst wegschrijven: deze native opdracht gaat langs de
+        // persistence-context om, en zou anders een rij kunnen missen die nog in de sessie hangt.
+        flush()
 
-        if (bestaand == null) {
-            persist(
-                BerichtStatusEntity().apply {
-                    this.bericht = bericht
-                    gelezen = wijziging.gelezen ?: false
-                    map = wijziging.map
-                    gewijzigdOp = tijdstip
-                },
+        getEntityManager()
+            .createNativeQuery(
+                """
+                INSERT INTO bericht_status (bericht_db_id, gelezen, map, gewijzigd_op)
+                VALUES (:berichtDbId, COALESCE(CAST(:gelezen AS BOOLEAN), FALSE), CAST(:map AS VARCHAR), :tijdstip)
+                ON CONFLICT (bericht_db_id) DO UPDATE
+                SET gelezen      = COALESCE(CAST(:gelezen AS BOOLEAN), bericht_status.gelezen),
+                    map          = COALESCE(CAST(:map AS VARCHAR), bericht_status.map),
+                    gewijzigd_op = :tijdstip
+                """.trimIndent(),
             )
+            .setParameter("berichtDbId", berichtDbId)
+            .setParameter("gelezen", wijziging.gelezen)
+            .setParameter("map", wijziging.map)
+            .setParameter("tijdstip", tijdstip)
+            .executeUpdate()
 
-            return
-        }
-
-        wijziging.gelezen?.let { bestaand.gelezen = it }
-        wijziging.map?.let { bestaand.map = it }
-        // Ook als de waardes gelijk blijven: de ontvanger heeft het bericht aangeraakt, en dát is
-        // wat `gewijzigdOp` uitdrukt.
-        bestaand.gewijzigdOp = tijdstip
+        // De native opdracht is buiten de persistence-context om gegaan; zonder deze opruiming zou
+        // een volgende lees-actie in dezelfde transactie de oude rij uit de sessie kunnen teruggeven.
+        getEntityManager().clear()
     }
 }

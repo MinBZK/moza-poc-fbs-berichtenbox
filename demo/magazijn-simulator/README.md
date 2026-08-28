@@ -64,10 +64,10 @@ status bijwerken en verwijderen. Een bericht dat als gelezen is gemarkeerd blijf
 blijft staan, en een verwijderd bericht is weg voor de ondernemer maar niet gewist — soft-delete,
 net als bij het echte magazijn.
 
-### Twee dingen die bewust afwijken van het echte magazijn
+### Drie dingen die bewust afwijken van het echte magazijn
 
-Allebei zijn het beleidskeuzes van dát magazijn die niet in de spec staan, en allebei zouden ze hier
-iets kosten zonder iets te tonen.
+Alle drie zouden ze hier iets kosten zonder iets te tonen; de eerste twee zijn bovendien
+beleidskeuzes van dát magazijn die niet in de spec staan.
 
 - **Bijlagen mogen elk MIME-type hebben.** Het echte magazijn beperkt ze tot `application/pdf`; de
   spec laat elk type toe. Een berichtenbox waarin alleen PDF's bestaan, laat het bijlage-pad maar
@@ -76,6 +76,11 @@ iets kosten zonder iets te tonen.
   met 403 als de ontvanger die afzender niet heeft aangevinkt. Dat zou hier een externe
   afhankelijkheid in honderdvoud opleveren, en autorisatiediepte staat in het ontwerp expliciet
   buiten de eerste versie.
+- **Geen notificatie-outbox.** Een aanlevering bij een echt magazijn plant in dezelfde transactie
+  een CloudEvents-push naar de notificatiedienst; hier gebeurt dat niet. De aanlevering zelf is
+  compleet — het bericht staat er en is op te halen — maar wie downstream een push verwacht, krijgt
+  hem niet. Interessant zodra we push-gedrag van veel magazijnen tegelijk willen tonen; tot die tijd
+  is het een tabel plus poller die niets demonstreert.
 
 Wat er wél is overgenomen, tot in de randen: de volgorde van 403 en 404, de merge-patch-semantiek
 (een ontbrekend én een expliciet `null` veld laten de waarde staan), een lege patch als 400, een

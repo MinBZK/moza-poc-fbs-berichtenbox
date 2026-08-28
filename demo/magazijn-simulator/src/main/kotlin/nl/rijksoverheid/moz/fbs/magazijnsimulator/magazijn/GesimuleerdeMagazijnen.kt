@@ -55,7 +55,4 @@ class GesimuleerdeMagazijnen(
     }
 
     fun voorOin(oin: String): GesimuleerdMagazijn? = magazijnen[oin]
-
-    /** Alle magazijnen, voor code die de hele set langsgaat in plaats van er één te kiezen. */
-    fun alle(): Collection<GesimuleerdMagazijn> = magazijnen.values
 }

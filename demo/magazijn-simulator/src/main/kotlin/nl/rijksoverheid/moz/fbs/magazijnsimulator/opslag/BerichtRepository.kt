@@ -145,10 +145,13 @@ class BerichtRepository(
         tijdstip: Instant,
     ): Bericht? {
         val rij = zoekEntity(magazijnDbId, berichtId)?.takeIf { it.verwijderdOp == null } ?: return null
+        val dbId = rij.id
 
-        statussen.pasToe(rij, wijziging, tijdstip)
+        statussen.pasToe(dbId, wijziging, tijdstip)
 
-        return verrijk(listOf(rij)).first()
+        // Het bericht opnieuw opzoeken: `pasToe` heeft de persistence-context geleegd, dus de eerder
+        // geladen entity is losgekoppeld en zou geen verse status opleveren.
+        return zoekEntity(magazijnDbId, berichtId)?.let { verrijk(listOf(it)).first() }
     }
 
     internal fun zoekEntity(magazijnDbId: Long, berichtId: UUID): BerichtEntity? =

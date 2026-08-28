@@ -7,6 +7,11 @@
 -- Conventies zoals in het stelsel: surrogate PK per tabel, FK's op die surrogate PK (niet op de
 -- business-key), en géén ON DELETE CASCADE — soft-delete is de default voor berichten, en cascade
 -- ondergraaft die semantiek zodra er ooit hard-delete bij komt.
+--
+-- Tijdstempels mét tijdzone. Het echte magazijn is daar in een latere migratie naartoe gegaan; een
+-- vers schema hoort niet te beginnen met de vorm die daar net is opgeruimd. Hibernate schrijft een
+-- `Instant` in beide gevallen als UTC, maar bij het met de hand inspecteren van demo-data scheelt
+-- het de vraag welke tijdzone je voor je hebt.
 
 CREATE TABLE magazijn (
     id   BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -31,11 +36,11 @@ CREATE TABLE bericht (
     ontvanger_waarde   VARCHAR(20)  NOT NULL,
     onderwerp          VARCHAR(255) NOT NULL,
     inhoud             TEXT         NOT NULL,
-    tijdstip_ontvangst TIMESTAMP    NOT NULL,
-    publicatietijdstip TIMESTAMP    NOT NULL,
+    tijdstip_ontvangst TIMESTAMPTZ  NOT NULL,
+    publicatietijdstip TIMESTAMPTZ  NOT NULL,
     -- Soft-delete marker. NULL = actief; ophaal-endpoints filteren de rest eruit, de rij blijft
     -- staan zodat "verwijderd" niet "onherstelbaar gewist" betekent.
-    verwijderd_op      TIMESTAMP    NULL,
+    verwijderd_op      TIMESTAMPTZ  NULL,
     CONSTRAINT uq_bericht_per_magazijn UNIQUE (magazijn_db_id, bericht_id),
     CONSTRAINT fk_bericht_magazijn FOREIGN KEY (magazijn_db_id) REFERENCES magazijn (id)
 );
@@ -59,7 +64,7 @@ CREATE TABLE bericht_status (
     bericht_db_id BIGINT       NOT NULL,
     gelezen       BOOLEAN      NOT NULL DEFAULT FALSE,
     map           VARCHAR(128) NULL,
-    gewijzigd_op  TIMESTAMP    NOT NULL,
+    gewijzigd_op  TIMESTAMPTZ  NOT NULL,
     CONSTRAINT uq_bericht_status_bericht_db_id UNIQUE (bericht_db_id),
     CONSTRAINT fk_bericht_status_bericht FOREIGN KEY (bericht_db_id) REFERENCES bericht (id)
 );
@@ -76,8 +81,9 @@ CREATE TABLE bijlage (
     -- opslagvorm is. De Hibernate-6-default voor een kaal `byte[]` levert BYTEA, en dat is wat hier
     -- staat.
     inhoud        BYTEA        NOT NULL,
+    -- Deze unique-constraint levert meteen de index waarop de bijlage-queries draaien: hij begint
+    -- met `bericht_db_id`, en dat is de kolom waarop zowel het ophalen per bericht als het
+    -- batchgewijs ophalen per pagina filtert. Een losse index erbij zou alleen schrijfwerk kosten.
     CONSTRAINT uq_bijlage_per_bericht UNIQUE (bericht_db_id, bijlage_id),
     CONSTRAINT fk_bijlage_bericht FOREIGN KEY (bericht_db_id) REFERENCES bericht (id)
 );
-
-CREATE INDEX idx_bijlage_bericht_db_id ON bijlage (bericht_db_id);

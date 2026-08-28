@@ -198,9 +198,24 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
             .body("totalElements", equalTo(1))
     }
 
+    /**
+     * Twee afzenders naast elkaar, en beide kanten van het filter. Met alleen het negatieve geval
+     * blijft een filter dat altijd niets teruggeeft groen — en dat is precies de fout die je in een
+     * demo pas ziet als een lijst onverklaarbaar leeg blijft.
+     */
     @Test
-    fun `het afzenderfilter houdt alleen berichten van die afzender over`() {
-        leverAan(afzender = MAGAZIJN)
+    fun `het afzenderfilter houdt precies de berichten van die afzender over`() {
+        leverAan(afzender = MAGAZIJN, onderwerp = "Van dit magazijn")
+        leverAan(afzender = ANDERE_AFZENDER, onderwerp = "Van de ander")
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .queryParam("afzender", MAGAZIJN)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", equalTo(1))
+            .body("berichten.onderwerp", contains("Van dit magazijn"))
 
         given()
             .header(ONTVANGER_HEADER, ONTVANGER)
@@ -208,8 +223,22 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
             .`when`().get("$BASIS/berichten")
             .then()
             .statusCode(200)
-            .body("totalElements", equalTo(0))
+            .body("totalElements", equalTo(1))
+            .body("berichten.onderwerp", contains("Van de ander"))
             .body("_links.self.href", endsWith("afzender=$ANDERE_AFZENDER"))
+    }
+
+    @Test
+    fun `zonder afzenderfilter komen de berichten van alle afzenders terug`() {
+        leverAan(afzender = MAGAZIJN)
+        leverAan(afzender = ANDERE_AFZENDER)
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", equalTo(2))
     }
 
     private fun leverAan(
