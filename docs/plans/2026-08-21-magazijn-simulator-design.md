@@ -1,4 +1,4 @@
-**Status:** In uitvoering — stap 1 t/m 3 gebouwd (`demo/magazijn-simulator`), stap 4 t/m 7 nog niet.
+**Status:** In uitvoering — stap 1 t/m 4 gebouwd (`demo/magazijn-simulator`), stap 5 t/m 7 nog niet.
 
 # Magazijn-simulator — veel magazijnen met echte state — ontwerp
 
@@ -575,8 +575,11 @@ bij die net zo goed getest horen te worden.
    blijft. Het filter draait bewust ná het matchen: een `@PreMatching`-filter zou vóór de overstap
    naar een worker-thread draaien en met zijn wachttijd de event-loop blokkeren, waardoor één traag
    magazijn álle andere zou stilzetten.
-4. **Beheer-API + token.** Inrichten, seed, legen, gedrag. Verificatie: 100 magazijnen × 20 berichten
-   geseed in < 10 s; 401 zonder token onder `%prod`.
+4. ~~**Beheer-API + token.**~~ **Gedaan** (MinBZK/MijnOverheidZakelijk#1010). Seed, legen, gedrag en
+   een overzicht erbij — dat laatste heeft de demo-console nodig om te tonen wat er staat. Het
+   inrichten van de set zit er bewust níét in: die komt uit de configuratie, zoals dit ontwerp
+   beschrijft. Geverifieerd met een test op honderd magazijnen: 2000 berichten en 500 bijlagen ruim
+   binnen tien seconden, en 401 zonder token.
 5. **Generator en compose omzetten.** WireMock-stub-service en `VeelMagazijnenService` eruit,
    simulator erin, vier persona's in de profiel-stub, de twee magazijn-proxies uit Toxiproxy.
    Verificatie: `demo/smoke.sh` groen, de vier persona's leveren fan-out 3 / 15 / 45 / 100.

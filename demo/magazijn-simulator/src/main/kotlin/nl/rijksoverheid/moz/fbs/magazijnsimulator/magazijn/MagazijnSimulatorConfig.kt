@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn
 
 import io.smallrye.config.ConfigMapping
+import io.smallrye.config.WithParentName
 import java.util.Optional
 import java.util.OptionalInt
 
@@ -15,10 +16,16 @@ import java.util.OptionalInt
  * Key- en waardevalidatie gebeurt fail-fast in [MagazijnConfiguratie]; Bean Validation op deze
  * interface zou door Quarkus' ArC-deployment-checker als CDI-interceptor-binding op anonieme
  * test-subklassen worden gevlagd.
+ *
+ * Het prefix reikt bewust tot `magazijnsimulator.magazijnen` en niet tot `magazijnsimulator`. Een
+ * mapping claimt zijn hele namespace en eist dat élke sleutel eronder ergens op uitkomt; met het
+ * kortere prefix zou `magazijnsimulator.beheer.token` de boot laten falen met "does not map to any
+ * root".
  */
-@ConfigMapping(prefix = "magazijnsimulator")
+@ConfigMapping(prefix = "magazijnsimulator.magazijnen")
 interface MagazijnSimulatorConfig {
 
+    @WithParentName
     fun magazijnen(): Map<String, Inschrijving>
 
     interface Inschrijving {

@@ -1,0 +1,67 @@
+package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
+
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
+
+/**
+ * De vorm van het beheerpad, bewust buiten de gedeelde spec.
+ *
+ * Het beheerpad hoort bij de simulator en niet bij het contract dat hij naspeelt: de gegenereerde
+ * interfaces blijven zo precies wat het echte magazijn ook aanbiedt, en niemand kan het beheerpad
+ * per ongeluk voor onderdeel van de spec aanzien.
+ */
+data class SeedVerzoek(
+    /** Voor wie er berichten klaargezet worden, in de vorm `<TYPE>:<WAARDE>` van `X-Ontvanger`. */
+    val ontvangers: List<String>,
+    /**
+     * Hoeveel berichten elke ontvanger per magazijn krijgt.
+     *
+     * Twintig is niet toevallig: de uitvraag haalt per magazijn één pagina op en het magazijn levert
+     * er standaard twintig, dus daarboven ziet de ondernemer niets. Zolang dat gat openstaat
+     * (MinBZK/MijnOverheidZakelijk#996) demonstreer je met meer onbedoeld dát gat in plaats van het
+     * gedrag dat je wilt tonen. Wie het gat juist wél wil laten zien, zet er bewust meer in.
+     */
+    val berichtenPerMagazijn: Int = STANDAARD_AANTAL,
+    /** Elk hoeveelste bericht een bijlage krijgt; 0 betekent geen bijlagen. */
+    val bijlageElke: Int = STANDAARD_BIJLAGE_ELKE,
+) {
+    companion object {
+        const val STANDAARD_AANTAL = 20
+        const val STANDAARD_BIJLAGE_ELKE = 4
+        const val MAX_AANTAL = 200
+    }
+}
+
+/** Wat er is klaargezet. */
+data class SeedUitkomst(
+    val magazijnen: Int,
+    val ontvangers: Int,
+    val berichten: Int,
+    val bijlagen: Int,
+    val duurMs: Long,
+)
+
+/** Wat er is opgeruimd. */
+data class LeegUitkomst(val berichten: Int, val magazijnenTeruggezet: Int)
+
+/**
+ * Het gedrag van één magazijn, zoals het beheerpad het instelt. Alles behalve de modus is optioneel;
+ * wat weggelaten wordt, komt uit de standaardwaardes van die modus.
+ */
+data class GedragVerzoek(
+    val modus: GedragModus,
+    val latencyP50Ms: Int? = null,
+    val latencyP95Ms: Int? = null,
+    val foutkans: Double? = null,
+    val foutStatus: Int? = null,
+)
+
+/** Eén magazijn zoals het beheerpad het toont. */
+data class MagazijnOverzicht(
+    val oin: String,
+    val naam: String,
+    val modus: GedragModus,
+    val latencyP50Ms: Int,
+    val latencyP95Ms: Int,
+    val foutkans: Double,
+    val foutStatus: Int,
+)
