@@ -381,21 +381,38 @@ ZAD_API_KEY=$SLEUTEL_MAGAZIJNEN .github/scripts/cross-domain-preview.sh zet mpfm
 
 ### De keten door de proxies leiden
 
-De drie stromen die vandaag rechtstreeks lopen, gaan er nu doorheen. Op `magazijna` én `magazijnb`:
+Welke dienst achter welke proxy hoort, staat vast in `compose.yaml`; ZAD spiegelt dat, anders doet
+dezelfde knop lokaal iets anders dan op de demo.
 
-```bash
-zadctl alias set -c magazijna \
-  'PROFIEL_SERVICE_URL=https://toxiproxy-profiel-$DEPLOYMENT_NAME-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl' \
-  'NOTIFICATIE_URL=https://toxiproxy-notificatie-$DEPLOYMENT_NAME-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl/events' \
-  'AANMELD_URL=https://toxiproxy-aanmeld-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/aanmeldingen'
-```
+| Proxy | Wie roept aan | Sleutel om te verzetten |
+|---|---|---|
+| `profiel` | `uitvraag` (`mpfb-8wh`) | `PROFIEL_SERVICE_URL` |
+| `notificatie` | `magazijna`, `magazijnb` (`mpfm-w3h`) | `NOTIFICATIE_URL` |
+| `aanmeld` | `magazijna`, `magazijnb` (`mpfm-w3h`) | `AANMELD_URL` |
+| `redis` | `uitvraag` (`mpfb-8wh`) | `REDIS_HOSTS` |
 
-En op `uitvraag` in `mpfb-8wh` de sessiecache door zijn proxy, met hetzelfde schema als er nu staat
-— dit verzet alleen host en poort:
+Let op de eerste rij: het is de **uitvraag** die de profielservice bevraagt om te bepalen welke
+magazijnen een ontvanger gebruikt. De magazijnen hebben óók een `PROFIEL_SERVICE_URL` — die blijft
+rechtstreeks, precies zoals in `compose.yaml`. Zet je die ook om, dan haalt "profiel uit" twee
+verschillende dingen tegelijk onderuit en is niet meer te vertellen wat de demo laat zien.
+
+Op `uitvraag` in `mpfb-8wh`. `REDIS_HOSTS` houdt het schema dat er staat — dit verzet alleen host en
+poort:
 
 ```bash
 zadctl -p mpfb-8wh alias set -c uitvraag \
+  'PROFIEL_SERVICE_URL=https://toxiproxy-profiel-$DEPLOYMENT_NAME-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl' \
   'REDIS_HOSTS=redis://$DEPLOYMENT_NAME-toxiproxy-redis:16379'
+```
+
+Op `magazijna` én `magazijnb` in `mpfm-w3h`:
+
+```bash
+for m in magazijna magazijnb; do
+  zadctl -p mpfm-w3h alias set -c "$m" \
+    'NOTIFICATIE_URL=https://toxiproxy-notificatie-$DEPLOYMENT_NAME-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl/events' \
+    'AANMELD_URL=https://toxiproxy-aanmeld-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/aanmeldingen'
+done
 ```
 
 **De console blijft rechtstreeks op Redis staan.** Zijn `REDIS_HOSTS` uit stap 5 verandert niet: de
