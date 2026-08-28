@@ -247,7 +247,10 @@ Er komt géén `proxies.json` mee. De inhoud van een attachment wordt ongewijzig
 bestand zou in elke preview naar de upstream van `test` wijzen — en dat is de stilste faalwijze die
 er is. De console maakt de proxies daarom zelf aan via de admin-API, met een upstream uit een alias;
 aliassen kennen `$DEPLOYMENT_NAME` wél. Hij herhaalt dat elke dertig seconden, want Toxiproxy houdt
-zijn proxies in het geheugen en verliest ze bij een herstart.
+zijn proxies in het geheugen en verliest ze bij een herstart — en hij vergelijkt daarbij: een proxy
+die naar de verkeerde upstream of poort wijst wordt opnieuw gebouwd. Zo blijft een bijgestelde alias
+niet hangen achter een pod die toevallig bleef draaien. Wat klopt blijft ongemoeid, ook een bewust
+uitgezette proxy.
 
 ### Twee poorten per component
 
