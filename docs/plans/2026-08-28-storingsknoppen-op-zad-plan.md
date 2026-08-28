@@ -154,10 +154,12 @@ dan als een demo die stilletjes het verkeerde magazijn aanspreekt.
 
 Vier dingen die dit plan niet voorzag; ze staan alle vier in het ontwerp en het runbook.
 
-- **De ZAD-mirror bedient `ghcr.io/shopify` niet** (HTTP 500, over meerdere pod-generaties). Docker
-  Hub biedt geen uitweg: upstream staat daar sinds 2019 stil op 2.1.4. Vandaar
-  `toxiproxy/Dockerfile`, dat het image doorpubliceert als `ghcr.io/minbzk/fbs-toxiproxy` — hetzelfde
-  patroon als `wiremock/demo-profiel`, nu ook met een digest-pin.
+- **De ZAD-mirror struikelt over de manifest list van Toxiproxy** (HTTP 500). Die draagt
+  `linux/arm/v6` twee keer met dezelfde digest, en de Quay-pull-through-cache schendt daarop een
+  unique constraint. Niet de namespace: acht andere niet-eigen ghcr-namespaces draaien er wél
+  doorheen. Opgelost door op de amd64-child te pinnen in plaats van op de lijst — een child heeft
+  geen kinderen. Upstream Quay dedupliceert inmiddels (PROJQUAY-10068), maar dat zit in geen enkele
+  release.
 - **De `profiel`-proxy hoort vóór de uitvraag**, niet vóór de magazijnen. `compose.yaml` is daar de
   bron; dit plan had het aan de verkeerde kant staan.
 - **Een regel zonder bestaand peer-component wordt stilzwijgend niet gerenderd.** De configuratie

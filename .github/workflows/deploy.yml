@@ -160,13 +160,24 @@ env:
     democonsole-naar-toxiproxy-redis
     democonsole-naar-toxiproxy-profiel
     democonsole-naar-toxiproxy-notificatie
-  # Toxiproxy komt van ons eigen ghcr, niet rechtstreeks van upstream: de manifest list van
-  # `ghcr.io/shopify/toxiproxy` draagt `linux/arm/v6` twee keer met dezelfde digest, waar de
-  # Quay-pull-through-cache van ZAD een unique constraint op schendt en HTTP 500 teruggeeft. Zie
-  # toxiproxy/Dockerfile — daar staat de upstream-pin, en pin-consistency.yml houdt die gelijk aan
-  # compose.yaml. Het image wordt per commit gebouwd door build-toxiproxy hieronder; de tag draagt
-  # dezelfde head-sha als de rest, want Argo synct op een gewijzigd manifest.
-  TOXIPROXY_IMAGE_NAAM: fbs-toxiproxy
+  # Toxiproxy op de amd64-child in plaats van op de manifest list. Die lijst draagt vier entries met
+  # drie unieke digests — `linux/arm/v6` staat er twee keer in met dezelfde digest — en de
+  # Quay-pull-through-cache van ZAD schendt daarop een unique constraint en geeft HTTP 500. Een
+  # child is een gewoon manifest zonder kinderen, dus daar struikelt hij niet over.
+  #
+  # De tag staat er alleen bij zodat pin-consistency.yml deze regel aan compose.yaml kan binden; de
+  # digest bepaalt wat er getrokken wordt. Bij een versiebump moeten ze samen bewegen:
+  #
+  #   TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:shopify/toxiproxy:pull" | jq -r .token)
+  #   curl -s -H "Authorization: Bearer $TOKEN" \
+  #     -H "Accept: application/vnd.oci.image.index.v1+json" \
+  #     "https://ghcr.io/v2/shopify/toxiproxy/manifests/<versie>" |
+  #     jq -r '.manifests[] | select(.platform.architecture=="amd64") | .digest'
+  #
+  # Alleen amd64: ZAD draait daarop, en compose houdt de multi-arch-tag voor wie op arm werkt.
+  # Verdwijnt de dubbele child upstream, of komt de Quay-dedupe (PROJQUAY-10068) in een release, dan
+  # kan de digest hier weg en volstaat de tag.
+  TOXIPROXY_IMAGE: 'ghcr.io/shopify/toxiproxy:2.12.0@sha256:a3e244375123dad8849091bcc59775e188624d3f602db01901f9af855682fef8'
 
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
@@ -386,36 +397,6 @@ jobs:
           DEMO_IMG="$REGISTRY/$OWNER/fbs-demo-profiel:$TAG"
           docker build -t "$DEMO_IMG" -f wiremock/demo-profiel/Dockerfile wiremock
           docker push "$DEMO_IMG"
-
-  # Toxiproxy ongewijzigd doorpubliceren onder onze eigen namespace, omdat de ZAD-mirror de
-  # upstream-namespace niet bedient. Zelfde reden voor het ontbreken van een paths-filter als bij
-  # build-externe-stubs: de deploy-jobs verwachten een image op de tag van déze run.
-  build-toxiproxy:
-    if: github.event_name == 'push' || needs.changes.outputs.deploy == 'true'
-    needs: [meta, changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    concurrency:
-      group: build-toxiproxy-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: true
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build + push toxiproxy
-        env:
-          OWNER: ${{ needs.meta.outputs.owner }}
-          TAG: ${{ needs.meta.outputs.tag }}
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
-          IMG="$REGISTRY/$OWNER/$TOXIPROXY_IMAGE_NAAM:$TAG"
-          docker build -t "$IMG" toxiproxy
-          docker push "$IMG"
 
   # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
   # interne manager-API heeft daar geen route en de tenant-baseline-NetworkPolicy laat alleen
@@ -649,11 +630,10 @@ jobs:
       && needs.meta.result == 'success'
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
-      && needs.build-toxiproxy.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    needs: [meta, build, build-externe-stubs, build-toxiproxy, gate, changes]
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Eén ZAD-taak tegelijk op deze deployment; een nieuwe push wacht op de lopende i.p.v. die af
@@ -694,8 +674,8 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
-              {"name": "toxiproxy-aanmeld", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/${{ env.TOXIPROXY_IMAGE_NAAM }}:${{ needs.meta.outputs.tag }}"},
-              {"name": "toxiproxy-redis", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/${{ env.TOXIPROXY_IMAGE_NAAM }}:${{ needs.meta.outputs.tag }}"},
+              {"name": "toxiproxy-aanmeld", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-redis", "image": "${{ env.TOXIPROXY_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -718,11 +698,10 @@ jobs:
       && needs.meta.result == 'success'
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
-      && needs.build-toxiproxy.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    needs: [meta, build, build-externe-stubs, build-toxiproxy, gate, changes]
+    needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -757,8 +736,8 @@ jobs:
             [
               {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
               {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
-              {"name": "toxiproxy-profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/${{ env.TOXIPROXY_IMAGE_NAAM }}:${{ needs.meta.outputs.tag }}"},
-              {"name": "toxiproxy-notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/${{ env.TOXIPROXY_IMAGE_NAAM }}:${{ needs.meta.outputs.tag }}"}
+              {"name": "toxiproxy-profiel", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
             ]
 
       # De admin-API's van die twee Toxiproxy's staan in dít project, dus deze kant draagt hun
@@ -839,12 +818,11 @@ jobs:
       && needs.meta.result == 'success'
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
-      && needs.build-toxiproxy.result == 'success'
       && needs.build-contract-bootstrap.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs, build-toxiproxy, build-contract-bootstrap, gate]
+    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Eén ZAD-taak tegelijk op de `test`-deployment van dit project; twee snel opeenvolgende merges
@@ -866,8 +844,8 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
-              {"name": "toxiproxy-aanmeld", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/${{ env.TOXIPROXY_IMAGE_NAAM }}:${{ needs.meta.outputs.tag }}"},
-              {"name": "toxiproxy-redis", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/${{ env.TOXIPROXY_IMAGE_NAAM }}:${{ needs.meta.outputs.tag }}"},
+              {"name": "toxiproxy-aanmeld", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-redis", "image": "${{ env.TOXIPROXY_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -902,11 +880,10 @@ jobs:
       && needs.meta.result == 'success'
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
-      && needs.build-toxiproxy.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs, build-toxiproxy, gate]
+    needs: [meta, build, build-externe-stubs, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -925,8 +902,8 @@ jobs:
             [
               {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
               {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
-              {"name": "toxiproxy-profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/${{ env.TOXIPROXY_IMAGE_NAAM }}:${{ needs.meta.outputs.tag }}"},
-              {"name": "toxiproxy-notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/${{ env.TOXIPROXY_IMAGE_NAAM }}:${{ needs.meta.outputs.tag }}"}
+              {"name": "toxiproxy-profiel", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
             ]
 
   deploy-test-magazijnen:
@@ -1002,7 +979,6 @@ jobs:
       - build-externe-stubs
       - build-contract-bootstrap
       - build-democonsole
-      - build-toxiproxy
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
       - deploy-preview-magazijnen

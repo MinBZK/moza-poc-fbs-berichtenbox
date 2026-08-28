@@ -146,10 +146,14 @@ per child een rij in een tabel met een unique constraint, en de tweede identieke
 IntegrityError die als 500 naar buiten komt. Upstream Quay dedupliceert inmiddels (PROJQUAY-10068,
 4 augustus 2026), maar dat zit in geen enkele release, ook niet in v3.17.4.
 
-Docker Hub biedt geen uitweg (stil sinds 2019 op 2.1.4), dus publiceert `toxiproxy/Dockerfile` het
-image door als `ghcr.io/minbzk/fbs-toxiproxy`, gepind op tag én digest — hetzelfde patroon als
-`wiremock/demo-profiel`. Een kortere, onbeproefde weg staat in dat bestand beschreven: pinnen op de
-platform-specifieke child in plaats van op de lijst.
+De uitweg is de lijst overslaan: `TOXIPROXY_IMAGE` pint de amd64-child, en een child is een gewoon
+manifest zónder kinderen. Beproefd op de preview — de pod trok hem door de mirror en Toxiproxy
+startte. De tag staat er alleen bij zodat `pin-consistency.yml` de verwijzing aan `compose.yaml` kan
+binden; `compose.yaml` houdt de multi-arch-tag, zodat lokaal ook arm werkt.
+
+Onderweg hebben we het image eerst onder onze eigen namespace doorgepubliceerd. Dat werkte, maar
+kostte een Dockerfile, een build-job en een kopie die met upstream mee moet bewegen; de digest-pin
+doet hetzelfde met één regel. Docker Hub was geen optie: dat staat sinds 2019 stil op 2.1.4.
 
 **Twee ordeningen die niet vrij zijn.** Een regel waarvan het peer-component nog niet bestaat, wordt
 bij het renderen overgeslagen — met een waarschuwing, terwijl de deployment `Healthy` meldt en de

@@ -295,19 +295,21 @@ antwoordt een 503 en het magazijn ziet een dienst die wegviel — wat de demo wi
 Toxiproxy start met zijn eigen default-`CMD` (`-host=0.0.0.0`) prima op met nul proxies. Er is dus
 geen startcommando nodig, en dat scheelt het UI-handwerk dat een hercreatie niet overleeft.
 
-**Het image komt van ons eigen ghcr, niet van upstream.** De ZAD-mirror geeft op
-`rcr.rijksapps.nl/ghcr-rig/shopify/toxiproxy` een HTTP 500, omdat de manifest list van Toxiproxy
-`linux/arm/v6` twee keer bevat met dezelfde digest en de Quay-cache daarop een unique constraint
-schendt. `toxiproxy/Dockerfile` publiceert het image daarom ongewijzigd door als `fbs-toxiproxy`, en
-`build-toxiproxy` in `deploy.yml` bouwt dat per commit — dat resultaat is een enkelvoudig manifest
-zonder kinderen, dus de cache struikelt er niet over. Kies bij het aanmaken een tag die echt bestaat,
-net als bij de console: `main-<sha7>` of `pr-<n>-<sha7>`.
+**Het image wordt op de amd64-child gepind, niet op de tag.** De ZAD-mirror geeft op
+`rcr.rijksapps.nl/ghcr-rig/shopify/toxiproxy:2.12.0` een HTTP 500: de manifest list van Toxiproxy
+draagt `linux/arm/v6` twee keer met dezelfde digest, en de Quay-pull-through-cache schendt daarop een
+unique constraint. Een child is een gewoon manifest zónder kinderen, dus daar struikelt hij niet
+over. `TOXIPROXY_IMAGE` in `deploy.yml` draagt de volledige verwijzing; de tag staat er alleen bij
+zodat `pin-consistency.yml` hem aan `compose.yaml` kan binden.
 
 ```bash
+# Dezelfde waarde als TOXIPROXY_IMAGE in deploy.yml; die is de bron.
+TOXIPROXY_IMAGE='ghcr.io/shopify/toxiproxy:2.12.0@sha256:a3e244375123dad8849091bcc59775e188624d3f602db01901f9af855682fef8'
+
 for c in profiel:18089 notificatie:18084; do
   naam=toxiproxy-${c%%:*}
   zadctl -p mpfpsm-lcl component add "$naam" \
-    --image ghcr.io/minbzk/fbs-toxiproxy:main-<sha7> \
+    --image "$TOXIPROXY_IMAGE" \
     --deployment test \
     --ports "${c##*:}" --ports 8474 \
     --service publish-on-web \
@@ -319,7 +321,7 @@ done
 for c in aanmeld:18086; do
   naam=toxiproxy-${c%%:*}
   zadctl -p mpfb-8wh component add "$naam" \
-    --image ghcr.io/minbzk/fbs-toxiproxy:main-<sha7> \
+    --image "$TOXIPROXY_IMAGE" \
     --deployment test \
     --ports "${c##*:}" --ports 8474 \
     --service publish-on-web \
@@ -329,7 +331,7 @@ for c in aanmeld:18086; do
 done
 
 zadctl -p mpfb-8wh component add toxiproxy-redis \
-  --image ghcr.io/minbzk/fbs-toxiproxy:main-<sha7> \
+  --image "$TOXIPROXY_IMAGE" \
   --deployment test \
   --ports 16379 --ports 8474 \
   --service health-check
@@ -337,13 +339,16 @@ zadctl -p mpfb-8wh service config set health-check -c toxiproxy-redis \
   --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
 ```
 
-De upstream-pin staat op één plek — `toxiproxy/Dockerfile` — en `pin-consistency.yml` houdt hem
-gelijk aan `compose.yaml`. De tag in de OM-projectspec valt buiten die guard (andere repository, net
-als bij Redis), maar die beweegt vanzelf mee met elke uitrol.
+`pin-consistency.yml` houdt de tag in `deploy.yml` gelijk aan die in `compose.yaml`; de digest
+ernaast beweegt bij een versiebump mee, en `deploy.yml` legt uit hoe je hem opzoekt. De verwijzing in
+de OM-projectspec valt buiten die guard (andere repository, net als bij Redis), maar die beweegt
+vanzelf mee met elke uitrol.
 
-Haalt upstream de dubbele child weg, of komt de Quay-dedupe in een release, dan kan
-`toxiproxy/Dockerfile` weg en wijzen de componenten weer rechtstreeks naar
-`ghcr.io/shopify/toxiproxy`. Dat bestand beschrijft ook een kortere, onbeproefde tussenweg.
+Alleen amd64: ZAD draait daarop. `compose.yaml` houdt bewust de multi-arch-tag, zodat de demo lokaal
+ook op arm werkt.
+
+Haalt upstream de dubbele child weg, of komt de Quay-dedupe (PROJQUAY-10068) in een release, dan kan
+de digest weg en volstaat de tag.
 
 ### De netwerkregels voor de admin-API's
 
