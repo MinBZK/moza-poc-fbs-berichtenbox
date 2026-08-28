@@ -350,6 +350,12 @@ ook op arm werkt.
 Haalt upstream de dubbele child weg, of komt de Quay-dedupe (PROJQUAY-10068) in een release, dan kan
 de digest weg en volstaat de tag.
 
+**Nog op te ruimen.** Onderweg is het image korte tijd onder onze eigen namespace doorgepubliceerd
+(`ghcr.io/minbzk/fbs-toxiproxy`), en de componenten in `test` zijn met díe verwijzing aangemaakt. De
+eerstvolgende `deploy-test-*` zet ze op `TOXIPROXY_IMAGE`; daarna is dat package wees en kan het
+weg. Het staat niet in de sweep-lijst van `cleanup-preview.yml`, dus tot die tijd verdwijnt het niet
+vanzelf — en dat is maar goed ook, want `test` trekt het nog.
+
 ### De netwerkregels voor de admin-API's
 
 Vier hops, dus vier regels — één regel opent één poort op één component bij één peer. Elke regel
