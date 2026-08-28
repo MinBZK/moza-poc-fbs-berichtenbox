@@ -477,38 +477,49 @@ organisaties.
 
 ## Meting (stap 6)
 
-Gemeten met `demo/meet-fanout.sh`, dat de SSE-stroom van de uitvraag meeleest en per regel een
-tijdstempel wegschrijft. Elke ronde begint met een lege sessiecache, anders meet de tweede ronde het
-cache-pad en lijkt de fan-out gratis. Alles draaide op één machine van zes kernen: de uitvraag, zijn
-Redis, de twee echte magazijnen met elk een eigen PostgreSQL, de simulator met 98 magazijnen op nog
-een PostgreSQL, het bedieningspaneel en de stubs. De getallen hieronder zijn daarmee **pessimistisch**
-— in het echte stelsel staat elk magazijn op eigen ijzer.
+Gemeten met `demo/meet-fanout.sh`, dat de aanvraag verstuurt, de SSE-stroom meeleest en elke regel
+binnen hetzelfde proces van een tijdstempel voorziet. Beide getallen tellen vanaf het versturen van
+de aanvraag. Elke ronde begint met een lege sessiecache, anders meet de tweede ronde het cache-pad en
+lijkt de fan-out gratis.
 
-Mediaan over drie ronden, 20 berichten per magazijn:
+Alles draaide op één machine van zes kernen: de uitvraag, zijn Redis, de twee echte magazijnen met
+elk een eigen PostgreSQL, de simulator met 98 magazijnen op nog een PostgreSQL, het bedieningspaneel
+en de stubs. De getallen zijn daarmee **pessimistisch** — in het echte stelsel staat elk magazijn op
+eigen ijzer.
+
+Vijf ronden per ondernemer, 20 berichten per magazijn:
 
 | Ondernemer | Organisaties | Tijd tot eerste bericht | Tijd tot compleet | Geslaagd |
 |---|---|---|---|---|
-| kleine-eenmanszaak | 3 | 16 ms | 0,1 s | 3 van 3 |
-| klein-bedrijf | 15 | 23 ms | 2,8 s | 15 van 15 |
-| grootbedrijf | 45 | 58 ms | 3,3 s | 41 van 45 |
-| landelijk-concern | 100 | 94 ms | 6,4 s | 91 van 100 |
+| kleine-eenmanszaak | 3 | 43 ms | 0,13 s | 3 van 3 |
+| klein-bedrijf | 15 | 49 ms | 1,5 s | 15 van 15 |
+| grootbedrijf | 45 | 94 ms | 10,1 s → 3,0 s | 41 van 45 |
+| landelijk-concern | 100 | 137 ms | 10,1 s → 2,7 s | 91 van 100 |
 
 Drie dingen vallen op.
 
-**De lijst begint altijd binnen een tiende seconde te vullen.** Van 3 naar 100 organisaties loopt de
-tijd tot het eerste bericht van 16 naar 94 ms. Dat is het getal dat een ondernemer als "reageert het"
-ervaart, en het is nagenoeg ongevoelig voor de fan-out.
+**De lijst begint binnen een vijfde seconde te vullen.** De tijd tot het eerste bericht loopt van 43
+naar 137 ms tussen 3 en 100 organisaties. Op één na bleven alle twintig metingen onder 0,25 seconde;
+die ene uitzondering is de eerste ronde na een herstart (0,54 s), waarin de uitvraag nog aan het
+opwarmen is. Dat is het getal dat een ondernemer als "reageert het" ervaart, en het groeit veel
+langzamer dan de fan-out.
 
 **Wat niet slaagde, was bedoeld om niet te slagen.** De verdeling zet bij 98 magazijnen er twee uit,
 drie op serverfout, één op weigeren en één op onbruikbaar antwoord, plus vier die de helft van de
-tijd haperen — samen zeven tot tien bij fan-out 100 en drie tot vijf bij 45. Dat is precies wat er
+tijd haperen — samen negen tot tien bij fan-out 100 en drie tot vijf bij 45. Dat is precies wat er
 uitviel. Alles dat kón antwoorden, antwoordde.
 
-**"Compleet" hangt aan het traagste magazijn, niet aan het aantal.** Zolang een onbereikbaar magazijn
-nog geprobeerd wordt, duurt de ronde de volle timeout van tien seconden; zodra zijn circuit breaker
-open staat wordt hij overgeslagen en zakt dezelfde ronde naar twee à drie seconden. De eerste
-ophaalronde na een herstart is dus de traagste die je ziet — goed om te weten vóór je hem aan een
-zaal laat zien.
+**"Compleet" wordt bepaald door één onbereikbare organisatie, en daarna door de traagste die wél
+antwoordt.** In elke ronde is het laatste event dezelfde timeout op precies 10,0 seconden: de
+uitvraag wacht `magazijn-query-timeout-seconds` af op een organisatie die niet reageert. Pas na drie
+opeenvolgende storingen opent de circuit breaker en wordt die organisatie 30 seconden overgeslagen —
+zichtbaar in de meting als een ronde die van 10,1 naar 3,0 seconden zakt (bij 45 organisaties vanaf
+ronde 4, bij 100 vanaf ronde 5, omdat de tweede onbereikbare organisatie zijn drie storingen later
+vol heeft). Wat er dan overblijft is de traagste organisatie die wél antwoordt: rond de drie
+seconden.
+
+Praktisch voor een demo: **de eerste ronden na een herstart zijn de traagste die je ziet**, en die
+tien seconden komen van één organisatie die eruit ligt — niet van het aantal.
 
 ### Waar het plafond ligt
 
@@ -526,17 +537,19 @@ viel bij fan-out 100 vrijwel alles om — inclusief magazijnen die op normaal st
 drie het nog niet; met honderdtwintig, en PostgreSQL op tweehonderd verbindingen, is het stabiel. Dit
 is een eigenschap van de simulator, niet van de Berichtenbox.
 
-**Het aantal magazijnen in het register kost niets.** Van 98 naar 250 gesimuleerde magazijnen:
-opstarttijd van de uitvraag 2,8 → 3,0 s en geheugen 352 → 361 MB; van de simulator 4,2 → 4,5 s en
-450 → 424 MB. Eén REST-client per magazijn en twee regels register per magazijn zijn op deze
-schaal geen kostenpost. De grens die we zochten ligt daar dus niet.
+**Het aantal magazijnen in het register kost niets.** Eén meting per omvang, direct na een verse
+start: van 98 naar 250 gesimuleerde magazijnen gaat de opstarttijd van de uitvraag van 2,8 naar
+3,0 s en zijn geheugengebruik van 352 naar 361 MB; de simulator van 4,2 naar 4,5 s en van 450 naar
+424 MB. Dat de simulator er 26 MB op *daalt* laat zien wat deze getallen zijn: het verschil valt
+binnen de ruis, en dat is precies de conclusie. Eén REST-client per magazijn en twee regels register
+per magazijn zijn op deze schaal geen kostenpost. De grens die we zochten ligt daar dus niet.
 
 ### Conclusie voor #938
 
 **Demonstreren met honderd organisaties** — 98 gesimuleerd plus de twee echte magazijnen — met de
 vier ondernemers op 3, 15, 45 en 100. Dat is haalbaar op een laptop, kost geen merkbare opstarttijd
 of geheugen, en laat het gedrag zien dat de vraag stelt: de lijst vult zich meteen, en het compleet
-worden hangt aan de traagste organisatie en niet aan het aantal. Het realisme zit in de
+worden hangt aan één organisatie die eruit ligt en niet aan het aantal. Het realisme zit in de
 gedragsverdeling — een handvol traag, een paar eruit — en niet in het getal.
 
 ## Wat vervalt
