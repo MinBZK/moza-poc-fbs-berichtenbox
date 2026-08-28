@@ -34,19 +34,28 @@ SIMULATOR_URL='${MAGAZIJN_SIMULATOR_URL}' DEMO_MAGAZIJNEN=98 python3 demo/genere
 
 Dat levert regels als `magazijnen."<OIN>".url=${MAGAZIJN_SIMULATOR_URL}/magazijn/<OIN>`. De
 variabele komt uit een alias op het uitvraag-component, en aliassen kennen `$DEPLOYMENT_NAME` wél;
-SmallRye vult de expressie in bij het lezen van het register. **Te verifiëren bij de eerste uitrol:**
-dat SmallRye die expansie ook toepast op een bestand dat via `SMALLRYE_CONFIG_LOCATIONS` binnenkomt.
-Zo niet, dan is het alternatief het register in het uitvraag-image bakken en per deployment
-genereren — duurder, want dan hangt de fan-out aan een image-build.
+SmallRye vult de expressie in bij het lezen van het register. Dat die expansie ook geldt voor een
+bestand uit `SMALLRYE_CONFIG_LOCATIONS` is lokaal vastgesteld: een uitvraag die zo'n register kreeg
+zónder de variabele weigerde te starten met `SRCFG00011: Could not expand value
+MAGAZIJN_SIMULATOR_URL`. Hij probeert de expansie dus wel degelijk, en faalt luidruchtig als de
+variabele ontbreekt in plaats van het adres letterlijk te nemen.
 
 **Een eigen schema in de gedeelde database.** ZAD levert één database en één user per deployment, en
 de simulator draagt tabelnamen die ook bij de magazijnen bestaan. `DB_SCHEMA` is daarom verplicht;
 zonder die variabele start hij niet (`%prod` heeft geen default).
 
-**`/beheer` is bereikbaar zodra het component publiceert.** Het beheerpad zit op dezelfde poort als
-de magazijnen — een component publiceert alleen `ports[0]`, en dat is die poort. De bescherming is
-het token: `BEHEER_TOKEN` is buiten dev/test verplicht en de service weigert te starten zonder.
-Zet dus een echt geheim, geen demo-waarde.
+**Publiceren zet meer open dan alleen het beheerpad.** Een component publiceert `ports[0]`, en
+daarop zitten zowel `/magazijn/<OIN>/api/v1/berichten` als `/beheer`. Voor het beheerpad is de
+bescherming het token: `BEHEER_TOKEN` is buiten dev en test verplicht en de service weigert te
+starten zonder. Zet dus een echt geheim, geen demo-waarde, en zet dezelfde waarde op de
+console — die stuurt hem mee als `X-Beheer-Token`, anders geeft elke knop een 401 terwijl de keten
+verder gezond is.
+
+Het magazijnpad zelf staat er dan onbeschermd naast: wie de URL en een `X-Ontvanger`-header heeft,
+haalt de demoberichten op. Een `authorization-wall` zoals de console die heeft, kan hier niet — de
+uitvraag komt over diezelfde ingress binnen en zou er zelf op stuklopen. Dat is te verdedigen zolang
+er uitsluitend demodata in staat, en dat is precies wat de simulator vult; maar het is een keuze en
+geen gegeven. Zet er nooit echte persoonsgegevens in.
 
 ## 1. Het component aanmaken
 
@@ -60,7 +69,7 @@ zadctl project use mpfm-w3h
 zadctl component add magazijnsimulator \
   --image ghcr.io/minbzk/fbs-magazijn-simulator:main-<sha7> \
   --deployment test \
-  --port 8092 \
+  --ports 8092 \
   --service postgresql-database \
   --service publish-on-web \
   --service health-check \
@@ -73,21 +82,36 @@ DB_PASSWORD: $DATABASE_PASSWORD
 
 `health-check` staat er bewust bij: zonder die dienst probeert Kubernetes een TCP-socket op de eerste
 poort, met een liveness-probe die de pod na anderhalve minuut herstart. De simulator zet die poort
-nooit zelf dicht, dus het zou werken — maar een echte probe op `/q/health/ready` wacht ook op Flyway
-en de database, en dat is precies wat je bij het vullen wilt weten.
+nooit zelf dicht, dus het zou werken — maar een echte probe wacht ook op Flyway en de database, en
+dat is precies wat je bij het vullen wilt weten.
+
+De dienst binden is niet genoeg: zonder configuratie staan schema, poort en paden leeg.
+
+```bash
+zadctl service config set health-check -c magazijnsimulator \
+  --set scheme=http --set port=8092 \
+  --set liveness-path=/q/health/live --set readiness-path=/q/health/ready
+```
+
+Liveness op `/q/health/live` en niet op `/q/health/ready`: dat laatste zakt mee met de database, en
+dan herstart Kubernetes een pod die alleen maar wacht.
 
 ```bash
 zadctl env add -c magazijnsimulator \
   DB_SCHEMA=magazijnsimulator \
-  BEHEER_TOKEN=<geheim> \
-  DB_POOL_MAX=120
+  BEHEER_TOKEN=<geheim>
 ```
 
-`DB_POOL_MAX=120` is geen fijnslijperij: dit is één service die er honderd voorstelt, dus elke
-per-service-default komt op een honderdste van zijn bedoelde last uit. De meting achter
-MinBZK/MijnOverheidZakelijk#1012 staat in
-`docs/plans/2026-08-21-magazijn-simulator-design.md` onder "Meting (stap 6)". Let op dat de
-PostgreSQL van het platform genoeg verbindingen toelaat; lokaal staat hij daarvoor op 200.
+`DB_POOL_MAX` hoeft er niet bij: de simulator staat zelf al op 120 connecties. Dit is één service die
+er honderd voorstelt, dus elke per-service-default komt op een honderdste van zijn bedoelde last uit;
+de meting daarachter staat in `docs/plans/2026-08-21-magazijn-simulator-design.md` onder
+"Meting (stap 6)".
+
+**Ga wel vóór de eerste vulronde na hoeveel verbindingen de PostgreSQL van het platform toelaat.** Die
+database is gedeeld met `magazijna`, `magazijnb` en `democonsole`, en 120 connecties voor één
+component is dan een reëel beslag. Is de grens te krap, verlaag dan `DB_POOL_MAX` en accepteer dat
+een volle fan-out langzamer wordt — dat is beter dan een grens raken die zich als een onbereikbaar
+magazijn voordoet. Lokaal staat de database daarvoor op 200 verbindingen.
 
 ## 2. De set die hij voorstelt
 
@@ -95,10 +119,14 @@ PostgreSQL van het platform genoeg verbindingen toelaat; lokaal staat hij daarvo
 als attachment mee. Die inhoud is deployment-onafhankelijk, dus hier speelt het
 substitutie-probleem niet.
 
+Toevoegen en toewijzen zijn twee stappen: `add` legt het bestand in het project, `assign` hangt het
+aan een component en bepaalt hoe het binnenkomt.
+
 ```bash
-zadctl attachment add -c magazijnsimulator \
-  --file demo/generated/magazijn-simulator.properties \
-  --provide-as file --path /config/magazijn-simulator.properties
+zadctl attachment add magazijn-simulator-set \
+  --from-file demo/generated/magazijn-simulator.properties
+zadctl attachment assign magazijn-simulator-set -c magazijnsimulator \
+  --provide-as file --mount-path /config/magazijn-simulator.properties
 zadctl env add -c magazijnsimulator \
   SMALLRYE_CONFIG_LOCATIONS=/config/magazijn-simulator.properties
 ```
@@ -113,19 +141,21 @@ In het uitvraag-project (`mpfb-8wh`), op het component `uitvraag`:
 
 ```bash
 zadctl project use mpfb-8wh
-zadctl attachment add -c uitvraag \
-  --file demo/generated/magazijnen-register.properties \
-  --provide-as file --path /config/magazijnen-register.properties
+zadctl attachment add magazijnen-register \
+  --from-file demo/generated/magazijnen-register.properties
+zadctl attachment assign magazijnen-register -c uitvraag \
+  --provide-as file --mount-path /config/magazijnen-register.properties
 ```
 
-Daarnaast drie omgevingsvariabelen. `MAGAZIJN_SIMULATOR_URL` moet een alias zijn — alleen aliassen
-kennen `$DEPLOYMENT_NAME`:
+Daarnaast twee omgevingsvariabelen, plus een alias. `MAGAZIJN_SIMULATOR_URL` móet een alias zijn:
+alleen aliassen kennen `$DEPLOYMENT_NAME`, en aliassen worden alleen bij de creatie van een component
+toegepast — bestaat `uitvraag` al zonder, dan is hercreëren de enige route.
 
 ```bash
 # alias, bij de creatie van het component of via een hercreatie:
 #   MAGAZIJN_SIMULATOR_URL: https://magazijnsimulator-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
 
-zadctl env add -c uitvraag \
+zadctl env set -c uitvraag \
   SMALLRYE_CONFIG_LOCATIONS=/config/magazijnen-register.properties \
   BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT=120
 ```
@@ -135,10 +165,34 @@ honderd organisaties er twintig te zien en tachtig afwijzingen. Wat er in het ec
 staat als MinBZK/MijnOverheidZakelijk#1038 op de backlog; tot die tijd zet de demo de grens boven de
 grootste fan-out.
 
-Staat er al een `SMALLRYE_CONFIG_LOCATIONS` op het component, voeg dan toe in plaats van te
-vervangen — de waarde is een lijst.
+`env set` en niet `env add`: die laatste ziet een bestaande sleutel als een conflict en breekt af.
+Draagt het component al een `SMALLRYE_CONFIG_LOCATIONS`, zet dan de samengevoegde lijst — de waarde
+is een lijst, en overschrijven zou de bestaande bron eruit gooien.
 
-## 4. De vier ondernemers
+## 4. Het bedieningspaneel laten weten waar hij staat
+
+De console vult en leegt de simulator, en die twee moeten elkaar kunnen vinden. Ze zitten in
+hetzelfde project, dus dat kan cluster-intern:
+
+```bash
+# alias op democonsole, alleen toe te passen bij creatie:
+#   MAGAZIJN_SIMULATOR_URL: http://$DEPLOYMENT_NAME-magazijnsimulator:8092
+
+zadctl project use mpfm-w3h
+zadctl env set -c democonsole MAGAZIJN_SIMULATOR_BEHEER_TOKEN=<hetzelfde geheim>
+```
+
+**Dit is de duurste stap van de hele operatie.** `MAGAZIJN_SIMULATOR_URL` moet een alias zijn — een
+gewone omgevingsvariabele kan `$DEPLOYMENT_NAME` niet invullen en zou elke preview naar de simulator
+van `test` sturen — en aliassen worden alleen bij creatie toegepast. `democonsole` bestaat al, dus
+die moet ervoor verwijderd en opnieuw aangemaakt worden, met alle aliassen uit
+`README.md` §2 plus deze erbij. Het component draagt geen attachments, dus daar raak je niets mee
+kwijt; zijn omgevingsvariabelen wél, dus lees ze eerst uit met `zadctl env list -c democonsole`.
+
+Zonder de token-variabele wijst niets erop dat het misgaat aan de console-kant: het paneel laadt, de
+knoppen staan er, en elke druk levert een 401 uit de simulator.
+
+## 5. De vier ondernemers
 
 De profiel-stubs van de vier ondernemers (`demo/generated/profiel/ondernemer-*.json`) horen in het
 `fbs-externe-stubs`-image; het generatiescript draait dan in CI vóór `docker build`, met het aantal
@@ -149,23 +203,23 @@ Die stubs hebben voorrang 1 en winnen daarmee van de handgeschreven persona-stub
 alleen de twee echte magazijnen dragen. Dat blijft zo: zonder gegenereerde stubs werkt de demo nog
 steeds, met een fan-out van twee.
 
-## 5. Netwerkregels
+## 6. Netwerkregels
 
 Cluster-intern verkeer naar een ánder project loopt over een `cross-domain-access`-regel, en zo'n
 regel noemt altijd één concrete peer-deployment — een regel met een open kant wordt bij het
 genereren overgeslagen. Eén regel opent bovendien één poort op één component bij één peer, dus elke
 hop is een eigen regel, per deployment bijgeschreven.
 
-Voor de simulator is dat er één die telt: `uitvraag` (`mpfb-8wh`) naar `magazijnsimulator`
-(`mpfm-w3h`), poort 8092. Het bedieningspaneel zit in hetzelfde project als de simulator en heeft
-dus geen regel nodig.
+**Voor de uitvraag naar de simulator is er geen regel, en die keuze staat vast.** Het register van de
+uitvraag eist https buiten dev en test (`ConfigMagazijnregister`, fail-fast bij boot), en
+cluster-intern verkeer is http — een adres als `http://<deployment>-magazijnsimulator:8092` laat de
+uitvraag dus niet meer starten. De alias uit §3 wijst daarom naar de publieke ingress, en die volgt
+de preview vanzelf. De prijs is dat honderd bevragingen per ophaalronde over de ingress gaan.
 
-Wil je de uitvraag over de publieke ingress laten praten in plaats van cluster-intern, dan volgt het
-adres wél de preview (dat is precies wat de alias hierboven doet) en is er geen netwerkregel nodig.
-Dat is de goedkopere route, met als prijs dat honderd bevragingen per ophaalronde over de ingress
-gaan. Begin daarmee; verplaats het naar cluster-intern verkeer zodra dat knelt.
+Het bedieningspaneel zit wél in hetzelfde project als de simulator; dat verkeer blijft binnen de
+deployment en heeft geen regel nodig.
 
-## 6. Daarna: de deploy-workflow
+## 7. Daarna: de deploy-workflow
 
 Pas als het component bestaat, kan `.github/workflows/deploy.yml` de image-tag gaan bijwerken. Dat is
 één build-job voor `fbs-magazijn-simulator` (jib, zoals de andere services) en één extra regel in de
@@ -181,3 +235,8 @@ werkt niet: de deploy-action wijst een niet-bestaand component af.
 - Bepalen of previews hun eigen gevulde simulator krijgen of die van `test` delen. Met een eigen
   database per deployment is het eerste vanzelf zo, maar dan moet elke preview ook gevuld worden —
   de vul-knop op het bedieningspaneel doet dat, en dat is één handeling.
+- `magazijnsimulator` bijschrijven in de componentenlijst van de ZAD-sectie van `CLAUDE.md`, zodat
+  wie daar het project opzoekt hem ook ziet.
+- Nagaan of Flyway het schema zelf mag aanmaken. Dat doet hij standaard, mits de databasegebruiker
+  `CREATE` mag; zo niet, dan het schema vooraf aanmaken en `quarkus.flyway.create-schemas=false`
+  zetten.
