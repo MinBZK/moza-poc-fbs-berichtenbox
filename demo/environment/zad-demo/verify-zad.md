@@ -30,7 +30,7 @@ Verwacht:
 - `uitvraagBasis` wijst naar de publieke uitvraag van dezelfde deployment, **inclusief** `/api/v1`.
   Zonder dat pad faalt elke aanroep vanaf de Berichtenbox-pagina zichtbaar voor de gebruiker.
 - `storingen` is leeg: er staat op ZAD geen Toxiproxy.
-- `sessiecache` is `false`.
+- `sessiecache` is `true` zodra stap 5 van `README.md` gedaan is.
 
 Staat er een proxy in `storingen` die er niet hoort, dan is een `TOXIPROXY_*_URL` niet leeg gezet en
 toont het paneel een knop die gegarandeerd faalt.
@@ -69,6 +69,19 @@ een verkeerd schema faalt stil: de console leegt dan een leeg schema en meldt te
 Blijft het aantal in stap 3 gelijk aan dat van stap 1, terwijl het legen wél "gelukt" meldde, dan
 wijst minstens één schema naar de verkeerde plek. Lees de juiste waarden af met
 `zadctl env list -c magazijna` en `-c magazijnb`, en zet ze met `zadctl env set -c democonsole`.
+
+## 5. De cache-verval-knop
+
+Druk op **Cache verlopen (sessies wissen)** en haal daarna in de Berichtenbox opnieuw berichten op.
+
+Verwacht: de knop meldt geen fout, en de eerstvolgende `GET /berichten` geeft 409 tot je opnieuw
+ophaalt — de sessie is weg.
+
+Blijft de knop onzichtbaar, dan staat `SESSIECACHE_BEREIKBAAR` nog op `false`. Geeft hij
+`NOAUTH Authentication required`, dan ontbreekt `REDIS_PASSWORD` of wijkt hij af van die van de
+uitvraag — de verbinding kwám er dan wél doorheen, dus de netwerkregel staat. Geeft hij een
+verbindings- of timeoutfout, dán ontbreekt de `cross-domain-access`-regel voor deze deployment; op
+een preview zetten `deploy.yml` en `cleanup-preview.yml` die, op `test` staat hij met de hand.
 
 ## Daarna
 

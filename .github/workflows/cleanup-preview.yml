@@ -75,6 +75,10 @@ env:
   # Deze workflow zoekt de comment op deze tekst; deploy.yml geeft dezelfde tekst mee aan de
   # deploy-action. Houd de twee gelijk — drift laat de comment stil achter op een gesloten PR.
   COMMENT_HEADER: "## 🚀 Preview Deployment"
+  # Dezelfde naam als CROSS_DOMAIN_REGEL in deploy.yml, die hem bij het aanmaken van een preview
+  # zet. Drift laat de regel achter op een deployment die niet meer bestaat: de resolver slaat zo'n
+  # regel over en logt dat, dus hij faalt stil en stapelt op.
+  CROSS_DOMAIN_REGEL: democonsole-naar-redis
 
 jobs:
   # Eén plek waar het PR-nummer vandaan komt en gevalideerd wordt.
@@ -168,15 +172,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `richting` zegt welke kant van de cross-domain-regel in dít project staat: de
+          # sessiecache bij de uitvraag (inbound), de console bij de magazijnen (outbound). De
+          # externe stubs dragen er geen, en slaan die stap over.
           - naam: uitvraag
             project: mpfb-8wh
             key: ZAD_API_KEY_UITVRAAG
+            richting: inbound
           - naam: externe-stubs
             project: mpfpsm-lcl
             key: ZAD_API_KEY_PROFIEL
+            richting: ""
           - naam: magazijnen
             project: mpfm-w3h
             key: ZAD_API_KEY_MAGAZIJNEN
+            richting: outbound
     # Zelfde groepsnaam als de deploy-job van dit project + deze PR in deploy.yml: opruimen mag een
     # lopende deploy niet onder handen wegtrekken. Concurrency-groepen zijn repo-breed, dus de
     # verhuizing naar een eigen workflow verandert daar niets aan — de namen moeten wél gelijk
@@ -185,7 +195,27 @@ jobs:
       group: zad-${{ matrix.naam }}-pr-${{ needs.doel.outputs.pr }}
       cancel-in-progress: false
     steps:
+      # Vóór de teardown, niet erna: de patch noemt een deployment, en die moet nog bestaan. Een
+      # `pull_request_target`-checkout pakt de basisbranch, niet de PR-code — dat is precies wat
+      # hier hoort, want dit script draait met de projectsleutels.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ matrix.richting != '' }}
+        with:
+          persist-credentials: false
+
+      - name: Haal de cross-domain-regel van deze preview weg
+        if: ${{ matrix.richting != '' }}
+        env:
+          ZAD_API_KEY: ${{ secrets[matrix.key] }}
+        run: >-
+          .github/scripts/cross-domain-preview.sh verwijder
+          "${{ matrix.project }}" "pr-${{ needs.doel.outputs.pr }}"
+          "${{ matrix.richting }}" "${{ env.CROSS_DOMAIN_REGEL }}"
+
       - name: Verwijder de ZAD-deployment
+        # Ook draaien als de stap hierboven faalde: een regel die blijft staan mag geen hele
+        # preview laten staan. De rode job wijst de achtergebleven regel wél aan.
+        if: ${{ !cancelled() }}
         uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets[matrix.key] }}
