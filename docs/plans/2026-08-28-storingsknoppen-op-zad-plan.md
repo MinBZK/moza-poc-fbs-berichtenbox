@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # De storingsknoppen op ZAD — plan
 
@@ -95,60 +95,76 @@ dan als een demo die stilletjes het verkeerde magazijn aanspreekt.
 
 ### 1. De console maakt zijn eigen proxies aan
 
-- [ ] `ToxiproxyConfig.Instantie` krijgt `listen()` en `upstream()`, beide `Optional<String>` om
+- [x] `ToxiproxyConfig.Instantie` krijgt `listen()` en `upstream()`, beide `Optional<String>` om
       dezelfde reden als `url()`: een leeggezette env-var is bij smallrye-config "niet gezet".
-- [ ] `ProxyDefinities` naast `ToxiproxyAdressen` — een pure klasse die per proxy de drie waarden
+- [x] `ProxyDefinities` naast `ToxiproxyAdressen` — een pure klasse die per proxy de drie waarden
       bij elkaar houdt en alleen een volledige definitie (url + listen + upstream) doorlaat. Los van
       het bouwen van REST-clients, zodat de beslissing toetsbaar blijft zonder draaiende Quarkus.
-- [ ] `ToxiproxyClient` krijgt `maakProxy(ProxyVerzoek)` op `POST /proxies`.
-- [ ] `ProxyBootstrap`: idempotent aanmaken (HTTP 409 = bestaat al = goed), bij `StartupEvent` en
+- [x] `ToxiproxyClient` krijgt `maakProxy(ProxyVerzoek)` op `POST /proxies`.
+- [x] `ProxyBootstrap`: idempotent aanmaken (HTTP 409 = bestaat al = goed), bij `StartupEvent` en
       daarna elke 30 seconden. Fouten loggen, niet gooien — een onbereikbare Toxiproxy mag het
       starten van de console niet blokkeren.
-- [ ] `application.properties`: `listen` en `upstream` per proxy, met de lokale waarden als default.
+- [x] `application.properties`: `listen` en `upstream` per proxy, met de lokale waarden als default.
 
 ### 2. Tests
 
-- [ ] `ProxyDefinitiesTest` — leeg, één, meerdere; ontbrekende listen of upstream; lege url.
-- [ ] `ProxyBootstrapTest` — maakt ontbrekende proxies, laat bestaande staan, 409 is geen fout, een
+- [x] `ProxyDefinitiesTest` — leeg, één, meerdere; ontbrekende listen of upstream; lege url.
+- [x] `ProxyBootstrapTest` — maakt ontbrekende proxies, laat bestaande staan, 409 is geen fout, een
       falende instantie blokkeert de andere niet.
-- [ ] `ToxiproxyProxiesConsistentieTest` — de defaults uit `application.properties` tegen
+- [x] `ToxiproxyProxiesConsistentieTest` — de defaults uit `application.properties` tegen
       `../../toxiproxy/proxies.json`: dezelfde namen, dezelfde listen, dezelfde upstream.
-- [ ] `ApplicationPropertiesTest` erbij: elke proxy die een url draagt, draagt ook listen en
+- [x] `ApplicationPropertiesTest` erbij: elke proxy die een url draagt, draagt ook listen en
       upstream.
 
 ### 3. De netwerkregels per preview
 
-- [ ] `cross-domain-preview.sh` accepteert meerdere regelnamen in één aanroep en zet ze in één
+- [x] `cross-domain-preview.sh` accepteert meerdere regelnamen in één aanroep en zet ze in één
       patch. Vier regels als vier aanroepen zou vier keer de projectregel-controle en vier keer het
       wachten op een taak kosten; de API neemt een lijst.
-- [ ] `deploy.yml`: de vier regels erbij, verdeeld over `deploy-preview-uitvraag` (twee inbound),
+- [x] `deploy.yml`: de vier regels erbij, verdeeld over `deploy-preview-uitvraag` (twee inbound),
       `deploy-preview-externe-stubs` (twee inbound, plus de `actions/checkout` die die job nog niet
       had) en `deploy-preview-magazijnen` (vier outbound, naast de bestaande).
-- [ ] `cleanup-preview.yml`: `mpfpsm-lcl` krijgt een richting in de matrix, en elke leg ruimt zijn
+- [x] `cleanup-preview.yml`: `mpfpsm-lcl` krijgt een richting in de matrix, en elke leg ruimt zijn
       volledige set regels op.
-- [ ] De vier Toxiproxy-images in de component-lijsten van de preview-deploys, zoals `redis` dat al
+- [x] De vier Toxiproxy-images in de component-lijsten van de preview-deploys, zoals `redis` dat al
       doet — een preview die het component niet noemt, krijgt het niet.
-- [ ] `test-cross-domain-preview.sh` uitbreiden: meerdere regels in één patch, en de bewaking dat
+- [x] `test-cross-domain-preview.sh` uitbreiden: meerdere regels in één patch, en de bewaking dat
       `deploy.yml` en `cleanup-preview.yml` dezelfde verzameling regelnamen noemen.
 
 ### 4. Het runbook en de eenmalige creatie op ZAD
 
-- [ ] `demo/environment/zad-demo/README.md`: een stap voor de vier componenten (met `--ports` en de
+- [x] `demo/environment/zad-demo/README.md`: een stap voor de vier componenten (met `--ports` en de
       `health-check`-configuratie), de acht projectregels, de invulling voor `test`, en het omhangen
       van `PROFIEL_SERVICE_URL`, `NOTIFICATIE_URL`, `AANMELD_URL` en `REDIS_HOSTS` naar de proxies.
-- [ ] De `TOXIPROXY_*_URL`-waarden op de console vullen; de twee magazijn-proxies blijven leeg
+- [x] De `TOXIPROXY_*_URL`-waarden op de console vullen; de twee magazijn-proxies blijven leeg
       (hun storingsgedrag komt uit de simulator, TODO(#938)).
-- [ ] De creatie zelf uitvoeren op `test`, met een ingelogde `zadctl`.
-- [ ] `verify-zad.md`: een stap voor de storingsknoppen, inclusief wat een verkeerde upstream laat
+- [x] De creatie zelf uitvoeren op `test`, met een ingelogde `zadctl`.
+- [x] `verify-zad.md`: een stap voor de storingsknoppen, inclusief wat een verkeerde upstream laat
       zien.
 
 ### 5. Documentatie bijwerken
 
-- [ ] `demo/demo-console/README.md`, `docs/demo-runbook.md`, `demo/README.md`: de storingsknoppen
+- [x] `demo/demo-console/README.md`, `docs/demo-runbook.md`, `demo/README.md`: de storingsknoppen
       van "ontbreekt op ZAD" naar "werkt, ook op een preview".
-- [ ] Het ontwerp van 27 augustus: stap 2 op uitgevoerd, en de drie bevindingen hierboven erin.
-- [ ] `CLAUDE.md`: de componentlijst per project, en de multi-poort-eigenschap bij de drie
+- [x] Het ontwerp van 27 augustus: stap 2 op uitgevoerd, en de drie bevindingen hierboven erin.
+- [x] `CLAUDE.md`: de componentlijst per project, en de multi-poort-eigenschap bij de drie
       ZAD-eigenschappen — die derde ("een component publiceert één poort") staat er nu te absoluut.
+
+## Wat er bij de uitvoering bij kwam
+
+Vier dingen die dit plan niet voorzag; ze staan alle vier in het ontwerp en het runbook.
+
+- **De ZAD-mirror bedient `ghcr.io/shopify` niet** (HTTP 500, over meerdere pod-generaties). Docker
+  Hub biedt geen uitweg: upstream staat daar sinds 2019 stil op 2.1.4. Vandaar
+  `toxiproxy/Dockerfile`, dat het image doorpubliceert als `ghcr.io/minbzk/fbs-toxiproxy` — hetzelfde
+  patroon als `wiremock/demo-profiel`, nu ook met een digest-pin.
+- **De `profiel`-proxy hoort vóór de uitvraag**, niet vóór de magazijnen. `compose.yaml` is daar de
+  bron; dit plan had het aan de verkeerde kant staan.
+- **Een regel zonder bestaand peer-component wordt stilzwijgend niet gerenderd.** De configuratie
+  staat er, de deployment meldt `Healthy`, en de NetworkPolicy mist de egress-regel. Componenten dus
+  eerst, regels daarna — of achteraf opnieuw renderen en de policy controleren.
+- **De keten mag pas door de proxies als overal een console draait die ze aanmaakt.** Eerder
+  omhangen wijst de uitvraag naar een Redis-proxy die niemand maakt, en dan ligt de demo plat.
 
 ## Verificatie
 

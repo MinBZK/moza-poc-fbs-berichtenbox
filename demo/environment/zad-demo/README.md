@@ -389,6 +389,28 @@ ZAD_API_KEY=$SLEUTEL_MAGAZIJNEN .github/scripts/cross-domain-preview.sh zet mpfm
   democonsole-naar-toxiproxy-aanmeld democonsole-naar-toxiproxy-redis
 ```
 
+### Twee dingen die in deze volgorde moeten
+
+**De componenten eerst, de netwerkregels daarna.** Operations Manager rendert een regel waarvan het
+peer-component niet bestaat gewoon niet — met een waarschuwing in een log die niemand leest. De
+regel staat dan wél in de configuratie en de deployment meldt `Healthy`, maar de NetworkPolicy mist
+die egress-regel en het verkeer loopt in een timeout. Zet je de regels vóór de componenten, draai dan
+daarna `zadctl deployment refresh <deployment>` en controleer de gerenderde policy:
+
+```bash
+gh api repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production/mpfm-w3h/test/test-cross-domain-access-democonsole-network-policy.yaml \
+  --jq '.content' | base64 -d | grep -E 'app:|port:'
+```
+
+Er horen vijf peers in te staan: `redis` plus de vier `toxiproxy-*`. Staat alleen `redis` er, dan is
+precies dit gebeurd.
+
+**De keten pas omhangen als de console overal draait.** De stap hieronder leidt het verkeer door de
+proxies, maar die proxies bestaan pas nadat de console ze heeft aangemaakt — en dat doet alleen een
+console-image dat `ProxyBootstrap` kent. Hang je de keten om terwijl er nog een ouder image draait,
+dan wijst de uitvraag naar een Redis-proxy die niemand aanmaakt en ligt de demo plat. Wacht dus tot
+de merge naar main `deploy-test-*` heeft laten draaien.
+
 ### De keten door de proxies leiden
 
 Welke dienst achter welke proxy hoort, staat vast in `compose.yaml`; ZAD spiegelt dat, anders doet

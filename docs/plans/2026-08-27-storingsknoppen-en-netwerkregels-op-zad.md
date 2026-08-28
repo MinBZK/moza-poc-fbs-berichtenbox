@@ -1,4 +1,4 @@
-**Status:** Stap 1 uitgevoerd en geverifieerd; stap 2 gebouwd, creatie op ZAD loopt. Zie "Wat er staat" onderaan.
+**Status:** Uitgevoerd; de keten op `test` gaat door de proxies zodra de nieuwe console daar staat. Zie "Wat er staat" onderaan.
 
 # Storingsknoppen en cluster-intern verkeer op ZAD — ontwerp
 
@@ -138,6 +138,17 @@ probe wijst daarom naar 8474.
 downstream zonder `https` of op een intern adres (BIO 13.2.1 plus de SSRF-blocklist). `aanmeld` en
 `notificatie` móéten dus over de publieke ingress lopen.
 
+**En het image komt niet van upstream.** De ZAD-mirror geeft op `ghcr.io/shopify/toxiproxy` een
+HTTP 500, terwijl diezelfde tag rechtstreeks bij ghcr.io anoniem 200 geeft en Docker Hub sinds 2019
+stilstaat op 2.1.4. `toxiproxy/Dockerfile` publiceert het image daarom door als
+`ghcr.io/minbzk/fbs-toxiproxy`, gepind op tag én digest — hetzelfde patroon als
+`wiremock/demo-profiel`. Verdwijnt de storing bij RIG, dan kan dat bestand weg.
+
+**Twee ordeningen die niet vrij zijn.** Een regel waarvan het peer-component nog niet bestaat, wordt
+bij het renderen overgeslagen — met een waarschuwing, terwijl de deployment `Healthy` meldt en de
+NetworkPolicy die egress-regel mist. En de keten mag pas door de proxies wanneer overal een console
+draait die ze aanmaakt; eerder omhangen wijst de uitvraag naar een proxy die niemand maakt.
+
 En één ding dat het ontwerp helemaal niet had: **de proxies staan alleen in het geheugen van
 Toxiproxy.** Zonder `proxies.json` laat een herstart van die pod de keten dood achter, want al het
 profiel-, notificatie-, aanmeld- en Redis-verkeer loopt erdoorheen. De console herhaalt zijn
@@ -163,7 +174,9 @@ dus alleen een leeggeraakte instantie wordt opnieuw gevuld.
 | `REDIS_HOSTS`, `REDIS_PASSWORD` en `SESSIECACHE_BEREIKBAAR=true` op de console | Gezet |
 | Console maakt zijn eigen proxies aan, met reconcile + tests | Uitgevoerd |
 | Netwerkregels per preview in `deploy.yml`/`cleanup-preview.yml`, runbook | Uitgevoerd |
-| De vier Toxiproxy-componenten op ZAD en de keten erdoorheen | Loopt |
+| De vier Toxiproxy-componenten op `test`, met netwerkregels | Uitgevoerd |
+| Geverifieerd op de preview: eigen proxies, eigen upstreams, eigen NetworkPolicy | Uitgevoerd |
+| De keten op `test` door de proxies leiden | Na de merge, zie het runbook |
 
 De cache-verval-knop werkt, op `test` en op een preview. Eén ding kwam er bij de verificatie
 bovenop dat hier niet stond: de Redis op ZAD eist een wachtwoord, en de console kende de property
