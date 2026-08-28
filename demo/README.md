@@ -11,8 +11,8 @@ verwacht.
 
 | Pad | Wat |
 |---|---|
-| `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten. Heeft een eigen image; een ZAD-component in de bestaande deployment `test` van `mpfm-w3h` is beoogd maar bestaat op het moment van schrijven nog niet — zie `demo-console/README.md` |
-| `environment/` | FSC-federatieharness (peers, PKI, contract-bootstrap) én de ZAD-runbooks. `zad-demo/` met de handmatige OM-stappen voor de demo-console is beoogd maar bestaat op het moment van schrijven nog niet — zie `demo-console/README.md` |
+| `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten. Heeft een eigen image en draait als ZAD-component `democonsole` in de deployment `test` van `mpfm-w3h`, previews inbegrepen — zie `demo-console/README.md` |
+| `environment/` | FSC-federatieharness (peers, PKI, contract-bootstrap) én de ZAD-runbooks; `zad-demo/` bevat de eenmalige OM-stappen voor de demo-console en de verificatie erna |
 | `generated/` | Gegenereerde stub-mappings (git-ignored); komt uit `genereer-magazijnen.py` |
 | `genereer-magazijnen.py` | Genereert de stub-magazijnen en de profiel-persona's |
 | `smoke.sh` | Rookproef over de demo-stack |

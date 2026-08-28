@@ -9,8 +9,11 @@ import java.util.Optional
 
 class OmgevingResourceTest {
 
-    private fun resource(basis: String?, vararg proxies: String): OmgevingResource {
-        val config = mockk<OmgevingConfig> { every { uitvraagBasis() } returns Optional.ofNullable(basis) }
+    private fun resource(basis: String?, vararg proxies: String, sessiecache: Boolean = true): OmgevingResource {
+        val config = mockk<OmgevingConfig> {
+            every { uitvraagBasis() } returns Optional.ofNullable(basis)
+            every { sessiecache() } returns sessiecache
+        }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
 
         return OmgevingResource(config, register)
@@ -48,5 +51,18 @@ class OmgevingResourceTest {
         // Onderscheidt "geeft het enige element terug" van "discrimineert per naam" — een lijst
         // van meerdere elementen dekt dat verschil niet.
         assertEquals(listOf("redis"), resource(null, "redis").omgeving().storingen)
+    }
+
+    @Test
+    fun `een bereikbare sessiecache komt als true door`() {
+        assertEquals(true, resource(null).omgeving().sessiecache)
+    }
+
+    @Test
+    fun `een onbereikbare sessiecache komt als false door zodat de pagina de knop weglaat`() {
+        // De sessiecache staat in een ander project dan de console. Waar het verkeer daarheen niet
+        // openstaat, geeft de knop gegarandeerd een fout; hem tonen kost tijdens een demo uitleg
+        // die niets toevoegt.
+        assertEquals(false, resource(null, sessiecache = false).omgeving().sessiecache)
     }
 }
