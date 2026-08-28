@@ -236,6 +236,24 @@ Herstellen via *Alles normaal (reset)* in de Storingen-sectie.
 
 **Veel magazijnen (fase 6)** — *Actief aantal* zet magazijnen `k+1..n` op storing (503); *reset* zet alles weer aan.
 
+### Hetzelfde paneel op ZAD
+
+De console draait ook als component `democonsole` in de deployment `test` van het magazijnen-project
+`mpfm-w3h`, en in elke preview daarvan. Adres:
+`https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl`, inloggen met je rijksaccount.
+Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de authorization-wall,
+niet een kapot component.
+
+Drie knopgroepen ontbreken daar, en het paneel laat ze zelf weg op grond van
+`GET /api/demo/omgeving`: de storingen, de cache-verval-knop en de veel-magazijnen-schuif. Alle drie
+vragen cluster-intern verkeer naar een ánder project, en zo'n netwerkregel noemt op ZAD altijd één
+vaste deployment — die volgt dus geen preview. `demo/environment/zad-demo/README.md` legt uit wat
+daarvoor nodig is.
+
+Twee dingen om te weten vóór je op ZAD demonstreert: de omgeving rolt opnieuw uit bij elke merge
+naar main, en de legen-knop op de console ín `test` wist de database van `test`, waar nieuwe previews
+van klonen. Op een preview raakt legen alleen die preview.
+
 ---
 
 ## 8. Herbouwen na een wijziging

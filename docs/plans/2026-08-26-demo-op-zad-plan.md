@@ -1,4 +1,5 @@
-**Status:** Fase 1 (lokaal) uitgevoerd; fase 2 (ZAD) blijft concept.
+**Status:** Fase 1 (lokaal) uitgevoerd. Fase 2 uitgevoerd voor de console; de storingsknoppen zijn
+eruit gehaald — zie de herziening onder "Fase 2".
 
 # Demo draaibaar op laptop én ZAD — implementatieplan
 
@@ -58,8 +59,7 @@ eruit.
 | `herstel/HerstelService.kt` (nieuw) | Tempo stoppen, storingen resetten, legen, basisvulling |
 | `legen/MagazijnDatabase.kt` (wijzig) | LDV-tabel meenemen, achter een `to_regclass`-guard |
 | `demo-console/README.md` (nieuw) | De README waar acceptatiecriterium 1 om vraagt |
-| `.github/workflows/deploy-demo.yml` (nieuw) | Handmatige uitrol van de `demo`-deployment |
-| `demo/environment/zad-demo/deploy/` (nieuw) | `upsert-demo.sh`, `README.md`, `verify-zad.md` |
+| `demo/environment/zad-demo/` (nieuw) | `README.md` met de eenmalige OM-stappen, `verify-zad.md` met de verificatie erna |
 
 ---
 
@@ -1516,16 +1516,8 @@ legen levert het dubbele aantal berichten op.
 
 ## Op ZAD
 
-De gedeelde demo staat op `https://democonsole-demo-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl`,
-achter Keycloak-SSO. Inloggen met je rijksaccount; daarna zijn zowel het paneel als de Berichtenbox
-bereikbaar.
-
-Twee knopgroepen ontbreken daar bewust, omdat de magazijnen hun gedrag in een volgende fase uit de
-simulator krijgen: de storingsknoppen op magazijn A en B, en de veel-magazijnen-schuif. Het paneel
-verbergt ze zelf op basis van `GET /api/demo/omgeving`.
-
-Uitrollen gaat met de hand via de workflow `deploy-demo.yml` (`workflow_dispatch`), niet automatisch
-bij een merge — een demo-omgeving die halverwege een presentatie herstart is geen demo-omgeving.
+(Deze sectie is in taak 10 herschreven toen de deployment `demo` verviel ten gunste van `test` en de
+storingsknoppen uit fase 2 vielen. `demo/demo-console/README.md` is leidend.)
 
 ## De knoppen
 
@@ -1736,108 +1728,92 @@ open tot fase 2 klaar is, haal dan de sluitregel weg en zet hem in de PR van fas
 
 # Fase 2 — ZAD
 
-> **Herzien.** Dit plan beschreef eerder een eigen, preview-loze deployment `demo` in alle drie de
-> projecten, met een gespiegelde uitvraag, magazijnen en stubs. Dat is vervallen: de demo draait op
-> de bestaande keten in `test` en de console wordt daar één component bij. Het ontwerp legt uit
-> waarom een eigen deployment op zichzelf beter zou zijn en waarom het toch `test` wordt — kort
-> gezegd: alleen een component ín dezelfde deployment als de magazijnen erft hun
-> `test-database`-secret, en dat secret is wat het legen mogelijk maakt.
+> **Tweemaal herzien.** Dit plan beschreef eerst een eigen, preview-loze deployment `demo` in alle
+> drie de projecten. Dat verviel: de demo draait op de bestaande keten in `test` en de console wordt
+> daar één component bij, omdat alleen een component ín dezelfde deployment als de magazijnen hun
+> `test-database`-secret erft.
 >
-> De taken hieronder zijn navenant kleiner dan de drie die er stonden. Ze zijn met opzet grover
-> beschreven dan die van fase 1: het meeste werk gebeurt in Operations Manager en in
-> `RijksICTGilde/rig-cluster-projects`, waar geen commit-en-test-cyclus omheen zit.
+> De tweede herziening is de storingsinjectie. Bij de uitvoering bleek de opzet uit het ontwerp
+> onbruikbaar zodra previews meetellen; de nabrander in het ontwerp legt uit waarom en welke route
+> het wél oplost. De storingsknoppen zijn daarom uit fase 2 gehaald, samen met de cache-verval-knop
+> die op dezelfde netwerkregel-beperking stuit.
 
 ## Taak 8: Het console-component aanmaken in `mpfm-w3h/test`
 
 ZAD past component-configuratie (`env_vars`, `aliases`, poorten) alleen bij creatie toe, niet bij
 een re-POST. Het component moet dus in één keer compleet aangemaakt worden.
 
-**Aliassen:**
+De volledige stappen staan als runbook in `demo/environment/zad-demo/README.md`, met de commando's
+en de reden per keuze; hier alleen de vorm.
 
-```yaml
-MAGAZIJN_A_URL: http://$DEPLOYMENT_NAME-magazijna:8090
-MAGAZIJN_B_URL: http://$DEPLOYMENT_NAME-magazijnb:8090
-MAGAZIJN_A_DB_URL: jdbc:postgresql://$DATABASE_SERVER_HOST:5432/$DATABASE_DB
-MAGAZIJN_A_DB_USER: $DATABASE_SERVER_USER
-MAGAZIJN_A_DB_PASSWORD: $DATABASE_PASSWORD
-MAGAZIJN_B_DB_URL: jdbc:postgresql://$DATABASE_SERVER_HOST:5432/$DATABASE_DB
-MAGAZIJN_B_DB_USER: $DATABASE_SERVER_USER
-MAGAZIJN_B_DB_PASSWORD: $DATABASE_PASSWORD
-UITVRAAG_BASIS: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1
-UITVRAAG_URL: http://$DEPLOYMENT_NAME-uitvraag:8086
-```
-
-`UITVRAAG_BASIS` en `UITVRAAG_URL` zijn bewust verschillend: het eerste belandt in een browser en
-moet publiek zijn, inclusief het `/api/v1`-pad; het tweede roept de console zelf server-side aan en
-mag cluster-intern zijn.
-
-**`user-env-vars`:** `MAGAZIJN_A_DB_SCHEMA` en `MAGAZIJN_B_DB_SCHEMA`, met exact de waarden van
-`DB_SCHEMA` van `magazijna` respectievelijk `magazijnb` in dezelfde deployment. Wijken ze af, dan
-leegt de console een leeg schema en meldt nul verwijderde berichten zonder te klagen — stap 4 van de
-verificatie hieronder vangt dat.
-
-**Poort:** 8095 inbound, met `publish-on-web`.
-
-**Diensten:** `postgresql-database` (levert het gedeelde `test-database`-secret), `publish-on-web`
-en `authorization-wall`.
-
-**Op projectniveau in `mpfm-w3h`:** `keycloak` bij de `services:`, zodat de authorization-wall zijn
-client heeft.
-
-**Op `uitvraag` in `mpfb-8wh/test`:** `QUARKUS_HTTP_CORS_ENABLED=true` en
-`QUARKUS_HTTP_CORS_ORIGINS` met de console-origin. Methods en headers ongezet laten; Quarkus
-spiegelt die uit het preflight-verzoek.
+- [x] `keycloak` en `authorization-wall` als projectdienst selecteren, met een `restrict-access`-
+      besluit: iedereen met een rijksaccount, of alleen wie een rol draagt.
+- [x] `democonsole` aanmaken: poort 8095, diensten `postgresql-database`, `publish-on-web` en
+      `authorization-wall`, en de aliassen voor de magazijn-URL's, de database en de uitvraag.
+      `UITVRAAG_BASIS` (browser, mét `/api/v1`) en `UITVRAAG_URL` (server-side) delen op ZAD hun
+      host: de uitvraag staat in een ander project, dus cluster-interne DNS zou een netwerkregel
+      vragen die geen preview volgt.
+- [x] `MAGAZIJN_A_DB_SCHEMA`/`_B_DB_SCHEMA` als env-vars, exact gelijk aan de `DB_SCHEMA` van
+      `magazijna` respectievelijk `magazijnb`. Wijken ze af, dan leegt de console een leeg schema en
+      meldt nul verwijderde berichten zonder te klagen.
+- [x] De zes `TOXIPROXY_*_URL` leeg zetten en `SESSIECACHE_BEREIKBAAR=false`, zodat het paneel de
+      knoppen weglaat die deze omgeving niet kan bedienen.
+- [x] `QUARKUS_HTTP_CORS_ENABLED` en `QUARKUS_HTTP_CORS_ORIGINS` op `uitvraag` in `mpfb-8wh`. Eén
+      reguliere expressie over alle console-origins van dit project, want previews komen en gaan.
+      Zonder backslashes: een geëscapete variant laat de SOPS-stap van Operations Manager falen en
+      blokkeert dan élke uitrol van dat project.
+- [x] `keycloak` óók aan het component binden. `authorization-wall` noemt hem bij zijn voorwaarden
+      maar trekt de binding niet mee; zonder die stap rendert er geen oauth2-proxy-sidecar en staat
+      het paneel open op het internet.
+- [x] De profielservice-stub het `fbs-demo-profiel`-image geven. Zonder de persona-voorkeuren valt
+      elke ontvanger terug op de gedeelde catch-all, die voor iedereen hetzelfde ene magazijn
+      teruggeeft — dan bevraagt de uitvraag maar één magazijn en toont de demo geen federatie.
 
 ## Taak 9: De console meenemen in de uitrol
 
-- Voeg `democonsole` toe aan de componentlijst van `deploy-test-magazijnen` in `deploy.yml`, met
-  `ghcr.io/<owner>/fbs-demo-console:<tag>`.
-- Doe hetzelfde voor `deploy-preview-magazijnen`, óf besluit bewust dat previews de console op een
-  oudere tag houden. Die keuze hangt samen met de uitsluiting van `demo/demo-console/` in
-  `DEMO_BUITEN_UITROLPOORT`: zolang die staat, levert een consolewijziging `deploy=false` en werkt
-  geen preview bij. Leg het besluit vast in het commentaar bij die uitsluiting.
-- Draai `.github/scripts/test-uitrol-poort.sh` en `test-wijzigingsfilter.sh` na elke wijziging.
+- [x] `democonsole` toevoegen aan de componentlijst van `deploy-test-magazijnen` én
+      `deploy-preview-magazijnen` in `deploy.yml`, met `build-democonsole` in hun `needs`.
+- [x] `^demo/demo-console/` uit `DEMO_BUITEN_UITROLPOORT` halen. De console rolt nu mee, dus een
+      consolewijziging hóórt een preview te kopen — anders draait de preview een console van een
+      oudere tag en bewijst hij niets over de wijziging.
+- [x] `.github/scripts/test-uitrol-poort.sh` en `test-wijzigingsfilter.sh` draaien; de fixtures voor
+      demo-console verhuizen van "geen uitrol" naar "wél uitrol".
 
 ## Taak 10: Runbook, verificatie en documentatie
 
-**Runbook** onder `demo/environment/zad-demo/` (die map valt binnen `DEMO_BUITEN_UITROLPOORT`, dus
-runbook-wijzigingen kopen geen previews): de handmatige OM-stappen uit taak 8, en een
-`verify-zad.md` met vier stappen en hun verwachte uitkomst.
+- [x] `demo/environment/zad-demo/README.md` — de eenmalige OM-stappen, en wat er bewust niet
+      meekomt. Die map valt binnen `DEMO_BUITEN_UITROLPOORT`, dus runbook-wijzigingen kopen geen
+      previews.
+- [x] `demo/environment/zad-demo/verify-zad.md` — vier stappen. De vierde is de schemacontrole:
+      status noteren, legen, status opnieuw. Nul verwijderde berichten terwijl de Berichtenbox wél
+      vult, wijst op een verkeerd `MAGAZIJN_*_DB_SCHEMA`.
+- [x] `demo/demo-console/README.md`, `docs/demo-runbook.md` en `demo/README.md` van beoogd naar
+      bestaand, en de ZAD-sectie van `CLAUDE.md` uitbreiden met `democonsole` en met de drie
+      ZAD-eigenschappen die bepalen wat een component wél en niet kan.
+- [x] `docs/plans/2026-07-21-demo-platform-design.md` zet ZAD-deployment van het demo-platform nog
+      onder "Bewust buiten scope"; die passage krijgt een verwijzing hierheen.
 
-1. `GET /api/demo/omgeving` na SSO-login → `uitvraagBasis` wijst naar de publieke uitvraag-URL
-   inclusief `/api/v1`, en `storingen` bevat wat er in deze omgeving werkelijk aan proxies staat.
-2. `POST /api/demo/herstel` → de omgeving vult; de Berichtenbox toont berichten voor de persona's.
-3. De Berichtenbox-weergave openen en een ophaalronde draaien.
-4. **De schemacontrole.** `GET /api/demo/status` na een basisvulling noteren, dan
-   `POST /api/demo/legen`, dan opnieuw `GET /api/demo/status`. Eerst een aantal groter dan nul per
-   magazijn, daarna nul. Blijft het legen op nul verwijderde berichten staan terwijl de Berichtenbox
-   wél vult, dan wijzen `MAGAZIJN_*_DB_SCHEMA` naar het verkeerde schema.
+## Wat hierna nog open staat
 
-**Documentatie:** de ZAD-URL en de SSO-login in `demo/demo-console/README.md` en
-`docs/demo-runbook.md` van beoogd naar bestaand omzetten, `demo/README.md` gelijktrekken, en de
-ZAD-sectie van `CLAUDE.md` uitbreiden met `democonsole` als component van `mpfm-w3h/test`.
+Twee brokken, elk een eigen ontwerp en PR waard:
 
-**Tot slot:** `docs/plans/2026-07-21-demo-platform-design.md` zet ZAD-deployment van het
-demo-platform nog onder "Bewust buiten scope". Die passage krijgt een verwijzing naar dit ontwerp.
-
-**Vóór fase 2 begint** moet één beslissing genomen zijn: komen de storingsknoppen mee naar ZAD? Dat
-kost vier Toxiproxy-containers plus drie ingressen, per deployment inclusief previews, en een
-permanente extra hop in het verkeerspad van `test`. De rest van de demo werkt zonder.
-
+- **De netwerkregels per preview.** Cluster-intern verkeer van de console naar een ander project
+  volgt geen preview, tenzij de deploy-workflow de regel per deployment bijschrijft en
+  `cleanup-preview.yml` hem weer opruimt. Dat maakt de cache-verval-knop bruikbaar.
+- **De storingsknoppen.** Vier Toxiproxy-componenten over twee projecten, plus de wijziging die de
+  console zijn proxies zelf laat aanmaken via de admin-API. Hangt op de netwerkregels hierboven.
 
 ## Zelfcontrole van dit plan
 
-- **Dekking van het ontwerp.** Topologie → taken 8 en 9. Console in `mpfm-w3h` → taak 8.
-  Toxiproxy achter eigen ingress → taken 1, 8, 9. Netwerkregels en toegang → taak 8, stap 4.
-  Geen FSC → vastgelegd in het ontwerp, geen taak nodig. Kosten en de ODCN-vraag → blokkade boven
-  fase 2. Register → taak 1. Tempo → taak 3. Herstel → taak 4. Schema's en logboek → taak 5. UI en
-  CORS → taken 2 en 8. Profiel `prod` → taak 6. CI → taak 7. Documentatie → taken 6 en 10.
-  Verificatie per acceptatiecriterium → taken 2, 3, 5 (handmatig) en 10, stap 3.
+- **Dekking van het ontwerp.** Topologie → taken 8 en 9. Console in `mpfm-w3h` → taak 8. Toegang
+  (Keycloak, authorization-wall) → taak 8. Geen FSC → vastgelegd in het ontwerp, geen taak nodig.
+  Register → taak 1. Tempo → taak 3. Herstel → taak 4. Schema's en logboek → taak 5. UI en CORS →
+  taken 2 en 8. Profiel `prod` → taak 6. CI → taken 7 en 9. Documentatie → taken 6 en 10.
+  Verificatie per acceptatiecriterium → taken 2, 3, 5 (handmatig) en taak 10.
+  Toxiproxy achter eigen ingress en de bijbehorende netwerkregels → vervallen; zie "Wat hierna nog
+  open staat".
 - **Namen.** `ToxiproxyAdressen.namen()/adres()/unieke()` en `ToxiproxyRegister.namen()/client()/instanties()`
   worden in taken 1 en 2 gelijk gebruikt; taak 2 raakt alleen het register. `TempoService.stop()` uit taak 3 wordt in taak 4 aangeroepen met dezelfde signatuur.
   `LegenSql.DOMEIN/LOGBOEK_BESTAAT/LOGBOEK` komen alleen in taak 5 voor. De proxy-namen `profiel`,
   `notificatie`, `aanmeld`, `redis` zijn identiek in `application.properties` (taak 1), het
-  omgevings-endpoint (taak 2), de `proxies/*.json` (taak 8) en de env-vars (taak 8).
-- **Openstaand met opzet.** De inhoud van `upsert-demo.sh` staat als componentspecificatie en niet
-  als volledige code: het bestaande `upsert-peer.sh` is 26 kB aan curl-plumbing die overgenomen
-  wordt, terwijl de payloads het echte werk zijn. Die staan er wél volledig.
+  omgevings-endpoint (taak 2) en de env-vars (taak 8) — daar staan ze op ZAD leeg.

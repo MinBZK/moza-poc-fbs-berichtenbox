@@ -11,7 +11,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
  * Berichtenbox-pagina zijn API-adres moeten raden en zouden de storingsknoppen per omgeving
  * verschillen — twee varianten van dezelfde pagina, die gegarandeerd uit elkaar lopen.
  */
-data class Omgeving(val uitvraagBasis: String, val storingen: List<String>)
+data class Omgeving(val uitvraagBasis: String, val storingen: List<String>, val sessiecache: Boolean)
 
 @Path("/api/demo/omgeving")
 @Produces(MediaType.APPLICATION_JSON)
@@ -24,5 +24,6 @@ class OmgevingResource(
     fun omgeving(): Omgeving = Omgeving(
         uitvraagBasis = config.uitvraagBasis().orElse(""),
         storingen = register.namen().sorted(),
+        sessiecache = config.sessiecache(),
     )
 }
