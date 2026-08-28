@@ -52,8 +52,8 @@ class GedragUitvoeringTest {
     fun `dezelfde OIN levert twee keer dezelfde reeks op`() {
         val gedrag = Gedrag(GedragModus.TRAAG, latencyP50Ms = 1_000, latencyP95Ms = 4_000)
 
-        val eerste = List(20) { GedragUitvoering().let { u -> List(20) { u.vertragingMs(OIN, gedrag) } } }.first()
-        val tweede = List(20) { GedragUitvoering().let { u -> List(20) { u.vertragingMs(OIN, gedrag) } } }.first()
+        val eerste = GedragUitvoering().let { u -> List(20) { u.vertragingMs(OIN, gedrag) } }
+        val tweede = GedragUitvoering().let { u -> List(20) { u.vertragingMs(OIN, gedrag) } }
 
         assertEquals(eerste, tweede)
     }
@@ -67,6 +67,42 @@ class GedragUitvoeringTest {
         val tweede = List(20) { uitvoering.vertragingMs(ANDER_OIN, gedrag) }
 
         assertTrue(eerste != tweede, "twee magazijnen horen niet dezelfde reeks te draaien")
+    }
+
+    /**
+     * De OIN's van de gesimuleerde magazijnen verschillen alleen in hun laatste vier cijfers. Wordt
+     * de startwaarde daar rechtstreeks uit genomen, dan liggen de eerste trekkingen van alle
+     * magazijnen vlak bij elkaar: haperende magazijnen vallen dan op hun eerste verzoek tegelijk om
+     * en trage magazijnen antwoorden bijna allemaal sneller dan hun mediaan. De eerste ophaalronde
+     * van een demo ziet er dan systematisch anders uit dan de volgende, en dat is precies het soort
+     * verschil dat een demo ongeloofwaardig maakt.
+     */
+    @Test
+    fun `de eerste trekking is over de hele set gespreid en niet geklonterd`() {
+        val uitvoering = GedragUitvoering()
+        val gedrag = Gedrag(GedragModus.HAPERT, foutkans = 0.5)
+
+        val eersteUitkomsten = (1..AANTAL_GESIMULEERD).map {
+            uitvoering.valtOm("0000000900000000%04d".format(it), gedrag)
+        }
+        val omgevallen = eersteUitkomsten.count { it }
+
+        assertTrue(
+            omgevallen in AANTAL_GESIMULEERD / 4..AANTAL_GESIMULEERD * 3 / 4,
+            "verwacht ongeveer de helft op het eerste verzoek, was $omgevallen van $AANTAL_GESIMULEERD",
+        )
+    }
+
+    @Test
+    fun `het terugzetten laat de reeks opnieuw beginnen`() {
+        val uitvoering = GedragUitvoering()
+        val gedrag = Gedrag(GedragModus.TRAAG, latencyP50Ms = 1_000, latencyP95Ms = 4_000)
+
+        val eerste = List(10) { uitvoering.vertragingMs(OIN, gedrag) }
+
+        uitvoering.herstel()
+
+        assertEquals(eerste, List(10) { uitvoering.vertragingMs(OIN, gedrag) })
     }
 
     @Test
@@ -101,5 +137,6 @@ class GedragUitvoeringTest {
     private companion object {
         const val OIN = "00000009000000000005"
         const val ANDER_OIN = "00000009000000000010"
+        const val AANTAL_GESIMULEERD = 98
     }
 }

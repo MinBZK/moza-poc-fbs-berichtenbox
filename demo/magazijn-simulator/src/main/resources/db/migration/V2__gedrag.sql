@@ -4,9 +4,11 @@
 -- interessante gedrag van de Berichtenbox zit juist in die randen; een demo waarin alles het altijd
 -- doet, laat niet zien wat een gebruiker merkt als het níét meezit.
 --
--- Waarom in de database en niet alleen in de configuratie: het gedrag moet tijdens een demo aan te
--- passen zijn zonder iets opnieuw te starten. De configuratie blijft de bron bij het opstarten — een
--- herstart en het `legen`-pad zetten het gedrag terug op de vastgelegde verdeling.
+-- Waarom in de database en niet alleen in het geheugen: zo is met een blik in de tabel te zien hoe
+-- de simulator erbij staat, en kan een bedieningspaneel dat straks tonen. Het bijstellen tijdens een
+-- demo werkt op de ingelezen set en niet op deze kolommen — de configuratie blijft de bron, en elke
+-- reconcile schrijft hem hier overheen. Een herstart en het `legen`-pad zetten het gedrag daarmee
+-- terug op de vastgelegde verdeling.
 
 ALTER TABLE magazijn
     -- Als enum-naam en niet als getal: leesbaar in de database, en een herordening van de enum

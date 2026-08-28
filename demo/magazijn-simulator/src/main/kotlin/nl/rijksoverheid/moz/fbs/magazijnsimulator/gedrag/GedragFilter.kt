@@ -23,8 +23,12 @@ import org.jboss.logging.Logger
  * **Bewust geen `@PreMatching`.** Dit filter wacht, en wachten hoort op een worker-thread. Een
  * `@PreMatching`-filter draait vóórdat Quarkus weet welke resource geraakt wordt en dus vóór de
  * overstap naar die thread; een `Thread.sleep` zou daar de event-loop blokkeren en álle magazijnen
- * tegelijk stilzetten. Na het matchen draait dit filter op dezelfde thread als de resource, en die
- * is blocking omdat er een database onder zit.
+ * tegelijk stilzetten. Na het matchen draait dit filter op dezelfde thread als de resource.
+ *
+ * Die garantie hangt eraan dat élke resource-methode een gewoon antwoordtype teruggeeft: Quarkus
+ * beslist per methode of hij blocking draait. Komt er ooit een endpoint bij dat een `Uni` of `Multi`
+ * teruggeeft — een SSE-stroom ligt in deze demo voor de hand — dan draait dit filter voor dát
+ * endpoint wél op de event-loop, en dan hoort de vertraging daar op een andere manier te landen.
  *
  * Het magazijn is op dit punt al gekozen door
  * [nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPadFilter]; een verzoek dat daar is

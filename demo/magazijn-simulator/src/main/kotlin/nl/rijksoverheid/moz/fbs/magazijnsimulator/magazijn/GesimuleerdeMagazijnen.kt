@@ -5,6 +5,7 @@ import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragUitvoering
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.MagazijnRepository
 import org.jboss.logging.Logger
 import java.util.concurrent.ConcurrentHashMap
@@ -25,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
 class GesimuleerdeMagazijnen(
     private val config: MagazijnSimulatorConfig,
     private val repository: MagazijnRepository,
+    private val uitvoering: GedragUitvoering,
 ) {
 
     private val log = Logger.getLogger(GesimuleerdeMagazijnen::class.java)
@@ -63,6 +65,11 @@ class GesimuleerdeMagazijnen(
      * bestaat.
      */
     fun stelGedragBij(oin: String, gedrag: Gedrag): Boolean {
+        // Op de live set toetsen en niet op de database: een rij die uit de configuratie is gehaald
+        // blijft staan, maar het pad-filter laat hem niet meer door. "Gelukt" melden voor een
+        // magazijn dat niemand kan bereiken, is een antwoord waar de aanroeper niets aan heeft.
+        if (!magazijnen.containsKey(oin)) return false
+
         if (!repository.zetGedrag(oin, gedrag)) return false
 
         magazijnen.computeIfPresent(oin) { _, bestaand -> bestaand.copy(gedrag = gedrag) }
@@ -70,9 +77,15 @@ class GesimuleerdeMagazijnen(
         return true
     }
 
-    /** Zet het gedrag van alle magazijnen terug naar wat de configuratie voorschrijft. */
+    /**
+     * Zet het gedrag van alle magazijnen terug naar wat de configuratie voorschrijft, en laat de
+     * toevalsreeksen opnieuw beginnen. Dat laatste hoort erbij: zonder dat gedraagt een haperend
+     * magazijn zich in de tweede ronde anders dan in de eerste, en is een demo binnen één draaiend
+     * proces niet te herhalen.
+     */
     fun herstelGedrag() {
         herlaad()
+        uitvoering.herstel()
     }
 
     /** Leest de magazijn-rijen opnieuw in, zodat een bijgesteld gedrag meteen geldt. */
@@ -84,6 +97,7 @@ class GesimuleerdeMagazijnen(
         )
 
         magazijnen.keys.retainAll(rijen.map { it.oin }.toSet())
+
         rijen.forEach { rij ->
             magazijnen[rij.oin] = GesimuleerdMagazijn(
                 dbId = rij.dbId,

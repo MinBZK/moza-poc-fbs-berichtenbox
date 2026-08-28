@@ -147,8 +147,11 @@ class GedragKetenTest : MagazijnTestBasis() {
 
     /**
      * Het wachten mag niet op de event-loop gebeuren: dan zou één traag magazijn álle andere
-     * stilzetten, en precies dat is wat een demo met honderd magazijnen moet kunnen laten zien. Twee
-     * gelijktijdige verzoeken van 500 ms horen samen ruim onder de seconde te blijven.
+     * stilzetten, en precies dat is wat een demo met honderd magazijnen moet kunnen laten zien.
+     *
+     * Het aantal verzoeken ligt bewust boven het aantal event-loops. Quarkus start er twee per kern,
+     * dus met een handvol verzoeken zouden ze allemaal op een eigen event-loop landen en zou deze
+     * test ook slagen als het wachten dáár gebeurde — hij zou dan groen staan zonder iets te meten.
      */
     @Test
     fun `een traag magazijn houdt de andere verzoeken niet op`() {
@@ -234,7 +237,7 @@ class GedragKetenTest : MagazijnTestBasis() {
         const val MAGAZIJN = "00000009000000000003"
         const val ANDER_MAGAZIJN = "00000009000000000001"
         const val BASIS = "/magazijn/$MAGAZIJN/api/v1"
-        const val PARALLEL = 4
+        val PARALLEL = 2 * Runtime.getRuntime().availableProcessors() + 2
         const val SECONDEN_GEDULD = 20L
     }
 }

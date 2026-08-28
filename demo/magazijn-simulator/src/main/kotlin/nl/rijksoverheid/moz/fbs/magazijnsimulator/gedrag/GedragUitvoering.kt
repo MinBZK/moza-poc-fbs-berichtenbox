@@ -14,6 +14,10 @@ import kotlin.math.ln
  * reeks op — een haperend magazijn valt op dezelfde momenten om — terwijl het binnen één ronde nog
  * steeds afwisselt. Zou de startwaarde per opstart geloot worden, dan is een demo niet te repeteren
  * en een bevinding niet na te spelen.
+ *
+ * Bij gelijktijdige verzoeken naar hetzelfde magazijn ligt de reeks wel vast, maar welk verzoek
+ * welke trekking krijgt niet. Bij één verzoek per magazijn per ophaalronde — wat de uitvraag doet —
+ * speelt dat niet.
  */
 @ApplicationScoped
 class GedragUitvoering {
@@ -52,8 +56,28 @@ class GedragUitvoering {
         else -> false
     }
 
+    /**
+     * Zet de reeks van elk magazijn terug naar het begin, zodat een demo na het terugzetten écht
+     * opnieuw begint. Zonder dit geldt de belofte van herhaalbaarheid alleen over een herstart van
+     * het proces heen, en is een bevinding uit de eerste ronde niet na te spelen in de tweede.
+     */
+    fun herstel() {
+        generatoren.clear()
+    }
+
+    /**
+     * De generator van één magazijn.
+     *
+     * De startwaarde wordt één keer doorgemengd, en dat is geen overdaad. De OIN's van de
+     * gesimuleerde magazijnen verschillen alleen in hun laatste vier cijfers, `String.hashCode`
+     * houdt die dicht bij elkaar, en `java.util.Random` mengt zijn startwaarde nauwelijks vóór de
+     * eerste trekking. Rechtstreeks gezaaid zouden álle haperende magazijnen op hun eerste verzoek
+     * tegelijk omvallen en zou vrijwel elk traag magazijn zijn eerste antwoord sneller dan zijn
+     * mediaan geven — de eerste ophaalronde van een demo zou er systematisch anders uitzien dan de
+     * volgende. Eén tussenstap haalt dat weg zonder de herhaalbaarheid te kosten.
+     */
     private fun generatorVoor(oin: String): Random =
-        generatoren.computeIfAbsent(oin) { Random(it.hashCode().toLong()) }
+        generatoren.computeIfAbsent(oin) { Random(Random(it.hashCode().toLong()).nextLong()) }
 
     private companion object {
         /** Het 95e percentiel van een standaardnormale verdeling. */

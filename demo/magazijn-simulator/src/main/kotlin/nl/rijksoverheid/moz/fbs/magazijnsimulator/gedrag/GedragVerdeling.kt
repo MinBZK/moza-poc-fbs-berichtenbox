@@ -9,8 +9,8 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag
  * repeteren en is een bevinding niet na te spelen.
  *
  * De verdeling is realistisch bedoeld: veruit de meeste organisaties doen het gewoon, een handvol is
- * traag, een paar liggen eruit. Over de volle honderd komt dat neer op 73 % normaal, 15 % traag,
- * 4 % haperend, 3 % stuk, 2 % onbereikbaar, en één weigering en één onbruikbaar antwoord.
+ * traag, een paar liggen eruit. Over de achtennegentig gesimuleerde magazijnen komt dat neer op
+ * 72 normaal, 15 traag, 4 haperend, 3 stuk, 2 onbereikbaar, 1 weigerend en 1 onbruikbaar.
  *
  * De plaatsing van die laatste twee is niet willekeurig: index 22 valt binnen de persona met 45
  * organisaties en index 71 alleen binnen de grootste. Zo houden de twee kleinste persona's een schoon
