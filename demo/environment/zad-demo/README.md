@@ -447,6 +447,24 @@ for m in magazijna magazijnb; do
 done
 ```
 
+**Alleen een preview omhangen kan ook**, zonder `test` te raken. Aliassen kunnen dat niet — die
+bestaan alleen op componentniveau (`Service 'aliases' has no values at target
+'deployment-component'`) — maar `user-env-vars` wél:
+
+```bash
+zadctl env add -c uitvraag --deployment pr-<n> \
+  'REDIS_HOSTS=redis://pr-<n>-toxiproxy-redis:16379'
+```
+
+Dat werkt omdat het gerenderde `envFrom` het user-secret ná het platform-secret zet, en bij gelijke
+sleutels wint de laatste. Geen `$DEPLOYMENT_NAME` hierin: de waarde geldt maar voor één deployment,
+dus de naam mag er hard in. Zo is een preview volledig te demonstreren terwijl `test` nog op een
+oudere console draait.
+
+**Let op bij `test`:** dat draagt zelf al een deployment-override voor `PROFIEL_SERVICE_URL`. Een
+alias op componentniveau komt daar dus niet doorheen — verzet daar de deployment-waarde, niet de
+alias.
+
 **De console blijft rechtstreeks op Redis staan.** Zijn `REDIS_HOSTS` uit stap 5 verandert niet: de
 cache-verval-knop is een beheeractie, en die hoort te blijven werken terwijl je de Redis-stroom
 uitzet. Loopt hij mee door de proxy, dan valt met "redis uit" ook de knop weg waarmee je het verhaal
