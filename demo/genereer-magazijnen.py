@@ -26,7 +26,12 @@ MAGAZIJN_A = "00000000000000100000"
 MAGAZIJN_B = "00000001823288444000"
 ECHTE_MAGAZIJNEN = [MAGAZIJN_A, MAGAZIJN_B]
 
-SIMULATOR_URL = "http://magazijn-simulator:8092"
+# Waar de simulator te bereiken is. Lokaal is dat de containernaam; op de gedeelde omgeving moet hier
+# een configuratie-expressie staan in plaats van een adres — `${MAGAZIJN_SIMULATOR_URL}` — want de
+# inhoud van een attachment wordt daar ongewijzigd gemount en zou anders in elke preview het adres
+# van `test` noemen. Die variabele komt daar uit een alias, en aliassen kennen de deployment-naam
+# wél; SmallRye vult hem in bij het lezen van het register.
+SIMULATOR_URL = os.environ.get("SIMULATOR_URL", "http://magazijn-simulator:8092")
 
 # Vier ondernemers, van klein naar extreem. De sets zijn genest: elke grotere bevat de kleinere
 # helemaal. Het verschil in wachttijd komt daardoor puur door de extra organisaties en niet doordat

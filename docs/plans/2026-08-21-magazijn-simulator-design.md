@@ -586,6 +586,19 @@ FSC blijft op de twee echte magazijnen. Eén gesimuleerd magazijn als extra FSC-
 bestaande inway is later een goedkope toevoeging (één dienst, één contract, één grant-hash), maar
 n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
 
+Het uitgewerkte runbook staat in `demo/environment/zad-demo/magazijn-simulator.md`. Twee dingen
+kwamen daarbij bovendrijven die hier niet stonden.
+
+Een attachment wordt op ZAD **ongewijzigd** gemount, dus een register met een hard adres wijst in
+elke preview naar de simulator van `test`. Het generatiescript schrijft daarom bij een gezette
+`SIMULATOR_URL` geen adres maar een configuratie-expressie, die op de uitvraag uit een alias komt —
+en aliassen kennen `$DEPLOYMENT_NAME` wél.
+
+En de simulator heeft een **eigen schema** nodig. ZAD levert één database en één user per deployment,
+en de simulator draagt tabelnamen (`bericht`, `bericht_status`, `bijlage`) die ook bij de magazijnen
+bestaan. `DB_SCHEMA` is daarom verplicht in `%prod`, net als bij elk magazijn, inclusief
+`currentSchema` op de connectie omdat de bulkvulling native SQL gebruikt.
+
 ## Foutafhandeling
 
 - Onbekende of ontbrekende OIN in het pad → 404 problem+json, met de OIN in `detail`; een pad
@@ -668,6 +681,10 @@ bij die net zo goed getest horen te worden.
    begrenzing op gelijktijdige bevragingen in de uitvraag, niet het aantal magazijnen; die staat als
    MinBZK/MijnOverheidZakelijk#1038 op de backlog.
 7. **ZAD.** Component, database, register-attachment, persona's in het stubs-image.
+   **Geblokkeerd door MinBZK/MijnOverheidZakelijk#936**, en niet uitgevoerd. Voorbereid is wat zonder
+   cluster kon: het runbook `demo/environment/zad-demo/magazijn-simulator.md`, de schema-isolatie in
+   `%prod`, en een generator die het register met een configuratie-expressie kan schrijven in plaats
+   van een vast adres.
 
 Stap 1 t/m 5 leveren de lokale demo; stap 6 levert de onderbouwing die #938 vraagt. Stap 7 is
 **geblokkeerd door #936**, en niet slechts ervan afhankelijk: zonder bediening en zonder
