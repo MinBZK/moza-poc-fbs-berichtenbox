@@ -1,6 +1,6 @@
 # De demo op ZAD verifiëren
 
-Vier stappen na de eenmalige creatie uit `README.md`. Ze staan in de volgorde waarin een fout de
+Zeven stappen na de eenmalige creatie uit `README.md`. Ze staan in de volgorde waarin een fout de
 volgende stap onbruikbaar maakt, dus stop bij de eerste die niet klopt.
 
 Alles gaat door de authorization-wall, dus doe dit in een browser waarin je bent ingelogd. Een
@@ -29,11 +29,13 @@ Verwacht:
 
 - `uitvraagBasis` wijst naar de publieke uitvraag van dezelfde deployment, **inclusief** `/api/v1`.
   Zonder dat pad faalt elke aanroep vanaf de Berichtenbox-pagina zichtbaar voor de gebruiker.
-- `storingen` is leeg: er staat op ZAD geen Toxiproxy.
+- `storingen` bevat precies `aanmeld`, `notificatie`, `profiel` en `redis`, zodra stap 6 van
+  `README.md` gedaan is. `magazijn-a` en `magazijn-b` horen er níet in te staan: die wachten op de
+  magazijn-simulator (#938) en hun knop zou gegarandeerd falen.
 - `sessiecache` is `true` zodra stap 5 van `README.md` gedaan is.
 
-Staat er een proxy in `storingen` die er niet hoort, dan is een `TOXIPROXY_*_URL` niet leeg gezet en
-toont het paneel een knop die gegarandeerd faalt.
+Staat er een proxy in `storingen` die er niet hoort, dan is de bijbehorende `TOXIPROXY_*_URL` niet
+leeg gezet. Ontbreekt er één die er wél hoort, dan is zijn alias niet aangekomen.
 
 ## 2. Vullen
 
@@ -82,6 +84,49 @@ Blijft de knop onzichtbaar, dan staat `SESSIECACHE_BEREIKBAAR` nog op `false`. G
 uitvraag — de verbinding kwám er dan wél doorheen, dus de netwerkregel staat. Geeft hij een
 verbindings- of timeoutfout, dán ontbreekt de `cross-domain-access`-regel voor deze deployment; op
 een preview zetten `deploy.yml` en `cleanup-preview.yml` die, op `test` staat hij met de hand.
+
+## 6. De storingsknoppen
+
+De vier knoppen staan in de Storingen-sectie. Doe ze niet allemaal tegelijk: elke knop hoort een
+eigen, herkenbaar effect te hebben.
+
+**Zet `profiel` uit** en druk daarna op **Opvoeren**. Verwacht: de aanlevering faalt, want het
+magazijn kan de voorkeuren van de ontvanger niet ophalen. Druk op **Alles normaal (reset)** en voer
+opnieuw op — nu slaagt het.
+
+**Zet `redis` traag** en haal in de Berichtenbox berichten op. Verwacht: het ophalen duurt zichtbaar
+langer (de toxic voegt zes seconden toe) en slaagt daarna alsnog.
+
+Verwacht bij elke knop een antwoord zonder fout. Een **verbindings- of timeoutfout** betekent dat de
+`cross-domain-access`-regel voor deze deployment ontbreekt — de console komt dan niet bij de
+admin-API. Een **404 op de proxy** betekent dat de proxy nog niet is aangemaakt; de console doet dat
+zelf, maar pas nadat hij de Toxiproxy kan bereiken, dus dat wijst op dezelfde ontbrekende regel.
+
+**Controleer daarna de upstream.** Dit is de stap die de stilste fout vangt: een preview die het
+verkeer van `test` afhandelt. Open op een preview de proxy-lijst en kijk waar hij heen wijst:
+
+```bash
+curl -s "http://<toxiproxy>:8474/proxies" | grep upstream
+```
+
+De upstream moet de deployment van *deze* preview noemen (`pr-<n>-profiel`), niet `test-profiel`.
+Klopt dat niet, dan is `TOXIPROXY_*_UPSTREAM` als gewone env-var gezet in plaats van als alias —
+alleen een alias vult `$DEPLOYMENT_NAME` in.
+
+## 7. Herstart-bestendigheid
+
+Toxiproxy houdt zijn proxies in het geheugen. Herstart er één en kijk of ze terugkomen:
+
+```bash
+zadctl -p mpfb-8wh deployment refresh test
+```
+
+Verwacht: binnen een halve minuut staan de proxies er weer, want de console maakt ze opnieuw aan.
+Blijft de lijst leeg, dan draait de reconcile niet — controleer in de console-log op
+`Proxy ... niet aan te maken` en op de waarschuwing over een ontbrekende listen of upstream.
+
+Deze stap is er niet voor de mooiigheid: zonder die reconcile laat elke herstart de héle keten dood
+achter, want al het profiel-, notificatie-, aanmeld- en Redis-verkeer loopt door deze proxies.
 
 ## Daarna
 

@@ -129,10 +129,10 @@ dan leegt de console een leeg schema en meldt nul verwijderde berichten zónder 
 van `verify-zad.md` is er om dat te vangen.
 
 De zes lege `TOXIPROXY_*`-waarden schakelen de storingsknoppen uit: het paneel leest
-`GET /api/demo/omgeving` en laat een knop weg zodra zijn proxy niet geconfigureerd is. Er staat op
-ZAD geen Toxiproxy; waarom niet, staat onderaan bij "Wat er bewust niet meekomt".
-`SESSIECACHE_BEREIKBAAR=false` doet hetzelfde voor de cache-verval-knop; stap 5 zet hem aan zodra
-het verkeer naar de sessiecache openstaat.
+`GET /api/demo/omgeving` en laat een knop weg zodra zijn proxy niet geconfigureerd is. Stap 6 vult er
+vier van in zodra de Toxiproxy-componenten staan; de twee magazijn-proxies blijven leeg, want hun
+storingsgedrag komt uit de magazijn-simulator (#938). `SESSIECACHE_BEREIKBAAR=false` doet hetzelfde
+voor de cache-verval-knop; stap 5 zet hem aan zodra het verkeer naar de sessiecache openstaat.
 
 ## 4. CORS op de uitvraag
 
@@ -237,7 +237,200 @@ zadctl env add -c democonsole REDIS_PASSWORD=<dezelfde waarde als bij uitvraag>
 Loopt die waarde ooit uiteen met die van de uitvraag, dan faalt alleen deze knop, en pas op het
 moment dat iemand hem gebruikt.
 
-## 6. Uitrollen en verifiëren
+## 6. De storingsknoppen
+
+Vier stromen lopen op ZAD langs een eigen Toxiproxy: `profiel` en `notificatie` in `mpfpsm-lcl`,
+`aanmeld` en `redis` in `mpfb-8wh`. Elke proxy staat in dezelfde deployment als zijn upstream, zodat
+een preview zijn eigen stubs aanspreekt en niet die van `test`.
+
+Er komt géén `proxies.json` mee. De inhoud van een attachment wordt ongewijzigd gemount, dus zo'n
+bestand zou in elke preview naar de upstream van `test` wijzen — en dat is de stilste faalwijze die
+er is. De console maakt de proxies daarom zelf aan via de admin-API, met een upstream uit een alias;
+aliassen kennen `$DEPLOYMENT_NAME` wél. Hij herhaalt dat elke dertig seconden, want Toxiproxy houdt
+zijn proxies in het geheugen en verliest ze bij een herstart.
+
+### Twee poorten per component
+
+Een component publiceert één ingress, maar het mág meer poorten dragen: `service.yaml.jinja` zet elke
+poort ná de eerste als extra Service-poort, en de Ingress pakt alleen de eerste. Zo draagt de eerste
+poort de stroom (publiek, TLS door de router) en blijft 8474 — de admin-API — cluster-intern, alleen
+bereikbaar via de netwerkregel hieronder.
+
+De volgorde is dus niet vrij: de listen-poort eerst, 8474 daarna.
+
+| Component | Project | `--ports` | `publish-on-web` | Upstream |
+|---|---|---|---|---|
+| `toxiproxy-profiel` | `mpfpsm-lcl` | 18089, 8474 | ja | `$DEPLOYMENT_NAME-profiel:8080` |
+| `toxiproxy-notificatie` | `mpfpsm-lcl` | 18084, 8474 | ja | `$DEPLOYMENT_NAME-notificatie:8080` |
+| `toxiproxy-aanmeld` | `mpfb-8wh` | 18086, 8474 | ja | `$DEPLOYMENT_NAME-uitvraag:8086` |
+| `toxiproxy-redis` | `mpfb-8wh` | 16379, 8474 | nee | `$DEPLOYMENT_NAME-redis:6379` |
+
+De drie ingressen zijn geen luxe. Het magazijn weigert buiten dev een downstream die geen `https`
+draagt of die op een intern adres uitkomt (`DownstreamClient.valideerUrl`: TLS-eis uit BIO 13.2.1
+plus de SSRF-blocklist). `aanmeld` en `notificatie` móéten dus over de publieke ingress, en dan is
+`profiel` ernaast houden eenvoudiger dan één stroom apart bedraden. `toxiproxy-redis` heeft er geen
+nodig: hij staat in dezelfde deployment als de uitvraag, en dáár laat de tenant-baseline het verkeer
+al toe.
+
+### De probe moet naar 8474, niet naar de stroom
+
+Zonder de `health-check`-dienst probeert Kubernetes een component op zijn eerste inbound-poort, met
+een TCP-probe. Precies die poort sluit Toxiproxy zodra je een proxy uitzet — dus ongeveer anderhalve
+minuut na een druk op "uit" zou de pod herstarten, mét verlies van álle proxies. De knop zou zichzelf
+ongedaan maken en de keten meenemen.
+
+Richt de probe daarom op de admin-API, die altijd staat:
+
+```bash
+zadctl service assign health-check -c toxiproxy-profiel
+zadctl service config set health-check -c toxiproxy-profiel \
+  --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
+```
+
+Readiness op 8474 is precies goed: de pod blijft `Ready` terwijl de stroom dicht is, dus de router
+antwoordt een 503 en het magazijn ziet een dienst die wegviel — wat de demo wil laten zien.
+
+### De vier componenten aanmaken
+
+Toxiproxy start met zijn eigen default-`CMD` (`-host=0.0.0.0`) prima op met nul proxies. Er is dus
+geen startcommando nodig, en dat scheelt het UI-handwerk dat een hercreatie niet overleeft.
+
+```bash
+for c in profiel:18089 notificatie:18084; do
+  naam=toxiproxy-${c%%:*}
+  zadctl -p mpfpsm-lcl component add "$naam" \
+    --image ghcr.io/shopify/toxiproxy:2.12.0 \
+    --deployment test \
+    --ports "${c##*:}" --ports 8474 \
+    --service publish-on-web \
+    --service health-check
+  zadctl -p mpfpsm-lcl service config set health-check -c "$naam" \
+    --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
+done
+
+for c in aanmeld:18086; do
+  naam=toxiproxy-${c%%:*}
+  zadctl -p mpfb-8wh component add "$naam" \
+    --image ghcr.io/shopify/toxiproxy:2.12.0 \
+    --deployment test \
+    --ports "${c##*:}" --ports 8474 \
+    --service publish-on-web \
+    --service health-check
+  zadctl -p mpfb-8wh service config set health-check -c "$naam" \
+    --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
+done
+
+zadctl -p mpfb-8wh component add toxiproxy-redis \
+  --image ghcr.io/shopify/toxiproxy:2.12.0 \
+  --deployment test \
+  --ports 16379 --ports 8474 \
+  --service health-check
+zadctl -p mpfb-8wh service config set health-check -c toxiproxy-redis \
+  --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
+```
+
+Houd de image-pin gelijk aan `compose.yaml` en aan `TOXIPROXY_IMAGE` in `deploy.yml`;
+`pin-consistency.yml` bewaakt die twee, de pin in de OM-projectspec valt daarbuiten (andere
+repository, net als bij Redis).
+
+### De netwerkregels voor de admin-API's
+
+Vier hops, dus vier regels — één regel opent één poort op één component bij één peer. Elke regel
+draagt twee kanten: de ontvanger beslist, dus één kant alleen zet niets open.
+
+```bash
+API=https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api
+
+inbound() {  # project, sleutel, regel, component
+  curl -s -X PATCH -H "X-API-Key: $2" -H 'Content-Type: application/json' \
+    "$API/v2/projects/$1/services/cross-domain-access/config/project/inbound" \
+    -d "{\"add\":[{\"name\":\"$3\",\"to\":{\"component\":\"$4\",\"port\":8474},\"from\":{\"project\":\"mpfm-w3h\",\"component\":\"democonsole\"}}]}"
+}
+
+outbound() {  # project van de peer, regel, component
+  curl -s -X PATCH -H "X-API-Key: $SLEUTEL_MAGAZIJNEN" -H 'Content-Type: application/json' \
+    "$API/v2/projects/mpfm-w3h/services/cross-domain-access/config/project/outbound" \
+    -d "{\"add\":[{\"name\":\"$2\",\"from\":{\"component\":\"democonsole\"},\"to\":{\"project\":\"$1\",\"component\":\"$3\",\"port\":8474}}]}"
+}
+
+inbound mpfpsm-lcl "$SLEUTEL_PROFIEL"  democonsole-naar-toxiproxy-profiel     toxiproxy-profiel
+inbound mpfpsm-lcl "$SLEUTEL_PROFIEL"  democonsole-naar-toxiproxy-notificatie toxiproxy-notificatie
+inbound mpfb-8wh   "$SLEUTEL_UITVRAAG" democonsole-naar-toxiproxy-aanmeld     toxiproxy-aanmeld
+inbound mpfb-8wh   "$SLEUTEL_UITVRAAG" democonsole-naar-toxiproxy-redis       toxiproxy-redis
+
+outbound mpfpsm-lcl democonsole-naar-toxiproxy-profiel     toxiproxy-profiel
+outbound mpfpsm-lcl democonsole-naar-toxiproxy-notificatie toxiproxy-notificatie
+outbound mpfb-8wh   democonsole-naar-toxiproxy-aanmeld     toxiproxy-aanmeld
+outbound mpfb-8wh   democonsole-naar-toxiproxy-redis       toxiproxy-redis
+```
+
+Daarna de invulling voor `test`, met hetzelfde script dat CI voor previews gebruikt. Het neemt
+meerdere regelnamen in één patch:
+
+```bash
+ZAD_API_KEY=$SLEUTEL_PROFIEL .github/scripts/cross-domain-preview.sh zet mpfpsm-lcl test inbound \
+  democonsole-naar-toxiproxy-profiel democonsole-naar-toxiproxy-notificatie
+
+ZAD_API_KEY=$SLEUTEL_UITVRAAG .github/scripts/cross-domain-preview.sh zet mpfb-8wh test inbound \
+  democonsole-naar-toxiproxy-aanmeld democonsole-naar-toxiproxy-redis
+
+ZAD_API_KEY=$SLEUTEL_MAGAZIJNEN .github/scripts/cross-domain-preview.sh zet mpfm-w3h test outbound \
+  democonsole-naar-toxiproxy-profiel democonsole-naar-toxiproxy-notificatie \
+  democonsole-naar-toxiproxy-aanmeld democonsole-naar-toxiproxy-redis
+```
+
+### De keten door de proxies leiden
+
+De drie stromen die vandaag rechtstreeks lopen, gaan er nu doorheen. Op `magazijna` én `magazijnb`:
+
+```bash
+zadctl alias set -c magazijna \
+  'PROFIEL_SERVICE_URL=https://toxiproxy-profiel-$DEPLOYMENT_NAME-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl' \
+  'NOTIFICATIE_URL=https://toxiproxy-notificatie-$DEPLOYMENT_NAME-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl/events' \
+  'AANMELD_URL=https://toxiproxy-aanmeld-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/aanmeldingen'
+```
+
+En op `uitvraag` in `mpfb-8wh` de sessiecache door zijn proxy, met hetzelfde schema als er nu staat
+— dit verzet alleen host en poort:
+
+```bash
+zadctl -p mpfb-8wh alias set -c uitvraag \
+  'REDIS_HOSTS=redis://$DEPLOYMENT_NAME-toxiproxy-redis:16379'
+```
+
+**De console blijft rechtstreeks op Redis staan.** Zijn `REDIS_HOSTS` uit stap 5 verandert niet: de
+cache-verval-knop is een beheeractie, en die hoort te blijven werken terwijl je de Redis-stroom
+uitzet. Loopt hij mee door de proxy, dan valt met "redis uit" ook de knop weg waarmee je het verhaal
+vertelt.
+
+### En de console erheen wijzen
+
+```bash
+zadctl alias add -c democonsole \
+  'TOXIPROXY_PROFIEL_URL=http://$DEPLOYMENT_NAME-toxiproxy-profiel.rig-prd-mpfpsm-lcl.svc.cluster.local:8474' \
+  'TOXIPROXY_NOTIFICATIE_URL=http://$DEPLOYMENT_NAME-toxiproxy-notificatie.rig-prd-mpfpsm-lcl.svc.cluster.local:8474' \
+  'TOXIPROXY_AANMELD_URL=http://$DEPLOYMENT_NAME-toxiproxy-aanmeld.rig-prd-mpfb-8wh.svc.cluster.local:8474' \
+  'TOXIPROXY_REDIS_URL=http://$DEPLOYMENT_NAME-toxiproxy-redis.rig-prd-mpfb-8wh.svc.cluster.local:8474' \
+  'TOXIPROXY_PROFIEL_UPSTREAM=$DEPLOYMENT_NAME-profiel:8080' \
+  'TOXIPROXY_NOTIFICATIE_UPSTREAM=$DEPLOYMENT_NAME-notificatie:8080' \
+  'TOXIPROXY_AANMELD_UPSTREAM=$DEPLOYMENT_NAME-uitvraag:8086' \
+  'TOXIPROXY_REDIS_UPSTREAM=$DEPLOYMENT_NAME-redis:6379'
+```
+
+De vier `TOXIPROXY_*_URL` waren in stap 3 leeg gezet; deze aliassen vullen ze. `zadctl env set -c
+democonsole TOXIPROXY_MAGAZIJN_A_URL= TOXIPROXY_MAGAZIJN_B_URL=` blijft staan — die twee wachten op
+de magazijn-simulator (#938), en het paneel laat hun knoppen weg zolang de waarde leeg is.
+
+De listen-poorten hebben geen alias nodig; hun defaults in `application.properties` zijn al de
+poorten uit de tabel hierboven. De upstreams wél: die noemen een deployment, en alleen een alias
+vult `$DEPLOYMENT_NAME` in.
+
+**De upstream wordt in de Toxiproxy-pod opgelost, niet in die van de console.** Daarom een korte
+servicenaam (`$DEPLOYMENT_NAME-profiel`) en geen volledige cross-namespace-naam: de proxy staat in
+dezelfde namespace als zijn upstream. De admin-URL's zijn andersom — die lost de console zelf op, en
+dus staan daar de volledige namen.
+
+## 7. Uitrollen en verifiëren
 
 ```bash
 zadctl deployment refresh test
@@ -253,32 +446,29 @@ schema aanwijst.
 
 ## Wat er bewust niet meekomt
 
-**De storingsknoppen (Toxiproxy).** Drie eigenschappen van ZAD maken de opzet uit het ontwerp
-onbruikbaar zodra previews meetellen:
+**De magazijn-storingen.** De twee `TOXIPROXY_MAGAZIJN_*_URL` blijven leeg en het paneel laat die
+knoppen weg. Ze wachten op de magazijn-simulator (#938), die het storingsgedrag van een magazijn
+zelf levert; een Toxiproxy vóór elk magazijn zou datzelfde werk dubbel doen.
 
-- De inhoud van een attachment wordt ongewijzigd gemount; er is geen `$DEPLOYMENT_NAME`-substitutie.
-  Een `proxies.json` moet dus een vaste upstream noemen, en die is in een preview de verkeerde.
-- Het `command` dat Toxiproxy naar dat bestand wijst, staat niet in `AddComponentRequest` of
-  `UpdateComponentRequest` en kent `zadctl` niet: het is UI-handwerk dat elke hercreatie overleeft
-  noch meeklont.
-- Een `cross-domain-access`-regel noemt altijd één concrete peer-deployment; een regel waarvan die
-  open blijft, wordt bij het genereren overgeslagen. De console kan de admin-API's in een preview
-  dus niet bereiken.
+**De veel-magazijnen-schuif.** Zelfde afhankelijkheid (#938).
 
-Het gevolg zonder maatregelen is de slechtste soort: een preview zou zijn keten-verkeer stilzwijgend
-door de proxy van `test` sturen. Zie het vervolgontwerp voor de route die dat wél oplost — de console
-maakt de proxies zelf aan via de admin-API, en de netwerkregels komen per preview mee uit de
-deploy-workflow.
+De andere knoppen werken wél. **De cache-verval-knop** sinds stap 5, **de vier storingsknoppen**
+sinds stap 6. Ze vragen allebei cluster-intern verkeer naar een ander project, en zo'n netwerkregel
+noemt op ZAD altijd één vaste deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` de
+per-deployment invulling zelf bij en weer weg.
 
-**De cache-verval-knop** werkt wél, sinds stap 5. Hij vraagt als enige knop cluster-intern verkeer
-naar een ander project, en daarom een `cross-domain-access`-regel per deployment. Voor previews
-zetten `deploy.yml` en `cleanup-preview.yml` die zelf.
-
-**De veel-magazijnen-schuif.** Wacht op de magazijn-simulator (#938).
+Wat daarbij níet meekomt is een `proxies.json`: de inhoud van een attachment wordt ongewijzigd
+gemount, dus zo'n bestand zou in elke preview de upstream van `test` noemen — een preview die
+stilzwijgend het verkeer van een ander magazijn afhandelt. De console maakt de proxies daarom zelf
+aan. Dat schrapt meteen het `command` dat Toxiproxy naar zo'n bestand zou wijzen, en dat scheelt
+UI-handwerk dat een hercreatie niet overleeft.
 
 ## Wat het wonen in `test` met zich meebrengt
 
 - De demo rolt mee met elke merge naar main, dus de omgeving kan tijdens een presentatie herstarten.
 - De legen-knop op de console ín `test` wist de database van `test`, waar nieuwe previews van
   klonen. Op een preview raakt legen alleen die preview: elke deployment heeft zijn eigen database.
-- Elke openstaande PR draagt de console mee, ongeveer 250 Mi.
+- Elke openstaande PR draagt de console mee, ongeveer 250 Mi, plus vier Toxiproxy's van ~32 Mi en
+  drie ingressen.
+- Het ketenverkeer loopt voortaan altijd door die proxies, ook als niemand demonstreert. Dat is een
+  extra hop in het pad, bewust geaccepteerd omdat de knoppen anders niet bestaan.

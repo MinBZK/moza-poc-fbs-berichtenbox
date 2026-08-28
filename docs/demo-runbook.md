@@ -245,12 +245,16 @@ Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de a
 niet een kapot component.
 
 Twee knopgroepen ontbreken daar, en het paneel laat ze zelf weg op grond van
-`GET /api/demo/omgeving`: de storingen en de veel-magazijnen-schuif. Die wachten op eigen
-componenten; `demo/environment/zad-demo/README.md` legt uit wat daarvoor nodig is.
+`GET /api/demo/omgeving`: de magazijn-storingen en de veel-magazijnen-schuif. Die wachten op de
+magazijn-simulator (#938); `demo/environment/zad-demo/README.md` legt uit wat daarvoor nodig is.
 
-De cache-verval-knop werkt wél, op `test` en op een preview. Hij praat cluster-intern met een ander
-project, en zo'n netwerkregel noemt op ZAD altijd één vaste deployment — daarom schrijven
-`deploy.yml` en `cleanup-preview.yml` hem per preview bij en weer weg.
+De cache-verval-knop en de vier storingsknoppen (profiel, notificatie, aanmeld, redis) werken wél, op
+`test` en op een preview. Ze praten cluster-intern met een ander project, en zo'n netwerkregel noemt
+op ZAD altijd één vaste deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` ze per
+preview bij en weer weg.
+
+Eén verschil met lokaal: op ZAD staat elke stroom achter zijn eigen Toxiproxy, dus "alles uit" vraagt
+vier knoppen in plaats van één instantie. "Alles normaal (reset)" gaat ze wél alle vier langs.
 
 Twee dingen om te weten vóór je op ZAD demonstreert: de omgeving rolt opnieuw uit bij elke merge
 naar main, en de legen-knop op de console ín `test` wist de database van `test`, waar nieuwe previews

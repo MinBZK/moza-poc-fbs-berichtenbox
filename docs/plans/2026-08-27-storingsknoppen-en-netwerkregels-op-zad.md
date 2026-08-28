@@ -1,4 +1,4 @@
-**Status:** Stap 1 uitgevoerd en geverifieerd; stap 2 concept. Zie "Wat er staat" onderaan.
+**Status:** Stap 1 uitgevoerd en geverifieerd; stap 2 gebouwd, creatie op ZAD loopt. Zie "Wat er staat" onderaan.
 
 # Storingsknoppen en cluster-intern verkeer op ZAD — ontwerp
 
@@ -11,8 +11,8 @@ de console) en #938 (magazijn-simulator).
 
 ## De aanleiding
 
-> Stap 1 hieronder is uitgevoerd, dus van de twee knoppen in deze tabel werkt de eerste inmiddels.
-> De beschrijving blijft staan omdat ze de reden van stap 2 draagt.
+> Stap 1 hieronder is uitgevoerd en stap 2 is gebouwd. De beschrijving blijft staan omdat ze
+> vastlegt waaróm de opzet werd zoals hij is.
 
 Op ZAD staat de console als `democonsole` in `mpfm-w3h/test` en in elke preview daarvan. Alles wat
 hij doet is óf binnen zijn eigen deployment (de magazijnen, de database) óf over de publieke
@@ -21,7 +21,7 @@ ingress (de uitvraag). Twee knopgroepen vallen daarbuiten:
 | Knop | Wat hij nodig heeft | Waar dat staat | Nu |
 |---|---|---|---|
 | Cache verlopen | Redis, poort 6379 | `mpfb-8wh`, ander project | werkt (stap 1) |
-| Storingen | vier Toxiproxy-admin-API's, poort 8474 | `mpfb-8wh` en `mpfpsm-lcl` | open (stap 2) |
+| Storingen | vier Toxiproxy-admin-API's, poort 8474 | `mpfb-8wh` en `mpfpsm-lcl` | stap 2 |
 
 De console laat weg wat een omgeving niet kan bedienen, op grond van `GET /api/demo/omgeving`: lege
 `TOXIPROXY_*_URL`-waarden halen de storingsknoppen uit het paneel. `SESSIECACHE_BEREIKBAAR` deed
@@ -86,7 +86,7 @@ over de héle configuratie en zou de bestaande regels overschrijven — de `PATC
 preview-deploy-jobs hadden geen `actions/checkout`: de deploy-stap is een action en heeft de repo
 niet nodig, een script wel.
 
-### Stap 2: de console maakt zijn eigen proxies aan
+### Stap 2: de console maakt zijn eigen proxies aan — uitgevoerd
 
 Toxiproxy start met zijn eigen default-`CMD` (`-host=0.0.0.0`, geverifieerd op de image-config van
 2.12.0) prima op, met nul proxies en zijn admin-API omhoog. Dat schrapt eigenschap 1 en 2 in één
@@ -121,6 +121,29 @@ Kosten: vier containers van ~32 Mi plus drie ingressen, per deployment inclusief
 permanente extra hop in het verkeerspad van de keten, ook wanneer er niemand demonstreert. Dat is
 de afweging die bij dit werk hoort en die eerder al als open stond aangemerkt.
 
+Drie dingen bleken bij de uitvoering, alle drie in `RijksICTGilde/RIG-Cluster` na te lezen.
+
+**Een component draagt méér dan één poort.** `ports: [...]` bestaat in `AddComponentRequest`, elke
+poort ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`. Dit ontwerp
+ging nog uit van één poort per component; in werkelijkheid geldt die beperking voor de ingress, niet
+voor de Service. Elke Toxiproxy draagt daarom zijn stroom op de eerste poort en zijn admin-API op
+8474, cluster-intern achter de netwerkregel.
+
+**De standaard-probe zou de uit-knop terugdraaien.** Zonder de `health-check`-dienst probeert
+Kubernetes een TCP-socket op `ports[0]` — precies de poort die Toxiproxy sluit als je een proxy
+uitzet. Anderhalve minuut na een druk op "uit" zou de pod herstarten en álle proxies meenemen. De
+probe wijst daarom naar 8474.
+
+**De ingressen zijn een eis, geen voorkeur.** `DownstreamClient.valideerUrl` weigert buiten dev een
+downstream zonder `https` of op een intern adres (BIO 13.2.1 plus de SSRF-blocklist). `aanmeld` en
+`notificatie` móéten dus over de publieke ingress lopen.
+
+En één ding dat het ontwerp helemaal niet had: **de proxies staan alleen in het geheugen van
+Toxiproxy.** Zonder `proxies.json` laat een herstart van die pod de keten dood achter, want al het
+profiel-, notificatie-, aanmeld- en Redis-verkeer loopt erdoorheen. De console herhaalt zijn
+bootstrap daarom elke dertig seconden; een bestaande proxy blijft staan, ook een bewust uitgezette,
+dus alleen een leeggeraakte instantie wordt opnieuw gevuld.
+
 ## Overwogen en afgevallen
 
 | Alternatief | Waarom niet |
@@ -138,7 +161,9 @@ de afweging die bij dit werk hoort en die eerder al als open stond aangemerkt.
 | De regel op projectniveau in `mpfb-8wh` (inbound) | Gezet |
 | De regel op projectniveau in `mpfm-w3h` (outbound) | Gezet |
 | `REDIS_HOSTS`, `REDIS_PASSWORD` en `SESSIECACHE_BEREIKBAAR=true` op de console | Gezet |
-| Stap 2 (de storingsknoppen) | Concept |
+| Console maakt zijn eigen proxies aan, met reconcile + tests | Uitgevoerd |
+| Netwerkregels per preview in `deploy.yml`/`cleanup-preview.yml`, runbook | Uitgevoerd |
+| De vier Toxiproxy-componenten op ZAD en de keten erdoorheen | Loopt |
 
 De cache-verval-knop werkt, op `test` en op een preview. Eén ding kwam er bij de verificatie
 bovenop dat hier niet stond: de Redis op ZAD eist een wachtwoord, en de console kende de property

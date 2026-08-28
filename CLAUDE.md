@@ -188,8 +188,9 @@ naar de Git-repo die Argo volgt), niet handmatig in de cluster of in de gerender
 matrix van `.github/workflows/cleanup-preview.yml` — wijzig een id op beide plekken, anders
 ruimt de opruiming een ánder project op en verifieert ze daar: zolang dat project bestaat is de
 run groen en blijft de preview staan):**
-`berichtenuitvraag` = `mpfb-8wh` (`redis`, `uitvraag`), `magazijnen` = `mpfm-w3h` (`magazijna`,
-`magazijnb`, `democonsole`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`).
+`berichtenuitvraag` = `mpfb-8wh` (`redis`, `uitvraag`, `toxiproxy-aanmeld`, `toxiproxy-redis`),
+`magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`), `externe-stubs` = `mpfpsm-lcl`
+(`profiel`, `notificatie`, `toxiproxy-profiel`, `toxiproxy-notificatie`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
 opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
@@ -199,14 +200,26 @@ deployment omdat `postgresql-database` deployment-gebonden is: alleen een compon
 deployment als de magazijnen erft hun database-secret, en dat secret is wat de legen-knop mogelijk
 maakt. De eenmalige creatie staat in `demo/environment/zad-demo/README.md`.
 
-Drie ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle drie geverifieerd in
-`RijksICTGilde/RIG-Cluster`: de inhoud van een **attachment** wordt ongewijzigd gemount (geen
-`$DEPLOYMENT_NAME`-substitutie, anders dan bij aliassen); **`command`** staat niet in
-`AddComponentRequest`/`UpdateComponentRequest` en kent `zadctl` niet, dus een startcommando is
-UI-handwerk; en een **`cross-domain-access`-regel** noemt altijd één concrete peer-deployment — een
-regel waarvan die open blijft, wordt bij het genereren overgeslagen. Gevolg: cluster-intern verkeer
-naar een ánder project volgt geen preview, tenzij de regel per deployment wordt bijgeschreven
-(`PATCH /api/v2/projects/{p}/services/cross-domain-access/config/deployment/{d}/{inbound,outbound}`).
+Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf geverifieerd in
+`RijksICTGilde/RIG-Cluster`:
+
+- De inhoud van een **attachment** wordt ongewijzigd gemount (geen `$DEPLOYMENT_NAME`-substitutie,
+  anders dan bij aliassen).
+- **`command`** staat niet in `AddComponentRequest`/`UpdateComponentRequest` en kent `zadctl` niet,
+  dus een startcommando is UI-handwerk.
+- Een **`cross-domain-access`-regel** noemt altijd één concrete peer-deployment — een regel waarvan
+  die open blijft, wordt bij het genereren overgeslagen. Eén regel opent bovendien één poort op één
+  component bij één peer (`cross_domain_access/merge.py`), dus elke hop is een eigen regel. Gevolg:
+  cluster-intern verkeer naar een ánder project volgt geen preview, tenzij de regel per deployment
+  wordt bijgeschreven
+  (`PATCH /api/v2/projects/{p}/services/cross-domain-access/config/deployment/{d}/{inbound,outbound}`).
+- Een component **draagt meer dan één poort** (`ports: [...]`), maar publiceert er één: elke poort
+  ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`
+  (`service.yaml.jinja`, `project_manager.py`). Zo blijft een beheerpoort cluster-intern terwijl de
+  eerste poort publiek gaat.
+- Zonder de **`health-check`**-dienst probeert Kubernetes een TCP-socket op `ports[0]`, met
+  `livenessProbe` op 30s × 3. Sluit de applicatie die poort bewust (een proxy die je uitzet), dan
+  herstart de pod anderhalve minuut later. Richt de probe dan op een poort die altijd staat.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 

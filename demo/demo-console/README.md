@@ -44,14 +44,18 @@ de verificatie erna.
 
 Knopgroepen waarvan de backend er niet is, verbergt het paneel zelf op basis van
 `GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, en een
-onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat de storingen en de
-veel-magazijnen-schuif.
+onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat nog de magazijn-storingen
+en de veel-magazijnen-schuif; die wachten op de magazijn-simulator (#938).
 
-De cache-verval-knop wérkt daar, ook op een preview. Hij vraagt als enige overgebleven knop
+De cache-verval-knop en de vier storingsknoppen wérken daar, ook op een preview. Ze vragen allemaal
 cluster-intern verkeer naar een ander project, en zo'n netwerkregel noemt op ZAD altijd één vaste
-deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` hem per preview bij en weer weg.
-Wat de storingen en de veel-magazijnen-schuif nog missen is dus niet die regel, maar hun eigen
-componenten.
+deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` ze per preview bij en weer weg.
+
+De vier Toxiproxy's op ZAD dragen géén `proxies.json`: de inhoud van een attachment wordt daar
+ongewijzigd gemount en zou in elke preview de upstream van `test` noemen. De console maakt de proxies
+daarom zelf aan via de admin-API (`ProxyBootstrap`) en herhaalt dat elke dertig seconden, want
+Toxiproxy houdt ze in het geheugen en verliest ze bij een herstart. Lokaal is dat een no-op: compose
+zet ze uit `toxiproxy/proxies.json` en Toxiproxy antwoordt dan 409.
 
 Drie dingen horen bij het wonen in `test`. De demo rolt mee met elke merge naar main, dus de
 omgeving kan tijdens een presentatie herstarten. Previews klonen `test` en krijgen de console dus
@@ -88,7 +92,9 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `TOXIPROXY_<PROXY>_URL` | de waarde hierboven | Eén instantie apart; op ZAD staat elke stroom op een eigen adres. Leeg zetten schakelt die proxy uit — het paneel verbergt dan zelf de bijbehorende knop (bv. `TOXIPROXY_MAGAZIJN_A_URL=` op ZAD) |
 | `UITVRAAG_BASIS` | leeg | Browser-zichtbaar adres van de uitvraag-API, **inclusief** het `/api/v1`-pad (bv. `https://uitvraag.example/api/v1`); leeg = afleiden uit de browser-locatie. `berichtenbox.js` gebruikt de waarde ongewijzigd als request-basis en de paginering strípt `/api/v1` uit de HAL-links op die aanname — zonder het pad faalt elke call zichtbaar voor de gebruiker (foutmelding in het paneel of een `alert`) |
 | `UITVRAAG_URL` | `http://localhost:8086` | Adres dat de console zélf aanroept voor de ontdubbeling-webhook |
-| `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop |
+| `TOXIPROXY_<PROXY>_LISTEN`, `TOXIPROXY_<PROXY>_UPSTREAM` | de waarden uit `toxiproxy/proxies.json` | Waar de proxy luistert en naartoe stuurt; hiermee maakt de console hem aan. Op ZAD komt de upstream uit een alias, zodat `$DEPLOYMENT_NAME` de proxy naar de stubs van dezelfde deployment wijst |
+| `TOXIPROXY_RECONCILE_INTERVAL` | `30s` | Hoe vaak de console controleert of de proxies er nog zijn |
+| `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop. Wijst bewust rechtstreeks op Redis en niet door de proxy: het is een beheeractie, die moet blijven werken terwijl je de Redis-stroom uitzet |
 | `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
 | `SESSIECACHE_BEREIKBAAR` | `true` | Op `false` laat het paneel de cache-verval-knop weg. Voor omgevingen waar Redis niet bereikbaar is; een knop die gegarandeerd faalt kost tijdens een demo uitleg die niets toevoegt |
 | `DEMO_MAGAZIJN_STUBS` | `12` | Aantal stub-magazijnen voor de veel-magazijnen-schuif |
