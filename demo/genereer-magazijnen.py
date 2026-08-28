@@ -176,9 +176,12 @@ def main() -> None:
     (BASIS / "magazijnen-register.properties").write_text("\n".join(register_regels(n)) + "\n")
     (BASIS / "magazijn-simulator.properties").write_text("\n".join(simulator_regels(n)) + "\n")
 
-    # Oude persona-bestanden opruimen zodat een hernoemde ondernemer geen wees achterlaat die
-    # WireMock alsnog serveert.
-    for oud in profiel_dir.glob("ondernemer-*.json"):
+    # Álles opruimen, niet alleen wat deze versie zelf schrijft. Een eerdere versie van dit script
+    # schreef andere bestandsnamen op dezelfde URL en met dezelfde voorrang; die map is git-ignored,
+    # dus zo'n wees blijft staan bij wie de vorige versie heeft gedraaid. WireMock breekt een
+    # gelijkspel in voorrang op volgorde van inlezen, en dan wint willekeurig de oude of de nieuwe —
+    # met een fan-out die niemand heeft ingesteld en een foutmelding die de verkeerde kant op wijst.
+    for oud in profiel_dir.glob("*.json"):
         oud.unlink()
 
     for volgnummer, (naampje, soort, nummer, fanout) in enumerate(ONDERNEMERS, start=1):

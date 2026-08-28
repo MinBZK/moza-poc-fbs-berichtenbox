@@ -25,11 +25,11 @@ ontwikkelen — tests, gates, linting, de services in dev-mode — zie [`ontwikk
 
 ## 2. Images bouwen (jib, geen Dockerfile)
 
-De demo draait de drie eigen services als container-image (`fbs-demo/…:demo`). Bouw ze met jib:
+De demo draait de vier eigen services als container-image (`fbs-demo/…:demo`). Bouw ze met jib:
 
 ```bash
 ./mvnw clean package -DskipTests \
-  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console -am \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/magazijn-simulator -am \
   -Dquarkus.container-image.build=true \
   -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo \
   -Dquarkus.jib.platforms=linux/arm64        # alleen op Apple Silicon
@@ -125,7 +125,7 @@ Twee beperkingen daarbij:
   authenticatie en zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
 
 Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
-controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
+controleert dat die de gestapelde bestanden aankan, controleert dat de vier demo-images gebouwd
 zijn, genereert de stub-artefacten, en controleert na elke start dat elke container draait. Redis,
 de vier Postgres-instanties, de profiel-stub, de magazijn-simulator, Toxiproxy en de vijf services
 worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
@@ -205,7 +205,7 @@ in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
 |---|---|---|
 | J. Pietersen | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
 | Bakkerij De Vroege Vogel | BSN `999996666` | RVO |
-| Garage Van Dijk B.V. | KVK `12345678` | Belastingdienst |
+| Garage Van Dijk B.V. | KVK `12345678` | 15 organisaties: A, B en 13 gesimuleerde |
 | Grootbedrijf B.V. | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
 | Landelijk Concern N.V. | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
 
@@ -314,7 +314,7 @@ Na een storingsscenario altijd *Alles normaal (reset)* (Storingen-sectie) en voo
 - **Genereer vóór `up`** voor veel-magazijnen; anders zijn de mounts leeg (geen stubs/register).
 - **`export DEMO_MAGAZIJNEN=N`** voedt het script; de console vraagt het aantal aan de simulator zelf (anders klopt
   de k-schuif niet met het aantal magazijnen).
-- **Bulkhead** staat in de demo op 60 (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`). Bij
+- **Bulkhead** staat in de demo op 120 (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`). Bij
   n > 60 wijst de uitvraag de overtollige magazijn-calls direct af als "systeem druk" (OVERBELAST) —
   dat is bewust fail-fast-gedrag, geen bug.
 - **Demo-cache-TTL is 2 minuten.** Pauzeer je langer tussen Ophalen en een vervolgactie, dan is de

@@ -32,28 +32,12 @@ class SimulatorResource(private val service: SimulatorService) {
         @QueryParam("perMagazijn") perMagazijn: Int?,
         @QueryParam("bijlageElke") bijlageElke: Int?,
     ): SeedUitkomst = service.vul(
-        ontvangers = ONDERNEMERS,
-        berichtenPerMagazijn = perMagazijn ?: STANDAARD_PER_MAGAZIJN,
-        bijlageElke = bijlageElke ?: STANDAARD_BIJLAGE_ELKE,
+        ontvangers = SimulatorService.ONDERNEMERS,
+        berichtenPerMagazijn = perMagazijn ?: SimulatorService.STANDAARD_PER_MAGAZIJN,
+        bijlageElke = bijlageElke ?: SimulatorService.STANDAARD_BIJLAGE_ELKE,
     )
 
     @POST
     @Path("/legen")
     fun legen(): Map<String, Int> = service.herstel()
-
-    private companion object {
-        /**
-         * De vier ondernemers uit `demo/genereer-magazijnen.py`, in de vorm van de
-         * `X-Ontvanger`-header. Ze staan hier omdat de simulator niet weet wie er in de demo
-         * meespelen — hij vult berichtenbakken, hij verzint geen ondernemers.
-         */
-        val ONDERNEMERS = listOf("BSN:999993653", "KVK:12345678", "KVK:90000001", "KVK:90000003")
-
-        /**
-         * Twintig is niet toevallig: de uitvraag haalt per magazijn één pagina op en het magazijn
-         * levert er standaard twintig. Daarboven demonstreer je onbedoeld dát gat.
-         */
-        const val STANDAARD_PER_MAGAZIJN = 20
-        const val STANDAARD_BIJLAGE_ELKE = 4
-    }
 }

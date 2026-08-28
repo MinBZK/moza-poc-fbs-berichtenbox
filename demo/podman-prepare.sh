@@ -38,6 +38,8 @@ sed 's|http://magazijn-simulator:8092|http://127.0.0.1:8092|g' "$REGISTER" > "$R
 # botst een wildcard-bind met elke specifieke bind op dezelfde poort — bijvoorbeeld van een
 # FSC-federatie die in dezelfde netns draait.
 sed -e 's|"listen": "0\.0\.0\.0:|"listen": "127.0.0.1:|g' \
+    -e 's|"berichtenmagazijn-a:8090"|"127.0.0.1:8090"|' \
+    -e 's|"berichtenmagazijn-b:8090"|"127.0.0.1:8091"|' \
     -e 's|"redis:6379"|"127.0.0.1:6379"|' \
     -e 's|"profiel-service:8080"|"127.0.0.1:8089"|' \
     -e 's|"notificatie-stub:8080"|"127.0.0.1:8084"|' \

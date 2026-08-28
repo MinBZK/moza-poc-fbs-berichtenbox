@@ -62,7 +62,28 @@ class SimulatorService(@param:RestClient private val beheer: SimulatorBeheerClie
     fun vul(ontvangers: List<String>, berichtenPerMagazijn: Int, bijlageElke: Int): SeedUitkomst =
         beheer.seed(SeedVerzoek(ontvangers, berichtenPerMagazijn, bijlageElke))
 
-    private companion object {
+    /** De standaardvulling: alle vier de ondernemers, twintig berichten per magazijn. */
+    fun vulStandaard(): SeedUitkomst = vul(ONDERNEMERS, STANDAARD_PER_MAGAZIJN, STANDAARD_BIJLAGE_ELKE)
+
+    companion object {
+        /**
+         * De vier ondernemers uit `demo/genereer-magazijnen.py`, in de vorm van de
+         * `X-Ontvanger`-header. Ze staan hier omdat de simulator niet weet wie er in de demo
+         * meespelen — hij vult berichtenbakken, hij verzint geen ondernemers.
+         *
+         * `OndernemersConsistentieTest` bewaakt dat deze lijst gelijk blijft aan die van het
+         * generatiescript. Lopen ze uiteen, dan zet de vul-knop berichten klaar voor een ontvanger
+         * die geen persona meer is, en toont de demo lege magazijnen zonder dat iets rood wordt.
+         */
+        val ONDERNEMERS = listOf("BSN:999993653", "KVK:12345678", "KVK:90000001", "KVK:90000003")
+
+        /**
+         * Twintig is niet toevallig: de uitvraag haalt per magazijn één pagina op en het magazijn
+         * levert er standaard twintig. Daarboven demonstreer je onbedoeld dát gat.
+         */
+        const val STANDAARD_PER_MAGAZIJN = 20
+        const val STANDAARD_BIJLAGE_ELKE = 4
+
         const val NORMAAL = "NORMAAL"
 
         /** Een magazijn dat "uit" staat, geeft consequent een serverfout — zoals de stubs deden. */

@@ -43,6 +43,8 @@ class HerstelServiceTest {
         every { basisdataset.laad() } returns emptyList()
         every { aanleverService.leverAan(any()) } returns AanleverResultaat(40, 40, 0, 0)
         every { simulatorService.herstel() } returns mapOf("berichten" to 2000, "magazijnen" to 98)
+        every { simulatorService.vulStandaard() } returns
+            nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 7840, 1960, 0, 500)
     }
 
     @Test
@@ -59,6 +61,7 @@ class HerstelServiceTest {
             simulatorService.herstel()
             magazijnDatabase.leegAlles()
             aanleverService.leverAan(any())
+            simulatorService.vulStandaard()
         }
     }
 
@@ -72,6 +75,9 @@ class HerstelServiceTest {
         // De gesimuleerde magazijnen horen er net zo goed bij: zonder dat toont de demo na een
         // herstel nog steeds honderd gevulde organisaties.
         assertEquals(mapOf("berichten" to 2000, "magazijnen" to 98), resultaat.gesimuleerd)
+        // Herstel belooft "terug naar vlak na de eerste basisvulling"; dan horen de gesimuleerde
+        // magazijnen ook weer gevuld te zijn, anders staat de fan-out-demo op nul berichten.
+        assertEquals(7840, resultaat.gesimuleerdGevuld)
         assertEquals(40, resultaat.vulling.geslaagd)
     }
 

@@ -39,10 +39,16 @@
   </fieldset>
 
   <fieldset>
-    <legend>Storingen in de infrastructuur</legend>
-    <p><small>Storingen bij de magazijnen zelf staan hieronder bij <em>Gesimuleerde magazijnen</em>:
-      die kan de simulator per organisatie variëren, waar een netwerkproxy een verbinding alleen
-      helemaal open of dicht kan zetten.</small></p>
+    <legend>Storingen op de verbinding</legend>
+    <p><small>Deze knoppen zetten een verbinding traag of dicht. De gesimuleerde magazijnen hebben
+      hun eigen knoppen hieronder: die kunnen per organisatie traag, haperend of onbereikbaar zijn,
+      en dat kan een netwerkproxy niet.</small></p>
+    <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/traag')">Magazijn A (RVO) traag</button>
+    <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/uit')">Magazijn A (RVO) uit</button>
+    <br>
+    <button data-proxy="magazijn-b" onclick="post('/api/demo/storing/magazijn/b/traag')">Magazijn B (Belastingdienst) traag</button>
+    <button data-proxy="magazijn-b" onclick="post('/api/demo/storing/magazijn/b/uit')">Magazijn B (Belastingdienst) uit</button>
+    <br>
     <button onclick="post('/api/demo/storing/reset')">Alles normaal (reset)</button>
   </fieldset>
 
@@ -83,7 +89,7 @@
     const uit = document.getElementById('uit');
 
     async function post(pad, bevestig) {
-      if (bevestig && !confirm('Zeker weten? Dit verwijdert alle berichten uit beide magazijnen.')) return;
+      if (bevestig && !confirm('Zeker weten? Dit verwijdert alle berichten uit beide echte magazijnen én uit alle gesimuleerde.')) return;
 
       await roep(pad, { method: 'POST' });
     }

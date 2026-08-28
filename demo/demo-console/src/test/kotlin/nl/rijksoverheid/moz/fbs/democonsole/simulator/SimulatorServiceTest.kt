@@ -113,13 +113,26 @@ class SimulatorServiceTest {
     fun `vullen geeft de opgegeven ondernemers en aantallen door`() {
         val verzoek = slot<SeedVerzoek>()
 
-        every { beheer.seed(capture(verzoek)) } returns SeedUitkomst(98, 2, 3920, 980)
+        every { beheer.seed(capture(verzoek)) } returns SeedUitkomst(98, 2, 3920, 980, 0, 500)
 
         service.vul(listOf("KVK:12345678", "BSN:999993653"), berichtenPerMagazijn = 20, bijlageElke = 4)
 
         assertEquals(listOf("KVK:12345678", "BSN:999993653"), verzoek.captured.ontvangers)
         assertEquals(20, verzoek.captured.berichtenPerMagazijn)
         assertEquals(4, verzoek.captured.bijlageElke)
+    }
+
+    /** De standaardvulling gebruikt dezelfde vier ondernemers als de knop en het herstel. */
+    @Test
+    fun `de standaardvulling zet twintig berichten klaar voor alle vier de ondernemers`() {
+        val verzoek = slot<SeedVerzoek>()
+
+        every { beheer.seed(capture(verzoek)) } returns SeedUitkomst(98, 4, 7840, 1960, 0, 500)
+
+        service.vulStandaard()
+
+        assertEquals(SimulatorService.ONDERNEMERS, verzoek.captured.ontvangers)
+        assertEquals(20, verzoek.captured.berichtenPerMagazijn)
     }
 
     private fun gegevenMagazijnen(aantal: Int) {

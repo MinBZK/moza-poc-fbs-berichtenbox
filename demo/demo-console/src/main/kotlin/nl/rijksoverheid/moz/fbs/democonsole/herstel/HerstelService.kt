@@ -14,6 +14,8 @@ data class HerstelResultaat(
     val vulling: AanleverResultaat,
     /** Wat de gesimuleerde magazijnen kwijtraakten en hoeveel er hun gedrag terugkregen. */
     val gesimuleerd: Map<String, Int>,
+    /** Hoeveel berichten er weer in de gesimuleerde magazijnen zijn klaargezet. */
+    val gesimuleerdGevuld: Int,
 )
 
 /**
@@ -43,6 +45,12 @@ class HerstelService(
         val geleegd = magazijnDatabase.leegAlles()
         val vulling = aanleverService.leverAan(basisdataset.laad())
 
-        return HerstelResultaat(geleegd, vulling, gesimuleerd)
+        // Ook de gesimuleerde magazijnen weer vullen. "Terug naar de toestand van vlak na de eerste
+        // basisvulling" hoort ook voor hen te gelden; anders staat de fan-out-demo na een herstel op
+        // honderd organisaties met nul berichten, en moet iemand middenin het verhaal alsnog een
+        // tweede knop zoeken.
+        val gesimuleerdGevuld = simulatorService.vulStandaard().berichten
+
+        return HerstelResultaat(geleegd, vulling, gesimuleerd, gesimuleerdGevuld)
     }
 }

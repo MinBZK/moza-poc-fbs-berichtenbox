@@ -1,5 +1,15 @@
 [
   {
+    "name": "magazijn-a",
+    "listen": "0.0.0.0:18090",
+    "upstream": "berichtenmagazijn-a:8090"
+  },
+  {
+    "name": "magazijn-b",
+    "listen": "0.0.0.0:18091",
+    "upstream": "berichtenmagazijn-b:8090"
+  },
+  {
     "name": "redis",
     "listen": "0.0.0.0:16379",
     "upstream": "redis:6379",

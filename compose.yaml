@@ -6,7 +6,7 @@
 # `DEMO_BIND` bepaalt op welk hostadres de stack publiceert; default `127.0.0.1`, en verder wordt
 # alleen `0.0.0.0` ondersteund — `demo/podman-up.sh` controleert elke service over 127.0.0.1 en een
 # specifiek adres laat die controles aflopen. Zonder die binding staat de hele demo op élke
-# interface van de machine: Redis zonder wachtwoord, drie PostgreSQL-instanties met
+# interface van de machine: Redis zonder wachtwoord, vier PostgreSQL-instanties met
 # demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
 # aan een kantoor- of thuisnetwerk is dat het hele subnet.
 #
@@ -151,7 +151,7 @@ services:
   #
   # Images bouwen met jib (geen Dockerfile):
   #   ./mvnw clean package -DskipTests \
-  #     -pl services/berichtenmagazijn,services/berichtenuitvraag -am \
+  #     -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/magazijn-simulator -am \
   #     -Dquarkus.container-image.build=true \
   #     -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo
   #
@@ -257,7 +257,11 @@ services:
     image: fbs-demo/fbs-magazijn-simulator:demo
     profiles: [demo]
     ports:
-      - "${DEMO_BIND:-127.0.0.1}:8092:8092"
+      # Uitsluitend op loopback, net als de demo-console en om dezelfde reden: onder %dev draait het
+      # beheerpad zonder token, en `POST /beheer/legen` wist alle berichten van alle gesimuleerde
+      # magazijnen. Met DEMO_BIND=0.0.0.0 zou dat vanaf het hele subnet bereikbaar zijn. De uitvraag
+      # benadert de simulator container-intern en heeft de gepubliceerde poort niet nodig.
+      - "127.0.0.1:8092:8092"  # NIET via DEMO_BIND
     depends_on:
       postgres-simulator:
         condition: service_healthy
@@ -294,14 +298,12 @@ services:
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
-      # Redis en de profielservice lopen via Toxiproxy (transparant bij normaal bedrijf); die
-      # storingen komen nergens anders vandaan.
+      # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf). De
+      # gesimuleerde magazijnen niet: die hebben hun storingsgedrag in zichzelf, en per magazijn
+      # verschillend — een proxy kan een verbinding alleen helemaal open of dicht zetten.
       REDIS_HOSTS: redis://toxiproxy:16379
-      # De twee echte magazijnen worden rechtstreeks aangesproken. Hun storingsgedrag kwam vroeger
-      # uit een Toxiproxy-omweg; nu komt storingsgedrag uit de simulator, die het per magazijn kan
-      # variëren in plaats van een verbinding alleen aan of uit te zetten.
-      MAGAZIJN_A_URL: http://berichtenmagazijn-a:8090
-      MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
+      MAGAZIJN_A_URL: http://toxiproxy:18090
+      MAGAZIJN_B_URL: http://toxiproxy:18091
       PROFIEL_SERVICE_URL: http://toxiproxy:18089
       # Het logboek moet expliciet: de %dev-default is een localhost-adres (bedoeld voor
       # draaien op de host), en localhost is binnen een container de container zelf.
@@ -368,10 +370,9 @@ services:
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
+      # De console vraagt het aantal magazijnen aan de simulator zelf; er is hier bewust geen tweede
+      # getal dat daarmee uit de pas kan lopen.
       MAGAZIJN_SIMULATOR_URL: http://magazijn-simulator:8092
-      # Eén bron van waarheid voor n: compose leest het uit je shell. Gebruik dezelfde export voor
-      # het script:  export DEMO_MAGAZIJNEN=98 && python3 demo/genereer-magazijnen.py
-      DEMO_MAGAZIJNEN: "${DEMO_MAGAZIJNEN:-98}"
 
 volumes:
   postgres-data-a:

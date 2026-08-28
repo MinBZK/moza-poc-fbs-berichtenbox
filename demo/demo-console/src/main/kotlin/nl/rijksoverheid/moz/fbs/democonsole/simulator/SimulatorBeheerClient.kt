@@ -21,7 +21,19 @@ data class BulkGedragUitkomst(val aangepast: Int, val onbekend: List<String>)
 
 data class SeedVerzoek(val ontvangers: List<String>, val berichtenPerMagazijn: Int, val bijlageElke: Int)
 
-data class SeedUitkomst(val magazijnen: Int, val ontvangers: Int, val berichten: Int, val bijlagen: Int)
+/**
+ * [overgeslagen] telt de berichten die er al stonden. Vullen is herhaalbaar, en dat verschil hoort
+ * in het paneel zichtbaar te zijn — anders meldt een tweede druk op de knop "gelukt" zonder dat er
+ * iets veranderde.
+ */
+data class SeedUitkomst(
+    val magazijnen: Int,
+    val ontvangers: Int,
+    val berichten: Int,
+    val bijlagen: Int,
+    val overgeslagen: Int,
+    val duurMs: Long,
+)
 
 data class LeegUitkomst(val berichten: Int, val magazijnenTeruggezet: Int)
 
