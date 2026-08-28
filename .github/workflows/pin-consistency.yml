@@ -1,11 +1,14 @@
 # Houdt de pins van de zelf-gedeployde infra-images uniform over alle locaties.
 #
 # De pins staan (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
-# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE), toxiproxy/Dockerfile en de
-# test-devservices-image-names. Dependabot's docker-compose-ecosystem ziet alléén
-# compose.yaml; de workflow-env en de Kotlin-test-strings niet. Een Dependabot-bump
-# zou dus drift veroorzaken. Deze guard maakt zo'n gedeeltelijke bump een harde fout,
-# zodat alle pins samen bewegen (de pins zelf blijven expliciet).
+# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE, TOXIPROXY_IMAGE),
+# demo/environment/zad-demo/README.md en de test-devservices-image-names. Dependabot's
+# docker-compose-ecosystem ziet alléén compose.yaml; de workflow-env, het runbook en de
+# Kotlin-test-strings niet. Een Dependabot-bump zou dus drift veroorzaken. Deze guard maakt zo'n
+# gedeeltelijke bump een harde fout, zodat alle pins samen bewegen (de pins zelf blijven expliciet).
+#
+# De melding hieronder noemt de vindplaatsen niet met naam: die lijst verouderde eerder al. Ze zegt
+# waar je ze vindt, zodat het antwoord altijd klopt.
 
 name: Pin consistency
 
@@ -72,7 +75,7 @@ jobs:
               echo "::error::geen pin gevonden voor ${img} — guard kan drift niet meer detecteren (image hernoemd/verwijderd, of pas deze workflow aan)."
               fail=1
             elif [ "${#pins[@]}" -gt 1 ]; then
-              echo "::error::${img}-pin niet uniform (${pins[*]}). Sync compose.yaml, .github/workflows/deploy.yml en de test-image-names; Dependabot bumpt alleen compose.yaml."
+              echo "::error::${img}-pin niet uniform (${pins[*]}). Alle vindplaatsen: git grep -nI '${img}:' -- . ':!docs/plans/'; Dependabot bumpt alleen compose.yaml."
               fail=1
             fi
           done

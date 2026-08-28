@@ -760,9 +760,25 @@ jobs:
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
       && needs.build-democonsole.result == 'success'
+      && needs.deploy-preview-uitvraag.result == 'success'
+      && needs.deploy-preview-externe-stubs.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    needs: [meta, build, build-externe-stubs, build-democonsole, gate, changes]
+    # Ná de twee andere preview-deploys, en niet er parallel aan. Dit project draagt de
+    # outbound-kant van álle regels, en elke regel noemt een peer-deployment in een ánder project.
+    # Bestaat die peer nog niet op het moment van genereren, dan slaat de resolver de regel over —
+    # met een regel in een log en verder niets (`resolve.py`: "a missing deployment/component in a
+    # project that IS known ... is logged with the rule name and skipped"). De preview meldt dan
+    # groen met dode storingsknoppen. Kost wat doorlooptijd; die twee jobs zijn kort.
+    needs:
+      - meta
+      - build
+      - build-externe-stubs
+      - build-democonsole
+      - gate
+      - changes
+      - deploy-preview-uitvraag
+      - deploy-preview-externe-stubs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:

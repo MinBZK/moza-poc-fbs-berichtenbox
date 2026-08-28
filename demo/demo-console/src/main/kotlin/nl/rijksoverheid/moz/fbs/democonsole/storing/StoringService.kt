@@ -46,11 +46,15 @@ class StoringService(private val register: ToxiproxyRegister) {
     private fun herstel(instantie: ToxiproxyClient) {
         val proxies = instantie.proxies()
 
-        // Toxiproxy start gezond op met nul proxies zodra zijn configuratie ontbreekt of misvormd
-        // is. Al het verkeer van die stroom loopt erdoorheen, dus dan is de keten dood — en juist
-        // deze knop moet dat aanwijzen in plaats van "alles normaal" te bevestigen.
+        // Toxiproxy start gezond op met nul proxies. Al het verkeer van die stroom loopt erdoorheen,
+        // dus dan is de keten dood — en juist deze knop moet dat aanwijzen in plaats van "alles
+        // normaal" te bevestigen. De twee oorzaken verschillen per omgeving, vandaar beide in de
+        // melding: lokaal een ontbrekende of misvormde proxies.json, op een gedeelde omgeving een
+        // Toxiproxy die net herstartte (ProxyBootstrap vult hem binnen een halve minuut) of een
+        // admin-API die de console niet bereikt.
         check(proxies.isNotEmpty()) {
-            "Toxiproxy kent geen enkele proxy: de keten loopt nergens doorheen. Controleer proxies.json en herstart toxiproxy."
+            "Toxiproxy kent geen enkele proxy: de keten loopt nergens doorheen. Lokaal wijst dat op proxies.json; " +
+                "op een gedeelde omgeving op een Toxiproxy die net herstartte, of op een onbereikbare admin-API."
         }
 
         proxies.forEach { (naam, status) ->

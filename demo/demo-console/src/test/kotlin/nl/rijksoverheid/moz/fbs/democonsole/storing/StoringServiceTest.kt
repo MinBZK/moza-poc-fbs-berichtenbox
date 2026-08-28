@@ -65,14 +65,15 @@ class StoringServiceTest {
 
     @Test
     fun `reset faalt als Toxiproxy geen enkele proxy kent`() {
-        // Ontbrekende of misvormde proxies.json: Toxiproxy start gezond op met nul proxies,
-        // terwijl al het uitvraag- en magazijnverkeer erdoorheen loopt. De lus over een lege map
-        // zou stil slagen en "alles normaal" bevestigen terwijl de keten dood is.
+        // Toxiproxy start gezond op met nul proxies, terwijl al het uitvraag- en magazijnverkeer
+        // erdoorheen loopt. De lus over een lege map zou stil slagen en "alles normaal" bevestigen
+        // terwijl de keten dood is.
         every { instantie.proxies() } returns emptyMap()
 
         val fout = assertThrows(IllegalStateException::class.java) { service.reset() }
 
-        assertTrue(fout.message!!.contains("proxies.json"), "melding moet naar de oorzaak wijzen, was: ${fout.message}")
+        assertTrue(fout.message!!.contains("proxies.json"), "melding moet de lokale oorzaak noemen, was: ${fout.message}")
+        assertTrue(fout.message!!.contains("herstartte"), "melding moet ook de ZAD-oorzaak noemen, was: ${fout.message}")
     }
 
     @Test
@@ -111,7 +112,8 @@ class StoringServiceTest {
             StoringService(registerMet("profiel" to instantie, "redis" to tweede)).reset()
         }
 
-        assertTrue(fout.message!!.contains("proxies.json"), "melding moet naar de oorzaak wijzen, was: ${fout.message}")
+        assertTrue(fout.message!!.contains("proxies.json"), "melding moet de lokale oorzaak noemen, was: ${fout.message}")
+        assertTrue(fout.message!!.contains("herstartte"), "melding moet ook de ZAD-oorzaak noemen, was: ${fout.message}")
     }
 
     @Test

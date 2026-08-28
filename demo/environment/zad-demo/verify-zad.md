@@ -115,18 +115,28 @@ alleen een alias vult `$DEPLOYMENT_NAME` in.
 
 ## 7. Herstart-bestendigheid
 
-Toxiproxy houdt zijn proxies in het geheugen. Herstart er één en kijk of ze terugkomen:
+Toxiproxy houdt zijn proxies in het geheugen, dus elke herstart laat de keten dood achter tot de
+console ze opnieuw aanmaakt. Deze stap toetst dat die reconcile echt draait.
+
+**Niet met `zadctl deployment refresh`.** Dat reconcilet vanuit git en herstart geen pods zolang het
+gerenderde manifest gelijk blijft. De proxies staan er daarna nog steeds — maar om een reden die
+niets met de reconcile te maken heeft, dus de stap zou groen melden terwijl de reconcile stuk is.
+
+Wat de pod wél vervangt, is een uitrol die het manifest verandert. De eenvoudigste gelegenheid is er
+al: **elke merge naar main** rolt de Toxiproxy-componenten opnieuw uit. Kijk daarna in de
+console-log:
 
 ```bash
-zadctl -p mpfb-8wh deployment refresh test
+zadctl -p mpfm-w3h logs test -c democonsole -n 60 | grep -i "Proxy .* aangemaakt"
 ```
 
-Verwacht: binnen een halve minuut staan de proxies er weer, want de console maakt ze opnieuw aan.
-Blijft de lijst leeg, dan draait de reconcile niet — controleer in de console-log op
-`Proxy ... niet aan te maken` en op de waarschuwing over een ontbrekende listen of upstream.
+Verwacht: vier regels `Proxy <naam> aangemaakt: <listen> -> <deployment>-<upstream>`, binnen een
+halve minuut na de herstart van de Toxiproxy-pod. Blijft dat uit, kijk dan op
+`Proxy ... niet aan te maken` — een verbindings- of timeoutfout wijst op de netwerkregel, en een
+waarschuwing over een ontbrekende listen of upstream op de configuratie.
 
-Deze stap is er niet voor de mooiigheid: zonder die reconcile laat elke herstart de héle keten dood
-achter, want al het profiel-, notificatie-, aanmeld- en Redis-verkeer loopt door deze proxies.
+Wil je het los van een merge afdwingen, zet dan de image van één Toxiproxy-component op een ándere
+verwijzing en weer terug; dat verandert het manifest en vervangt de pod.
 
 ## Daarna
 
