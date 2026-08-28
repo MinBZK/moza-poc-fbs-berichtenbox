@@ -160,8 +160,9 @@ env:
     democonsole-naar-toxiproxy-redis
     democonsole-naar-toxiproxy-profiel
     democonsole-naar-toxiproxy-notificatie
-  # Toxiproxy komt van ons eigen ghcr, niet rechtstreeks van upstream: de ZAD-mirror geeft op
-  # `ghcr.io/shopify/toxiproxy` een HTTP 500, terwijl `ghcr.io/minbzk/*` er wél doorheen komt. Zie
+  # Toxiproxy komt van ons eigen ghcr, niet rechtstreeks van upstream: de manifest list van
+  # `ghcr.io/shopify/toxiproxy` draagt `linux/arm/v6` twee keer met dezelfde digest, waar de
+  # Quay-pull-through-cache van ZAD een unique constraint op schendt en HTTP 500 teruggeeft. Zie
   # toxiproxy/Dockerfile — daar staat de upstream-pin, en pin-consistency.yml houdt die gelijk aan
   # compose.yaml. Het image wordt per commit gebouwd door build-toxiproxy hieronder; de tag draagt
   # dezelfde head-sha als de rest, want Argo synct op een gewijzigd manifest.

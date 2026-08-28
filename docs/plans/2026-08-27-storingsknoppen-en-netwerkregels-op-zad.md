@@ -139,10 +139,17 @@ downstream zonder `https` of op een intern adres (BIO 13.2.1 plus de SSRF-blockl
 `notificatie` móéten dus over de publieke ingress lopen.
 
 **En het image komt niet van upstream.** De ZAD-mirror geeft op `ghcr.io/shopify/toxiproxy` een
-HTTP 500, terwijl diezelfde tag rechtstreeks bij ghcr.io anoniem 200 geeft en Docker Hub sinds 2019
-stilstaat op 2.1.4. `toxiproxy/Dockerfile` publiceert het image daarom door als
-`ghcr.io/minbzk/fbs-toxiproxy`, gepind op tag én digest — hetzelfde patroon als
-`wiremock/demo-profiel`. Verdwijnt de storing bij RIG, dan kan dat bestand weg.
+HTTP 500. De oorzaak zit in het image, niet in de mirror-configuratie: de manifest list draagt vier
+entries met drie unieke digests, want `linux/arm/v6` staat er twee keer in met dezelfde digest — bij
+elke tag van 2.9.0 tot 2.12.0. Docker en containerd negeren dat; de Quay-pull-through-cache schrijft
+per child een rij in een tabel met een unique constraint, en de tweede identieke child geeft daar een
+IntegrityError die als 500 naar buiten komt. Upstream Quay dedupliceert inmiddels (PROJQUAY-10068,
+4 augustus 2026), maar dat zit in geen enkele release, ook niet in v3.17.4.
+
+Docker Hub biedt geen uitweg (stil sinds 2019 op 2.1.4), dus publiceert `toxiproxy/Dockerfile` het
+image door als `ghcr.io/minbzk/fbs-toxiproxy`, gepind op tag én digest — hetzelfde patroon als
+`wiremock/demo-profiel`. Een kortere, onbeproefde weg staat in dat bestand beschreven: pinnen op de
+platform-specifieke child in plaats van op de lijst.
 
 **Twee ordeningen die niet vrij zijn.** Een regel waarvan het peer-component nog niet bestaat, wordt
 bij het renderen overgeslagen — met een waarschuwing, terwijl de deployment `Healthy` meldt en de

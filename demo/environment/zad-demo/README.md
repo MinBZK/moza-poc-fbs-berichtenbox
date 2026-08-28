@@ -296,11 +296,12 @@ Toxiproxy start met zijn eigen default-`CMD` (`-host=0.0.0.0`) prima op met nul 
 geen startcommando nodig, en dat scheelt het UI-handwerk dat een hercreatie niet overleeft.
 
 **Het image komt van ons eigen ghcr, niet van upstream.** De ZAD-mirror geeft op
-`rcr.rijksapps.nl/ghcr-rig/shopify/toxiproxy` een HTTP 500 — over meerdere pod-generaties heen,
-terwijl diezelfde tag rechtstreeks bij ghcr.io anoniem gewoon 200 geeft. `ghcr.io/minbzk/*` komt er
-wél doorheen, dus `toxiproxy/Dockerfile` publiceert het image ongewijzigd door als
-`fbs-toxiproxy` en `build-toxiproxy` in `deploy.yml` bouwt dat per commit. Kies bij het aanmaken een
-tag die echt bestaat, net als bij de console: `main-<sha7>` of `pr-<n>-<sha7>`.
+`rcr.rijksapps.nl/ghcr-rig/shopify/toxiproxy` een HTTP 500, omdat de manifest list van Toxiproxy
+`linux/arm/v6` twee keer bevat met dezelfde digest en de Quay-cache daarop een unique constraint
+schendt. `toxiproxy/Dockerfile` publiceert het image daarom ongewijzigd door als `fbs-toxiproxy`, en
+`build-toxiproxy` in `deploy.yml` bouwt dat per commit — dat resultaat is een enkelvoudig manifest
+zonder kinderen, dus de cache struikelt er niet over. Kies bij het aanmaken een tag die echt bestaat,
+net als bij de console: `main-<sha7>` of `pr-<n>-<sha7>`.
 
 ```bash
 for c in profiel:18089 notificatie:18084; do
@@ -340,8 +341,9 @@ De upstream-pin staat op één plek — `toxiproxy/Dockerfile` — en `pin-consi
 gelijk aan `compose.yaml`. De tag in de OM-projectspec valt buiten die guard (andere repository, net
 als bij Redis), maar die beweegt vanzelf mee met elke uitrol.
 
-Verdwijnt de mirror-storing bij RIG, dan kan `toxiproxy/Dockerfile` weg en wijzen de componenten
-weer rechtstreeks naar `ghcr.io/shopify/toxiproxy`.
+Haalt upstream de dubbele child weg, of komt de Quay-dedupe in een release, dan kan
+`toxiproxy/Dockerfile` weg en wijzen de componenten weer rechtstreeks naar
+`ghcr.io/shopify/toxiproxy`. Dat bestand beschrijft ook een kortere, onbeproefde tussenweg.
 
 ### De netwerkregels voor de admin-API's
 
