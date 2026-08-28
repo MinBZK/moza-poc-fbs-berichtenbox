@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** In uitvoering — stap 1 gebouwd (`demo/magazijn-simulator`), stap 2 t/m 7 nog niet.
 
 # Magazijn-simulator — veel magazijnen met echte state — ontwerp
 
@@ -100,11 +100,9 @@ en #936 voor het draaibaar maken ervan) — niet het geheel: de demo-console en 
 horen er net zo goed bij. Vandaar de specifiekere modulenaam; wie "simulatie-engine" zegt, bedoelt
 de simulator plus de bediening eromheen.
 
-**Waarom onder `demo/`.** De simulator hoort nooit in productie te draaien. Onder voorbehoud van
-het teambesluit bij spike MinBZK/MijnOverheidZakelijk#1005 — valt dat anders uit, dan landt de
-simulator op `services/magazijn-simulator` — is `demo/` een module-root naast `services/` en
-`libraries/`:
-`demo-console` staat er al, de simulator komt ernaast. `.github/scripts/demo-grens.sh` bewaakt de
+**Waarom onder `demo/`.** De simulator hoort nooit in productie te draaien. Spike
+MinBZK/MijnOverheidZakelijk#1005 is gesloten en `demo/` is daarmee een module-root naast `services/`
+en `libraries/`: `demo-console` staat er al, de simulator komt ernaast. `.github/scripts/demo-grens.sh` bewaakt de
 richting van de koppeling — een module uit het stelsel mag niet van een demo-module afhangen.
 
 Let op dat "demo" niet betekent "wordt niet uitgerold": de simulator krijgt een eigen ZAD-component
@@ -168,14 +166,34 @@ is het meegenomen dat er staat wat het is; dat is niet de reden, wel een prettig
 kosten zijn één segment extra in de register-URL.
 
 Het filter matcht het eerste segment op `magazijn`, zoekt het magazijn bij het tweede segment op,
-vult een `@RequestScoped MagazijnContext` en herschrijft de URI met
-**`setRequestUri(baseUri, requestUri)`**.
+vult een `@RequestScoped MagazijnContext` en herschrijft de URI naar het pad zoals de gegenereerde
+resources het kennen.
 
-Die twee-argument-variant is essentieel. De resources bouwen hun HAL `_links` uit
-`UriInfo.baseUriBuilder`; door het prefix in de `baseUri` te laten staan blijven die links de OIN
-bevatten. Met de één-argument-variant verdwijnt het prefix en wijzen de links naar het verkeerde
-magazijn. Dit is de scherpste valkuil in het ontwerp — het gedrag van Quarkus REST op dit punt moet
-in stap 1 geverifieerd worden en met een test vastgepind.
+**Gemeten in stap 1: de `baseUri`-route werkt niet.** Het ontwerp ging ervan uit dat het prefix in
+`UriInfo.baseUri` te bewaren viel met de twee-argument-vorm
+`setRequestUri(baseUri, requestUri)`, zodat de resources hun HAL-`_links` gewoon uit
+`UriInfo.baseUriBuilder` konden blijven bouwen. Quarkus REST doet dat niet: zijn
+`ContainerRequestContextImpl` gebruikt die `baseUri` uitsluitend om een relatieve request-URI mee op
+te lossen (`quarkusRestContext.setRequestUri(baseUri.resolve(requestUri))`) en bewaart hem nergens.
+`UriInfo.baseUri` blijft de root van de applicatie.
+
+Gevolg voor het ontwerp: het prefix komt in de links terug via `MagazijnPad.basisUri(...)`, dat
+naast de code staat die het prefix eraf haalt. Eén object draagt zo de hele pad-vorm — herkennen,
+weghalen en terugzetten — zodat die drie niet uit elkaar kunnen lopen; dat is precies de fout die
+anders pas opvalt wanneer een client een link volgt. `MagazijnPadFilterTest` pint het vast.
+
+Twee dingen die daarbij horen en niet vanzelf spreken:
+
+- **`quarkus.rest.path` blijft leeg** in de simulator, waar het echte magazijn hem op `/api/v1`
+  zet. Met die property bepaalt Quarkus vóór élk JAX-RS-filter of een pad bij de applicatie hoort,
+  en `/magazijn/<OIN>/api/v1/berichten` valt daarbuiten — het `@PreMatching`-filter zou dan nooit
+  aan bod komen. De resources staan dus op de root en het hele prefix, `/api/v1` incluis, komt uit
+  het filter en de link-opbouw.
+- **Het filter werkt op het gedecodeerde pad.** `UriInfo.getPath(false)` gooit in Quarkus REST
+  ("We do not support non-decoded parameters"). Dat is hier onschadelijk: een percent-gecodeerd
+  segment levert na decodering hooguit extra scheidingstekens op, en dat eindigt in een OIN die
+  niet in de set staat of een restpad dat geen resource matcht — in beide gevallen een 404, nooit
+  een ánder magazijn.
 
 Een pad zonder `/magazijn/`-root, zonder OIN of met een onbekende OIN → 404
 `application/problem+json`. Bewust geen default-magazijn: een verkeerd geconfigureerd register moet
@@ -532,9 +550,12 @@ bij die net zo goed getest horen te worden.
 
 ## Stappen
 
-1. **Module + spec + pad-prefix.** Lege module, generatie uit optie A, `@PreMatching`-filter,
-   `MagazijnContext`. Verificatie: `GET /magazijn/<OIN>/api/v1/berichten` levert een lege,
-   spec-valide `BerichtenLijst` en de `_links` dragen diezelfde OIN.
+1. ~~**Module + spec + pad-prefix.**~~ **Gedaan** (MinBZK/MijnOverheidZakelijk#1007). Module
+   `demo/magazijn-simulator`, generatie uit optie A, `@PreMatching`-filter, `MagazijnContext`,
+   en `MagazijnPad` dat het prefix herkent, weghaalt en in de links terugzet. Alle zes de operaties
+   antwoorden als een leeg magazijn; aanleveren geeft de 503 uit de spec in plaats van een
+   aanlevering te bevestigen die nergens terechtkomt. `MagazijnSpecContractTest` toetst de
+   antwoorden tegen `berichtenmagazijn-api.yaml`.
 2. **Persistentie.** Flyway-migratie mét rollback-script, entities, repositories met discriminator,
    alle zes de operaties uit de spec. Verificatie: de integratietests hierboven.
 3. **Gedrag per magazijn.** Modi, vertraging, foutkans. Verificatie: unit-test op de verdeling plus
@@ -570,8 +591,9 @@ en niet alleen in dit document.
 
 ## Openstaande beslissingen
 
-1. Honoreert Quarkus REST de `baseUri` uit `setRequestUri(baseUri, requestUri)` voor `UriInfo`? Zo
-   niet, dan moeten de HAL-links langs een andere weg hun prefix terugkrijgen. **Blokkeert stap 1.**
+1. ~~Honoreert Quarkus REST de `baseUri` uit `setRequestUri(baseUri, requestUri)` voor `UriInfo`?~~
+   **Beantwoord in stap 1: nee.** De HAL-links krijgen hun prefix nu uit `MagazijnPad.basisUri(...)`;
+   zie "Magazijnkeuze op pad-prefix".
 2. Waar landt de demo-console op ZAD? Hetzelfde project als de simulator → `/beheer` blijft intern;
    een ander project → publieke ingress met token, of SSO als ZAD dat biedt. Hangt aan #936.
 3. Welke persona's nemen we over uit de proeftuin en de standaard-persona's? Vóór stap 5.
@@ -580,7 +602,8 @@ en niet alleen in dit document.
 5. Gaat het gedrag ook op schrijfacties gelden, of eerst alleen op leesacties? Zie "Gedrag per
    magazijn"; het verschil zit in het testoppervlak en in wat de Berichtenbox moet opvangen.
 6. Blijft de module `magazijn-simulator` heten, of wil het team de term "simulatie-engine" uit #787
-   in de modulenaam terugzien? Nu beslissen is goedkoop; na de eerste code kost het een
-   package-rename.
-7. Waar landt demo-code in de repository? Spike #1005 heeft `demo/` als module-root ingericht en
-   de simulator begint daar; het teambesluit bij die spike moet dat nog bekrachtigen.
+   in de modulenaam terugzien? Stap 1 is onder die naam gebouwd, dus het is nu geen gratis keuze
+   meer: hernoemen kost een module- én package-rename (`…fbs.magazijnsimulator`). Nog steeds klein
+   zolang er één module is; met de opslag uit stap 2 erbij groeit het.
+7. ~~Waar landt demo-code in de repository?~~ **Beantwoord: `demo/`.** Spike #1005 is gesloten en
+   `demo/demo-console` staat er; de simulator is er in stap 1 naast gezet.
