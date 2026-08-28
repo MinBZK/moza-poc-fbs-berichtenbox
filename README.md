@@ -57,7 +57,7 @@ De belangrijkste paden:
 - Java 21+
 - Maven 3.9+ (of gebruik de meegeleverde Maven wrapper `./mvnw`)
 - Docker (voor lokale services: Redis, WireMock, PostgreSQL)
-- Python 3 — alleen voor de demo-stack (genereert de magazijn-stubs)
+- Python 3 — alleen voor de demo-stack (genereert het magazijnregister, de set van de simulator en de ondernemers)
 
 ## Snel starten
 

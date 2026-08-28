@@ -1,4 +1,4 @@
-**Status:** In uitvoering — stap 1 t/m 4 gebouwd (`demo/magazijn-simulator`), stap 5 t/m 7 nog niet.
+**Status:** In uitvoering — stap 1 t/m 5 gebouwd (`demo/magazijn-simulator`), stap 6 en 7 nog niet.
 
 # Magazijn-simulator — veel magazijnen met echte state — ontwerp
 
@@ -580,9 +580,11 @@ bij die net zo goed getest horen te worden.
    inrichten van de set zit er bewust níét in: die komt uit de configuratie, zoals dit ontwerp
    beschrijft. Geverifieerd met een test op honderd magazijnen: 2000 berichten en 500 bijlagen ruim
    binnen tien seconden, en 401 zonder token.
-5. **Generator en compose omzetten.** WireMock-stub-service en `VeelMagazijnenService` eruit,
-   simulator erin, vier persona's in de profiel-stub, de twee magazijn-proxies uit Toxiproxy.
-   Verificatie: `demo/smoke.sh` groen, de vier persona's leveren fan-out 3 / 15 / 45 / 100.
+5. ~~**Generator en compose omzetten.**~~ **Gedaan** (MinBZK/MijnOverheidZakelijk#1011). De
+   WireMock-stub-service en `VeelMagazijnenService` zijn weg, de simulator staat in compose met een
+   eigen PostgreSQL, de vier ondernemers zitten in de gegenereerde profiel-stubs, en de twee
+   magazijn-proxies zijn uit Toxiproxy. `demo/smoke.sh` toetst de fan-out 3 / 15 / 45 / 100 als
+   vijfde stap; het generatiescript weigert onder n = 98 met een leesbare melding.
 6. **Meten en vastleggen.** Meetscript op de SSE-stream; tijd tot het eerste bericht en tijd tot
    compleet, per persona; opstarttijd en geheugengebruik van de uitvraag bij n = 50 / 100 / 250.
    Uitkomsten terug in dit document en in #938.
@@ -614,7 +616,13 @@ en niet alleen in dit document.
    zie "Magazijnkeuze op pad-prefix".
 2. Waar landt de demo-console op ZAD? Hetzelfde project als de simulator → `/beheer` blijft intern;
    een ander project → publieke ingress met token, of SSO als ZAD dat biedt. Hangt aan #936.
-3. Welke persona's nemen we over uit de proeftuin en de standaard-persona's? Vóór stap 5.
+3. ~~Welke persona's nemen we over uit de proeftuin en de standaard-persona's?~~ **Voorlopig
+   beantwoord in stap 5:** de drie bestaande demo-persona's dragen 3, 15 en 45, en er is er één
+   bijgekomen voor 100 (`KVK 90000003`, "Landelijk Concern N.V."). Zodra de standaard-persona's er
+   zijn, verschuift alleen de koppeling — het ontwerp hangt aan de vier *groottes*, niet aan namen of
+   nummers. De magazijnnamen zijn wél al echte organisatienamen geworden (twintig
+   uitvoeringsorganisaties, daarna gemeenten), want "Demo-magazijn 37" is in de proeftuin
+   onbruikbaar.
 4. Is n = 100 haalbaar binnen de opstarttijd en het geheugengebruik van de uitvraag, of ligt het
    plafond lager? Stap 6 beslist; het getal in dit document is een voorstel, geen meting.
 5. ~~Gaat het gedrag ook op schrijfacties gelden, of eerst alleen op leesacties?~~ **Beantwoord in

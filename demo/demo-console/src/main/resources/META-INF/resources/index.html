@@ -39,13 +39,10 @@
   </fieldset>
 
   <fieldset>
-    <legend>Storingen (fase 3)</legend>
-    <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/traag')">Magazijn A (RVO) traag</button>
-    <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/uit')">Magazijn A (RVO) uit</button>
-    <br>
-    <button data-proxy="magazijn-b" onclick="post('/api/demo/storing/magazijn/b/traag')">Magazijn B (Belastingdienst) traag</button>
-    <button data-proxy="magazijn-b" onclick="post('/api/demo/storing/magazijn/b/uit')">Magazijn B (Belastingdienst) uit</button>
-    <br>
+    <legend>Storingen in de infrastructuur</legend>
+    <p><small>Storingen bij de magazijnen zelf staan hieronder bij <em>Gesimuleerde magazijnen</em>:
+      die kan de simulator per organisatie variëren, waar een netwerkproxy een verbinding alleen
+      helemaal open of dicht kan zetten.</small></p>
     <button onclick="post('/api/demo/storing/reset')">Alles normaal (reset)</button>
   </fieldset>
 
@@ -66,12 +63,17 @@
   </fieldset>
 
   <fieldset>
-    <legend>Veel magazijnen (fase 6)</legend>
-    <p><small>Persona <em>Grootbedrijf B.V.</em> in de Berichtenbox haalt op bij alle stub-magazijnen.
-      Het ingerichte aantal n ligt vast bij genereren/opstarten (<code>DEMO_MAGAZIJN_STUBS</code>).</small></p>
-    <label>Actief aantal: <input id="actiefAantal" type="number" value="2" min="0"></label>
-    <button onclick="post('/api/demo/veel-magazijnen/actief/' + document.getElementById('actiefAantal').value)">Zet actief</button>
-    <button onclick="post('/api/demo/veel-magazijnen/reset')">Alle magazijnen aan (reset)</button>
+    <legend>Gesimuleerde magazijnen</legend>
+    <p><small>De vier ondernemers in de Berichtenbox halen op bij 3, 15, 45 en 100 organisaties;
+      de kleinere zitten steeds volledig in de grotere, zodat het verschil in wachttijd puur door
+      het aantal komt. Het ingerichte aantal ligt vast bij genereren/opstarten
+      (<code>DEMO_MAGAZIJNEN</code>) en de simulator vertelt zelf hoeveel het er zijn.</small></p>
+    <button onclick="post('/api/demo/simulator/vullen')">Berichten klaarzetten</button>
+    <button onclick="post('/api/demo/simulator/legen')">Legen en gedrag terugzetten</button>
+    <button onclick="get('/api/demo/simulator/magazijnen')">Toon magazijnen en hun gedrag</button>
+    <br>
+    <label>Aantal zonder storing: <input id="actiefAantal" type="number" value="2" min="0"></label>
+    <button onclick="post('/api/demo/simulator/actief/' + document.getElementById('actiefAantal').value)">Zet de rest op storing</button>
   </fieldset>
 
   <h2>Resultaat</h2>

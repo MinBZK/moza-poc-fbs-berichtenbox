@@ -270,7 +270,7 @@ jobs:
 
           # `--profile demo` erbij: zonder dat profiel rendert compose de vier Quarkus-services en
           # toxiproxy niet, en meet deze job precies de helft van de stack.
-          DEMO_HOST=localhost DEMO_MAGAZIJN_STUBS=2 docker compose --profile demo \
+          DEMO_HOST=localhost DEMO_MAGAZIJNEN=98 docker compose --profile demo \
             -f compose.yaml \
             -f compose.podman.yaml \
             -f compose.podman-hostnet.yaml config --format json \

@@ -227,17 +227,51 @@ services:
       - ./toxiproxy/proxies.json:/proxies.json:ro
     command: ["-host=0.0.0.0", "-config=/proxies.json"]
 
-  # Lichtgewicht stub-magazijnen voor 'veel magazijnen' (fase 6). Eén WireMock, n pad-gebaseerde
-  # magazijnen (/mNN) uit demo/generated/ — draai eerst demo/genereer-magazijnen.py. De demo-console
-  # zet stubs live op storing via de admin-API (:8092/__admin/mappings).
-  magazijn-stubs:
-    image: docker.io/wiremock/wiremock:3.13.2
+  # De gesimuleerde magazijnen: één service die er tientallen bedient, elk op pad-prefix
+  # /magazijn/<OIN>. Welke dat zijn komt uit demo/generated/ — draai eerst
+  # demo/genereer-magazijnen.py; hetzelfde artefact vult het register van de uitvraag.
+  #
+  # Dit verving de WireMock-antwoordmachines van fase 6. Die konden geen toestand dragen: een PATCH
+  # verdween in het niets en de volgende GET toonde weer de oude waarde, dus mappen en leesstatus —
+  # precies wat we over veel magazijnen willen tonen — waren alleen op de twee echte magazijnen te
+  # demonstreren. De simulator slaat wél op, en genereert uit dezelfde OpenAPI-spec als het echte
+  # magazijn.
+  postgres-simulator:
+    image: docker.io/library/postgres:18
     profiles: [demo]
     ports:
-      - "${DEMO_BIND:-127.0.0.1}:8092:8080"
+      - "${DEMO_BIND:-127.0.0.1}:5435:5432"
+    environment:
+      POSTGRES_USER: magazijnsimulator
+      POSTGRES_PASSWORD: magazijnsimulator
+      POSTGRES_DB: magazijnsimulator
     volumes:
-      - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings
-    command: ["--verbose"]
+      - postgres-data-simulator:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U magazijnsimulator -d magazijnsimulator"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  magazijn-simulator:
+    image: fbs-demo/fbs-magazijn-simulator:demo
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:8092:8092"
+    depends_on:
+      postgres-simulator:
+        condition: service_healthy
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      DB_JDBC_URL: jdbc:postgresql://postgres-simulator:5432/magazijnsimulator
+      # De set die deze instantie voorstelt, uit hetzelfde artefact dat het register van de uitvraag
+      # vult. SmallRye leest dit absolute pad als extra config-bron.
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijn-simulator.properties
+      # Lokaal geen token: het beheerpad zit op loopback en de simulator eist er alleen buiten dev en
+      # test een. Op een gedeelde omgeving hoort BEHEER_TOKEN wél gezet te zijn.
+    volumes:
+      - ./demo/generated/magazijn-simulator.properties:/demo-config/magazijn-simulator.properties:ro
 
   berichtenuitvraag:
     image: fbs-demo/fbs-berichtenuitvraag:demo
@@ -255,13 +289,19 @@ services:
         condition: service_started
       postgres-uitvraag:
         condition: service_healthy
+      magazijn-simulator:
+        condition: service_started
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
-      # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf).
+      # Redis en de profielservice lopen via Toxiproxy (transparant bij normaal bedrijf); die
+      # storingen komen nergens anders vandaan.
       REDIS_HOSTS: redis://toxiproxy:16379
-      MAGAZIJN_A_URL: http://toxiproxy:18090
-      MAGAZIJN_B_URL: http://toxiproxy:18091
+      # De twee echte magazijnen worden rechtstreeks aangesproken. Hun storingsgedrag kwam vroeger
+      # uit een Toxiproxy-omweg; nu komt storingsgedrag uit de simulator, die het per magazijn kan
+      # variëren in plaats van een verbinding alleen aan of uit te zetten.
+      MAGAZIJN_A_URL: http://berichtenmagazijn-a:8090
+      MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       PROFIEL_SERVICE_URL: http://toxiproxy:18089
       # Het logboek moet expliciet: de %dev-default is een localhost-adres (bedoeld voor
       # draaien op de host), en localhost is binnen een container de container zelf.
@@ -283,14 +323,16 @@ services:
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
       BERICHTENSESSIECACHE_TTL: PT2M
-      # Extra register-entries voor de stub-magazijnen (fase 6), gegenereerd in demo/generated/.
+      # Extra register-entries voor de gesimuleerde magazijnen, gegenereerd in demo/generated/.
       # SmallRye leest dit absolute pad als additionele config-bron en merge't het bij de baked A/B.
-      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-stubs.properties
-      # Bulkhead ruim boven het ingerichte aantal stubs (fase 6), zodat bij veel magazijnen niet de
-      # helft als OVERBELAST wordt geweigerd. Alleen demo; prod houdt de default (20).
-      BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "60"
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties
+      # Bulkhead ruim boven het aantal magazijnen van de grootste ondernemer (100), zodat er bij veel
+      # magazijnen niet een deel als OVERBELAST wordt geweigerd. Alleen demo; prod houdt de default
+      # (20). Wat er gebeurt als de bulkhead wél de bottleneck wordt, is een eigen scenario — dat
+      # meet stap 6 van het simulator-ontwerp.
+      BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "120"
     volumes:
-      - ./demo/generated/magazijnen-stubs.properties:/demo-config/magazijnen-stubs.properties:ro
+      - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
 
   # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
   # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
@@ -308,6 +350,8 @@ services:
         condition: service_started
       berichtenmagazijn-b:
         condition: service_started
+      magazijn-simulator:
+        condition: service_started
       toxiproxy:
         condition: service_started
       redis:
@@ -324,12 +368,13 @@ services:
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
-      MAGAZIJN_STUBS_ADMIN_URL: http://magazijn-stubs:8080
-      # Eén bron van waarheid voor n: compose leest het uit je shell (default 12). Gebruik dezelfde
-      # export voor het script:  export DEMO_MAGAZIJN_STUBS=40 && python3 demo/genereer-magazijnen.py
-      DEMO_MAGAZIJN_STUBS: "${DEMO_MAGAZIJN_STUBS:-12}"
+      MAGAZIJN_SIMULATOR_URL: http://magazijn-simulator:8092
+      # Eén bron van waarheid voor n: compose leest het uit je shell. Gebruik dezelfde export voor
+      # het script:  export DEMO_MAGAZIJNEN=98 && python3 demo/genereer-magazijnen.py
+      DEMO_MAGAZIJNEN: "${DEMO_MAGAZIJNEN:-98}"
 
 volumes:
   postgres-data-a:
+  postgres-data-simulator:
   postgres-data-b:
   postgres-data-uitvraag:

@@ -22,7 +22,7 @@ if [ "$MODUS" = "bridge" ]; then
     exit 0
 fi
 
-REGISTER="$GEN/magazijnen-stubs.properties"
+REGISTER="$GEN/magazijnen-register.properties"
 PROXIES="$GEN/proxies-host.json"
 
 trap 'rm -f "$REGISTER.tmp" "$PROXIES.tmp"' EXIT
@@ -31,15 +31,13 @@ trap 'rm -f "$REGISTER.tmp" "$PROXIES.tmp"' EXIT
 # poorten uit compose.podman-hostnet.yaml. Beide gaan eerst naar `.tmp`, zodat een falende guard
 # de bestemming onaangeroerd laat; voor het register is dat bovendien nodig omdat `sed` niet uit
 # zijn eigen invoerbestand kan lezen én erin schrijven.
-sed 's|http://magazijn-stubs:8080|http://127.0.0.1:8092|g' "$REGISTER" > "$REGISTER.tmp"
+sed 's|http://magazijn-simulator:8092|http://127.0.0.1:8092|g' "$REGISTER" > "$REGISTER.tmp"
 
 # `listen` gaat mee van 0.0.0.0 naar 127.0.0.1: in een gedeelde netns bindt een wildcard op élke
 # interface van de machine, en achter deze proxies zitten Redis en de magazijn-API's. Bovendien
 # botst een wildcard-bind met elke specifieke bind op dezelfde poort — bijvoorbeeld van een
 # FSC-federatie die in dezelfde netns draait.
 sed -e 's|"listen": "0\.0\.0\.0:|"listen": "127.0.0.1:|g' \
-    -e 's|"berichtenmagazijn-a:8090"|"127.0.0.1:8090"|' \
-    -e 's|"berichtenmagazijn-b:8090"|"127.0.0.1:8091"|' \
     -e 's|"redis:6379"|"127.0.0.1:6379"|' \
     -e 's|"profiel-service:8080"|"127.0.0.1:8089"|' \
     -e 's|"notificatie-stub:8080"|"127.0.0.1:8084"|' \

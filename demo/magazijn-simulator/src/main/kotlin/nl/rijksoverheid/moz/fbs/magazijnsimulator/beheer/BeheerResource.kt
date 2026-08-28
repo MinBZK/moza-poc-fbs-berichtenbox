@@ -56,6 +56,19 @@ class BeheerResource(private val service: BeheerService) {
         service.zetGedrag(oin, verzoek) ?: throw NotFoundException("Geen gesimuleerd magazijn met OIN $oin")
 
     /**
+     * Stelt het gedrag van een reeks magazijnen in één aanroep bij.
+     *
+     * Een bedieningspaneel dat "zet er k van de honderd op storing" aanbiedt, zou anders bij elke
+     * klik honderd verzoeken doen. Onbekende OIN's worden overgeslagen en teruggemeld, want bij een
+     * lijst van honderd is stoppen bij de eerste fout onhandiger dan doorgaan en zeggen wat er niet
+     * kon.
+     */
+    @PUT
+    @Path("/gedrag")
+    @Consumes(MediaType.APPLICATION_JSON)
+    fun zetGedragInBulk(verzoek: BulkGedragVerzoek): BulkGedragUitkomst = service.zetGedragInBulk(verzoek)
+
+    /**
      * Zet in één handeling berichten klaar in alle gesimuleerde magazijnen.
      *
      * Los aanleveren via de gewone API zou minuten kosten; dit is één transactie per magazijn. Wat
