@@ -23,8 +23,18 @@ data class ProxyVerzoek(val name: String, val listen: String, val upstream: Stri
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ToxicStatus(val name: String)
 
+/**
+ * Zoals Toxiproxy een proxy teruggeeft. `listen` is het adres waarop hij daadwerkelijk gebónden is,
+ * niet wat er gepost werd: `0.0.0.0:18089` komt terug als `[::]:18089`. Vergelijk daarom de poort en
+ * niet de hele string, anders lijkt elke proxy voortdurend afgeweken.
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class ProxyStatus(val enabled: Boolean, val toxics: List<ToxicStatus> = emptyList())
+data class ProxyStatus(
+    val enabled: Boolean,
+    val toxics: List<ToxicStatus> = emptyList(),
+    val listen: String = "",
+    val upstream: String = "",
+)
 
 /**
  * Client voor de Toxiproxy-admin-API. Alleen de calls die de demo nodig heeft: proxies
@@ -55,4 +65,9 @@ interface ToxiproxyClient {
     @DELETE
     @Path("/{proxy}/toxics/{toxic}")
     fun verwijderToxic(@PathParam("proxy") proxy: String, @PathParam("toxic") toxic: String): Response
+
+    /** Verwijdert een proxy; nodig om er één met gewijzigde listen of upstream opnieuw te bouwen. */
+    @DELETE
+    @Path("/{proxy}")
+    fun verwijderProxy(@PathParam("proxy") proxy: String): Response
 }

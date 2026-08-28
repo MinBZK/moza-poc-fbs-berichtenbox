@@ -162,9 +162,15 @@ draait die ze aanmaakt; eerder omhangen wijst de uitvraag naar een proxy die nie
 
 En één ding dat het ontwerp helemaal niet had: **de proxies staan alleen in het geheugen van
 Toxiproxy.** Zonder `proxies.json` laat een herstart van die pod de keten dood achter, want al het
-profiel-, notificatie-, aanmeld- en Redis-verkeer loopt erdoorheen. De console herhaalt zijn
-bootstrap daarom elke dertig seconden; een bestaande proxy blijft staan, ook een bewust uitgezette,
-dus alleen een leeggeraakte instantie wordt opnieuw gevuld.
+profiel-, notificatie-, aanmeld- en Redis-verkeer loopt erdoorheen. De console verzoent daarom elke
+dertig seconden: ontbrekende proxies maakt hij aan, en een proxy waarvan de upstream of de poort
+afwijkt bouwt hij opnieuw. Dat laatste dekt het geval dat iemand een upstream bijstelt terwijl de
+Toxiproxy-pod blijft draaien — de console herstart dan wel, de proxy niet. Wat klopt blijft
+ongemoeid, ook een bewust uitgezette proxy.
+
+De listen-vergelijking gaat op de poort: Toxiproxy antwoordt met het adres waaraan hij gebónden is,
+dus een gepostte `0.0.0.0:18089` komt terug als `[::]:18089`. Letterlijk vergelijken zou elke proxy
+elke ronde afgeweken noemen en hem blijven herbouwen.
 
 ## Overwogen en afgevallen
 
