@@ -72,12 +72,13 @@ wijst minstens één schema naar de verkeerde plek. Lees de juiste waarden af me
 
 ## 5. De cache-verval-knop
 
-Druk op **Cache verlopen (sessies wissen)** en haal daarna in de Berichtenbox opnieuw berichten op.
+Druk op tabblad **Scenario's** op **Cache verlopen** en haal daarna in de Berichtenbox opnieuw
+berichten op.
 
 Verwacht: de knop meldt geen fout, en de eerstvolgende `GET /berichten` geeft 409 tot je opnieuw
 ophaalt — de sessie is weg.
 
-Blijft de knop onzichtbaar, dan staat `SESSIECACHE_BEREIKBAAR` nog op `false`. Geeft hij
+Blijft de groep *Sessie* onzichtbaar, dan staat `SESSIECACHE_BEREIKBAAR` nog op `false`. Geeft hij
 `NOAUTH Authentication required`, dan ontbreekt `REDIS_PASSWORD` of wijkt hij af van die van de
 uitvraag — de verbinding kwám er dan wél doorheen, dus de netwerkregel staat. Geeft hij een
 verbindings- of timeoutfout, dán ontbreekt de `cross-domain-access`-regel voor deze deployment; op
