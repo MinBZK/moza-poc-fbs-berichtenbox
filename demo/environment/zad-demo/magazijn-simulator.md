@@ -1,11 +1,13 @@
 # De magazijn-simulator op ZAD
 
-**Status: voorbereiding.** Deze stap (MinBZK/MijnOverheidZakelijk#1013) is geblokkeerd door
-MinBZK/MijnOverheidZakelijk#936. Zonder bediening en zonder Berichtenbox op de gedeelde omgeving kan
-hij technisch slagen — de simulator draait, het aantal organisaties klopt — terwijl er voor een
-stakeholder niets te zien is. Dit bestand beschrijft wat er dan te doen staat, en legt de keuzes vast
-die nu al te maken zijn. Het is niet uitgevoerd: geen van de commando's hieronder is tegen een
-cluster gedraaid.
+**Status: klaar om uit te voeren, nog niet uitgevoerd.** Geen van de commando's hieronder is tegen
+een cluster gedraaid; ze zijn geschreven tegen `zadctl` en de projectspecs, niet ertegen getoetst.
+
+Deze stap (MinBZK/MijnOverheidZakelijk#1013) wachtte op MinBZK/MijnOverheidZakelijk#936 — zonder
+bediening en zonder Berichtenbox op de gedeelde omgeving zou hij technisch kunnen slagen terwijl er
+voor een stakeholder niets te zien is. Dat issue is gesloten op 2026-08-31, dus die volgorde staat
+niets meer in de weg. Uitvoeren vraagt een `zadctl login`; wie dat doet, loopt dit bestand van boven
+naar beneden door.
 
 De simulator komt als één component `magazijnsimulator` in het magazijnen-project `mpfm-w3h`, naast
 `magazijna`, `magazijnb` en `democonsole`. Waarom daar: `postgresql-database` is
