@@ -6,6 +6,7 @@ import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdeMagazijnen
+import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.greaterThan
 import org.hamcrest.Matchers.hasItem
@@ -142,6 +143,34 @@ class BeheerTest : MagazijnTestBasis() {
         legen()
 
         given().header(ONTVANGER_HEADER, ONTVANGER).`when`().get("$BASIS/berichten").then().statusCode(200)
+    }
+
+    /**
+     * Niet alleen het magazijn dat je toevallig bevraagt, maar de hele set — en niet alleen wat het
+     * verkeer doet, maar ook wat het overzicht toont. Dat is de knop "toon magazijnen en hun gedrag"
+     * op het bedieningspaneel, en als die de oude stand laat zien lijkt het terugzetten mislukt
+     * terwijl de keten allang weer normaal doet.
+     *
+     * Een eerdere versie bracht bij het terugzetten alleen ontbrekende rijen aan en liet bestaande
+     * staan; dan blijft precies dit zichtbaar hangen.
+     */
+    @Test
+    fun `legen zet het gedrag van de hele set terug, ook in het overzicht`() {
+        zetGedrag(MAGAZIJN, "UIT")
+        zetGedrag(TWEEDE_MAGAZIJN, "STUK")
+        zetGedrag(DERDE_MAGAZIJN, "HAPERT")
+
+        given().`when`().get("/beheer/magazijnen")
+            .then().statusCode(200)
+            .body("modus", contains("UIT", "STUK", "HAPERT"))
+
+        legen()
+
+        // De testconfiguratie geeft geen van de drie een volgnummer, dus "terug naar de configuratie"
+        // is voor alle drie NORMAAL.
+        given().`when`().get("/beheer/magazijnen")
+            .then().statusCode(200)
+            .body("modus", contains("NORMAAL", "NORMAAL", "NORMAAL"))
     }
 
     @Test
@@ -354,6 +383,7 @@ class BeheerTest : MagazijnTestBasis() {
         const val TWEEDE_ONTVANGER = "KVK:90000002"
         const val MAGAZIJN = "00000009000000000001"
         const val TWEEDE_MAGAZIJN = "00000009000000000002"
+        const val DERDE_MAGAZIJN = "00000009000000000003"
         const val BASIS = "/magazijn/$MAGAZIJN/api/v1"
     }
 }
