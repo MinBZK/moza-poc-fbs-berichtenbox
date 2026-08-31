@@ -43,7 +43,7 @@ fixture() {
   local -a namen=(
     "deploy-preview-uitvraag=${p[0]}" "deploy-preview-externe-stubs=${p[1]}" "deploy-preview-magazijnen=${p[2]}"
     "deploy-test-uitvraag=${t[0]}" "deploy-test-externe-stubs=${t[1]}" "deploy-test-magazijnen=${t[2]}"
-    "build=${b[0]}" "build-externe-stubs=${b[1]}" "build-contract-bootstrap=${b[2]}" "build-democonsole=${b[3]}"
+    "build=${b[0]}" "build-externe-stubs=${b[1]}" "build-contract-bootstrap=${b[2]}" "build-demo-images=${b[3]}"
   )
 
   printf '%s\n' "${namen[@]}" | sed 's/=-$/=/'
@@ -181,7 +181,7 @@ verwacht_poort "een verdrongen build staat in de melding" 1 "bouw: build=cancell
 BOUW='build=success
 build-externe-stubs=success
 build-contract-bootstrap=success
-build-democonsole=success'
+build-demo-images=success'
 
 verwacht_poort "nul previews in needs blokkeert" 1 "in plaats van 3" \
   pull_request "$PR_REF" false success true success "$BOUW"
@@ -425,7 +425,7 @@ done
 
 # `changes` en `gate` leveren het oordeel, de bouw-jobs de diagnose; ontbreekt er één, dan leest
 # zijn resultaat als leeg.
-for job in changes gate build build-externe-stubs build-contract-bootstrap build-democonsole; do
+for job in changes gate build build-externe-stubs build-contract-bootstrap build-demo-images; do
   bevat_regel "$poort_needs" "$job" \
     || mislukt "uitrol-poort heeft $job niet in zijn needs; het resultaat is dan altijd leeg"
 done
