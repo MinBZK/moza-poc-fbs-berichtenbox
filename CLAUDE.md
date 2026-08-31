@@ -190,7 +190,7 @@ matrix van `.github/workflows/cleanup-preview.yml` — wijzig een id op beide pl
 ruimt de opruiming een ánder project op en verifieert ze daar: zolang dat project bestaat is de
 run groen en blijft de preview staan):**
 `berichtenuitvraag` = `mpfb-8wh` (`redis`, `uitvraag`, `toxiproxy-aanmeld`, `toxiproxy-redis`),
-`magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`), `externe-stubs` = `mpfpsm-lcl`
+`magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`, `magazijnsimulator`), `externe-stubs` = `mpfpsm-lcl`
 (`profiel`, `notificatie`, `toxiproxy-profiel`, `toxiproxy-notificatie`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste

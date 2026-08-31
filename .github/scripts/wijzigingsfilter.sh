@@ -52,8 +52,8 @@ UITROL_RELEVANT='deploy'
 # Bewust per pad opgesomd en niet als kaal `^demo/`: onder demo/ staan Maven-modules, en zo'n
 # module kan een eigen image en ZAD-component hebben. Een kale `^demo/`-uitsluiting zou die
 # imagebuild overslaan, en dat faalt stil — een overgeslagen job telt als succes voor branch
-# protection. TODO(#938): een volgende demo-module met een eigen image (bv. uit de
-# magazijn-simulator) vraagt dezelfde afweging — een eigen job, geen matrix-regel.
+# protection. demo/magazijn-simulator/ ging dezelfde kant op: eigen image, eigen ZAD-component, dus
+# ook buiten deze uitsluiting.
 #
 # De opsomming staat aan de veilige kant van zijn eigen veroudering: een demo-onderdeel dat hier
 # ontbreekt valt uit de uitsluiting en kost een overbodige build. Andersom — een allowlist van

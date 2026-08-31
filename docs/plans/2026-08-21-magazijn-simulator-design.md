@@ -1,4 +1,5 @@
-**Status:** In uitvoering — stap 1 t/m 6 gedaan (`demo/magazijn-simulator`, meting hieronder), stap 7 nog niet.
+**Status:** In uitvoering — stap 1 t/m 6 gedaan (`demo/magazijn-simulator`, meting hieronder); stap 7 is
+voorbereid en kan uitgevoerd worden nu #936 gesloten is.
 
 # Magazijn-simulator — veel magazijnen met echte state — ontwerp
 
@@ -586,6 +587,19 @@ FSC blijft op de twee echte magazijnen. Eén gesimuleerd magazijn als extra FSC-
 bestaande inway is later een goedkope toevoeging (één dienst, één contract, één grant-hash), maar
 n grant-hashes en n handmatige env-vars in Operations Manager schalen niet.
 
+Het uitgewerkte runbook staat in `demo/environment/zad-demo/magazijn-simulator.md`. Twee dingen
+kwamen daarbij bovendrijven die hier niet stonden.
+
+Een attachment wordt op ZAD **ongewijzigd** gemount, dus een register met een hard adres wijst in
+elke preview naar de simulator van `test`. Het generatiescript schrijft daarom bij een gezette
+`SIMULATOR_URL` geen adres maar een configuratie-expressie, die op de uitvraag uit een alias komt —
+en aliassen kennen `$DEPLOYMENT_NAME` wél.
+
+En de simulator heeft een **eigen schema** nodig. ZAD levert één database en één user per deployment,
+en de simulator draagt tabelnamen (`bericht`, `bericht_status`, `bijlage`) die ook bij de magazijnen
+bestaan. `DB_SCHEMA` is daarom verplicht in `%prod`, net als bij elk magazijn, inclusief
+`currentSchema` op de connectie omdat de bulkvulling native SQL gebruikt.
+
 ## Foutafhandeling
 
 - Onbekende of ontbrekende OIN in het pad → 404 problem+json, met de OIN in `detail`; een pad
@@ -667,13 +681,17 @@ bij die net zo goed getest horen te worden.
    op de SSE-stroom; de uitkomsten staan hierboven onder "Meting (stap 6)". De harde grens bleek de
    begrenzing op gelijktijdige bevragingen in de uitvraag, niet het aantal magazijnen; die staat als
    MinBZK/MijnOverheidZakelijk#1038 op de backlog.
-7. **ZAD.** Component, database, register-attachment, persona's in het stubs-image.
+7. **ZAD.** Component, database, register-attachment, persona's in het stubs-image. **Voorbereid,
+   nog niet uitgevoerd.** Klaar is wat zonder cluster kon: het runbook
+   `demo/environment/zad-demo/magazijn-simulator.md`, de schema-isolatie in `%prod`, en een generator
+   die het register met een configuratie-expressie kan schrijven in plaats van een vast adres. Wat
+   rest is het runbook doorlopen — dat vraagt een `zadctl login` — plus één build-job en één regel in
+   de deploy-payload, die pas kúnnen zodra het component bestaat.
 
-Stap 1 t/m 5 leveren de lokale demo; stap 6 levert de onderbouwing die #938 vraagt. Stap 7 is
-**geblokkeerd door #936**, en niet slechts ervan afhankelijk: zonder bediening en zonder
-Berichtenbox op ZAD kan die stap technisch slagen — de simulator draait, de fan-out klopt — terwijl
-er voor een stakeholder niets te zien is. Plan hem dus ná #936, of accepteer expliciet dat stap 7
-alleen de keten oplevert en niet de demo.
+Stap 1 t/m 5 leveren de lokale demo; stap 6 levert de onderbouwing die #938 vraagt. Stap 7 wachtte
+op #936, en niet slechts als afhankelijkheid: zonder bediening en zonder Berichtenbox op ZAD kan die
+stap technisch slagen — de simulator draait, de fan-out klopt — terwijl er voor een stakeholder niets
+te zien is. Dat issue is gesloten op 2026-08-31, dus stap 7 kan uitgevoerd worden.
 
 Elke stap wordt een sub-issue onder MinBZK/MijnOverheidZakelijk#938, zodat het werk op het bord staat
 en niet alleen in dit document.
