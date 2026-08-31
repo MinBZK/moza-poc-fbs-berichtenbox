@@ -6,6 +6,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
 import java.time.Duration
 import java.time.Instant
+import java.util.Locale
 import java.util.UUID
 
 /** Een bericht plus zijn bijlagen, zoals de seed het aanmaakt. */
@@ -55,12 +56,17 @@ object DemoBerichten {
      * openslaat moet in één oogopslag zien waar hij naar kijkt, en die vraag is bij elk bericht
      * dezelfde.
      *
-     * Alleen ASCII. De opbouw hieronder rekent byte-posities uit op tekenposities, en die twee lopen
-     * uiteen zodra er een teken buiten Latin-1 in staat — de PDF is dan stuk op een manier die pas
-     * bij het openen blijkt.
+     * **Houd deze tekst ASCII** — zie [PDF_REGELS].
      */
     private const val PDF_KOP = "Demonstratiemateriaal"
 
+    /**
+     * **Houd deze tekst ASCII.** De pagina gebruikt Helvetica zonder eigen codering, en dan geldt de
+     * standaardcodering van PDF: byte 0xE9 is daarin geen `é`. Een accent levert dus stilzwijgend
+     * een ander letterteken op, en een gedachtestreepje of euroteken wordt een vraagteken. Een teken
+     * buiten het basisvlak (een emoji) is erger: dat telt als twee tekens en één byte, en verschuift
+     * daarmee elke positie in de kruisverwijzingstabel — dan opent het bestand niet meer.
+     */
     private val PDF_REGELS = listOf(
         "Deze bijlage komt uit een gesimuleerd berichtenmagazijn van MijnOverheid",
         "Zakelijk. Ze hoort bij een demo van het Federatief Berichtenstelsel.",
@@ -151,6 +157,7 @@ object DemoBerichten {
         )
 
         val pdf = StringBuilder("%PDF-1.4\n")
+
         val posities = objecten.mapIndexed { index, definitie ->
             val positie = pdf.length
 
@@ -162,12 +169,17 @@ object DemoBerichten {
         val kruisverwijzing = pdf.length
 
         pdf.append("xref\n0 ${objecten.size + 1}\n0000000000 65535 f \n")
-        posities.forEach { pdf.append("%010d 00000 n \n".format(it)) }
+        // Locale.ROOT is hier geen formaliteit: `format` volgt anders de standaard-locale, en een
+        // machine die op Thaise of Arabische cijfers staat schrijft tekens buiten Latin-1. Die
+        // worden bij het coderen `?`, de regels houden hun breedte, en het bestand oogt gaaf terwijl
+        // geen enkele positie meer ergens naar wijst.
+        posities.forEach { pdf.append(String.format(Locale.ROOT, "%010d 00000 n \n", it)) }
         pdf.append("trailer<</Size ${objecten.size + 1}/Root 1 0 R>>\n")
         pdf.append("startxref\n$kruisverwijzing\n%%EOF\n")
 
         // Latin-1 en niet UTF-8: één teken is dan één byte, en alleen zo kloppen de posities die
-        // hierboven op tekenlengte zijn geteld. De tekst is ASCII, dus er gaat niets verloren.
+        // hierboven op tekenlengte zijn geteld. Alles wat hier ingaat is ASCII, dus er gaat niets
+        // verloren — zie de eis bij PDF_REGELS.
         return pdf.toString().toByteArray(Charsets.ISO_8859_1)
     }
 

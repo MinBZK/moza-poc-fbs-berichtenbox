@@ -39,9 +39,11 @@ class DemoBijlageTest {
 
         // Elke positie uit de tabel moet op het bijbehorende object wijzen. Wijst er één ernaast,
         // dan weigert een strenge viewer het bestand — en dat merk je pas op een andere machine.
-        val tabel = pdf.substringAfter("xref\n").substringBefore("trailer").trim().lines()
-        // De eerste twee regels zijn de kop ("0 7") en het verplichte vrije object 0.
-        val posities = tabel.drop(2).map { it.take(10).toInt() }
+        // Niet trimmen: elke regel eindigt op een spatie die meetelt in de vaste breedte hieronder.
+        // De laatste `lines()`-waarde is leeg (de regelovergang vóór `trailer`) en valt af, net als
+        // de kop ("0 7"); wat overblijft zijn het verplichte vrije object 0 en de zes objecten.
+        val ingangen = pdf.substringAfter("xref\n").substringBefore("trailer").lines().dropLast(1)
+        val posities = ingangen.drop(2).map { it.take(10).toInt() }
 
         assertEquals(6, posities.size, "zes objecten, dus zes posities")
 
@@ -52,18 +54,41 @@ class DemoBijlageTest {
             )
         }
 
+        // Elke regel in de tabel moet exact twintig bytes zijn, de regelovergang meegerekend: een
+        // parser mag rechtstreeks naar de n-de regel springen. Eén spatie minder en het bestand is
+        // stuk voor precies die parsers, terwijl de posities zelf nog kloppen.
+        ingangen.drop(1).forEach {
+            assertEquals(20, it.length + 1, "xref-regel '$it' hoort 20 bytes te zijn, regelovergang meegerekend")
+        }
+
         val startxref = pdf.substringAfter("startxref\n").substringBefore("\n").trim().toInt()
 
         assertTrue(pdf.startsWith("xref", startxref), "startxref hoort naar de tabel te wijzen")
     }
 
     @Test
-    fun `de bijlage bevat geen tekens die de opbouw stukmaken`() {
-        val bytes = eersteBijlage().inhoud
+    fun `de opgegeven lengte dekt de tekststroom precies`() {
+        val pdf = eersteBijlage().inhoud.toString(Charsets.ISO_8859_1)
+        val opgegeven = pdf.substringAfter("<</Length ").substringBefore(">>").toInt()
+        val begin = pdf.indexOf("stream\n") + "stream\n".length
 
-        // Eén teken is één byte, anders lopen de getelde posities en de werkelijke uiteen.
-        assertEquals(bytes.size, bytes.toString(Charsets.ISO_8859_1).length)
-        assertTrue(bytes.all { it.toInt() in 0..127 }, "de PDF hoort volledig uit ASCII te bestaan")
+        // Een verkeerde lengte laat een parser de stroom afkappen of te ver doorlezen. Dat het nu
+        // klopt hangt aan de regelovergang vlak vóór `endstream`, die volgens de spec niet meetelt;
+        // wie de opbouw van de stroom aanpast, verschuift dat ongemerkt.
+        assertEquals(opgegeven, pdf.indexOf("\nendstream") - begin)
+    }
+
+    @Test
+    fun `de bijlage bevat geen tekens die de opbouw stukmaken`() {
+        // De posities in de tabel worden op tekenlengte geteld en daarna als bytes weggeschreven.
+        // Zolang alles ASCII is vallen die twee samen; een accent geeft een ander letterteken, en
+        // een teken buiten het basisvlak verschuift de posities. Een cijfer uit een ander schrift —
+        // wat een verkeerd opgemaakte positie zou opleveren — komt er als vraagteken uit en valt
+        // hier dus ook door de mand.
+        assertTrue(
+            eersteBijlage().inhoud.all { it.toInt() in 0..127 },
+            "de PDF hoort volledig uit ASCII te bestaan",
+        )
     }
 
     @Test
@@ -73,6 +98,12 @@ class DemoBijlageTest {
             .flatMap { it.bijlagen }
 
         assertEquals(4, bijlagen.size)
-        assertTrue(bijlagen.all { it.inhoud.contentEquals(bijlagen.first().inhoud) })
+
+        // Op de tekst zelf toetsen en niet de arrays onderling vergelijken: ze delen één instantie,
+        // dus zo'n vergelijking is altijd waar en zou een variant per bericht niet opmerken.
+        assertTrue(
+            bijlagen.all { "(Demonstratiemateriaal) Tj" in it.inhoud.toString(Charsets.ISO_8859_1) },
+            "elke bijlage hoort dezelfde standaardtekst te dragen",
+        )
     }
 }
