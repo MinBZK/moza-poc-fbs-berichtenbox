@@ -54,6 +54,23 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-smallrye-health</artifactId>
         </dependency>
+
+        <!-- Persistentie. Eén database draagt álle gesimuleerde magazijnen; dat is de hele reden
+             dat de simulator bestaat, want honderd echte magazijnen zouden honderd databases zijn.
+             PostgreSQL in elk profiel, zodat dev, test en de gedeelde omgeving hetzelfde
+             DBMS-gedrag laten zien. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-orm-panache-kotlin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-flyway</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-container-image-jib</artifactId>
@@ -150,17 +167,27 @@
                 <configuration>
                     <compilerPlugins>
                         <plugin>all-open</plugin>
+                        <!-- JPA-entities hebben een no-arg constructor nodig; Hibernate hydrateert
+                             daarmee. De plugin genereert hem zonder dat de Kotlin-klasse zijn
+                             verplichte velden hoeft op te geven. -->
+                        <plugin>jpa</plugin>
                     </compilerPlugins>
                     <pluginOptions>
                         <option>all-open:annotation=jakarta.ws.rs.Path</option>
                         <option>all-open:annotation=jakarta.enterprise.context.ApplicationScoped</option>
                         <option>all-open:annotation=jakarta.enterprise.context.RequestScoped</option>
+                        <option>all-open:annotation=jakarta.persistence.Entity</option>
                     </pluginOptions>
                 </configuration>
                 <dependencies>
                     <dependency>
                         <groupId>org.jetbrains.kotlin</groupId>
                         <artifactId>kotlin-maven-allopen</artifactId>
+                        <version>${kotlin.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.jetbrains.kotlin</groupId>
+                        <artifactId>kotlin-maven-noarg</artifactId>
                         <version>${kotlin.version}</version>
                     </dependency>
                 </dependencies>

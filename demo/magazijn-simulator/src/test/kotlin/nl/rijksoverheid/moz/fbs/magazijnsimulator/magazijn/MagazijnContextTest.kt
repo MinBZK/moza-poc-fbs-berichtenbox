@@ -18,7 +18,7 @@ class MagazijnContextTest {
 
     @Test
     fun `het gezette magazijn komt er ongewijzigd uit`() {
-        val magazijn = GesimuleerdMagazijn("00000009000000000001", "Demo-magazijn 1")
+        val magazijn = GesimuleerdMagazijn(dbId = 1, oin = "00000009000000000001", naam = "Demo-magazijn 1")
         val context = MagazijnContext().apply { this.magazijn = magazijn }
 
         assertEquals(magazijn, context.magazijn)

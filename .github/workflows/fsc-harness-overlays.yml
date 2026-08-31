@@ -270,11 +270,53 @@ jobs:
 
           # `--profile demo` erbij: zonder dat profiel rendert compose de vier Quarkus-services en
           # toxiproxy niet, en meet deze job precies de helft van de stack.
-          DEMO_HOST=localhost DEMO_MAGAZIJN_STUBS=2 docker compose --profile demo \
+          DEMO_HOST=localhost DEMO_MAGAZIJNEN=98 docker compose --profile demo \
             -f compose.yaml \
             -f compose.podman.yaml \
             -f compose.podman-hostnet.yaml config --format json \
             | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "demo-stack (hostnet-merge)"
+
+      - name: De console stuurt Toxiproxy in deze modus ook naar loopback
+        # De demo-console maakt de proxies zelf aan en zet ze elke reconcile-ronde terug. Staan haar
+        # adressen niet op de gedeelde netns ingesteld, dan overschrijft ze de geladen definities met
+        # container-DNS-namen die daar niet resolven — en dat is aan niets te zien: Toxiproxy blijft
+        # gezond, de zes namen kloppen nog, alleen sterft elk verbinding erdoorheen. Deze guard eist
+        # daarom een override per proxy uit toxiproxy/proxies.json, allemaal op 127.0.0.1.
+        run: |
+          set -euo pipefail
+
+          DEMO_HOST=localhost DEMO_MAGAZIJNEN=98 docker compose --profile demo \
+            -f compose.yaml \
+            -f compose.podman.yaml \
+            -f compose.podman-hostnet.yaml config --format json > /tmp/hostnet-merge.json
+
+          python3 - /tmp/hostnet-merge.json toxiproxy/proxies.json <<'PY'
+          import json, sys
+
+          merge, bron = (json.load(open(pad)) for pad in sys.argv[1:3])
+          env = merge["services"]["demo-console"].get("environment") or {}
+          fouten = []
+
+          for proxy in bron:
+              # `magazijn-a` → MAGAZIJN_A_; de env-namen in application.properties volgen die vorm.
+              stam = "TOXIPROXY_" + proxy["name"].upper().replace("-", "_")
+
+              for soort in ("LISTEN", "UPSTREAM"):
+                  sleutel = f"{stam}_{soort}"
+                  waarde = env.get(sleutel)
+
+                  if waarde is None:
+                      fouten.append(f"{sleutel} ontbreekt: de console valt terug op haar container-DNS-default")
+                  elif not str(waarde).startswith("127.0.0.1:"):
+                      fouten.append(f"{sleutel}={waarde} staat niet op 127.0.0.1")
+
+          if fouten:
+              print("::error::compose.podman-hostnet.yaml stuurt de console niet volledig naar loopback")
+              print("\n".join("  " + f for f in fouten))
+              sys.exit(1)
+
+          print(f"{len(bron)} proxies: listen en upstream van de console staan op loopback.")
+          PY
 
   harness-scripts:
     runs-on: ubuntu-latest

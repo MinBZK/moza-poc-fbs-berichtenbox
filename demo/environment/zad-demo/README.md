@@ -6,6 +6,9 @@ bestand beschrijft de **eenmalige creatie** van dat component; de doorlopende im
 lopen daarna via `deploy-test-magazijnen` en `deploy-preview-magazijnen` in
 `.github/workflows/deploy.yml`.
 
+De magazijn-simulator komt als vierde component in hetzelfde project; die stap is voorbereid maar
+niet uitgevoerd — zie `magazijn-simulator.md` ernaast.
+
 Waarom de console in `mpfm-w3h` woont en niet in een eigen deployment staat in
 `docs/plans/2026-08-26-demo-op-zad-design.md`. Kort: `postgresql-database` is deployment-gebonden,
 dus alleen een component ín dezelfde deployment als de magazijnen erft hun database-secret — en dat
