@@ -1,0 +1,19 @@
+# Overlay om de proeftuin uit een lokale checkout te draaien in plaats van uit het gepubliceerde
+# image. Bedoeld voor werk aan de koppeling: je bouwt de site met `npx @11ty/eleventy` en ziet het
+# resultaat meteen in de demo, zonder hun image te hoeven bouwen (dat vraagt hun volledige
+# npm-keten). Serveert dezelfde nginx-config als hun image, uit dezelfde template.
+#
+#   PROEFTUIN_PAD=~/projects/moza-poc \
+#     docker compose -f compose.yaml -f compose.proeftuin-lokaal.yaml --profile demo up -d proeftuin
+services:
+  proeftuin:
+    image: docker.io/library/nginx:1.31-alpine
+    environment:
+      NGINX_ENTRYPOINT_LOCAL_RESOLVERS: "1"
+      NGINX_ENVSUBST_FILTER: '^(BACKEND_(ORIGIN|PROFIEL|API_2|KETEN|DEMO)|NGINX_LOCAL_RESOLVERS)$$'
+      BACKEND_ORIGIN: http://berichtenuitvraag:8086
+      BACKEND_KETEN: http://berichtenuitvraag:8086
+      BACKEND_DEMO: http://demo-console:8095
+    volumes:
+      - ${PROEFTUIN_PAD:-../moza-poc}/_site:/usr/share/nginx/html:ro
+      - ${PROEFTUIN_PAD:-../moza-poc}/container/default.conf.template:/etc/nginx/templates/default.conf.template:ro

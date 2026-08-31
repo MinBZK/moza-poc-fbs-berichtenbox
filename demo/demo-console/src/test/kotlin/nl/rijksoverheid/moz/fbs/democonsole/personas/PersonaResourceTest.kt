@@ -21,13 +21,13 @@ class PersonaResourceTest {
     fun `toont per persona het label, de ontvanger-header en de bron`() {
         every { personaService.alle() } returns listOf(
             DemoPersona("pietersen", "J. Pietersen", "BSN", "999993653", emptyList(), PersonaBron.KETEN),
-            DemoPersona("verzonnen", "Verzonnen B.V.", "KVK", "12345678", emptyList(), PersonaBron.DATASET),
+            DemoPersona("verzonnen", "Verzonnen B.V.", "KVK", "90000014", emptyList(), PersonaBron.DATASET),
         )
 
         assertEquals(
             listOf(
                 PersonaDto("pietersen", "J. Pietersen", "BSN:999993653", "keten"),
-                PersonaDto("verzonnen", "Verzonnen B.V.", "KVK:12345678", "dataset"),
+                PersonaDto("verzonnen", "Verzonnen B.V.", "KVK:90000014", "dataset"),
             ),
             resource.personas(),
         )

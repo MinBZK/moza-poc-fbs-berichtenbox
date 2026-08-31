@@ -194,6 +194,43 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 
 ---
 
+## 5b. Berichtenbox van de proeftuin
+
+**Eén adres voor de hele demo: <http://127.0.0.1:8097/bediening/>.** Daar staat de berichtenbox van
+de proeftuin met de bediening ernaast; "Bediening verbergen" geeft de berichtenbox de volle breedte
+voor het moment waarop je laat zien wat de ondernemer ziet.
+
+Dat adres is een kleine nginx (`demo-proxy`) die alles achter één origin zet: `/` naar de proeftuin,
+`/bediening/` en `/api/demo/` naar de demo-console, `/api/v1/` naar de uitvraag. Zonder die gedeelde
+origin komt de personalijst niet aan — binnen de proeftuin-container valt `/api/demo/personas` onder
+zijn eigen `location /api/` en zou het bij de uitvraag uitkomen — en kan het paneel de berichtenbox
+niet laten verversen. Online geldt dit niet: daar proxyt de proeftuin zelf.
+
+Geen Node of Eleventy nodig. De image-tag is gepind en met een env-var te wisselen:
+
+```bash
+PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 docker compose --profile demo up -d proeftuin
+```
+
+**Van buiten de machine of van buiten een dev-container.** Standaard bindt alles op loopback, want
+via dit adres is `/api/demo/legen` een TRUNCATE op beide magazijn-databases. Wil je erbij vanaf een
+ander adres, zet dat dan bewust:
+
+```bash
+DEMO_BEDIENING_BIND=0.0.0.0 docker compose --profile demo up -d
+```
+
+Draait de demo in een dev-container met een eigen netwerk-namespace, dan helpt een loopback-alias
+als `127.0.0.2` niet — loopback bestaat per namespace. Gebruik het adres van de container zelf
+(`ip -o addr show eth0`), bijvoorbeeld <http://172.20.0.2:8097/bediening/>.
+
+De losse adressen blijven bestaan om te debuggen: de proeftuin zelf op `:8096` (in podman-hostnet
+`:8080`, want die container kan zijn luisterpoort niet verzetten) en het kale paneel op `:8095`.
+Open je het paneel daar, dan blijft het frame leeg met een verwijzing naar de proxy — de proeftuin
+staat dan op een andere origin.
+
+---
+
 ## 6. Persona's (Berichtenbox → "Ingelogd als")
 
 Bron: `demo.personas.*` in `demo/demo-console/src/main/resources/application.properties`. De

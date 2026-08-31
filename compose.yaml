@@ -258,6 +258,11 @@ services:
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
+      # Onder dev eist Quarkus dat de Host-header naar localhost wijst. De demo komt binnen via de
+      # demo-proxy of via de proeftuin, die de Host van de bezoeker doorzet; zonder dit levert elke
+      # aanroep van een ander adres dan localhost een lege 400 op. Alleen hier, in de demo-compose:
+      # de service zelf houdt de standaardinstelling.
+      QUARKUS_HTTP_HOST_VALIDATION_REQUIRE_LOCALHOST: "false"
       # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf).
       REDIS_HOSTS: redis://toxiproxy:16379
       MAGAZIJN_A_URL: http://toxiproxy:18090
@@ -302,7 +307,10 @@ services:
       # POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases; op 0.0.0.0 is dat
       # vanaf het hele netwerk bereikbaar. De Berichtenbox-UI praat sowieso alleen vanaf
       # localhost (vaste API-basis localhost:8086 plus de CORS-allowlist van de uitvraag).
-      - "127.0.0.1:8095:8095"  # NIET via DEMO_BIND: zie de toelichting hierboven
+      # NIET via DEMO_BIND — dat adres stuurt de niet-destructieve diensten. Wie de demo van buiten
+      # de machine wil bedienen (of van buiten een dev-container, die een eigen netns heeft), zet
+      # DEMO_BEDIENING_BIND bewust ruimer en accepteert daarmee dat het legen bereikbaar wordt.
+      - "${DEMO_BEDIENING_BIND:-127.0.0.1}:8095:8095"
     depends_on:
       berichtenmagazijn-a:
         condition: service_started
@@ -328,6 +336,59 @@ services:
       # Eén bron van waarheid voor n: compose leest het uit je shell (default 12). Gebruik dezelfde
       # export voor het script:  export DEMO_MAGAZIJN_STUBS=40 && python3 demo/genereer-magazijnen.py
       DEMO_MAGAZIJN_STUBS: "${DEMO_MAGAZIJN_STUBS:-12}"
+
+  # Berichtenbox van de proeftuin (MinBZK/moza-poc) als container, zodat de demo geen Node, npm ci
+  # of Eleventy op de machine vraagt. Zijn nginx zet /api/ server-side door naar BACKEND_ORIGIN, dus
+  # de browser praat met één origin en er is geen CORS nodig.
+  #
+  # De tag staat achter een env-var en is gepind op een sha-tag uit hun main: `latest` bestaat wel,
+  # maar verschuift stil onder een lopende demo door. Een release-tag (bv. gebruikersonderzoeken-
+  # 2026-08) kan net zo goed:  PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 docker compose ...
+  #
+  # Alleen het leespad loopt hier: /api/demo/personas valt onder dezelfde `location /api/` en zou
+  # dus ook bij de uitvraag uitkomen. Een tweede bestemming vraagt een wijziging in moza-poc, want
+  # NGINX_ENVSUBST_FILTER laat daar op dit moment alleen BACKEND_ORIGIN door.
+  proeftuin:
+    image: ghcr.io/minbzk/moza-poc:${PROEFTUIN_TAG:-sha-934de70}
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:8096:8080"
+    depends_on:
+      berichtenuitvraag:
+        condition: service_started
+    environment:
+      # Alleen in gebruik wanneer de container rechtstreeks op 8096 benaderd wordt; via de
+      # demo-proxy onderschept die /api/ al vóór het de container bereikt.
+      BACKEND_ORIGIN: http://berichtenuitvraag:8086
+
+  # Eén origin voor de hele demo: berichtenbox, bedieningspaneel en keten-API's achter hetzelfde
+  # adres. Zie demo/proxy/demo.conf voor het waarom.
+  #
+  # Uitsluitend op loopback, om dezelfde reden als demo-console: /api/demo/legen doet via deze
+  # proxy net zo goed een TRUNCATE op beide magazijn-databases.
+  demo-proxy:
+    image: docker.io/library/nginx:1.31-alpine
+    profiles: [demo]
+    ports:
+      - "${DEMO_BEDIENING_BIND:-127.0.0.1}:8097:8080"  # zie de toelichting bij demo-console
+    depends_on:
+      proeftuin:
+        condition: service_started
+      demo-console:
+        condition: service_started
+      berichtenuitvraag:
+        condition: service_started
+    environment:
+      # Binnen het containernetwerk; wat er van buiten bereikbaar is bepaalt de ports-regel.
+      PROXY_BIND: "0.0.0.0"
+      PROXY_PORT: "8080"
+      PROEFTUIN_UPSTREAM: http://proeftuin:8080
+      CONSOLE_UPSTREAM: http://demo-console:8095
+      UITVRAAG_UPSTREAM: http://berichtenuitvraag:8086
+      # Beperk envsubst tot deze vier, zodat nginx-eigen variabelen ($$host, $$uri) blijven staan.
+      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|UITVRAAG)_UPSTREAM)$$'
+    volumes:
+      - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
 
 volumes:
   postgres-data-a:
