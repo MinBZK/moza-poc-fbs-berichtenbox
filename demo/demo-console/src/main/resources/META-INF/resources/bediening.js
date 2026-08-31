@@ -642,6 +642,10 @@ async function pasOmgevingToe() {
         });
 
         document.getElementById('geen-storingen').hidden = beschikbaar.size > 0;
+
+        // De sessiecache staat op een gedeelde omgeving in een ander project dan de console; zonder
+        // netwerkregel daarheen faalt die knop gegarandeerd.
+        document.getElementById('groep-sessie').hidden = omgeving.sessiecache === false;
     }
 
     // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de

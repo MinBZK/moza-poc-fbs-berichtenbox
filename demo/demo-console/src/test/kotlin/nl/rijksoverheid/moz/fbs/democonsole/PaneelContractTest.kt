@@ -81,6 +81,16 @@ class PaneelContractTest {
             "veldnaam stubMagazijnen ontbreekt in de omgeving-respons",
         )
     }
+
+    @Test
+    fun `de omgeving meldt of de sessiecache bereikbaar is`() {
+        // Het paneel laat de sessie-groep hierop weg; ontbreekt het veld, dan blijft een knop
+        // staan die op een omgeving zonder netwerkregel gegarandeerd faalt.
+        assertTrue(
+            haalJson(omgevingUrl).contains(""""sessiecache":"""),
+            "veldnaam sessiecache ontbreekt in de omgeving-respons",
+        )
+    }
 }
 
 /**

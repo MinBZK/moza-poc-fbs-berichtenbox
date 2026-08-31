@@ -75,6 +75,10 @@ env:
   # Deze workflow zoekt de comment op deze tekst; deploy.yml geeft dezelfde tekst mee aan de
   # deploy-action. Houd de twee gelijk — drift laat de comment stil achter op een gesloten PR.
   COMMENT_HEADER: "## 🚀 Preview Deployment"
+  # Dezelfde naam als CROSS_DOMAIN_REGEL in deploy.yml, die hem bij het aanmaken van een preview
+  # zet. Drift laat de regel achter op een deployment die niet meer bestaat: de resolver slaat zo'n
+  # regel over en logt dat, dus hij faalt stil en stapelt op.
+  CROSS_DOMAIN_REGEL: democonsole-naar-redis
 
 jobs:
   # Eén plek waar het PR-nummer vandaan komt en gevalideerd wordt.
@@ -168,15 +172,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `richting` zegt welke kant van de cross-domain-regel in dít project staat: de
+          # sessiecache bij de uitvraag (inbound), de console bij de magazijnen (outbound). De
+          # externe stubs dragen er geen, en slaan die stap over.
           - naam: uitvraag
             project: mpfb-8wh
             key: ZAD_API_KEY_UITVRAAG
+            richting: inbound
           - naam: externe-stubs
             project: mpfpsm-lcl
             key: ZAD_API_KEY_PROFIEL
+            richting: ""
           - naam: magazijnen
             project: mpfm-w3h
             key: ZAD_API_KEY_MAGAZIJNEN
+            richting: outbound
     # Zelfde groepsnaam als de deploy-job van dit project + deze PR in deploy.yml: opruimen mag een
     # lopende deploy niet onder handen wegtrekken. Concurrency-groepen zijn repo-breed, dus de
     # verhuizing naar een eigen workflow verandert daar niets aan — de namen moeten wél gelijk
@@ -185,7 +195,27 @@ jobs:
       group: zad-${{ matrix.naam }}-pr-${{ needs.doel.outputs.pr }}
       cancel-in-progress: false
     steps:
+      # Vóór de teardown, niet erna: de patch noemt een deployment, en die moet nog bestaan. Een
+      # `pull_request_target`-checkout pakt de basisbranch, niet de PR-code — dat is precies wat
+      # hier hoort, want dit script draait met de projectsleutels.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ matrix.richting != '' }}
+        with:
+          persist-credentials: false
+
+      - name: Haal de cross-domain-regel van deze preview weg
+        if: ${{ matrix.richting != '' }}
+        env:
+          ZAD_API_KEY: ${{ secrets[matrix.key] }}
+        run: >-
+          .github/scripts/cross-domain-preview.sh verwijder
+          "${{ matrix.project }}" "pr-${{ needs.doel.outputs.pr }}"
+          "${{ matrix.richting }}" "${{ env.CROSS_DOMAIN_REGEL }}"
+
       - name: Verwijder de ZAD-deployment
+        # Ook draaien als de stap hierboven faalde: een regel die blijft staan mag geen hele
+        # preview laten staan. De rode job wijst de achtergebleven regel wél aan.
+        if: ${{ !cancelled() }}
         uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets[matrix.key] }}
@@ -454,6 +484,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ORG: ${{ needs.doel.outputs.owner }}
+          PR: ${{ needs.doel.outputs.pr }}
           PREFIX: pr-${{ needs.doel.outputs.pr }}-
           # Overgangsgeval: PR's uit de tijd vóór de per-commit-tags hebben nog een kale
           # `pr-<n>`-versie in ghcr staan. Die valt niet onder de prefix, dus expliciet meenemen.
@@ -461,13 +492,14 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
+          blijvers=""
 
           # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
           # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
           # de `build`-matrix, `build-externe-stubs`, `build-contract-bootstrap` en
           # `build-democonsole` in deploy.yml; een vergeten package laat weesversies achter.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-fsc-contract-bootstrap fbs-demo-console; do
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
               fail=1
@@ -499,14 +531,48 @@ jobs:
             fi
 
             for id in $ids; do
-              if gh api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE; then
+              # De foutmelding is het enige onderscheid tussen de weigeringen; ze komen allemaal
+              # als 4xx terug, dus de exitcode zegt niet wat er aan de hand is. Hem meenemen in de
+              # waarschuwing scheelt bovendien een duik in het ruwe joblog.
+              if err=$(gh api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE 2>&1); then
                 echo "$pkg: versie $id verwijderd."
+              elif printf '%s' "$err" | grep -qF 'downloads cannot be deleted'; then
+                # GitHub weigert een publieke versie te verwijderen zodra zijn downloadteller boven
+                # de 5000 uitkomt. Die teller kan er ver naast zitten — waargenomen op een versie
+                # die geen enkele afnemer had en waarvan de package-pagina 0 downloads meldde — en
+                # corrigeert zichzelf: dezelfde verwijdering slaagde een dag later wél. Herdraaien
+                # is dus de oplossing, en daarom blijft dit een rode job: groen melden zou de enige
+                # aanleiding wegnemen om dat te doen.
+                echo "::warning::$pkg: versie $id niet verwijderd — GitHub's downloadteller blokkeert het. Die teller loopt achter; herdraai deze workflow later."
+                blijvers="${blijvers}| \`$pkg\` | [$id](https://github.com/orgs/$ORG/packages/container/$pkg/$id) |"$'\n'
+                fail=1
               else
-                echo "::warning::$pkg: versie $id niet verwijderd."
+                echo "::warning::$pkg: versie $id niet verwijderd: $err"
                 fail=1
               fi
             done
           done
+
+          # De teller-weigeringen bij elkaar in de job-samenvatting, met het commando dat ze
+          # opruimt: uit het joblog alleen valt niet af te lezen dat wachten-en-herdraaien hier de
+          # hele remedie is.
+          if [ -n "$blijvers" ]; then
+            {
+              echo "### Achtergebleven ghcr-versies"
+              echo
+              echo "GitHub weigerde deze versies te verwijderen omdat zijn downloadteller boven de"
+              echo "5000 staat. Die teller loopt achter en corrigeert zichzelf; herdraai deze"
+              echo "workflow later opnieuw:"
+              echo
+              echo '```'
+              echo "gh workflow run cleanup-preview.yml -f pr=$PR"
+              echo '```'
+              echo
+              echo "| package | versie |"
+              echo "| --- | --- |"
+              printf '%s' "$blijvers"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           # Achterblijvende images zijn geen reden om de PR-afsluiting te blokkeren, maar het
           # moet wel als rode job zichtbaar zijn — anders groeit de ghcr-berg ongemerkt door.

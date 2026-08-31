@@ -286,6 +286,26 @@ persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (z
 **Tabblad Info** — de losse uitlezingen (berichten, stroom, storingen, omgeving, persona's) voor als
 je de ruwe JSON wilt zien.
 
+### Hetzelfde paneel op ZAD
+
+De console draait ook als component `democonsole` in de deployment `test` van het magazijnen-project
+`mpfm-w3h`, en in elke preview daarvan. Adres:
+`https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl`, inloggen met je rijksaccount.
+Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de authorization-wall,
+niet een kapot component.
+
+Twee knopgroepen ontbreken daar, en het paneel laat ze zelf weg op grond van
+`GET /api/demo/omgeving`: de storingen en de veel-magazijnen-schuif. Die wachten op eigen
+componenten; `demo/environment/zad-demo/README.md` legt uit wat daarvoor nodig is.
+
+De cache-verval-knop werkt wél, op `test` en op een preview. Hij praat cluster-intern met een ander
+project, en zo'n netwerkregel noemt op ZAD altijd één vaste deployment — daarom schrijven
+`deploy.yml` en `cleanup-preview.yml` hem per preview bij en weer weg.
+
+Twee dingen om te weten vóór je op ZAD demonstreert: de omgeving rolt opnieuw uit bij elke merge
+naar main, en de legen-knop op de console ín `test` wist de database van `test`, waar nieuwe previews
+van klonen. Op een preview raakt legen alleen die preview.
+
 ---
 
 ## 8. Herbouwen na een wijziging

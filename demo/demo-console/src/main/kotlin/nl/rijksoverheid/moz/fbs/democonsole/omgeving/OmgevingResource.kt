@@ -17,7 +17,12 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
  * mislukte uitlezing uitleggen als "niet ingericht", en dat is precies de verwarring die het moet
  * wegnemen.
  */
-data class Omgeving(val uitvraagBasis: String, val storingen: List<String>, val stubMagazijnen: Int)
+data class Omgeving(
+    val uitvraagBasis: String,
+    val storingen: List<String>,
+    val stubMagazijnen: Int,
+    val sessiecache: Boolean,
+)
 
 @Path("/api/demo/omgeving")
 @Produces(MediaType.APPLICATION_JSON)
@@ -32,5 +37,6 @@ class OmgevingResource(
         uitvraagBasis = config.uitvraagBasis().orElse(""),
         storingen = register.namen().sorted(),
         stubMagazijnen = stubMagazijnen,
+        sessiecache = config.sessiecache(),
     )
 }

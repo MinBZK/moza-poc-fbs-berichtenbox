@@ -9,8 +9,16 @@ import java.util.Optional
 
 class OmgevingResourceTest {
 
-    private fun resource(basis: String?, vararg proxies: String, stubMagazijnen: Int = 12): OmgevingResource {
-        val config = mockk<OmgevingConfig> { every { uitvraagBasis() } returns Optional.ofNullable(basis) }
+    private fun resource(
+        basis: String?,
+        vararg proxies: String,
+        stubMagazijnen: Int = 12,
+        sessiecache: Boolean = true,
+    ): OmgevingResource {
+        val config = mockk<OmgevingConfig> {
+            every { uitvraagBasis() } returns Optional.ofNullable(basis)
+            every { sessiecache() } returns sessiecache
+        }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
 
         return OmgevingResource(config, register, stubMagazijnen)
@@ -60,5 +68,18 @@ class OmgevingResourceTest {
     @Test
     fun `een omgeving zonder stub-magazijnen meldt nul`() {
         assertEquals(0, resource(null, stubMagazijnen = 0).omgeving().stubMagazijnen)
+    }
+
+    @Test
+    fun `een bereikbare sessiecache komt als true door`() {
+        assertEquals(true, resource(null).omgeving().sessiecache)
+    }
+
+    @Test
+    fun `een onbereikbare sessiecache komt als false door zodat de pagina de knop weglaat`() {
+        // De sessiecache staat in een ander project dan de console. Waar het verkeer daarheen niet
+        // openstaat, geeft de knop gegarandeerd een fout; hem tonen kost tijdens een demo uitleg
+        // die niets toevoegt.
+        assertEquals(false, resource(null, sessiecache = false).omgeving().sessiecache)
     }
 }
