@@ -8,6 +8,15 @@ import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.core.MediaType
+import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
+
+/**
+ * Wat er is teruggezet, plus waarom de Berichtenbox dat nog niet meteen laat zien.
+ *
+ * De melding hoort in het antwoord en niet alleen in de pagina: het paneel toont de uitkomst van een
+ * knop, en dát is het moment waarop iemand kijkt.
+ */
+data class LegenAntwoord(val berichten: Int, val magazijnen: Int, val letOp: String = HERSTELTIJD_MELDING)
 
 /** De knoppen van het paneel die de gesimuleerde magazijnen aansturen. */
 @Path("/api/demo/simulator")
@@ -39,5 +48,12 @@ class SimulatorResource(private val service: SimulatorService) {
 
     @POST
     @Path("/legen")
-    fun legen(): Map<String, Int> = service.herstel()
+    fun legen(): LegenAntwoord {
+        val uitkomst = service.herstel()
+
+        return LegenAntwoord(
+            berichten = uitkomst.getValue("berichten"),
+            magazijnen = uitkomst.getValue("magazijnen"),
+        )
+    }
 }

@@ -6,6 +6,7 @@ import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.MediaType
+import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 
 /**
  * De storingsknoppen die op een netwerkverbinding werken: de twee echte magazijnen, de sessiecache,
@@ -45,7 +46,7 @@ class StoringResource(private val storingService: StoringService) {
     fun reset(): Map<String, String> {
         storingService.reset()
 
-        return mapOf("status" to "alles normaal")
+        return mapOf("status" to "alles normaal", "letOp" to HERSTELTIJD_MELDING)
     }
 
     @POST

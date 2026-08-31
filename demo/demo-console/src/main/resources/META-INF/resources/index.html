@@ -59,7 +59,10 @@
     <br>
     <button data-proxy="notificatie" onclick="post('/api/demo/storing/notificatie/uit')">Notificatie uit (scenario 10)</button>
     <button data-proxy="aanmeld" onclick="post('/api/demo/storing/aanmeld/uit')">Uitvraag/aanmeld uit (scenario 11)</button>
-    <p><small>Herstellen: gebruik "Alles normaal (reset)" hierboven.</small></p>
+    <p><small>Herstellen: gebruik "Alles normaal (reset)" hierboven. De Berichtenbox kan een
+      organisatie daarna nog een halve minuut als <em>tijdelijk niet beschikbaar</em> tonen: de
+      uitvraag slaat een organisatie na drie storingen even over voordat hij het opnieuw
+      probeert.</small></p>
     <br>
     <button onclick="post('/api/demo/foutieve-aanlevering')">Foutieve aanlevering (scenario 8)</button>
     <br>
@@ -80,6 +83,9 @@
     <br>
     <label>Aantal zonder storing: <input id="actiefAantal" type="number" value="2" min="0"></label>
     <button onclick="post('/api/demo/simulator/actief/' + document.getElementById('actiefAantal').value)">Zet de rest op storing</button>
+    <p><small>Na "Legen en gedrag terugzetten" staan de magazijnen meteen weer goed — kijk desnoods
+      met "Toon magazijnen en hun gedrag". De Berichtenbox loopt daar een halve minuut op achter, om
+      dezelfde reden als hierboven.</small></p>
   </fieldset>
 
   <h2>Resultaat</h2>

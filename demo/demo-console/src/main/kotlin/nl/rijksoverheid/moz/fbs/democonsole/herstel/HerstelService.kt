@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.democonsole.herstel
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
@@ -16,6 +17,7 @@ data class HerstelResultaat(
     val gesimuleerd: Map<String, Int>,
     /** Hoeveel berichten er weer in de gesimuleerde magazijnen zijn klaargezet. */
     val gesimuleerdGevuld: Int,
+    val letOp: String = HERSTELTIJD_MELDING,
 )
 
 /**

@@ -322,3 +322,13 @@ Na een storingsscenario altijd *Alles normaal (reset)* (Storingen-sectie) en voo
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.
 - **Twee keer vullen zonder legen** geeft dubbele berichten (het magazijn kent eigen ID's toe) —
   daarom eerst *Magazijnen legen*.
+- **Na een reset loopt de Berichtenbox een halve minuut achter.** Zet je een organisatie terug op
+  normaal — met *Alles normaal (reset)* of *Legen en gedrag terugzetten* — dan staat het magazijn
+  meteen goed (controleer met *Toon magazijnen en hun gedrag*), maar meldt de Berichtenbox hem nog
+  even als *tijdelijk niet beschikbaar*. De uitvraag houdt per organisatie bij hoe vaak die achter
+  elkaar stukging en slaat hem na drie storingen 30 seconden over
+  (`berichtensessiecache.magazijn-circuit.open-seconds`), zodat één kapotte leverancier niet elke
+  ophaalronde ophoudt. Die teller zit in de uitvraag en niet in het magazijn, dus geen enkele knop
+  bereikt hem: wachten is de enige weg, en het paneel zegt dat ook bij de uitkomst van de knop. Wil
+  je in een demo sneller herstellen, zet die instelling dan lager in `compose.yaml` — met als prijs
+  dat een echt kapotte organisatie ook eerder opnieuw wordt bevraagd.
