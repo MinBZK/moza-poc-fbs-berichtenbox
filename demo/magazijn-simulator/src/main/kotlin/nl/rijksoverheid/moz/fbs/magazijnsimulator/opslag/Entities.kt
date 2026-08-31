@@ -11,6 +11,8 @@ import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.ManyToOne
 import jakarta.persistence.Table
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
 import java.time.Instant
 import java.util.UUID
 
@@ -38,6 +40,32 @@ internal class MagazijnEntity {
 
     @Column(nullable = false, length = 255)
     var naam: String = ""
+
+    @Column(name = "gedrag_modus", nullable = false, length = 16)
+    @Enumerated(EnumType.STRING)
+    var gedragModus: GedragModus = GedragModus.NORMAAL
+
+    @Column(name = "latency_p50_ms", nullable = false)
+    var latencyP50Ms: Int = Gedrag.NORMALE_LATENCY_MS
+
+    @Column(name = "latency_p95_ms", nullable = false)
+    var latencyP95Ms: Int = Gedrag.NORMALE_LATENCY_MS
+
+    @Column(nullable = false)
+    var foutkans: Double = 0.0
+
+    @Column(name = "fout_status", nullable = false)
+    var foutStatus: Int = Gedrag.STANDAARD_FOUT_STATUS
+
+    internal fun gedrag(): Gedrag = Gedrag(gedragModus, latencyP50Ms, latencyP95Ms, foutkans, foutStatus)
+
+    internal fun zet(gedrag: Gedrag) {
+        gedragModus = gedrag.modus
+        latencyP50Ms = gedrag.latencyP50Ms
+        latencyP95Ms = gedrag.latencyP95Ms
+        foutkans = gedrag.foutkans
+        foutStatus = gedrag.foutStatus
+    }
 }
 
 @Entity

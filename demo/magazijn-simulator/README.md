@@ -87,10 +87,112 @@ Wat er wél is overgenomen, tot in de randen: de volgorde van 403 en 404, de mer
 tweede `DELETE` die opnieuw slaagt, de grens van 1 MiB in UTF-8-bytes, en dat `status` wegblijft
 zolang de ontvanger niets heeft gezet.
 
+## Elk magazijn heeft een eigen karakter
+
+In werkelijkheid reageert niet elke organisatie even snel, en ligt er af en toe eentje eruit. Het
+interessante gedrag van de Berichtenbox zit juist in die randen; een demo waarin alles het altijd
+doet, laat niet zien wat een gebruiker merkt als het níét meezit.
+
+| Modus | Wat de aanroeper merkt |
+|---|---|
+| `NORMAAL` | een vlot en correct antwoord |
+| `TRAAG` | een correct antwoord, later — log-normaal verdeeld, dus met een lange staart |
+| `HAPERT` | meestal goed, met een zekere kans een serverfout |
+| `STUK` | consequent een serverfout |
+| `UIT` | geen antwoord binnen de tijd die de aanroeper hem gunt |
+| `WEIGERT` | een nette 4xx in `problem+json` |
+| `MALFORMED` | 200, maar met een body die het schema schendt |
+
+De laatste twee zijn er niet voor de sier. De Berichtenbox behandelt een *beschikbaarheids*-storing
+(timeout, 5xx, netwerk — telt mee voor de circuit breaker) anders dan een magazijn dat wél
+antwoordde maar iets onbruikbaars zei (telt níét mee). Met alleen de eerste vijf wordt die tweede
+tak in een demo nooit geraakt, terwijl juist die eerder een echte fout opleverde.
+
+**Het gedrag geldt op élke endpoint**, dus ook op gelezen markeren, verplaatsen naar een map en
+aanleveren. Dat is realistisch — een schrijfactie is net zo goed een aanroep naar een andere
+organisatie — maar het heeft een gevolg dat niet mag verrassen: een magazijn dat op storing staat
+weigert ook nieuwe berichten. Vullen doe je dus vóór de storing, of via het beheerpad, dat buiten de
+simulatie valt.
+
+### Wie welk karakter krijgt
+
+Uit het volgnummer, deterministisch en zonder loting: elke omgeving krijgt dezelfde verdeling, en
+een demo die je vandaag oefent gedraagt zich morgen hetzelfde. Over de volle achtennegentig komt dat
+neer op 72 normaal, 15 traag, 4 haperend, 3 stuk, 2 onbereikbaar, 1 weigerend en 1 onbruikbaar.
+
+Binnen één demo wisselt een haperend magazijn wél af — anders hapert het niet. Elk magazijn heeft
+daarvoor zijn eigen toevalsgenerator met een vaste startwaarde uit zijn OIN, zodat de reeks
+herhaalbaar is zonder saai te worden.
+
+```properties
+magazijnsimulator.magazijnen."00000009000000000005".index=5        # volgnummer bepaalt het gedrag
+magazijnsimulator.magazijnen."00000009000000000005".gedrag=STUK    # of overschrijf het expliciet
+```
+
+## Een demo voorbereiden en bijsturen
+
+Wie een demonstratie geeft, moet die kunnen voorbereiden en tussendoor kunnen bijsturen. Zonder die
+bediening is elke demo handwerk en is een tweede ronde niet hetzelfde als de eerste — en dan is hij
+niet te oefenen en niet te vertrouwen.
+
+| Aanroep | Waarvoor |
+|---|---|
+| `GET /beheer/magazijnen` | wat er staat en hoe elk magazijn zich nu gedraagt |
+| `POST /beheer/seed` | berichten klaarzetten in alle magazijnen, in één handeling |
+| `POST /beheer/legen` | alles terug naar de begintoestand — berichten én gedrag |
+| `PUT /beheer/magazijnen/{oin}/gedrag` | tijdens het verhaal één organisatie kapot maken |
+
+```bash
+curl -X POST localhost:8092/beheer/seed -H 'Content-Type: application/json' \
+  -d '{"ontvangers": ["KVK:90000001"], "berichtenPerMagazijn": 20, "bijlageElke": 4}'
+```
+
+**Vullen kost seconden, geen minuten.** Honderd magazijnen maal twintig berichten via losse
+aanleveringen zouden tweeduizend rondjes naar de database kosten; dit is één opdracht met veel rijen
+per magazijn. Wie een demo vlak van tevoren voorbereidt, doet dat anders niet — en draait dan op wat
+er toevallig nog stond.
+
+**Wat er klaargezet wordt is volledig afgeleid.** Dezelfde aanroep geeft dezelfde berichten, tot en
+met de bericht-nummers. Een demo die je oefent is daarmee dezelfde demo als je hem geeft. De nummers
+verschillen wél over magazijnen heen: twee magazijnen mogen in werkelijkheid hetzelfde nummer
+uitdelen, maar de sessiecache van de uitvraag slaat berichten op zonder magazijn in de sleutel, en
+zolang dat gebrek openstaat hoort een demo daar niet per ongeluk over te vallen.
+
+**Twintig berichten per magazijn is niet toevallig.** De uitvraag haalt per magazijn één pagina op
+en het magazijn levert er standaard twintig; daarboven ziet de ondernemer niets. Zolang dat gat er
+is, demonstreer je met meer onbedoeld dát gat in plaats van het gedrag dat je wilt tonen.
+
+**De bijlage is een echte PDF met een vaste tekst.** Eén A4 dat zegt dat het demonstratiemateriaal
+is en dat er geen echte gegevens in staan. Een paar bytes die toevallig met `%PDF` beginnen zouden de
+spec ook halen, maar in een demo wordt zo'n bijlage geopend: een viewer die hem weigert of een leeg
+vel toont, laat de kijker denken dat het downloadpad kapot is terwijl dat juist het onderdeel is dat
+we laten zien.
+
+**Het beheerpad valt buiten de simulatie.** Een magazijn dat op storing staat weigert al zijn gewone
+verkeer, maar hier komt het gedrag niet aan te pas — anders zou een kapot gezet magazijn niet meer
+te repareren of te vullen zijn.
+
+### Afscherming
+
+Buiten `%dev` en `%test` is een token verplicht; zonder blokkeert de simulator zijn eigen boot.
+
+```properties
+magazijnsimulator.beheer.token=${BEHEER_TOKEN:}
+```
+
+```bash
+curl -H 'X-Beheer-Token: …' localhost:8092/beheer/magazijnen
+```
+
+Dat is geen overdaad. De WireMock-admin-API van de stubs op de gedeelde omgeving stond publiek en
+zonder authenticatie open; langs dat pad zou iemand hier de demo kunnen legen of een magazijn kapot
+zetten. De schoonste vorm blijft het beheerpad helemaal niet publiceren — binnen één ZAD-project
+bereiken componenten elkaar intern — en het token is het vangnet voor als dat niet lukt.
+
 ## Wat er nog niet is
 
-Gedrag per magazijn (traag, haperend, onbereikbaar), een beheerpad om demo's te vullen en terug te
-zetten, en de omzetting van de demo-omgeving. Zie het ontwerp.
+De omzetting van de demo-omgeving: de oude antwoordmachines eruit, de simulator erin, en vier
+ondernemers met een verschillend aantal aangesloten organisaties. Zie het ontwerp.
 
 ## Draaien
 

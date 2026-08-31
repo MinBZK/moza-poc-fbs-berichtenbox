@@ -430,18 +430,22 @@ jobs:
           docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
 
-  # De demo-console is een component van `test` in het magazijnen-project en rolt dus mee met
-  # de rest van de keten, previews inbegrepen. De job hangt aan `run` en niet aan `deploy`: `run`
-  # is de ruimere uitkomst van de twee, dus een PR die de uitrol niet raakt bouwt het image tóch
-  # en laat een kapotte jib-configuratie vallen vóór de merge. Omdat `deploy=true` altijd
-  # `run=true` impliceert, is deze job er ook wanneer deploy-*-magazijnen hem nodig heeft.
-  build-democonsole:
+  # De twee demo-modules met een eigen image: het bedieningspaneel en de magazijn-simulator. Allebei
+  # componenten van `test` in het magazijnen-project, dus ze rollen mee met de rest van de keten,
+  # previews inbegrepen. De job hangt aan `run` en niet aan `deploy`: `run` is de ruimere uitkomst
+  # van de twee, dus een PR die de uitrol niet raakt bouwt de images tóch en laat een kapotte
+  # jib-configuratie vallen vóór de merge. Omdat `deploy=true` altijd `run=true` impliceert, is deze
+  # job er ook wanneer deploy-*-magazijnen hem nodig heeft.
+  #
+  # Eén job en één Maven-aanroep voor beide: ze delen hun afhankelijkheden, dus een tweede runner
+  # zou vooral dezelfde boom nog een keer ophalen.
+  build-demo-images:
     if: github.event_name == 'push' || needs.changes.outputs.run == 'true'
     needs: [meta, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
-      group: build-democonsole-${{ github.event.pull_request.number || github.ref }}
+      group: build-demo-images-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
     permissions:
       contents: read
@@ -464,7 +468,7 @@ jobs:
           QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./mvnw -B package -DskipTests \
-            -pl demo/demo-console -am \
+            -pl demo/demo-console,demo/magazijn-simulator -am \
             -Dquarkus.container-image.build=true \
             -Dquarkus.container-image.push=true \
             -Dquarkus.container-image.registry="$REGISTRY" \
@@ -759,7 +763,7 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
-      && needs.build-democonsole.result == 'success'
+      && needs.build-demo-images.result == 'success'
       && needs.deploy-preview-uitvraag.result == 'success'
       && needs.deploy-preview-externe-stubs.result == 'success'
       && github.event_name == 'pull_request'
@@ -774,7 +778,7 @@ jobs:
       - meta
       - build
       - build-externe-stubs
-      - build-democonsole
+      - build-demo-images
       - gate
       - changes
       - deploy-preview-uitvraag
@@ -806,7 +810,8 @@ jobs:
             [
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
+              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
+              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"}
             ]
 
       # De tegenhanger van de inbound-regels in de twee andere projecten: de ontvanger beslist, dus
@@ -931,11 +936,11 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.build-contract-bootstrap.result == 'success'
-      && needs.build-democonsole.result == 'success'
+      && needs.build-demo-images.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, build-democonsole, gate]
+    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, build-demo-images, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Dekt ook de tweede stap (deployment `fsc-magazijna`) — die hoort bij hetzelfde project.
@@ -955,7 +960,8 @@ jobs:
             [
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
+              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
+              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"}
             ]
 
       # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in
@@ -994,7 +1000,7 @@ jobs:
       - build
       - build-externe-stubs
       - build-contract-bootstrap
-      - build-democonsole
+      - build-demo-images
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
       - deploy-preview-magazijnen

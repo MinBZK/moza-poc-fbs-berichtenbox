@@ -77,7 +77,7 @@ heeft zijn eigen database.
 | Storingen | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie |
 | Cache verlopen | Wist de sessiecache in Redis |
 | Foutieve aanlevering, Ontdubbeling | Losse scenario's; zie het runbook |
-| Veel magazijnen | Zet *k* van de *n* gegenereerde stub-magazijnen actief, of alle *n* weer aan; *n* ligt vast bij het draaien van `demo/genereer-magazijnen.py` |
+| Gesimuleerde magazijnen | Berichten klaarzetten in alle gesimuleerde magazijnen, alles legen en het gedrag terugzetten, tonen hoe elk magazijn zich gedraagt, en *k* van de *n* zonder storing zetten; *n* vraagt de console aan de simulator zelf |
 
 ## Configuratie
 
@@ -97,5 +97,4 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop. Wijst bewust rechtstreeks op Redis en niet door de proxy: het is een beheeractie, die moet blijven werken terwijl je de Redis-stroom uitzet |
 | `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
 | `SESSIECACHE_BEREIKBAAR` | `true` | Op `false` laat het paneel de cache-verval-knop weg. Voor omgevingen waar Redis niet bereikbaar is; een knop die gegarandeerd faalt kost tijdens een demo uitleg die niets toevoegt |
-| `DEMO_MAGAZIJN_STUBS` | `12` | Aantal stub-magazijnen voor de veel-magazijnen-schuif |
-| `MAGAZIJN_STUBS_ADMIN_URL` | `http://localhost:8092` | WireMock-admin van de stub-magazijnen, voor diezelfde schuif |
+| `MAGAZIJN_SIMULATOR_URL` | `http://localhost:8092` | Beheerpad van de magazijn-simulator: vullen, legen en gedrag bijstellen |

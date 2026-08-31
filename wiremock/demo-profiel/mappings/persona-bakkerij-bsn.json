@@ -1,12 +1,14 @@
 {
-  "priority": 1,
+  "priority": 5,
   "request": {
     "method": "GET",
     "urlPathPattern": "/api/profielservice/v1/BSN/999996666"
   },
   "response": {
     "status": 200,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "jsonBody": {
       "partijId": 102,
       "identificaties": [],
@@ -16,7 +18,12 @@
           "voorkeurType": "OntvangViaBerichtenbox",
           "waarde": "true",
           "scopes": [
-            { "partij": { "identificatieType": "OIN", "identificatieNummer": "00000000000000100000" } }
+            {
+              "partij": {
+                "identificatieType": "OIN",
+                "identificatieNummer": "00000000000000100000"
+              }
+            }
           ]
         }
       ],

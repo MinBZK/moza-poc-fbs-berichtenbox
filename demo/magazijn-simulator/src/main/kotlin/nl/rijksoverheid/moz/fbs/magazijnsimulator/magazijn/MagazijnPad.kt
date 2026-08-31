@@ -31,11 +31,22 @@ object MagazijnPad {
 
     const val SEGMENT = "magazijn"
 
+    /**
+     * De root van het beheerpad. Dat pad hoort bij de simulator zelf en niet bij één magazijn: het is
+     * er om demo's te vullen, terug te zetten en bij te sturen. Vandaar dat het buiten de
+     * magazijn-routering valt — en buiten de simulatie, want een magazijn dat kapot is gezet moet te
+     * repareren blijven.
+     */
+    const val BEHEER_SEGMENT = "beheer"
+
     /** Hoe een geldig pad eruitziet; voor in een foutmelding. */
     val VORM: String = "/$SEGMENT/<OIN>${ApiInfo.BASE_PATH}/…"
 
     private val ROOT = "/$SEGMENT/"
     private val API_PREFIX = "${ApiInfo.BASE_PATH}/"
+
+    /** Of dit pad bij het beheerpad hoort in plaats van bij een magazijn. */
+    fun isBeheerPad(pad: String): Boolean = genormaliseerd(pad).startsWith("/$BEHEER_SEGMENT/")
 
     /**
      * De OIN uit het pad, of `null` als dit geen magazijn-pad is. Er hoort minstens één segment ná

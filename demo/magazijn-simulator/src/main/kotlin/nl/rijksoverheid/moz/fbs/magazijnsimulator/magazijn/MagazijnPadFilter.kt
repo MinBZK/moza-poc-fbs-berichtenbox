@@ -34,6 +34,12 @@ class MagazijnPadFilter(
 
     override fun filter(requestContext: ContainerRequestContext) {
         val pad = requestContext.uriInfo.path
+
+        // Het beheerpad hoort bij de simulator zelf en niet bij één magazijn: het is er om demo's te
+        // vullen, terug te zetten en bij te sturen. Het gaat hier ongemoeid langs, en de resource
+        // erachter kiest geen magazijn uit de context.
+        if (MagazijnPad.isBeheerPad(pad)) return
+
         val oin = MagazijnPad.oinUit(pad)
 
         if (oin == null) {

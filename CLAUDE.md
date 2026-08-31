@@ -147,7 +147,7 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
 ./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (pure JVM + één @QuarkusTest)
-./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (pure JVM + @QuarkusTest, geen Docker)
+./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (Docker vereist)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
 ./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo + detekt
@@ -190,7 +190,7 @@ matrix van `.github/workflows/cleanup-preview.yml` — wijzig een id op beide pl
 ruimt de opruiming een ánder project op en verifieert ze daar: zolang dat project bestaat is de
 run groen en blijft de preview staan):**
 `berichtenuitvraag` = `mpfb-8wh` (`redis`, `uitvraag`, `toxiproxy-aanmeld`, `toxiproxy-redis`),
-`magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`), `externe-stubs` = `mpfpsm-lcl`
+`magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`, `magazijnsimulator`), `externe-stubs` = `mpfpsm-lcl`
 (`profiel`, `notificatie`, `toxiproxy-profiel`, `toxiproxy-notificatie`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
@@ -353,7 +353,7 @@ project **en** PR, dus die race sluiten ze niet uit.
 | `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, configuratie |
 | `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
-| `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL)               |
+| `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL, magazijn-simulator) |
 | `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |
 | `.github/scripts/wijzigingsfilter.sh`  | Bepaalt per PR wat er moet draaien (code-checks, deploy, test-scope, fuzz); deploy.yml, test.yml, detekt.yml en cflite_pr.yml delen dit script. Unittests ernaast in `test-wijzigingsfilter.sh`, gedraaid door `ci-scripts.yml` |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
