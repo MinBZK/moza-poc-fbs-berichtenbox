@@ -6,7 +6,7 @@
 # `DEMO_BIND` bepaalt op welk hostadres de stack publiceert; default `127.0.0.1`, en verder wordt
 # alleen `0.0.0.0` ondersteund — `demo/podman-up.sh` controleert elke service over 127.0.0.1 en een
 # specifiek adres laat die controles aflopen. Zonder die binding staat de hele demo op élke
-# interface van de machine: Redis zonder wachtwoord, drie PostgreSQL-instanties met
+# interface van de machine: Redis zonder wachtwoord, vier PostgreSQL-instanties met
 # demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
 # aan een kantoor- of thuisnetwerk is dat het hele subnet.
 #
@@ -151,7 +151,7 @@ services:
   #
   # Images bouwen met jib (geen Dockerfile):
   #   ./mvnw clean package -DskipTests \
-  #     -pl services/berichtenmagazijn,services/berichtenuitvraag -am \
+  #     -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/magazijn-simulator -am \
   #     -Dquarkus.container-image.build=true \
   #     -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo
   #
@@ -227,17 +227,60 @@ services:
       - ./toxiproxy/proxies.json:/proxies.json:ro
     command: ["-host=0.0.0.0", "-config=/proxies.json"]
 
-  # Lichtgewicht stub-magazijnen voor 'veel magazijnen' (fase 6). Eén WireMock, n pad-gebaseerde
-  # magazijnen (/mNN) uit demo/generated/ — draai eerst demo/genereer-magazijnen.py. De demo-console
-  # zet stubs live op storing via de admin-API (:8092/__admin/mappings).
-  magazijn-stubs:
-    image: docker.io/wiremock/wiremock:3.13.2
+  # De gesimuleerde magazijnen: één service die er tientallen bedient, elk op pad-prefix
+  # /magazijn/<OIN>. Welke dat zijn komt uit demo/generated/ — draai eerst
+  # demo/genereer-magazijnen.py; hetzelfde artefact vult het register van de uitvraag.
+  #
+  # Dit verving de WireMock-antwoordmachines van fase 6. Die konden geen toestand dragen: een PATCH
+  # verdween in het niets en de volgende GET toonde weer de oude waarde, dus mappen en leesstatus —
+  # precies wat we over veel magazijnen willen tonen — waren alleen op de twee echte magazijnen te
+  # demonstreren. De simulator slaat wél op, en genereert uit dezelfde OpenAPI-spec als het echte
+  # magazijn.
+  postgres-simulator:
+    image: docker.io/library/postgres:18
     profiles: [demo]
     ports:
-      - "${DEMO_BIND:-127.0.0.1}:8092:8080"
+      - "${DEMO_BIND:-127.0.0.1}:5435:5432"
+    environment:
+      POSTGRES_USER: magazijnsimulator
+      POSTGRES_PASSWORD: magazijnsimulator
+      POSTGRES_DB: magazijnsimulator
+    # Meer verbindingen dan de standaard honderd: dit is de database van één service die er honderd
+    # voorstelt, en die houdt bij een volle fan-out honderdtwintig connecties aan (DB_POOL_MAX).
+    # Honderd is daarvoor te krap, en die grens raken levert dezelfde storing op als een te kleine
+    # pool — de Berichtenbox ziet magazijnen die er niet zijn.
+    command: ["postgres", "-c", "max_connections=200"]
     volumes:
-      - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings
-    command: ["--verbose"]
+      - postgres-data-simulator:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U magazijnsimulator -d magazijnsimulator"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  magazijn-simulator:
+    image: fbs-demo/fbs-magazijn-simulator:demo
+    profiles: [demo]
+    ports:
+      # Uitsluitend op loopback, net als de demo-console en om dezelfde reden: onder %dev draait het
+      # beheerpad zonder token, en `POST /beheer/legen` wist alle berichten van alle gesimuleerde
+      # magazijnen. Met DEMO_BIND=0.0.0.0 zou dat vanaf het hele subnet bereikbaar zijn. De uitvraag
+      # benadert de simulator container-intern en heeft de gepubliceerde poort niet nodig.
+      - "127.0.0.1:8092:8092"  # NIET via DEMO_BIND
+    depends_on:
+      postgres-simulator:
+        condition: service_healthy
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      DB_JDBC_URL: jdbc:postgresql://postgres-simulator:5432/magazijnsimulator
+      # De set die deze instantie voorstelt, uit hetzelfde artefact dat het register van de uitvraag
+      # vult. SmallRye leest dit absolute pad als extra config-bron.
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijn-simulator.properties
+      # Lokaal geen token: het beheerpad zit op loopback en de simulator eist er alleen buiten dev en
+      # test een. Op een gedeelde omgeving hoort BEHEER_TOKEN wél gezet te zijn.
+    volumes:
+      - ./demo/generated/magazijn-simulator.properties:/demo-config/magazijn-simulator.properties:ro
 
   berichtenuitvraag:
     image: fbs-demo/fbs-berichtenuitvraag:demo
@@ -255,10 +298,14 @@ services:
         condition: service_started
       postgres-uitvraag:
         condition: service_healthy
+      magazijn-simulator:
+        condition: service_started
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
-      # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf).
+      # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf). De
+      # gesimuleerde magazijnen niet: die hebben hun storingsgedrag in zichzelf, en per magazijn
+      # verschillend — een proxy kan een verbinding alleen helemaal open of dicht zetten.
       REDIS_HOSTS: redis://toxiproxy:16379
       MAGAZIJN_A_URL: http://toxiproxy:18090
       MAGAZIJN_B_URL: http://toxiproxy:18091
@@ -283,14 +330,16 @@ services:
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
       BERICHTENSESSIECACHE_TTL: PT2M
-      # Extra register-entries voor de stub-magazijnen (fase 6), gegenereerd in demo/generated/.
+      # Extra register-entries voor de gesimuleerde magazijnen, gegenereerd in demo/generated/.
       # SmallRye leest dit absolute pad als additionele config-bron en merge't het bij de baked A/B.
-      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-stubs.properties
-      # Bulkhead ruim boven het ingerichte aantal stubs (fase 6), zodat bij veel magazijnen niet de
-      # helft als OVERBELAST wordt geweigerd. Alleen demo; prod houdt de default (20).
-      BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "60"
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties
+      # Bulkhead ruim boven het aantal magazijnen van de grootste ondernemer (100), zodat er bij veel
+      # magazijnen niet een deel als OVERBELAST wordt geweigerd. Alleen demo; prod houdt de default
+      # (20). Wat er gebeurt als de bulkhead wél de bottleneck wordt, is een eigen scenario — dat
+      # meet stap 6 van het simulator-ontwerp.
+      BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "120"
     volumes:
-      - ./demo/generated/magazijnen-stubs.properties:/demo-config/magazijnen-stubs.properties:ro
+      - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
 
   # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
   # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
@@ -308,6 +357,8 @@ services:
         condition: service_started
       berichtenmagazijn-b:
         condition: service_started
+      magazijn-simulator:
+        condition: service_started
       toxiproxy:
         condition: service_started
       redis:
@@ -324,12 +375,12 @@ services:
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
-      MAGAZIJN_STUBS_ADMIN_URL: http://magazijn-stubs:8080
-      # Eén bron van waarheid voor n: compose leest het uit je shell (default 12). Gebruik dezelfde
-      # export voor het script:  export DEMO_MAGAZIJN_STUBS=40 && python3 demo/genereer-magazijnen.py
-      DEMO_MAGAZIJN_STUBS: "${DEMO_MAGAZIJN_STUBS:-12}"
+      # De console vraagt het aantal magazijnen aan de simulator zelf; er is hier bewust geen tweede
+      # getal dat daarmee uit de pas kan lopen.
+      MAGAZIJN_SIMULATOR_URL: http://magazijn-simulator:8092
 
 volumes:
   postgres-data-a:
+  postgres-data-simulator:
   postgres-data-b:
   postgres-data-uitvraag:

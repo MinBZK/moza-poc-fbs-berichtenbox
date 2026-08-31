@@ -39,7 +39,10 @@
   </fieldset>
 
   <fieldset>
-    <legend>Storingen (fase 3)</legend>
+    <legend>Storingen op de verbinding</legend>
+    <p><small>Deze knoppen zetten een verbinding traag of dicht. De gesimuleerde magazijnen hebben
+      hun eigen knoppen hieronder: die kunnen per organisatie traag, haperend of onbereikbaar zijn,
+      en dat kan een netwerkproxy niet.</small></p>
     <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/traag')">Magazijn A (RVO) traag</button>
     <button data-proxy="magazijn-a" onclick="post('/api/demo/storing/magazijn/a/uit')">Magazijn A (RVO) uit</button>
     <br>
@@ -56,7 +59,10 @@
     <br>
     <button data-proxy="notificatie" onclick="post('/api/demo/storing/notificatie/uit')">Notificatie uit (scenario 10)</button>
     <button data-proxy="aanmeld" onclick="post('/api/demo/storing/aanmeld/uit')">Uitvraag/aanmeld uit (scenario 11)</button>
-    <p><small>Herstellen: gebruik "Alles normaal (reset)" hierboven.</small></p>
+    <p><small>Herstellen: gebruik "Alles normaal (reset)" hierboven. De Berichtenbox kan een
+      organisatie daarna nog een halve minuut als <em>tijdelijk niet beschikbaar</em> tonen: de
+      uitvraag slaat een organisatie na drie storingen even over voordat hij het opnieuw
+      probeert.</small></p>
     <br>
     <button onclick="post('/api/demo/foutieve-aanlevering')">Foutieve aanlevering (scenario 8)</button>
     <br>
@@ -66,12 +72,20 @@
   </fieldset>
 
   <fieldset>
-    <legend>Veel magazijnen (fase 6)</legend>
-    <p><small>Persona <em>Grootbedrijf B.V.</em> in de Berichtenbox haalt op bij alle stub-magazijnen.
-      Het ingerichte aantal n ligt vast bij genereren/opstarten (<code>DEMO_MAGAZIJN_STUBS</code>).</small></p>
-    <label>Actief aantal: <input id="actiefAantal" type="number" value="2" min="0"></label>
-    <button onclick="post('/api/demo/veel-magazijnen/actief/' + document.getElementById('actiefAantal').value)">Zet actief</button>
-    <button onclick="post('/api/demo/veel-magazijnen/reset')">Alle magazijnen aan (reset)</button>
+    <legend>Gesimuleerde magazijnen</legend>
+    <p><small>De vier ondernemers in de Berichtenbox halen op bij 3, 15, 45 en 100 organisaties;
+      de kleinere zitten steeds volledig in de grotere, zodat het verschil in wachttijd puur door
+      het aantal komt. Het ingerichte aantal ligt vast bij genereren/opstarten
+      (<code>DEMO_MAGAZIJNEN</code>) en de simulator vertelt zelf hoeveel het er zijn.</small></p>
+    <button onclick="post('/api/demo/simulator/vullen')">Berichten klaarzetten</button>
+    <button onclick="post('/api/demo/simulator/legen')">Legen en gedrag terugzetten</button>
+    <button onclick="get('/api/demo/simulator/magazijnen')">Toon magazijnen en hun gedrag</button>
+    <br>
+    <label>Aantal zonder storing: <input id="actiefAantal" type="number" value="2" min="0"></label>
+    <button onclick="post('/api/demo/simulator/actief/' + document.getElementById('actiefAantal').value)">Zet de rest op storing</button>
+    <p><small>Na "Legen en gedrag terugzetten" staan de magazijnen meteen weer goed — kijk desnoods
+      met "Toon magazijnen en hun gedrag". De Berichtenbox loopt daar een halve minuut op achter, om
+      dezelfde reden als hierboven.</small></p>
   </fieldset>
 
   <h2>Resultaat</h2>
@@ -81,7 +95,7 @@
     const uit = document.getElementById('uit');
 
     async function post(pad, bevestig) {
-      if (bevestig && !confirm('Zeker weten? Dit verwijdert alle berichten uit beide magazijnen.')) return;
+      if (bevestig && !confirm('Zeker weten? Dit verwijdert alle berichten uit beide echte magazijnen én uit alle gesimuleerde.')) return;
 
       await roep(pad, { method: 'POST' });
     }

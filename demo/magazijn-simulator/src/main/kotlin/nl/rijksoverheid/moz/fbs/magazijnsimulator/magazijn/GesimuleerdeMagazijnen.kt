@@ -60,6 +60,9 @@ class GesimuleerdeMagazijnen(
 
     fun voorOin(oin: String): GesimuleerdMagazijn? = magazijnen[oin]
 
+    /** Alle magazijnen; het beheerpad gaat de hele set langs in plaats van er één te kiezen. */
+    fun alle(): Collection<GesimuleerdMagazijn> = magazijnen.values
+
     /**
      * Stelt het gedrag van één magazijn bij en laat dat meteen gelden. `false` als die OIN niet
      * bestaat.

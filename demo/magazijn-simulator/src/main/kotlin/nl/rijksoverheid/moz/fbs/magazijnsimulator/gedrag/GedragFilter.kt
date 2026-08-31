@@ -43,7 +43,9 @@ class GedragFilter(
     private val log = Logger.getLogger(GedragFilter::class.java)
 
     override fun filter(requestContext: ContainerRequestContext) {
-        val magazijn = context.magazijn
+        // Geen magazijn gekozen betekent: dit is het beheerpad. Dat valt buiten de simulatie, want
+        // anders is een kapot gezet magazijn niet meer te repareren of te vullen.
+        val magazijn = context.magazijnOfNiets ?: return
         val gedrag = magazijn.gedrag
 
         if (gedrag.modus == GedragModus.NORMAAL && gedrag.latencyP50Ms == 0) return

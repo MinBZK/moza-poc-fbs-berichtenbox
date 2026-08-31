@@ -16,6 +16,12 @@ class MagazijnContext {
 
     private var gekozen: GesimuleerdMagazijn? = null
 
+    /**
+     * Het gekozen magazijn, of `null` als er geen is. Voor code die op élk pad draait en het
+     * beheerpad — dat geen magazijn kiest — moet kunnen overslaan.
+     */
+    val magazijnOfNiets: GesimuleerdMagazijn? get() = gekozen
+
     var magazijn: GesimuleerdMagazijn
         get() = checkNotNull(gekozen) {
             "Geen magazijn in de request-context; MagazijnPadFilter hoort dit vóór het matchen te zetten"

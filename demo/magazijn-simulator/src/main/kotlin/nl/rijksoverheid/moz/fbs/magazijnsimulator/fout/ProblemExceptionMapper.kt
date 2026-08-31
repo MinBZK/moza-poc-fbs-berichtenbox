@@ -61,6 +61,11 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         if (opgeschoond.isNullOrBlank()) return null
 
+        // De standaardmelding van het framework ("HTTP 400 Bad Request") voegt niets toe aan `title`
+        // en `status`, en zet er een Engelse zin in een verder Nederlandstalig antwoord. Beter geen
+        // `detail` dan die.
+        if (STANDAARDMELDING.matches(opgeschoond)) return null
+
         return if (INTERNE_SPOREN.containsMatchIn(opgeschoond)) null else opgeschoond
     }
 
@@ -69,6 +74,9 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         /** Alles onder spatie is een controlteken; die horen niet in een antwoord. */
         const val EERSTE_LEESBARE_TEKEN = 0x20
+
+        /** Wat Quarkus zelf invult als er geen echte melding is. */
+        val STANDAARDMELDING = Regex("""HTTP \d{3}( .*)?""")
 
         /** Stacktrace-achtige inhoud: een `at `-frame of een bron-verwijzing met regelnummer. */
         val INTERNE_SPOREN = Regex("""\bat [\w.$]+\(|\.(java|kt):\d+""")
