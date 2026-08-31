@@ -44,7 +44,7 @@ class ApplicationPropertiesTest {
     fun `de reconcile-interval staat buiten de demo-prefix`() {
         // `demo.*` is geclaimd door @ConfigMapping(prefix="demo"): elke property daaronder moet op
         // een mapping-member vallen, anders faalt het booten met SRCFG00050. Deze waarde hoort bij
-        // geen enkele mapping, dus hij staat er bewust naast — net als veel-magazijnen.aantal.
+        // geen enkele mapping, dus hij staat er bewust naast.
         assertEquals("\${TOXIPROXY_RECONCILE_INTERVAL:30s}", properties.getProperty("toxiproxy.reconcile-interval"))
     }
 }

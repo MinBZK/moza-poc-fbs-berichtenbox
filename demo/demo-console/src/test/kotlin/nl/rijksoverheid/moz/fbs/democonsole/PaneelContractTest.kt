@@ -7,9 +7,8 @@ import jakarta.inject.Singleton
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
-import nl.rijksoverheid.moz.fbs.democonsole.veelmagazijnen.VeelMagazijnenService
-import nl.rijksoverheid.moz.fbs.democonsole.veelmagazijnen.WireMockAdminClient
-import org.eclipse.microprofile.config.inject.ConfigProperty
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorBeheerClient
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -27,7 +26,7 @@ import java.net.http.HttpResponse
  * kleurt élke proxy als afwijkend — dus zonder deze test merkt niemand het tot de dag van de demo.
  *
  * De services zijn vervangen door vaste dubbels: hun logica heeft eigen unittests, en Toxiproxy en
- * WireMock draaien hier niet. Wat overblijft is precies wat we willen pinnen — route, status,
+ * de simulator draaien hier niet. Wat overblijft is precies wat we willen pinnen — route, status,
  * content-type en de vorm van het JSON.
  */
 @QuarkusTest
@@ -36,8 +35,8 @@ class PaneelContractTest {
     @TestHTTPResource("/api/demo/storing")
     lateinit var storingUrl: URL
 
-    @TestHTTPResource("/api/demo/veel-magazijnen")
-    lateinit var veelMagazijnenUrl: URL
+    @TestHTTPResource("/api/demo/simulator")
+    lateinit var simulatorUrl: URL
 
     @TestHTTPResource("/api/demo/omgeving")
     lateinit var omgevingUrl: URL
@@ -69,16 +68,16 @@ class PaneelContractTest {
     }
 
     @Test
-    fun `veel-magazijnen levert de sleutels actief en totaal`() {
-        assertEquals("""{"actief":3,"totaal":12}""", haalJson(veelMagazijnenUrl))
+    fun `de simulator levert de sleutels actief en totaal`() {
+        assertEquals("""{"actief":3,"totaal":12}""", haalJson(simulatorUrl))
     }
 
     @Test
-    fun `de omgeving meldt het ingerichte aantal stub-magazijnen`() {
+    fun `de omgeving meldt of er een simulator is`() {
         // Het paneel beslist hierop of het de magazijnen-chip toont en of het dat endpoint pollt.
         assertTrue(
-            haalJson(omgevingUrl).contains(""""stubMagazijnen":"""),
-            "veldnaam stubMagazijnen ontbreekt in de omgeving-respons",
+            haalJson(omgevingUrl).contains(""""simulator":"""),
+            "veldnaam simulator ontbreekt in de omgeving-respons",
         )
     }
 
@@ -113,13 +112,10 @@ class VasteStoringService(register: ToxiproxyRegister) : StoringService(register
     )
 }
 
-/** Vaste telling in plaats van WireMock; alleen de vorm van het antwoord doet er hier toe. */
+/** Vaste telling in plaats van de simulator; alleen de vorm van het antwoord doet er hier toe. */
 @Mock
 @Singleton
-class VasteVeelMagazijnenService(
-    @param:RestClient wiremock: WireMockAdminClient,
-    @param:ConfigProperty(name = "veel-magazijnen.aantal") aantal: Int,
-) : VeelMagazijnenService(wiremock, aantal) {
+class VasteSimulatorService(@RestClient beheer: SimulatorBeheerClient) : SimulatorService(beheer) {
 
     override fun status(): Map<String, Int> = mapOf("actief" to 3, "totaal" to 12)
 }

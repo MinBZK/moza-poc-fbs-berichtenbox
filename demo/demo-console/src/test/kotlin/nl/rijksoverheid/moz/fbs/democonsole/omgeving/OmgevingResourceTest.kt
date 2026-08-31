@@ -12,16 +12,17 @@ class OmgevingResourceTest {
     private fun resource(
         basis: String?,
         vararg proxies: String,
-        stubMagazijnen: Int = 12,
+        simulator: Boolean = true,
         sessiecache: Boolean = true,
     ): OmgevingResource {
         val config = mockk<OmgevingConfig> {
             every { uitvraagBasis() } returns Optional.ofNullable(basis)
             every { sessiecache() } returns sessiecache
+            every { simulator() } returns simulator
         }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
 
-        return OmgevingResource(config, register, stubMagazijnen)
+        return OmgevingResource(config, register)
     }
 
     @Test
@@ -59,15 +60,15 @@ class OmgevingResourceTest {
     }
 
     @Test
-    fun `het ingerichte aantal stub-magazijnen komt mee`() {
-        // Het paneel moet vooraf weten of deze omgeving stub-magazijnen kent, anders leest een
-        // mislukte uitlezing als "niet ingericht".
-        assertEquals(40, resource(null, stubMagazijnen = 40).omgeving().stubMagazijnen)
+    fun `een ingerichte simulator komt als true door`() {
+        // Het paneel moet vooraf weten of deze omgeving gesimuleerde magazijnen kent, anders leest
+        // een mislukte uitlezing als "niet ingericht".
+        assertEquals(true, resource(null).omgeving().simulator)
     }
 
     @Test
-    fun `een omgeving zonder stub-magazijnen meldt nul`() {
-        assertEquals(0, resource(null, stubMagazijnen = 0).omgeving().stubMagazijnen)
+    fun `een omgeving zonder simulator meldt false zodat de pagina die knoppen weglaat`() {
+        assertEquals(false, resource(null, simulator = false).omgeving().simulator)
     }
 
     @Test

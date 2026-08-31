@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>nl.rijksoverheid.moz</groupId>
+        <artifactId>moza-poc-fbs-berichtenbox</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>magazijn-simulator</artifactId>
+    <name>FBS Magazijn-simulator</name>
+    <description>Demonstratiecode: één service die zich als veel berichtenmagazijnen voordoet</description>
+
+    <properties>
+        <!-- Voeden de gedeelde API-generatie in de parent-pluginManagement. De spec is die van
+             het échte magazijn: de belofte van de simulator is dat hij van buiten niet te
+             onderscheiden is, en die belofte is alleen hard te maken door dezelfde bron te
+             gebruiken. Wijzigt de spec, dan faalt deze build totdat de simulator meevolgt.
+
+             Het pad is een bestandsverwijzing, geen Maven-dependency, dus de koppeling staat niet
+             in de reactor-graaf: `mvn -pl demo/magazijn-simulator` merkt niet dat het magazijn
+             gewijzigd is. In CI valt dat weg — een wijziging buiten demo/ levert de volle
+             test-scope op — maar lokaal is een `clean` na een spec-wijziging het verschil tussen
+             meten en gokken. -->
+        <api.spec.file>${project.basedir}/../../services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml</api.spec.file>
+        <api.base.package>nl.rijksoverheid.moz.fbs.magazijnsimulator</api.base.package>
+    </properties>
+
+    <dependencies>
+        <!-- Bewust GEEN fbs-common, net als demo-console: de JAX-RS-filters daarin (met name
+             LogboekContextDefaultFilter) worden door CDI opgepikt en vereisen de LDV-wrapper.
+             Het logboek is per organisatie; honderd gesimuleerde magazijnen zouden honderd
+             logboeken suggereren die niet bestaan. Wat de simulator wél nodig heeft — een
+             OIN-controle en de API-Version-header — is hier lokaal en klein gehouden. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-kotlin</artifactId>
+        </dependency>
+        <!-- De gegenereerde interfaces dragen Bean Validation-annotaties uit de spec; zonder
+             deze extensie worden die niet afgedwongen en wijkt de simulator af van het magazijn. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-validator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-health</artifactId>
+        </dependency>
+
+        <!-- Persistentie. Eén database draagt álle gesimuleerde magazijnen; dat is de hele reden
+             dat de simulator bestaat, want honderd echte magazijnen zouden honderd databases zijn.
+             PostgreSQL in elk profiel, zodat dev, test en de gedeelde omgeving hetzelfde
+             DBMS-gedrag laten zien. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-orm-panache-kotlin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-container-image-jib</artifactId>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Toetst de responses tegen berichtenmagazijn-api.yaml. Dit is de kern van de belofte
+             van de simulator en niet iets om op de generator te vertrouwen: die dekt de vorm van
+             de interface, niet die van wat er daadwerkelijk over de lijn gaat. -->
+        <dependency>
+            <groupId>com.atlassian.oai</groupId>
+            <artifactId>openapi-request-validator-restassured</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jacoco</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>src/main/kotlin</sourceDirectory>
+        <testSourceDirectory>src/test/kotlin</testSourceDirectory>
+
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Config (spec-pad, pakket, jaxrs-spec-opties) staat in de parent
+                 pluginManagement; gevoed via api.spec.file / api.base.package. -->
+            <plugin>
+                <groupId>org.openapitools</groupId>
+                <artifactId>openapi-generator-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- ApiInfo-generatie: config staat in de parent pluginManagement. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+            </plugin>
+
+            <!-- Zet de spec op het test-classpath zodat de contracttest de responses ertegen kan
+                 valideren. Kopiëren en niet inchecken: een tweede exemplaar in git zou precies de
+                 drift toelaten die deze module moet uitsluiten. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>kopieer-magazijn-spec</id>
+                        <phase>generate-test-resources</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.testOutputDirectory}/openapi</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../../services/berichtenmagazijn/src/main/resources/openapi</directory>
+                                    <includes>
+                                        <include>berichtenmagazijn-api.yaml</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+                <configuration>
+                    <compilerPlugins>
+                        <plugin>all-open</plugin>
+                        <!-- JPA-entities hebben een no-arg constructor nodig; Hibernate hydrateert
+                             daarmee. De plugin genereert hem zonder dat de Kotlin-klasse zijn
+                             verplichte velden hoeft op te geven. -->
+                        <plugin>jpa</plugin>
+                    </compilerPlugins>
+                    <pluginOptions>
+                        <option>all-open:annotation=jakarta.ws.rs.Path</option>
+                        <option>all-open:annotation=jakarta.enterprise.context.ApplicationScoped</option>
+                        <option>all-open:annotation=jakarta.enterprise.context.RequestScoped</option>
+                        <option>all-open:annotation=jakarta.persistence.Entity</option>
+                    </pluginOptions>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.jetbrains.kotlin</groupId>
+                        <artifactId>kotlin-maven-allopen</artifactId>
+                        <version>${kotlin.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.jetbrains.kotlin</groupId>
+                        <artifactId>kotlin-maven-noarg</artifactId>
+                        <version>${kotlin.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+
+            <!-- Dezelfde 90%-gate als de modules van het stelsel. Dat de simulator
+                 demonstratiecode is, is geen reden om er minder van te eisen: hij draagt straks
+                 het gedrag van honderd magazijnen, en een fout erin lijkt op een fout in de keten. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>nl/rijksoverheid/moz/fbs/magazijnsimulator/api/**</exclude>
+                    </excludes>
+                    <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
+                </configuration>
+                <executions>
+                    <!--
+                      `quarkus-jacoco` instrumentaliseert alleen `@QuarkusTest`-runs. Pure
+                      unit-tests onder Surefire krijgen daardoor geen coverage-bijdrage,
+                      tenzij we hier ook de standaard jacoco-agent op de Surefire-fork
+                      hangen en in dezelfde `jacoco-quarkus.exec` laten appenden.
+                    -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <phase>initialize</phase>
+                        <goals><goal>prepare-agent</goal></goals>
+                        <configuration>
+                            <destFile>${project.build.directory}/jacoco-quarkus.exec</destFile>
+                            <append>true</append>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>test</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>nl/rijksoverheid/moz/fbs/magazijnsimulator/api/**</exclude>
+                            </excludes>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <excludes>
+                                        <!-- `**` is nodig om ook subpackages (zoals api.model) uit te sluiten;
+                                             `*` matcht alleen het laatste segment. -->
+                                        <exclude>nl.rijksoverheid.moz.fbs.magazijnsimulator.api.**</exclude>
+                                    </excludes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>java-compile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Compileert alléén de OpenAPI-gegenereerde Java (de Kotlin-plugin doet
+                                 de rest). Vanaf maven-compiler-plugin 3.14 wordt de gegenereerde-sources-
+                                 map niet meer impliciet als compile-source-root toegevoegd, dus wijzen we
+                                 die nu expliciet aan met compileSourceRoots. -->
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.build.directory}/generated-sources/openapi/src/gen/java</compileSourceRoot>
+                            </compileSourceRoots>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

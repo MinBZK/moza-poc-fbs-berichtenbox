@@ -45,9 +45,10 @@ services:
     volumes:
       - ./toxiproxy/proxies.json:/proxies.json:ro,z
 
-  magazijn-stubs:
+  magazijn-simulator:
+    image: localhost/fbs-demo/fbs-magazijn-simulator:demo
     volumes:
-      - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings:z
+      - ./demo/generated/magazijn-simulator.properties:/demo-config/magazijn-simulator.properties:ro,z
 
   berichtenmagazijn-a:
     image: localhost/fbs-demo/fbs-berichtenmagazijn:demo
@@ -58,7 +59,7 @@ services:
   berichtenuitvraag:
     image: localhost/fbs-demo/fbs-berichtenuitvraag:demo
     volumes:
-      - ./demo/generated/magazijnen-stubs.properties:/demo-config/magazijnen-stubs.properties:ro,z
+      - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro,z
 
   demo-console:
     image: localhost/fbs-demo/fbs-demo-console:demo

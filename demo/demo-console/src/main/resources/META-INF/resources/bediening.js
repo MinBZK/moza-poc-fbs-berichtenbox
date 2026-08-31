@@ -31,10 +31,11 @@ let bezig = false;
  * van ná die actie niet overschrijven. */
 let ververslus = 0;
 
-/* Of deze omgeving stub-magazijnen kent, uit /api/demo/omgeving; null zolang dat nog niet gelezen
- * is. Uit de configuratie en niet uit een geslaagde uitlezing: anders is "niet ingericht" niet te
- * onderscheiden van "niet kunnen lezen", en verdwijnt de chip juist wanneer er iets stuk is. */
-let heeftStubMagazijnen = null;
+/* Of deze omgeving gesimuleerde magazijnen kent, uit /api/demo/omgeving; null zolang dat nog niet
+ * gelezen is. Uit de configuratie en niet uit een geslaagde uitlezing: anders is "niet ingericht"
+ * niet te onderscheiden van "niet kunnen lezen", en verdwijnt de chip juist wanneer er iets stuk
+ * is. */
+let heeftSimulator = null;
 
 const melding = document.getElementById('melding');
 const meldingTekst = document.getElementById('melding-tekst');
@@ -175,7 +176,8 @@ const SAMENVATTINGEN = {
     herstel: (body) =>
         'Hersteld. Geleegd: ' +
         Object.entries(body.geleegd).map(([sleutel, aantal]) => naam(sleutel) + ' ' + aantal).join(', ') +
-        '. ' + vullingTekst(body.vulling),
+        '. ' + vullingTekst(body.vulling) +
+        '. Gesimuleerd: ' + body.gesimuleerd.berichten + ' weg, ' + body.gesimuleerdGevuld + ' klaargezet',
 
     status: (body) => body.status,
 
@@ -186,7 +188,23 @@ const SAMENVATTINGEN = {
 
     storingen: (body) => storingenTekst(body),
 
-    'veel-magazijnen': (body) => body.actief + ' van ' + body.totaal + ' stub-magazijnen actief',
+    simulator: (body) => body.actief + ' van ' + body.totaal + ' gesimuleerde magazijnen zonder storing',
+
+    'simulator-vullen': (body) =>
+        body.berichten + ' berichten en ' + body.bijlagen + ' bijlagen klaargezet in ' +
+        body.magazijnen + ' gesimuleerde magazijnen' +
+        (body.overgeslagen ? ', ' + body.overgeslagen + ' stonden er al' : ''),
+
+    'simulator-legen': (body) =>
+        body.berichten + ' berichten weg; ' + body.magazijnen + ' gesimuleerde magazijnen terug op hun gedrag',
+
+    'simulator-magazijnen': (body) =>
+        body.length + ' gesimuleerde magazijnen: ' +
+        Object.entries(body.reduce((telling, magazijn) => {
+            telling[magazijn.modus] = (telling[magazijn.modus] || 0) + 1;
+
+            return telling;
+        }, {})).map(([modus, aantal]) => aantal + '× ' + modus.toLowerCase()).join(', '),
 
     sessie: (body) => body.gewisteKeys + ' sessie-key(s) gewist; de volgende uitvraag geeft 409',
 
@@ -572,8 +590,8 @@ function toonStoringen(storingen) {
 
 function toonMagazijnen(veel) {
     // Verbergen mag alleen op gezag van de configuratie. Verbergen omdat de uitlezing mislukte zou
-    // van een storing een omgeving-zonder-stub-magazijnen maken — visueel niet te onderscheiden.
-    if (heeftStubMagazijnen !== true) return;
+    // van een storing een omgeving-zonder-simulator maken — visueel niet te onderscheiden.
+    if (heeftSimulator !== true) return;
 
     document.getElementById('chip-magazijnen').hidden = false;
 
@@ -603,7 +621,7 @@ async function verversToestand() {
         lees('/api/demo/storing'),
         // Niet vragen naar wat deze omgeving niet heeft: dat levert elke vijf seconden een fout in
         // het log op, zonder dat er iets te tonen valt.
-        heeftStubMagazijnen === false ? null : lees('/api/demo/veel-magazijnen'),
+        heeftSimulator === false ? null : lees('/api/demo/simulator'),
     ]);
 
     // Een ronde die al liep toen er geklikt werd, mag de verse toestand van ná die actie niet
@@ -624,7 +642,7 @@ async function verversToestand() {
 async function pasOmgevingToe() {
     const omgeving = await lees('/api/demo/omgeving');
 
-    heeftStubMagazijnen = omgeving ? omgeving.stubMagazijnen > 0 : true;
+    heeftSimulator = omgeving ? omgeving.simulator : true;
 
     if (omgeving) {
         const beschikbaar = new Set(omgeving.storingen);
@@ -646,6 +664,10 @@ async function pasOmgevingToe() {
         // De sessiecache staat op een gedeelde omgeving in een ander project dan de console; zonder
         // netwerkregel daarheen faalt die knop gegarandeerd.
         document.getElementById('groep-sessie').hidden = omgeving.sessiecache === false;
+
+        // Zonder simulator faalt elke knop in die groep gegarandeerd; een knop die alleen een fout
+        // oplevert kost tijdens een demo uitleg die niets toevoegt.
+        document.getElementById('groep-simulator').hidden = omgeving.simulator === false;
     }
 
     // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de
@@ -698,7 +720,7 @@ async function vulPersonas() {
 
     const bewaard = (leesStand().velden || {}).ontdubbelPersona;
 
-    // Een persona die er niet meer is — andere configuratie, ander stub-register — valt terug op
+    // Een persona die er niet meer is — andere configuratie, andere personaset — valt terug op
     // de eerste in de lijst in plaats van op een lege keuze die de knop laat falen.
     if (bewaard && Array.from(keuze.options).some((optie) => optie.value === bewaard)) {
         keuze.value = bewaard;

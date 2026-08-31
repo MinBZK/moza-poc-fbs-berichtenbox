@@ -14,6 +14,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.herstel.HerstelResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.herstel.HerstelService
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import kotlin.random.Random
 
 @Path("/api/demo")
@@ -24,11 +25,17 @@ class DemoResource(
     private val generator: DemoBerichtGenerator,
     private val magazijnDatabase: MagazijnDatabase,
     private val herstelService: HerstelService,
+    private val simulatorService: SimulatorService,
 ) {
 
+    /**
+     * Leegt de twee echte magazijnen én de gesimuleerde. Zou dit alleen de echte raken, dan zou de
+     * demo na een druk op de knop nog steeds honderd gevulde organisaties tonen — en dat is precies
+     * het beeld dat "legen" hoort weg te halen.
+     */
     @POST
     @Path("/legen")
-    fun legen(): Map<String, Int> = magazijnDatabase.leegAlles()
+    fun legen(): Map<String, Int> = magazijnDatabase.leegAlles() + simulatorService.herstel()
 
     @POST
     @Path("/herstel")

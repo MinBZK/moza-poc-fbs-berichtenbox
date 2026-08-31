@@ -17,7 +17,13 @@
 
     <properties>
         <!-- Voeden de gedeelde API-generatie (openapi-generator + ApiInfo-antrun) in de
-             parent-pluginManagement: spec-pad en de root package van deze service. -->
+             parent-pluginManagement: spec-pad en de root package van deze service.
+
+             LET OP: demo/magazijn-simulator genereert uit dezelfde spec, via een pad-verwijzing
+             naar dit bestand. Die koppeling staat niet in de reactor-graaf, dus alleen deze
+             regel maakt hem zichtbaar. Een wijziging aan de spec hoort de build van die module
+             te breken zolang hij niet meevolgt — dat is de bedoeling, en het is het enige dat
+             bewaakt dat de simulator dezelfde afspraken dient als dit magazijn. -->
         <api.spec.file>${project.basedir}/src/main/resources/openapi/berichtenmagazijn-api.yaml</api.spec.file>
         <api.base.package>nl.rijksoverheid.moz.fbs.berichtenmagazijn</api.base.package>
     </properties>

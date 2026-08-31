@@ -43,9 +43,10 @@ woont en niet in een eigen deployment. `demo/environment/zad-demo/` bevat de een
 de verificatie erna.
 
 Knopgroepen waarvan de backend er niet is, verbergt het paneel zelf op basis van
-`GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, en een
-onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat nog de magazijn-storingen
-en de veel-magazijnen-schuif; die wachten op de magazijn-simulator (#938).
+`GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, een onbereikbare
+sessiecache haalt de cache-verval-knop weg, en zonder simulator vallen de knoppen voor de
+gesimuleerde magazijnen weg. De magazijn-storingen zelf hebben op ZAD geen proxy: het storingsgedrag
+van een gesimuleerd magazijn zit in de simulator, per magazijn verschillend.
 
 De cache-verval-knop en de vier storingsknoppen wérken daar, ook op een preview. Ze vragen allemaal
 cluster-intern verkeer naar een ander project, en zo'n netwerkregel noemt op ZAD altijd één vaste
@@ -66,7 +67,7 @@ heeft zijn eigen database.
 ## De knoppen
 
 Vier tabbladen. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom, storingen en
-actieve stub-magazijnen — zodat je niet naar de toestand hoeft te vragen, en een melding met de
+gesimuleerde magazijnen zonder storing — zodat je niet naar de toestand hoeft te vragen, en een melding met de
 uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ of ✗ vast.
 
 | Tabblad | Knop | Wat het doet |
@@ -80,7 +81,8 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 | Storingen | Traag / Uit per proxy | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie |
 | Scenario's | Cache verlopen | Wist de sessiecache in Redis |
 | Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |
-| Scenario's | Veel magazijnen | Zet *k* van de *n* gegenereerde stub-magazijnen actief, of alle *n* weer aan; *n* ligt vast bij het draaien van `demo/genereer-magazijnen.py` |
+| Scenario's | Gesimuleerde magazijnen | Zet *k* van de *n* zonder storing, zet berichten klaar, en leegt alles inclusief het gedrag; *n* vraagt de console aan de simulator zelf |
+| Info | Gesimuleerde magazijnen | Toont hoe elk gesimuleerd magazijn zich gedraagt |
 | Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
 
 Een refresh laat je staan waar je was: het paneel bewaart het actieve tabblad, de in-/uitgeklapte
@@ -109,5 +111,6 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop. Wijst bewust rechtstreeks op Redis en niet door de proxy: het is een beheeractie, die moet blijven werken terwijl je de Redis-stroom uitzet |
 | `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
 | `SESSIECACHE_BEREIKBAAR` | `true` | Op `false` laat het paneel de cache-verval-knop weg. Voor omgevingen waar Redis niet bereikbaar is; een knop die gegarandeerd faalt kost tijdens een demo uitleg die niets toevoegt |
-| `DEMO_MAGAZIJN_STUBS` | `12` | Aantal stub-magazijnen voor de veel-magazijnen-schuif |
-| `MAGAZIJN_STUBS_ADMIN_URL` | `http://localhost:8092` | WireMock-admin van de stub-magazijnen, voor diezelfde schuif |
+| `MAGAZIJN_SIMULATOR_URL` | `http://localhost:8092` | Beheerpad van de magazijn-simulator: vullen, legen en gedrag bijstellen |
+| `MAGAZIJN_SIMULATOR_BEHEER_TOKEN` | leeg | Token voor dat beheerpad. Leeg lokaal; op een gedeelde omgeving verplicht, anders geeft elke knop een 401 |
+| `SIMULATOR_BEREIKBAAR` | `true` | Op `false` laat het paneel de knoppen en de chip voor de gesimuleerde magazijnen weg |

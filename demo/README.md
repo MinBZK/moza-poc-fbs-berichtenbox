@@ -12,10 +12,12 @@ verwacht.
 | Pad | Wat |
 |---|---|
 | `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten. Heeft een eigen image en draait als ZAD-component `democonsole` in de deployment `test` van `mpfm-w3h`, previews inbegrepen — zie `demo-console/README.md` |
-| `environment/` | FSC-federatieharness (peers, PKI, contract-bootstrap) én de ZAD-runbooks; `zad-demo/` bevat de eenmalige OM-stappen voor de demo-console en de verificatie erna |
-| `generated/` | Gegenereerde stub-mappings (git-ignored); komt uit `genereer-magazijnen.py` |
-| `genereer-magazijnen.py` | Genereert de stub-magazijnen en de profiel-persona's |
+| `magazijn-simulator/` | Maven-module: één service die zich als veel berichtenmagazijnen tegelijk voordoet, elk op pad-prefix `/magazijn/<OIN>`. Genereert uit dezelfde OpenAPI-spec als het echte magazijn — zie `../docs/plans/2026-08-21-magazijn-simulator-design.md` |
+| `environment/` | FSC-federatieharness (peers, PKI, contract-bootstrap) én de ZAD-runbooks; `zad-demo/` bevat de eenmalige OM-stappen voor de demo-console en de verificatie erna, plus het voorbereide runbook voor de magazijn-simulator |
+| `generated/` | Gegenereerde artefacten (git-ignored): het magazijnregister voor de uitvraag, de set voor de simulator en de profiel-stubs van de vier ondernemers; komt uit `genereer-magazijnen.py` |
+| `genereer-magazijnen.py` | Genereert uit één getal n: het register, de set van de simulator en de vier ondernemers (3, 15, 45 en 100 aangesloten organisaties) |
 | `smoke.sh` | Rookproef over de demo-stack |
+| `meet-fanout.sh` | Meet per ondernemer de tijd tot het eerste bericht en tot de complete lijst, uit de SSE-stroom van de uitvraag |
 | `podman-prepare.sh`, `podman-up.sh` | Demo-stack draaien onder Podman |
 
 De demo-runbook staat in [`../docs/demo-runbook.md`](../docs/demo-runbook.md).
@@ -55,3 +57,7 @@ Een PR die alleen `demo/` raakt koopt geen fuzz-ronde meer: de fuzz-doelen staan
 `libraries/` en `services/` (`.clusterfuzzlite/build.sh`), dus zo'n ronde kon per definitie niets
 nieuws raken. Om dezelfde reden heeft `demo-console` geen JaCoCo-gate: de demo hoeft niet
 productiewaardig te zijn.
+
+`magazijn-simulator` heeft die gate wél, op dezelfde 90 % als het stelsel. Hij draagt straks het
+gedrag van honderd magazijnen, en een fout erin lijkt in een demo op een fout in de keten — dan is
+de demo juist misleidend in plaats van onaf.

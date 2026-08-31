@@ -41,14 +41,17 @@ case "${DEMO_BIND:-127.0.0.1}" in
         ;;
 esac
 
-# Doorgeven aan compose én aan de generator vanaf één plek; beide hebben hun eigen default.
-export DEMO_MAGAZIJN_STUBS="${DEMO_MAGAZIJN_STUBS:-12}"
+# Doorgeven aan compose én aan de generator vanaf één plek; beide hebben hun eigen default. De
+# grootste ondernemer heeft honderd aangesloten organisaties, waarvan twee echt, dus onder de 98
+# weigert de generator — daar valt van die ondernemer niets te bouwen.
+export DEMO_MAGAZIJNEN="${DEMO_MAGAZIJNEN:-98}"
 
 PROBE_IMAGE=docker.io/library/alpine:3.20
 DEMO_IMAGES=(
     localhost/fbs-demo/fbs-berichtenmagazijn:demo
     localhost/fbs-demo/fbs-berichtenuitvraag:demo
     localhost/fbs-demo/fbs-demo-console:demo
+    localhost/fbs-demo/fbs-magazijn-simulator:demo
 )
 
 # --- gereedschap en podman-socket bepalen -----------------------------------------------------
@@ -325,9 +328,10 @@ wacht_op() {
     echo "  ✓ $naam"
 }
 
-INFRA=(redis postgres-a postgres-b postgres-uitvraag profiel-service magazijn-a magazijn-b
-       aanmeld-stub notificatie-stub magazijn-stubs toxiproxy)
-SERVICES=(berichtenmagazijn-a berichtenmagazijn-b berichtenuitvraag demo-console proeftuin demo-proxy)
+INFRA=(redis postgres-a postgres-b postgres-uitvraag postgres-simulator profiel-service
+       magazijn-a magazijn-b aanmeld-stub notificatie-stub toxiproxy)
+SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console
+          proeftuin demo-proxy)
 
 echo "[3/4] infra starten ($MODUS)"
 "${C[@]}" up -d "${INFRA[@]}"
@@ -336,12 +340,13 @@ echo "[3/4] infra starten ($MODUS)"
 # eerst de containerstatus, dan pas de functionele probes.
 vereis_draaiend "${INFRA[@]}"
 
-# Postgres-b en het LDV-logboek van de uitvraag luisteren in hostnet op hun eigen PGPORT (5433 en
-# 5434), in bridge intern gewoon op 5432; `pg_isready` draait binnen de container en volgt die
-# keuze.
+# Postgres-b, het LDV-logboek van de uitvraag en de database van de simulator luisteren in hostnet
+# op hun eigen PGPORT (5433, 5434 en 5435), in bridge intern gewoon op 5432; `pg_isready` draait
+# binnen de container en volgt die keuze.
 PGPORT_B=5432
 PGPORT_UITVRAAG=5432
-[ "$MODUS" = "hostnet" ] && PGPORT_B=5433 && PGPORT_UITVRAAG=5434
+PGPORT_SIMULATOR=5432
+[ "$MODUS" = "hostnet" ] && PGPORT_B=5433 && PGPORT_UITVRAAG=5434 && PGPORT_SIMULATOR=5435
 
 wacht_op "redis"      redis      "${C[@]}" exec -T redis redis-cli ping
 wacht_op "postgres-a" postgres-a "${C[@]}" exec -T postgres-a pg_isready -U berichtenmagazijn -d berichtenmagazijn
@@ -352,7 +357,8 @@ wacht_op "postgres-uitvraag" postgres-uitvraag "${C[@]}" exec -T postgres-uitvra
 # poort in de gedeelde netns. Zonder ze meldt het script succes terwijl register of
 # profielvoorkeuren onbereikbaar zijn.
 wacht_op "profiel-service" profiel-service curl -sSf --max-time 3 http://127.0.0.1:8089/__admin/mappings
-wacht_op "magazijn-stubs" magazijn-stubs  curl -sSf --max-time 3 http://127.0.0.1:8092/__admin/mappings
+wacht_op "postgres-simulator" postgres-simulator "${C[@]}" exec -T postgres-simulator \
+    pg_isready -U magazijnsimulator -d magazijnsimulator -p "$PGPORT_SIMULATOR"
 
 # Elke proxy afzonderlijk controleren, niet of de admin-API leeft en ook niet of één bekende naam
 # er staat. Toxiproxy stopt namelijk bij de eerste listener die niet kan binden, laat de rest van
@@ -365,17 +371,35 @@ if [ "$MODUS" = "hostnet" ]; then
     PROXY_BRON="$WORTEL/demo/generated/proxies-host.json"
 fi
 
-wacht_op "toxiproxy" toxiproxy python3 -c '
+# Niet alleen de namen vergelijken maar ook waar elke proxy luistert en naartoe stuurt. De
+# demo-console maakt de proxies namelijk zélf aan en zet ze elke reconcile-ronde terug; staan haar
+# adressen niet op deze modus ingesteld, dan houdt Toxiproxy dezelfde zes namen over met upstreams
+# die hier niet bestaan. Op namen alleen is dat niet te zien, en de keten is dan stil kapot.
+#
+# Als tekst in een variabele en niet als shell-functie: `wacht_op` draait zijn commando onder
+# timeout(1), en die kan geen functie aanroepen.
+PROXY_CHECK='
 import json, sys, urllib.request
 
-verwacht = {p["name"] for p in json.load(open(sys.argv[1]))}
-actief = set(json.load(urllib.request.urlopen("http://127.0.0.1:8474/proxies", timeout=3)))
-ontbreekt = verwacht - actief
+def sleutel(proxy):
+    # Toxiproxy geeft een listen op 0.0.0.0 terug als "[::]:<poort>"; alleen de poort vergelijken.
+    return proxy["name"], proxy["listen"].rsplit(":", 1)[-1], proxy["upstream"]
 
-if ontbreekt:
-    print("proxies niet geladen: " + ", ".join(sorted(ontbreekt)), file=sys.stderr)
+verwacht = {sleutel(p) for p in json.load(open(sys.argv[1]))}
+actief = {sleutel(p) for p in json.load(urllib.request.urlopen("http://127.0.0.1:8474/proxies", timeout=3)).values()}
+afwijkend = verwacht - actief
+
+if afwijkend:
+    print("proxies wijken af van " + sys.argv[1] + ":", file=sys.stderr)
+
+    for naam, poort, upstream in sorted(afwijkend):
+        print(f"  verwacht {naam} op poort {poort} naar {upstream}", file=sys.stderr)
+
+    print("  actief: " + ", ".join(f"{n}:{p}->{u}" for n, p, u in sorted(actief)), file=sys.stderr)
     sys.exit(1)
-' "$PROXY_BRON"
+'
+
+wacht_op "toxiproxy" toxiproxy python3 -c "$PROXY_CHECK" "$PROXY_BRON"
 
 # Een poortprobe bewijst niet dat ónze container antwoordde: crasht hij op een bezette poort, dan
 # neemt de bestaande host-service het antwoord over. Daarom na afloop opnieuw de status.
@@ -387,6 +411,7 @@ vereis_draaiend "${SERVICES[@]}"
 
 wacht_op "berichtenmagazijn-a" berichtenmagazijn-a curl -sSf --max-time 3 http://127.0.0.1:8090/q/health/ready
 wacht_op "berichtenmagazijn-b" berichtenmagazijn-b curl -sSf --max-time 3 http://127.0.0.1:8091/q/health/ready
+wacht_op "magazijn-simulator"  magazijn-simulator  curl -sSf --max-time 3 http://127.0.0.1:8092/q/health/ready
 wacht_op "uitvraag"            berichtenuitvraag   curl -sSf --max-time 3 http://127.0.0.1:8086/q/health/ready
 wacht_op "console"             demo-console        curl -sSf --max-time 3 http://127.0.0.1:8095/
 # 8080, niet 8096: de proeftuin-container kan zijn luisterpoort niet verzetten (zie de
@@ -395,6 +420,11 @@ wacht_op "proeftuin"           proeftuin           curl -sSf --max-time 3 http:/
 # Via de proxy, want dat is het adres waarop de demo gegeven wordt; een probe op de container zelf
 # zou een kapotte route naar de console of de uitvraag niet opmerken.
 wacht_op "demo-proxy"          demo-proxy          curl -sSf --max-time 3 http://127.0.0.1:8097/api/demo/personas
+
+# Opnieuw, nu de console draait: die maakt de proxies zelf aan en overschrijft daarmee wat er uit
+# het bestand geladen was. Wijken haar adressen af van deze modus, dan blijkt dat pas hier — de
+# eerdere controle draaide voordat ze bestond.
+wacht_op "toxiproxy (na de console)" demo-console python3 -c "$PROXY_CHECK" "$PROXY_BRON"
 
 # Ook de infra opnieuw: die draagt tijdens het starten van de services de zwaarste last
 # (migraties, vier tegelijk verbindende clients) en is sinds de vorige controle niet meer bekeken.
