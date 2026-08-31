@@ -45,7 +45,7 @@ SIMULATOR_URL = os.environ.get("SIMULATOR_URL", "http://magazijn-simulator:8092"
 # verschuiven — de groottes zijn wat telt, niet de namen.
 ONDERNEMERS = [
     ("kleine-eenmanszaak", "BSN", "999993653", 3),
-    ("klein-bedrijf", "KVK", "12345678", 15),
+    ("klein-bedrijf", "KVK", "90000014", 15),
     ("grootbedrijf", "KVK", "90000001", 45),
     ("landelijk-concern", "KVK", "90000003", 100),
 ]

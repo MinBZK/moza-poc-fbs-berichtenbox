@@ -330,7 +330,8 @@ wacht_op() {
 
 INFRA=(redis postgres-a postgres-b postgres-uitvraag postgres-simulator profiel-service
        magazijn-a magazijn-b aanmeld-stub notificatie-stub toxiproxy)
-SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console)
+SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console
+          proeftuin demo-proxy)
 
 echo "[3/4] infra starten ($MODUS)"
 "${C[@]}" up -d "${INFRA[@]}"
@@ -413,6 +414,12 @@ wacht_op "berichtenmagazijn-b" berichtenmagazijn-b curl -sSf --max-time 3 http:/
 wacht_op "magazijn-simulator"  magazijn-simulator  curl -sSf --max-time 3 http://127.0.0.1:8092/q/health/ready
 wacht_op "uitvraag"            berichtenuitvraag   curl -sSf --max-time 3 http://127.0.0.1:8086/q/health/ready
 wacht_op "console"             demo-console        curl -sSf --max-time 3 http://127.0.0.1:8095/
+# 8080, niet 8096: de proeftuin-container kan zijn luisterpoort niet verzetten (zie de
+# toelichting in compose.podman-hostnet.yaml).
+wacht_op "proeftuin"           proeftuin           curl -sSf --max-time 3 http://127.0.0.1:8080/moza/berichtenbox/
+# Via de proxy, want dat is het adres waarop de demo gegeven wordt; een probe op de container zelf
+# zou een kapotte route naar de console of de uitvraag niet opmerken.
+wacht_op "demo-proxy"          demo-proxy          curl -sSf --max-time 3 http://127.0.0.1:8097/api/demo/personas
 
 # Opnieuw, nu de console draait: die maakt de proxies zelf aan en overschrijft daarmee wat er uit
 # het bestand geladen was. Wijken haar adressen af van deze modus, dan blijkt dat pas hier — de

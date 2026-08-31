@@ -24,6 +24,9 @@ data class LegenAntwoord(val berichten: Int, val magazijnen: Int, val letOp: Str
 class SimulatorResource(private val service: SimulatorService) {
 
     @GET
+    fun status(): Map<String, Int> = service.status()
+
+    @GET
     @Path("/magazijnen")
     fun magazijnen(): List<SimulatorMagazijn> = service.magazijnen()
 

@@ -21,4 +21,11 @@ interface OmgevingConfig {
      * verkeer daarheen is er alleen als er een netwerkregel voor geschreven is.
      */
     fun sessiecache(): Boolean
+
+    /**
+     * Kent deze omgeving een magazijn-simulator? Uit de configuratie en niet uit een geslaagde
+     * uitlezing: anders is "niet ingericht" niet te onderscheiden van "niet kunnen lezen", en
+     * verdwijnen de knoppen juist wanneer er iets stuk is.
+     */
+    fun simulator(): Boolean
 }

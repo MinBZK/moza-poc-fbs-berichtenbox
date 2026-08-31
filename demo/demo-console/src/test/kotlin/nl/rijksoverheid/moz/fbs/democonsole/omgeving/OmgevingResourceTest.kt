@@ -9,10 +9,16 @@ import java.util.Optional
 
 class OmgevingResourceTest {
 
-    private fun resource(basis: String?, vararg proxies: String, sessiecache: Boolean = true): OmgevingResource {
+    private fun resource(
+        basis: String?,
+        vararg proxies: String,
+        simulator: Boolean = true,
+        sessiecache: Boolean = true,
+    ): OmgevingResource {
         val config = mockk<OmgevingConfig> {
             every { uitvraagBasis() } returns Optional.ofNullable(basis)
             every { sessiecache() } returns sessiecache
+            every { simulator() } returns simulator
         }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
 
@@ -51,6 +57,18 @@ class OmgevingResourceTest {
         // Onderscheidt "geeft het enige element terug" van "discrimineert per naam" — een lijst
         // van meerdere elementen dekt dat verschil niet.
         assertEquals(listOf("redis"), resource(null, "redis").omgeving().storingen)
+    }
+
+    @Test
+    fun `een ingerichte simulator komt als true door`() {
+        // Het paneel moet vooraf weten of deze omgeving gesimuleerde magazijnen kent, anders leest
+        // een mislukte uitlezing als "niet ingericht".
+        assertEquals(true, resource(null).omgeving().simulator)
+    }
+
+    @Test
+    fun `een omgeving zonder simulator meldt false zodat de pagina die knoppen weglaat`() {
+        assertEquals(false, resource(null, simulator = false).omgeving().simulator)
     }
 
     @Test

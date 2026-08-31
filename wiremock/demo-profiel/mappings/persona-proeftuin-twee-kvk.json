@@ -1,8 +1,8 @@
 {
-  "priority": 5,
+  "priority": 1,
   "request": {
     "method": "GET",
-    "urlPathPattern": "/api/profielservice/v1/KVK/90000014"
+    "urlPathPattern": "/api/profielservice/v1/KVK/90000012"
   },
   "response": {
     "status": 200,
@@ -10,7 +10,7 @@
       "Content-Type": "application/json"
     },
     "jsonBody": {
-      "partijId": 103,
+      "partijId": 202,
       "identificaties": [],
       "voorkeuren": [
         {
@@ -18,12 +18,6 @@
           "voorkeurType": "OntvangViaBerichtenbox",
           "waarde": "true",
           "scopes": [
-            {
-              "partij": {
-                "identificatieType": "OIN",
-                "identificatieNummer": "00000000000000100000"
-              }
-            },
             {
               "partij": {
                 "identificatieType": "OIN",

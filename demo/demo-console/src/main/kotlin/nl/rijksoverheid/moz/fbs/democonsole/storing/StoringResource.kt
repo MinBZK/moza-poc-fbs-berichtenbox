@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.democonsole.storing
 
 import jakarta.ws.rs.BadRequestException
+import jakarta.ws.rs.GET
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
@@ -24,6 +25,9 @@ import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 @Path("/api/demo/storing")
 @Produces(MediaType.APPLICATION_JSON)
 class StoringResource(private val storingService: StoringService) {
+
+    @GET
+    fun status(): Map<String, Storingstoestand> = storingService.status()
 
     @POST
     @Path("/magazijn/{ab}/traag")

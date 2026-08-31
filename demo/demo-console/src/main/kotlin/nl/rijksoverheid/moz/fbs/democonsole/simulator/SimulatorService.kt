@@ -22,6 +22,18 @@ class SimulatorService(@param:RestClient private val beheer: SimulatorBeheerClie
     fun magazijnen(): List<SimulatorMagazijn> = beheer.magazijnen().sortedBy { it.oin }
 
     /**
+     * Hoeveel magazijnen er zijn en hoeveel er zonder storing staan.
+     *
+     * Dezelfde sleutels als [zetActief], want de statusbalk van het paneel leest beide met dezelfde
+     * formatter; twee vormen voor hetzelfde feit zouden er één van de twee stil laten breken.
+     */
+    fun status(): Map<String, Int> {
+        val alle = magazijnen()
+
+        return mapOf("actief" to alle.count { it.modus == NORMAAL }, "totaal" to alle.size)
+    }
+
+    /**
      * Zet de eerste `k` magazijnen op normaal en de rest op storing.
      *
      * In één aanroep en niet honderd losse: bij honderd magazijnen zou de knop anders trager zijn
@@ -75,7 +87,7 @@ class SimulatorService(@param:RestClient private val beheer: SimulatorBeheerClie
          * generatiescript. Lopen ze uiteen, dan zet de vul-knop berichten klaar voor een ontvanger
          * die geen persona meer is, en toont de demo lege magazijnen zonder dat iets rood wordt.
          */
-        val ONDERNEMERS = listOf("BSN:999993653", "KVK:12345678", "KVK:90000001", "KVK:90000003")
+        val ONDERNEMERS = listOf("BSN:999993653", "KVK:90000014", "KVK:90000001", "KVK:90000003")
 
         /**
          * Twintig is niet toevallig: de uitvraag haalt per magazijn één pagina op en het magazijn

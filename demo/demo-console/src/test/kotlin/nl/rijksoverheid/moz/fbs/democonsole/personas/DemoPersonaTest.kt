@@ -12,9 +12,9 @@ class DemoPersonaTest {
 
     @Test
     fun `stelt de ontvanger-header samen uit type en waarde`() {
-        val persona = persona(type = "KVK", waarde = "12345678")
+        val persona = persona(type = "KVK", waarde = "90000014")
 
-        assertEquals("KVK:12345678", persona.ontvanger)
+        assertEquals("KVK:90000014", persona.ontvanger)
     }
 
     @ParameterizedTest
@@ -30,7 +30,7 @@ class DemoPersonaTest {
 
     @Test
     fun `weigert een ontvanger-type dat de demo niet aanbiedt en noemt wat wel mag`() {
-        val fout = assertThrows(IllegalArgumentException::class.java) { persona(type = "PASPOORT", waarde = "12345678") }
+        val fout = assertThrows(IllegalArgumentException::class.java) { persona(type = "PASPOORT", waarde = "90000014") }
 
         assertTrue(fout.message!!.contains("BSN"), fout.message)
         assertFalse(fout.message!!.contains("PASPOORT"), "de aangeboden waarde hoort niet in de melding")

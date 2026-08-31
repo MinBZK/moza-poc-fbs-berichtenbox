@@ -34,7 +34,7 @@ STROMEN="$(mktemp -d -t fanout-XXXXXX)"
 # De vier ondernemers uit demo/genereer-magazijnen.py, met hun verwachte aantal organisaties.
 ONDERNEMERS=(
     "kleine-eenmanszaak|BSN:999993653|3"
-    "klein-bedrijf|KVK:12345678|15"
+    "klein-bedrijf|KVK:90000014|15"
     "grootbedrijf|KVK:90000001|45"
     "landelijk-concern|KVK:90000003|100"
 )
