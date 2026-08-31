@@ -1,13 +1,30 @@
 # De magazijn-simulator op ZAD
 
-**Status: klaar om uit te voeren, nog niet uitgevoerd.** Geen van de commando's hieronder is tegen
-een cluster gedraaid; ze zijn geschreven tegen `zadctl` en de projectspecs, niet ertegen getoetst.
+**Status: §1 tot en met §4 zijn op 2026-08-31 uitgevoerd voor de deployment `test`.** Wat er nog
+open staat, staat onderaan. De commando's hieronder zijn dus geen voornemen meer maar een verslag —
+op §5 na, die op het stubs-image wacht.
 
-Deze stap (MinBZK/MijnOverheidZakelijk#1013) wachtte op MinBZK/MijnOverheidZakelijk#936 — zonder
-bediening en zonder Berichtenbox op de gedeelde omgeving zou hij technisch kunnen slagen terwijl er
-voor een stakeholder niets te zien is. Dat issue is gesloten op 2026-08-31, dus die volgorde staat
-niets meer in de weg. Uitvoeren vraagt een `zadctl login`; wie dat doet, loopt dit bestand van boven
-naar beneden door.
+Deze stap (MinBZK/MijnOverheidZakelijk#1013) wachtte op MinBZK/MijnOverheidZakelijk#936; dat issue is
+gesloten, dus die volgorde staat niets meer in de weg.
+
+**Draai alles vanuit deze map.** `zadctl login` schrijft `.env.zadctl` in de werkmap van dat moment
+en leest hem nergens anders; vanuit de repository-root krijg je "no API key" terwijl je gewoon
+ingelogd bent.
+
+## De volgorde die ertoe doet
+
+Twee dingen moeten in deze volgorde, en allebei falen ze hard als je ze omdraait:
+
+1. **Eerst het component definiëren, dan pas een image.** `component add --deployment` eist een
+   `--image`, en dat image bestaat pas nadat de deploy-workflow het gebouwd heeft. Laat
+   `--deployment` dus weg: dat definieert het component zonder het te draaien, en de deploy-workflow
+   hangt het er later aan. Een component aanmaken met een tag die niet bestaat, levert een
+   ImagePullBackOff op en in het slechtste geval een uitgeschakeld component dat alleen met
+   verwijderen-en-opnieuw-aanmaken terugkomt.
+2. **Eerst de alias op de uitvraag, dan het register.** Het register bevat
+   `${MAGAZIJN_SIMULATOR_URL}` en SmallRye vult dat in bij het lezen. Staat de variabele er nog niet,
+   dan start de uitvraag niet meer — `SRCFG00011: Could not expand value` — en ligt de hele
+   gedeelde keten plat.
 
 De simulator komt als één component `magazijnsimulator` in het magazijnen-project `mpfm-w3h`, naast
 `magazijna`, `magazijnb` en `democonsole`. Waarom daar: `postgresql-database` is
@@ -61,16 +78,17 @@ geen gegeven. Zet er nooit echte persoonsgegevens in.
 
 ## 1. Het component aanmaken
 
-Eenmalig, en in één keer compleet: ZAD past aliassen, poorten en diensten alleen bij creatie toe,
-niet bij een re-POST op een bestaand component.
+Poorten en diensten horen in één keer goed te staan: een re-POST op een bestaand component draagt
+ze niet opnieuw. Aliassen en omgevingsvariabelen zijn wél later bij te stellen — zie §4.
+
+Zonder `--deployment` wordt het component alleen gedefinieerd en draait er nog niets. Dat is precies
+wat we willen: het image bestaat nog niet, en de deploy-workflow hangt het component er straks aan.
 
 ```bash
 zadctl login
 zadctl project use mpfm-w3h
 
 zadctl component add magazijnsimulator \
-  --image ghcr.io/minbzk/fbs-magazijn-simulator:main-<sha7> \
-  --deployment test \
   --ports 8092 \
   --service postgresql-database \
   --service publish-on-web \
@@ -139,7 +157,8 @@ een laptop. Dat is de bedoeling: een demo die je thuis oefent moet daar hetzelfd
 
 ## 3. Het register op de uitvraag
 
-In het uitvraag-project (`mpfb-8wh`), op het component `uitvraag`:
+**Zet eerst de alias, dan pas het register** — zie de volgorde bovenaan. In het uitvraag-project
+(`mpfb-8wh`), op het component `uitvraag`:
 
 ```bash
 zadctl project use mpfb-8wh
@@ -174,22 +193,21 @@ is een lijst, en overschrijven zou de bestaande bron eruit gooien.
 ## 4. Het bedieningspaneel laten weten waar hij staat
 
 De console vult en leegt de simulator, en die twee moeten elkaar kunnen vinden. Ze zitten in
-hetzelfde project, dus dat kan cluster-intern:
+hetzelfde project, dus dat kan cluster-intern. `MAGAZIJN_SIMULATOR_URL` moet een alias zijn: een
+gewone omgevingsvariabele kan `$DEPLOYMENT_NAME` niet invullen en zou elke preview naar de simulator
+van `test` sturen.
 
 ```bash
-# alias op democonsole, alleen toe te passen bij creatie:
-#   MAGAZIJN_SIMULATOR_URL: http://$DEPLOYMENT_NAME-magazijnsimulator:8092
-
 zadctl project use mpfm-w3h
-zadctl env set -c democonsole MAGAZIJN_SIMULATOR_BEHEER_TOKEN=<hetzelfde geheim>
+zadctl alias add -c democonsole 'MAGAZIJN_SIMULATOR_URL=http://$DEPLOYMENT_NAME-magazijnsimulator:8092'
+zadctl env add -c democonsole MAGAZIJN_SIMULATOR_BEHEER_TOKEN=<hetzelfde geheim>
 ```
 
-**Dit is de duurste stap van de hele operatie.** `MAGAZIJN_SIMULATOR_URL` moet een alias zijn — een
-gewone omgevingsvariabele kan `$DEPLOYMENT_NAME` niet invullen en zou elke preview naar de simulator
-van `test` sturen — en aliassen worden alleen bij creatie toegepast. `democonsole` bestaat al, dus
-die moet ervoor verwijderd en opnieuw aangemaakt worden, met alle aliassen uit
-`README.md` §2 plus deze erbij. Het component draagt geen attachments, dus daar raak je niets mee
-kwijt; zijn omgevingsvariabelen wél, dus lees ze eerst uit met `zadctl env list -c democonsole`.
+**Een alias erbij zetten kan gewoon op een bestaand component**, met `zadctl alias add`. Het
+zusterrunbook (`README.md` §2) schrijft dat aliassen alleen bij creatie worden toegepast en dat
+verwijderen-en-opnieuw-aanmaken de enige route is; voor aliassen klopt dat niet meer. Dat scheelt
+hier het herscheppen van `democonsole` — de duurste handeling van de hele operatie. Poorten en
+diensten zijn niet getoetst en horen nog steeds in één keer goed te staan.
 
 Zonder de token-variabele wijst niets erop dat het misgaat aan de console-kant: het paneel laadt, de
 knoppen staan er, en elke druk levert een 401 uit de simulator.
@@ -223,22 +241,30 @@ deployment en heeft geen regel nodig.
 
 ## 7. Daarna: de deploy-workflow
 
-Pas als het component bestaat, kan `.github/workflows/deploy.yml` de image-tag gaan bijwerken. Dat is
-één build-job voor `fbs-magazijn-simulator` (jib, zoals de andere services) en één extra regel in de
-`components`-payload van `deploy-test-magazijnen` en `deploy-preview-magazijnen`. Eerder toevoegen
-werkt niet: de deploy-action wijst een niet-bestaand component af.
+Pas als het component bestaat, kan `.github/workflows/deploy.yml` er een image naartoe sturen. Dat is
+gedaan in dezelfde PR als dit runbook: `build-democonsole` heet nu `build-demo-images` en bouwt beide
+demo-modules in één Maven-aanroep, en `magazijnsimulator` staat in de `components`-payload van
+`deploy-test-magazijnen` en `deploy-preview-magazijnen`. Die payload is ook wat het component aan de
+deployment hangt — daarom hoefde `component add` geen `--deployment`.
 
-## Wat er dan nog te doen is
+Bij de eerste uitrol na de merge verschijnt het component in `test`; daarna klonen previews het mee
+via `clone-from: test`.
 
+## Wat er nog open staat
+
+- **§5, de vier ondernemers.** De persona-mappings moeten in het `fbs-externe-stubs`-image gebakken
+  worden. Zolang dat niet gebeurd is, kennen de persona's op de gedeelde omgeving alleen de twee
+  echte magazijnen: het register is er dan wel, maar niemands profiel verwijst naar de gesimuleerde
+  magazijnen. De demo werkt, alleen de fan-out ontbreekt.
+- **De eerste uitrol afwachten en verifiëren.** Het component is gedefinieerd maar draait nog niet;
+  `zadctl deployment describe test` toont hem pas nadat de deploy-workflow een image heeft geleverd.
+  Breid `verify-zad.md` daarna uit met de fan-out: vier ondernemers, 3 / 15 / 45 / 100 organisaties,
+  gemeten met `demo/meet-fanout.sh` tegen de ZAD-URL.
 - Nagaan hoeveel geheugen het component nodig heeft. Lokaal staat de simulator met 98 magazijnen op
   ongeveer 450 MB; `zadctl resource tune` stelt het bij op werkelijk gebruik.
-- De verificatie uit `verify-zad.md` uitbreiden met de fan-out: vier ondernemers, 3 / 15 / 45 / 100
-  organisaties, gemeten met `demo/meet-fanout.sh` tegen de ZAD-URL.
 - Bepalen of previews hun eigen gevulde simulator krijgen of die van `test` delen. Met een eigen
   database per deployment is het eerste vanzelf zo, maar dan moet elke preview ook gevuld worden —
   de vul-knop op het bedieningspaneel doet dat, en dat is één handeling.
-- `magazijnsimulator` bijschrijven in de componentenlijst van de ZAD-sectie van `CLAUDE.md`, zodat
-  wie daar het project opzoekt hem ook ziet.
 - Nagaan of Flyway het schema zelf mag aanmaken. Dat doet hij standaard, mits de databasegebruiker
   `CREATE` mag; zo niet, dan het schema vooraf aanmaken en `quarkus.flyway.create-schemas=false`
   zetten.
