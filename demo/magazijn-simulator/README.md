@@ -162,6 +162,12 @@ zolang dat gebrek openstaat hoort een demo daar niet per ongeluk over te vallen.
 en het magazijn levert er standaard twintig; daarboven ziet de ondernemer niets. Zolang dat gat er
 is, demonstreer je met meer onbedoeld dát gat in plaats van het gedrag dat je wilt tonen.
 
+**De bijlage is een echte PDF met een vaste tekst.** Eén A4 dat zegt dat het demonstratiemateriaal
+is en dat er geen echte gegevens in staan. Een paar bytes die toevallig met `%PDF` beginnen zouden de
+spec ook halen, maar in een demo wordt zo'n bijlage geopend: een viewer die hem weigert of een leeg
+vel toont, laat de kijker denken dat het downloadpad kapot is terwijl dat juist het onderdeel is dat
+we laten zien.
+
 **Het beheerpad valt buiten de simulatie.** Een magazijn dat op storing staat weigert al zijn gewone
 verkeer, maar hier komt het gedrag niet aan te pas — anders zou een kapot gezet magazijn niet meer
 te repareren of te vullen zijn.
