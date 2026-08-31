@@ -1,9 +1,12 @@
 package nl.rijksoverheid.moz.fbs.democonsole.storing
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.core.Response
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -15,6 +18,7 @@ class StoringServiceTest {
 
     private fun registerMet(vararg clients: Pair<String, ToxiproxyClient>) =
         mockk<ToxiproxyRegister> {
+            every { namen() } returns clients.map { it.first }.toSet()
             every { client(any()) } answers { clients.toMap()[firstArg()] ?: error("niet geconfigureerd") }
             every { instanties() } returns clients.map { it.second }.distinct()
         }
@@ -156,5 +160,151 @@ class StoringServiceTest {
         }
 
         verify { tweede.zetProxy("redis", ProxyPatch(enabled = true)) }
+    }
+
+    @Test
+    fun `status meldt per proxy of hij normaal, traag of uit staat`() {
+        every { instantie.proxies() } returns mapOf(
+            "magazijn-a" to ProxyStatus(enabled = true, toxics = emptyList()),
+            "magazijn-b" to ProxyStatus(enabled = true, toxics = listOf(ToxicStatus("latency_downstream"))),
+            "redis" to ProxyStatus(enabled = false, toxics = emptyList()),
+        )
+
+        val status = StoringService(
+            registerMet("magazijn-a" to instantie, "magazijn-b" to instantie, "redis" to instantie),
+        ).status()
+
+        assertEquals(
+            mapOf(
+                "magazijn-a" to Storingstoestand.NORMAAL,
+                "magazijn-b" to Storingstoestand.TRAAG,
+                "redis" to Storingstoestand.UIT,
+            ),
+            status,
+        )
+    }
+
+    @Test
+    fun `een uitgeschakelde proxy met een toxic meldt uit, niet traag`() {
+        every { instantie.proxies() } returns mapOf(
+            "magazijn-a" to ProxyStatus(enabled = false, toxics = listOf(ToxicStatus("latency_downstream"))),
+        )
+
+        assertEquals(Storingstoestand.UIT, service.status()["magazijn-a"])
+    }
+
+    @Test
+    fun `status vraagt elke instantie eenmaal, niet eenmaal per proxy`() {
+        // Het paneel pollt dit doorlopend; een aanroep per proxy vermenigvuldigt dat met het
+        // aantal knoppen zonder dat er meer te weten valt.
+        every { instantie.proxies() } returns mapOf(
+            "magazijn-a" to ProxyStatus(enabled = true),
+            "magazijn-b" to ProxyStatus(enabled = true),
+        )
+
+        service.status()
+
+        verify(exactly = 1) { instantie.proxies() }
+    }
+
+    @Test
+    fun `een proxy die Toxiproxy niet kent is onbekend, niet normaal`() {
+        // Een naam die wel geconfigureerd is maar niet in proxies.json staat, laat verkeer nergens
+        // langs. "Normaal" melden verbergt precies die misconfiguratie.
+        every { instantie.proxies() } returns mapOf("magazijn-a" to ProxyStatus(enabled = true))
+
+        assertEquals(Storingstoestand.ONBEKEND, service.status()["magazijn-b"])
+    }
+
+    @Test
+    fun `een onbereikbare instantie maakt alleen zijn eigen proxies onbekend`() {
+        every { instantie.proxies() } throws IllegalStateException("verbinding geweigerd")
+        every { tweede.proxies() } returns mapOf("redis" to ProxyStatus(enabled = false))
+
+        val status = StoringService(registerMet("profiel" to instantie, "redis" to tweede)).status()
+
+        assertEquals(mapOf("profiel" to Storingstoestand.ONBEKEND, "redis" to Storingstoestand.UIT), status)
+    }
+
+    @Test
+    fun `status zonder geconfigureerde proxies levert een lege map en geen fout`() {
+        assertEquals(emptyMap<String, Storingstoestand>(), StoringService(registerMet()).status())
+    }
+
+    @Test
+    fun `status met precies een geconfigureerde proxy levert alleen die proxy`() {
+        // Onderscheidt "geeft alles terug wat Toxiproxy kent" van "geeft terug wat geconfigureerd
+        // is": Toxiproxy kent hier twee proxies, het register maar een.
+        every { instantie.proxies() } returns mapOf(
+            "redis" to ProxyStatus(enabled = false),
+            "profiel" to ProxyStatus(enabled = false),
+        )
+
+        assertEquals(
+            mapOf("redis" to Storingstoestand.UIT),
+            StoringService(registerMet("redis" to instantie)).status(),
+        )
+    }
+
+    @Test
+    fun `status staat op alfabet, zodat de volgorde in het paneel niet springt`() {
+        every { instantie.proxies() } returns mapOf(
+            "redis" to ProxyStatus(enabled = true),
+            "aanmeld" to ProxyStatus(enabled = true),
+            "profiel" to ProxyStatus(enabled = true),
+        )
+
+        val status = StoringService(
+            registerMet("redis" to instantie, "aanmeld" to instantie, "profiel" to instantie),
+        ).status()
+
+        assertEquals(listOf("aanmeld", "profiel", "redis"), status.keys.toList())
+    }
+
+    @Test
+    fun `elke toxic telt als traag, niet alleen latency`() {
+        // De console zet zelf alleen latency, maar een met de hand toegevoegde toxic mag niet als
+        // "normaal" doorgaan: er staat dan wel degelijk iets op de proxy.
+        every { instantie.proxies() } returns mapOf(
+            "magazijn-a" to ProxyStatus(enabled = true, toxics = listOf(ToxicStatus("bandwidth_downstream"))),
+        )
+
+        assertEquals(Storingstoestand.TRAAG, service.status()["magazijn-a"])
+    }
+
+    @Test
+    fun `de toestand gaat in kleine letters over de lijn`() {
+        // Het paneel filtert op de letterlijke tekst 'normaal'. Verdwijnt @JsonValue, dan
+        // serialiseert Jackson "NORMAAL", telt elke proxy als afwijkend en staat de chip
+        // permanent op rood — zonder dat een test rood wordt.
+        val json = jacksonObjectMapper().writeValueAsString(
+            mapOf(
+                "magazijn-a" to Storingstoestand.NORMAAL,
+                "magazijn-b" to Storingstoestand.TRAAG,
+                "redis" to Storingstoestand.UIT,
+                "profiel" to Storingstoestand.ONBEKEND,
+            ),
+        )
+
+        assertEquals(
+            """{"magazijn-a":"normaal","magazijn-b":"traag","redis":"uit","profiel":"onbekend"}""",
+            json,
+        )
+    }
+
+    @Test
+    fun `proxies uit echt Toxiproxy-JSON leveren enabled en toxics op`() {
+        // Parseert `toxics` niet, dan is de lijst altijd leeg en meldt elke traag-gezette proxy
+        // NORMAAL — de enige richting die dit paneel niet mag hebben.
+        val json = """
+            {"magazijn-a":{"name":"magazijn-a","listen":"[::]:18090","upstream":"berichtenmagazijn-a:8090",
+             "enabled":true,"toxics":[{"attributes":{"latency":6000,"jitter":0},"name":"latency_downstream",
+             "type":"latency","stream":"downstream","toxicity":1}]}}
+        """.trimIndent()
+
+        val gelezen: Map<String, ProxyStatus> = jacksonObjectMapper().readValue(json)
+
+        assertEquals(true, gelezen.getValue("magazijn-a").enabled)
+        assertEquals(listOf("latency_downstream"), gelezen.getValue("magazijn-a").toxics.map { it.name })
     }
 }

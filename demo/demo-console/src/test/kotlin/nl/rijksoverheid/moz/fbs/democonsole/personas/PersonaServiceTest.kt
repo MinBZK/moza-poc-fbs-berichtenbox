@@ -30,7 +30,7 @@ class PersonaServiceTest {
     @Test
     fun `sorteert op label ongeacht hoofdletters en ongeacht de volgorde in de configuratie`() {
         val personas = service(
-            "vandijk" to VastePersona("Garage Van Dijk B.V.", "KVK", "12345678"),
+            "vandijk" to VastePersona("Garage Van Dijk B.V.", "KVK", "90000014"),
             "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653"),
             "dejong" to VastePersona("de Jong Transport", "KVK", "87654321"),
             "bakkerij" to VastePersona("Bakkerij De Vroege Vogel", "BSN", "999996666"),
@@ -43,7 +43,7 @@ class PersonaServiceTest {
     @Test
     fun `houdt bij gelijke labels een vaste volgorde aan`() {
         val personas = service(
-            "tweede" to VastePersona("Gelijke Naam B.V.", "KVK", "12345678"),
+            "tweede" to VastePersona("Gelijke Naam B.V.", "KVK", "90000014"),
             "eerste" to VastePersona("Gelijke Naam B.V.", "KVK", "87654321"),
         ).alle()
 
@@ -119,8 +119,8 @@ class PersonaServiceTest {
     @Test
     fun `weigert twee persona's op hetzelfde identificatienummer`() {
         val melding = weigering(
-            "eerste" to VastePersona("Eerste B.V.", "KVK", "12345678"),
-            "tweede" to VastePersona("Tweede B.V.", "KVK", "12345678"),
+            "eerste" to VastePersona("Eerste B.V.", "KVK", "90000014"),
+            "tweede" to VastePersona("Tweede B.V.", "KVK", "90000014"),
         ).message!!
 
         assertTrue(melding.contains("eerste") && melding.contains("tweede"), melding)
@@ -148,7 +148,7 @@ class PersonaServiceTest {
     fun `wijst naar demo-magazijnen als een persona een opt-in heeft maar er geen magazijn is`() {
         val fout = assertThrows(IllegalArgumentException::class.java) {
             PersonaService(
-                VasteDemoConfig(mapOf("a" to VastePersona("A B.V.", "KVK", "12345678", listOf(TestPersonas.RVO))), emptyMap()),
+                VasteDemoConfig(mapOf("a" to VastePersona("A B.V.", "KVK", "90000014", listOf(TestPersonas.RVO))), emptyMap()),
             )
         }
 
@@ -158,7 +158,7 @@ class PersonaServiceTest {
     @Test
     fun `laat een inrichting zonder magazijn toe zolang geen persona er een noemt`() {
         val personas = PersonaService(
-            VasteDemoConfig(mapOf("verzonnen" to VastePersona("Verzonnen B.V.", "KVK", "12345678", bron = "dataset")), emptyMap()),
+            VasteDemoConfig(mapOf("verzonnen" to VastePersona("Verzonnen B.V.", "KVK", "90000014", bron = "dataset")), emptyMap()),
         ).alle()
 
         assertEquals(listOf("verzonnen"), personas.map { it.id })
@@ -167,7 +167,7 @@ class PersonaServiceTest {
     @Test
     fun `neemt de bron over uit de configuratie`() {
         val personas = service(
-            "keten" to VastePersona("A", "KVK", "12345678", listOf(TestPersonas.RVO)),
+            "keten" to VastePersona("A", "KVK", "90000014", listOf(TestPersonas.RVO)),
             "verzonnen" to VastePersona("B", "KVK", "87654321", bron = "dataset"),
         ).alle()
 
@@ -176,12 +176,12 @@ class PersonaServiceTest {
 
     @Test
     fun `weigert een dataset-persona die ook ketenberichten zou krijgen`() {
-        weigering("mengvorm" to VastePersona("Mengvorm", "KVK", "12345678", listOf(TestPersonas.RVO), "dataset"))
+        weigering("mengvorm" to VastePersona("Mengvorm", "KVK", "90000014", listOf(TestPersonas.RVO), "dataset"))
     }
 
     @Test
     fun `weigert een onbekende bron`() {
-        weigering("mock" to VastePersona("Mock", "KVK", "12345678", bron = "mock"))
+        weigering("mock" to VastePersona("Mock", "KVK", "90000014", bron = "mock"))
     }
 
     @ParameterizedTest

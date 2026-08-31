@@ -65,19 +65,31 @@ heeft zijn eigen database.
 
 ## De knoppen
 
-| Knop | Wat het doet |
-|---|---|
-| Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo |
-| Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek |
-| Status | Aantal berichten per magazijn |
-| Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json` |
-| Opvoeren | Een burst van *n* willekeurige berichten |
-| Stroom starten / stoppen | Eén willekeurig bericht per interval; stopt vanzelf na 500 berichten of 60 minuten |
-| Stroom-status | Loopt de stroom, met welk interval en hoeveel berichten al geleverd |
-| Storingen | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie |
-| Cache verlopen | Wist de sessiecache in Redis |
-| Foutieve aanlevering, Ontdubbeling | Losse scenario's; zie het runbook |
-| Veel magazijnen | Zet *k* van de *n* gegenereerde stub-magazijnen actief, of alle *n* weer aan; *n* ligt vast bij het draaien van `demo/genereer-magazijnen.py` |
+Vier tabbladen. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom, storingen en
+actieve stub-magazijnen — zodat je niet naar de toestand hoeft te vragen, en een melding met de
+uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ of ✗ vast.
+
+| Tabblad | Knop | Wat het doet |
+|---|---|---|
+| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo |
+| Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
+| Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json` |
+| Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek |
+| Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten |
+| Demo | Stroom starten / stoppen | Eén willekeurig bericht per interval; stopt vanzelf na 500 berichten of 60 minuten |
+| Storingen | Traag / Uit per proxy | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie |
+| Scenario's | Cache verlopen | Wist de sessiecache in Redis |
+| Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |
+| Scenario's | Veel magazijnen | Zet *k* van de *n* gegenereerde stub-magazijnen actief, of alle *n* weer aan; *n* ligt vast bij het draaien van `demo/genereer-magazijnen.py` |
+| Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
+
+Een refresh laat je staan waar je was: het paneel bewaart het actieve tabblad, de in-/uitgeklapte
+stand en de invoervelden in `sessionStorage`. Sluit je het tabblad, dan is het weg — een volgende
+demo begint schoon.
+
+De opmaak staat los van de proeftuin: een eigen tokenlaag (`--bediening-*`) in `bediening.css`, met
+de opbouw van NL Design System maar eigen waarden en een donkere chrome. Wie tijdens een demo
+meekijkt, moet het paneel niet aanzien voor het product dat ernaast in het frame staat.
 
 ## Configuratie
 

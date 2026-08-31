@@ -1,11 +1,43 @@
 package nl.rijksoverheid.moz.fbs.democonsole.storing
 
+import com.fasterxml.jackson.annotation.JsonValue
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.core.Response
+import java.util.logging.Logger
+
+/**
+ * Wat er op een proxy aanstaat. [ONBEKEND] is geen sierstand: bij een instantie die niet antwoordt
+ * of een geconfigureerde proxy die Toxiproxy niet kent, weten we juist níét wat er aanstaat. Dat
+ * als "normaal" tonen verbergt precies de misconfiguratie of uitval die je zoekt.
+ */
+enum class Storingstoestand(@get:JsonValue val waarde: String) {
+    NORMAAL("normaal"),
+    TRAAG("traag"),
+    UIT("uit"),
+    ONBEKEND("onbekend"),
+}
 
 /** Orkestreert de storingsknoppen naar Toxiproxy-admin-calls. */
 @ApplicationScoped
 class StoringService(private val register: ToxiproxyRegister) {
+
+    private val log = Logger.getLogger(StoringService::class.java.name)
+
+    /**
+     * Wat er nú per geconfigureerde proxy aanstaat. Het paneel toont dit doorlopend, zodat een
+     * blijven-staande storing zichtbaar is zonder ernaar te vragen — een demo loopt vaker stuk op
+     * een vergeten reset dan op een vergeten knop.
+     *
+     * Eén aanroep per instantie in plaats van per proxy, want dit wordt gepolld. Een instantie die
+     * niet antwoordt levert ONBEKEND voor uitsluitend zijn eigen proxies; de overige houden hun
+     * echte toestand.
+     */
+    fun status(): Map<String, Storingstoestand> =
+        register.namen()
+            .groupBy { register.client(it) }
+            .flatMap { (instantie, namen) -> toestanden(instantie, namen) }
+            .sortedBy { (naam, _) -> naam }
+            .toMap()
 
     fun traag(proxy: String, latencyMs: Int) {
         controleer(
@@ -66,6 +98,32 @@ class StoringService(private val register: ToxiproxyRegister) {
                 controleer(instantie.verwijderToxic(naam, toxic.name), "verwijderen toxic ${toxic.name} van $naam")
             }
         }
+    }
+
+    private fun toestanden(
+        instantie: ToxiproxyClient,
+        namen: List<String>,
+    ): List<Pair<String, Storingstoestand>> {
+        val uitkomst = runCatching { instantie.proxies() }
+
+        // Het paneel toont ONBEKEND, maar zonder deze regel is nergens meer terug te vinden of dat
+        // een weggevallen instantie, een timeout of een foutstatus was.
+        uitkomst.exceptionOrNull()?.let { fout ->
+            log.warning("Toxiproxy niet uit te lezen voor $namen: ${fout.message ?: fout::class.simpleName}")
+        }
+
+        val proxies = uitkomst.getOrNull() ?: return namen.map { it to Storingstoestand.ONBEKEND }
+
+        return namen.map { it to toestand(proxies[it]) }
+    }
+
+    // Uit wint van traag zodra beide gelden — na eerst traag en daarna uit indrukken suggereert
+    // "traag" dat er nog verkeer doorheen komt, en dat is de storing niet die je toont.
+    private fun toestand(status: ProxyStatus?): Storingstoestand = when {
+        status == null -> Storingstoestand.ONBEKEND
+        !status.enabled -> Storingstoestand.UIT
+        status.toxics.isNotEmpty() -> Storingstoestand.TRAAG
+        else -> Storingstoestand.NORMAAL
     }
 
     private fun controleer(response: Response, actie: String) {

@@ -26,7 +26,7 @@ waar die persona berichten van ontvangt (prioriteit 1, wint van de gedeelde catc
 |---|---|---|
 | J. Pietersen | BSN 999993653 | RVO `00000000000000100000` + Belastingdienst `00000001823288444000` |
 | Bakkerij De Vroege Vogel | BSN 999996666 | RVO `00000000000000100000` |
-| Garage Van Dijk B.V. | KVK 12345678 | Belastingdienst `00000001823288444000` |
+| Garage Van Dijk B.V. | KVK 90000014 | Belastingdienst `00000001823288444000` |
 
 Deze opt-ins sturen twee dingen: de aanlever-autorisatie in het magazijn én welke
 magazijnen de uitvraag per persona bevraagt (`ProfielMagazijnResolver`). Ze moeten daarom sporen met
