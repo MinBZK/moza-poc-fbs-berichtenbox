@@ -60,6 +60,28 @@ data class GedragVerzoek(
     val foutStatus: Int? = null,
 )
 
+/**
+ * Het gedrag van een reeks magazijnen tegelijk.
+ *
+ * Eén aanroep en niet honderd losse: een bedieningspaneel dat "zet er k van de honderd op storing"
+ * aanbiedt, zou anders bij elke klik honderd verzoeken doen — en dan is de knop trager dan de demo
+ * die hij moet ondersteunen.
+ */
+data class BulkGedragVerzoek(val aanpassingen: List<GedragAanpassing>)
+
+/** Eén regel uit [BulkGedragVerzoek]: welk magazijn, en welk gedrag. */
+data class GedragAanpassing(
+    val oin: String,
+    val modus: GedragModus,
+    val latencyP50Ms: Int? = null,
+    val latencyP95Ms: Int? = null,
+    val foutkans: Double? = null,
+    val foutStatus: Int? = null,
+)
+
+/** Wat er van een bulk-aanpassing terechtkwam. */
+data class BulkGedragUitkomst(val aangepast: Int, val onbekend: List<String>)
+
 /** Eén magazijn zoals het beheerpad het toont. */
 data class MagazijnOverzicht(
     val oin: String,

@@ -2,7 +2,7 @@
   "priority": 5,
   "request": {
     "method": "GET",
-    "urlPathPattern": "/api/profielservice/v1/KVK/12345678"
+    "urlPathPattern": "/api/profielservice/v1/KVK/90000003"
   },
   "response": {
     "status": 200,
@@ -10,7 +10,7 @@
       "Content-Type": "application/json"
     },
     "jsonBody": {
-      "partijId": 103,
+      "partijId": 105,
       "identificaties": [],
       "voorkeuren": [
         {

@@ -91,10 +91,28 @@ services:
     volumes:
       - ./demo/generated/proxies-host.json:/proxies.json:ro,z
 
-  magazijn-stubs:
+  # Vierde Postgres in dezelfde netns, dus ook die wijkt uit naar zijn eigen poort.
+  postgres-simulator:
     network_mode: host
     ports: !reset []
-    command: ["--bind-address", "127.0.0.1", "--port", "8092", "--verbose"]
+    healthcheck: !reset null
+    # De verbindingsgrens uit de basis blijft staan: `command` vervangt de hele lijst, dus wie hier
+    # alleen het luisteradres zet, zet Postgres ongemerkt terug op honderd verbindingen — en dan
+    # loopt de simulator bij een grote fan-out in dezelfde storing die die grens juist voorkomt.
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1", "-c", "max_connections=200"]
+    environment:
+      PGPORT: "5435"
+
+  magazijn-simulator:
+    network_mode: host
+    ports: !reset []
+    depends_on:
+      postgres-simulator:
+        condition: service_started
+    environment:
+      # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
+      QUARKUS_HTTP_HOST: 127.0.0.1
+      DB_JDBC_URL: jdbc:postgresql://127.0.0.1:5435/magazijnsimulator
 
   berichtenmagazijn-a:
     network_mode: host
@@ -185,4 +203,22 @@ services:
       MAGAZIJN_B_URL: http://127.0.0.1:8091
       MAGAZIJN_A_DB_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://127.0.0.1:5433/berichtenmagazijn
-      MAGAZIJN_STUBS_ADMIN_URL: http://127.0.0.1:8092
+      MAGAZIJN_SIMULATOR_URL: http://127.0.0.1:8092
+      # De console maakt de proxies zelf aan en zet ze elke reconcile-ronde terug (ProxyBootstrap).
+      # Zonder deze zes paren overschrijft ze in een gedeelde netns de definities uit
+      # demo/generated/proxies-host.json met de container-DNS-namen uit haar eigen defaults — namen
+      # die hier niet resolven. Dat is niet zichtbaar aan de start: Toxiproxy blijft gezond en de
+      # proxy-namen kloppen nog, alleen elke verbinding erdoorheen sterft. De uitvraag verliest dan
+      # Redis en meldt zich DOWN, minuten nadat de stack succesvol leek te starten.
+      TOXIPROXY_PROFIEL_LISTEN: 127.0.0.1:18089
+      TOXIPROXY_PROFIEL_UPSTREAM: 127.0.0.1:8089
+      TOXIPROXY_NOTIFICATIE_LISTEN: 127.0.0.1:18084
+      TOXIPROXY_NOTIFICATIE_UPSTREAM: 127.0.0.1:8084
+      TOXIPROXY_AANMELD_LISTEN: 127.0.0.1:18086
+      TOXIPROXY_AANMELD_UPSTREAM: 127.0.0.1:8086
+      TOXIPROXY_REDIS_LISTEN: 127.0.0.1:16379
+      TOXIPROXY_REDIS_UPSTREAM: 127.0.0.1:6379
+      TOXIPROXY_MAGAZIJN_A_LISTEN: 127.0.0.1:18090
+      TOXIPROXY_MAGAZIJN_A_UPSTREAM: 127.0.0.1:8090
+      TOXIPROXY_MAGAZIJN_B_LISTEN: 127.0.0.1:18091
+      TOXIPROXY_MAGAZIJN_B_UPSTREAM: 127.0.0.1:8091

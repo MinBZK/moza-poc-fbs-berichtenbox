@@ -25,11 +25,11 @@ ontwikkelen — tests, gates, linting, de services in dev-mode — zie [`ontwikk
 
 ## 2. Images bouwen (jib, geen Dockerfile)
 
-De demo draait de drie eigen services als container-image (`fbs-demo/…:demo`). Bouw ze met jib:
+De demo draait de vier eigen services als container-image (`fbs-demo/…:demo`). Bouw ze met jib:
 
 ```bash
 ./mvnw clean package -DskipTests \
-  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console -am \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/magazijn-simulator -am \
   -Dquarkus.container-image.build=true \
   -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo \
   -Dquarkus.jib.platforms=linux/arm64        # alleen op Apple Silicon
@@ -44,17 +44,18 @@ Na een codewijziging in één service volstaat dat ene `-pl services/<naam>` opn
 
 Eén getal `n` genereert het register, de profiel-stub en n WireMock-mappings in `demo/generated/`
 (git-ignored). Dezelfde env-var voedt het script én de demo-console — dus altijd samen exporteren.
-Alleen "veel magazijnen" (fase 6) gebruikt die stubs echt, maar de stap is onvoorwaardelijk: zonder
+De gesimuleerde magazijnen dragen de breedte van de demo, maar de stap is onvoorwaardelijk: zonder
 de gegenereerde bestanden start de uitvraag niet (zie de waarschuwing in §4):
 
 ```bash
-export DEMO_MAGAZIJN_STUBS=40
+export DEMO_MAGAZIJNEN=98
 python3 demo/genereer-magazijnen.py
 docker compose --profile demo up -d
 ```
 
-Wil je n wijzigen: pas `DEMO_MAGAZIJN_STUBS` aan, draai het script opnieuw, en herstart de
-uitvraag + stub-magazijnen (§8). Zonder Docker verandert er niets aan de rest van de stack.
+Wil je n wijzigen: pas `DEMO_MAGAZIJNEN` aan, draai het script opnieuw, en herstart de uitvraag +
+de simulator (§8). Onder de 98 weigert het script: de grootste ondernemer heeft honderd aangesloten
+organisaties, waarvan twee echt, en daar valt met minder niets van te bouwen.
 
 ---
 
@@ -65,9 +66,9 @@ Er zijn twee modi met dezelfde compose:
 | Commando | Wat draait | Wanneer |
 |---|---|---|
 | `docker compose up -d` | Alleen infra (Redis, de drie Postgres-instanties, WireMock-stubs) | **Ontwikkelen** — draai services zelf met `./mvnw quarkus:dev` (hot reload) |
-| `docker compose --profile demo up -d` | Alles: infra + de drie services + demo-console + Toxiproxy + stub-magazijnen | **Demo** |
+| `docker compose --profile demo up -d` | Alles: infra + de drie services + demo-console + Toxiproxy + de magazijn-simulator | **Demo** |
 
-> **Draai altijd eerst §3**, óók als je "veel magazijnen" niet demonstreert. `demo/generated/` is
+> **Draai altijd eerst §3**, óók als je de breedte niet demonstreert. `demo/generated/` is
 > git-ignored, dus na een verse checkout bestaat het niet. Compose maakt een ontbrekend mount-pad
 > zelf aan — als **directory**. `magazijnen-stubs.properties` wordt dan een map,
 > `SMALLRYE_CONFIG_LOCATIONS` wijst naar een map, de uitvraag start niet, en het generatiescript
@@ -79,6 +80,18 @@ Controleer de keten met een rookproef — aanleveren bij beide magazijnen en oph
 ```bash
 ./demo/smoke.sh
 ```
+
+Meten hoe lang een ondernemer op zijn berichten wacht, per aantal aangesloten organisaties:
+
+```bash
+demo/meet-fanout.sh 3        # drie ronden per ondernemer; uitvoer in /tmp/fanout-meting.tsv
+```
+
+Het script leest de SSE-stroom van de uitvraag mee en zet er een tijdstempel per regel op. Het geeft
+twee getallen per ondernemer: tijd tot het eerste bericht en tijd tot de lijst compleet is. De
+sessiecache wordt vóór elke ronde geleegd, anders meet de tweede ronde het cache-pad. De uitkomsten
+van de eerste meting staan in `docs/plans/2026-08-21-magazijn-simulator-design.md` onder
+"Meting (stap 6)"; die zijn met een volgende meting te vergelijken.
 
 Openen na start:
 - **Bedieningspaneel:** <http://localhost:8095/>
@@ -124,9 +137,9 @@ Twee beperkingen daarbij:
   authenticatie en zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
 
 Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
-controleert dat die de gestapelde bestanden aankan, controleert dat de drie demo-images gebouwd
+controleert dat die de gestapelde bestanden aankan, controleert dat de vier demo-images gebouwd
 zijn, genereert de stub-artefacten, en controleert na elke start dat elke container draait. Redis,
-de drie Postgres-instanties, de profiel-stub, de stub-magazijnen, Toxiproxy en de vier services
+de vier Postgres-instanties, de profiel-stub, de magazijn-simulator, Toxiproxy en de vijf services
 worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
 
 Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
@@ -180,7 +193,7 @@ docker compose -f compose.yaml -f compose.podman.yaml --profile demo down
 | demo-console | 8095 | Bedieningspaneel + Berichtenbox-UI |
 | berichtenuitvraag | 8086 | Ophalen/tonen/beheren van berichten |
 | berichtenmagazijn-a / -b | 8090 / 8091 | Twee echte magazijnen (RVO / Belastingdienst) |
-| magazijn-stubs | 8092 | Eén WireMock met n pad-gebaseerde stub-magazijnen (`/mNN`) |
+| magazijn-simulator | 8092 | Eén service die n gesimuleerde magazijnen bedient, elk op `/magazijn/<OIN>`; slaat echt op en kan per magazijn traag, haperend of onbereikbaar zijn |
 | magazijn-a / -b (WireMock) | 8081 / 8082 | Overblijfsel-stubs; starten óók zonder `--profile demo`, maar niets bevraagt ze |
 | toxiproxy | 8474 (admin) | Netwerkstoringen tussen uitvraag/magazijn en afhankelijkheden |
 | profiel-service | 8089 | Profiel-stub (welke magazijnen per persona) |
@@ -204,8 +217,9 @@ in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
 |---|---|---|
 | J. Pietersen | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
 | Bakkerij De Vroege Vogel | BSN `999996666` | RVO |
-| Garage Van Dijk B.V. | KVK `12345678` | Belastingdienst |
-| Grootbedrijf B.V. | KVK `90000001` | n stub-magazijnen (fase 6) |
+| Garage Van Dijk B.V. | KVK `12345678` | 15 organisaties: A, B en 13 gesimuleerde |
+| Grootbedrijf B.V. | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
+| Landelijk Concern N.V. | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
 
 Welke magazijnen een persona bevraagt, bepaalt de profiel-stub (opt-in per afzender-OIN). Kies een
 persona, klik **Ophalen** (start de sessie + haalt op), daarna **Vernieuw** (leest alleen de cache).
@@ -267,14 +281,14 @@ van klonen. Op een preview raakt legen alleen die preview.
 | Wat je wijzigde | Wat nodig is |
 |---|---|
 | Kotlin/resources in een service | jib-rebuild van dat image (§2, `-pl services/<naam>`) → `docker compose --profile demo up -d <service>` |
-| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJN_STUBS` | Regenereer (§3) → `docker compose --profile demo up -d --force-recreate magazijn-stubs berichtenuitvraag` |
+| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | Regenereer (§3) → `docker compose --profile demo up -d --force-recreate magazijn-simulator berichtenuitvraag` |
 | `compose.yaml` (env/mount) | `docker compose --profile demo up -d --force-recreate <service>` (geen rebuild) |
 | `toxiproxy/proxies.json` | `docker compose --profile demo up -d --force-recreate toxiproxy` |
 | WireMock-mappings onder `wiremock/magazijn-a/` of `-b/` | `docker compose restart magazijn-a` (of `-b`) — raakt de demo niet; die containers worden door niets bevraagd |
 
 De uitvraag leest het stub-register uit een gemount bestand (`SMALLRYE_CONFIG_LOCATIONS`) bij boot —
 regenereren vraagt dus een uitvraag-herstart. WireMock laadt mappings alleen bij startup, dus
-magazijn-stubs herstarten na regenereren.
+de simulator herstarten na regenereren.
 
 ---
 
@@ -310,9 +324,9 @@ Na een storingsscenario altijd *Alles normaal (reset)* (Storingen-sectie) en voo
 ## 10. Valkuilen
 
 - **Genereer vóór `up`** voor veel-magazijnen; anders zijn de mounts leeg (geen stubs/register).
-- **`export DEMO_MAGAZIJN_STUBS=N`** voedt script én console; laat ze niet uiteenlopen (anders klopt
+- **`export DEMO_MAGAZIJNEN=N`** voedt het script; de console vraagt het aantal aan de simulator zelf (anders klopt
   de k-schuif niet met het aantal magazijnen).
-- **Bulkhead** staat in de demo op 60 (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`). Bij
+- **Bulkhead** staat in de demo op 120 (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`). Bij
   n > 60 wijst de uitvraag de overtollige magazijn-calls direct af als "systeem druk" (OVERBELAST) —
   dat is bewust fail-fast-gedrag, geen bug.
 - **Demo-cache-TTL is 2 minuten.** Pauzeer je langer tussen Ophalen en een vervolgactie, dan is de
@@ -320,3 +334,13 @@ Na een storingsscenario altijd *Alles normaal (reset)* (Storingen-sectie) en voo
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.
 - **Twee keer vullen zonder legen** geeft dubbele berichten (het magazijn kent eigen ID's toe) —
   daarom eerst *Magazijnen legen*.
+- **Na een reset loopt de Berichtenbox een halve minuut achter.** Zet je een organisatie terug op
+  normaal — met *Alles normaal (reset)* of *Legen en gedrag terugzetten* — dan staat het magazijn
+  meteen goed (controleer met *Toon magazijnen en hun gedrag*), maar meldt de Berichtenbox hem nog
+  even als *tijdelijk niet beschikbaar*. De uitvraag houdt per organisatie bij hoe vaak die achter
+  elkaar stukging en slaat hem na drie storingen 30 seconden over
+  (`berichtensessiecache.magazijn-circuit.open-seconds`), zodat één kapotte leverancier niet elke
+  ophaalronde ophoudt. Die teller zit in de uitvraag en niet in het magazijn, dus geen enkele knop
+  bereikt hem: wachten is de enige weg, en het paneel zegt dat ook bij de uitkomst van de knop. Wil
+  je in een demo sneller herstellen, zet die instelling dan lager in `compose.yaml` — met als prijs
+  dat een echt kapotte organisatie ook eerder opnieuw wordt bevraagd.

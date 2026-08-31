@@ -49,6 +49,39 @@ class BeheerService(
     }
 
     /**
+     * Stelt het gedrag van een reeks magazijnen bij. Onbekende OIN's worden overgeslagen en
+     * teruggemeld in plaats van de hele aanroep te laten falen: bij een lijst van honderd is
+     * doorgaan-en-zeggen-wat-er-niet-kon bruikbaarder dan stoppen bij de eerste.
+     *
+     * De waardes worden wél allemaal vooraf getoetst. Een ongeldige regel halverwege zou anders een
+     * half doorgevoerde lijst achterlaten, en dan weet de aanroeper niet meer wat er staat.
+     */
+    fun zetGedragInBulk(verzoek: BulkGedragVerzoek): BulkGedragUitkomst {
+        val gewenst = verzoek.aanpassingen.map { aanpassing ->
+            aanpassing.oin to bouwGedrag(
+                GedragVerzoek(
+                    modus = aanpassing.modus,
+                    latencyP50Ms = aanpassing.latencyP50Ms,
+                    latencyP95Ms = aanpassing.latencyP95Ms,
+                    foutkans = aanpassing.foutkans,
+                    foutStatus = aanpassing.foutStatus,
+                ),
+            )
+        }
+
+        val onbekend = mutableListOf<String>()
+        var aangepast = 0
+
+        gewenst.forEach { (oin, gedrag) ->
+            if (magazijnen.stelGedragBij(oin, gedrag)) aangepast++ else onbekend += oin
+        }
+
+        log.infof("Gedrag van %d magazijn(en) bijgesteld; %d onbekend", aangepast, onbekend.size)
+
+        return BulkGedragUitkomst(aangepast = aangepast, onbekend = onbekend)
+    }
+
+    /**
      * Bouwt het gevraagde gedrag, met de standaardwaardes van de modus voor wat het verzoek weglaat.
      *
      * De grenzen worden hier als invoer getoetst en niet aan [Gedrag] overgelaten. Dat type bewaakt

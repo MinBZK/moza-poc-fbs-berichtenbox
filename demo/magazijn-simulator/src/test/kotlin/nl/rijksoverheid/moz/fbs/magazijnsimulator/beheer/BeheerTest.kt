@@ -196,6 +196,56 @@ class BeheerTest : MagazijnTestBasis() {
             .body("latencyP95Ms", greaterThan(0))
     }
 
+    /**
+     * Eén aanroep voor een hele reeks. Een bedieningspaneel dat "zet er k van de honderd op storing"
+     * aanbiedt, zou anders bij elke klik honderd verzoeken doen — en dan is de knop trager dan de
+     * demo die hij moet ondersteunen.
+     */
+    @Test
+    fun `het gedrag van meerdere magazijnen is in één aanroep bij te stellen`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {"aanpassingen": [
+                  {"oin": "$MAGAZIJN", "modus": "STUK"},
+                  {"oin": "$TWEEDE_MAGAZIJN", "modus": "TRAAG"}
+                ]}
+                """.trimIndent(),
+            )
+            .`when`().put("/beheer/gedrag")
+            .then()
+            .statusCode(200)
+            .body("aangepast", equalTo(2))
+            .body("onbekend", hasSize<Any>(0))
+
+        given().header(ONTVANGER_HEADER, ONTVANGER).`when`().get("$BASIS/berichten").then().statusCode(503)
+    }
+
+    /**
+     * Doorgaan en melden wat er niet kon, in plaats van stoppen bij de eerste. Bij een lijst van
+     * honderd is een aanroep die halverwege afbreekt onbruikbaarder dan een die zegt welke twee hij
+     * niet kende.
+     */
+    @Test
+    fun `een onbekende OIN in een bulk-aanpassing wordt gemeld en houdt de rest niet tegen`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {"aanpassingen": [
+                  {"oin": "$MAGAZIJN", "modus": "TRAAG"},
+                  {"oin": "00000009000000009999", "modus": "STUK"}
+                ]}
+                """.trimIndent(),
+            )
+            .`when`().put("/beheer/gedrag")
+            .then()
+            .statusCode(200)
+            .body("aangepast", equalTo(1))
+            .body("onbekend", contains("00000009000000009999"))
+    }
+
     @Test
     fun `het gedrag van een onbekend magazijn bijstellen levert 404 problem+json`() {
         given()

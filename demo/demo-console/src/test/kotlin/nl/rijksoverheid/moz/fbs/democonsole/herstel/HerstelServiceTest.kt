@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoStatus
@@ -24,8 +25,16 @@ class HerstelServiceTest {
     private val magazijnDatabase = mockk<MagazijnDatabase>()
     private val basisdataset = mockk<Basisdataset>()
     private val aanleverService = mockk<AanleverService>()
+    private val simulatorService = mockk<SimulatorService>()
 
-    private val service = HerstelService(tempoService, storingService, magazijnDatabase, basisdataset, aanleverService)
+    private val service = HerstelService(
+        tempoService,
+        storingService,
+        magazijnDatabase,
+        basisdataset,
+        aanleverService,
+        simulatorService,
+    )
 
     private fun alleStappenSlagen() {
         every { tempoService.stop() } returns TempoStatus(false, 0, 0)
@@ -33,6 +42,9 @@ class HerstelServiceTest {
         every { magazijnDatabase.leegAlles() } returns mapOf("magazijn-a" to 20, "magazijn-b" to 20)
         every { basisdataset.laad() } returns emptyList()
         every { aanleverService.leverAan(any()) } returns AanleverResultaat(40, 40, 0, 0)
+        every { simulatorService.herstel() } returns mapOf("berichten" to 2000, "magazijnen" to 98)
+        every { simulatorService.vulStandaard() } returns
+            nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 7840, 1960, 0, 500)
     }
 
     @Test
@@ -46,8 +58,10 @@ class HerstelServiceTest {
         verifyOrder {
             tempoService.stop()
             storingService.reset()
+            simulatorService.herstel()
             magazijnDatabase.leegAlles()
             aanleverService.leverAan(any())
+            simulatorService.vulStandaard()
         }
     }
 
@@ -58,6 +72,12 @@ class HerstelServiceTest {
         val resultaat = service.herstel()
 
         assertEquals(mapOf("magazijn-a" to 20, "magazijn-b" to 20), resultaat.geleegd)
+        // De gesimuleerde magazijnen horen er net zo goed bij: zonder dat toont de demo na een
+        // herstel nog steeds honderd gevulde organisaties.
+        assertEquals(mapOf("berichten" to 2000, "magazijnen" to 98), resultaat.gesimuleerd)
+        // Herstel belooft "terug naar vlak na de eerste basisvulling"; dan horen de gesimuleerde
+        // magazijnen ook weer gevuld te zijn, anders staat de fan-out-demo op nul berichten.
+        assertEquals(7840, resultaat.gesimuleerdGevuld)
         assertEquals(40, resultaat.vulling.geslaagd)
     }
 
