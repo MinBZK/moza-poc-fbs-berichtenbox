@@ -140,7 +140,15 @@ class FoutMappersTest {
         val detail = (ConstraintViolationExceptionMapper().toResponse(schendingen(*veel.toTypedArray())).entity as Problem).detail
 
         assertTrue(detail.length <= MAX_DETAIL, "detail was ${detail.length} tekens")
-        assertFalse(detail.contains("veld500"), "de laatste schendingen horen niet meer mee te komen")
+
+        // Op het aantal en niet op een specifiek veld: `ConstraintViolationException` bewaart de
+        // schendingen in een `Set`, dus wélke er overblijven ligt niet vast. Een assertie dat juist
+        // `veld500` wegviel is daarmee een muntworp die af en toe rood wordt zonder dat er iets stuk
+        // is. Twee grenzen werken hier samen — hooguit vijftig schendingen worden verwerkt en het
+        // detail wordt op tekens afgekapt — en die tweede is bindend: er past maar een handvol in.
+        val teruggekomen = detail.split("; ").size
+
+        assertTrue(teruggekomen <= 20, "er kwamen $teruggekomen schendingen terug van de 500")
     }
 
     @Test
