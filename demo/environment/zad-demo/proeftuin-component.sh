@@ -78,6 +78,7 @@ fi
 
 UITVRAAG_HOST="uitvraag-\$DEPLOYMENT_NAME-${PROJECT_UITVRAAG}.${BASE_DOMAIN}"
 PERSONAS_HOST="demopersonas-\$DEPLOYMENT_NAME-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}"
+CONSOLE_HOST="democonsole-\$DEPLOYMENT_NAME-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}"
 PROEFTUIN_HOST="proeftuin-\$DEPLOYMENT_NAME-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}"
 
 echo "== ${PROJECT_MAGAZIJNEN}, deployment ${DEPLOYMENT}"
@@ -114,9 +115,10 @@ component_add demopersonas \
     --port 8098 \
     --service publish-on-web
 
-# Vier aliassen en niet twee: de nginx van de proeftuin proxyt /api/v1/ naar de uitvraag en
-# /api/demo/ naar de personadienst, en de ingress ervóór routeert op de Host-header. De browser-host
-# doorgeven levert daar de verkeerde bestemming op, dus de servernaam gaat apart mee.
+# Zes aliassen: de nginx van de proeftuin proxyt /api/v1/ naar de uitvraag, /api/demo/personas naar
+# de personadienst en de rest van /api/demo/ naar het paneel, en de ingress ervóór routeert op de
+# Host-header. De browser-host doorgeven levert daar de verkeerde bestemming op, dus de servernaam
+# gaat per bestemming apart mee.
 #
 # Geen authorization-wall: die staat op het paneel, waar de legen-knop op zit. De berichtenbox
 # leest alleen, en leest bij een uitvraag die hier toch al publiek bereikbaar is. Een muur zou hem
@@ -125,21 +127,47 @@ component_add proeftuin \
     --image "$IMAGE" \
     --deployment "$DEPLOYMENT" \
     --port 8080 \
-    --service publish-on-web \
-    --aliases "
-BACKEND_KETEN: https://${UITVRAAG_HOST}
-BACKEND_KETEN_HOST: ${UITVRAAG_HOST}
-BACKEND_DEMO: https://${PERSONAS_HOST}
-BACKEND_DEMO_HOST: ${PERSONAS_HOST}
-"
+    --service publish-on-web
+
+# Apart van het aanmaken en niet als `--aliases`: config bij creatie geldt alleen voor een component
+# dat nog niet bestaat, en dit script draait juist ook op omgevingen die er al staan. Verschuift er
+# een variabelenaam aan de kant van de proeftuin, dan trekt een tweede aanroep hem hiermee recht.
+alias_zet() {
+    local component="$1"
+    shift
+
+    # `add` is POST en weigert een bestaande sleutel; `set` is PATCH en weigert een nieuwe. Geen van
+    # beide is dus op zichzelf idempotent — vandaar per sleutel de vorm die past bij wat er staat.
+    local bestaand
+    bestaand="$(zadctl alias list --component "$component" -o json)" || {
+        echo "kon de aliassen van '$component' niet lezen; zie de melding hierboven" >&2
+        exit 1
+    }
+
+    local paar naam
+    for paar in "$@"; do
+        naam="${paar%%=*}"
+
+        if printf '%s' "$bestaand" | grep -q "\"$naam\":"; then
+            zadctl alias set --component "$component" "$paar" "${DROOG[@]}"
+        else
+            zadctl alias add --component "$component" "$paar" "${DROOG[@]}"
+        fi
+    done
+}
+
+alias_zet proeftuin \
+    "BACKEND_KETEN=https://${UITVRAAG_HOST}" \
+    "BACKEND_KETEN_HOST=${UITVRAAG_HOST}" \
+    "BACKEND_PERSONAS=https://${PERSONAS_HOST}" \
+    "BACKEND_PERSONAS_HOST=${PERSONAS_HOST}" \
+    "BACKEND_DEMO=https://${CONSOLE_HOST}" \
+    "BACKEND_DEMO_HOST=${CONSOLE_HOST}"
 
 # Het paneel toetst dit adres niet vooraf: een HEAD naar een ander component strandt op CORS, en
 # die uitkomst is niet van onbereikbaar te onderscheiden. Staat de alias fout, dan blijft het frame
 # dus leeg zonder dat iets dat meldt.
-# `set` en niet `add`: `add` weigert een sleutel die er al staat ("Bestaat al"), en dan faalt een
-# tweede aanroep van dit script op een omgeving die al half is ingericht.
-zadctl alias set --component democonsole \
-    "BERICHTENBOX_URL=https://${PROEFTUIN_HOST}/moza/berichtenbox/" "${DROOG[@]}"
+alias_zet democonsole "BERICHTENBOX_URL=https://${PROEFTUIN_HOST}/moza/berichtenbox/"
 
 if [ "$MODE" = "plan" ]; then
     echo

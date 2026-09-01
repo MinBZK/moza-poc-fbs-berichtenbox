@@ -568,14 +568,20 @@ aliassen zijn los bij te werken.
 
 ```bash
 zadctl alias set --component proeftuin \
-  'BACKEND_DEMO=https://demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl' \
-  'BACKEND_DEMO_HOST=demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl'
+  'BACKEND_PERSONAS=https://demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl' \
+  'BACKEND_PERSONAS_HOST=demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl'
 ```
 
 `set` en niet `add`: `add` weigert een sleutel die er al staat, en die staat er hier per definitie.
 
-Waarom vier aliassen en niet twee: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag en
-`/api/demo/` naar de personadienst, en de ingress ervóór routeert op de Host-header. De browser-host
+`BACKEND_PERSONAS` en niet `BACKEND_DEMO`: de proeftuin kent sinds hun splitsing een eigen variabele
+voor de testaccountlijst, en `BACKEND_DEMO` blijft naar het bedieningspaneel wijzen. Er ís een
+terugval van de eerste op de tweede, maar daarop leunen zou het paneel onbereikbaar maken voor alles
+wat niet de personalijst is.
+
+Waarom zes aliassen en niet drie: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag,
+`/api/demo/personas` naar de personadienst en de rest van `/api/demo/` naar het paneel, en de
+ingress ervóór routeert op de Host-header. De browser-host
 doorgeven levert daar de verkeerde bestemming op, dus de `*_HOST`-variant zet de servernaam apart.
 
 Die twee paden hebben een eigen bestemming nodig omdat de catch-all `/api/` een leestijdslimiet van

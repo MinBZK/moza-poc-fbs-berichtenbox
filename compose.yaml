@@ -425,15 +425,17 @@ services:
       # Alleen in gebruik wanneer de container rechtstreeks op 8096 benaderd wordt; via de
       # demo-proxy onderschept die /api/ al vóór het de container bereikt.
       #
-      # De proeftuin-nginx splitst het keten-verkeer per prefix: /api/v1/ naar de uitvraag en
-      # /api/demo/ naar de personadienst. Nodig omdat de catch-all /api/ een leestijdslimiet van
-      # zestig seconden draagt: een ophaalronde langs tientallen magazijnen ligt langer stil dan dat
-      # en wordt daar middenin afgekapt. Zonder deze twee komt /api/demo/ bij de uitvraag uit.
+      # De proeftuin-nginx splitst het verkeer per prefix: /api/v1/ naar de uitvraag,
+      # /api/demo/personas naar de personadienst en de rest van /api/demo/ naar het paneel. Nodig
+      # omdat de catch-all /api/ een leestijdslimiet van zestig seconden draagt: een ophaalronde
+      # langs tientallen magazijnen ligt langer stil dan dat en wordt daar middenin afgekapt.
       #
-      # Naar de personadienst en niet naar het paneel: dat beantwoordt /api/demo/personas niet meer.
-      # Dezelfde bestemming als op ZAD, zodat de route hier hetzelfde loopt als daar.
+      # BACKEND_PERSONAS apart en niet via de terugval op BACKEND_DEMO: die terugval bestaat voor
+      # opstellingen van vóór de splitsing, en erop leunen zou het paneel onbereikbaar maken voor
+      # alles wat niet de personalijst is.
       BACKEND_KETEN: http://berichtenuitvraag:8086
-      BACKEND_DEMO: http://demo-personas:8098
+      BACKEND_PERSONAS: http://demo-personas:8098
+      BACKEND_DEMO: http://demo-console:8095
       # Geen BACKEND_*_HOST: die zet de Host-header apart voor een ingress die daarop routeert.
       # Lokaal routeert niets op Host en is er geen TLS, dus de eigen host doorgeven volstaat.
       BACKEND_ORIGIN: http://berichtenuitvraag:8086
