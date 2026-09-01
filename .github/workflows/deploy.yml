@@ -492,8 +492,9 @@ jobs:
           docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
 
-  # De twee demo-modules met een eigen image: het bedieningspaneel en de magazijn-simulator. Allebei
-  # componenten van `test` in het magazijnen-project, dus ze rollen mee met de rest van de keten,
+  # De drie demo-modules met een eigen image: het bedieningspaneel, de personadienst en de
+  # magazijn-simulator. Alle drie componenten van `test` in het magazijnen-project, dus ze rollen
+  # mee met de rest van de keten,
   # previews inbegrepen. De job hangt aan `run` en niet aan `deploy`: `run` is de ruimere uitkomst
   # van de twee, dus een PR die de uitrol niet raakt bouwt de images tóch en laat een kapotte
   # jib-configuratie vallen vóór de merge. Omdat `deploy=true` altijd `run=true` impliceert, is deze
@@ -530,7 +531,7 @@ jobs:
           QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./mvnw -B package -DskipTests \
-            -pl demo/demo-console,demo/magazijn-simulator -am \
+            -pl demo/demo-console,demo/demo-personas,demo/magazijn-simulator -am \
             -Dquarkus.container-image.build=true \
             -Dquarkus.container-image.push=true \
             -Dquarkus.container-image.registry="$REGISTRY" \
@@ -874,6 +875,7 @@ jobs:
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
+              {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
               {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
             ]
 
@@ -1025,6 +1027,7 @@ jobs:
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
+              {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
               {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
             ]
 
