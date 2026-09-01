@@ -1,8 +1,8 @@
 # De magazijn-simulator op ZAD
 
-**Status: §1 tot en met §4 zijn op 2026-08-31 uitgevoerd voor de deployment `test`.** Wat er nog
-open staat, staat onderaan. De commando's hieronder zijn dus geen voornemen meer maar een verslag —
-op §5 na, die op het stubs-image wacht.
+**Status: §1 tot en met §5 zijn uitgevoerd** — §1 tot en met §4 op 2026-08-31 voor de deployment
+`test`, §5 op 2026-09-01 in de deploy-workflow. Wat er nog open staat, staat onderaan. De commando's
+hieronder zijn dus geen voornemen meer maar een verslag.
 
 Deze stap (MinBZK/MijnOverheidZakelijk#1013) wachtte op MinBZK/MijnOverheidZakelijk#936; dat issue is
 gesloten, dus die volgorde staat niets meer in de weg.
@@ -214,14 +214,25 @@ knoppen staan er, en elke druk levert een 401 uit de simulator.
 
 ## 5. De vier ondernemers
 
-De profiel-stubs van de vier ondernemers (`demo/generated/profiel/ondernemer-*.json`) horen in het
-`fbs-externe-stubs`-image; het generatiescript draait dan in CI vóór `docker build`, met het aantal
-magazijnen uit een repository-variable. Zo blijft de fan-out van de gedeelde omgeving gelijk aan die
-van een laptop zonder dat er per organisatie handwerk bij komt.
+De profiel-stubs van de vier ondernemers (`demo/generated/profiel/ondernemer-*.json`) zitten in het
+`fbs-demo-profiel`-image — niet in het gedeelde `fbs-externe-stubs`, want de persona's dragen
+elfproef-geldige nummers en dat image staat alleen ongeldige toe. De stap `Build + push
+externe-stubs` in `deploy.yml` draait het generatiescript vóór `docker build`, kopieert de vier
+bestanden naar de build-context (`wiremock/demo-profiel/generated/`, gitignored op de `.gitkeep` na)
+en controleert daarna op het draaiende image dat Landelijk Concern werkelijk 100 organisaties
+teruggeeft. Zo blijft de fan-out van de gedeelde omgeving gelijk aan die van een laptop, zonder
+handwerk per organisatie.
 
 Die stubs hebben voorrang 1 en winnen daarmee van de handgeschreven persona-stubs (voorrang 5), die
 alleen de twee echte magazijnen dragen. Dat blijft zo: zonder gegenereerde stubs werkt de demo nog
 steeds, met een fan-out van twee.
+
+**Het aantal komt niet uit een repository-variable, maar uit de default van het script (98).** Dat
+getal zit vast aan de twee attachments uit §2 en §3, die met de hand geüpload zijn en met hetzelfde
+script gegenereerd. Een afwijkend getal in CI levert profielen met scopes naar magazijnen die de
+simulator niet kent; de uitvraag slaat die stil over, en de demo draait door met een fan-out die
+niemand heeft ingesteld. Wie het getal verandert, regenereert en heruploadt dus ook beide
+attachments.
 
 ## 6. Netwerkregels
 
@@ -252,10 +263,6 @@ via `clone-from: test`.
 
 ## Wat er nog open staat
 
-- **§5, de vier ondernemers.** De persona-mappings moeten in het `fbs-externe-stubs`-image gebakken
-  worden. Zolang dat niet gebeurd is, kennen de persona's op de gedeelde omgeving alleen de twee
-  echte magazijnen: het register is er dan wel, maar niemands profiel verwijst naar de gesimuleerde
-  magazijnen. De demo werkt, alleen de fan-out ontbreekt.
 - **De eerste uitrol afwachten en verifiëren.** Het component is gedefinieerd maar draait nog niet;
   `zadctl deployment describe test` toont hem pas nadat de deploy-workflow een image heeft geleverd.
   Breid `verify-zad.md` daarna uit met de fan-out: vier ondernemers, 3 / 15 / 45 / 100 organisaties,

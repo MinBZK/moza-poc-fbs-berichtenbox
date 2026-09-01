@@ -205,12 +205,16 @@ verwacht "demo-module met een eigen image kost wél een uitrol" \
 
 verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' "$DEMO_STACK"
 
-# Het derde alternatief van DEMO_BUITEN_UITROLPOORT (`^demo/[^/]*\.(sh|py)$`) dekt de scripts die de
-# demo-stack aansturen. Zonder deze twee fixtures kon het compleet verdwijnen — of tot één
-# extensie versmallen — zonder dat er iets rood werd.
+# Het derde alternatief van DEMO_BUITEN_UITROLPOORT (`^demo/[^/]*\.sh$`) dekt de scripts die de
+# demo-stack aansturen. Zonder deze fixture kon het compleet verdwijnen zonder dat er iets rood werd.
 verwacht "een shellscript direct onder demo/" 'demo/smoke.sh' "$DEMO_STACK"
 
-verwacht "de magazijn-generator direct onder demo/" 'demo/genereer-magazijnen.py' "$DEMO_STACK"
+# En de tegenhanger: het generatiescript schrijft de ondernemer-stubs die in het
+# fbs-demo-profiel-image gebakken worden, dus het valt júist niet onder de uitsluiting. Terugzetten
+# van het py-alternatief laat een gewijzigde fan-out zonder preview door — de check meldt dan groen
+# over een stub van een oudere tag.
+verwacht "de magazijn-generator voedt een image en kost wél een uitrol" \
+  'demo/genereer-magazijnen.py' "$DEMO_MET_IMAGE"
 
 # `[^/]*` steekt geen slash over en de extensielijst is kort: allebei bewust, zodat onbekende
 # demo-paden aan de bouwende kant vallen in plaats van stil overgeslagen te worden.
@@ -444,9 +448,6 @@ fi
 
 compgen -G "$REPO_ROOT/demo/*.sh" >/dev/null \
   || fout "geen *.sh direct onder demo/; het sh-alternatief in DEMO_BUITEN_UITROLPOORT is dode letter"
-
-compgen -G "$REPO_ROOT/demo/*.py" >/dev/null \
-  || fout "geen *.py direct onder demo/; het py-alternatief in DEMO_BUITEN_UITROLPOORT is dode letter"
 
 # De uitsluiting legt vast dat deze paden geen image voeden dat aan de uitrolpoort hangt. Dat is
 # handwerk, dus het kan verlopen: zodra een demo-module in de build-matrix van deploy.yml staat,

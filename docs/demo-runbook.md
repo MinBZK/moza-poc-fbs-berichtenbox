@@ -252,7 +252,7 @@ in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
 
 | Persona | Identificatie | Bevraagt |
 |---|---|---|
-| J. Pietersen | BSN `999993653` | RVO + Belastingdienst (beide echte magazijnen) |
+| J. Pietersen | BSN `999993653` | 3 organisaties: A, B en 1 gesimuleerde |
 | Bakkerij De Vroege Vogel | BSN `999996666` | RVO |
 | Garage Van Dijk B.V. | KVK `90000014` | 15 organisaties: A, B en 13 gesimuleerde |
 | Grootbedrijf B.V. | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |

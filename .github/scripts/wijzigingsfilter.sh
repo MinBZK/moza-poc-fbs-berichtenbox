@@ -60,8 +60,13 @@ UITROL_RELEVANT='deploy'
 # paden die wél een image voeden — zou een vergeten pad juist een overgeslagen build opleveren, en
 # dat is precies de stille faalwijze die dit script moet uitsluiten.
 #
+# Alleen shellscripts direct onder demo/, en niet meer elk script: genereer-magazijnen.py schrijft de
+# ondernemer-stubs die in het fbs-demo-profiel-image gebakken worden. Een wijziging aan de fan-out
+# hoort dus een preview te kopen — anders draait die preview een stub van een oudere tag en bewijst
+# de groene check niets over de wijziging.
+#
 # demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.
-DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/[^/]*\.(sh|py)$'
+DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/[^/]*\.sh$'
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.

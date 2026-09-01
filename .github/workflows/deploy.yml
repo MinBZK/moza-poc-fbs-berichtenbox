@@ -394,8 +394,56 @@ jobs:
           # wiremock/demo-profiel/Dockerfile voor waarom die niet in het gedeelde image passen.
           # Eén job, want het demo-image layert op de mappings van het gedeelde image: los
           # bouwen zou ze uit elkaar kunnen laten lopen zonder dat iets dat merkt.
+          #
+          # De vier ondernemers met hun volledige fan-out komen uit het generatiescript. Lokaal
+          # bind-mount compose die map; hier moeten ze het image in, anders kent elke persona op de
+          # gedeelde omgeving alleen de twee echte magazijnen. Geen SIMULATOR_URL: de
+          # ondernemer-stubs dragen alleen OIN's, geen adressen. Ook geen eigen aantal — de default
+          # van het script (98) is hetzelfde getal als waarmee de twee ZAD-attachments
+          # (magazijn-simulator-set, magazijnen-register) gegenereerd zijn, en een profiel dat naar
+          # een niet-bestaand magazijn wijst wordt door de uitvraag stil overgeslagen.
+          python3 demo/genereer-magazijnen.py
+          mkdir -p wiremock/demo-profiel/generated
+          # Eerst leegmaken: hernoemt iemand een ondernemer, dan zou de oude naam in een werkkopie
+          # blijven staan en als extra mapping met dezelfde voorrang meegaan. In CI is de checkout
+          # schoon, maar dezelfde regels draaien met de hand.
+          rm -f wiremock/demo-profiel/generated/*.json
+          cp demo/generated/profiel/ondernemer-*.json wiremock/demo-profiel/generated/
+
+          # Hardop falen in plaats van terugvallen op een fan-out van twee: dat is precies de
+          # stille faalwijze die deze stap opheft.
+          gegenereerd=$(find demo/generated/profiel -name 'ondernemer-*.json' | wc -l)
+          gekopieerd=$(find wiremock/demo-profiel/generated -name 'ondernemer-*.json' | wc -l)
+
+          if [ "$gegenereerd" -eq 0 ] || [ "$gegenereerd" -ne "$gekopieerd" ]; then
+            echo "::error::$gegenereerd ondernemer-stubs gegenereerd, $gekopieerd in de build-context beland."
+            exit 1
+          fi
+
           DEMO_IMG="$REGISTRY/$OWNER/fbs-demo-profiel:$TAG"
           docker build -t "$DEMO_IMG" -f wiremock/demo-profiel/Dockerfile wiremock
+
+          # Het artefact zelf toetsen, niet de bestanden ernaartoe: dit is de enige plek waar de
+          # voorrang tussen de handgeschreven persona's (5) en de gegenereerde ondernemers (1)
+          # werkelijk uitkomt. Landelijk Concern is de grootste van de vier en dus de scherpste
+          # controle.
+          docker run -d --rm --name profiel-controle -p 8089:8080 "$DEMO_IMG"
+
+          for _ in $(seq 30); do
+            curl -sf http://localhost:8089/__admin/mappings >/dev/null && break
+            sleep 1
+          done
+
+          scopes=$(curl -sf http://localhost:8089/api/profielservice/v1/KVK/90000003 \
+            | jq '.voorkeuren[0].scopes | length' || echo 0)
+          docker rm -f profiel-controle >/dev/null || true
+
+          if [ "$scopes" != "100" ]; then
+            echo "::error::Landelijk Concern geeft $scopes organisaties in plaats van 100; de gegenereerde stubs zitten niet in het image of verliezen op voorrang."
+            exit 1
+          fi
+
+          echo "Fan-out geverifieerd: Landelijk Concern kent $scopes organisaties."
           docker push "$DEMO_IMG"
 
   # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
