@@ -210,19 +210,50 @@ Wat je eraan afleest:
 | Wordt er gewacht, en hoe lang? | `wachtend` is de rij op dit moment; de drie wachttijden zeggen hoe erg het was |
 | Is de pool zelf de grens? | `van max` — het ingestelde maximum, tegenover wat de database toelaat |
 
-Twee knoppen:
+### En per connection
 
-```properties
-magazijnsimulator.pool.log-interval=5s   # `off` zet de regel uit (POOL_LOG_INTERVAL)
-quarkus.log.category."io.agroal.pool".level=TRACE   # elke acquire/creatie/teruggave apart
+Daarnaast staat de eigen gebeurtenislog van Agroal aan, op `TRACE`:
+
+```
+TRACE [io.agroal.pool] Datasource '<default>': Created connection org.postgresql.jdbc.PgConnection@daee56e
+TRACE [io.agroal.pool] Datasource '<default>': Acquire connection org.postgresql.jdbc.PgConnection@daee56e
+TRACE [io.agroal.pool] Datasource '<default>': Returning connection org.postgresql.jdbc.PgConnection@daee56e
 ```
 
-Die tweede komt uit Agroal zelf en vraagt geen code, maar bij een fan-out van honderd levert hij
-honderden regels per ophaalronde — bruikbaar om iets uit te zoeken, niet om mee te demonstreren.
-TRACE vraagt bovendien `quarkus.log.min-level=TRACE`, en dat is een build-time-instelling.
+Behalve creëren, nemen en teruggeven ook vernietigen, het sluiten van een stille connection en de
+tests op leak, reap en validatie. De listener die dit doet hangt altijd al aan de datasource; alleen
+het niveau bepaalt of je hem hoort. Zet het aantal acquires naast het aantal teruggaves en je ziet
+meteen of er iets blijft hangen.
 
-De tellers komen uit Agroal en vragen `quarkus.datasource.jdbc.metrics.enabled` (staat aan). Zonder
-die vlag geeft elke teller nul terug — een pool die nooit iets doet.
+Bij een fan-out van honderd zijn dit honderden regels per ophaalronde. Uitzetten kan zonder opnieuw
+te bouwen:
+
+```bash
+AGROAL_POOL_LOG_LEVEL=INFO    # de trace-regels houden op, de regel per interval blijft
+POOL_LOG_INTERVAL=off         # en zo gaat die regel ook uit
+```
+
+Niet op `OFF`: dan verdwijnen ook de waarschuwingen van de pool zelf, en dat zijn precies de
+meldingen die je bij een volle database wilt zien.
+
+### Waar de grens zich meldt
+
+Een database die minder verbindingen toelaat dan de pool groot is, laat dat niet in de pool-regel
+zien: een geweigerde poging telt niet mee in `opgezet`. Die meldt zich een regel hoger, van Hibernate:
+
+```
+WARN  [org.hibernate.orm.jdbc.error] FATAL: sorry, too many clients already
+ERROR [...UncaughtExceptionMapper] Unable to acquire JDBC Connection [FATAL: sorry, too many clients already]
+```
+
+Gemeten met een pool van 120 op een database van twintig: van zestig gelijktijdige bevragingen
+slaagden er 55 en vielen er vijf om met een 500. De pool-regel stond op dat moment op `piek 20 |
+opgezet 20` — hij had de grens van de database bereikt en probeerde het daarboven tevergeefs. Zie je
+dit, dan is `DB_POOL_MAX` te hoog voor die database, niet te laag.
+
+De tellers van de regel per interval komen uit Agroal en vragen
+`quarkus.datasource.jdbc.metrics.enabled` (staat aan). Zonder die vlag geeft elke teller nul terug —
+een pool die nooit iets doet.
 
 ## Wat er nog niet is
 
