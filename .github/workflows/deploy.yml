@@ -136,7 +136,7 @@ env:
   #
   # LET OP: een `pr-<n>-*`-tag verdwijnt zodra hun PR sluit. Zwaai bij het mergen om naar een
   # `sha-`-tag uit hun main, anders trekt de eerstvolgende herstart een tag die niet meer bestaat.
-  PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc/preview:pr-142-f83918b
+  PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc/preview:pr-142-41c83e3
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
