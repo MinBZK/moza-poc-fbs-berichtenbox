@@ -54,6 +54,12 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-smallrye-health</artifactId>
         </dependency>
+        <!-- Voor de periodieke pool-regel; dezelfde extensie die de demo-console voor zijn
+             proxy-reconcile gebruikt. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
 
         <!-- Persistentie. Eén database draagt álle gesimuleerde magazijnen; dat is de hele reden
              dat de simulator bestaat, want honderd echte magazijnen zouden honderd databases zijn.

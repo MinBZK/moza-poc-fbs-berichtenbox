@@ -189,6 +189,41 @@ zonder authenticatie open; langs dat pad zou iemand hier de demo kunnen legen of
 zetten. De schoonste vorm blijft het beheerpad helemaal niet publiceren — binnen één ZAD-project
 bereiken componenten elkaar intern — en het token is het vangnet voor als dat niet lukt.
 
+## Zicht op de connection pool
+
+Eén service die honderd magazijnen voorstelt, deelt één pool. Of dat knelt is van buiten niet te
+zien: een aanvraag die op een connection wacht lijkt sprekend op een magazijn dat traag antwoordt.
+Daarom schrijft `Poolmonitor` elke vijf seconden één regel — en alleen als er iets veranderd is,
+zodat het stil blijft zolang er niets gebeurt:
+
+```
+pool: 18 in gebruik, 2 vrij, 7 wachtend van max 120 | piek 20 | opgezet 20, vernietigd 0
+    | wachten gem 41ms, langst 380ms, totaal 12,4s
+```
+
+Wat je eraan afleest:
+
+| Wat je wilt weten | Waar je kijkt |
+|---|---|
+| Worden er connections opgezet, en hoeveel accepteert de database? | `opgezet` en `vernietigd` — blijft `opgezet` onder de grens van de database, dan zit de rem in de gelijktijdigheid en niet in de pool |
+| Worden ze teruggegeven? | `in gebruik` tegenover `vrij`, en `piek` als hoogste bezetting ooit |
+| Wordt er gewacht, en hoe lang? | `wachtend` is de rij op dit moment; de drie wachttijden zeggen hoe erg het was |
+| Is de pool zelf de grens? | `van max` — het ingestelde maximum, tegenover wat de database toelaat |
+
+Twee knoppen:
+
+```properties
+magazijnsimulator.pool.log-interval=5s   # `off` zet de regel uit (POOL_LOG_INTERVAL)
+quarkus.log.category."io.agroal.pool".level=TRACE   # elke acquire/creatie/teruggave apart
+```
+
+Die tweede komt uit Agroal zelf en vraagt geen code, maar bij een fan-out van honderd levert hij
+honderden regels per ophaalronde — bruikbaar om iets uit te zoeken, niet om mee te demonstreren.
+TRACE vraagt bovendien `quarkus.log.min-level=TRACE`, en dat is een build-time-instelling.
+
+De tellers komen uit Agroal en vragen `quarkus.datasource.jdbc.metrics.enabled` (staat aan). Zonder
+die vlag geeft elke teller nul terug — een pool die nooit iets doet.
+
 ## Wat er nog niet is
 
 De omzetting van de demo-omgeving: de oude antwoordmachines eruit, de simulator erin, en vier
