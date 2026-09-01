@@ -122,16 +122,20 @@ zadctl env add -c magazijnsimulator \
   BEHEER_TOKEN=<geheim>
 ```
 
-`DB_POOL_MAX` hoeft er niet bij: de simulator staat zelf al op 120 connecties. Dit is één service die
-er honderd voorstelt, dus elke per-service-default komt op een honderdste van zijn bedoelde last uit;
-de meting daarachter staat in `docs/plans/2026-08-21-magazijn-simulator-design.md` onder
-"Meting (stap 6)".
+`DB_POOL_MAX` hoeft er niet bij: de simulator staat zelf al op vijftig connections. Dit is één
+service die er honderd voorstelt, dus elke per-service-default komt op een honderdste van zijn
+bedoelde last uit; de meting daarachter staat in
+`docs/plans/2026-08-21-magazijn-simulator-design.md` onder "Meting (stap 6)".
 
-**Ga wel vóór de eerste vulronde na hoeveel verbindingen de PostgreSQL van het platform toelaat.** Die
-database is gedeeld met `magazijna`, `magazijnb` en `democonsole`, en 120 connecties voor één
-component is dan een reëel beslag. Is de grens te krap, verlaag dan `DB_POOL_MAX` en accepteer dat
-een volle fan-out langzamer wordt — dat is beter dan een grens raken die zich als een onbereikbaar
-magazijn voordoet. Lokaal staat de database daarvoor op 200 verbindingen.
+**Houd die vijftig onder wat de PostgreSQL van het platform per service overhoudt.** Die database is
+gedeeld met `magazijna`, `magazijnb` en `democonsole`. Een pool die ruimer is dan de database
+toelaat helpt niet en verplaatst de storing alleen: gemeten met 120 op een database van twintig
+vielen van zestig gelijktijdige bevragingen er vijf om met "sorry, too many clients already", en die
+weigering telt niet mee in de tellers van de pool — van binnen ziet hij er dan gezond uit. Is de
+ruimte krapper, verlaag dan `DB_POOL_MAX` en accepteer dat een volle fan-out langzamer wordt; dat is
+beter dan een grens raken die zich als een onbereikbaar magazijn voordoet. Wat er werkelijk gebeurt,
+staat in de log — zie "Zicht op de connection pool" in `demo/magazijn-simulator/README.md`. Lokaal
+staat de database op 200 verbindingen.
 
 ## 2. De set die hij voorstelt
 

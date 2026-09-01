@@ -197,7 +197,7 @@ Daarom schrijft `Poolmonitor` elke vijf seconden één regel — en alleen als e
 zodat het stil blijft zolang er niets gebeurt:
 
 ```
-pool: 18 in gebruik, 2 vrij, 7 wachtend van max 120 | piek 20 | opgezet 20, vernietigd 0
+pool: 18 in gebruik, 2 vrij, 7 wachtend van max 50 | piek 20 | opgezet 20, vernietigd 0
     | wachten gem 41ms, langst 380ms, totaal 12,4s
 ```
 
