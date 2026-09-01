@@ -101,7 +101,9 @@ BACKEND_DEMO_HOST: ${PERSONAS_HOST}
 # Het paneel toetst dit adres niet vooraf: een HEAD naar een ander component strandt op CORS, en
 # die uitkomst is niet van onbereikbaar te onderscheiden. Staat de alias fout, dan blijft het frame
 # dus leeg zonder dat iets dat meldt.
-zadctl alias add --component democonsole \
+# `set` en niet `add`: `add` weigert een sleutel die er al staat ("Bestaat al"), en dan faalt een
+# tweede aanroep van dit script op een omgeving die al half is ingericht.
+zadctl alias set --component democonsole \
     "BERICHTENBOX_URL=https://${PROEFTUIN_HOST}/moza/berichtenbox/" "${DROOG[@]}"
 
 if [ "$MODE" = "plan" ]; then
