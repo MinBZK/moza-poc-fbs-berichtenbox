@@ -123,6 +123,20 @@ env:
   # "Permission denied". Kan uit: de sessiecache is ephemeral en rekent nergens op
   # persistence (idempotente RediSearch-bootstrap, TTL-entries, crash-safe vangnet-lock).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
+  # De berichtenbox van de proeftuin (MinBZK/moza-poc), als component in ons eigen project. Zo
+  # bepalen wij welke versie er onder een demo hangt, in plaats van het uitrolritme van een ander
+  # project te volgen. De tag hoort hier en niet alleen in de projectspec: OM's upsert-deployment
+  # neemt bij het aanmaken alleen de meegegeven componenten over en kopieert die van de kloonbron
+  # niet, dus zonder deze regel heeft alleen `test` een berichtenbox en geen enkele preview.
+  #
+  # Bewust niet in pin-consistency.yml: die guard eist één identieke pin over alle vindplaatsen, en
+  # zolang dit een preview-tag uit hun repo is (`.../preview:pr-<n>-<sha>`) staat er een ander
+  # image-pad dan in compose.yaml. Zodra hun keten op main staat en beide plekken dezelfde
+  # `sha-`-tag dragen, hoort dit image alsnog in die guard.
+  #
+  # LET OP: een `pr-<n>-*`-tag verdwijnt zodra hun PR sluit. Zwaai bij het mergen om naar een
+  # `sha-`-tag uit hun main, anders trekt de eerstvolgende herstart een tag die niet meer bestaat.
+  PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc/preview:pr-142-f83918b
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
@@ -859,7 +873,8 @@ jobs:
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
-              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"}
+              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
+              {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
             ]
 
       # De tegenhanger van de inbound-regels in de twee andere projecten: de ontvanger beslist, dus
@@ -1009,7 +1024,8 @@ jobs:
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
-              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"}
+              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
+              {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
             ]
 
       # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in

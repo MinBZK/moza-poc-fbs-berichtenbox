@@ -523,9 +523,16 @@ achter één origin; hier bestaat die proxy niet, dus draait de proeftuin als ei
 project. Dat is bewust niet het component uit hun eigen project: zo bepalen wij welke versie er
 onder een demo hangt, en volgt de berichtenbox onze previews in plaats van hun uitrolritme.
 
+**Deze stap gaat vóór de merge van de PR die `proeftuin` in `deploy.yml` zet.** Die workflow noemt
+het component bij naam, en een `reference` naar een component dat nog niet in de projectspec staat
+laat de uitrol falen. Andersom is onschuldig: staat het component er wel en noemt de workflow het
+nog niet, dan draait het alleen op `test`.
+
 De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
-onze eigen images. Pin een `sha-<7>`-tag uit hun main; `latest` verschuift stil onder een lopende
-demo door. Om nog niet gemergd werk te beproeven kan een preview-tag
+onze eigen images. De tag die hier meegegeven wordt geldt alleen tot de eerste uitrol: daarna zet
+`deploy.yml` hem per deployment, met de waarde van `PROEFTUIN_IMAGE`. Die staat in Git en is dus de
+bron; deze pin is alleen de startwaarde. Pin een `sha-<7>`-tag uit hun main; `latest` verschuift
+stil onder een lopende demo door. Om nog niet gemergd werk te beproeven kan een preview-tag
 (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`), maar alleen tijdelijk: hun opruiming verwijdert
 alle `pr-<n>-*`-versies zodra die PR sluit, dus zwaai bij het mergen om naar een `sha-`-tag uit hun
 main. Blijft die pin staan, dan trekt een herstart een tag die niet meer bestaat.
