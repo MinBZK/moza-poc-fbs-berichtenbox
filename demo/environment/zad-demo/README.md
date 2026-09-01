@@ -538,20 +538,16 @@ alle `pr-<n>-*`-versies zodra die PR sluit, dus zwaai bij het mergen om naar een
 main. Blijft die pin staan, dan trekt een herstart een tag die niet meer bestaat.
 
 ```bash
-zadctl component add proeftuin \
-  --image ghcr.io/minbzk/moza-poc:sha-<7> \
-  --deployment test \
-  --port 8080 \
-  --service publish-on-web \
-  --aliases '
-BACKEND_KETEN: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl
-BACKEND_KETEN_HOST: uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl
-BACKEND_DEMO: https://democonsole-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
-BACKEND_DEMO_HOST: democonsole-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
-'
+demo/environment/zad-demo/proeftuin-component.sh plan   # toont beide aanroepen, muteert niets
+demo/environment/zad-demo/proeftuin-component.sh apply
 ```
 
-Vier variabelen en niet twee: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag en
+Het script doet twee dingen: het component aanmaken met zijn vier aliassen, en `BERICHTENBOX_URL`
+op `democonsole` zetten. De image leest het uit `PROEFTUIN_IMAGE` in `deploy.yml`, zodat er één
+waarde is die bepaalt wat er draait. Draai eerst `plan`: ZAD past component-config alleen toe bij
+het *aanmaken* van een component, dus een fout in de aliassen kost een verwijderen-en-opnieuw.
+
+Waarom vier aliassen en niet twee: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag en
 `/api/demo/` naar dit paneel, en de ingress ervóór routeert op de Host-header. De browser-host
 doorgeven levert daar de verkeerde bestemming op, dus de `*_HOST`-variant zet de servernaam apart.
 
@@ -570,13 +566,8 @@ zit. De berichtenbox zelf leest alleen, en leest bij de uitvraag die op deze omg
 publiek bereikbaar moet zijn — de browser praat er rechtstreeks mee. Een muur zou hem bovendien
 onbruikbaar maken in het frame: de aanmeldpagina van Keycloak laat zich niet in een frame tonen.
 
-Wijs het paneel er tot slot heen, met dezelfde `$DEPLOYMENT_NAME`-truc zodat elke preview zijn eigen
-berichtenbox toont:
-
-```bash
-zadctl alias add -c democonsole \
-  'BERICHTENBOX_URL=https://proeftuin-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/moza/berichtenbox/'
-```
+De aliassen gebruiken `$DEPLOYMENT_NAME`, zodat elke preview zijn eigen berichtenbox en zijn eigen
+keten aanspreekt.
 
 Blijft het frame leeg, dan is die variabele niet gezet of wijst hij mis: het paneel toetst het adres
 niet vooraf, want een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar
