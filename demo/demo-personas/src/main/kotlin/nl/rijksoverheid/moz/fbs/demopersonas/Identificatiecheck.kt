@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
 /**
  * Minimale identificatienummer-validatie voor de demo-personas; een uitgeklede kopie van

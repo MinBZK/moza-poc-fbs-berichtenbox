@@ -23,6 +23,7 @@
         <module>services/berichtenmagazijn</module>
         <module>services/berichtenuitvraag</module>
         <module>demo/demo-console</module>
+        <module>demo/demo-personas</module>
         <module>demo/magazijn-simulator</module>
     </modules>
 

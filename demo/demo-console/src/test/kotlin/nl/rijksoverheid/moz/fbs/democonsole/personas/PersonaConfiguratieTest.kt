@@ -6,6 +6,8 @@ import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
+import nl.rijksoverheid.moz.fbs.demopersonas.TestPersonas
 import nl.rijksoverheid.moz.fbs.democonsole.generator.GeneratorProducer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue

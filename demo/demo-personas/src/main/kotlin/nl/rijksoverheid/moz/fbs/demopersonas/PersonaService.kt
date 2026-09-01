@@ -1,8 +1,7 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
 import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
-import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import org.jboss.logging.Logger
 import java.util.Locale
 
@@ -13,7 +12,7 @@ import java.util.Locale
  */
 @Startup
 @ApplicationScoped
-class PersonaService(config: DemoConfig) {
+class PersonaService(config: PersonaConfig) {
 
     private val personas: List<DemoPersona> = lees(config)
 
@@ -22,8 +21,7 @@ class PersonaService(config: DemoConfig) {
     /** De set waarvoor de generator berichten opvoert: zonder magazijn geen aanlevering. */
     fun metMagazijnen(): List<DemoPersona> = personas.filter { it.magazijnen.isNotEmpty() }
 
-    private fun lees(config: DemoConfig): List<DemoPersona> {
-        val bekendeMagazijnen = config.magazijnen().keys
+    private fun lees(config: PersonaConfig): List<DemoPersona> {
         val gelezen = mutableListOf<DemoPersona>()
         val onbruikbaar = mutableListOf<Pair<String, Exception>>()
 
@@ -32,7 +30,7 @@ class PersonaService(config: DemoConfig) {
         // willekeurig zijn, en drie kapotte persona's kosten drie herstarts.
         config.personas().forEach { (id, instelling) ->
             try {
-                gelezen += leesPersona(id, instelling, bekendeMagazijnen)
+                gelezen += leesPersona(id, instelling)
             } catch (fout: IllegalArgumentException) {
                 onbruikbaar += id to fout
             } catch (fout: IllegalStateException) {
@@ -55,19 +53,13 @@ class PersonaService(config: DemoConfig) {
         return gesorteerd
     }
 
-    private fun leesPersona(id: String, instelling: DemoConfig.PersonaInstelling, bekendeMagazijnen: Set<String>): DemoPersona {
+    private fun leesPersona(id: String, instelling: PersonaConfig.PersonaInstelling): DemoPersona {
         val magazijnen = instelling.magazijnen().orElse(emptyList())
 
-        magazijnen.forEach {
-            // SmallRye trimt lijstwaarden niet, dus "OIN_A, OIN_B" levert een OIN met een spatie
-            // ervoor. Zonder deze melding wijst de volgende regel naar demo.magazijnen, waar
-            // niets mis is.
-            require(it == it.trim()) { "magazijn-OIN '$it' heeft witruimte om zich heen" }
-            require(it in bekendeMagazijnen) {
-                if (bekendeMagazijnen.isEmpty()) "er is geen magazijn ingericht onder demo.magazijnen"
-                else "magazijn-OIN '$it' heeft geen demo.magazijnen-URL"
-            }
-        }
+        // SmallRye trimt lijstwaarden niet, dus "OIN_A, OIN_B" levert een OIN met een spatie ervoor.
+        // Of het OIN ook een ingericht magazijn is, weet deze dienst niet: die inrichting hoort bij
+        // wie berichten aanlevert. De demo-console toetst dat bij het opstarten.
+        magazijnen.forEach { require(it == it.trim()) { "magazijn-OIN '$it' heeft witruimte om zich heen" } }
 
         return DemoPersona(
             id = id,

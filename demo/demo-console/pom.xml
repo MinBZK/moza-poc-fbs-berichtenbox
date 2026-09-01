@@ -19,6 +19,14 @@
         <!-- Bewust GEEN fbs-common: die bevat JAX-RS-filters (LogboekContext) die de
              LDV-wrapper vereisen. Een wegwerp-console erft die productie-stack niet; de
              elfproef-validatie is lokaal geïnlined (personas/Identificatiecheck.kt). -->
+        <!-- De demo-identiteiten. Ze wonen in een eigen module omdat een berichtenbox ze moet
+             kunnen lezen zonder bij het bedieningspaneel te kunnen; deze console leest dezelfde
+             lijst uit die jar, zodat er niet twee lijsten zijn die uiteen kunnen lopen. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>demo-personas</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
@@ -66,6 +74,15 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- De parser die de ingerichte persona's leest zoals ze in de configuratie staan. Uit de
+             test-jar van demo-personas: een tweede parser hier zou onopgemerkt anders lezen. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>demo-personas</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
             <scope>test</scope>
         </dependency>
     </dependencies>

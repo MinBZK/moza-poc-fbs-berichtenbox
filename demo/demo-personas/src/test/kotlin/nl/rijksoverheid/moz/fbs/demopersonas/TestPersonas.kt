@@ -1,25 +1,14 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
-import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.Optional
 import java.util.Properties
 
 /** Vaste invulling van de configuratie-mapping, zodat tests zonder CDI een [PersonaService] bouwen. */
-internal class VasteDemoConfig(
-    private val personas: Map<String, DemoConfig.PersonaInstelling>,
-    private val magazijnen: Map<String, DemoConfig.Magazijn> = TestPersonas.MAGAZIJNEN.associateWith { VastMagazijn },
-) : DemoConfig {
+internal class VastePersonaConfig(
+    private val personas: Map<String, PersonaConfig.PersonaInstelling>,
+) : PersonaConfig {
 
-    override fun magazijnen(): Map<String, DemoConfig.Magazijn> = magazijnen
-
-    override fun personas(): Map<String, DemoConfig.PersonaInstelling> = personas
-}
-
-internal object VastMagazijn : DemoConfig.Magazijn {
-
-    override fun url(): String = "http://localhost:8090"
+    override fun personas(): Map<String, PersonaConfig.PersonaInstelling> = personas
 }
 
 /** `magazijnen = null` staat voor een ontbrekende property, `emptyList()` voor een lege waarde. */
@@ -29,7 +18,7 @@ internal class VastePersona(
     private val waarde: String,
     private val magazijnen: List<String>? = null,
     private val bron: String = "keten",
-) : DemoConfig.PersonaInstelling {
+) : PersonaConfig.PersonaInstelling {
 
     override fun label(): String = label
 
@@ -42,18 +31,21 @@ internal class VastePersona(
     override fun bron(): String = bron
 }
 
-internal object TestPersonas {
+/**
+ * Niet `internal`: deze hulp gaat als test-jar mee naar de demo-console, die zijn eigen dataset en
+ * ondernemerslijst tegen dezelfde ingerichte persona's toetst.
+ */
+object TestPersonas {
 
     const val RVO = "00000000000000100000"
     const val BELASTINGDIENST = "00000001823288444000"
 
     val MAGAZIJNEN = setOf(RVO, BELASTINGDIENST)
 
-    // Relatief aan de module-root, de werkdirectory van Surefire.
-    private const val BESTAND = "src/main/resources/application.properties"
-
-    // Aanhalingstekens zijn optioneel: een OIN bevat geen punt, dus SmallRye accepteert beide vormen.
-    private val MAGAZIJN_SLEUTEL = Regex("""demo\.magazijnen\."?(\d+)"?\.url""")
+    // Van het classpath en niet van schijf: deze hulp draait ook in de demo-console, waar dit
+    // bestand uit de jar van deze module komt en geen pad op schijf heeft. Er is er precies één —
+    // application.properties blijft per applicatie en draagt geen persona's.
+    private const val BESTAND = "META-INF/microprofile-config.properties"
 
     private val SLEUTEL = Regex("""demo\.personas\.([^.]+)\.([^.]+)""")
 
@@ -63,34 +55,22 @@ internal object TestPersonas {
      * parser is niet die van SmallRye; `PersonaConfiguratieTest` toetst dat de twee hetzelfde lezen.
      */
     fun uitApplicationProperties(): PersonaService {
-        val eigenschappen = laadEigenschappen()
+        val velden = personaVelden(laadEigenschappen())
 
-        val magazijnen = eigenschappen.stringPropertyNames()
-            .mapNotNull { MAGAZIJN_SLEUTEL.matchEntire(it)?.groupValues?.get(1) }
-            .associateWith { VastMagazijn }
-
-        check(magazijnen.isNotEmpty()) { "geen demo.magazijnen-sleutel gevonden in $BESTAND; klopt MAGAZIJN_SLEUTEL nog?" }
-
-        val velden = personaVelden(eigenschappen)
-
-        return PersonaService(VasteDemoConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }, magazijnen))
+        return PersonaService(VastePersonaConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }))
     }
 
     private fun laadEigenschappen(): Properties {
         val eigenschappen = Properties()
 
-        // Uit het bestand, niet van het classpath: PersonaConfiguratieTest is een @QuarkusTest, en
-        // daar levert de classloader een andere application.properties dan de bron in de repo —
-        // deze parser kwam dan leeg terug.
-        val pad = Path.of(BESTAND)
+        val stroom = checkNotNull(TestPersonas::class.java.classLoader.getResourceAsStream(BESTAND)) {
+            "$BESTAND niet op het classpath — draait deze test met demo-personas als afhankelijkheid?"
+        }
 
-        check(Files.isReadable(pad)) { "$BESTAND niet leesbaar — draait de test vanaf de module-root?" }
-
-        Files.newInputStream(pad).use { eigenschappen.load(it) }
+        stroom.use { eigenschappen.load(it) }
 
         // Deze parser leest geen profiel-sleutels: stilzwijgend negeren zou een divergentie met
-        // SmallRye opleveren die pas bij het starten van de demo blijkt. Over de hele demo-prefix,
-        // want een profiel-scoped magazijn zou de persona die ernaar wijst ten onrechte doen falen.
+        // SmallRye opleveren die pas bij het starten van de demo blijkt.
         eigenschappen.stringPropertyNames().forEach {
             check(!it.startsWith("%") || !it.contains(".demo.")) { "profiel-sleutel '$it' wordt hier niet gelezen" }
         }
@@ -107,8 +87,6 @@ internal object TestPersonas {
 
         check(velden.isNotEmpty()) { "geen demo.personas-sleutel gevonden in $BESTAND; klopt SLEUTEL nog?" }
 
-        // Van de magazijn-sleutels wordt alleen de OIN in de key gelezen, nooit de waarde; daar is
-        // een expressie dus onschadelijk (de URL's gebruiken er al een).
         velden.values.flatMap { it.values }.forEach {
             check(!it.contains("\${")) { "expressie in demo.personas.*: '$it' wordt hier niet geëxpandeerd" }
         }

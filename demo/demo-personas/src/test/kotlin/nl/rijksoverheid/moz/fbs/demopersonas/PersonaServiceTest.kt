@@ -1,6 +1,5 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
-import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -57,15 +56,6 @@ class PersonaServiceTest {
         assertTrue(melding.contains("typfout"), melding)
     }
 
-    @Test
-    fun `weigert een opt-in op een magazijn zonder aanlever-URL`() {
-        val melding = weigering(
-            "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf("00000000000000999999")),
-        ).message!!
-
-        assertTrue(melding.contains("00000000000000999999"), melding)
-        assertTrue(melding.contains("pietersen"), melding)
-    }
 
     @Test
     fun `weigert een leeg magazijn-OIN`() {
@@ -144,25 +134,7 @@ class PersonaServiceTest {
         assertTrue(melding.contains("eerste") && melding.contains("tweede"), melding)
     }
 
-    @Test
-    fun `wijst naar demo-magazijnen als een persona een opt-in heeft maar er geen magazijn is`() {
-        val fout = assertThrows(IllegalArgumentException::class.java) {
-            PersonaService(
-                VasteDemoConfig(mapOf("a" to VastePersona("A B.V.", "KVK", "90000014", listOf(TestPersonas.RVO))), emptyMap()),
-            )
-        }
 
-        assertTrue(fout.message!!.contains("geen magazijn ingericht"), fout.message)
-    }
-
-    @Test
-    fun `laat een inrichting zonder magazijn toe zolang geen persona er een noemt`() {
-        val personas = PersonaService(
-            VasteDemoConfig(mapOf("verzonnen" to VastePersona("Verzonnen B.V.", "KVK", "90000014", bron = "dataset")), emptyMap()),
-        ).alle()
-
-        assertEquals(listOf("verzonnen"), personas.map { it.id })
-    }
 
     @Test
     fun `neemt de bron over uit de configuratie`() {
@@ -196,11 +168,11 @@ class PersonaServiceTest {
         assertEquals(verwacht, personas.map { it.id })
     }
 
-    private fun service(vararg personas: Pair<String, DemoConfig.PersonaInstelling>): PersonaService =
-        PersonaService(VasteDemoConfig(personas.toMap()))
+    private fun service(vararg personas: Pair<String, PersonaConfig.PersonaInstelling>): PersonaService =
+        PersonaService(VastePersonaConfig(personas.toMap()))
 
     /** Toetst dat de inrichting de module laat weigeren te starten, en levert de fout voor verdere assertions. */
-    private fun weigering(vararg personas: Pair<String, DemoConfig.PersonaInstelling>): IllegalArgumentException =
+    private fun weigering(vararg personas: Pair<String, PersonaConfig.PersonaInstelling>): IllegalArgumentException =
         assertThrows(IllegalArgumentException::class.java) { service(*personas) }
 
     private companion object {

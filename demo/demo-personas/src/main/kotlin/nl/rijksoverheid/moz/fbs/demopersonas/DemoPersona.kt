@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
 /**
  * Een demo-identiteit: wat een keuzelijst toont plus het nummer waarmee de keten hem kent. De

@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.simulator
 
-import nl.rijksoverheid.moz.fbs.democonsole.personas.TestPersonas
+import nl.rijksoverheid.moz.fbs.demopersonas.TestPersonas
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

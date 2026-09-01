@@ -6,8 +6,8 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.GeneratorProducer
-import nl.rijksoverheid.moz.fbs.democonsole.personas.Identificatiecheck
-import nl.rijksoverheid.moz.fbs.democonsole.personas.TestPersonas
+import nl.rijksoverheid.moz.fbs.demopersonas.Identificatiecheck
+import nl.rijksoverheid.moz.fbs.demopersonas.TestPersonas
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

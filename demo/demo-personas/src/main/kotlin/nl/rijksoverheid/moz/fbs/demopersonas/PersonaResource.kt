@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
@@ -10,7 +10,11 @@ data class PersonaDto(val id: String, val label: String, val ontvanger: String, 
 
 /**
  * De keuzelijst van demo-identiteiten voor een berichtenbox. Geen contract van het stelsel: dit
- * endpoint hoort bij de demo-console en staat daarom in geen enkele OpenAPI-spec.
+ * endpoint hoort bij de demo en staat daarom in geen enkele OpenAPI-spec. De veldnamen liggen wél
+ * vast — een afnemende berichtenbox zoekt zijn testaccount op `bron` en `ontvanger`.
+ *
+ * Het aantal magazijnen per persona blijft eruit: dat is inrichting van de demo-omgeving en zegt
+ * een berichtenbox niets.
  */
 @Path("/api/demo/personas")
 @Produces(MediaType.APPLICATION_JSON)
