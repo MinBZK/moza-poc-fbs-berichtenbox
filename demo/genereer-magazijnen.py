@@ -33,6 +33,9 @@ ECHTE_MAGAZIJNEN = [MAGAZIJN_A, MAGAZIJN_B]
 # wél; SmallRye vult hem in bij het lezen van het register.
 SIMULATOR_URL = os.environ.get("SIMULATOR_URL", "http://magazijn-simulator:8092")
 
+# Waar de namen van de twee echte magazijnen staan; relatief aan de root van de repository.
+REGISTER_VAN_DE_UITVRAAG = "services/berichtenuitvraag/src/main/resources/application.properties"
+
 # Vier ondernemers, van klein naar extreem. De sets zijn genest: elke grotere bevat de kleinere
 # helemaal. Het verschil in wachttijd komt daardoor puur door de extra organisaties en niet doordat
 # er andere organisaties in het spel zijn.
@@ -53,8 +56,12 @@ ONDERNEMERS = [
 # Namen van echte uitvoeringsorganisaties voor de eerste magazijnen, zodat een demo herkenbaar is
 # in plaats van een rij "Demo-magazijn 37". De staart wordt gevuld met gemeenten — dat is ook in
 # werkelijkheid waar de lange staart zit.
+#
+# RVO en de Belastingdienst horen hier NIET thuis: die twee draaien in de demo als echte magazijnen,
+# met eigen berichten, aanlevering en FSC. Zouden ze ook gesimuleerd voorkomen, dan staat dezelfde
+# afzender twee keer in de lijst van de ondernemer, met verschillende post eronder.
 ORGANISATIES = [
-    "Belastingdienst", "Kamer van Koophandel", "Rijksdienst voor Ondernemend Nederland",
+    "Centraal Justitieel Incassobureau", "Kamer van Koophandel", "Rijksdienst voor Identiteitsgegevens",
     "UWV", "Sociale Verzekeringsbank", "RDW", "Kadaster", "Centraal Bureau voor de Statistiek",
     "Nederlandse Voedsel- en Warenautoriteit", "Inspectie Leefomgeving en Transport",
     "Autoriteit Consument en Markt", "Dienst Uitvoering Onderwijs", "Justis",
@@ -75,6 +82,53 @@ GEMEENTEN = [
     "Terneuzen", "Zutphen", "Harderwijk", "Wijchen", "Beverwijk", "Houten", "Waalwijk", "Meppel",
     "Tiel", "Culemborg", "Rheden", "Sneek", "Uden", "Kampen",
 ]
+
+
+def echte_namen() -> dict:
+    """De namen waaronder de twee echte magazijnen in de Berichtenbox verschijnen.
+
+    Uit het register van de uitvraag gelezen en niet hier herhaald: die twee waarden bepalen wat een
+    ondernemer ziet, en een kopie hier zou stil verlopen zodra iemand ze daar hernoemt.
+    """
+    register = Path(__file__).resolve().parent.parent / REGISTER_VAN_DE_UITVRAAG
+    gevonden = {}
+
+    for regel in register.read_text().splitlines():
+        for magazijn in ECHTE_MAGAZIJNEN:
+            sleutel = f'magazijnen."{magazijn}".naam='
+
+            if regel.startswith(sleutel):
+                gevonden[magazijn] = regel[len(sleutel):].strip()
+
+    ontbreekt = [m for m in ECHTE_MAGAZIJNEN if m not in gevonden]
+
+    if ontbreekt:
+        raise SystemExit(f"geen naam gevonden in {register} voor: {', '.join(ontbreekt)}")
+
+    return gevonden
+
+
+def controleer_geen_dubbele_organisatie(n: int) -> None:
+    """Geen gesimuleerd magazijn mag de naam van een echt magazijn dragen.
+
+    Anders staat dezelfde afzender twee keer in de lijst van de ondernemer, met verschillende post
+    eronder — en dat valt pas op tijdens een demo, aan de kant van de kijker.
+    """
+    echt = echte_namen()
+    botsingen = {
+        naam(i): oin(i)
+        for i in range(1, n + 1)
+        if naam(i) in echt.values()
+    }
+
+    if botsingen:
+        toelichting = ", ".join(f"{naam} ({o})" for naam, o in sorted(botsingen.items()))
+
+        raise SystemExit(
+            f"gesimuleerde magazijnen dragen de naam van een echt magazijn: {toelichting}. "
+            f"Kies in ORGANISATIES een andere organisatie; de echte namen staan in "
+            f"{REGISTER_VAN_DE_UITVRAAG}."
+        )
 
 
 def oin(index: int) -> str:
@@ -174,6 +228,8 @@ def main() -> None:
             f"{len(ECHTE_MAGAZIJNEN)} echt, dus er zijn minstens {minimaal} gesimuleerde magazijnen "
             f"nodig. Wil je bewust kleiner draaien, verklein dan ook de ondernemers in dit script."
         )
+
+    controleer_geen_dubbele_organisatie(n)
 
     profiel_dir = BASIS / "profiel"
     profiel_dir.mkdir(parents=True, exist_ok=True)

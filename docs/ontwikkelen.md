@@ -108,7 +108,7 @@ afzender-OIN als map-key:
 
 ```properties
 magazijnen."00000000000000100000".url=${MAGAZIJN_A_URL}
-magazijnen."00000000000000100000".naam=Magazijn A
+magazijnen."00000000000000100000".naam=RVO
 magazijnen."00000000000000100000".grantHash=${MAGAZIJN_A_GRANT_HASH:}
 ```
 
