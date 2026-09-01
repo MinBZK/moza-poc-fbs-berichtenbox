@@ -667,10 +667,6 @@ async function pasOmgevingToe() {
     // onbereikbaar, dan blijft het eigen pad over — lokaal is dat het juiste adres.
     bepaalBox(omgeving ? omgeving.berichtenboxUrl : '');
 
-    // Uit ditzelfde antwoord en niet van /api/demo/personas: dat adres hoort bij de personadienst,
-    // en deze module beantwoordt het bewust niet. Console onbereikbaar levert null op, waarop de
-    // keuzelijst zegt dat ze niet te lezen was in plaats van dat er niets is ingericht.
-    vulPersonas(omgeving ? omgeving.personas : null);
 
     if (omgeving) {
         const beschikbaar = new Set(omgeving.storingen);
@@ -702,6 +698,18 @@ async function pasOmgevingToe() {
         document.querySelectorAll('button[data-simulator]').forEach((knop) => {
             knop.hidden = omgeving.simulator === false;
         });
+    }
+
+    // Als laatste, en apart: de keuzelijst hangt aan de vorm van één veld, en een antwoord dat die
+    // vorm mist mag de knoppen hierboven niet meeslepen. Uit ditzelfde antwoord en niet van
+    // /api/demo/personas: dat adres hoort bij de personadienst, en deze module beantwoordt het
+    // bewust niet. Console onbereikbaar levert null op, waarop de keuzelijst zegt dat ze niet te
+    // lezen was in plaats van dat er niets is ingericht.
+    try {
+        vulPersonas(omgeving ? omgeving.personas : null);
+    } catch (fout) {
+        console.error('[bediening] persona-keuzelijst niet te vullen', fout);
+        vulPersonas(null);
     }
 
     // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de

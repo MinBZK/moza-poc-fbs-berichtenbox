@@ -7,6 +7,7 @@ import jakarta.ws.rs.core.MediaType
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaDto
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
+import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
 
 /**
  * Wat de statische pagina's over hun omgeving moeten weten. Zonder dit endpoint zou de
@@ -43,7 +44,7 @@ class OmgevingResource(
     @GET
     fun omgeving(): Omgeving = Omgeving(
         uitvraagBasis = config.uitvraagBasis().orElse(""),
-        personas = personaService.alle().map { PersonaDto(it.id, it.label, it.ontvanger, it.bron.wire) },
+        personas = personaService.alle().map { it.naarDto() },
         berichtenboxUrl = config.berichtenboxUrl().orElse(""),
         storingen = register.namen().sorted(),
         simulator = config.simulator(),

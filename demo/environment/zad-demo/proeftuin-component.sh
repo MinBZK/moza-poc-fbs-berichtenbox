@@ -43,19 +43,20 @@ WORTEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 IMAGE="$(sed -n 's/^ *PROEFTUIN_IMAGE: *//p' "$WORTEL/.github/workflows/deploy.yml")"
 [ -n "$IMAGE" ] || { echo "geen PROEFTUIN_IMAGE gevonden in .github/workflows/deploy.yml" >&2; exit 1; }
 
+# Eén keer opvragen: hieruit komt zowel de tag van de personadienst als het antwoord op de vraag
+# welke componenten er al staan. Geen 2>/dev/null: niet-ingelogd, verkeerd project of een lock bij
+# OM zou anders als "niet gevonden" langskomen, en dan ga je een image-naam invullen terwijl je moet
+# inloggen.
+BESCHRIJVING="$(zadctl deployment describe "$DEPLOYMENT" -o json)" || {
+    echo "zadctl kon deployment '$DEPLOYMENT' niet beschrijven; zie de melding hierboven" >&2
+    exit 1
+}
+
 # De personadienst is ons eigen image en draagt dus de tag van de deploy, niet een vaste pin. Die
 # tag lezen we af van een component dat al in deze deployment draait: hetzelfde register, dezelfde
 # eigenaar, dezelfde tag. Een verzonnen tag zou het component in ImagePullBackOff laten hangen tot
 # de eerstvolgende uitrol.
 if [ -z "${PERSONAS_IMAGE:-}" ]; then
-    # Geen 2>/dev/null: niet-ingelogd, verkeerd project of een lock bij OM zou dan als "geen
-    # democonsole gevonden" langskomen, en dan ga je een image-naam invullen terwijl je moet
-    # inloggen.
-    BESCHRIJVING="$(zadctl deployment describe "$DEPLOYMENT" -o json)" || {
-        echo "zadctl kon deployment '$DEPLOYMENT' niet beschrijven; zie de melding hierboven" >&2
-        exit 1
-    }
-
     PERSONAS_IMAGE="$(printf '%s' "$BESCHRIJVING" | python3 -c "
 import json, sys
 
@@ -93,9 +94,18 @@ component_add() {
     # ingericht zijn, en zonder deze tak sterft het onder `set -e` vóór de aliassen verderop.
     # Config van een bestaand component verandert een tweede `add` toch niet — dat kan alleen door
     # het te verwijderen en opnieuw aan te maken.
-    zadctl component add "$@" "${DROOG[@]}" || {
-        echo "component '$1' niet aangemaakt (bestaat hij al?); ga door met de rest" >&2
-    }
+    #
+    # Alleen dát geval overslaan, en niet elke fout: niet-ingelogd, een OM-lock of een ongeldige
+    # image-naam zou anders ook als "bestaat hij al" langskomen, waarna het script doorloopt en met
+    # 0 eindigt terwijl het component er niet is. De uitrol faalt dan later, op een fout die hier
+    # gemaakt is.
+    if printf '%s' "$BESCHRIJVING" | grep -q "\"name\": \"$1\""; then
+        echo "component '$1' bestaat al in deployment '$DEPLOYMENT'; overgeslagen" >&2
+
+        return 0
+    fi
+
+    zadctl component add "$@" "${DROOG[@]}"
 }
 
 component_add demopersonas \

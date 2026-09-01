@@ -96,9 +96,19 @@ class PersonaServiceTest {
     }
 
     @Test
+    fun `noemt in de opstartregel hoeveel kenners de magazijnen getoetst hebben`() {
+        // Nul kenners is juist in deze dienst en een fout in een afnemer. Zonder dit getal zien die
+        // twee er in de opstartlog identiek uit.
+        val regel = PersonaService.logregel(emptyList(), kenners = 0)
+
+        assertTrue(regel.contains("0 magazijn-kenner"), regel)
+    }
+
+    @Test
     fun `noemt het identificatienummer niet in de opstartregel`() {
         val regel = PersonaService.logregel(
             service("pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO))).alle(),
+            kenners = 1,
         )
 
         assertTrue(regel.contains("pietersen"), regel)
@@ -131,12 +141,63 @@ class PersonaServiceTest {
         val melding = weigering(
             "typfout" to VastePersona("Typfout B.V.", "KVK", "1234567"),
             "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf("00000000000000999999")),
-            kenners = listOf(MagazijnKennis { oin -> require(oin == TestPersonas.RVO) { "onbekend magazijn '$oin'" } }),
+            kenners = listOf(strikt),
         ).message!!
 
         assertTrue(melding.contains("typfout"), melding)
         assertTrue(melding.contains("verdwaald"), melding)
         assertTrue(melding.contains("00000000000000999999"), melding)
+    }
+
+    @Test
+    fun `twee onbekende magazijnen bij één persona komen allebei in de melding`() {
+        // Binnen één persona net zo goed als eroverheen: twee typfouten in dezelfde magazijnen-regel
+        // horen geen twee herstarts te kosten.
+        val melding = weigering(
+            "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf(EERSTE, TWEEDE)),
+            kenners = listOf(strikt),
+        ).message!!
+
+        assertTrue(melding.contains(EERSTE), melding)
+        assertTrue(melding.contains(TWEEDE), melding)
+    }
+
+    @Test
+    fun `elke kenner mag bezwaar maken, en beide bezwaren komen mee`() {
+        val melding = weigering(
+            "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf(EERSTE)),
+            kenners = listOf(MagazijnKennis { "eerste kenner" }, MagazijnKennis { "tweede kenner" }),
+        ).message!!
+
+        assertTrue(melding.contains("eerste kenner"), melding)
+        assertTrue(melding.contains("tweede kenner"), melding)
+    }
+
+    @Test
+    fun `een persona zonder opt-in wordt niet aan een kenner voorgelegd`() {
+        // Nul magazijnen is een geldige inrichting: Grootbedrijf haalt op bij de gesimuleerde
+        // magazijnen, waar deze module niets voor aanlevert.
+        val personas = service(
+            "grootbedrijf" to VastePersona("Grootbedrijf B.V.", "KVK", "90000001"),
+            kenners = listOf(MagazijnKennis { error("er valt hier niets te vragen") }),
+        ).alle()
+
+        assertEquals(listOf("grootbedrijf"), personas.map { it.id })
+    }
+
+    @Test
+    fun `een kenner die iets onverwachts gooit houdt zijn persona-id vast`() {
+        // De naad is een fun interface; een implementatie kan alles gooien. Dan hoort de fout bij
+        // zijn persona te blijven staan in plaats van de hele ronde af te breken — anders verliest
+        // de bediener de andere meldingen én de id die zegt wáár het misging.
+        val melding = weigering(
+            "typfout" to VastePersona("Typfout B.V.", "KVK", "1234567"),
+            "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf(EERSTE)),
+            kenners = listOf(MagazijnKennis { throw NoSuchElementException("config ontbreekt") }),
+        ).message!!
+
+        assertTrue(melding.contains("typfout"), melding)
+        assertTrue(melding.contains("verdwaald"), melding)
     }
 
     @Test
@@ -194,7 +255,7 @@ class PersonaServiceTest {
     private fun service(
         vararg personas: Pair<String, PersonaConfig.PersonaInstelling>,
         kenners: List<MagazijnKennis> = emptyList(),
-    ): PersonaService = PersonaService(VastePersonaConfig(personas.toMap()), kenners)
+    ): PersonaService = PersonaService(VastePersonaConfig(personas.toMap()), kenners.toMutableList())
 
     /** Toetst dat de inrichting de module laat weigeren te starten, en levert de fout voor verdere assertions. */
     private fun weigering(
@@ -203,6 +264,12 @@ class PersonaServiceTest {
     ): IllegalArgumentException = assertThrows(IllegalArgumentException::class.java) { service(*personas, kenners = kenners) }
 
     private companion object {
+
+        const val EERSTE = "00000000000000000001"
+        const val TWEEDE = "00000000000000000002"
+
+        /** Kent alleen RVO; elk ander OIN levert een bezwaar dat dat OIN noemt. */
+        val strikt = MagazijnKennis { oin -> if (oin == TestPersonas.RVO) null else "onbekend magazijn '$oin'" }
 
         @JvmStatic
         fun optIns() = listOf(

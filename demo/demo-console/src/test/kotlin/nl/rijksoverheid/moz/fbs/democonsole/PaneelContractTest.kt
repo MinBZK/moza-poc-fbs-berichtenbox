@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.test.Mock
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
@@ -87,11 +88,14 @@ class PaneelContractTest {
     @Test
     fun `de omgeving draagt de persona-lijst voor de twee pagina's van deze module`() {
         // Het paneel en de wegwerp-berichtenbox lezen hem hieruit; zonder dit veld blijft hun
-        // keuzelijst leeg en meldt de pagina dat er niets is ingericht.
-        assertTrue(
-            haalJson(omgevingUrl).contains(""""personas":[{"""),
-            "veld personas ontbreekt in de omgeving-respons",
-        )
+        // keuzelijst leeg en meldt de pagina dat er niets is ingericht. Op de geparste boom, want
+        // een assertie op ruwe tekst hangt aan de veldvolgorde en aan een niet-lege lijst.
+        val personas = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas")
+
+        assertTrue(personas.isArray, "veld personas ontbreekt of is geen lijst")
+        personas.forEach {
+            assertEquals(setOf("id", "label", "ontvanger", "bron"), it.fieldNames().asSequence().toSet())
+        }
     }
 
     @Test

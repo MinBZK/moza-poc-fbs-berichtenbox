@@ -214,7 +214,9 @@ de proeftuin met de bediening ernaast; "Bediening verbergen" geeft de berichtenb
 voor het moment waarop je laat zien wat de ondernemer ziet.
 
 Dat adres is een kleine nginx (`demo-proxy`) die alles achter één origin zet: `/` naar de proeftuin,
-`/bediening/` en `/api/demo/` naar de demo-console, `/api/v1/` naar de uitvraag. Zonder die gedeelde
+`/bediening/` en `/api/demo/` naar de demo-console, `/api/demo/personas` naar de personadienst
+(die lijst hoort bij een eigen component, zodat een berichtenbox hem kan lezen zonder bij de
+knoppen van het paneel te kunnen), `/api/v1/` naar de uitvraag. Zonder die gedeelde
 origin komt de personalijst niet aan — binnen de proeftuin-container valt `/api/demo/personas` onder
 zijn eigen `location /api/` en zou het bij de uitvraag uitkomen — en kan het paneel de berichtenbox
 niet laten verversen. Online geldt dit niet: daar proxyt de proeftuin zelf.

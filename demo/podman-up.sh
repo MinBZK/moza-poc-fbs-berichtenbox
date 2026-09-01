@@ -331,7 +331,7 @@ wacht_op() {
 INFRA=(redis postgres-a postgres-b postgres-uitvraag postgres-simulator profiel-service
        magazijn-a magazijn-b aanmeld-stub notificatie-stub toxiproxy)
 SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console
-          proeftuin demo-proxy)
+          demo-personas proeftuin demo-proxy)
 
 echo "[3/4] infra starten ($MODUS)"
 "${C[@]}" up -d "${INFRA[@]}"

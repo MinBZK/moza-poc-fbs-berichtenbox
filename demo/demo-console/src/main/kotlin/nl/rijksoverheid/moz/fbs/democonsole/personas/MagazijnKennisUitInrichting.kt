@@ -16,15 +16,15 @@ import nl.rijksoverheid.moz.fbs.demopersonas.MagazijnKennis
 @ApplicationScoped
 class MagazijnKennisUitInrichting(private val config: DemoConfig) : MagazijnKennis {
 
-    override fun vereisBekend(oin: String) {
+    override fun bezwaarTegen(oin: String): String? {
         val bekend = config.magazijnen().keys
+
+        if (oin in bekend) return null
 
         // Zonder ingericht magazijn wijst de melding naar de configuratie die ontbreekt; is er wél
         // inrichting, dan naar het OIN dat er niet in staat. Anders zoekt de lezer bij de persona
         // terwijl er met die persona niets mis is.
-        require(oin in bekend) {
-            if (bekend.isEmpty()) "er is geen magazijn ingericht onder demo.magazijnen"
-            else "magazijn-OIN '$oin' heeft geen demo.magazijnen-URL"
-        }
+        return if (bekend.isEmpty()) "er is geen magazijn ingericht onder demo.magazijnen"
+        else "magazijn-OIN '$oin' heeft geen demo.magazijnen-URL"
     }
 }

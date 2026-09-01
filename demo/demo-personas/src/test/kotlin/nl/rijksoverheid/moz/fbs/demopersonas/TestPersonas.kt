@@ -57,17 +57,25 @@ object TestPersonas {
     fun uitConfiguratie(): PersonaService {
         val velden = personaVelden(laadEigenschappen())
 
-        return PersonaService(VastePersonaConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }), emptyList())
+        return PersonaService(VastePersonaConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }), mutableListOf())
     }
 
     private fun laadEigenschappen(): Properties {
         val eigenschappen = Properties()
 
-        val stroom = checkNotNull(TestPersonas::class.java.classLoader.getResourceAsStream(BESTAND)) {
-            "$BESTAND niet op het classpath — draait deze test met demo-personas als afhankelijkheid?"
+        // Alle treffers en niet de eerste: die naam is niet uniek op een classpath, en zodra een
+        // andere afhankelijkheid er ook een meelevert zou deze parser stil een ander bestand lezen
+        // dan de dienst. Er hoort er precies één de persona's te dragen.
+        val bronnen = TestPersonas::class.java.classLoader.getResources(BESTAND).toList()
+            .map { bron -> bron to bron.openStream().use { String(it.readAllBytes()) } }
+            .filter { (_, inhoud) -> inhoud.contains("demo.personas.") }
+
+        check(bronnen.size == 1) {
+            "verwachtte precies één $BESTAND met demo.personas-sleutels, vond ${bronnen.size}: " +
+                bronnen.joinToString { (bron, _) -> bron.toString() }
         }
 
-        stroom.use { eigenschappen.load(it) }
+        eigenschappen.load(bronnen.single().second.reader())
 
         // Deze parser leest geen profiel-sleutels: stilzwijgend negeren zou een divergentie met
         // SmallRye opleveren die pas bij het starten van de demo blijkt.

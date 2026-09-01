@@ -10,10 +10,15 @@ const omgevingGeladen = fetch('/api/demo/omgeving')
   .then((respons) => (respons.ok ? respons.json() : null))
   .then((omgeving) => {
     if (omgeving && omgeving.uitvraagBasis) BASIS = omgeving.uitvraagBasis;
+
+    // Het hele antwoord teruggeven: laadPersonas leest de keuzelijst uit ditzelfde adres en hoeft
+    // hem dan niet nog een keer op te halen.
+    return omgeving;
   })
   .catch(() => {
     // Console onbereikbaar: de fallback hierboven blijft staan. Dit mag de pagina niet blokkeren —
     // een unhandled rejection zou elke knop stil laten falen.
+    return null;
   });
 
 // magazijnId per bericht onthouden: de lijst levert het mee, maar PATCH en DELETE vereisen het
@@ -440,11 +445,13 @@ async function leesProblem(respons) {
 // sturen en een 400 opleveren die naar de verkeerde component wijst.
 async function laadPersonas() {
   try {
-    const respons = await fetch('/api/demo/omgeving');
+    // Wacht op de omgeving die bovenaan al opgehaald wordt: één adres, één ronde. Twee fetches
+    // zouden ook twee antwoorden kunnen opleveren die niet gelijk zijn.
+    const omgeving = await omgevingGeladen;
 
-    if (!respons.ok) throw new Error(`status ${respons.status}`);
+    if (omgeving === null) throw new Error('de demo-console is niet bereikbaar');
 
-    const personas = (await respons.json()).personas;
+    const personas = omgeving.personas;
 
     if (!Array.isArray(personas)) throw new Error('onverwacht antwoord: geen lijst');
 
@@ -460,7 +467,9 @@ async function laadPersonas() {
     }));
 
     if (personas.length === 0) {
-      toonLeeg('Geen persona ingericht (demo.personas in de personadienst).', true);
+      // De personadienst weigert te starten met een lege lijst, dus dit antwoord komt niet van
+      // hem: waarschijnlijk staat er iets anders op dit adres.
+      toonLeeg('Onverwacht antwoord: geen enkele persona in /api/demo/omgeving.', true);
 
       return;
     }
