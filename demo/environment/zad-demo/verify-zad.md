@@ -138,7 +138,15 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 `200` hoort. `403` betekent dat er per ongeluk een `authorization-wall` op dat component staat — de
 berichtenbox haalt dit pad server-side op en heeft geen sessie. `404` of niets betekent dat het
-component er niet staat of zijn poort niet publiceert.
+component er niet staat of zijn poort niet publiceert. `503` betekent dat het component er wél
+staat maar niets luistert: kijk dan eerst welk image eronder hangt (`zadctl deployment describe
+<deployment>`) — een image dat op een andere poort luistert dan de 8098 die het component
+publiceert, komt nooit omhoog. Dat is ook wat je ziet zolang er nog een tijdelijk image onder hangt
+dat op de eerste uitrol wacht.
+
+Let op de tweede orde: wijst `BACKEND_DEMO` van de proeftuin naar een dienst die niet luistert, dan
+geeft óók `proeftuin-<deployment>-…/api/demo/personas` een 503. De fout zit dan niet in de
+proeftuin.
 
 Klopt dat adres wel, toets dan hetzelfde pad via de proeftuin — dat is de route die de berichtenbox
 zelf loopt, en die hangt aan `BACKEND_DEMO`:
