@@ -3,11 +3,23 @@ package nl.rijksoverheid.moz.fbs.democonsole.omgeving
 import io.mockk.every
 import io.mockk.mockk
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
+import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.util.Optional
 
 class OmgevingResourceTest {
+
+    private fun persona(id: String) = DemoPersona(
+        id = id,
+        label = id.replaceFirstChar { it.uppercase() },
+        type = "BSN",
+        waarde = "999993653",
+        magazijnen = emptyList(),
+        bron = PersonaBron.KETEN,
+    )
 
     private fun resource(
         basis: String?,
@@ -15,6 +27,7 @@ class OmgevingResourceTest {
         simulator: Boolean = true,
         sessiecache: Boolean = true,
         berichtenbox: String? = null,
+        personas: List<DemoPersona> = emptyList(),
     ): OmgevingResource {
         val config = mockk<OmgevingConfig> {
             every { uitvraagBasis() } returns Optional.ofNullable(basis)
@@ -23,8 +36,9 @@ class OmgevingResourceTest {
             every { berichtenboxUrl() } returns Optional.ofNullable(berichtenbox)
         }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
+        val personaService = mockk<PersonaService> { every { alle() } returns personas }
 
-        return OmgevingResource(config, register)
+        return OmgevingResource(config, register, personaService)
     }
 
     @Test
@@ -84,6 +98,19 @@ class OmgevingResourceTest {
         // openstaat, geeft de knop gegarandeerd een fout; hem tonen kost tijdens een demo uitleg
         // die niets toevoegt.
         assertEquals(false, resource(null, sessiecache = false).omgeving().sessiecache)
+    }
+
+    @Test
+    fun `de persona-lijst komt mee in het antwoord`() {
+        // Het paneel en de wegwerp-berichtenbox lezen hem hieruit, dus een lege lijst is iets
+        // anders dan een ontbrekend veld: het eerste betekent "niets ingericht", het tweede
+        // "deze module is niet bij te werken".
+        assertEquals(emptyList<String>(), resource(null).omgeving().personas.map { it.id })
+
+        assertEquals(
+            listOf("pietersen", "vandijk"),
+            resource(null, personas = listOf(persona("pietersen"), persona("vandijk"))).omgeving().personas.map { it.id },
+        )
     }
 
     @Test

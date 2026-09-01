@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.demopersonas
 
 import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.inject.Instance
+import jakarta.inject.Inject
 import org.jboss.logging.Logger
 import java.util.Locale
 
@@ -12,16 +14,25 @@ import java.util.Locale
  */
 @Startup
 @ApplicationScoped
-class PersonaService(config: PersonaConfig) {
+class PersonaService(config: PersonaConfig, kenners: List<MagazijnKennis>) {
 
-    private val personas: List<DemoPersona> = lees(config)
+    /**
+     * De constructor die CDI gebruikt. `Instance` en geen directe injectie: in deze dienst is er
+     * geen enkele implementatie — zij kent geen magazijnen — en dan hoort de lijst leeg te zijn in
+     * plaats van de bean onvindbaar.
+     */
+    @Inject
+    constructor(config: PersonaConfig, magazijnKennis: Instance<MagazijnKennis>) :
+        this(config, magazijnKennis.stream().toList())
+
+    private val personas: List<DemoPersona> = lees(config, kenners)
 
     fun alle(): List<DemoPersona> = personas
 
     /** De set waarvoor de generator berichten opvoert: zonder magazijn geen aanlevering. */
     fun metMagazijnen(): List<DemoPersona> = personas.filter { it.magazijnen.isNotEmpty() }
 
-    private fun lees(config: PersonaConfig): List<DemoPersona> {
+    private fun lees(config: PersonaConfig, kenners: List<MagazijnKennis>): List<DemoPersona> {
         val gelezen = mutableListOf<DemoPersona>()
         val onbruikbaar = mutableListOf<Pair<String, Exception>>()
 
@@ -30,7 +41,7 @@ class PersonaService(config: PersonaConfig) {
         // willekeurig zijn, en drie kapotte persona's kosten drie herstarts.
         config.personas().forEach { (id, instelling) ->
             try {
-                gelezen += leesPersona(id, instelling)
+                gelezen += leesPersona(id, instelling, kenners)
             } catch (fout: IllegalArgumentException) {
                 onbruikbaar += id to fout
             } catch (fout: IllegalStateException) {
@@ -53,13 +64,24 @@ class PersonaService(config: PersonaConfig) {
         return gesorteerd
     }
 
-    private fun leesPersona(id: String, instelling: PersonaConfig.PersonaInstelling): DemoPersona {
+    private fun leesPersona(
+        id: String,
+        instelling: PersonaConfig.PersonaInstelling,
+        kenners: List<MagazijnKennis>,
+    ): DemoPersona {
         val magazijnen = instelling.magazijnen().orElse(emptyList())
 
-        // SmallRye trimt lijstwaarden niet, dus "OIN_A, OIN_B" levert een OIN met een spatie ervoor.
-        // Of het OIN ook een ingericht magazijn is, weet deze dienst niet: die inrichting hoort bij
-        // wie berichten aanlevert. De demo-console toetst dat bij het opstarten.
-        magazijnen.forEach { require(it == it.trim()) { "magazijn-OIN '$it' heeft witruimte om zich heen" } }
+        magazijnen.forEach { oin ->
+            // SmallRye trimt lijstwaarden niet, dus "OIN_A, OIN_B" levert een OIN met een spatie
+            // ervoor. Zonder deze melding wijst de volgende regel naar de magazijn-inrichting, waar
+            // niets mis is.
+            require(oin == oin.trim()) { "magazijn-OIN '$oin' heeft witruimte om zich heen" }
+
+            // Of het OIN ook een ingericht magazijn is weet deze dienst niet; een afnemer die het
+            // wél weet levert die kennis aan. Binnen deze lus, zodat zijn oordeel meelift op het
+            // verzamelen hieronder en één boot alle fouten meldt.
+            kenners.forEach { it.vereisBekend(oin) }
+        }
 
         return DemoPersona(
             id = id,

@@ -124,6 +124,32 @@ class PersonaServiceTest {
     }
 
     @Test
+    fun `een kapot nummer en een onbekend magazijn komen in dezelfde melding`() {
+        // Dit is waarom de magazijn-kennis via deze naad loopt en niet als losse controle bij de
+        // afnemer staat: met twee controles fixt de bediener de eerste fout, start opnieuw, en
+        // krijgt dan pas de tweede te zien.
+        val melding = weigering(
+            "typfout" to VastePersona("Typfout B.V.", "KVK", "1234567"),
+            "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf("00000000000000999999")),
+            kenners = listOf(MagazijnKennis { oin -> require(oin == TestPersonas.RVO) { "onbekend magazijn '$oin'" } }),
+        ).message!!
+
+        assertTrue(melding.contains("typfout"), melding)
+        assertTrue(melding.contains("verdwaald"), melding)
+        assertTrue(melding.contains("00000000000000999999"), melding)
+    }
+
+    @Test
+    fun `een afnemer zonder magazijn-kennis laat elke opt-in staan`() {
+        // De personadienst zelf kent geen magazijnen; dan hoort een opt-in geen fout te zijn.
+        assertEquals(
+            listOf("verdwaald"),
+            service("verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf("00000000000000999999")))
+                .alle().map { it.id },
+        )
+    }
+
+    @Test
     fun `meldt alle onbruikbare persona's in één keer`() {
         val melding = weigering(
             "eerste" to VastePersona("Eerste B.V.", "KVK", "1234567"),
@@ -165,12 +191,16 @@ class PersonaServiceTest {
         assertEquals(verwacht, personas.map { it.id })
     }
 
-    private fun service(vararg personas: Pair<String, PersonaConfig.PersonaInstelling>): PersonaService =
-        PersonaService(VastePersonaConfig(personas.toMap()))
+    private fun service(
+        vararg personas: Pair<String, PersonaConfig.PersonaInstelling>,
+        kenners: List<MagazijnKennis> = emptyList(),
+    ): PersonaService = PersonaService(VastePersonaConfig(personas.toMap()), kenners)
 
     /** Toetst dat de inrichting de module laat weigeren te starten, en levert de fout voor verdere assertions. */
-    private fun weigering(vararg personas: Pair<String, PersonaConfig.PersonaInstelling>): IllegalArgumentException =
-        assertThrows(IllegalArgumentException::class.java) { service(*personas) }
+    private fun weigering(
+        vararg personas: Pair<String, PersonaConfig.PersonaInstelling>,
+        kenners: List<MagazijnKennis> = emptyList(),
+    ): IllegalArgumentException = assertThrows(IllegalArgumentException::class.java) { service(*personas, kenners = kenners) }
 
     private companion object {
 

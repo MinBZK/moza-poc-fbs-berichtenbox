@@ -82,6 +82,13 @@ twee keer onderhoudt.
 
 ---
 
+> **Bijgesteld na review:** het endpoint `/api/demo/personas` bestaat alleen in de personadienst.
+> De demo-console zet het uit met `personadienst.endpoint=false` en levert de lijst mee in
+> `/api/demo/omgeving` voor de twee pagina's die zij zelf serveert. Twee diensten die hetzelfde
+> adres beantwoorden maken een verkeerd gerichte proxy onzichtbaar, want beide antwoorden zijn dan
+> gelijk. De magazijn-kruiscontrole loopt niet meer als losse opstartcontrole maar via de naad
+> `MagazijnKennis`, zodat één boot alle inrichtingsfouten meldt in plaats van één per herstart.
+>
 > **Afwijking bij het uitvoeren:** taak 1 en 2 zijn één commit geworden. De persona-configuratie
 > verhuist mee naar de nieuwe module, en zodra die uit `application.properties` van de console weg
 > is, weigert de console te starten tot hij de module als afhankelijkheid heeft. Twee commits zouden

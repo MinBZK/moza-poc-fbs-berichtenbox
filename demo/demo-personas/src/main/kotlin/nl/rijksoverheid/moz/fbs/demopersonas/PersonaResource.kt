@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.demopersonas
 
+import io.quarkus.arc.properties.IfBuildProperty
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
@@ -15,7 +16,12 @@ data class PersonaDto(val id: String, val label: String, val ontvanger: String, 
  *
  * Het aantal magazijnen per persona blijft eruit: dat is inrichting van de demo-omgeving en zegt
  * een berichtenbox niets.
+ *
+ * Alleen actief in deze dienst. Wie de module als afhankelijkheid opneemt krijgt het domein en de
+ * lijst, maar niet dit pad: twee diensten die hetzelfde adres beantwoorden maken een verkeerd
+ * gerichte proxy onzichtbaar, want beide antwoorden zijn dan gelijk.
  */
+@IfBuildProperty(name = "personadienst.endpoint", stringValue = "true")
 @Path("/api/demo/personas")
 @Produces(MediaType.APPLICATION_JSON)
 class PersonaResource(private val personaService: PersonaService) {

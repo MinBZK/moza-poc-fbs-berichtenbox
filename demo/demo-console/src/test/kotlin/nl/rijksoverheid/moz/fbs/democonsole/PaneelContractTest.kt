@@ -41,6 +41,9 @@ class PaneelContractTest {
     @TestHTTPResource("/api/demo/omgeving")
     lateinit var omgevingUrl: URL
 
+    @TestHTTPResource("/api/demo/personas")
+    lateinit var personasUrl: URL
+
     private fun haal(url: URL): HttpResponse<String> =
         HttpClient.newHttpClient().send(
             HttpRequest.newBuilder(url.toURI()).GET().build(),
@@ -79,6 +82,23 @@ class PaneelContractTest {
             haalJson(omgevingUrl).contains(""""simulator":"""),
             "veldnaam simulator ontbreekt in de omgeving-respons",
         )
+    }
+
+    @Test
+    fun `de omgeving draagt de persona-lijst voor de twee pagina's van deze module`() {
+        // Het paneel en de wegwerp-berichtenbox lezen hem hieruit; zonder dit veld blijft hun
+        // keuzelijst leeg en meldt de pagina dat er niets is ingericht.
+        assertTrue(
+            haalJson(omgevingUrl).contains(""""personas":[{"""),
+            "veld personas ontbreekt in de omgeving-respons",
+        )
+    }
+
+    @Test
+    fun `deze module beantwoordt het personas-adres niet`() {
+        // Dat adres hoort bij de personadienst. Zouden beide het beantwoorden, dan levert een proxy
+        // die per ongeluk hierheen wijst hetzelfde antwoord en valt de scheiding stil weg.
+        assertEquals(404, haal(personasUrl).statusCode())
     }
 
     @Test

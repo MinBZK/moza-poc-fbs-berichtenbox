@@ -32,8 +32,8 @@ class PersonaConfiguratieTest {
     @Inject
     lateinit var generator: DemoBerichtGenerator
 
-    @TestHTTPResource("/api/demo/personas")
-    lateinit var personasUrl: URL
+    @TestHTTPResource("/api/demo/omgeving")
+    lateinit var omgevingUrl: URL
 
     @Test
     fun `levert de ingerichte persona's in de volgorde van de keuzelijst`() {
@@ -47,12 +47,9 @@ class PersonaConfiguratieTest {
     }
 
     @Test
-    fun `de drie beans worden bij het starten gebouwd, niet pas bij de eerste aanroep`() {
+    fun `beide beans worden bij het starten gebouwd, niet pas bij de eerste aanroep`() {
         // Zonder deze assertie kan @Startup verdwijnen zonder dat één test rood wordt: injectie
-        // bouwt de bean toch wel, dus geen enkele andere test merkt het verschil. Voor
-        // PersonaMagazijnCheck geldt het dubbel: niets injecteert die bean, dus zonder @Startup
-        // ruimt ArC hem op en verdwijnt de kruiscontrole geruisloos.
-        assertTrue(PersonaMagazijnCheck::class.java.isAnnotationPresent(Startup::class.java))
+        // bouwt de bean toch wel, dus geen enkele andere test merkt het verschil.
         assertTrue(PersonaService::class.java.isAnnotationPresent(Startup::class.java))
         assertTrue(
             GeneratorProducer::class.java
@@ -85,16 +82,18 @@ class PersonaConfiguratieTest {
     }
 
     @Test
-    fun `levert de keuzelijst als JSON, met de bron in kleine letters`() {
+    fun `levert de keuzelijst mee in de omgeving, met de bron in kleine letters`() {
+        // Via /api/demo/omgeving: het personas-adres hoort bij de personadienst, en deze module
+        // beantwoordt het bewust niet. De twee pagina's die zij wél serveert lezen de lijst hier.
         val respons = HttpClient.newHttpClient().send(
-            HttpRequest.newBuilder(personasUrl.toURI()).GET().build(),
+            HttpRequest.newBuilder(omgevingUrl.toURI()).GET().build(),
             HttpResponse.BodyHandlers.ofString(),
         )
 
         assertEquals(200, respons.statusCode())
         assertTrue(respons.headers().firstValue("content-type").orElse("").startsWith("application/json"))
 
-        val geleverd = ObjectMapper().readTree(respons.body()).map {
+        val geleverd = ObjectMapper().readTree(respons.body()).path("personas").map {
             listOf(it.path("id").asText(), it.path("label").asText(), it.path("ontvanger").asText(), it.path("bron").asText())
         }
 

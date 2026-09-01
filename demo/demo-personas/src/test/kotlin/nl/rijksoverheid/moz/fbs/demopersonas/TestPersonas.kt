@@ -57,7 +57,7 @@ object TestPersonas {
     fun uitConfiguratie(): PersonaService {
         val velden = personaVelden(laadEigenschappen())
 
-        return PersonaService(VastePersonaConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }))
+        return PersonaService(VastePersonaConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }), emptyList())
     }
 
     private fun laadEigenschappen(): Properties {

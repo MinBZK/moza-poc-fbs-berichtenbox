@@ -433,18 +433,18 @@ async function leesProblem(respons) {
   }
 }
 
-// Same-origin, anders dan de rest van deze pagina (die praat met de uitvraag op poort 8086):
-// geen CORS nodig. Eén lijst voor de keuzelijst én de berichtgenerator, zodat de twee niet
-// uiteen kunnen lopen. Mislukt het ophalen, dan blijven Ophalen en Vernieuw uit: met een lege
-// keuzelijst zou de volgende klik een lege X-Ontvanger sturen en een 400 opleveren die naar de
-// verkeerde component wijst.
+// Uit /api/demo/omgeving, same-origin — anders dan de rest van deze pagina, die met de uitvraag
+// praat. Niet van /api/demo/personas: dat adres hoort bij de personadienst, en deze module
+// beantwoordt het bewust niet; de lijst komt uit dezelfde bron. Mislukt het ophalen, dan blijven
+// Ophalen en Vernieuw uit: met een lege keuzelijst zou de volgende klik een lege X-Ontvanger
+// sturen en een 400 opleveren die naar de verkeerde component wijst.
 async function laadPersonas() {
   try {
-    const respons = await fetch('/api/demo/personas');
+    const respons = await fetch('/api/demo/omgeving');
 
     if (!respons.ok) throw new Error(`status ${respons.status}`);
 
-    const personas = await respons.json();
+    const personas = (await respons.json()).personas;
 
     if (!Array.isArray(personas)) throw new Error('onverwacht antwoord: geen lijst');
 
