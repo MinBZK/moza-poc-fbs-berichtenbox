@@ -29,6 +29,13 @@
         "kvkNummer": "90000001"
       },
       "opthaaltAlleen": true
+    },
+    {
+      "id": "vandijk",
+      "bedrijf": {
+        "handelsnaam": "Garage Van Dijk B.V.",
+        "kvkNummer": "90000014"
+      }
     }
   ]
 }
