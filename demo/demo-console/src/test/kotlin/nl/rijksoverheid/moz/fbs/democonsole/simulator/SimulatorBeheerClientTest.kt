@@ -1,9 +1,14 @@
 package nl.rijksoverheid.moz.fbs.democonsole.simulator
 
-import org.eclipse.microprofile.rest.client.annotation.ClientHeaderParam
+import jakarta.ws.rs.core.MultivaluedHashMap
+import org.eclipse.microprofile.rest.client.annotation.RegisterClientHeaders
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+import java.util.Optional
 
 /**
  * Het beheerpad van de simulator is buiten dev en test verplicht met een token beveiligd. Stuurt de
@@ -12,14 +17,35 @@ import org.junit.jupiter.api.Test
  */
 class SimulatorBeheerClientTest {
 
+    private fun headers(token: Optional<String>) =
+        BeheerTokenHeaders(token).update(MultivaluedHashMap(), MultivaluedHashMap())
+
     @Test
-    fun `de client stuurt het beheertoken mee`() {
-        val header = SimulatorBeheerClient::class.java.getAnnotation(ClientHeaderParam::class.java)
+    fun `de client laat zijn headers door de beheertoken-factory zetten`() {
+        val annotatie = SimulatorBeheerClient::class.java.getAnnotation(RegisterClientHeaders::class.java)
 
-        assertNotNull(header, "SimulatorBeheerClient hoort een beheertoken-header te dragen")
-        assertEquals("X-Beheer-Token", header.name)
+        assertNotNull(annotatie, "SimulatorBeheerClient hoort een beheertoken-header te dragen")
+        assertEquals(BeheerTokenHeaders::class.java, annotatie.value.java)
+    }
 
-        // Met een default, zodat het lokale pad zonder token blijft werken.
-        assertEquals("\${simulator.beheer-token:}", header.value.single())
+    @Test
+    fun `met een token gaat het token mee`() {
+        assertEquals("s3cr3t", headers(Optional.of("s3cr3t")).getFirst(BeheerTokenHeaders.HEADER))
+    }
+
+    /**
+     * Het lokale pad. Een lege waarde als header meesturen zou net zo goed werken tegen een open
+     * beheerpad, maar niet tegen een beveiligd pad — en dan is de melding een 401 zonder aanwijzing
+     * dat de console niets te sturen had.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["", "   "])
+    fun `zonder token blijft de header weg`(leeg: String) {
+        assertNull(headers(Optional.of(leeg)).getFirst(BeheerTokenHeaders.HEADER))
+    }
+
+    @Test
+    fun `een ontbrekende instelling laat de header net zo goed weg`() {
+        assertNull(headers(Optional.empty()).getFirst(BeheerTokenHeaders.HEADER))
     }
 }

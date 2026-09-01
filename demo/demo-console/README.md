@@ -112,5 +112,5 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
 | `SESSIECACHE_BEREIKBAAR` | `true` | Op `false` laat het paneel de cache-verval-knop weg. Voor omgevingen waar Redis niet bereikbaar is; een knop die gegarandeerd faalt kost tijdens een demo uitleg die niets toevoegt |
 | `MAGAZIJN_SIMULATOR_URL` | `http://localhost:8092` | Beheerpad van de magazijn-simulator: vullen, legen en gedrag bijstellen |
-| `MAGAZIJN_SIMULATOR_BEHEER_TOKEN` | leeg | Token voor dat beheerpad. Leeg lokaal; op een gedeelde omgeving verplicht, anders geeft elke knop een 401 |
+| `MAGAZIJN_SIMULATOR_BEHEER_TOKEN` | leeg | Token voor dat beheerpad. Leeg lokaal — dan blijft de header helemaal weg; op een gedeelde omgeving verplicht, anders geeft elke knop een 401 |
 | `SIMULATOR_BEREIKBAAR` | `true` | Op `false` laat het paneel de knoppen en de chip voor de gesimuleerde magazijnen weg |

@@ -7,7 +7,7 @@ import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.MediaType
-import org.eclipse.microprofile.rest.client.annotation.ClientHeaderParam
+import org.eclipse.microprofile.rest.client.annotation.RegisterClientHeaders
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 
 /** Eén gesimuleerd magazijn zoals het beheerpad het teruggeeft. */
@@ -49,7 +49,7 @@ data class LeegUitkomst(val berichten: Int, val magazijnenTeruggezet: Int)
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 @RegisterRestClient(configKey = "magazijnsimulator")
-@ClientHeaderParam(name = "X-Beheer-Token", value = ["\${simulator.beheer-token:}"])
+@RegisterClientHeaders(BeheerTokenHeaders::class)
 interface SimulatorBeheerClient {
 
     @GET
