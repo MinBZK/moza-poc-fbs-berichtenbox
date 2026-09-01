@@ -1,6 +1,6 @@
 # Demo-identiteiten als eigen dienst
 
-**Status:** Concept
+**Status:** In uitvoering — taak 1 t/m 3 gedaan, taak 4 (bouwen en uitrollen) en 5 (ZAD) staan open
 
 > **Voor uitvoerders:** de stappen hieronder staan in TDD-volgorde: eerst de falende test, dan de
 > kleinste implementatie. Elke taak eindigt op een groene build en een commit.
@@ -81,6 +81,12 @@ leest configuratie uit afhankelijkheden, dus beide images zien dezelfde waarden 
 twee keer onderhoudt.
 
 ---
+
+> **Afwijking bij het uitvoeren:** taak 1 en 2 zijn één commit geworden. De persona-configuratie
+> verhuist mee naar de nieuwe module, en zodra die uit `application.properties` van de console weg
+> is, weigert de console te starten tot hij de module als afhankelijkheid heeft. Twee commits zouden
+> een rode tussenstand opleveren. De testhulp `TestPersonas` gaat als test-jar mee, omdat twee
+> console-tests hun eigen dataset tegen dezelfde ingerichte persona's toetsen.
 
 ## Taak 1: de module met het endpoint
 
