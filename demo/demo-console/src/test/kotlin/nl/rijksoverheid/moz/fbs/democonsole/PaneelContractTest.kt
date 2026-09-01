@@ -82,6 +82,17 @@ class PaneelContractTest {
     }
 
     @Test
+    fun `de omgeving levert het adres van de berichtenbox`() {
+        // Het paneel toont de berichtenbox in een frame en kent zelf alleen het lokale pad achter
+        // de demo-proxy. Ontbreekt dit veld, dan valt het frame op een gedeelde omgeving terug op
+        // een pad dat daar niet bestaat en blijft de berichtenbox onzichtbaar.
+        assertTrue(
+            haalJson(omgevingUrl).contains(""""berichtenboxUrl":"""),
+            "veldnaam berichtenboxUrl ontbreekt in de omgeving-respons",
+        )
+    }
+
+    @Test
     fun `de omgeving meldt of de sessiecache bereikbaar is`() {
         // Het paneel laat de sessie-groep hierop weg; ontbreekt het veld, dan blijft een knop
         // staan die op een omgeving zonder netwerkregel gegarandeerd faalt.

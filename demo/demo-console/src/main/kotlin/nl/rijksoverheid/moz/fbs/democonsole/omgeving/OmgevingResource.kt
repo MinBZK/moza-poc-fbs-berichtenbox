@@ -18,6 +18,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
  */
 data class Omgeving(
     val uitvraagBasis: String,
+    val berichtenboxUrl: String,
     val storingen: List<String>,
     val simulator: Boolean,
     val sessiecache: Boolean,
@@ -33,6 +34,7 @@ class OmgevingResource(
     @GET
     fun omgeving(): Omgeving = Omgeving(
         uitvraagBasis = config.uitvraagBasis().orElse(""),
+        berichtenboxUrl = config.berichtenboxUrl().orElse(""),
         storingen = register.namen().sorted(),
         simulator = config.simulator(),
         sessiecache = config.sessiecache(),

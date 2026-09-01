@@ -395,9 +395,9 @@ services:
   # maar verschuift stil onder een lopende demo door. Een release-tag (bv. gebruikersonderzoeken-
   # 2026-08) kan net zo goed:  PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 docker compose ...
   #
-  # Alleen het leespad loopt hier: /api/demo/personas valt onder dezelfde `location /api/` en zou
-  # dus ook bij de uitvraag uitkomen. Een tweede bestemming vraagt een wijziging in moza-poc, want
-  # NGINX_ENVSUBST_FILTER laat daar op dit moment alleen BACKEND_ORIGIN door.
+  # De env-vars hieronder werken vanaf de proeftuin-versie die het keten-verkeer per prefix splitst.
+  # Op een oudere tag vallen ze weg en loopt alleen het leespad, want /api/demo/personas valt daar
+  # nog onder dezelfde `location /api/` en komt dus bij de uitvraag uit.
   proeftuin:
     image: ghcr.io/minbzk/moza-poc:${PROEFTUIN_TAG:-sha-934de70}
     profiles: [demo]
@@ -409,6 +409,15 @@ services:
     environment:
       # Alleen in gebruik wanneer de container rechtstreeks op 8096 benaderd wordt; via de
       # demo-proxy onderschept die /api/ al vóór het de container bereikt.
+      #
+      # De proeftuin-nginx splitst het keten-verkeer per prefix: /api/v1/ naar de uitvraag en
+      # /api/demo/ naar dit paneel. Nodig omdat de catch-all /api/ een leestijdslimiet van zestig
+      # seconden draagt: een ophaalronde langs tientallen magazijnen ligt langer stil dan dat en
+      # wordt daar middenin afgekapt. Zonder deze twee komt /api/demo/ bovendien bij de uitvraag uit.
+      BACKEND_KETEN: http://berichtenuitvraag:8086
+      BACKEND_DEMO: http://demo-console:8095
+      # Geen BACKEND_*_HOST: die zet de Host-header apart voor een ingress die daarop routeert.
+      # Lokaal routeert niets op Host en is er geen TLS, dus de eigen host doorgeven volstaat.
       BACKEND_ORIGIN: http://berichtenuitvraag:8086
 
   # Eén origin voor de hele demo: berichtenbox, bedieningspaneel en keten-API's achter hetzelfde

@@ -516,7 +516,64 @@ servicenaam (`$DEPLOYMENT_NAME-profiel`) en geen volledige cross-namespace-naam:
 dezelfde namespace als zijn upstream. De admin-URL's zijn andersom — die lost de console zelf op, en
 dus staan daar de volledige namen.
 
-## 7. Uitrollen en verifiëren
+## 7. De berichtenbox naast het paneel
+
+Het paneel toont de berichtenbox van de proeftuin in een frame. Lokaal zet de demo-proxy beide
+achter één origin; hier bestaat die proxy niet, dus draait de proeftuin als eigen component in dít
+project. Dat is bewust niet het component uit hun eigen project: zo bepalen wij welke versie er
+onder een demo hangt, en volgt de berichtenbox onze previews in plaats van hun uitrolritme.
+
+**Deze stap gaat vóór de merge van de PR die `proeftuin` in `deploy.yml` zet.** Die workflow noemt
+het component bij naam, en een `reference` naar een component dat nog niet in de projectspec staat
+laat de uitrol falen. Andersom is onschuldig: staat het component er wel en noemt de workflow het
+nog niet, dan draait het alleen op `test`.
+
+De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
+onze eigen images. De tag die hier meegegeven wordt geldt alleen tot de eerste uitrol: daarna zet
+`deploy.yml` hem per deployment, met de waarde van `PROEFTUIN_IMAGE`. Die staat in Git en is dus de
+bron; deze pin is alleen de startwaarde. Pin een `sha-<7>`-tag uit hun main; `latest` verschuift
+stil onder een lopende demo door. Om nog niet gemergd werk te beproeven kan een preview-tag
+(`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`), maar alleen tijdelijk: hun opruiming verwijdert
+alle `pr-<n>-*`-versies zodra die PR sluit, dus zwaai bij het mergen om naar een `sha-`-tag uit hun
+main. Blijft die pin staan, dan trekt een herstart een tag die niet meer bestaat.
+
+```bash
+demo/environment/zad-demo/proeftuin-component.sh plan   # toont beide aanroepen, muteert niets
+demo/environment/zad-demo/proeftuin-component.sh apply
+```
+
+Het script doet twee dingen: het component aanmaken met zijn vier aliassen, en `BERICHTENBOX_URL`
+op `democonsole` zetten. De image leest het uit `PROEFTUIN_IMAGE` in `deploy.yml`, zodat er één
+waarde is die bepaalt wat er draait. Draai eerst `plan`: ZAD past component-config alleen toe bij
+het *aanmaken* van een component, dus een fout in de aliassen kost een verwijderen-en-opnieuw.
+
+Waarom vier aliassen en niet twee: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag en
+`/api/demo/` naar dit paneel, en de ingress ervóór routeert op de Host-header. De browser-host
+doorgeven levert daar de verkeerde bestemming op, dus de `*_HOST`-variant zet de servernaam apart.
+
+Die twee paden hebben een eigen bestemming nodig omdat de catch-all `/api/` een leestijdslimiet van
+zestig seconden draagt. Een ophaalronde langs tientallen magazijnen is een SSE-stream die langer stil
+kan liggen dan dat, en wordt daar dus middenin afgekapt. Ontbreekt `BACKEND_KETEN`, dan antwoordt de
+proeftuin met een 502 die de variabelenaam noemt in plaats van stil naar een andere dienst te
+proxyen; `BACKEND_DEMO` valt bij afwezigheid terug op `BACKEND_KETEN`.
+
+**Richt de health-check niet op `/health`.** Dat pad proxyt in dit image naar diezelfde
+chat-backend; een probe erop faalt gegarandeerd en herstart de pod anderhalve minuut later. De
+TCP-probe op de eerste poort volstaat.
+
+**Geen `authorization-wall` op dit component.** De muur staat op het paneel, waar de legen-knop op
+zit. De berichtenbox zelf leest alleen, en leest bij de uitvraag die op deze omgeving toch al
+publiek bereikbaar moet zijn — de browser praat er rechtstreeks mee. Een muur zou hem bovendien
+onbruikbaar maken in het frame: de aanmeldpagina van Keycloak laat zich niet in een frame tonen.
+
+De aliassen gebruiken `$DEPLOYMENT_NAME`, zodat elke preview zijn eigen berichtenbox en zijn eigen
+keten aanspreekt.
+
+Blijft het frame leeg, dan is die variabele niet gezet of wijst hij mis: het paneel toetst het adres
+niet vooraf, want een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar
+te onderscheiden. Open het adres los in de browser om de twee gevallen uit elkaar te halen.
+
+## 8. Uitrollen en verifiëren
 
 ```bash
 zadctl deployment refresh test

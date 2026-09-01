@@ -33,6 +33,9 @@ Verwacht:
   `README.md` gedaan is. `magazijn-a` en `magazijn-b` horen er níet in te staan: die wachten op de
   magazijn-simulator (#938) en hun knop zou gegarandeerd falen.
 - `sessiecache` is `true` zodra stap 5 van `README.md` gedaan is.
+- `berichtenboxUrl` wijst naar de proeftuin van dezelfde deployment, inclusief het pad
+  `/moza/berichtenbox/`. Leeg betekent dat het paneel het lokale pad probeert, dat hier niet
+  bestaat: het frame blijft dan leeg.
 
 Staat er een proxy in `storingen` die er niet hoort, dan is de bijbehorende `TOXIPROXY_*_URL` niet
 leeg gezet. Ontbreekt er één die er wél hoort, dan is zijn alias niet aangekomen.
@@ -114,7 +117,23 @@ De upstream moet de deployment van *deze* preview noemen (`pr-<n>-profiel`), nie
 Klopt dat niet, dan is `TOXIPROXY_*_UPSTREAM` als gewone env-var gezet in plaats van als alias —
 alleen een alias vult `$DEPLOYMENT_NAME` in.
 
-## 7. Herstart-bestendigheid
+## 7. De berichtenbox in het frame
+
+Open `$CONSOLE/`. Verwacht links de berichtenbox van de proeftuin, met de bediening ernaast; niet
+het blok "Berichtenbox niet bereikbaar".
+
+Zie je dat blok wél, dan is `BERICHTENBOX_URL` niet gezet — het paneel toetst een geconfigureerd
+adres niet, dus een leeg frame komt hier nooit door een mislukte toets. Staat de variabele er wel,
+open het adres dan los in de browser: geeft het daar een pagina, dan is het frame het probleem;
+geeft het een fout, dan staat het proeftuin-component niet of wijst de alias mis.
+
+Druk daarna in de berichtenbox op **Ophalen** en laat de ronde helemaal uitlopen, ook als er tussen
+twee organisaties lang niets komt. Breekt de stream na ongeveer een minuut stilte af, dan loopt het
+keten-verkeer nog door de catch-all `/api/` van de proeftuin, met zijn leestijdslimiet van zestig
+seconden: die deployment draait dan op een image van vóór de splitsing van `/api/v1/`, of
+`BACKEND_KETEN` staat er niet — zie stap 7 van `README.md`.
+
+## 8. Herstart-bestendigheid
 
 Toxiproxy houdt zijn proxies in het geheugen, dus elke herstart laat de keten dood achter tot de
 console ze opnieuw aanmaakt. Deze stap toetst dat die reconcile echt draait.

@@ -242,6 +242,13 @@ De losse adressen blijven bestaan om te debuggen: de proeftuin zelf op `:8096` (
 Open je het paneel daar, dan blijft het frame leeg met een verwijzing naar de proxy — de proeftuin
 staat dan op een andere origin.
 
+**Op een gedeelde omgeving is er geen proxy.** Daar draait de proeftuin als eigen component met een
+eigen hostnaam, en wijst `BERICHTENBOX_URL` op de demo-console het frame daarheen. Het paneel toetst
+zo'n adres niet vooraf: een HEAD naar een ander component strandt op CORS, en dat is niet van
+onbereikbaar te onderscheiden. Blijft het frame daar leeg, kijk dan eerst of die variabele gezet is
+en of het adres los in de browser opent. Verversen blijft werken — de browser weigert de gerichte
+herlaad over een origin-grens, waarna het paneel het frame opnieuw laadt.
+
 ---
 
 ## 6. Persona's (Berichtenbox → "Ingelogd als")

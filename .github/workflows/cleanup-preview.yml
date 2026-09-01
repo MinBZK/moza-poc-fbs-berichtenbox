@@ -518,8 +518,11 @@ jobs:
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
           # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
           # de `build`-matrix, `build-externe-stubs`, `build-contract-bootstrap` en
-          # `build-democonsole` in deploy.yml; een vergeten package laat weesversies achter.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console; do
+          # `build-demo-images` in deploy.yml; een vergeten package laat weesversies achter.
+          #
+          # Alleen onze eigen images: `proeftuin` draait op een image uit MinBZK/moza-poc, dat een
+          # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen.
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-magazijn-simulator; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
               fail=1
