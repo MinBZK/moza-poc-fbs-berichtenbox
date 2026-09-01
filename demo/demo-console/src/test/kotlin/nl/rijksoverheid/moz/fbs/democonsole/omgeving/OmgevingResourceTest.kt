@@ -14,11 +14,13 @@ class OmgevingResourceTest {
         vararg proxies: String,
         simulator: Boolean = true,
         sessiecache: Boolean = true,
+        berichtenbox: String? = null,
     ): OmgevingResource {
         val config = mockk<OmgevingConfig> {
             every { uitvraagBasis() } returns Optional.ofNullable(basis)
             every { sessiecache() } returns sessiecache
             every { simulator() } returns simulator
+            every { berichtenboxUrl() } returns Optional.ofNullable(berichtenbox)
         }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
 
@@ -82,5 +84,20 @@ class OmgevingResourceTest {
         // openstaat, geeft de knop gegarandeerd een fout; hem tonen kost tijdens een demo uitleg
         // die niets toevoegt.
         assertEquals(false, resource(null, sessiecache = false).omgeving().sessiecache)
+    }
+
+    @Test
+    fun `zonder geconfigureerde berichtenbox blijft het veld leeg zodat het paneel het eigen pad probeert`() {
+        // Lokaal zet de demo-proxy de berichtenbox op dezelfde origin; daar is een adres uit de
+        // configuratie niet alleen overbodig maar ook fout zodra iemand de stack op een ander
+        // adres opent.
+        assertEquals("", resource(null).omgeving().berichtenboxUrl)
+    }
+
+    @Test
+    fun `een geconfigureerde berichtenbox komt ongewijzigd door`() {
+        val url = "https://proeftuin-demo-mpfm-w3h.example/moza/berichtenbox/"
+
+        assertEquals(url, resource(null, berichtenbox = url).omgeving().berichtenboxUrl)
     }
 }

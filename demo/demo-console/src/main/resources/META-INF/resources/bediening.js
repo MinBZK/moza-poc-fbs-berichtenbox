@@ -1,7 +1,12 @@
 /* Bediening van de demo-stack. Los van index.html zodat de opmaak leesbaar blijft: elke actieknop
  * draagt zijn methode en pad als data-attribuut, en één listener op het document voert ze uit. */
 
+/* Waar de berichtenbox staat. Dit pad klopt lokaal: daar zet de demo-proxy de proeftuin en dit
+ * paneel achter één origin. Op een gedeelde omgeving draagt elk component zijn eigen hostnaam en
+ * levert /api/demo/omgeving de volledige URL. */
 const BOX_PAD = '/moza/berichtenbox/';
+
+let boxUrl = BOX_PAD;
 
 /* Waar je gebleven was, zodat een refresh je niet terugzet op het eerste tabblad met het paneel
  * open over de berichtenbox heen. In sessionStorage en niet in localStorage: dit overleeft een
@@ -95,11 +100,23 @@ function herstelStand() {
 
 // ---------------------------------------------------------------- berichtenbox in het frame
 
-/* Zonder de demo-proxy bestaat dit pad niet op deze origin en toont het frame een 404-pagina. Een
- * frame dat mis laadt geeft geen gebeurtenis die JavaScript van een geslaagde kan onderscheiden,
- * dus toetsen we het pad vooraf in plaats van achteraf te raden. */
-function bepaalBox() {
-    fetch(BOX_PAD, { method: 'HEAD' })
+/* Zonder de demo-proxy bestaat het eigen pad niet op deze origin en toont het frame een
+ * 404-pagina. Een frame dat mis laadt geeft geen gebeurtenis die JavaScript van een geslaagde kan
+ * onderscheiden, dus toetsen we dat pad vooraf in plaats van achteraf te raden.
+ *
+ * Een geconfigureerd adres nemen we juist op zijn woord: dat wijst naar een ander component, en
+ * daar strandt een HEAD op CORS. Die uitkomst is niet van onbereikbaar te onderscheiden, dus
+ * toetsen zou de berichtenbox altijd verbergen — precies waar hij wél staat. */
+function bepaalBox(url) {
+    boxUrl = url || BOX_PAD;
+
+    if (url) {
+        toonBox(true);
+
+        return;
+    }
+
+    fetch(boxUrl, { method: 'HEAD' })
         .then((respons) => toonBox(respons.ok))
         .catch(() => toonBox(false));
 }
@@ -110,12 +127,14 @@ function toonBox(bereikbaar) {
     box.hidden = !bereikbaar;
     document.getElementById('geen-box').hidden = bereikbaar;
 
-    if (bereikbaar) box.src = BOX_PAD;
+    if (bereikbaar) box.src = boxUrl;
 }
 
-/* Zelfde origin, dus een gerichte herlaad kan zonder dat de proeftuin daar iets voor hoeft te
- * bouwen. Bewust een knop en niet automatisch na elke actie: een herlaad zet de berichtenbox terug
- * op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag. */
+/* Bewust een knop en niet automatisch na elke actie: een herlaad zet de berichtenbox terug op zijn
+ * beginstand, en midden in een demo bepaal je zelf wanneer dat mag. Op dezelfde origin kan dat
+ * gericht, zonder dat de proeftuin daar iets voor hoeft te bouwen; staat de berichtenbox op een
+ * eigen hostnaam, dan weigert de browser die toegang en zet het opnieuw zetten van `src` hem
+ * alsnog terug. */
 function verversBox() {
     const box = document.getElementById('box');
 
@@ -124,7 +143,7 @@ function verversBox() {
     try {
         box.contentWindow.location.reload();
     } catch (fout) {
-        box.src = BOX_PAD;
+        box.src = boxUrl;
     }
 }
 
@@ -644,6 +663,10 @@ async function pasOmgevingToe() {
 
     heeftSimulator = omgeving ? omgeving.simulator : true;
 
+    // Pas hierna, want het adres van de berichtenbox komt uit ditzelfde antwoord. Is de console
+    // onbereikbaar, dan blijft het eigen pad over — lokaal is dat het juiste adres.
+    bepaalBox(omgeving ? omgeving.berichtenboxUrl : '');
+
     if (omgeving) {
         const beschikbaar = new Set(omgeving.storingen);
 
@@ -785,7 +808,6 @@ document.querySelectorAll('button[data-pad]').forEach((knop) => {
 });
 
 herstelStand();
-bepaalBox();
 pasOmgevingToe();
 vulPersonas();
 verversToestand();

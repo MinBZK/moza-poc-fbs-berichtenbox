@@ -516,7 +516,60 @@ servicenaam (`$DEPLOYMENT_NAME-profiel`) en geen volledige cross-namespace-naam:
 dezelfde namespace als zijn upstream. De admin-URL's zijn andersom — die lost de console zelf op, en
 dus staan daar de volledige namen.
 
-## 7. Uitrollen en verifiëren
+## 7. De berichtenbox naast het paneel
+
+Het paneel toont de berichtenbox van de proeftuin in een frame. Lokaal zet de demo-proxy beide
+achter één origin; hier bestaat die proxy niet, dus draait de proeftuin als eigen component in dít
+project. Dat is bewust niet het component uit hun eigen project: zo bepalen wij welke versie er
+onder een demo hangt, en volgt de berichtenbox onze previews in plaats van hun uitrolritme.
+
+De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
+onze eigen images. Pin een `sha-<7>`-tag uit hun main; `latest` verschuift stil onder een lopende
+demo door. Wil je hun nog niet gemergde werk beproeven, dan kan een preview-tag
+(`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`) net zo goed.
+
+```bash
+zadctl component add proeftuin \
+  --image ghcr.io/minbzk/moza-poc:sha-<7> \
+  --deployment test \
+  --port 8080 \
+  --service publish-on-web \
+  --aliases '
+BACKEND_KETEN: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl
+BACKEND_KETEN_HOST: uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl
+BACKEND_DEMO: https://democonsole-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
+BACKEND_DEMO_HOST: democonsole-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
+'
+```
+
+Vier variabelen en niet twee: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag en
+`/api/demo/` naar dit paneel, en de ingress ervóór routeert op de Host-header. De browser-host
+doorgeven levert daar de verkeerde bestemming op, dus de `*_HOST`-variant zet de servernaam apart.
+Zonder `BACKEND_KETEN` valt het keten-verkeer terug op `BACKEND_ORIGIN`, dat hier naar een
+chat-backend wijst die in dit project niet bestaat.
+
+**Richt de health-check niet op `/health`.** Dat pad proxyt in dit image naar diezelfde
+chat-backend; een probe erop faalt gegarandeerd en herstart de pod anderhalve minuut later. De
+TCP-probe op de eerste poort volstaat.
+
+**Geen `authorization-wall` op dit component.** De muur staat op het paneel, waar de legen-knop op
+zit. De berichtenbox zelf leest alleen, en leest bij de uitvraag die op deze omgeving toch al
+publiek bereikbaar moet zijn — de browser praat er rechtstreeks mee. Een muur zou hem bovendien
+onbruikbaar maken in het frame: de aanmeldpagina van Keycloak laat zich niet in een frame tonen.
+
+Wijs het paneel er tot slot heen, met dezelfde `$DEPLOYMENT_NAME`-truc zodat elke preview zijn eigen
+berichtenbox toont:
+
+```bash
+zadctl alias add -c democonsole \
+  'BERICHTENBOX_URL=https://proeftuin-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/moza/berichtenbox/'
+```
+
+Blijft het frame leeg, dan is die variabele niet gezet of wijst hij mis: het paneel toetst het adres
+niet vooraf, want een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar
+te onderscheiden. Open het adres los in de browser om de twee gevallen uit elkaar te halen.
+
+## 8. Uitrollen en verifiëren
 
 ```bash
 zadctl deployment refresh test
