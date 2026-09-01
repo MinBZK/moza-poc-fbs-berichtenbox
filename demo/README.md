@@ -12,6 +12,7 @@ verwacht.
 | Pad | Wat |
 |---|---|
 | `demo-console/` | Maven-module: bedieningspaneel voor demo's — magazijnen legen, vullen, storingen aanzetten. Heeft een eigen image en draait als ZAD-component `democonsole` in de deployment `test` van `mpfm-w3h`, previews inbegrepen — zie `demo-console/README.md` |
+| `demo-personas/` | Maven-module: de demo-identiteiten, als eigen dienst met één endpoint (`GET /api/demo/personas`). Bestaat apart zodat een berichtenbox de lijst kan lezen zonder bij de knoppen van het bedieningspaneel te kunnen: dat paneel staat op ZAD achter een authenticatiemuur, en die is niet per pad open te zetten. Draait als ZAD-component `demopersonas`; de demo-console leest dezelfde lijst uit deze module — zie `../docs/plans/2026-09-01-demo-personas-eigen-dienst.md` |
 | `magazijn-simulator/` | Maven-module: één service die zich als veel berichtenmagazijnen tegelijk voordoet, elk op pad-prefix `/magazijn/<OIN>`. Genereert uit dezelfde OpenAPI-spec als het echte magazijn — zie `../docs/plans/2026-08-21-magazijn-simulator-design.md` |
 | `environment/` | FSC-federatieharness (peers, PKI, contract-bootstrap) én de ZAD-runbooks; `zad-demo/` bevat de eenmalige OM-stappen voor de demo-console en de verificatie erna, plus het voorbereide runbook voor de magazijn-simulator |
 | `generated/` | Gegenereerde artefacten (git-ignored): het magazijnregister voor de uitvraag, de set voor de simulator en de profiel-stubs van de vier ondernemers; komt uit `genereer-magazijnen.py`. Lokaal bind-mount compose ze; voor ZAD bakt `deploy.yml` de ondernemer-stubs in het `fbs-demo-profiel`-image |
@@ -24,10 +25,10 @@ De demo-runbook staat in [`../docs/demo-runbook.md`](../docs/demo-runbook.md).
 
 ## De grens
 
-Een module onder `demo/` mag afhangen van het stelsel; andersom niet. `demo-console` doet vandaag
-zelfs dat eerste niet: het heeft bewust geen enkele reactor-afhankelijkheid, zodat de wegwerp-module
-de productie-stack (LDV-wrapper, JAX-RS-filters) niet erft. De prijs is duplicatie: de
-elfproef-validatie staat lokaal in `demo-console/src/main/kotlin/…/personas/Identificatiecheck.kt`,
+Een module onder `demo/` mag afhangen van het stelsel en van elkaar; andersom niet. `demo-console`
+hangt aan `demo-personas` en verder aan niets uit de reactor: de wegwerp-modules erven de
+productie-stack (LDV-wrapper, JAX-RS-filters) bewust niet. De prijs is duplicatie: de
+elfproef-validatie staat lokaal in `demo-personas/src/main/kotlin/…/Identificatiecheck.kt`,
 naast het gezaghebbende `libraries/fbs-common/…/identificatie/Identificatienummer.kt`. Wie de
 elfproef wijzigt, wijzigt beide.
 
@@ -45,7 +46,7 @@ Demo ≠ "wordt niet uitgerold". De FSC-harness levert het contract-bootstrap-im
 kan een eigen ZAD-component hebben. `.github/scripts/wijzigingsfilter.sh` sluit daarom niet `demo/`
 als geheel van bouwen en uitrollen uit, maar de delen die buiten de uitrolpoort vallen
 (`DEMO_BUITEN_UITROLPOORT`) — het contract-bootstrap-image uit `environment/` en het
-demo-console-image (`build-democonsole`) hangen allebei aan `run` en niet aan `deploy`, dus die
+de demo-images (`build-demo-images`) hangen allebei aan `run` en niet aan `deploy`, dus die
 worden daar niet door geraakt. Een nieuwe demo-module valt buiten de uitsluiting
 en houdt zijn build: vergeten kost een overbodige build, niet een overgeslagen build.
 

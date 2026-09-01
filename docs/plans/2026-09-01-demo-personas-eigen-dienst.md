@@ -1,6 +1,6 @@
 # Demo-identiteiten als eigen dienst
 
-**Status:** In uitvoering — taak 1 t/m 3 gedaan, taak 4 (bouwen en uitrollen) en 5 (ZAD) staan open
+**Status:** Uitgevoerd — de OM-stappen uit taak 5 moeten nog gedraaid worden (`proeftuin-component.sh apply`)
 
 > **Voor uitvoerders:** de stappen hieronder staan in TDD-volgorde: eerst de falende test, dan de
 > kleinste implementatie. Elke taak eindigt op een groene build en een commit.

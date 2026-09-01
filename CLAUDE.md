@@ -44,7 +44,7 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
 - **Monorepo structuur:** drie module-roots met elk een betekenis: `services/<service-naam>/` en `libraries/<library-naam>/` vormen het stelsel, `demo/<module-naam>/` bevat demonstratiecode die nooit in productie draait. `.github/scripts/demo-grens.sh` faalt zodra een pom van het stelsel de naam van een demo-module noemt — als dependency, parent of plugin; andersom mag wel.
-- **Actieve modules:** `services/berichtenmagazijn` en `services/berichtenuitvraag`; demonstratiecode in `demo/demo-console` (bedieningspaneel voor demo's) en `demo/magazijn-simulator` (één service die zich als veel magazijnen voordoet, zie `demo/README.md`). Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`).
+- **Actieve modules:** `services/berichtenmagazijn` en `services/berichtenuitvraag`; demonstratiecode in `demo/demo-console` (bedieningspaneel voor demo's), `demo/demo-personas` (de demo-identiteiten, als eigen dienst zodat een berichtenbox ze kan lezen zonder bij het paneel te kunnen) en `demo/magazijn-simulator` (één service die zich als veel magazijnen voordoet, zie `demo/README.md`). Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`).
 - **Magazijnregister:** één magazijn per deelnemende organisatie; het `magazijnId` dat door DTO's/SSE stroomt ís de afzender-OIN (publiek, geen PII). Config-conventie: `magazijnen."<OIN>".{url,naam}` — de map-key is de OIN, dus dubbele OIN's zijn structureel onmogelijk. `ConfigMagazijnregister` valideert keys/URLs fail-fast bij boot (https-eis buiten dev/test). Consumers (sessiecache-aggregatie, `MagazijnRouter`-routering) lezen uitsluitend de `Magazijnregister`-facade; database-opslag + beheer-interface volgen later.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
@@ -147,6 +147,7 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
 ./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (pure JVM + één @QuarkusTest)
+./mvnw clean test -pl demo/demo-personas -am                     # Tests personadienst (pure JVM + één @QuarkusTest)
 ./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (Docker vereist)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
@@ -190,9 +191,9 @@ matrix van `.github/workflows/cleanup-preview.yml` — wijzig een id op beide pl
 ruimt de opruiming een ánder project op en verifieert ze daar: zolang dat project bestaat is de
 run groen en blijft de preview staan):**
 `berichtenuitvraag` = `mpfb-8wh` (`redis`, `uitvraag`, `toxiproxy-aanmeld`, `toxiproxy-redis`),
-`magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`, `magazijnsimulator`,
-`proeftuin`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`, `toxiproxy-profiel`,
-`toxiproxy-notificatie`).
+`magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`, `demopersonas`,
+`magazijnsimulator`, `proeftuin`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`,
+`toxiproxy-profiel`, `toxiproxy-notificatie`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
 opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
@@ -346,6 +347,7 @@ project **en** PR, dus die race sluiten ze niet uit.
 | `services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml` | OpenAPI spec frontend-API |
 | `libraries/fbs-common/`                | Gedeelde JAX-RS filters en exception mappers                    |
 | `demo/`                                | Demonstratiecode: modules, FSC-harness, stubgenerator — nooit productie (`demo/README.md`) |
+| `demo/demo-personas/`                  | De demo-identiteiten als eigen dienst (`GET /api/demo/personas`); apart van het paneel zodat een berichtenbox de lijst kan lezen zonder bij de knoppen te kunnen |
 | `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests plus één `@QuarkusTest` zonder Docker) |
 | `demo/magazijn-simulator/`             | Eén service die zich als veel magazijnen voordoet, per pad-prefix `/magazijn/<OIN>`. Genereert uit `berichtenmagazijn-api.yaml` van het echte magazijn — die koppeling is een pad-verwijzing (`api.spec.file`) en staat niet in de reactor-graaf |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
