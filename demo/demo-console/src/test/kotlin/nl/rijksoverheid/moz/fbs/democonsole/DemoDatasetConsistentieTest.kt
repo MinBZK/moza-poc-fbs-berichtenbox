@@ -30,7 +30,7 @@ class DemoDatasetConsistentieTest {
     private val mapper = ObjectMapper().registerKotlinModule()
 
     /** De echte generator: organisaties uit [GeneratorProducer], persona's uit `application.properties`. */
-    private fun generator() = GeneratorProducer().generator(TestPersonas.uitApplicationProperties())
+    private fun generator() = GeneratorProducer().generator(TestPersonas.uitConfiguratie())
 
     @Test
     fun `de echte generator-configuratie voldoet aan haar eigen invarianten`() {

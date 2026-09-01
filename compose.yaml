@@ -346,9 +346,10 @@ services:
     volumes:
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
 
-  # De demo-identiteiten, als eigen dienst. Wél op DEMO_BIND en niet op DEMO_BEDIENING_BIND: dit
-  # is een leeslijst zonder knoppen, en een berichtenbox moet erbij kunnen zonder dat daarmee het
-  # legen bereikbaar wordt. Dat onderscheid is de hele reden dat deze dienst naast de console staat.
+  # De demo-identiteiten, als eigen dienst. Wél op DEMO_BIND en niet op DEMO_BEDIENING_BIND: dit is
+  # een leeslijst zonder knoppen, en een berichtenbox moet erbij kunnen zonder dat daarmee het legen
+  # bereikbaar wordt. Online is die scheiding een muur die niet per pad open kan; lokaal houden we
+  # hem aan omdat een demo die lokaal anders loopt het verkeerde bewijst.
   demo-personas:
     image: fbs-demo/fbs-demo-personas:demo
     profiles: [demo]
@@ -460,7 +461,7 @@ services:
       CONSOLE_UPSTREAM: http://demo-console:8095
       PERSONAS_UPSTREAM: http://demo-personas:8098
       UITVRAAG_UPSTREAM: http://berichtenuitvraag:8086
-      # Beperk envsubst tot deze vijf, zodat nginx-eigen variabelen ($$host, $$uri) blijven staan.
+      # Beperk envsubst tot deze variabelen, zodat nginx-eigen namen ($$host, $$uri) blijven staan.
       NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|PERSONAS|UITVRAAG)_UPSTREAM)$$'
     volumes:
       - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro

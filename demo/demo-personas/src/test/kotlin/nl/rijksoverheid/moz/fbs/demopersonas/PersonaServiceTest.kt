@@ -56,7 +56,6 @@ class PersonaServiceTest {
         assertTrue(melding.contains("typfout"), melding)
     }
 
-
     @Test
     fun `weigert een leeg magazijn-OIN`() {
         val melding = weigering(
@@ -133,8 +132,6 @@ class PersonaServiceTest {
 
         assertTrue(melding.contains("eerste") && melding.contains("tweede"), melding)
     }
-
-
 
     @Test
     fun `neemt de bron over uit de configuratie`() {

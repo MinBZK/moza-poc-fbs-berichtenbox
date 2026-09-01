@@ -460,7 +460,7 @@ async function laadPersonas() {
     }));
 
     if (personas.length === 0) {
-      toonLeeg('Geen persona ingericht (demo.personas in de demo-console).', true);
+      toonLeeg('Geen persona ingericht (demo.personas in de personadienst).', true);
 
       return;
     }

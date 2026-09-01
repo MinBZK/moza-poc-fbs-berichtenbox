@@ -137,8 +137,19 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 ```
 
 `200` hoort. `403` betekent dat er per ongeluk een `authorization-wall` op dat component staat — de
-berichtenbox haalt dit pad server-side op en heeft geen sessie. `404` of niets betekent dat
-`BACKEND_DEMO` op het proeftuin-component nog naar `democonsole` wijst.
+berichtenbox haalt dit pad server-side op en heeft geen sessie. `404` of niets betekent dat het
+component er niet staat of zijn poort niet publiceert.
+
+Klopt dat adres wel, toets dan hetzelfde pad via de proeftuin — dat is de route die de berichtenbox
+zelf loopt, en die hangt aan `BACKEND_DEMO`:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "https://proeftuin-<deployment>-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/api/demo/personas"
+```
+
+Een `403` hier terwijl de dienst zelf `200` geeft, betekent dat `BACKEND_DEMO` nog naar
+`democonsole` wijst.
 
 Druk daarna in de berichtenbox op **Ophalen** en laat de ronde helemaal uitlopen, ook als er tussen
 twee organisaties lang niets komt. Breekt de stream na ongeveer een minuut stilte af, dan loopt het

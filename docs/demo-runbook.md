@@ -253,7 +253,7 @@ herlaad over een origin-grens, waarna het paneel het frame opnieuw laadt.
 
 ## 6. Persona's (Berichtenbox → "Ingelogd als")
 
-Bron: `demo.personas.*` in `demo/demo-console/src/main/resources/application.properties`. De
+Bron: `demo.personas.*` in `demo/demo-personas/src/main/resources/META-INF/microprofile-config.properties`. De
 berichtenbox haalt de lijst op bij `GET /api/demo/personas`, dus de keuzelijst volgt een wijziging
 in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
 

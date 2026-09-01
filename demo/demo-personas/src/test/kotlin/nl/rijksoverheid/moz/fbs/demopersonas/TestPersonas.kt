@@ -43,18 +43,18 @@ object TestPersonas {
     val MAGAZIJNEN = setOf(RVO, BELASTINGDIENST)
 
     // Van het classpath en niet van schijf: deze hulp draait ook in de demo-console, waar dit
-    // bestand uit de jar van deze module komt en geen pad op schijf heeft. Er is er precies één —
-    // application.properties blijft per applicatie en draagt geen persona's.
+    // bestand uit de jar van deze module komt en geen pad op schijf heeft.
     private const val BESTAND = "META-INF/microprofile-config.properties"
 
     private val SLEUTEL = Regex("""demo\.personas\.([^.]+)\.([^.]+)""")
 
     /**
-     * De persona's zoals ze in `application.properties` staan. Zonder dit raakt een pure-JVM-test
-     * de echte lijst nooit aan en blijkt een typfout daarin pas bij het starten van de demo. Deze
-     * parser is niet die van SmallRye; `PersonaConfiguratieTest` toetst dat de twee hetzelfde lezen.
+     * De persona's zoals ze in de configuratie van deze module staan. Zonder dit raakt een
+     * pure-JVM-test de echte lijst nooit aan en blijkt een typfout daarin pas bij het starten van de
+     * demo. Deze parser is niet die van SmallRye; `PersonaConfiguratieTest` in de demo-console
+     * toetst dat de twee hetzelfde lezen.
      */
-    fun uitApplicationProperties(): PersonaService {
+    fun uitConfiguratie(): PersonaService {
         val velden = personaVelden(laadEigenschappen())
 
         return PersonaService(VastePersonaConfig(velden.mapValues { (id, veld) -> vastePersona(id, veld) }))

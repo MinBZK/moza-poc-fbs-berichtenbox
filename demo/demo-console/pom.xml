@@ -17,8 +17,9 @@
 
     <dependencies>
         <!-- Bewust GEEN fbs-common: die bevat JAX-RS-filters (LogboekContext) die de
-             LDV-wrapper vereisen. Een wegwerp-console erft die productie-stack niet; de
-             elfproef-validatie is lokaal geïnlined (personas/Identificatiecheck.kt). -->
+             LDV-wrapper vereisen. Een wegwerp-module erft die productie-stack niet; de
+             elfproef-validatie staat lokaal in demo-personas (Identificatiecheck.kt). -->
+
         <!-- De demo-identiteiten. Ze wonen in een eigen module omdat een berichtenbox ze moet
              kunnen lezen zonder bij het bedieningspaneel te kunnen; deze console leest dezelfde
              lijst uit die jar, zodat er niet twee lijsten zijn die uiteen kunnen lopen. -->

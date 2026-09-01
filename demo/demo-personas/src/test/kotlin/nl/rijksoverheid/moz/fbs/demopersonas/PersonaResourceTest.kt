@@ -31,9 +31,56 @@ class PersonaResourceTest {
         val respons = haal()
 
         assertEquals(200, respons.statusCode())
-        assertTrue(respons.body().contains(""""bron":"keten""""), "veld bron ontbreekt")
-        assertTrue(respons.body().contains(""""ontvanger":"KVK:90000014""""), "Garage Van Dijk ontbreekt")
+
+        // Op de geparste boom en niet op de ruwe tekst: het contract is het veld met zijn waarde,
+        // niet de byte-vorm die Jackson er toevallig van maakt.
+        val personas = ObjectMapper().readTree(respons.body())
+        val vandijk = personas.first { it.path("ontvanger").asText() == "KVK:90000014" }
+
+        assertEquals("keten", vandijk.path("bron").asText())
     }
+
+    @Test
+    fun `wat de lijst teruggeeft is wat er in de configuratie staat`() {
+        // Sluit de keten binnen deze module: de handgeschreven parser en de mapping van SmallRye
+        // lezen hetzelfde bestand, en dit endpoint levert af wat die mapping oplevert.
+        val verwacht = TestPersonas.uitConfiguratie().alle().map { it.id }
+        val geleverd = ObjectMapper().readTree(haal().body()).map { it.path("id").asText() }
+
+        assertEquals(verwacht, geleverd)
+    }
+
+    @Test
+    fun `deze dienst draagt alleen die ene leeslijst`() {
+        // De bestaansreden van de module: wat er niet in zit, kan niet per ongeluk bereikbaar
+        // worden. Komt hier ooit een endpoint van de console bij, dan hoort dat op te vallen.
+        assertEquals(404, statusVan("/api/demo/omgeving"))
+        assertEquals(404, statusVan("/api/demo/storing"))
+    }
+
+    @Test
+    fun `de lijst is niet te wijzigen`() {
+        assertEquals(405, HttpClient.newHttpClient().send(
+            HttpRequest.newBuilder(url.toURI()).POST(HttpRequest.BodyPublishers.noBody()).build(),
+            HttpResponse.BodyHandlers.discarding(),
+        ).statusCode())
+    }
+
+    @Test
+    fun `het antwoord mag niet bewaard worden`() {
+        // De lijst verandert met de inrichting van de demo; een hergebruikt antwoord toont een
+        // testaccount dat er niet meer is. Op een gedeelde omgeving zit er bovendien een ingress
+        // tussen die zich aan deze header houdt.
+        assertEquals(
+            "no-store",
+            haal().headers().firstValue("Cache-Control").orElse(null),
+        )
+    }
+
+    private fun statusVan(pad: String): Int = HttpClient.newHttpClient().send(
+        HttpRequest.newBuilder(url.toURI().resolve(pad)).GET().build(),
+        HttpResponse.BodyHandlers.discarding(),
+    ).statusCode()
 
     @Test
     fun `elke persona draagt precies de vier velden waarop een afnemer rekent`() {

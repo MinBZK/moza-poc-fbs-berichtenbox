@@ -7,8 +7,10 @@
 # Hoofdstuk 7 van README.md hiernaast beschrijft het waarom: de berichtenbox draait als eigen
 # component in ons project zodat wij de versie bepalen, en het paneel toont hem in een frame.
 #
-# DRAAI DIT VÓÓR de merge van de PR die `proeftuin` in deploy.yml zet: die workflow noemt het
-# component bij naam, en een verwijzing naar een component dat niet bestaat laat de uitrol falen.
+# DRAAI DIT VÓÓR de merge van de PR die deze componenten in deploy.yml zet: die workflow noemt ze
+# bij naam, en een verwijzing naar een component dat niet bestaat laat de uitrol falen. Voor een
+# component waarvan het image nog niet gebouwd is, geef je met PERSONAS_IMAGE een bestaand,
+# onschadelijk image mee; de eerste uitrol vervangt het door de juiste tag.
 #
 # LET OP: ZAD past component-config (aliassen, poorten, diensten) alleen toe bij het AANMAKEN van
 # een component. Een tweede aanroep op een bestaand component laat die config staan; aanpassen
@@ -45,20 +47,33 @@ IMAGE="$(sed -n 's/^ *PROEFTUIN_IMAGE: *//p' "$WORTEL/.github/workflows/deploy.y
 # tag lezen we af van een component dat al in deze deployment draait: hetzelfde register, dezelfde
 # eigenaar, dezelfde tag. Een verzonnen tag zou het component in ImagePullBackOff laten hangen tot
 # de eerstvolgende uitrol.
-PERSONAS_IMAGE="${PERSONAS_IMAGE:-$(
-    zadctl deployment describe "$DEPLOYMENT" -o json 2>/dev/null |
-        python3 -c "
+if [ -z "${PERSONAS_IMAGE:-}" ]; then
+    # Geen 2>/dev/null: niet-ingelogd, verkeerd project of een lock bij OM zou dan als "geen
+    # democonsole gevonden" langskomen, en dan ga je een image-naam invullen terwijl je moet
+    # inloggen.
+    BESCHRIJVING="$(zadctl deployment describe "$DEPLOYMENT" -o json)" || {
+        echo "zadctl kon deployment '$DEPLOYMENT' niet beschrijven; zie de melding hierboven" >&2
+        exit 1
+    }
+
+    PERSONAS_IMAGE="$(printf '%s' "$BESCHRIJVING" | python3 -c "
 import json, sys
 
 componenten = {c['name']: c['image'] for c in json.load(sys.stdin).get('components', [])}
 console = componenten.get('democonsole', '')
-print(console.replace('fbs-demo-console', 'fbs-demo-personas') if console else '')
-"
-)}"
-[ -n "$PERSONAS_IMAGE" ] || {
-    echo "geen democonsole in deployment '$DEPLOYMENT' om de tag van af te lezen; zet PERSONAS_IMAGE zelf" >&2
-    exit 1
-}
+
+# Hard toetsen in plaats van een blinde replace: matcht de naam niet, dan zou PERSONAS_IMAGE het
+# console-image worden. Dat luistert op een andere poort, dus de pod herstart zich eeuwig — en het
+# draagt de legen-knop, op een component dat bewust geen muur krijgt.
+if 'fbs-demo-console' not in console:
+    sys.exit(f\"democonsole draait op '{console}'; daar is de personas-tag niet uit af te leiden\")
+
+print(console.replace('fbs-demo-console', 'fbs-demo-personas'))
+")" || {
+        echo "zet PERSONAS_IMAGE zelf" >&2
+        exit 1
+    }
+fi
 
 UITVRAAG_HOST="uitvraag-\$DEPLOYMENT_NAME-${PROJECT_UITVRAAG}.${BASE_DOMAIN}"
 PERSONAS_HOST="demopersonas-\$DEPLOYMENT_NAME-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}"
@@ -73,11 +88,21 @@ echo
 # nginx van de proeftuin haalt dit pad server-side op en heeft geen sessie, dus achter een muur
 # krijgt hij 403 en meldt de berichtenbox dat het ophalen mislukt. Dat is precies het probleem dat
 # deze dienst oplost. Het bedieningspaneel houdt zijn muur, want daar zit het legen achter.
-zadctl component add demopersonas \
+component_add() {
+    # Een bestaand component is geen fout: dit script wordt gedraaid op omgevingen die al half
+    # ingericht zijn, en zonder deze tak sterft het onder `set -e` vóór de aliassen verderop.
+    # Config van een bestaand component verandert een tweede `add` toch niet — dat kan alleen door
+    # het te verwijderen en opnieuw aan te maken.
+    zadctl component add "$@" "${DROOG[@]}" || {
+        echo "component '$1' niet aangemaakt (bestaat hij al?); ga door met de rest" >&2
+    }
+}
+
+component_add demopersonas \
     --image "$PERSONAS_IMAGE" \
     --deployment "$DEPLOYMENT" \
     --port 8098 \
-    --service publish-on-web "${DROOG[@]}"
+    --service publish-on-web
 
 # Vier aliassen en niet twee: de nginx van de proeftuin proxyt /api/v1/ naar de uitvraag en
 # /api/demo/ naar de personadienst, en de ingress ervóór routeert op de Host-header. De browser-host
@@ -86,7 +111,7 @@ zadctl component add demopersonas \
 # Geen authorization-wall: die staat op het paneel, waar de legen-knop op zit. De berichtenbox
 # leest alleen, en leest bij een uitvraag die hier toch al publiek bereikbaar is. Een muur zou hem
 # bovendien onbruikbaar maken in een frame — de aanmeldpagina van Keycloak laat zich niet framen.
-zadctl component add proeftuin \
+component_add proeftuin \
     --image "$IMAGE" \
     --deployment "$DEPLOYMENT" \
     --port 8080 \
@@ -96,7 +121,7 @@ BACKEND_KETEN: https://${UITVRAAG_HOST}
 BACKEND_KETEN_HOST: ${UITVRAAG_HOST}
 BACKEND_DEMO: https://${PERSONAS_HOST}
 BACKEND_DEMO_HOST: ${PERSONAS_HOST}
-" "${DROOG[@]}"
+"
 
 # Het paneel toetst dit adres niet vooraf: een HEAD naar een ander component strandt op CORS, en
 # die uitkomst is niet van onbereikbaar te onderscheiden. Staat de alias fout, dan blijft het frame

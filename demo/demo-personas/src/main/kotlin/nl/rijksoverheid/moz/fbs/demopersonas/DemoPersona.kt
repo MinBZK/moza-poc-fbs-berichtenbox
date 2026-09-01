@@ -5,7 +5,7 @@ package nl.rijksoverheid.moz.fbs.demopersonas
  * nummers zijn fictief — BSN's uit de 999-testreeks, zie `wiremock/demo-profiel/README.md`. Een
  * afnemende berichtenbox krijgt ze via het personas-endpoint en hoeft ze niet in zijn eigen
  * broncode op te nemen. Binnen de demo staan ze op meer plekken (profielstubs, basisdataset), die
- * `DemoDatasetConsistentieTest` op elkaar houdt voor de persona's waarvoor de generator aanlevert;
+ * `DemoDatasetConsistentieTest` van de demo-console op elkaar houdt voor de persona's waarvoor de generator aanlevert;
  * de gegenereerde stubs onder `demo/generated/profiel/` vallen daarbuiten.
  */
 data class DemoPersona(

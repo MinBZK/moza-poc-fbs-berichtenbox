@@ -34,10 +34,10 @@ server {
     # De personalijst komt uit een eigen dienst, zodat een berichtenbox hem kan lezen zonder bij
     # het bedieningspaneel te kunnen. Op een gedeelde omgeving is dat het verschil tussen een
     # leeslijst en een knop die twee databases leegt; lokaal houden we dezelfde scheiding aan, want
-    # anders bewijst de demo iets dat online niet klopt. Vóór de regel hieronder, want nginx kiest
-    # het langste passende pad — de volgorde in dit bestand doet er voor prefixen niet toe, maar de
-    # lezer hoort ze in deze volgorde tegen te komen.
-    location /api/demo/personas {
+    # anders bewijst de demo iets dat online niet klopt. nginx kiest het langste passende prefix,
+    # dus de volgorde hieronder is vrij; het specifieke pad staat vóór de catch-all omdat het zo
+    # leest.
+    location = /api/demo/personas {
         proxy_pass ${PERSONAS_UPSTREAM};
     }
 

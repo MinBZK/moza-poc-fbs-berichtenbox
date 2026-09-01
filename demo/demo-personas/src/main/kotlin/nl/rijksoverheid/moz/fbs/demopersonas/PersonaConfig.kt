@@ -6,9 +6,10 @@ import java.util.Optional
 
 /**
  * De ingerichte demo-identiteiten. De waarden staan in `META-INF/microprofile-config.properties`
- * van deze module en niet in een `application.properties`: Quarkus leest de eerste óók uit een
- * afhankelijkheid, de tweede alleen uit de applicatie zelf. Zo lezen de personadienst en de
- * demo-console dezelfde lijst zonder dat iemand hem twee keer onderhoudt.
+ * van deze module, zodat de personadienst en de demo-console dezelfde lijst lezen zonder dat iemand
+ * hem twee keer onderhoudt. Dat bestand draagt ordinal 100; een `application.properties` van de
+ * applicatie zelf draagt 250 en wint dus van deze waarden — wie een persona wil overschrijven kan
+ * dat, wie er per ongeluk een kopie naast zet merkt er niets van.
  */
 @ConfigMapping(prefix = "demo.personas")
 interface PersonaConfig {

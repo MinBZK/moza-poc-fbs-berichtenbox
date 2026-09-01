@@ -542,11 +542,16 @@ demo/environment/zad-demo/proeftuin-component.sh plan   # toont beide aanroepen,
 demo/environment/zad-demo/proeftuin-component.sh apply
 ```
 
-Het script doet drie dingen: de twee componenten aanmaken en `BERICHTENBOX_URL` op `democonsole`
-zetten. De image van de proeftuin leest het uit `PROEFTUIN_IMAGE` in `deploy.yml`, zodat er één
+Het script doet drie dingen: `demopersonas` aanmaken, `proeftuin` aanmaken, en `BERICHTENBOX_URL`
+op `democonsole` zetten. De image van de proeftuin leest het uit `PROEFTUIN_IMAGE` in `deploy.yml`, zodat er één
 waarde is die bepaalt wat er draait; de tag van de personadienst leest het af van de `democonsole`
-die al in dezelfde deployment draait — hetzelfde register, dezelfde tag. Draai het daarom ná de
-merge naar main, wanneer die tag bestaat. Draai eerst `plan`: ZAD past component-config alleen toe
+die al in dezelfde deployment draait — hetzelfde register, dezelfde tag.
+
+Dat werkt pas ná de eerste uitrol van deze module. Vóór die tijd zit je klem: het component moet
+bestaan vóórdat `deploy.yml` het bij naam noemt, maar het image bestaat pas ná die uitrol. Geef
+dan met `PERSONAS_IMAGE` een bestaand, onschadelijk image mee — bijvoorbeeld dat van een
+WireMock-stub — en laat de eerste uitrol het vervangen. Neem daar níet het console-image voor: dat
+draagt de legen-knop, op een component dat bewust geen muur krijgt. Draai eerst `plan`: ZAD past component-config alleen toe
 bij het *aanmaken* van een component, dus een fout in de aliassen kost een verwijderen-en-opnieuw.
 
 **`demopersonas` krijgt geen `authorization-wall`, en dat is de hele reden dat hij bestaat.** De
@@ -562,10 +567,12 @@ Staat het `proeftuin`-component er al met een oudere `BACKEND_DEMO`, dan hoeft h
 aliassen zijn los bij te werken.
 
 ```bash
-zadctl alias add -c proeftuin \
+zadctl alias set --component proeftuin \
   'BACKEND_DEMO=https://demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl' \
   'BACKEND_DEMO_HOST=demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl'
 ```
+
+`set` en niet `add`: `add` weigert een sleutel die er al staat, en die staat er hier per definitie.
 
 Waarom vier aliassen en niet twee: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag en
 `/api/demo/` naar de personadienst, en de ingress ervóór routeert op de Host-header. De browser-host

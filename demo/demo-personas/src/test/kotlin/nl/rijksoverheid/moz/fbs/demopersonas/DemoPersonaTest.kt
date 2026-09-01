@@ -87,6 +87,18 @@ class DemoPersonaTest {
     }
 
     @Test
+    fun `weigert een leeg magazijn-OIN`() {
+        // Tot deze module bestond ving de magazijn-kruiscontrole in de service dit ook op. Die
+        // controle staat nu in de demo-console, dus zonder deze test is de invariant hier alleen
+        // nog per ongeluk gedekt vanuit een test die er niet over gaat.
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            persona(magazijnen = listOf("00000000000000100000", ""))
+        }
+
+        assertTrue(fout.message!!.contains("leeg magazijn"), fout.message)
+    }
+
+    @Test
     fun `weigert hetzelfde magazijn twee keer`() {
         assertThrows(IllegalArgumentException::class.java) {
             persona(magazijnen = listOf("00000000000000100000", "00000000000000100000"))

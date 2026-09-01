@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
 import io.smallrye.config.ConfigMapping
-import java.util.Optional
 
 /**
  * Alles wat onder de prefix `demo` staat. Elke `demo.*`-property moet op een member van een

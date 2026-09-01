@@ -500,7 +500,7 @@ jobs:
   # jib-configuratie vallen vóór de merge. Omdat `deploy=true` altijd `run=true` impliceert, is deze
   # job er ook wanneer deploy-*-magazijnen hem nodig heeft.
   #
-  # Eén job en één Maven-aanroep voor beide: ze delen hun afhankelijkheden, dus een tweede runner
+  # Eén job en één Maven-aanroep voor alle drie: ze delen hun afhankelijkheden, dus een tweede runner
   # zou vooral dezelfde boom nog een keer ophalen.
   build-demo-images:
     if: github.event_name == 'push' || needs.changes.outputs.run == 'true'

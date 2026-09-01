@@ -9,7 +9,11 @@ import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 /**
  * De personadienst kent de identiteiten, deze module kent de magazijnen waar ze berichten voor
  * krijgen. Die twee moeten op elkaar aansluiten: wijst een persona naar een magazijn waarvoor hier
- * geen aanlever-URL staat, dan slaat de generator hem stil over en blijft zijn berichtenbox leeg.
+ * geen aanlever-URL staat, dan is er niets om aan te leveren.
+ *
+ * De generator weigert zo'n persona ook, maar hij ziet er minder: alleen persona's mét magazijnen,
+ * en alleen tegen de organisaties waarvoor hij sjablonen heeft. Zijn melding noemt bovendien de
+ * persona, terwijl het probleem in `demo.magazijnen` zit.
  *
  * `@Startup`: dat hoort de module te laten weigeren te starten, niet halverwege een demonstratie
  * op te duiken.

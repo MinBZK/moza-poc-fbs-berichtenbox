@@ -47,9 +47,12 @@ class PersonaConfiguratieTest {
     }
 
     @Test
-    fun `beide beans worden bij het starten gebouwd, niet pas bij de eerste aanroep`() {
+    fun `de drie beans worden bij het starten gebouwd, niet pas bij de eerste aanroep`() {
         // Zonder deze assertie kan @Startup verdwijnen zonder dat één test rood wordt: injectie
-        // bouwt de bean toch wel, dus geen enkele andere test merkt het verschil.
+        // bouwt de bean toch wel, dus geen enkele andere test merkt het verschil. Voor
+        // PersonaMagazijnCheck geldt het dubbel: niets injecteert die bean, dus zonder @Startup
+        // ruimt ArC hem op en verdwijnt de kruiscontrole geruisloos.
+        assertTrue(PersonaMagazijnCheck::class.java.isAnnotationPresent(Startup::class.java))
         assertTrue(PersonaService::class.java.isAnnotationPresent(Startup::class.java))
         assertTrue(
             GeneratorProducer::class.java
@@ -60,7 +63,7 @@ class PersonaConfiguratieTest {
 
     @Test
     fun `de handmatige testparser leest hetzelfde als de configuratie-mapping`() {
-        assertEquals(TestPersonas.uitApplicationProperties().alle(), personaService.alle())
+        assertEquals(TestPersonas.uitConfiguratie().alle(), personaService.alle())
     }
 
     @Test

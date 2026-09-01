@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test
  */
 class ProeftuinPersonaTest {
 
-    private val ingericht = TestPersonas.uitApplicationProperties().alle().associateBy { it.id }
+    private val ingericht = TestPersonas.uitConfiguratie().alle().associateBy { it.id }
     private val overgenomen = ObjectMapper().readTree(
         javaClass.classLoader.getResourceAsStream("proeftuin-personas.json"),
     ).path("personas")
