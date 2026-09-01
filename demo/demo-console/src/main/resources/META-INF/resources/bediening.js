@@ -667,6 +667,7 @@ async function pasOmgevingToe() {
     // onbereikbaar, dan blijft het eigen pad over — lokaal is dat het juiste adres.
     bepaalBox(omgeving ? omgeving.berichtenboxUrl : '');
 
+
     if (omgeving) {
         const beschikbaar = new Set(omgeving.storingen);
 
@@ -699,6 +700,18 @@ async function pasOmgevingToe() {
         });
     }
 
+    // Als laatste, en apart: de keuzelijst hangt aan de vorm van één veld, en een antwoord dat die
+    // vorm mist mag de knoppen hierboven niet meeslepen. Uit ditzelfde antwoord en niet van
+    // /api/demo/personas: dat adres hoort bij de personadienst, en deze module beantwoordt het
+    // bewust niet. Console onbereikbaar levert null op, waarop de keuzelijst zegt dat ze niet te
+    // lezen was in plaats van dat er niets is ingericht.
+    try {
+        vulPersonas(omgeving ? omgeving.personas : null);
+    } catch (fout) {
+        console.error('[bediening] persona-keuzelijst niet te vullen', fout);
+        vulPersonas(null);
+    }
+
     // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de
     // volgende poll leeg.
     verversToestand();
@@ -706,10 +719,9 @@ async function pasOmgevingToe() {
 
 /* De ontdubbeling loopt op een BSN, dus alleen persona's met een BSN kunnen hem spelen. Een vrij
  * tekstveld zou een BSN vragen die verderop in dezelfde pagina al als keuzelijst bestaat. */
-async function vulPersonas() {
+function vulPersonas(personas) {
     const keuze = document.getElementById('ontdubbelPersona');
     const knop = document.querySelector('button[data-samenvatting="ontdubbeling"]');
-    const personas = await lees('/api/demo/personas');
 
     keuze.replaceChildren();
 
@@ -809,7 +821,6 @@ document.querySelectorAll('button[data-pad]').forEach((knop) => {
 
 herstelStand();
 pasOmgevingToe();
-vulPersonas();
 verversToestand();
 
 // Alleen pollen terwijl er iemand kijkt: een demo-console blijft dagen in een tab openstaan.

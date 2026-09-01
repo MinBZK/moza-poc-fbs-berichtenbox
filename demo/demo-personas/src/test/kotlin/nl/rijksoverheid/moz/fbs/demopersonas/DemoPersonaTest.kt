@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -84,6 +84,18 @@ class DemoPersonaTest {
     @Test
     fun `accepteert twee verschillende magazijnen`() {
         assertEquals(2, persona(magazijnen = listOf("00000000000000100000", "00000001823288444000")).magazijnen.size)
+    }
+
+    @Test
+    fun `weigert een leeg magazijn-OIN`() {
+        // Tot deze module bestond ving de magazijn-kruiscontrole in de service dit ook op. Die
+        // controle staat nu in de demo-console, dus zonder deze test is de invariant hier alleen
+        // nog per ongeluk gedekt vanuit een test die er niet over gaat.
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            persona(magazijnen = listOf("00000000000000100000", ""))
+        }
+
+        assertTrue(fout.message!!.contains("leeg magazijn"), fout.message)
     }
 
     @Test

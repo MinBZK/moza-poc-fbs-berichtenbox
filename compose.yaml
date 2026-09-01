@@ -347,6 +347,20 @@ services:
     volumes:
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
 
+  # De demo-identiteiten, als eigen dienst. Wél op DEMO_BIND en niet op DEMO_BEDIENING_BIND: dit is
+  # een leeslijst zonder knoppen, en een berichtenbox moet erbij kunnen zonder dat daarmee het legen
+  # bereikbaar wordt. Online is die scheiding een muur die niet per pad open kan; lokaal houden we
+  # hem aan omdat een demo die lokaal anders loopt het verkeerde bewijst.
+  demo-personas:
+    image: fbs-demo/fbs-demo-personas:demo
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:8098:8098"
+    environment:
+      # Binnen de eigen netns; de ports-regel hierboven bepaalt wat er van buiten bij kan. In de
+      # gedeelde-netns-modus zet de overlay dit op loopback, want daar is 0.0.0.0 de hele machine.
+      QUARKUS_HTTP_HOST: 0.0.0.0
+
   # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
   # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
   demo-console:
@@ -412,11 +426,14 @@ services:
       # demo-proxy onderschept die /api/ al vóór het de container bereikt.
       #
       # De proeftuin-nginx splitst het keten-verkeer per prefix: /api/v1/ naar de uitvraag en
-      # /api/demo/ naar dit paneel. Nodig omdat de catch-all /api/ een leestijdslimiet van zestig
-      # seconden draagt: een ophaalronde langs tientallen magazijnen ligt langer stil dan dat en
-      # wordt daar middenin afgekapt. Zonder deze twee komt /api/demo/ bovendien bij de uitvraag uit.
+      # /api/demo/ naar de personadienst. Nodig omdat de catch-all /api/ een leestijdslimiet van
+      # zestig seconden draagt: een ophaalronde langs tientallen magazijnen ligt langer stil dan dat
+      # en wordt daar middenin afgekapt. Zonder deze twee komt /api/demo/ bij de uitvraag uit.
+      #
+      # Naar de personadienst en niet naar het paneel: dat beantwoordt /api/demo/personas niet meer.
+      # Dezelfde bestemming als op ZAD, zodat de route hier hetzelfde loopt als daar.
       BACKEND_KETEN: http://berichtenuitvraag:8086
-      BACKEND_DEMO: http://demo-console:8095
+      BACKEND_DEMO: http://demo-personas:8098
       # Geen BACKEND_*_HOST: die zet de Host-header apart voor een ingress die daarop routeert.
       # Lokaal routeert niets op Host en is er geen TLS, dus de eigen host doorgeven volstaat.
       BACKEND_ORIGIN: http://berichtenuitvraag:8086
@@ -436,6 +453,8 @@ services:
         condition: service_started
       demo-console:
         condition: service_started
+      demo-personas:
+        condition: service_started
       berichtenuitvraag:
         condition: service_started
     environment:
@@ -444,9 +463,10 @@ services:
       PROXY_PORT: "8080"
       PROEFTUIN_UPSTREAM: http://proeftuin:8080
       CONSOLE_UPSTREAM: http://demo-console:8095
+      PERSONAS_UPSTREAM: http://demo-personas:8098
       UITVRAAG_UPSTREAM: http://berichtenuitvraag:8086
-      # Beperk envsubst tot deze vier, zodat nginx-eigen variabelen ($$host, $$uri) blijven staan.
-      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|UITVRAAG)_UPSTREAM)$$'
+      # Beperk envsubst tot deze variabelen, zodat nginx-eigen namen ($$host, $$uri) blijven staan.
+      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|PERSONAS|UITVRAAG)_UPSTREAM)$$'
     volumes:
       - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
 

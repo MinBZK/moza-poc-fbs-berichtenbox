@@ -542,13 +542,40 @@ demo/environment/zad-demo/proeftuin-component.sh plan   # toont beide aanroepen,
 demo/environment/zad-demo/proeftuin-component.sh apply
 ```
 
-Het script doet twee dingen: het component aanmaken met zijn vier aliassen, en `BERICHTENBOX_URL`
-op `democonsole` zetten. De image leest het uit `PROEFTUIN_IMAGE` in `deploy.yml`, zodat er één
-waarde is die bepaalt wat er draait. Draai eerst `plan`: ZAD past component-config alleen toe bij
-het *aanmaken* van een component, dus een fout in de aliassen kost een verwijderen-en-opnieuw.
+Het script doet drie dingen: `demopersonas` aanmaken, `proeftuin` aanmaken, en `BERICHTENBOX_URL`
+op `democonsole` zetten. De image van de proeftuin leest het uit `PROEFTUIN_IMAGE` in `deploy.yml`, zodat er één
+waarde is die bepaalt wat er draait; de tag van de personadienst leest het af van de `democonsole`
+die al in dezelfde deployment draait — hetzelfde register, dezelfde tag.
+
+Dat werkt pas ná de eerste uitrol van deze module. Vóór die tijd zit je klem: het component moet
+bestaan vóórdat `deploy.yml` het bij naam noemt, maar het image bestaat pas ná die uitrol. Geef
+dan met `PERSONAS_IMAGE` een bestaand, onschadelijk image mee — bijvoorbeeld dat van een
+WireMock-stub — en laat de eerste uitrol het vervangen. Neem daar níet het console-image voor: dat
+draagt de legen-knop, op een component dat bewust geen muur krijgt. Draai eerst `plan`: ZAD past component-config alleen toe
+bij het *aanmaken* van een component, dus een fout in de aliassen kost een verwijderen-en-opnieuw.
+
+**`demopersonas` krijgt geen `authorization-wall`, en dat is de hele reden dat hij bestaat.** De
+berichtenbox van de proeftuin vraagt bij het kiezen van een testaccount `/api/demo/personas` op. Dat
+verzoek loopt via de nginx van de proeftuin, die het server-side ophaalt en dus geen sessie heeft:
+achter een muur is het antwoord 403 en meldt de berichtenbox dat het ophalen van berichten is
+mislukt. De muur is daar niet gedeeltelijk voor open te zetten — hij is een sidecar in de pod van de
+console, de Service publiceert alleen de poort van die sidecar, en de dienst kent geen uitzonderingen
+per pad. Vandaar een eigen image dat niets anders kan dan die lijst teruggeven; het bedieningspaneel
+houdt zijn muur, want daar zit het legen achter.
+
+Staat het `proeftuin`-component er al met een oudere `BACKEND_DEMO`, dan hoeft het niet opnieuw:
+aliassen zijn los bij te werken.
+
+```bash
+zadctl alias set --component proeftuin \
+  'BACKEND_DEMO=https://demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl' \
+  'BACKEND_DEMO_HOST=demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl'
+```
+
+`set` en niet `add`: `add` weigert een sleutel die er al staat, en die staat er hier per definitie.
 
 Waarom vier aliassen en niet twee: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag en
-`/api/demo/` naar dit paneel, en de ingress ervóór routeert op de Host-header. De browser-host
+`/api/demo/` naar de personadienst, en de ingress ervóór routeert op de Host-header. De browser-host
 doorgeven levert daar de verkeerde bestemming op, dus de `*_HOST`-variant zet de servernaam apart.
 
 Die twee paden hebben een eigen bestemming nodig omdat de catch-all `/api/` een leestijdslimiet van

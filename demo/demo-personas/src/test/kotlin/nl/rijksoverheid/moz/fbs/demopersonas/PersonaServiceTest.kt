@@ -1,6 +1,5 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
-import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -58,16 +57,6 @@ class PersonaServiceTest {
     }
 
     @Test
-    fun `weigert een opt-in op een magazijn zonder aanlever-URL`() {
-        val melding = weigering(
-            "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf("00000000000000999999")),
-        ).message!!
-
-        assertTrue(melding.contains("00000000000000999999"), melding)
-        assertTrue(melding.contains("pietersen"), melding)
-    }
-
-    @Test
     fun `weigert een leeg magazijn-OIN`() {
         val melding = weigering(
             "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO, "")),
@@ -107,9 +96,19 @@ class PersonaServiceTest {
     }
 
     @Test
+    fun `noemt in de opstartregel hoeveel kenners de magazijnen getoetst hebben`() {
+        // Nul kenners is juist in deze dienst en een fout in een afnemer. Zonder dit getal zien die
+        // twee er in de opstartlog identiek uit.
+        val regel = PersonaService.logregel(emptyList(), kenners = 0)
+
+        assertTrue(regel.contains("0 magazijn-kenner"), regel)
+    }
+
+    @Test
     fun `noemt het identificatienummer niet in de opstartregel`() {
         val regel = PersonaService.logregel(
             service("pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO))).alle(),
+            kenners = 1,
         )
 
         assertTrue(regel.contains("pietersen"), regel)
@@ -135,6 +134,83 @@ class PersonaServiceTest {
     }
 
     @Test
+    fun `een kapot nummer en een onbekend magazijn komen in dezelfde melding`() {
+        // Dit is waarom de magazijn-kennis via deze naad loopt en niet als losse controle bij de
+        // afnemer staat: met twee controles fixt de bediener de eerste fout, start opnieuw, en
+        // krijgt dan pas de tweede te zien.
+        val melding = weigering(
+            "typfout" to VastePersona("Typfout B.V.", "KVK", "1234567"),
+            "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf("00000000000000999999")),
+            kenners = listOf(strikt),
+        ).message!!
+
+        assertTrue(melding.contains("typfout"), melding)
+        assertTrue(melding.contains("verdwaald"), melding)
+        assertTrue(melding.contains("00000000000000999999"), melding)
+    }
+
+    @Test
+    fun `twee onbekende magazijnen bij één persona komen allebei in de melding`() {
+        // Binnen één persona net zo goed als eroverheen: twee typfouten in dezelfde magazijnen-regel
+        // horen geen twee herstarts te kosten.
+        val melding = weigering(
+            "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf(EERSTE, TWEEDE)),
+            kenners = listOf(strikt),
+        ).message!!
+
+        assertTrue(melding.contains(EERSTE), melding)
+        assertTrue(melding.contains(TWEEDE), melding)
+    }
+
+    @Test
+    fun `elke kenner mag bezwaar maken, en beide bezwaren komen mee`() {
+        val melding = weigering(
+            "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf(EERSTE)),
+            kenners = listOf(MagazijnKennis { "eerste kenner" }, MagazijnKennis { "tweede kenner" }),
+        ).message!!
+
+        assertTrue(melding.contains("eerste kenner"), melding)
+        assertTrue(melding.contains("tweede kenner"), melding)
+    }
+
+    @Test
+    fun `een persona zonder opt-in wordt niet aan een kenner voorgelegd`() {
+        // Nul magazijnen is een geldige inrichting: Grootbedrijf haalt op bij de gesimuleerde
+        // magazijnen, waar deze module niets voor aanlevert.
+        val personas = service(
+            "grootbedrijf" to VastePersona("Grootbedrijf B.V.", "KVK", "90000001"),
+            kenners = listOf(MagazijnKennis { error("er valt hier niets te vragen") }),
+        ).alle()
+
+        assertEquals(listOf("grootbedrijf"), personas.map { it.id })
+    }
+
+    @Test
+    fun `een kenner die iets onverwachts gooit houdt zijn persona-id vast`() {
+        // De naad is een fun interface; een implementatie kan alles gooien. Dan hoort de fout bij
+        // zijn persona te blijven staan in plaats van de hele ronde af te breken — anders verliest
+        // de bediener de andere meldingen én de id die zegt wáár het misging.
+        val melding = weigering(
+            "typfout" to VastePersona("Typfout B.V.", "KVK", "1234567"),
+            "verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf(EERSTE)),
+            kenners = listOf(MagazijnKennis { throw NoSuchElementException("config ontbreekt") }),
+        ).message!!
+
+        assertTrue(melding.contains("typfout"), melding)
+        assertTrue(melding.contains("verdwaald"), melding)
+    }
+
+    @Test
+    fun `een afnemer zonder magazijn-kennis laat elke opt-in staan`() {
+        // De personadienst zelf kent geen magazijnen; dan hoort een opt-in geen fout te zijn.
+        assertEquals(
+            listOf("verdwaald"),
+            service("verdwaald" to VastePersona("Verdwaald B.V.", "KVK", "90000014", listOf("00000000000000999999")))
+                .alle().map { it.id },
+        )
+    }
+
+    @Test
     fun `meldt alle onbruikbare persona's in één keer`() {
         val melding = weigering(
             "eerste" to VastePersona("Eerste B.V.", "KVK", "1234567"),
@@ -142,26 +218,6 @@ class PersonaServiceTest {
         ).message!!
 
         assertTrue(melding.contains("eerste") && melding.contains("tweede"), melding)
-    }
-
-    @Test
-    fun `wijst naar demo-magazijnen als een persona een opt-in heeft maar er geen magazijn is`() {
-        val fout = assertThrows(IllegalArgumentException::class.java) {
-            PersonaService(
-                VasteDemoConfig(mapOf("a" to VastePersona("A B.V.", "KVK", "90000014", listOf(TestPersonas.RVO))), emptyMap()),
-            )
-        }
-
-        assertTrue(fout.message!!.contains("geen magazijn ingericht"), fout.message)
-    }
-
-    @Test
-    fun `laat een inrichting zonder magazijn toe zolang geen persona er een noemt`() {
-        val personas = PersonaService(
-            VasteDemoConfig(mapOf("verzonnen" to VastePersona("Verzonnen B.V.", "KVK", "90000014", bron = "dataset")), emptyMap()),
-        ).alle()
-
-        assertEquals(listOf("verzonnen"), personas.map { it.id })
     }
 
     @Test
@@ -196,14 +252,24 @@ class PersonaServiceTest {
         assertEquals(verwacht, personas.map { it.id })
     }
 
-    private fun service(vararg personas: Pair<String, DemoConfig.PersonaInstelling>): PersonaService =
-        PersonaService(VasteDemoConfig(personas.toMap()))
+    private fun service(
+        vararg personas: Pair<String, PersonaConfig.PersonaInstelling>,
+        kenners: List<MagazijnKennis> = emptyList(),
+    ): PersonaService = PersonaService(VastePersonaConfig(personas.toMap()), kenners.toMutableList())
 
     /** Toetst dat de inrichting de module laat weigeren te starten, en levert de fout voor verdere assertions. */
-    private fun weigering(vararg personas: Pair<String, DemoConfig.PersonaInstelling>): IllegalArgumentException =
-        assertThrows(IllegalArgumentException::class.java) { service(*personas) }
+    private fun weigering(
+        vararg personas: Pair<String, PersonaConfig.PersonaInstelling>,
+        kenners: List<MagazijnKennis> = emptyList(),
+    ): IllegalArgumentException = assertThrows(IllegalArgumentException::class.java) { service(*personas, kenners = kenners) }
 
     private companion object {
+
+        const val EERSTE = "00000000000000000001"
+        const val TWEEDE = "00000000000000000002"
+
+        /** Kent alleen RVO; elk ander OIN levert een bezwaar dat dat OIN noemt. */
+        val strikt = MagazijnKennis { oin -> if (oin == TestPersonas.RVO) null else "onbekend magazijn '$oin'" }
 
         @JvmStatic
         fun optIns() = listOf(

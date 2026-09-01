@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.simulator
 
-import nl.rijksoverheid.moz.fbs.democonsole.personas.TestPersonas
+import nl.rijksoverheid.moz.fbs.demopersonas.TestPersonas
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -33,7 +33,7 @@ class OndernemersConsistentieTest {
      */
     @Test
     fun `elke ondernemer bestaat als persona in de console`() {
-        val personas = TestPersonas.uitApplicationProperties().alle().map { it.ontvanger }.toSet()
+        val personas = TestPersonas.uitConfiguratie().alle().map { it.ontvanger }.toSet()
 
         SimulatorService.ONDERNEMERS.forEach { ondernemer ->
             assertTrue(ondernemer in personas, "$ondernemer staat niet in demo.personas.*")

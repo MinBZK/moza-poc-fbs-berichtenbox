@@ -1,9 +1,10 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
 /**
  * Minimale identificatienummer-validatie voor de demo-personas; een uitgeklede kopie van
- * `Identificatienummer` in fbs-common, die deze module bewust niet als dependency heeft — de
- * afweging staat in `demo/demo-console/pom.xml`. Doel is fail-fast bij een typfout in de
+ * `Identificatienummer` in fbs-common, die de demo-modules bewust niet als dependency hebben: die
+ * library trekt de productie-stack mee (LDV-wrapper, JAX-RS-filters). De prijs is deze duplicatie —
+ * wie de elfproef wijzigt, wijzigt beide. Doel is fail-fast bij een typfout in de
  * persona-lijst, zodat het magazijn straks geen 400 geeft midden in een demo.
  *
  * Geen enkele melding echoot de aangeboden waarde, ook niet die van `type`: deze meldingen

@@ -127,6 +127,30 @@ adres niet, dus een leeg frame komt hier nooit door een mislukte toets. Staat de
 open het adres dan los in de browser: geeft het daar een pagina, dan is het frame het probleem;
 geeft het een fout, dan staat het proeftuin-component niet of wijst de alias mis.
 
+Kies daarna in de berichtenbox een testaccount van het stelsel — `Garage Van Dijk B.V.` is er een
+met een KVK-nummer. Verwacht berichten. Krijg je "Er gaat iets mis met het ophalen van uw berichten
+bij de bronnen", kijk dan eerst hier:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "https://demopersonas-<deployment>-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/api/demo/personas"
+```
+
+`200` hoort. `403` betekent dat er per ongeluk een `authorization-wall` op dat component staat — de
+berichtenbox haalt dit pad server-side op en heeft geen sessie. `404` of niets betekent dat het
+component er niet staat of zijn poort niet publiceert.
+
+Klopt dat adres wel, toets dan hetzelfde pad via de proeftuin — dat is de route die de berichtenbox
+zelf loopt, en die hangt aan `BACKEND_DEMO`:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "https://proeftuin-<deployment>-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/api/demo/personas"
+```
+
+Een `403` hier terwijl de dienst zelf `200` geeft, betekent dat `BACKEND_DEMO` nog naar
+`democonsole` wijst.
+
 Druk daarna in de berichtenbox op **Ophalen** en laat de ronde helemaal uitlopen, ook als er tussen
 twee organisaties lang niets komt. Breekt de stream na ongeveer een minuut stilte af, dan loopt het
 keten-verkeer nog door de catch-all `/api/` van de proeftuin, met zijn leestijdslimiet van zestig

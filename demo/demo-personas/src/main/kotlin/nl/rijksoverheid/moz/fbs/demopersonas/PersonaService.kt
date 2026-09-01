@@ -1,8 +1,8 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
 import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
-import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
+import io.quarkus.arc.All
 import org.jboss.logging.Logger
 import java.util.Locale
 
@@ -13,7 +13,12 @@ import java.util.Locale
  */
 @Startup
 @ApplicationScoped
-class PersonaService(config: DemoConfig) {
+class PersonaService(config: PersonaConfig, @All kenners: MutableList<MagazijnKennis>) {
+
+    // `MutableList` omdat ArC dat eist bij @All ("kotlin.collections.List cannot be used together
+    // with the @All qualifier"); hier meteen gekopieerd naar een onveranderlijke lijst, zodat de
+    // rest van deze klasse er niet mee te maken heeft.
+    private val kenners: List<MagazijnKennis> = kenners.toList()
 
     private val personas: List<DemoPersona> = lees(config)
 
@@ -22,8 +27,7 @@ class PersonaService(config: DemoConfig) {
     /** De set waarvoor de generator berichten opvoert: zonder magazijn geen aanlevering. */
     fun metMagazijnen(): List<DemoPersona> = personas.filter { it.magazijnen.isNotEmpty() }
 
-    private fun lees(config: DemoConfig): List<DemoPersona> {
-        val bekendeMagazijnen = config.magazijnen().keys
+    private fun lees(config: PersonaConfig): List<DemoPersona> {
         val gelezen = mutableListOf<DemoPersona>()
         val onbruikbaar = mutableListOf<Pair<String, Exception>>()
 
@@ -32,10 +36,13 @@ class PersonaService(config: DemoConfig) {
         // willekeurig zijn, en drie kapotte persona's kosten drie herstarts.
         config.personas().forEach { (id, instelling) ->
             try {
-                gelezen += leesPersona(id, instelling, bekendeMagazijnen)
-            } catch (fout: IllegalArgumentException) {
-                onbruikbaar += id to fout
-            } catch (fout: IllegalStateException) {
+                gelezen += leesPersona(id, instelling)
+
+                // Elke RuntimeException en niet twee specifieke types: dit is een inrichtings-lus,
+                // geen control flow. Gooit een MagazijnKennis-implementatie iets onverwachts, dan
+                // hoort dat bij zijn persona te blijven staan in plaats van de hele ronde af te
+                // breken — anders verliest de bediener de andere meldingen én de persona-id.
+            } catch (fout: RuntimeException) {
                 onbruikbaar += id to fout
             }
         }
@@ -50,24 +57,28 @@ class PersonaService(config: DemoConfig) {
 
         vereisUniekeOntvangers(gesorteerd)
 
-        LOG.info(logregel(gesorteerd))
+        LOG.info(logregel(gesorteerd, kenners.size))
 
         return gesorteerd
     }
 
-    private fun leesPersona(id: String, instelling: DemoConfig.PersonaInstelling, bekendeMagazijnen: Set<String>): DemoPersona {
+    private fun leesPersona(id: String, instelling: PersonaConfig.PersonaInstelling): DemoPersona {
         val magazijnen = instelling.magazijnen().orElse(emptyList())
 
-        magazijnen.forEach {
+        // Alle OIN's nalopen en de bezwaren verzamelen, niet stoppen bij het eerste: twee typfouten
+        // in één `magazijnen`-regel horen geen twee herstarts te kosten.
+        val bezwaren = magazijnen.flatMap { oin ->
             // SmallRye trimt lijstwaarden niet, dus "OIN_A, OIN_B" levert een OIN met een spatie
-            // ervoor. Zonder deze melding wijst de volgende regel naar demo.magazijnen, waar
-            // niets mis is.
-            require(it == it.trim()) { "magazijn-OIN '$it' heeft witruimte om zich heen" }
-            require(it in bekendeMagazijnen) {
-                if (bekendeMagazijnen.isEmpty()) "er is geen magazijn ingericht onder demo.magazijnen"
-                else "magazijn-OIN '$it' heeft geen demo.magazijnen-URL"
-            }
+            // ervoor. Dan heeft het geen zin er ook nog naar te laten zoeken: het bezwaar van een
+            // kenner zou naar de magazijn-inrichting wijzen, waar niets mis is.
+            if (oin != oin.trim()) listOf("magazijn-OIN '$oin' heeft witruimte om zich heen")
+
+            // Of het OIN ook een ingericht magazijn is weet deze dienst niet; een afnemer die het
+            // wél weet levert die kennis aan.
+            else kenners.mapNotNull { it.bezwaarTegen(oin) }
         }
+
+        require(bezwaren.isEmpty()) { bezwaren.joinToString("; ") }
 
         return DemoPersona(
             id = id,
@@ -116,9 +127,13 @@ class PersonaService(config: DemoConfig) {
          * personas-endpoint geeft het niet terug — terwijl een weggevallen `magazijnen`-regel de
          * generator deze persona stil laat overslaan. Nul is een geldige inrichting: Grootbedrijf
          * haalt op bij de stub-magazijnen zonder dat de generator voor hem aanlevert.
+         *
+         * Ook het aantal kenners: nul betekent dat niemand de magazijn-OIN's getoetst heeft, en dat
+         * is in deze dienst juist en in een afnemer een fout. Zonder dit getal zien die twee er in
+         * de opstartlog identiek uit.
          */
-        internal fun logregel(gelezen: List<DemoPersona>): String =
-            "${gelezen.size} demo-persona's gelezen: " +
+        internal fun logregel(gelezen: List<DemoPersona>, kenners: Int): String =
+            "${gelezen.size} demo-persona's gelezen (${kenners} magazijn-kenner(s)): " +
                 gelezen.joinToString { "${it.id} (${it.bron.wire}, ${it.magazijnen.size} magazijn(en))" }
     }
 }

@@ -3,7 +3,7 @@ package nl.rijksoverheid.moz.fbs.democonsole.generator
 import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Produces
-import nl.rijksoverheid.moz.fbs.democonsole.personas.PersonaService
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import java.time.Clock
 
 /**

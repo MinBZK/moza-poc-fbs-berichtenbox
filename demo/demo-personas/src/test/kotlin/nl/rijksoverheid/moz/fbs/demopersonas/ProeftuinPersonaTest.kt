@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.democonsole.personas
+package nl.rijksoverheid.moz.fbs.demopersonas
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test
  */
 class ProeftuinPersonaTest {
 
-    private val ingericht = TestPersonas.uitApplicationProperties().alle().associateBy { it.id }
+    private val ingericht = TestPersonas.uitConfiguratie().alle().associateBy { it.id }
     private val overgenomen = ObjectMapper().readTree(
         javaClass.classLoader.getResourceAsStream("proeftuin-personas.json"),
     ).path("personas")

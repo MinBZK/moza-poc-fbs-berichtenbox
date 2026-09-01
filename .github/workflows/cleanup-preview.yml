@@ -522,7 +522,7 @@ jobs:
           #
           # Alleen onze eigen images: `proeftuin` draait op een image uit MinBZK/moza-poc, dat een
           # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-magazijn-simulator; do
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-demo-personas fbs-magazijn-simulator; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
               fail=1

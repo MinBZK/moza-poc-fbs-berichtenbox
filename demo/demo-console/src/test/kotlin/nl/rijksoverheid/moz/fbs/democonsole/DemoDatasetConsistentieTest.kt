@@ -6,8 +6,8 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.GeneratorProducer
-import nl.rijksoverheid.moz.fbs.democonsole.personas.Identificatiecheck
-import nl.rijksoverheid.moz.fbs.democonsole.personas.TestPersonas
+import nl.rijksoverheid.moz.fbs.demopersonas.Identificatiecheck
+import nl.rijksoverheid.moz.fbs.demopersonas.TestPersonas
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -30,7 +30,7 @@ class DemoDatasetConsistentieTest {
     private val mapper = ObjectMapper().registerKotlinModule()
 
     /** De echte generator: organisaties uit [GeneratorProducer], persona's uit `application.properties`. */
-    private fun generator() = GeneratorProducer().generator(TestPersonas.uitApplicationProperties())
+    private fun generator() = GeneratorProducer().generator(TestPersonas.uitConfiguratie())
 
     @Test
     fun `de echte generator-configuratie voldoet aan haar eigen invarianten`() {

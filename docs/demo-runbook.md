@@ -25,11 +25,11 @@ ontwikkelen — tests, gates, linting, de services in dev-mode — zie [`ontwikk
 
 ## 2. Images bouwen (jib, geen Dockerfile)
 
-De demo draait de vier eigen services als container-image (`fbs-demo/…:demo`). Bouw ze met jib:
+De demo draait de vijf eigen services als container-image (`fbs-demo/…:demo`). Bouw ze met jib:
 
 ```bash
 ./mvnw clean package -DskipTests \
-  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/magazijn-simulator -am \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/demo-personas,demo/magazijn-simulator -am \
   -Dquarkus.container-image.build=true \
   -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo \
   -Dquarkus.jib.platforms=linux/arm64        # alleen op Apple Silicon
@@ -214,7 +214,9 @@ de proeftuin met de bediening ernaast; "Bediening verbergen" geeft de berichtenb
 voor het moment waarop je laat zien wat de ondernemer ziet.
 
 Dat adres is een kleine nginx (`demo-proxy`) die alles achter één origin zet: `/` naar de proeftuin,
-`/bediening/` en `/api/demo/` naar de demo-console, `/api/v1/` naar de uitvraag. Zonder die gedeelde
+`/bediening/` en `/api/demo/` naar de demo-console, `/api/demo/personas` naar de personadienst
+(die lijst hoort bij een eigen component, zodat een berichtenbox hem kan lezen zonder bij de
+knoppen van het paneel te kunnen), `/api/v1/` naar de uitvraag. Zonder die gedeelde
 origin komt de personalijst niet aan — binnen de proeftuin-container valt `/api/demo/personas` onder
 zijn eigen `location /api/` en zou het bij de uitvraag uitkomen — en kan het paneel de berichtenbox
 niet laten verversen. Online geldt dit niet: daar proxyt de proeftuin zelf.
@@ -253,7 +255,7 @@ herlaad over een origin-grens, waarna het paneel het frame opnieuw laadt.
 
 ## 6. Persona's (Berichtenbox → "Ingelogd als")
 
-Bron: `demo.personas.*` in `demo/demo-console/src/main/resources/application.properties`. De
+Bron: `demo.personas.*` in `demo/demo-personas/src/main/resources/META-INF/microprofile-config.properties`. De
 berichtenbox haalt de lijst op bij `GET /api/demo/personas`, dus de keuzelijst volgt een wijziging
 in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
 
