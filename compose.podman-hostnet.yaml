@@ -44,6 +44,7 @@ services:
       PROXY_PORT: "8097"
       PROEFTUIN_UPSTREAM: http://127.0.0.1:8080
       CONSOLE_UPSTREAM: http://127.0.0.1:8095
+      PERSONAS_UPSTREAM: http://127.0.0.1:8098
       UITVRAAG_UPSTREAM: http://127.0.0.1:8086
 
   redis:
@@ -208,6 +209,13 @@ services:
       MAGAZIJN_B_URL: http://127.0.0.1:18091
       PROFIEL_SERVICE_URL: http://127.0.0.1:18089
       LDV_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5434/ldv_logging
+
+  demo-personas:
+    network_mode: host
+    ports: !reset []
+    environment:
+      # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
+      QUARKUS_HTTP_HOST: 127.0.0.1
 
   demo-console:
     network_mode: host

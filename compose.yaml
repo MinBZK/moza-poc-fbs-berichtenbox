@@ -346,6 +346,19 @@ services:
     volumes:
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
 
+  # De demo-identiteiten, als eigen dienst. Wél op DEMO_BIND en niet op DEMO_BEDIENING_BIND: dit
+  # is een leeslijst zonder knoppen, en een berichtenbox moet erbij kunnen zonder dat daarmee het
+  # legen bereikbaar wordt. Dat onderscheid is de hele reden dat deze dienst naast de console staat.
+  demo-personas:
+    image: fbs-demo/fbs-demo-personas:demo
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:8098:8098"
+    environment:
+      # Binnen de eigen netns; de ports-regel hierboven bepaalt wat er van buiten bij kan. In de
+      # gedeelde-netns-modus zet de overlay dit op loopback, want daar is 0.0.0.0 de hele machine.
+      QUARKUS_HTTP_HOST: 0.0.0.0
+
   # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
   # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
   demo-console:
@@ -435,6 +448,8 @@ services:
         condition: service_started
       demo-console:
         condition: service_started
+      demo-personas:
+        condition: service_started
       berichtenuitvraag:
         condition: service_started
     environment:
@@ -443,9 +458,10 @@ services:
       PROXY_PORT: "8080"
       PROEFTUIN_UPSTREAM: http://proeftuin:8080
       CONSOLE_UPSTREAM: http://demo-console:8095
+      PERSONAS_UPSTREAM: http://demo-personas:8098
       UITVRAAG_UPSTREAM: http://berichtenuitvraag:8086
-      # Beperk envsubst tot deze vier, zodat nginx-eigen variabelen ($$host, $$uri) blijven staan.
-      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|UITVRAAG)_UPSTREAM)$$'
+      # Beperk envsubst tot deze vijf, zodat nginx-eigen variabelen ($$host, $$uri) blijven staan.
+      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|PERSONAS|UITVRAAG)_UPSTREAM)$$'
     volumes:
       - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
 
