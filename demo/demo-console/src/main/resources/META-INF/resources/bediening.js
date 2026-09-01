@@ -666,8 +666,14 @@ async function pasOmgevingToe() {
         document.getElementById('groep-sessie').hidden = omgeving.sessiecache === false;
 
         // Zonder simulator faalt elke knop in die groep gegarandeerd; een knop die alleen een fout
-        // oplevert kost tijdens een demo uitleg die niets toevoegt.
+        // oplevert kost tijdens een demo uitleg die niets toevoegt. Los daarvan de uitlees-knop op
+        // het info-blad: die deelt zijn groep met knoppen die er wél altijd zijn, dus hij hangt aan
+        // zijn eigen markering in plaats van aan de groep.
         document.getElementById('groep-simulator').hidden = omgeving.simulator === false;
+
+        document.querySelectorAll('button[data-simulator]').forEach((knop) => {
+            knop.hidden = omgeving.simulator === false;
+        });
     }
 
     // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de

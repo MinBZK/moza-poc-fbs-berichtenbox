@@ -200,8 +200,16 @@ van `test` sturen.
 ```bash
 zadctl project use mpfm-w3h
 zadctl alias add -c democonsole 'MAGAZIJN_SIMULATOR_URL=http://$DEPLOYMENT_NAME-magazijnsimulator:8092'
-zadctl env add -c democonsole MAGAZIJN_SIMULATOR_BEHEER_TOKEN=<hetzelfde geheim>
+zadctl env set -c democonsole \
+  MAGAZIJN_SIMULATOR_BEHEER_TOKEN=<hetzelfde geheim> \
+  SIMULATOR_BEREIKBAAR=true
 ```
+
+**`SIMULATOR_BEREIKBAAR` is de knop die de groep zichtbaar maakt.** Zolang er geen simulator was
+stond hij op `false` en liet het paneel de hele groep "Gesimuleerde magazijnen" weg — knoppen die
+gegarandeerd falen kosten tijdens een demo uitleg die niets toevoegt. Vergeet je hem, dan draait de
+console met een werkende verbinding naar de simulator terwijl er geen enkele knop te zien is, en
+lijkt de bediening simpelweg te ontbreken. `env set` en niet `env add`: de sleutel bestaat al.
 
 **Een alias erbij zetten kan gewoon op een bestaand component**, met `zadctl alias add`. Het
 zusterrunbook (`README.md` §2) schrijft dat aliassen alleen bij creatie worden toegepast en dat

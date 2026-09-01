@@ -536,8 +536,10 @@ schema aanwijst.
 knoppen weg. Ze wachten op de magazijn-simulator (#938), die het storingsgedrag van een magazijn
 zelf levert; een Toxiproxy vóór elk magazijn zou datzelfde werk dubbel doen.
 
-**De knoppen voor de gesimuleerde magazijnen.** Die volgen zodra de simulator als component in dit
-project staat; `SIMULATOR_BEREIKBAAR=false` laat ze tot die tijd weg.
+**De knoppen voor de gesimuleerde magazijnen** wachtten op de simulator als component in dit
+project; `SIMULATOR_BEREIKBAAR=false` liet ze tot die tijd weg. De simulator staat er sinds
+`magazijn-simulator.md` §1, en §4 daar zet de variabele op `true`. Blijft hij op `false` staan, dan
+is de bediening onzichtbaar terwijl alles eronder werkt.
 
 De andere knoppen werken wél. **De cache-verval-knop** sinds stap 5, **de vier storingsknoppen**
 sinds stap 6. Ze vragen allebei cluster-intern verkeer naar een ander project, en zo'n netwerkregel
