@@ -410,9 +410,10 @@ services:
       # Alleen in gebruik wanneer de container rechtstreeks op 8096 benaderd wordt; via de
       # demo-proxy onderschept die /api/ al vóór het de container bereikt.
       #
-      # De proeftuin-nginx splitst het keten-verkeer per prefix: /api/v1/ naar de uitvraag (met de
-      # streaminstellingen die de SSE-voortgang heel houden) en /api/demo/ naar dit paneel. Zonder
-      # die twee valt alles terug op BACKEND_ORIGIN, en dan komt /api/demo/ bij de uitvraag uit.
+      # De proeftuin-nginx splitst het keten-verkeer per prefix: /api/v1/ naar de uitvraag en
+      # /api/demo/ naar dit paneel. Nodig omdat de catch-all /api/ een leestijdslimiet van zestig
+      # seconden draagt: een ophaalronde langs tientallen magazijnen ligt langer stil dan dat en
+      # wordt daar middenin afgekapt. Zonder deze twee komt /api/demo/ bovendien bij de uitvraag uit.
       BACKEND_KETEN: http://berichtenuitvraag:8086
       BACKEND_DEMO: http://demo-console:8095
       # Geen BACKEND_*_HOST: die zet de Host-header apart voor een ingress die daarop routeert.

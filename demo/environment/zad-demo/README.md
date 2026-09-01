@@ -525,8 +525,10 @@ onder een demo hangt, en volgt de berichtenbox onze previews in plaats van hun u
 
 De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
 onze eigen images. Pin een `sha-<7>`-tag uit hun main; `latest` verschuift stil onder een lopende
-demo door. Wil je hun nog niet gemergde werk beproeven, dan kan een preview-tag
-(`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`) net zo goed.
+demo door. Om nog niet gemergd werk te beproeven kan een preview-tag
+(`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`), maar alleen tijdelijk: hun opruiming verwijdert
+alle `pr-<n>-*`-versies zodra die PR sluit, dus zwaai bij het mergen om naar een `sha-`-tag uit hun
+main. Blijft die pin staan, dan trekt een herstart een tag die niet meer bestaat.
 
 ```bash
 zadctl component add proeftuin \
@@ -545,8 +547,12 @@ BACKEND_DEMO_HOST: democonsole-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.ri
 Vier variabelen en niet twee: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag en
 `/api/demo/` naar dit paneel, en de ingress ervóór routeert op de Host-header. De browser-host
 doorgeven levert daar de verkeerde bestemming op, dus de `*_HOST`-variant zet de servernaam apart.
-Zonder `BACKEND_KETEN` valt het keten-verkeer terug op `BACKEND_ORIGIN`, dat hier naar een
-chat-backend wijst die in dit project niet bestaat.
+
+Die twee paden hebben een eigen bestemming nodig omdat de catch-all `/api/` een leestijdslimiet van
+zestig seconden draagt. Een ophaalronde langs tientallen magazijnen is een SSE-stream die langer stil
+kan liggen dan dat, en wordt daar dus middenin afgekapt. Ontbreekt `BACKEND_KETEN`, dan antwoordt de
+proeftuin met een 502 die de variabelenaam noemt in plaats van stil naar een andere dienst te
+proxyen; `BACKEND_DEMO` valt bij afwezigheid terug op `BACKEND_KETEN`.
 
 **Richt de health-check niet op `/health`.** Dat pad proxyt in dit image naar diezelfde
 chat-backend; een probe erop faalt gegarandeerd en herstart de pod anderhalve minuut later. De

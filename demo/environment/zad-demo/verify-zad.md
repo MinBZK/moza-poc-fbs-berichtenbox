@@ -127,10 +127,11 @@ adres niet, dus een leeg frame komt hier nooit door een mislukte toets. Staat de
 open het adres dan los in de browser: geeft het daar een pagina, dan is het frame het probleem;
 geeft het een fout, dan staat het proeftuin-component niet of wijst de alias mis.
 
-Druk daarna in de berichtenbox op **Ophalen** en let op de voortgang per organisatie. Komt alles in
-één klap binnen na een lange stilte, dan buffert de nginx van de proeftuin de SSE-stream: die
-deployment draait dan op een image van vóór de splitsing van `/api/v1/` — zie stap 7 van
-`README.md`.
+Druk daarna in de berichtenbox op **Ophalen** en laat de ronde helemaal uitlopen, ook als er tussen
+twee organisaties lang niets komt. Breekt de stream na ongeveer een minuut stilte af, dan loopt het
+keten-verkeer nog door de catch-all `/api/` van de proeftuin, met zijn leestijdslimiet van zestig
+seconden: die deployment draait dan op een image van vóór de splitsing van `/api/v1/`, of
+`BACKEND_KETEN` staat er niet — zie stap 7 van `README.md`.
 
 ## 8. Herstart-bestendigheid
 
