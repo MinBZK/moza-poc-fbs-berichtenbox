@@ -157,12 +157,12 @@ er toevallig nog stond.
 met de bericht-nummers. Een demo die je oefent is daarmee dezelfde demo als je hem geeft. De nummers
 verschillen wél over magazijnen heen: twee magazijnen mogen in werkelijkheid hetzelfde nummer
 uitdelen, maar de sessiecache van de uitvraag slaat berichten op zonder magazijn in de sleutel
-([#996](https://github.com/MinBZK/MijnOverheidZakelijk/issues/996)), en zolang dat gebrek openstaat
+([#1004](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1004)), en zolang dat gebrek openstaat
 hoort een demo daar niet per ongeluk over te vallen.
 
 **Twintig berichten per magazijn is niet toevallig.** De uitvraag haalt per magazijn één pagina op
 en het magazijn levert er standaard twintig; daarboven ziet de ondernemer niets
-([#1004](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1004)). Zolang dat gat er is,
+([#996](https://github.com/MinBZK/MijnOverheidZakelijk/issues/996)). Zolang dat gat er is,
 demonstreer je met meer onbedoeld dát gat in plaats van het gedrag dat je wilt tonen.
 
 **De bijlage is een echte PDF met een vaste tekst.** Eén A4 dat zegt dat het demonstratiemateriaal
