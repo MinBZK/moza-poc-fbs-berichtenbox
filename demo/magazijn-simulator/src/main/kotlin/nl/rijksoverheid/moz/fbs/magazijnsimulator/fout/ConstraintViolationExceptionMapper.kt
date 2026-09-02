@@ -4,6 +4,8 @@ import jakarta.validation.ConstraintViolationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import org.jboss.logging.Logger
+import java.util.UUID
 
 /**
  * Mapt Bean Validation-schendingen op de gegenereerde interfaces (`@NotNull`, `@Pattern`, `@Size`)
@@ -22,18 +24,29 @@ import jakarta.ws.rs.ext.Provider
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {
 
-    override fun toResponse(exception: ConstraintViolationException): Response = problemResponse(
-        status = Response.Status.BAD_REQUEST.statusCode,
-        title = "Bad Request",
-        detail = exception.constraintViolations
-            .asSequence()
-            .take(MAX_SCHENDINGEN)
-            .joinToString("; ") { schending ->
-                val naam = schending.propertyPath.lastOrNull()?.name ?: schending.propertyPath.toString()
+    private val log = Logger.getLogger(ConstraintViolationExceptionMapper::class.java)
 
-                "$naam: ${schending.message}"
-            },
-    )
+    override fun toResponse(exception: ConstraintViolationException): Response {
+        val foutId = UUID.randomUUID()
+
+        // Op DEBUG: een geweigerde parameter is geen incident, maar zonder logregel is het
+        // `instance`-id uit het antwoord nergens terug te vinden.
+        log.debugf("Ongeldige invoer, %d schending(en) (foutId=%s)", exception.constraintViolations.size, foutId)
+
+        return problemResponse(
+            status = Response.Status.BAD_REQUEST.statusCode,
+            title = "Bad Request",
+            detail = exception.constraintViolations
+                .asSequence()
+                .take(MAX_SCHENDINGEN)
+                .joinToString("; ") { schending ->
+                    val naam = schending.propertyPath.lastOrNull()?.name ?: schending.propertyPath.toString()
+
+                    "$naam: ${schending.message}"
+                },
+            foutId = foutId,
+        )
+    }
 
     private companion object {
         const val MAX_SCHENDINGEN = 50

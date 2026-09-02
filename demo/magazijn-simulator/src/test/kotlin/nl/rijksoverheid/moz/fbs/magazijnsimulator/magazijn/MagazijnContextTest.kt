@@ -19,8 +19,23 @@ class MagazijnContextTest {
     @Test
     fun `het gezette magazijn komt er ongewijzigd uit`() {
         val magazijn = GesimuleerdMagazijn(dbId = 1, oin = "00000009000000000001", naam = "Demo-magazijn 1")
-        val context = MagazijnContext().apply { this.magazijn = magazijn }
+        val context = MagazijnContext().apply { kies(magazijn) }
 
         assertEquals(magazijn, context.magazijn)
+    }
+
+    /**
+     * Eén keuze per request. Overschrijven zou betekenen dat het antwoord uit een ánder magazijn
+     * komt dan waar de autorisatie op is gedaan, en dat hoort geen stille mogelijkheid te zijn.
+     */
+    @Test
+    fun `een tweede keuze is een fout`() {
+        val context = MagazijnContext().apply {
+            kies(GesimuleerdMagazijn(dbId = 1, oin = "00000009000000000001", naam = "Demo-magazijn 1"))
+        }
+
+        assertThrows<IllegalStateException> {
+            context.kies(GesimuleerdMagazijn(dbId = 2, oin = "00000009000000000002", naam = "Demo-magazijn 2"))
+        }
     }
 }

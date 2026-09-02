@@ -36,6 +36,13 @@ class GesimuleerdeMagazijnen(
     // verzoek — ook als dat op een andere thread binnenkomt.
     private val magazijnen = ConcurrentHashMap<String, GesimuleerdMagazijn>()
 
+    // Het bijstellen en het herladen raken dezelfde set in meerdere stappen. Zonder lock kan een
+    // `legen` (dat herlaadt) de map-update van een gelijktijdig `stelGedragBij` overschrijven,
+    // terwijl de database de nieuwe waarde wél draagt: het overzicht toont dan iets anders dan wat
+    // er staat. Bij een demo waar meerdere mensen tegelijk aan de knoppen zitten is dat geen
+    // theoretisch geval, en het is precies het soort verschil dat niemand ter plekke verklaart.
+    private val wijzigingslock = Any()
+
     /** De configuratie afkeuren kan zonder database, en hoort dus vóór de rest te gebeuren. */
     @PostConstruct
     fun init() {
@@ -60,24 +67,30 @@ class GesimuleerdeMagazijnen(
 
     fun voorOin(oin: String): GesimuleerdMagazijn? = magazijnen[oin]
 
-    /** Alle magazijnen; het beheerpad gaat de hele set langs in plaats van er één te kiezen. */
-    fun alle(): Collection<GesimuleerdMagazijn> = magazijnen.values
+    /**
+     * Alle magazijnen; het beheerpad gaat de hele set langs in plaats van er één te kiezen.
+     *
+     * Een kopie en niet `magazijnen.values`: dat is een live view op de onderliggende map, die
+     * tijdens het aflopen verandert als iemand gelijktijdig een gedrag bijstelt — en die een
+     * aanroeper bovendien kan muteren.
+     */
+    fun alle(): List<GesimuleerdMagazijn> = magazijnen.values.toList()
 
     /**
      * Stelt het gedrag van één magazijn bij en laat dat meteen gelden. `false` als die OIN niet
      * bestaat.
      */
-    fun stelGedragBij(oin: String, gedrag: Gedrag): Boolean {
+    fun stelGedragBij(oin: String, gedrag: Gedrag): Boolean = synchronized(wijzigingslock) {
         // Op de live set toetsen en niet op de database: een rij die uit de configuratie is gehaald
         // blijft staan, maar het pad-filter laat hem niet meer door. "Gelukt" melden voor een
         // magazijn dat niemand kan bereiken, is een antwoord waar de aanroeper niets aan heeft.
-        if (!magazijnen.containsKey(oin)) return false
+        if (!magazijnen.containsKey(oin)) return@synchronized false
 
-        if (!repository.zetGedrag(oin, gedrag)) return false
+        if (!repository.zetGedrag(oin, gedrag)) return@synchronized false
 
         magazijnen.computeIfPresent(oin) { _, bestaand -> bestaand.copy(gedrag = gedrag) }
 
-        return true
+        true
     }
 
     /**
@@ -92,12 +105,8 @@ class GesimuleerdeMagazijnen(
     }
 
     /** Leest de magazijn-rijen opnieuw in, zodat een bijgesteld gedrag meteen geldt. */
-    fun herlaad() {
-        val rijen = repository.brengInOvereenstemming(
-            instellingen.mapValues { (_, instelling) ->
-                MagazijnRepository.Paar(instelling.naam, instelling.gedrag)
-            },
-        )
+    fun herlaad() = synchronized(wijzigingslock) {
+        val rijen = repository.brengInOvereenstemming(instellingen)
 
         magazijnen.keys.retainAll(rijen.map { it.oin }.toSet())
 

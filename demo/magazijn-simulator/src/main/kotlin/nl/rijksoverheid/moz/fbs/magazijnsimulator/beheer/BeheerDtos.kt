@@ -69,7 +69,14 @@ data class GedragVerzoek(
  */
 data class BulkGedragVerzoek(val aanpassingen: List<GedragAanpassing>)
 
-/** Eén regel uit [BulkGedragVerzoek]: welk magazijn, en welk gedrag. */
+/**
+ * Eén regel uit [BulkGedragVerzoek]: welk magazijn, en welk gedrag.
+ *
+ * De gedrag-velden staan plat naast `oin` en niet in een genest object: zo is één regel uit een
+ * bulk letterlijk hetzelfde JSON als een losse [GedragVerzoek] met een OIN erbij, en dat scheelt
+ * een bedieningspaneel twee vormen voor dezelfde vraag. [gedrag] houdt het bij één plek die weet
+ * welke velden er zijn, zodat een nieuw gedrag-veld hier niet vergeten kan worden.
+ */
 data class GedragAanpassing(
     val oin: String,
     val modus: GedragModus,
@@ -77,7 +84,9 @@ data class GedragAanpassing(
     val latencyP95Ms: Int? = null,
     val foutkans: Double? = null,
     val foutStatus: Int? = null,
-)
+) {
+    fun gedrag(): GedragVerzoek = GedragVerzoek(modus, latencyP50Ms, latencyP95Ms, foutkans, foutStatus)
+}
 
 /** Wat er van een bulk-aanpassing terechtkwam. */
 data class BulkGedragUitkomst(val aangepast: Int, val onbekend: List<String>)

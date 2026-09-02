@@ -2,15 +2,13 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bijlage
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkBericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
 import java.util.UUID
-
-/** Een bericht plus zijn bijlagen, zoals de seed het aanmaakt. */
-data class DemoBericht(val bericht: Bericht, val bijlagen: List<Bijlage>)
 
 /**
  * Verzint de berichten waarmee een demo gevuld wordt.
@@ -58,6 +56,9 @@ object DemoBerichten {
      *
      * **Houd deze tekst ASCII** — zie [PDF_REGELS].
      */
+    /** Waar ASCII ophoudt; zie de eis op [PDF_REGELS]. */
+    private const val EERSTE_NIET_ASCII = 0x80
+
     private const val PDF_KOP = "Demonstratiemateriaal"
 
     /**
@@ -67,7 +68,7 @@ object DemoBerichten {
      * buiten het basisvlak (een emoji) is erger: dat telt als twee tekens en één byte, en verschuift
      * daarmee elke positie in de kruisverwijzingstabel — dan opent het bestand niet meer.
      */
-    private val PDF_REGELS = listOf(
+    private val PDF_REGELS: List<String> = listOf(
         "Deze bijlage komt uit een gesimuleerd berichtenmagazijn van MijnOverheid",
         "Zakelijk. Ze hoort bij een demo van het Federatief Berichtenstelsel.",
         "",
@@ -84,6 +85,7 @@ object DemoBerichten {
      */
     private val PDF_BYTES = demoPdf()
 
+
     /**
      * De berichten voor één magazijn en één ontvanger.
      *
@@ -97,7 +99,7 @@ object DemoBerichten {
         aantal: Int,
         bijlageElke: Int,
         nu: Instant,
-    ): List<DemoBericht> = (1..aantal).map { volgnummer ->
+    ): List<BulkBericht> = (1..aantal).map { volgnummer ->
         val sleutel = "$magazijnOin:${ontvanger.type}:${ontvanger.waarde}:$volgnummer"
         // Nieuwste bovenaan: het eerste bericht is het oudste, dus de tijdstippen lopen terug.
         val ontvangen = nu.minus(Duration.ofHours((aantal - volgnummer).toLong()))
@@ -126,7 +128,7 @@ object DemoBerichten {
 
         // De bijlagen gaan apart mee: de bulk-opslag schrijft kolommen en kijkt niet naar
         // `Bericht.bijlagen`, dus ze daar óók in zetten zou dood werk zijn.
-        DemoBericht(bericht, bijlagen)
+        BulkBericht(bericht, bijlagen)
     }
 
     private fun inhoud(magazijnOin: String, volgnummer: Int): String =
@@ -145,6 +147,15 @@ object DemoBerichten {
      * standaardlettertypen. Dat scheelt een ingesloten font van tonnen bytes per bijlage.
      */
     private fun demoPdf(): ByteArray {
+        // De ASCII-eis hierboven is een invariant en geen verzoek: één accent levert een bestand op
+        // dat niet meer opent, en dat merkt niemand tot iemand tijdens een demo op de bijlage klikt.
+        // Hier valt het bij het starten om, wat een typefout van een minuut maakt.
+        (PDF_REGELS + PDF_KOP).forEach { regel ->
+            check(regel.all { teken -> teken.code < EERSTE_NIET_ASCII }) {
+                "PDF-tekst hoort ASCII te zijn; deze regel is het niet: $regel"
+            }
+        }
+
         val stroom = tekststroom()
         val objecten = listOf(
             "<</Type/Catalog/Pages 2 0 R>>",

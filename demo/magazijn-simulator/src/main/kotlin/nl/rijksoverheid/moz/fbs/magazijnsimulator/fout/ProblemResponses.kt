@@ -7,10 +7,29 @@ import java.net.URI
 import java.util.UUID
 
 /** RFC 9457-mediatype, zoals de spec het voor elke foutresponse voorschrijft. */
-private val PROBLEM_JSON: MediaType = MediaType.valueOf("application/problem+json")
+internal val PROBLEM_JSON: MediaType = MediaType.valueOf("application/problem+json")
 
 /** Bovengrens op vrije tekst in `detail`; onbegrensde invoer echoën is nooit nodig. */
 private const val MAX_DETAIL_LENGTE = 500
+
+/**
+ * Wat een 5xx aan de client vertelt: dat er iets misging en welk id daarbij hoort. Meer kan niet —
+ * de oorzaak kan interne details dragen — en minder maakt een melding onherleidbaar.
+ */
+internal const val ONVERWACHTE_FOUT_DETAIL =
+    "Er is een onverwachte interne fout opgetreden. Vermeld het id uit 'instance' bij support."
+
+/**
+ * Het `Problem`-object van een onverwachte serverfout, voor de plekken die geen `Response` kunnen
+ * teruggeven maar een lopend antwoord moeten omzetten — een response-filter dat halverwege
+ * ontdekt dat het antwoord niet klopt.
+ */
+internal fun onverwachteFoutProblem(foutId: UUID): Problem =
+    Problem(URI.create("about:blank"), "Internal Server Error", Response.Status.INTERNAL_SERVER_ERROR.statusCode)
+        .apply {
+            this.detail = ONVERWACHTE_FOUT_DETAIL
+            this.instance = "urn:uuid:$foutId"
+        }
 
 /**
  * Bouwt een foutresponse met het `Problem`-model uit de gedeelde spec. Bewust dát model en geen

@@ -19,9 +19,7 @@ class BeheerTokenFilter(private val token: BeheerToken) : ContainerRequestFilter
     override fun filter(requestContext: ContainerRequestContext) {
         if (!MagazijnPad.isBeheerPad(requestContext.uriInfo.path)) return
 
-        if (token.staatOpen) return
-
-        if (!token.klopt(requestContext.getHeaderString(HEADER))) {
+        if (!token.laatDoor(requestContext.getHeaderString(HEADER))) {
             requestContext.abortWith(
                 problemResponse(
                     status = Response.Status.UNAUTHORIZED.statusCode,

@@ -16,14 +16,20 @@ import java.util.UUID
  * De melding van de exception blijft uit het antwoord — die kan interne details dragen. De
  * `@Priority` is een extra tiebreaker voor het onwaarschijnlijke geval dat ooit een andere mapper
  * hetzelfde generieke type claimt; hogere waarde is lagere prioriteit.
+ *
+ * Op `Throwable` en niet op `Exception`: een `OutOfMemoryError` of `StackOverflowError` is bij een
+ * fan-out van honderd magazijnen met bijlagen tot 25 MiB geen theoretisch geval, en zou anders langs
+ * dit vangnet gaan en als kale foutpagina naar buiten komen — zonder `problem+json`, zonder
+ * correlatie-id en zonder deze logregel. Juist dán is de vraag "wat gebeurde er" het lastigst te
+ * beantwoorden.
  */
 @Provider
 @Priority(Priorities.USER + 100)
-class UncaughtExceptionMapper : ExceptionMapper<Exception> {
+class UncaughtExceptionMapper : ExceptionMapper<Throwable> {
 
     private val log = Logger.getLogger(UncaughtExceptionMapper::class.java)
 
-    override fun toResponse(exception: Exception): Response {
+    override fun toResponse(exception: Throwable): Response {
         val foutId = UUID.randomUUID()
 
         log.errorf(exception, "Onverwachte fout (foutId=%s, type=%s)", foutId, exception.javaClass.name)
@@ -31,7 +37,7 @@ class UncaughtExceptionMapper : ExceptionMapper<Exception> {
         return problemResponse(
             status = Response.Status.INTERNAL_SERVER_ERROR.statusCode,
             title = "Internal Server Error",
-            detail = "Er is een onverwachte interne fout opgetreden. Vermeld het id uit 'instance' bij support.",
+            detail = ONVERWACHTE_FOUT_DETAIL,
             foutId = foutId,
         )
     }

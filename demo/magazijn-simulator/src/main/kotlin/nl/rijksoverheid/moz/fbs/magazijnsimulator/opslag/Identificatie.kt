@@ -12,10 +12,11 @@ enum class IdentificatieType { BSN, RSIN, KVK, OIN }
  * simulator invoer accepteren waar een echt magazijn 400 op geeft — en dan is hij van buiten wél te
  * onderscheiden.
  *
- * Een uitgeklede eigen kopie, net als in `demo/demo-console`: deze module heeft bewust geen
- * `fbs-common` als dependency, omdat de JAX-RS-filters daarin de LDV-wrapper vereisen en het
- * logboek per organisatie hoort te zijn — honderd gesimuleerde magazijnen zouden honderd logboeken
- * suggereren die niet bestaan. Wie de elfproef wijzigt, wijzigt beide.
+ * Een uitgeklede eigen kopie, net als `Identificatiecheck` in `demo/demo-personas`: deze module
+ * heeft bewust geen `fbs-common` als dependency, omdat de JAX-RS-filters daarin de LDV-wrapper
+ * vereisen en het logboek per organisatie hoort te zijn — honderd gesimuleerde magazijnen zouden
+ * honderd logboeken suggereren die niet bestaan. Gezaghebbend is `Identificatienummer` in
+ * `libraries/fbs-common`; wie de elfproef wijzigt, wijzigt alle drie.
  *
  * `toString` maskeert BSN en RSIN: die zijn persoonsgegevens en mogen nooit in een applicatielog
  * belanden. KVK en OIN zijn publiek opvraagbaar en blijven leesbaar.
@@ -65,7 +66,12 @@ data class Identificatie(val type: IdentificatieType, val waarde: String) {
 
             vereis(delen.size == 2) { "X-Ontvanger moet de vorm <TYPE>:<WAARDE> hebben" }
 
-            vereis(delen[0] in TOEGESTANE_TYPES) { "Onbekend identificatienummer-type: ${delen[0]}" }
+            // Zonder de aangeboden waarde: op het beheerpad komt deze functie langs een lijst die
+            // geen spec-regex heeft gepasseerd, en dan zou een verkeerd om getypte `123456782:BSN`
+            // een BSN in de foutmelding zetten.
+            vereis(delen[0] in TOEGESTANE_TYPES) {
+                "Onbekend identificatienummer-type; toegestaan: ${TOEGESTANE_TYPES.joinToString()}"
+            }
 
             val type = IdentificatieType.valueOf(delen[0])
 

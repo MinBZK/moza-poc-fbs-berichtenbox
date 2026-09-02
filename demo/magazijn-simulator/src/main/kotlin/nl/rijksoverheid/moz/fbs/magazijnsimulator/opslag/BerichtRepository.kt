@@ -56,7 +56,12 @@ class BerichtRepository(
         page: Int,
         pageSize: Int,
     ): BerichtenPagina {
+        // De database-id als tweede sleutel, en niet alleen het tijdstip. Twee aanleveringen binnen
+        // dezelfde klok-tik krijgen hetzelfde tijdstip, en dan is de volgorde zonder tiebreaker aan
+        // de database: bij paginering kan een bericht daardoor op twee pagina's staan of op geen.
+        // De id loopt op met de aanlevering, dus aflopend is dezelfde bedoeling als "nieuwste eerst".
         val sortering = Sort.by("tijdstipOntvangst", Sort.Direction.Descending)
+            .and("id", Sort.Direction.Descending)
         val query = if (afzender == null) {
             find(
                 "magazijn.id = ?1 and ontvangerType = ?2 and ontvangerWaarde = ?3 and verwijderdOp is null",

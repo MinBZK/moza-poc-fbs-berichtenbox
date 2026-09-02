@@ -6,9 +6,11 @@ import jakarta.inject.Singleton
 import java.time.Clock
 
 /**
- * CDI-producer voor [Clock], zodat services geen statische `Instant.now()` gebruiken. Vanaf stap 3
- * hangt het gedrag van een magazijn aan de tijd, en dan is een klok die een test kan vastzetten het
- * verschil tussen een deterministische en een flakey suite.
+ * CDI-producer voor [Clock], zodat services geen statische `Instant.now()` gebruiken.
+ *
+ * De tijdstippen van een bericht — wanneer het ontvangen is, wanneer de status voor het laatst
+ * wijzigde — komen hiervandaan, en de seed leidt de zijne ervan af. Een test die op zo'n tijdstip
+ * toetst, kan de klok daarmee vastzetten in plaats van rond een bewegend doel te asserteren.
  */
 @Singleton
 class ClockProducer {

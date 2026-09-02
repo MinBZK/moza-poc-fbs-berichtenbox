@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnInstelling
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
 import org.junit.jupiter.api.Test
 
@@ -89,10 +90,27 @@ class MagazijnReconcileTest {
         assertNotNull(naamVan(EXTRA), "de rij zelf hoort te blijven staan")
     }
 
+    /**
+     * Een magazijn dat uit de configuratie is gehaald, hoort ook uit de live set te verdwijnen. De
+     * rij blijft staan — daar hangen berichten aan — maar het pad-filter mag hem niet meer
+     * doorlaten, want het register van de uitvraag kent hem niet meer.
+     */
+    @Test
+    fun `een verdwenen magazijn valt uit de set die het pad-filter raadpleegt`() {
+        reconcile(EEN to "Een", EXTRA to "Extra")
+
+        assertNotNull(repository.find("oin", EXTRA).firstResult(), "de rij hoort er te zijn")
+
+        val na = reconcile(EEN to "Een")
+
+        assertEquals(setOf(EEN), na.keys, "alleen wat geconfigureerd is komt terug")
+        assertNotNull(repository.find("oin", EXTRA).firstResult(), "de rij zelf blijft staan")
+    }
+
     private fun reconcile(vararg entries: Pair<String, String>): Map<String, MagazijnRij> =
         repository
             .brengInOvereenstemming(
-                entries.toMap().mapValues { (_, naam) -> MagazijnRepository.Paar(naam, Gedrag.NORMAAL) },
+                entries.toMap().mapValues { (_, naam) -> MagazijnInstelling(naam, Gedrag.NORMAAL) },
             )
             .associateBy { it.oin }
 

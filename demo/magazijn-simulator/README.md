@@ -141,6 +141,7 @@ niet te oefenen en niet te vertrouwen.
 | `POST /beheer/seed` | berichten klaarzetten in alle magazijnen, in één handeling |
 | `POST /beheer/legen` | alles terug naar de begintoestand — berichten én gedrag |
 | `PUT /beheer/magazijnen/{oin}/gedrag` | tijdens het verhaal één organisatie kapot maken |
+| `PUT /beheer/gedrag` | k van de honderd tegelijk bijstellen; onbekende OIN's worden teruggemeld, niet geweigerd |
 
 ```bash
 curl -X POST localhost:8092/beheer/seed -H 'Content-Type: application/json' \
@@ -155,12 +156,14 @@ er toevallig nog stond.
 **Wat er klaargezet wordt is volledig afgeleid.** Dezelfde aanroep geeft dezelfde berichten, tot en
 met de bericht-nummers. Een demo die je oefent is daarmee dezelfde demo als je hem geeft. De nummers
 verschillen wél over magazijnen heen: twee magazijnen mogen in werkelijkheid hetzelfde nummer
-uitdelen, maar de sessiecache van de uitvraag slaat berichten op zonder magazijn in de sleutel, en
-zolang dat gebrek openstaat hoort een demo daar niet per ongeluk over te vallen.
+uitdelen, maar de sessiecache van de uitvraag slaat berichten op zonder magazijn in de sleutel
+([#996](https://github.com/MinBZK/MijnOverheidZakelijk/issues/996)), en zolang dat gebrek openstaat
+hoort een demo daar niet per ongeluk over te vallen.
 
 **Twintig berichten per magazijn is niet toevallig.** De uitvraag haalt per magazijn één pagina op
-en het magazijn levert er standaard twintig; daarboven ziet de ondernemer niets. Zolang dat gat er
-is, demonstreer je met meer onbedoeld dát gat in plaats van het gedrag dat je wilt tonen.
+en het magazijn levert er standaard twintig; daarboven ziet de ondernemer niets
+([#1004](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1004)). Zolang dat gat er is,
+demonstreer je met meer onbedoeld dát gat in plaats van het gedrag dat je wilt tonen.
 
 **De bijlage is een echte PDF met een vaste tekst.** Eén A4 dat zegt dat het demonstratiemateriaal
 is en dat er geen echte gegevens in staan. Een paar bytes die toevallig met `%PDF` beginnen zouden de
@@ -198,7 +201,7 @@ zodat het stil blijft zolang er niets gebeurt:
 
 ```
 pool: 18 in gebruik, 2 vrij, 7 wachtend van max 50 | piek 20 | opgezet 20, vernietigd 0
-    | wachten gem 41ms, langst 380ms, totaal 12,4s
+    | wachten gem 41ms, langst 380ms, totaal 12.4s
 ```
 
 Wat je eraan afleest:
@@ -257,8 +260,9 @@ een pool die nooit iets doet.
 
 ## Wat er nog niet is
 
-De omzetting van de demo-omgeving: de oude antwoordmachines eruit, de simulator erin, en vier
-ondernemers met een verschillend aantal aangesloten organisaties. Zie het ontwerp.
+De uitrol op ZAD. De simulator draait lokaal in `compose.yaml` en staat als component
+`magazijnsimulator` in `deploy.yml`; het aanmaken van dat component in project `mpfm-w3h` is
+handwerk dat nog moet gebeuren. Zie `demo/environment/zad-demo/`.
 
 ## Draaien
 

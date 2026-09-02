@@ -71,17 +71,27 @@ data class BerichtStatus(
     val gewijzigdOp: Instant,
 ) {
     init {
-        if (map != null) {
-            vereis(map.isNotBlank()) { "Mapnaam mag niet leeg zijn" }
-            vereis(map.length <= MAX_MAPNAAM_LENGTE) {
-                "Mapnaam mag maximaal $MAX_MAPNAAM_LENGTE tekens zijn"
-            }
-        }
+        valideerMapnaam(map)
     }
 
     companion object {
         /** Gelijk aan `BerichtStatusPatch.map.maxLength` in de spec en aan de kolombreedte in V1. */
         const val MAX_MAPNAAM_LENGTE = 128
+
+        /**
+         * De regel geldt aan beide kanten: op wat er binnenkomt ([BerichtStatusWijziging]) en op wat
+         * er uit de opslag terugkomt. Stond hij alleen op deze kant, dan zou een lege mapnaam eerst
+         * worden weggeschreven en pas bij het teruglezen stuklopen — de juiste uitkomst langs een
+         * omweg die niemand kan volgen.
+         */
+        fun valideerMapnaam(map: String?) {
+            if (map == null) return
+
+            vereis(map.isNotBlank()) { "Mapnaam mag niet leeg zijn" }
+            vereis(map.length <= MAX_MAPNAAM_LENGTE) {
+                "Mapnaam mag maximaal $MAX_MAPNAAM_LENGTE tekens zijn"
+            }
+        }
     }
 }
 
@@ -91,6 +101,11 @@ data class BerichtStatus(
  * niets zetten" is precies wat een `PATCH` op een map betekent.
  */
 data class BerichtStatusWijziging(val gelezen: Boolean?, val map: String?) {
+
+    init {
+        BerichtStatus.valideerMapnaam(map)
+    }
+
     val isLeeg: Boolean get() = gelezen == null && map == null
 }
 
@@ -99,7 +114,14 @@ data class BijlageMetadata(
     val bijlageId: UUID,
     val naam: String,
     val mimeType: String,
-)
+) {
+    // Dezelfde vormcontroles als op [Bijlage]. Deze rijen komen uit een projectie-query en niet uit
+    // een aanlevering, dus zonder deze regels zou een kapotte rij ongemerkt in een lijstantwoord
+    // belanden — precies waar de spec zegt dat naam en type gevuld zijn.
+    init {
+        Bijlage.valideerVorm(naam, mimeType)
+    }
+}
 
 /** Een bijlage inclusief bytes, zoals de download-endpoint hem teruggeeft. */
 data class Bijlage(
@@ -109,10 +131,7 @@ data class Bijlage(
     val inhoud: ByteArray,
 ) {
     init {
-        vereis(naam.isNotBlank()) { "Bijlagenaam mag niet leeg zijn" }
-        vereis(naam.length <= MAX_NAAM_LENGTE) { "Bijlagenaam mag maximaal $MAX_NAAM_LENGTE tekens zijn" }
-        vereis(mimeType.isNotBlank()) { "MIME-type mag niet leeg zijn" }
-        vereis(mimeType.length <= MAX_MIME_LENGTE) { "MIME-type mag maximaal $MAX_MIME_LENGTE tekens zijn" }
+        valideerVorm(naam, mimeType)
         vereis(inhoud.isNotEmpty()) { "Bijlage mag niet leeg zijn" }
         vereis(inhoud.size <= MAX_INHOUD_BYTES) {
             "Bijlage mag maximaal ${MAX_INHOUD_BYTES / 1024 / 1024} MiB zijn (kreeg ${inhoud.size} bytes)"
@@ -122,6 +141,26 @@ data class Bijlage(
     companion object {
         const val MAX_NAAM_LENGTE = 255
         const val MAX_MIME_LENGTE = 127
+
+        /**
+         * `type/subtype`, met de tekens die RFC 6838 in een token toestaat. De spec eist alleen een
+         * lengte, maar een waarde die geen mediatype ís komt pas bij het downloaden aan het licht:
+         * de aanlevering slaagt met 201 en de bijlage is daarna onophaalbaar, want er valt geen
+         * `Content-Type` van te maken. Een 400 bij het aanleveren zegt wat er mis is, op het moment
+         * dat het nog te herstellen valt.
+         */
+        private const val TOKEN = """[A-Za-z0-9!#${'$'}%&'*+.^_`|~-]+"""
+
+        private val MEDIATYPE_VORM = Regex("^$TOKEN/$TOKEN\$")
+
+        /** De vormregels die [Bijlage] en [BijlageMetadata] delen. */
+        fun valideerVorm(naam: String, mimeType: String) {
+            vereis(naam.isNotBlank()) { "Bijlagenaam mag niet leeg zijn" }
+            vereis(naam.length <= MAX_NAAM_LENGTE) { "Bijlagenaam mag maximaal $MAX_NAAM_LENGTE tekens zijn" }
+            vereis(mimeType.isNotBlank()) { "MIME-type mag niet leeg zijn" }
+            vereis(mimeType.length <= MAX_MIME_LENGTE) { "MIME-type mag maximaal $MAX_MIME_LENGTE tekens zijn" }
+            vereis(MEDIATYPE_VORM.matches(mimeType)) { "MIME-type hoort de vorm type/subtype te hebben" }
+        }
 
         /**
          * 25 MiB, gelijk aan het echte magazijn. Géén spec-grens — die kent alleen `minLength: 1` —

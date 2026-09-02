@@ -1,15 +1,18 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.InternalServerErrorException
+import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriBuilder
 import jakarta.ws.rs.core.UriInfo
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.BerichtenApi
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.BerichtenLijst
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.ONVERWACHTE_FOUT_DETAIL
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.problemResponse
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtStatusWijziging
@@ -60,16 +63,35 @@ class SimulatorBerichtenResource(
     override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
         val bijlage = service.haalBijlageOp(berichtId, bijlageId, Identificatie.uitHeader(xOntvanger))
 
-        // Een opgeslagen MIME-type dat niet te parsen is, duidt op een aanlever-fout of op met de
-        // hand aangepaste data. Dan liever geen bytes onder een verkeerd Content-Type serveren: 500,
-        // zodat het opvalt. De waarde blijft uit het antwoord en staat alleen in de log — een
-        // MIME-type is geen persoonsgegeven.
+        // Een opgeslagen MIME-type dat niet te parsen is, kan sinds de vormcontrole op `Bijlage` niet
+        // meer via een aanlevering binnenkomen; het zou met de hand aangepaste data zijn. Dan liever
+        // geen bytes onder een verkeerd Content-Type serveren: 500, zodat het opvalt. De waarde blijft
+        // uit het antwoord en staat alleen in de log — een MIME-type is geen persoonsgegeven.
+        //
+        // Het correlatie-id wordt hier gemaakt en in de antwoord-response meegegeven, zodat één
+        // logregel zowel de bijlage als het id draagt dat de aanroeper te zien krijgt. Zou de mapper
+        // zijn eigen id maken, dan staat de bijlageId in een regel zonder id en het id in een regel
+        // zonder bijlageId, en is de melding van een aanroeper niet terug te zoeken.
         val mediaType = try {
             MediaType.valueOf(bijlage.mimeType)
         } catch (ex: IllegalArgumentException) {
-            log.warnf(ex, "Ongeldig MIME-type in opslag; geen inhoud geserveerd. bijlageId=%s", bijlageId)
+            val foutId = UUID.randomUUID()
 
-            throw InternalServerErrorException("Ongeldig MIME-type in bijlage")
+            log.errorf(
+                ex,
+                "Ongeldig MIME-type in opslag; geen inhoud geserveerd (bijlageId=%s, foutId=%s)",
+                bijlageId,
+                foutId,
+            )
+
+            throw WebApplicationException(
+                problemResponse(
+                    status = Response.Status.INTERNAL_SERVER_ERROR.statusCode,
+                    title = "Internal Server Error",
+                    detail = ONVERWACHTE_FOUT_DETAIL,
+                    foutId = foutId,
+                ),
+            )
         }
 
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mediaType.toString())

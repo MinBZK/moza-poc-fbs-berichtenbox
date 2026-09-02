@@ -11,7 +11,11 @@ import org.hamcrest.Matchers.notNullValue
 import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Test
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
+import io.quarkus.narayana.jta.QuarkusTransaction
+import jakarta.inject.Inject
+import jakarta.persistence.EntityManager
 import java.util.Base64
+import java.util.UUID
 
 /**
  * De zes operaties op een magazijn dat echt iets bewaart, en — het punt van deze stap — dat wat de
@@ -23,6 +27,9 @@ import java.util.Base64
  */
 @QuarkusTest
 class BerichtenKetenTest : MagazijnTestBasis() {
+
+    @Inject
+    lateinit var entityManager: EntityManager
 
     @Test
     fun `een aangeleverd bericht is daarna op te halen`() {
@@ -350,6 +357,64 @@ class BerichtenKetenTest : MagazijnTestBasis() {
     }
 
     /**
+     * De discriminator zit op élke query, niet alleen op de leespaden. `softDelete`, `wijzigStatus`
+     * en `zoekBijlage` dragen hem elk apart; valt hij bij één van de drie weg, dan raakt een
+     * ondernemer met één aanroep een bericht in een magazijn waar hij niet was.
+     *
+     * De na-controle is het punt van deze test. Alleen de 404 asserteren zou ook groen zijn bij een
+     * implementatie die het bericht in het ándere magazijn wél aanraakt.
+     */
+    @Test
+    fun `verwijderen via het verkeerde magazijn raakt het bericht niet`() {
+        val berichtId = leverAan(EEN)
+
+        verwijder(TWEE, berichtId).then().statusCode(404)
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `status bijwerken via het verkeerde magazijn raakt het bericht niet`() {
+        val berichtId = leverAan(EEN)
+
+        patch(TWEE, berichtId, """{"gelezen": true}""").then().statusCode(404)
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+            .body("status", nullValue())
+    }
+
+    @Test
+    fun `een bijlage is niet op te halen via het verkeerde magazijn`() {
+        val berichtId = leverAan(EEN, bijlage = Bijlagegegevens("aanslag.pdf", "application/pdf", "pdf".toByteArray()))
+
+        val bijlageId = given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId")
+            .then()
+            .extract().path<String>("bijlagen[0].bijlageId")
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(TWEE)}/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(404)
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+    }
+
+    /**
      * De simulator neemt de pdf-only-regel van het echte magazijn bewust niet over: die staat niet
      * in de spec, en een demo waarin alleen PDF's bestaan laat het bijlage-pad maar half zien.
      */
@@ -363,6 +428,46 @@ class BerichtenKetenTest : MagazijnTestBasis() {
             .then()
             .statusCode(200)
             .body("bijlagen[0].mimeType", equalTo("image/png"))
+    }
+
+    /**
+     * Een rij die met de hand is aangepast; via een aanlevering komt zo'n waarde er niet meer in.
+     * Het antwoord draagt `problem+json` met een correlatie-id en geen enkel spoor van de
+     * opgeslagen waarde. Dat de domeingrens hem al bij het teruglezen tegenhoudt, in plaats van pas
+     * bij het omzetten naar een `Content-Type`, is precies waar die grens voor is.
+     */
+    @Test
+    fun `een onbruikbaar MIME-type in de opslag lekt niets naar buiten`() {
+        val berichtId = leverAan(EEN, bijlage = Bijlagegegevens("aanslag.pdf", "application/pdf", "pdf".toByteArray()))
+
+        val bijlageId = given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId")
+            .then()
+            .extract().path<String>("bijlagen[0].bijlageId")
+
+        QuarkusTransaction.requiringNew().run {
+            entityManager
+                .createNativeQuery("UPDATE bijlage SET mime_type = 'kaas' WHERE bijlage_id = :id")
+                .setParameter("id", UUID.fromString(bijlageId))
+                .executeUpdate()
+        }
+
+        val antwoord = given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(400)
+            .contentType(PROBLEM_JSON)
+            .body("instance", org.hamcrest.Matchers.startsWith("urn:uuid:"))
+            .extract().asString()
+
+        listOf("kaas", "at ", ".kt:", "nl.rijksoverheid").forEach { spoor ->
+            org.junit.jupiter.api.Assertions.assertFalse(
+                antwoord.contains(spoor),
+                "de foutbody hoort geen '$spoor' te bevatten",
+            )
+        }
     }
 
     private fun assertRijenBestaan(verwacht: Int) {

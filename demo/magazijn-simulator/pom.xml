@@ -26,7 +26,8 @@
              gewijzigd is. In CI valt dat weg — een wijziging buiten demo/ levert de volle
              test-scope op — maar lokaal is een `clean` na een spec-wijziging het verschil tussen
              meten en gokken. -->
-        <api.spec.file>${project.basedir}/../../services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml</api.spec.file>
+        <api.spec.dir>${project.basedir}/../../services/berichtenmagazijn/src/main/resources/openapi</api.spec.dir>
+        <api.spec.file>${api.spec.dir}/berichtenmagazijn-api.yaml</api.spec.file>
         <api.base.package>nl.rijksoverheid.moz.fbs.magazijnsimulator</api.base.package>
     </properties>
 
@@ -156,7 +157,11 @@
                             <outputDirectory>${project.build.testOutputDirectory}/openapi</outputDirectory>
                             <resources>
                                 <resource>
-                                    <directory>${project.basedir}/../../services/berichtenmagazijn/src/main/resources/openapi</directory>
+                                    <!-- Via ${api.spec.dir}, zodat de generator en de contracttest
+                                         gegarandeerd dezelfde spec lezen. Stonden hier twee losse
+                                         paden, dan zou het verleggen van er één een groene test
+                                         opleveren die een ándere spec toetst dan de code volgt. -->
+                                    <directory>${api.spec.dir}</directory>
                                     <includes>
                                         <include>berichtenmagazijn-api.yaml</include>
                                     </includes>
@@ -200,8 +205,8 @@
             </plugin>
 
             <!-- Dezelfde 90%-gate als de modules van het stelsel. Dat de simulator
-                 demonstratiecode is, is geen reden om er minder van te eisen: hij draagt straks
-                 het gedrag van honderd magazijnen, en een fout erin lijkt op een fout in de keten. -->
+                 demonstratiecode is, is geen reden om er minder van te eisen: hij draagt het
+                 gedrag van honderd magazijnen, en een fout erin lijkt op een fout in de keten. -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>

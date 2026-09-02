@@ -201,4 +201,64 @@ class DomeinInvariantenTest {
     private companion object {
         const val AFZENDER = "00000009000000000001"
     }
+
+    /**
+     * `split(limit = 2)` betekent dat alles ná de eerste dubbele punt de waarde is. Een header met
+     * een extra scheidingsteken hoort dus op de vorm van de waarde te stranden, niet op het type —
+     * en een leeg deel hoort geen `IndexOutOfBounds` te geven.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["KVK:", "BSN:999993653:extra", ":90000001", "KVK"])
+    fun `een misvormde X-Ontvanger levert een domeinfout`(header: String) {
+        assertThrows<DomeinFout> { Identificatie.uitHeader(header) }
+    }
+
+    /**
+     * De melding mag de aangeboden waarde niet echoën: op het beheerpad komt deze functie langs een
+     * lijst die geen spec-regex heeft gepasseerd, en een omgekeerd getypte `123456782:BSN` zou
+     * anders een BSN in een foutantwoord zetten.
+     */
+    @Test
+    fun `de melding bij een onbekend type bevat de aangeboden waarde niet`() {
+        val fout = assertThrows<DomeinFout> { Identificatie.uitHeader("123456782:BSN") }
+
+        assertFalse(fout.message.orEmpty().contains("123456782"), "de melding hoort geen invoer te echoën")
+    }
+
+    /** OIN is een publiek organisatienummer; alleen BSN en RSIN worden gemaskeerd. */
+    @Test
+    fun `een OIN blijft in toString leesbaar`() {
+        assertEquals(
+            "OIN:00000009000000000001",
+            Identificatie(IdentificatieType.OIN, "00000009000000000001").toString(),
+        )
+    }
+
+    /**
+     * De vorm van een MIME-type wordt bij het aanleveren getoetst en niet pas bij het downloaden.
+     * Zonder die controle slaagt een aanlevering met 201 en is de bijlage daarna onophaalbaar.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["kaas", "application", "application/", "/pdf", "application/pdf; charset=utf-8"])
+    fun `een bijlage met een onbruikbaar MIME-type wordt geweigerd`(mimeType: String) {
+        assertThrows<DomeinFout> {
+            Bijlage(UUID.randomUUID(), "bijlage.pdf", mimeType, "pdf".toByteArray())
+        }
+    }
+
+    /** Dezelfde vormregels op de projectie: een rij met een lege naam hoort niet in een lijst. */
+    @Test
+    fun `bijlage-metadata dwingt dezelfde vorm af als de bijlage zelf`() {
+        assertThrows<DomeinFout> { BijlageMetadata(UUID.randomUUID(), "  ", "application/pdf") }
+        assertThrows<DomeinFout> { BijlageMetadata(UUID.randomUUID(), "bijlage.pdf", "kaas") }
+    }
+
+    /**
+     * De mapnaam-regel geldt aan beide kanten. Stond hij alleen op de opgeslagen status, dan zou een
+     * lege mapnaam eerst worden weggeschreven en pas bij het teruglezen stuklopen.
+     */
+    @Test
+    fun `een lege mapnaam wordt al bij de wijziging geweigerd`() {
+        assertThrows<DomeinFout> { BerichtStatusWijziging(gelezen = null, map = "   ") }
+    }
 }

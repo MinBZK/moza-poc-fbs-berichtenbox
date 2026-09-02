@@ -17,8 +17,9 @@ import java.util.Optional
  * de stubs op de gedeelde omgeving stond om precies die reden open, en die fout is de moeite van het
  * niet-herhalen waard.
  *
- * Ingelezen met `@ConfigProperty` en niet met een `@ConfigMapping`: dat laatste zou een tweede
- * mapping onder hetzelfde `magazijnsimulator`-prefix opleveren, en daar loopt SmallRye Config op vast.
+ * Ingelezen met `@ConfigProperty` en niet met een `@ConfigMapping`: het is één sleutel, en een
+ * mapping-interface voegt daar niets aan toe. De magazijnen hebben er wél een; waarom die op
+ * `magazijnsimulator.magazijnen` staat en niet op het kale prefix, staat bij `MagazijnSimulatorConfig`.
  */
 @ApplicationScoped
 class BeheerToken(
@@ -51,12 +52,18 @@ class BeheerToken(
     }
 
     /**
+     * Of dit verzoek het beheerpad in mag: omdat het pad open staat, of omdat het token klopt.
+     *
+     * Eén vraag en niet twee. Met een losse `klopt` moet elke aanroeper eraan denken [staatOpen]
+     * eerst te toetsen, en wie dat vergeet laat onder dev en test álles door — `klopt("")` is daar
+     * immers waar. Dit type bewaakt die volgorde nu zelf.
+     *
      * Vergelijkt tijdconstant. Een gewone stringvergelijking stopt bij het eerste verschillende
      * teken, en dat verschil in looptijd is genoeg om een token teken voor teken te raden. De lengte
      * lekt nog wel; dat is hier het verschil niet waard.
      */
-    fun klopt(aangeboden: String?): Boolean =
-        MessageDigest.isEqual(token.toByteArray(), aangeboden.orEmpty().toByteArray())
+    fun laatDoor(aangeboden: String?): Boolean =
+        staatOpen || MessageDigest.isEqual(token.toByteArray(), aangeboden.orEmpty().toByteArray())
 
     private companion object {
         /** Alleen lokaal en in de tests mag het beheerpad zonder token draaien. */

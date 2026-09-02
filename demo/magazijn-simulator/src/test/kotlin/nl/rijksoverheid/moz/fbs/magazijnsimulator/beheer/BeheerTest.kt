@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 
 /**
@@ -321,6 +322,106 @@ class BeheerTest : MagazijnTestBasis() {
         assertEquals(voorAf, modusVan(TWEEDE_MAGAZIJN), "de geldige regel ervóór hoort niet toegepast te zijn")
     }
 
+    /**
+     * De bovengrens is de rem die voorkomt dat één beheeraanroep de gedeelde database volschrijft:
+     * honderd magazijnen maal drie ontvangers maal tienduizend is drie miljoen rijen.
+     */
+    @ParameterizedTest
+    @CsvSource("0,0", "-1,0", "201,0", "1,-1")
+    fun `seed-grenzen buiten het toegestane bereik zijn een clientfout`(aantal: Int, bijlageElke: Int) {
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"ontvangers": ["KVK:90000001"], "berichtenPerMagazijn": $aantal, "bijlageElke": $bijlageElke}""")
+            .`when`().post("/beheer/seed")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [1, 200])
+    fun `de randen die de seed wel toestaat slagen`(aantal: Int) {
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"ontvangers": ["KVK:90000001"], "berichtenPerMagazijn": $aantal, "bijlageElke": 0}""")
+            .`when`().post("/beheer/seed")
+            .then()
+            .statusCode(200)
+            .body("berichten", greaterThan(0))
+    }
+
+    /**
+     * Een ontvanger die zelf een gesimuleerd magazijn is, botst met de invariant dat afzender en
+     * ontvanger verschillen. Zonder de toets vooraf slaat die pas toe tijdens het schrijven, en dan
+     * staan de magazijnen die eerder aan de beurt waren al vol terwijl de aanroeper een 400 krijgt
+     * die daar niets over zegt.
+     */
+    @Test
+    fun `een ontvanger die zelf een magazijn is wordt geweigerd voordat er iets staat`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body("""{"ontvangers": ["OIN:$MAGAZIJN"], "berichtenPerMagazijn": 3, "bijlageElke": 0}""")
+            .`when`().post("/beheer/seed")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("/magazijn/$MAGAZIJN/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", equalTo(0))
+    }
+
+    /**
+     * Meer dan één blok. De bulk-opslag snijdt in blokken van 500 en schrijft de bijlagen per blok,
+     * met de bericht-id's van dát blok; met twintig rijen per aanroep blijft die grens onaangeroerd
+     * en zou een fout waarbij bijlagen aan het verkeerde bericht komen te hangen onzichtbaar zijn.
+     */
+    @Test
+    fun `een vulling van meer dan een blok houdt bijlage en bericht bij elkaar`() {
+        val uitkomst = seed(
+            aantal = 200,
+            ontvangers = listOf(ONTVANGER, TWEEDE_ONTVANGER, DERDE_ONTVANGER),
+            bijlageElke = 4,
+        )
+
+        val perMagazijn = 200 * 3
+
+        assertEquals(uitkomst.getInt("magazijnen") * perMagazijn, uitkomst.getInt("berichten"))
+        assertEquals(uitkomst.getInt("berichten") / 4, uitkomst.getInt("bijlagen"))
+
+        // Een bericht uit het tweede blok: volgnummer 200 van de laatste ontvanger valt voorbij rij
+        // 500 en is deelbaar door vier, dus het hoort precies één eigen bijlage te hebben.
+        given()
+            .header(ONTVANGER_HEADER, DERDE_ONTVANGER)
+            .queryParam("pageSize", 1)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].aantalBijlagen", equalTo(1))
+    }
+
+    /** Twee regels voor dezelfde OIN spreken elkaar tegen; "aangepast: 2" zou een leugen zijn. */
+    @Test
+    fun `dezelfde OIN twee keer in een bulk is een clientfout`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {"aanpassingen": [
+                  {"oin": "$MAGAZIJN", "modus": "STUK"},
+                  {"oin": "$MAGAZIJN", "modus": "NORMAAL"}
+                ]}
+                """.trimIndent(),
+            )
+            .`when`().put("/beheer/gedrag")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
     private fun modusVan(oin: String): String = given()
         .`when`().get("/beheer/magazijnen")
         .then()
@@ -490,6 +591,7 @@ class BeheerTest : MagazijnTestBasis() {
         const val ONTVANGER_HEADER = "X-Ontvanger"
         const val ONTVANGER = "KVK:90000001"
         const val TWEEDE_ONTVANGER = "KVK:90000002"
+        const val DERDE_ONTVANGER = "KVK:90000003"
         const val MAGAZIJN = "00000009000000000001"
         const val TWEEDE_MAGAZIJN = "00000009000000000002"
         const val DERDE_MAGAZIJN = "00000009000000000003"

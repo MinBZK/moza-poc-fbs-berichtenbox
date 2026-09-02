@@ -7,7 +7,8 @@ import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.emptyIterable
 import org.hamcrest.Matchers.endsWith
 import org.hamcrest.Matchers.equalTo
-import org.hamcrest.Matchers.nullValue
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -195,7 +196,9 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
             .`when`().get("$BASIS/berichten")
             .then()
             .statusCode(200)
-            .body("_links.prev", nullValue())
+            // `not(hasKey)` en niet `nullValue()`: dat laatste is ook waar voor een aanwezige
+            // `"prev": null`, en juist de afwezigheid is wat het schema van de spec eist.
+            .body("_links", not(hasKey("prev")))
             .body("_links.next.href", endsWith("page=1&pageSize=2"))
             .body("_links.last.href", endsWith("page=1&pageSize=2"))
     }
@@ -212,7 +215,7 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
             .then()
             .statusCode(200)
             .body("_links.prev.href", endsWith("page=0&pageSize=2"))
-            .body("_links.next", nullValue())
+            .body("_links", not(hasKey("next")))
     }
 
     @Test
@@ -270,6 +273,38 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
             .then()
             .statusCode(200)
             .body("totalElements", equalTo(2))
+    }
+
+    /**
+     * De spec begrenst `page` op nul en hoger en `pageSize` op 1..100. Die grenzen komen als Bean
+     * Validation op de gegenereerde interface binnen; valt `quarkus-hibernate-validator` ooit weg,
+     * dan bereikt `pageSize=0` de service en wordt de `require` in `BerichtenPagina` een 500 — en
+     * `pageSize=100000` zou gewoon slagen, terwijl het echte magazijn hem met 400 weigert.
+     */
+    @ParameterizedTest
+    @CsvSource("page,-1", "pageSize,0", "pageSize,101")
+    fun `paginering buiten de grenzen van de spec is een clientfout`(parameter: String, waarde: Int) {
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .queryParam(parameter, waarde)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(400)
+            .contentType(PROBLEM_JSON)
+    }
+
+    @ParameterizedTest
+    @CsvSource("pageSize,1", "pageSize,100", "page,0")
+    fun `de randen die de spec wel toestaat leveren gewoon een lijst op`(parameter: String, waarde: Int) {
+        leverAan()
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .queryParam(parameter, waarde)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", equalTo(1))
     }
 
     private fun leverAan(

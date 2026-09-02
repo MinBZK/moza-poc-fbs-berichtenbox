@@ -144,7 +144,38 @@ class GedragUitvoeringTest {
         assertThrows<IllegalArgumentException> { Gedrag(GedragModus.HAPERT, foutkans = 0.0) }
     }
 
+    /**
+     * Een traag magazijn hoort geen onbereikbaar magazijn te worden. De uitvraag gunt er tien
+     * seconden per magazijn; met de standaardwaardes (p50 1,2 s, p95 4 s) kwam ongeveer twee op de
+     * duizend trekkingen daarboven uit, en dan registreert de Berichtenbox een storing terwijl het
+     * overzicht "traag" toont.
+     */
+    @Test
+    fun `een traag magazijn blijft onder de timeout van de uitvraag`() {
+        val uitvoering = GedragUitvoering()
+        val gedrag = Gedrag.standaardVoor(GedragModus.TRAAG)
+
+        val langste = (1..AANTAL_GESIMULEERD).flatMap { i ->
+            val oin = "0000000900000000%04d".format(i)
+
+            List(50) { uitvoering.vertragingMs(oin, gedrag) }
+        }.max()
+
+        assertTrue(langste < UITVRAAG_TIMEOUT_MS, "langste trekking was $langste ms")
+    }
+
+    /** Onbereikbaar hoort juist wél boven die grens te liggen; anders maakt UIT geen verschil. */
+    @Test
+    fun `een onbereikbaar magazijn blijft er juist boven`() {
+        val gedrag = Gedrag.standaardVoor(GedragModus.UIT)
+
+        assertTrue(GedragUitvoering().vertragingMs(OIN, gedrag) > UITVRAAG_TIMEOUT_MS)
+    }
+
     private companion object {
+        /** De query-timeout die de uitvraag per magazijn hanteert. */
+        const val UITVRAAG_TIMEOUT_MS = 10_000L
+
         const val OIN = "00000009000000000005"
         const val ANDER_OIN = "00000009000000000010"
         const val AANTAL_GESIMULEERD = 98

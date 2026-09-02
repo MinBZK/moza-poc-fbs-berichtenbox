@@ -16,7 +16,7 @@ import java.util.UUID
  * bibliotheek) wordt er alsnog een Problem omheen gezet, zodat er geen HTML-foutpagina of lege body
  * naar buiten lekt.
  *
- * Deze mapper is bovendien nodig omdat [UncaughtExceptionMapper] op `Exception` staat: zonder een
+ * Deze mapper is bovendien nodig omdat [UncaughtExceptionMapper] op `Throwable` staat: zonder een
  * specifiekere mapper voor [WebApplicationException] zou die het vangnet in werking stellen en zou
  * een bewuste 404 als 500 bij de client aankomen. Keerzijde: een 5xx die als
  * `WebApplicationException` binnenkomt, bereikt dat vangnet dan óók niet — vandaar dat die tak hier
@@ -46,6 +46,11 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
             // is hier niets dat dat nog kan onderscheiden.
             return problemResponse(status = status, title = title, foutId = foutId)
         }
+
+        // Ook een clientfout krijgt een regel, op INFO. Het antwoord draagt een correlatie-id, en een
+        // id dat nergens in de log staat is geen correlatie maar een sierletter. De melding blijft
+        // eruit om dezelfde reden als hierboven: die kan invoer dragen.
+        log.infof("Clientfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
 
         return problemResponse(status = status, title = title, detail = veiligDetail(exception.message), foutId = foutId)
     }

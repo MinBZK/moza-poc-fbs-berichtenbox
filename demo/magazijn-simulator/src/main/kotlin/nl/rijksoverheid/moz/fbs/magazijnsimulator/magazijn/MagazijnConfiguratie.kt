@@ -36,6 +36,9 @@ object MagazijnConfiguratie {
                     "(magazijnsimulator.magazijnen.\"$key\".naam)"
             }
 
+            // Dezelfde invariant die `Identificatie` op elke OIN afdwingt: een nummer van louter
+            // nullen is geen organisatie, en het is de waarde die je krijgt als een generator zijn
+            // veld niet heeft ingevuld.
             check(key.any { it != '0' }) {
                 "Ongeldige OIN-key in magazijn-simulator-config: '$key' kan niet geheel uit nullen bestaan"
             }

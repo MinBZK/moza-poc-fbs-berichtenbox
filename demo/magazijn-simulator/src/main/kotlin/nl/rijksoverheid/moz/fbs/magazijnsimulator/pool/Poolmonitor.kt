@@ -13,7 +13,7 @@ import java.util.logging.Logger
  * regel is niet te zien of dat verschil ergens knelt: een aanvraag die op een connection wacht is
  * van buiten niet te onderscheiden van een magazijn dat traag antwoordt.
  *
- * De metingen komen uit Agroal zelf en vragen `quarkus.datasource.jdbc.enable-metrics`; zonder die
+ * De metingen komen uit Agroal zelf en vragen `quarkus.datasource.jdbc.metrics.enabled`; zonder die
  * vlag geeft elke teller nul terug.
  */
 @ApplicationScoped

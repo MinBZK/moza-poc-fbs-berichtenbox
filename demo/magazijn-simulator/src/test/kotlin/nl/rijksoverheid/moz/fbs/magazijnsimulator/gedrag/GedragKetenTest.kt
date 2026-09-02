@@ -179,8 +179,12 @@ class GedragKetenTest : MagazijnTestBasis() {
                 taken.forEach { it.get(SECONDEN_GEDULD, TimeUnit.SECONDS) }
             }
 
+            // De grens ligt op de helft van serieel en niet net eronder. Serieel duurt
+            // PARALLEL × 500 ms, echt parallel iets meer dan 500 ms; alles daartussenin betekent dat
+            // een deel van de verzoeken tóch op elkaar wachtte, en dat hoort deze test te zien.
+            // Ruim genoeg blijft het: een factor vijf marge op de verwachte looptijd.
             assertTrue(
-                duur < PARALLEL * 500,
+                duur < PARALLEL * 500 / 2,
                 "verwacht dat de verzoeken naast elkaar liepen, samen duurden ze $duur ms",
             )
         } finally {
