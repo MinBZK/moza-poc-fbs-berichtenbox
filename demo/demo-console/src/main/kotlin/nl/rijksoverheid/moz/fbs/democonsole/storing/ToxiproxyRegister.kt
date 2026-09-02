@@ -11,6 +11,8 @@ class ToxiproxyRegister(config: ToxiproxyConfig) {
 
     private val adressen = ToxiproxyAdressen(config)
 
+    private val definities = ProxyDefinities(config)
+
     private val perAdres: Map<String, ToxiproxyClient> =
         adressen.unieke().associateWith { adres ->
             QuarkusRestClientBuilder.newBuilder()
@@ -27,7 +29,15 @@ class ToxiproxyRegister(config: ToxiproxyConfig) {
                 .build(ToxiproxyClient::class.java)
         }
 
-    fun namen(): Set<String> = adressen.namen()
+    /**
+     * De proxies waarover deze console iets te melden heeft: alleen de volledig ingerichte.
+     *
+     * Uit [ProxyDefinities] en niet uit de adressen alleen. Een proxy met een url maar zonder
+     * bruikbare listen of upstream wordt door [ProxyBootstrap] nooit aangemaakt; zou hij hier tóch
+     * meetellen, dan toont het paneel zijn knop, meldt de status "onbekend" — niet te onderscheiden
+     * van een Toxiproxy die plat ligt — en levert de knop een fout op Toxiproxy's 404.
+     */
+    fun namen(): Set<String> = definities.alle().map { it.naam }.toSet()
 
     fun client(proxy: String): ToxiproxyClient = perAdres.getValue(adressen.adres(proxy))
 

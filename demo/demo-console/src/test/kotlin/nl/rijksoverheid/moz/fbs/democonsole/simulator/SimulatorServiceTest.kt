@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.democonsole.simulator
 
 import io.mockk.every
 import io.mockk.mockk
+import nl.rijksoverheid.moz.fbs.democonsole.omgeving.OmgevingConfig
 import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -20,7 +21,8 @@ import org.junit.jupiter.api.assertThrows
 class SimulatorServiceTest {
 
     private val beheer = mockk<SimulatorBeheerClient>()
-    private val service = SimulatorService(beheer)
+    private val omgeving = mockk<OmgevingConfig> { every { simulator() } returns true }
+    private val service = SimulatorService(beheer, omgeving)
 
     @Test
     fun `de eerste k blijven normaal en de rest gaat op storing`() {
@@ -30,7 +32,7 @@ class SimulatorServiceTest {
 
         every { beheer.zetGedrag(capture(verzoek)) } returns BulkGedragUitkomst(5, emptyList())
 
-        assertEquals(mapOf("actief" to 3, "totaal" to 5), service.zetActief(3))
+        assertEquals(SimulatorStand(actief = 3, totaal = 5), service.zetActief(3))
 
         assertEquals(
             listOf("NORMAAL", "NORMAAL", "NORMAAL", "STUK", "STUK"),
@@ -106,7 +108,7 @@ class SimulatorServiceTest {
     fun `herstellen meldt hoeveel er is opgeruimd`() {
         every { beheer.legen() } returns LeegUitkomst(berichten = 2000, magazijnenTeruggezet = 98)
 
-        assertEquals(mapOf("berichten" to 2000, "magazijnen" to 98), service.herstel())
+        assertEquals(GesimuleerdHerstel(berichten = 2000, magazijnen = 98), service.herstel())
     }
 
     @Test
@@ -139,5 +141,49 @@ class SimulatorServiceTest {
         every { beheer.magazijnen() } returns (1..aantal).map {
             SimulatorMagazijn("0000000900000000%04d".format(it), "Magazijn $it", "NORMAAL")
         }
+    }
+
+    @Test
+    fun `zonder simulator wordt het terugzetten overgeslagen met de reden erbij`() {
+        // Het paneel verbergt de simulator-knoppen op zo'n omgeving, maar Herstel demo en Magazijnen
+        // legen raken hem als deelstap. Die zouden anders gegarandeerd falen zonder iets te legen.
+        every { omgeving.simulator() } returns false
+
+        assertEquals(
+            GesimuleerdHerstel(overgeslagen = "deze omgeving kent geen magazijn-simulator"),
+            service.herstelZoMogelijk(),
+        )
+
+        verify(exactly = 0) { beheer.legen() }
+    }
+
+    @Test
+    fun `een onbereikbare simulator wordt een reden en geen fout`() {
+        every { beheer.legen() } throws IllegalStateException("simulator onbereikbaar")
+
+        assertEquals(GesimuleerdHerstel(overgeslagen = "simulator onbereikbaar"), service.herstelZoMogelijk())
+    }
+
+    @Test
+    fun `een fout zonder message valt terug op de naam in plaats van stil te verdwijnen`() {
+        every { beheer.legen() } throws IllegalStateException()
+
+        assertEquals(GesimuleerdHerstel(overgeslagen = "IllegalStateException"), service.herstelZoMogelijk())
+    }
+
+    @Test
+    fun `de knop die expliciet op de simulator mikt, krijgt de fout wel te zien`() {
+        // Anders meldt hij "0 berichten weg" terwijl de simulator niets deed — en juist die knop is
+        // aangeklikt omdat iemand de simulator wilde raken.
+        every { beheer.legen() } throws IllegalStateException("simulator onbereikbaar")
+
+        assertThrows<IllegalStateException> { service.herstel() }
+    }
+
+    @Test
+    fun `een geslaagd terugzetten draagt geen reden`() {
+        every { beheer.legen() } returns LeegUitkomst(berichten = 2000, magazijnenTeruggezet = 98)
+
+        assertEquals(GesimuleerdHerstel(berichten = 2000, magazijnen = 98), service.herstelZoMogelijk())
     }
 }

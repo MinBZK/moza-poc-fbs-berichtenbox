@@ -20,7 +20,9 @@ import java.io.File
  */
 class OndernemersConsistentieTest {
 
-    private val ondernemersUitScript: List<String> = lees()
+    private val uitScript: List<Pair<String, Int>> = lees()
+
+    private val ondernemersUitScript: List<String> = uitScript.map { it.first }
 
     @Test
     fun `de console kent dezelfde ondernemers als het generatiescript`() {
@@ -40,7 +42,31 @@ class OndernemersConsistentieTest {
         }
     }
 
-    private fun lees(): List<String> {
+    /**
+     * De rookproef bevraagt dezelfde vier ondernemers en controleert bij hoeveel organisaties ze
+     * uitkomen. Hij staat buiten de reactor, dus niets houdt hem bij het generatiescript.
+     *
+     * Faalscenario zonder deze test: een identificatienummer wijzigt wél in `basis.json`, de console
+     * en het script, maar niet in `smoke.sh`. De rookproef faalt dan met "klein bedrijf bevroeg 0
+     * organisaties, verwacht 15" en wijst in zijn eigen foutregel naar een oorzaak die er niet is —
+     * of het generatiescript wel gedraaid heeft.
+     */
+    @Test
+    fun `de rookproef bevraagt dezelfde ondernemers, met dezelfde aantallen`() {
+        val script = File(WORTEL, "demo/smoke.sh")
+
+        assertTrue(script.isFile, "rookproef niet gevonden op ${script.absolutePath}")
+
+        val uitRookproef = Regex("""^fanout\s+"([A-Z]+:\d+)"\s+(\d+)""", RegexOption.MULTILINE)
+            .findAll(script.readText())
+            .map { it.groupValues[1] to it.groupValues[2].toInt() }
+            .toList()
+
+        assertTrue(uitRookproef.isNotEmpty(), "geen fanout-regels herkend in ${script.name}; klopt de vorm nog?")
+        assertEquals(uitScript, uitRookproef)
+    }
+
+    private fun lees(): List<Pair<String, Int>> {
         val script = File(WORTEL, "demo/genereer-magazijnen.py")
 
         assertTrue(script.isFile, "generatiescript niet gevonden op ${script.absolutePath}")
@@ -54,7 +80,7 @@ class OndernemersConsistentieTest {
 
         val regels = Regex("""\(\s*"[^"]*"\s*,\s*"([A-Z]+)"\s*,\s*"(\d+)"\s*,\s*(\d+)\s*\)""")
             .findAll(blok!!)
-            .map { "${it.groupValues[1]}:${it.groupValues[2]}" }
+            .map { "${it.groupValues[1]}:${it.groupValues[2]}" to it.groupValues[3].toInt() }
             .toList()
 
         assertTrue(regels.isNotEmpty(), "geen ondernemers herkend in ${script.name}; klopt de vorm nog?")

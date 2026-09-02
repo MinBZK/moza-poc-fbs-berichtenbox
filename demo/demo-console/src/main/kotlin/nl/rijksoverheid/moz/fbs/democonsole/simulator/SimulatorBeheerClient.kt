@@ -40,11 +40,8 @@ data class SeedUitkomst(
 data class LeegUitkomst(val berichten: Int, val magazijnenTeruggezet: Int)
 
 /**
- * Het beheerpad van de magazijn-simulator.
- *
- * Dit verving de WireMock-admin-API van de stub-magazijnen. Die kon alleen een magazijn helemaal aan
- * of uit zetten met een 503-overlay; de simulator kent zeven soorten gedrag en kan zijn
- * berichtenbakken vullen en legen, en dat is precies wat een demo nodig heeft.
+ * Het beheerpad van de magazijn-simulator: zeven soorten gedrag per magazijn, en zijn
+ * berichtenbakken vullen en legen.
  */
 @Path("/beheer")
 @Produces(MediaType.APPLICATION_JSON)

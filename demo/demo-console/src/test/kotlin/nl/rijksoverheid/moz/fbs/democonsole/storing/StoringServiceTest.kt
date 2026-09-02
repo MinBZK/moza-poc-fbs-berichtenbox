@@ -35,6 +35,9 @@ class StoringServiceTest {
     @Test
     fun `traag voegt een latency-toxic van 6000ms toe`() {
         every { instantie.voegToxicToe(any(), any()) } returns ok()
+        every { instantie.proxies() } returns mapOf(
+            "magazijn-a" to ProxyStatus(enabled = true, toxics = listOf(ToxicStatus("latency_downstream"))),
+        )
 
         service.traag("magazijn-a", 6000)
 
@@ -44,6 +47,7 @@ class StoringServiceTest {
     @Test
     fun `uit schakelt de proxy uit`() {
         every { instantie.zetProxy(any(), any()) } returns ok()
+        every { instantie.proxies() } returns mapOf("magazijn-b" to ProxyStatus(enabled = false))
 
         service.uit("magazijn-b")
 

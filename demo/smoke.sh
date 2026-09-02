@@ -147,7 +147,7 @@ fanout() {
 }
 
 fanout "BSN:999993653" 3   "kleine eenmanszaak"
-fanout "KVK:12345678"  15  "klein bedrijf"
+fanout "KVK:90000014"  15  "klein bedrijf"
 fanout "KVK:90000001"  45  "grootbedrijf"
 fanout "KVK:90000003"  100 "landelijk concern"
 

@@ -20,7 +20,7 @@ class StoringResourceTest {
     @ParameterizedTest
     @ValueSource(strings = ["profiel", "redis", "notificatie", "aanmeld", "magazijn-a"])
     fun `infraUit geeft de naam onveranderd door aan de service`(proxy: String) {
-        every { storingService.uit(proxy) } returns Unit
+        every { storingService.uit(proxy) } returns Storingstoestand.UIT
 
         resource.infraUit(proxy)
 

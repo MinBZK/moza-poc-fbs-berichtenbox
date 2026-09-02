@@ -10,7 +10,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
-import nl.rijksoverheid.moz.fbs.democonsole.omgeving.OmgevingConfig
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
@@ -28,7 +28,6 @@ class HerstelServiceTest {
     private val basisdataset = mockk<Basisdataset>()
     private val aanleverService = mockk<AanleverService>()
     private val simulatorService = mockk<SimulatorService>()
-    private val omgeving = mockk<OmgevingConfig>()
 
     private val service = HerstelService(
         tempoService,
@@ -37,17 +36,15 @@ class HerstelServiceTest {
         basisdataset,
         aanleverService,
         simulatorService,
-        omgeving,
     )
 
     private fun alleStappenSlagen() {
-        every { omgeving.simulator() } returns true
         every { tempoService.stop() } returns TempoStatus(false, 0, 0)
         every { storingService.reset() } just Runs
         every { magazijnDatabase.leegAlles() } returns mapOf("magazijn-a" to 20, "magazijn-b" to 20)
         every { basisdataset.laad() } returns emptyList()
         every { aanleverService.leverAan(any()) } returns AanleverResultaat(40, 40, 0, 0)
-        every { simulatorService.herstel() } returns mapOf("berichten" to 2000, "magazijnen" to 98)
+        every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(berichten = 2000, magazijnen = 98)
         every { simulatorService.vulStandaard() } returns
             nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 7840, 1960, 0, 500)
     }
@@ -67,7 +64,7 @@ class HerstelServiceTest {
             storingService.reset()
             magazijnDatabase.leegAlles()
             aanleverService.leverAan(any())
-            simulatorService.herstel()
+            simulatorService.herstelZoMogelijk()
             simulatorService.vulStandaard()
         }
     }
@@ -81,7 +78,7 @@ class HerstelServiceTest {
         assertEquals(mapOf("magazijn-a" to 20, "magazijn-b" to 20), resultaat.geleegd)
         // De gesimuleerde magazijnen horen er net zo goed bij: zonder dat toont de demo na een
         // herstel nog steeds honderd gevulde organisaties.
-        assertEquals(mapOf("berichten" to 2000, "magazijnen" to 98), resultaat.gesimuleerd)
+        assertEquals(GesimuleerdHerstel(berichten = 2000, magazijnen = 98), resultaat.gesimuleerd)
         // Herstel belooft "terug naar vlak na de eerste basisvulling"; dan horen de gesimuleerde
         // magazijnen ook weer gevuld te zijn, anders staat de fan-out-demo op nul berichten.
         assertEquals(7840, resultaat.gesimuleerdGevuld)
@@ -102,64 +99,63 @@ class HerstelServiceTest {
     }
 
     @Test
-    fun `zonder simulator worden de echte magazijnen gewoon geleegd en gevuld`() {
-        // Het paneel verbergt de simulator-knoppen op zo'n omgeving, maar de knop Herstel demo
-        // draagt die markering niet. Riep hij de simulator toch aan, dan bleef de omgeving achter
-        // met de stroom gestopt en de storingen weg, maar met de berichten van de vorige demo er
-        // nog in.
-        alleStappenSlagen()
-        every { omgeving.simulator() } returns false
-
-        val resultaat = service.herstel()
-
-        verify { magazijnDatabase.leegAlles() }
-        verify { aanleverService.leverAan(any()) }
-        verify(exactly = 0) { simulatorService.herstel() }
-        verify(exactly = 0) { simulatorService.vulStandaard() }
-        assertEquals("deze omgeving kent geen magazijn-simulator", resultaat.gesimuleerdOvergeslagen)
-    }
-
-    @Test
-    fun `een onbereikbare simulator laat het herstel staan en meldt waarom hij is overgeslagen`() {
+    fun `een overgeslagen simulator laat het herstel staan en reist mee naar het paneel`() {
         // Het echte werk is dan al gedaan; dat als mislukt melden laat de bediener nog een keer
         // legen en vullen. De reden hoort wél in het antwoord, anders is dit een stille fout.
         alleStappenSlagen()
-        every { simulatorService.herstel() } throws IllegalStateException("simulator onbereikbaar")
+        every { simulatorService.herstelZoMogelijk() } returns
+            GesimuleerdHerstel(overgeslagen = "deze omgeving kent geen magazijn-simulator")
 
         val resultaat = service.herstel()
 
         assertEquals(mapOf("magazijn-a" to 20, "magazijn-b" to 20), resultaat.geleegd)
         assertEquals(40, resultaat.vulling.geslaagd)
-        assertEquals("simulator onbereikbaar", resultaat.gesimuleerdOvergeslagen)
-        assertEquals(emptyMap<String, Int>(), resultaat.gesimuleerd)
+        assertEquals("deze omgeving kent geen magazijn-simulator", resultaat.gesimuleerd.overgeslagen)
         assertEquals(0, resultaat.gesimuleerdGevuld)
+        verify(exactly = 0) { simulatorService.vulStandaard() }
     }
 
     @Test
-    fun `een simulator die pas bij het vullen struikelt meldt dat net zo goed`() {
-        // Het legen van de gesimuleerde magazijnen was dan al gelukt; zonder deze melding staat de
-        // fan-out-demo op nul berichten terwijl de knop groen werd.
+    fun `een simulator die pas bij het vullen struikelt meldt dat als half gedaan`() {
+        // Het legen van de gesimuleerde magazijnen was dan al gelukt en is niet terug te draaien.
+        // Zonder deze melding staat de fan-out-demo op nul berichten terwijl de knop groen werd.
         alleStappenSlagen()
         every { simulatorService.vulStandaard() } throws IllegalStateException("seed afgebroken")
 
         val resultaat = service.herstel()
 
-        assertEquals("seed afgebroken", resultaat.gesimuleerdOvergeslagen)
+        assertEquals("wel geleegd, niet gevuld: seed afgebroken", resultaat.gesimuleerd.overgeslagen)
+        assertEquals(2000, resultaat.gesimuleerd.berichten)
         assertEquals(0, resultaat.gesimuleerdGevuld)
     }
 
     @Test
     fun `een fout zonder message valt terug op de naam in plaats van stil te verdwijnen`() {
         alleStappenSlagen()
-        every { simulatorService.herstel() } throws IllegalStateException()
+        every { simulatorService.vulStandaard() } throws IllegalStateException()
 
-        assertEquals("IllegalStateException", service.herstel().gesimuleerdOvergeslagen)
+        assertEquals("wel geleegd, niet gevuld: IllegalStateException", service.herstel().gesimuleerd.overgeslagen)
     }
 
     @Test
     fun `een geslaagd herstel meldt niets als overgeslagen`() {
         alleStappenSlagen()
 
-        assertNull(service.herstel().gesimuleerdOvergeslagen)
+        assertNull(service.herstel().gesimuleerd.overgeslagen)
+    }
+
+    @Test
+    fun `een mislukte basisvulling breekt af nadat de magazijnen al geleegd zijn`() {
+        // Vastgelegd omdat het niet vanzelf spreekt: hier is het legen onomkeerbaar gebeurd en gaat
+        // de rest niet door. De simulator wordt dan bewust niet meer aangeraakt — die opnieuw
+        // vullen tegen lege echte magazijnen maakt de tussenstand alleen verwarrender.
+        alleStappenSlagen()
+        every { aanleverService.leverAan(any()) } throws IllegalStateException("magazijn weigert")
+
+        assertThrows(IllegalStateException::class.java) { service.herstel() }
+
+        verify { magazijnDatabase.leegAlles() }
+        verify(exactly = 0) { simulatorService.herstelZoMogelijk() }
+        verify(exactly = 0) { simulatorService.vulStandaard() }
     }
 }

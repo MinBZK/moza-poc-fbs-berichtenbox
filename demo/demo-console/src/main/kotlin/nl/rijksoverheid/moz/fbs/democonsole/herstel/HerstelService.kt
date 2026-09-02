@@ -6,7 +6,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
-import nl.rijksoverheid.moz.fbs.democonsole.omgeving.OmgevingConfig
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
@@ -15,15 +15,9 @@ import java.util.logging.Logger
 data class HerstelResultaat(
     val geleegd: Map<String, Int>,
     val vulling: AanleverResultaat,
-    /**
-     * `berichten` = hoeveel er uit de gesimuleerde magazijnen weg zijn, `magazijnen` = hoeveel er
-     * hun vastgelegde gedrag terugkregen. Leeg wanneer ze zijn overgeslagen.
-     */
-    val gesimuleerd: Map<String, Int> = emptyMap(),
+    val gesimuleerd: GesimuleerdHerstel,
     /** Hoeveel berichten er weer in de gesimuleerde magazijnen zijn klaargezet. */
     val gesimuleerdGevuld: Int = 0,
-    /** Waarom de gesimuleerde magazijnen zijn overgeslagen; `null` als ze meegingen. */
-    val gesimuleerdOvergeslagen: String? = null,
     val letOp: String = HERSTELTIJD_MELDING,
 )
 
@@ -41,7 +35,6 @@ class HerstelService(
     private val basisdataset: Basisdataset,
     private val aanleverService: AanleverService,
     private val simulatorService: SimulatorService,
-    private val omgeving: OmgevingConfig,
 ) {
 
     private val log = Logger.getLogger(HerstelService::class.java.name)
@@ -67,29 +60,24 @@ class HerstelService(
      * berichten van de vorige demo er nog in.
      */
     private fun metGesimuleerde(geleegd: Map<String, Int>, vulling: AanleverResultaat): HerstelResultaat {
-        if (!omgeving.simulator()) {
+        val gesimuleerd = simulatorService.herstelZoMogelijk()
+
+        if (gesimuleerd.overgeslagen != null) return HerstelResultaat(geleegd, vulling, gesimuleerd)
+
+        // Het vullen apart vangen: het legen is dan al gelukt, en dat terugdraaien kan niet. Zonder
+        // deze melding stond de fan-out-demo op nul berichten terwijl de knop groen werd.
+        val gevuld = runCatching { simulatorService.vulStandaard().berichten }.getOrElse { fout ->
+            log.warning("gesimuleerde magazijnen niet gevuld: $fout")
+
             return HerstelResultaat(
                 geleegd,
                 vulling,
-                gesimuleerdOvergeslagen = "deze omgeving kent geen magazijn-simulator",
+                gesimuleerd.copy(overgeslagen = "wel geleegd, niet gevuld: ${reden(fout)}"),
             )
         }
 
-        // Overslaan is hier een uitkomst en geen fout: het herstel zelf is al gelukt, en dat als
-        // mislukt melden zou de bediener een tweede keer laten legen en vullen. Het paneel toont de
-        // reden bij de knop, dus stil is dit niet.
-        return try {
-            val gesimuleerd = simulatorService.herstel()
-
-            HerstelResultaat(geleegd, vulling, gesimuleerd, simulatorService.vulStandaard().berichten)
-        } catch (fout: Exception) {
-            log.warning("gesimuleerde magazijnen niet hersteld: $fout")
-
-            HerstelResultaat(
-                geleegd,
-                vulling,
-                gesimuleerdOvergeslagen = fout.message ?: fout::class.simpleName.orEmpty(),
-            )
-        }
+        return HerstelResultaat(geleegd, vulling, gesimuleerd, gevuld)
     }
+
+    private fun reden(fout: Throwable): String = fout.message ?: fout::class.simpleName.orEmpty()
 }

@@ -192,14 +192,24 @@ const SAMENVATTINGEN = {
 
     vulling: (body) => vullingTekst(body),
 
+    /* Apart van `berichten`, dat "wat er nu staat" toont: hier gaat het om wat er wég is. Dezelfde
+     * formatter voor beide las na het legen als een magazijn dat nog vol stond. */
+    legen: (body) =>
+        'Geleegd: ' +
+        Object.entries(body.magazijnen).map(([sleutel, aantal]) => naam(sleutel) + ' ' + aantal).join(', ') +
+        (body.gesimuleerd.overgeslagen
+            ? '. Gesimuleerde magazijnen overgeslagen: ' + body.gesimuleerd.overgeslagen
+            : '. Gesimuleerd: ' + body.gesimuleerd.berichten + ' berichten uit ' +
+              body.gesimuleerd.magazijnen + ' magazijnen'),
+
     herstel: (body) =>
         'Hersteld. Geleegd: ' +
         Object.entries(body.geleegd).map(([sleutel, aantal]) => naam(sleutel) + ' ' + aantal).join(', ') +
         '. ' + vullingTekst(body.vulling) +
         // De echte magazijnen zijn dan wél hersteld; wie dat niet leest gaat de knop opnieuw
         // indrukken of zoeken naar een fout die er niet is.
-        (body.gesimuleerdOvergeslagen
-            ? '. Gesimuleerde magazijnen overgeslagen: ' + body.gesimuleerdOvergeslagen
+        (body.gesimuleerd.overgeslagen
+            ? '. Gesimuleerde magazijnen overgeslagen: ' + body.gesimuleerd.overgeslagen
             : '. Gesimuleerd: ' + body.gesimuleerd.berichten + ' weg, ' + body.gesimuleerdGevuld + ' klaargezet'),
 
     status: (body) => body.status,
@@ -282,9 +292,9 @@ function samenvatting(soort, body) {
 /* HTTP 200 zegt alleen dat de console het verzoek verwerkte, niet dat de berichten aankwamen. Een
  * groene melding boven "100 mislukt" is het verkeerde signaal. */
 function vullingSoort(body) {
-    // Een overgeslagen stap is geen fout — het herstel zelf is gelukt — maar hij hoort ook niet
-    // groen te zijn: er is iets niet gebeurd waar de bediener op rekende.
-    if (body && body.gesimuleerdOvergeslagen) return 'let-op';
+    // Een overgeslagen stap is geen fout — het echte werk is gelukt — maar hij hoort ook niet groen
+    // te zijn: er is iets niet gebeurd waar de bediener op rekende.
+    if (body && body.gesimuleerd && body.gesimuleerd.overgeslagen) return 'let-op';
 
     const vulling = body && body.vulling ? body.vulling : body;
 
