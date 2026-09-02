@@ -126,12 +126,16 @@ class GedragKetenTest : MagazijnTestBasis() {
     }
 
     /**
-     * Een onbereikbaar magazijn antwoordt uiteindelijk wél — het punt is dat het te laat is. De
-     * aanroeper hoort in zijn eigen timeout te lopen; dat is wat de Berichtenbox als "onbereikbaar"
-     * registreert, en niet een foutcode van dit magazijn.
+     * Een onbereikbaar magazijn laat de aanroeper eerst wachten — dáár loopt de Berichtenbox in
+     * haar eigen timeout, en dat is wat zij als "onbereikbaar" registreert.
+     *
+     * Wat er ná dat wachten komt, telt alleen voor wie zonder timeout kijkt: met curl of Bruno, of
+     * tijdens het bijstellen van de knoppen. Die hoort geen gezonde lijst met echte berichten te
+     * krijgen van een magazijn dat in het overzicht als onbereikbaar staat — dan zou de knop liegen
+     * op precies het moment dat iemand hem controleert.
      */
     @Test
-    fun `een onbereikbaar magazijn laat de aanroeper wachten zonder foutcode`() {
+    fun `een onbereikbaar magazijn laat de aanroeper wachten en geeft daarna geen berichten`() {
         zet(Gedrag(GedragModus.UIT, latencyP50Ms = 400, latencyP95Ms = 400))
 
         val duur = measureTimeMillis {
@@ -139,7 +143,8 @@ class GedragKetenTest : MagazijnTestBasis() {
                 .header(ONTVANGER_HEADER, ONTVANGER)
                 .`when`().get("$BASIS/berichten")
                 .then()
-                .statusCode(200)
+                .statusCode(Gedrag.STANDAARD_FOUT_STATUS)
+                .contentType(PROBLEM_JSON)
         }
 
         assertTrue(duur >= 400, "verwacht dat de aanroeper zit te wachten, was $duur ms")

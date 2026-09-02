@@ -52,9 +52,16 @@ class GedragFilter(
 
         wacht(uitvoering.vertragingMs(magazijn.oin, gedrag))
 
-        // `UIT` heeft geen foutantwoord: het punt ís dat er niets komt. De aanroeper hoort in zijn
-        // eigen timeout te lopen, en dat is wat de Berichtenbox als "onbereikbaar" registreert.
-        if (gedrag.modus == GedragModus.UIT) return
+        // `UIT` rekent erop dat de aanroeper in zijn eigen timeout loopt — dat is wat de Berichtenbox
+        // als "onbereikbaar" registreert, en het wachten hierboven duurt langer dan de tijd die zij
+        // een magazijn gunt. Wie zónder timeout kijkt (curl, Bruno, een browser) moet daarna niet
+        // alsnog een gezond antwoord met echte berichten krijgen: dan spreekt het magazijn zijn eigen
+        // overzicht tegen. Het antwoord komt dus te laat én zegt dat er niets te halen viel.
+        if (gedrag.modus == GedragModus.UIT) {
+            requestContext.abortWith(storing(gedrag))
+
+            return
+        }
 
         if (gedrag.modus == GedragModus.MALFORMED) {
             requestContext.abortWith(onbruikbaarAntwoord())

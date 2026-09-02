@@ -269,6 +269,65 @@ class BeheerTest : MagazijnTestBasis() {
     }
 
     /**
+     * Getallen die de gevraagde modus tegenspreken, worden geweigerd in plaats van stilzwijgend
+     * gehoorzaamd. Zonder deze grens is een magazijn in te stellen dat in het overzicht als
+     * haperend of weigerend staat en zich in werkelijkheid anders gedraagt — en dan wijst de demo
+     * de schuld toe aan het stelsel in plaats van aan de knop.
+     */
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            """{"modus": "HAPERT", "foutkans": 0}""",
+            """{"modus": "WEIGERT", "foutStatus": 503}""",
+            """{"modus": "STUK", "foutStatus": 403}""",
+            """{"modus": "TRAAG", "latencyP50Ms": 0, "latencyP95Ms": 0}""",
+        ],
+    )
+    fun `getallen die niet bij de modus passen zijn een clientfout`(body: String) {
+        given()
+            .contentType(ContentType.JSON)
+            .body(body)
+            .`when`().put("/beheer/magazijnen/$MAGAZIJN/gedrag")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    /**
+     * Dezelfde grens op het bulkpad, en met een geldige regel ernaast: de KDoc van
+     * `zetGedragInBulk` belooft dat een ongeldige regel de hele lijst tegenhoudt in plaats van hem
+     * half door te voeren. Zonder de na-controle zou een implementatie die regel voor regel
+     * toepast er precies zo uitzien.
+     */
+    @Test
+    fun `een ongeldige regel houdt de hele bulk tegen`() {
+        val voorAf = modusVan(TWEEDE_MAGAZIJN)
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {"aanpassingen": [
+                  {"oin": "$TWEEDE_MAGAZIJN", "modus": "STUK"},
+                  {"oin": "$MAGAZIJN", "modus": "HAPERT", "foutkans": 0}
+                ]}
+                """.trimIndent(),
+            )
+            .`when`().put("/beheer/gedrag")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+
+        assertEquals(voorAf, modusVan(TWEEDE_MAGAZIJN), "de geldige regel ervóór hoort niet toegepast te zijn")
+    }
+
+    private fun modusVan(oin: String): String = given()
+        .`when`().get("/beheer/magazijnen")
+        .then()
+        .statusCode(200)
+        .extract().path("find { it.oin == '$oin' }.modus")
+
+    /**
      * Twee keer vullen zonder ertussen te legen. De bericht-nummers zijn afgeleid, dus de tweede
      * ronde biedt exact dezelfde rijen aan; zonder opvang zou dat een 500 zijn waarin niets staat
      * over de oorzaak of de uitweg. Wie tijdens de voorbereiding besluit dat twintig berichten te

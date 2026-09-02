@@ -7,7 +7,10 @@ import com.atlassian.oai.validator.restassured.OpenApiValidationFilter
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
+import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
  * Toetst de antwoorden van de simulator rechtstreeks tegen `berichtenmagazijn-api.yaml` — dezelfde
@@ -110,6 +113,105 @@ class MagazijnSpecContractTest : MagazijnTestBasis() {
             .statusCode(404)
     }
 
+    /**
+     * Nul, één en twee bijlagen. Bij een leeg magazijn stelt de mapper nul samenvattingen samen en
+     * ziet de validator dus geen enkel veld dat de resource zelf invult; pas een gevuld antwoord
+     * legt [nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten.BerichtDtoMapper] langs het schema.
+     * De cardinaliteiten staan er alle drie omdat de `bijlagen`-array bij nul een andere vorm heeft
+     * dan bij meer, en het schema beide moet toestaan.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, 2])
+    fun `een gevuld bericht voldoet aan de spec`(aantalBijlagen: Int) {
+        val berichtId = leverAan(aantalBijlagen)
+
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+            .body("bijlagen.size()", equalTo(aantalBijlagen))
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, 2])
+    fun `een gevulde berichtenlijst voldoet aan de spec`(aantalBijlagen: Int) {
+        leverAan(aantalBijlagen)
+
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", equalTo(1))
+    }
+
+    /**
+     * De paginering-links komen alleen op een lijst met meer dan één pagina voor, en `next` en
+     * `prev` staan er dan elk op een andere pagina. Beide kanten dus, anders blijft de helft van
+     * `PaginationLinks` ongetoetst.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1])
+    fun `de paginering-links voldoen aan de spec`(pagina: Int) {
+        repeat(3) { leverAan(aantalBijlagen = 0) }
+
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .queryParam("page", pagina)
+            .queryParam("pageSize", 2)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `een bijlage-download voldoet aan de spec`() {
+        val berichtId = leverAan(aantalBijlagen = 1)
+
+        val bijlageId = given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten/$berichtId")
+            .then()
+            .extract().path<String>("bijlagen[0].bijlageId")
+
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `een geslaagde statuswijziging voldoet aan de spec`() {
+        val berichtId = leverAan(aantalBijlagen = 0)
+
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .contentType(MERGE_PATCH_JSON)
+            .body("""{"gelezen": true, "map": "Belastingen"}""")
+            .`when`().patch("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `een geslaagde verwijdering voldoet aan de spec`() {
+        val berichtId = leverAan(aantalBijlagen = 0)
+
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().delete("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(204)
+    }
+
     @Test
     fun `een geslaagde aanlevering voldoet aan de spec, request en response`() {
         given()
@@ -130,6 +232,33 @@ class MagazijnSpecContractTest : MagazijnTestBasis() {
             .statusCode(201)
     }
 
+    private fun leverAan(aantalBijlagen: Int): String {
+        val bijlagenJson = if (aantalBijlagen == 0) {
+            ""
+        } else {
+            (1..aantalBijlagen).joinToString(prefix = """, "bijlagen": [""", postfix = "]") {
+                """{"naam": "bijlage-$it.pdf", "mimeType": "application/pdf", "inhoud": "cGRm"}"""
+            }
+        }
+
+        return given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "$MAGAZIJN",
+                  "ontvanger": {"type": "KVK", "waarde": "90000001"},
+                  "onderwerp": "Contracttest",
+                  "inhoud": "Contracttest inhoud"$bijlagenJson
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("$BASIS/aanleveringen")
+            .then()
+            .statusCode(201)
+            .extract().path("berichtId")
+    }
+
     private companion object {
         const val ONTVANGER_HEADER = "X-Ontvanger"
         const val ONTVANGER = "KVK:90000001"
@@ -137,5 +266,6 @@ class MagazijnSpecContractTest : MagazijnTestBasis() {
         const val BASIS = "/magazijn/$MAGAZIJN/api/v1"
         const val BERICHT_ID = "11111111-2222-3333-4444-555555555555"
         const val BIJLAGE_ID = "66666666-7777-8888-9999-000000000000"
+        const val MERGE_PATCH_JSON = "application/merge-patch+json"
     }
 }

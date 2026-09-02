@@ -99,7 +99,7 @@ doet, laat niet zien wat een gebruiker merkt als het níét meezit.
 | `TRAAG` | een correct antwoord, later — log-normaal verdeeld, dus met een lange staart |
 | `HAPERT` | meestal goed, met een zekere kans een serverfout |
 | `STUK` | consequent een serverfout |
-| `UIT` | geen antwoord binnen de tijd die de aanroeper hem gunt |
+| `UIT` | geen antwoord binnen de tijd die de aanroeper hem gunt; wie langer wacht krijgt een 503 |
 | `WEIGERT` | een nette 4xx in `problem+json` |
 | `MALFORMED` | 200, maar met een body die het schema schendt |
 

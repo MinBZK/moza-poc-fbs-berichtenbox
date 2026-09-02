@@ -8,10 +8,12 @@ import org.hamcrest.Matchers.emptyIterable
 import org.hamcrest.Matchers.endsWith
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.nullValue
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import org.junit.jupiter.params.provider.CsvSource
+import java.util.Base64
 
 /**
  * Twee dingen die nergens in de spec staan maar wel het waarneembare gedrag van het echte magazijn
@@ -96,6 +98,35 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
             .`when`().patch("$BASIS/berichten/$berichtId")
             .then()
             .statusCode(404)
+    }
+
+    /**
+     * Het duurste geval van de hele module: op de andere paden lekt een ontbrekende controle
+     * hooguit metadata, hier lekt het document zelf. De controle zit niet in de bijlage-route maar
+     * in het ophalen van het bericht waar de bijlage aan hangt, en juist zo'n indirecte route
+     * verdwijnt ongemerkt bij een refactor.
+     */
+    @ParameterizedTest
+    @CsvSource("KVK,90000002", "RSIN,999993653")
+    fun `andermans bijlage downloaden levert 403 en geen bytes`(type: String, waarde: String) {
+        val berichtId = leverAan(bijlageNaam = "aanslag.pdf")
+
+        val bijlageId = given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+            .extract().path<String>("bijlagen[0].bijlageId")
+
+        val body = given()
+            .header(ONTVANGER_HEADER, "$type:$waarde")
+            .`when`().get("$BASIS/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(403)
+            .contentType(PROBLEM_JSON)
+            .extract().asString()
+
+        assertFalse(body.contains(BIJLAGE_INHOUD), "de bytes van de bijlage horen niet in een 403 te staan")
     }
 
     @Test
@@ -249,7 +280,9 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
         bijlageNaam: String? = null,
     ): String {
         val bijlagenJson = bijlageNaam?.let {
-            """, "bijlagen": [{"naam": "$it", "mimeType": "application/pdf", "inhoud": "cGRm"}]"""
+            val inhoud = Base64.getEncoder().encodeToString(BIJLAGE_INHOUD.toByteArray())
+
+            """, "bijlagen": [{"naam": "$it", "mimeType": "application/pdf", "inhoud": "$inhoud"}]"""
         }.orEmpty()
 
         return given()
@@ -278,5 +311,8 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
         const val MAGAZIJN = "00000009000000000001"
         const val ANDERE_AFZENDER = "00000009000000000002"
         const val BASIS = "/magazijn/$MAGAZIJN/api/v1"
+
+        /** Herkenbaar genoeg om in een foutbody terug te vinden als hij daar onbedoeld in staat. */
+        const val BIJLAGE_INHOUD = "vertrouwelijke-inhoud-van-de-bijlage"
     }
 }

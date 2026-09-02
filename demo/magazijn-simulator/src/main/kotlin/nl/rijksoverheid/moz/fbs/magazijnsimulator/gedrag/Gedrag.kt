@@ -38,6 +38,13 @@ enum class GedragModus {
  *
  * Ze staan bij elkaar omdat ze alleen samen betekenis hebben — een `foutkans` zonder [GedragModus.HAPERT]
  * doet niets, en een `latencyP95Ms` onder de mediaan is geen spreiding maar een fout.
+ *
+ * Dat "alleen samen betekenis" is een invariant en geen aanbeveling, dus dwingt dit type het af.
+ * Een combinatie die zichzelf tegenspreekt is in een demo erger dan een fout: een magazijn met
+ * modus [GedragModus.HAPERT] en foutkans nul staat als haperend in het overzicht en hapert nooit,
+ * en een [GedragModus.WEIGERT] met een 5xx telt bij de Berichtenbox juist als beschikbaarheids-
+ * storing — het omgekeerde van wat die modus laat zien. Wie meekijkt heeft dan geen reden om de
+ * knop te wantrouwen in plaats van het stelsel.
  */
 data class Gedrag(
     val modus: GedragModus,
@@ -53,6 +60,10 @@ data class Gedrag(
         }
         require(foutkans in 0.0..1.0) { "foutkans hoort tussen 0 en 1 te liggen (kreeg $foutkans)" }
         require(foutStatus in FOUT_STATUS_BEREIK) { "foutStatus hoort een HTTP-foutcode te zijn (kreeg $foutStatus)" }
+
+        val bezwaar = bezwaarTegenModus(modus, latencyP50Ms, foutkans, foutStatus)
+
+        require(bezwaar == null) { bezwaar.orEmpty() }
     }
 
     companion object {
@@ -65,6 +76,46 @@ data class Gedrag(
         const val WEIGER_STATUS = 403
 
         private val FOUT_STATUS_BEREIK = 400..599
+
+        private val CLIENT_FOUT_BEREIK = 400..499
+
+        private val SERVER_FOUT_BEREIK = 500..599
+
+        /**
+         * Wat er niet klopt aan deze combinatie van modus en getallen, of `null` als ze bij elkaar
+         * passen.
+         *
+         * Als aparte functie omdat twee wegen hem nodig hebben met een verschillende uitkomst: hier
+         * in `init` als `require` (een programmeerfout, 500), en in het beheerpad als domeinfout op
+         * invoer uit een JSON-body (400 met een melding die zegt wat er mis is).
+         */
+        fun bezwaarTegenModus(modus: GedragModus, latencyP50Ms: Int, foutkans: Double, foutStatus: Int): String? =
+            when (modus) {
+                GedragModus.TRAAG -> (
+                    "een traag magazijn hoort trager te antwoorden dan een gezond magazijn " +
+                        "($NORMALE_LATENCY_MS ms); kreeg latencyP50Ms $latencyP50Ms"
+                    ).takeIf { latencyP50Ms <= NORMALE_LATENCY_MS }
+
+                GedragModus.HAPERT ->
+                    "een haperend magazijn hoort een foutkans boven nul te hebben, anders hapert het nooit"
+                        .takeIf { foutkans <= 0.0 }
+
+                GedragModus.WEIGERT -> (
+                    "een weigering is een clientfout; foutStatus hoort tussen ${CLIENT_FOUT_BEREIK.first} " +
+                        "en ${CLIENT_FOUT_BEREIK.last} te liggen (kreeg $foutStatus)"
+                    ).takeIf { foutStatus !in CLIENT_FOUT_BEREIK }
+
+                GedragModus.STUK -> (
+                    "een kapot magazijn geeft een serverfout; foutStatus hoort tussen " +
+                        "${SERVER_FOUT_BEREIK.first} en ${SERVER_FOUT_BEREIK.last} te liggen (kreeg $foutStatus)"
+                    ).takeIf { foutStatus !in SERVER_FOUT_BEREIK }
+
+                // NORMAAL en MALFORMED hangen aan geen van deze getallen: de een gebruikt ze niet,
+                // de ander antwoordt altijd met 200 en een onbruikbare body. UIT evenmin: hoe lang
+                // dat magazijn wegblijft mag een demo zelf bepalen, en het antwoord dat er
+                // uiteindelijk komt zegt hoe dan ook dat er niets te halen viel.
+                GedragModus.NORMAAL, GedragModus.MALFORMED, GedragModus.UIT -> null
+            }
 
         val NORMAAL = Gedrag(GedragModus.NORMAAL)
 

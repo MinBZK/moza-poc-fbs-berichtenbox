@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 /**
  * Het loten zelf: hoe lang een aanroep duurt en of hij omvalt.
@@ -127,11 +128,20 @@ class GedragUitvoeringTest {
     }
 
     @Test
-    fun `foutkans nul betekent nooit omvallen en foutkans een altijd`() {
+    fun `foutkans een betekent altijd omvallen`() {
         val uitvoering = GedragUitvoering()
 
-        assertTrue(List(50) { uitvoering.valtOm(OIN, Gedrag(GedragModus.HAPERT, foutkans = 0.0)) }.none { it })
         assertTrue(List(50) { uitvoering.valtOm(OIN, Gedrag(GedragModus.HAPERT, foutkans = 1.0)) }.all { it })
+    }
+
+    /**
+     * De andere grens bestaat niet meer als gedrag: een haperend magazijn met foutkans nul hapert
+     * nooit, terwijl het overzicht "hapert" blijft melden. Dat is geen instelling maar een leugen,
+     * en het type laat hem daarom niet meer maken.
+     */
+    @Test
+    fun `haperen zonder foutkans is geen geldig gedrag`() {
+        assertThrows<IllegalArgumentException> { Gedrag(GedragModus.HAPERT, foutkans = 0.0) }
     }
 
     private companion object {

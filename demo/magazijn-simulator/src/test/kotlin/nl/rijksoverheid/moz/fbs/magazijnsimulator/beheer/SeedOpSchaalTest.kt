@@ -5,6 +5,7 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -16,10 +17,16 @@ import org.junit.jupiter.api.Test
  * minuten, dan gebeurt het niet en draait de demo op wat er toevallig nog stond. Losse aanleveringen
  * via de gewone API zouden hier achtduizend rondjes naar de database kosten, en dat is precies de
  * reden dat het beheerpad zijn eigen bulk-opslag heeft.
+ *
+ * Ruimt de berichten vooraf op, ook al draait deze klasse op een eigen profiel: dat herstart de
+ * applicatie maar niet de database, en de bericht-id's van de seed zijn afgeleid van magazijn,
+ * ontvanger en volgnummer. Berichten die een andere testklasse voor dezelfde ontvanger achterliet,
+ * dragen dus dezelfde id's, worden door `ON CONFLICT DO NOTHING` overgeslagen, en dan telt de seed
+ * er een paar minder dan gevraagd. Of dat gebeurt, hangt af van de volgorde waarin de suite draait.
  */
 @QuarkusTest
 @TestProfile(SeedOpSchaalTest.HonderdMagazijnen::class)
-class SeedOpSchaalTest {
+class SeedOpSchaalTest : MagazijnTestBasis() {
 
     /** Honderd magazijnen, opgebouwd zoals het generatiescript ze straks schrijft. */
     class HonderdMagazijnen : QuarkusTestProfile {

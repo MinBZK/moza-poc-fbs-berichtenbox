@@ -105,6 +105,13 @@ class BeheerService(
                 "${FOUT_STATUS_BEREIK.last} (kreeg $foutStatus)"
         }
 
+        // De getallen moeten ook bij de gevraagde modus passen. Zonder deze toets is een magazijn
+        // in te stellen dat volgens het overzicht onbereikbaar is en ondertussen gewoon antwoordt —
+        // en dan wijst een demo de schuld toe aan het stelsel in plaats van aan de knop.
+        val bezwaar = Gedrag.bezwaarTegenModus(verzoek.modus, p50, foutkans, foutStatus)
+
+        vereis(bezwaar == null) { "Dit past niet bij modus ${verzoek.modus}: ${bezwaar.orEmpty()}" }
+
         return Gedrag(verzoek.modus, p50, p95, foutkans, foutStatus)
     }
 
