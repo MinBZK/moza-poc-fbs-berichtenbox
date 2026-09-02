@@ -1,25 +1,51 @@
 # De demo op ZAD verifiëren
 
-Vier stappen na de eenmalige creatie uit `README.md`. Ze staan in de volgorde waarin een fout de
+De stappen na de eenmalige creatie uit `README.md`. Ze staan in de volgorde waarin een fout de
 volgende stap onbruikbaar maakt, dus stop bij de eerste die niet klopt.
 
-Alles gaat door de authorization-wall, dus doe dit in een browser waarin je bent ingelogd. Een
-`curl` zonder sessie krijgt HTTP 403 met de inlogpagina terug — dat is de muur, niet een kapot
-component.
+Het paneel staat achter de authorization-wall, dus doe dat deel in een browser waarin je bent
+ingelogd. Een `curl` zonder sessie krijgt daar HTTP 403 met de inlogpagina terug — dat is de muur,
+niet een kapot component. De proeftuin en de personadienst (stap 7) dragen bewust géén muur; daar is
+403 juist wél een fout.
 
 ```
 CONSOLE=https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
 ```
 
-## 0. Staat de muur
+## 0. Draait er iets, en staat de muur
+
+Eerst de vraag die alle volgende stappen aan de verkeerde kant laat uitkomen als je hem overslaat:
+**draait er een pod?** Een component dat op `replicas: 0` staat, meldt zich in de UI als
+"uitgeschakeld: image ontbreekt" en in de logs als "No resources found in namespace" — het lijkt
+een image-probleem, maar het is er geen. De gerenderde manifesten zijn de grond-waarheid:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' "$CONSOLE/"
+gh api repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production/mpfm-w3h/test/democonsole-deployment.yaml \
+  --jq '.content' | base64 -d | grep -E '^\s+(replicas|image):'
 ```
 
-Verwacht `403`. Krijg je `200`, stop dan: het paneel staat open op het internet en iedereen die het
-adres kent kan de magazijnen legen. `keycloak` is dan niet aan het component gebonden — zie stap 2
-van `README.md`.
+Verwacht `replicas: 1` en een tag van de vorm `main-<sha7>`. Faalt het `gh api`-commando zelf, dan
+is dat het antwoord — niet een lege uitvoer die je als "niets bijzonders" leest. Herhaal dit voor
+`magazijna`, `magazijnb`, `magazijnsimulator`, `demopersonas` en `proeftuin` zodra je die verderop
+nodig hebt; in `mpfb-8wh` en `mpfpsm-lcl` gaat het pad langs die project-id in plaats van
+`mpfm-w3h`.
+
+Reactiveren van een uitgeschakeld component gaat **niet** met `:refresh` of `deployment update-image`
+— die verhogen `replicas` niet. Lees eerst de waarschuwing onder "Als een component uitstaat" in
+`README.md` voordat je aan de herstelroute begint; die is destructief.
+
+Dan de muur:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' "$CONSOLE/"
+```
+
+| Code | Betekenis |
+|---|---|
+| `403` | Goed: dat is de muur. |
+| `200` | **Stop.** Het paneel staat open op het internet en iedereen die het adres kent kan de magazijnen legen. `keycloak` is niet aan het component gebonden — zie stap 2 van `README.md`. |
+| `502`, `503` | De ingress staat, maar er draait niets achter. Dit zegt niets over de muur; ga terug naar de replicas-controle hierboven. |
+| `000` | Geen verbinding: DNS of TLS. Ook dit zegt niets over de muur. |
 
 ## 1. De omgeving beschrijft zichzelf
 
@@ -29,19 +55,29 @@ Verwacht:
 
 - `uitvraagBasis` wijst naar de publieke uitvraag van dezelfde deployment, **inclusief** `/api/v1`.
   Zonder dat pad faalt elke aanroep vanaf de Berichtenbox-pagina zichtbaar voor de gebruiker.
-- `storingen` is leeg: er staat op ZAD geen Toxiproxy.
+- `storingen` bevat precies `aanmeld`, `notificatie`, `profiel` en `redis`, zodra stap 6 van
+  `README.md` gedaan is. `magazijn-a` en `magazijn-b` horen er níet in te staan: op ZAD bestaan er
+  geen `toxiproxy-magazijn*`-componenten, dus hun knop zou gegarandeerd falen. Lokaal houden A en B
+  hun proxy wél — zie `demo/demo-console/src/main/resources/application.properties`.
 - `sessiecache` is `true` zodra stap 5 van `README.md` gedaan is.
+- `simulator` is `true` zodra `magazijn-simulator.md` §4 gedaan is. Staat hij op `false`, dan laat
+  het paneel de hele groep "Gesimuleerde magazijnen" weg terwijl alles eronder werkt.
+- `personas` is een gevulde lijst. Is hij leeg, dan komt de personadienst niet door — dat is stap 7.
+- `berichtenboxUrl` wijst naar de proeftuin van dezelfde deployment, inclusief het pad
+  `/moza/berichtenbox/`. Leeg betekent dat het paneel het lokale pad probeert, dat hier niet
+  bestaat: het frame blijft dan leeg.
 
-Staat er een proxy in `storingen` die er niet hoort, dan is een `TOXIPROXY_*_URL` niet leeg gezet en
-toont het paneel een knop die gegarandeerd faalt.
+Staat er een proxy in `storingen` die er niet hoort, dan is de bijbehorende `TOXIPROXY_*_URL` niet
+leeg gezet. Ontbreekt er één die er wél hoort, kijk dan eerst of de gelijknamige **lege
+omgevingsvariabele** uit stap 3 nog op het component staat: die wint van de alias uit stap 6.
 
 ## 2. Vullen
 
 Open `$CONSOLE/` en druk op **Herstel demo**. Dat stopt de stroom, reset de storingen, leegt de
 magazijnen en laadt de basisvulling — in die volgorde.
 
-Verwacht: een antwoord zonder fout, en daarna op **Status (aantal berichten)** een aantal groter dan
-nul per magazijn.
+Verwacht: een antwoord zonder fout, en daarna onder **Berichten per magazijn** (tabblad Info) een
+aantal groter dan nul per magazijn. Hetzelfde getal staat in `$CONSOLE/api/demo/status`.
 
 Faalt het legen op een verbindingsfout, dan klopt een van de `MAGAZIJN_*_DB_*`-aliassen niet. Faalt
 het vullen met een 403, dan kent de profielservice-stub de persona niet — controleer of de
@@ -83,6 +119,136 @@ Blijft de groep *Sessie* onzichtbaar, dan staat `SESSIECACHE_BEREIKBAAR` nog op 
 uitvraag — de verbinding kwám er dan wél doorheen, dus de netwerkregel staat. Geeft hij een
 verbindings- of timeoutfout, dán ontbreekt de `cross-domain-access`-regel voor deze deployment; op
 een preview zetten `deploy.yml` en `cleanup-preview.yml` die, op `test` staat hij met de hand.
+
+## 6. De storingsknoppen
+
+De vier knoppen staan in de groep **Omliggende diensten** op het tabblad Storingen. Doe ze niet
+allemaal tegelijk: elke knop hoort een eigen, herkenbaar effect te hebben.
+
+**Druk op `Profielservice uit`** en haal daarna in de Berichtenbox berichten op. Verwacht: het
+ophalen faalt, want de **uitvraag** kan niet bepalen welke magazijnen bij deze ontvanger horen. Druk
+op **Alles normaal** en haal opnieuw op — nu slaagt het.
+
+> Toets dit níet met opvoeren. De magazijnen bevragen de profielservice ook, maar hún
+> `PROFIEL_SERVICE_URL` gaat bewust rechtstreeks en niet door de proxy; het aanleveren blijft dus
+> gewoon slagen. Zie de tabel in `README.md` §6, "De keten door de proxies leiden".
+
+**Druk op `Redis uit`** en haal opnieuw op. Verwacht: het ophalen faalt op de sessiecache. De
+`Traag`-knoppen staan alleen bij Magazijn A en B, en die twee groepen zijn op ZAD verborgen — een
+traag-toets voor de omliggende diensten is er dus niet via het paneel. Wil je de latency-toxic toch
+zien, dan kan dat rechtstreeks:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$CONSOLE/api/demo/storing/redis/traag"
+```
+
+Verwacht bij elke knop een antwoord zonder fout. Een **verbindings- of timeoutfout** betekent dat de
+`cross-domain-access`-regel voor deze deployment ontbreekt — de console komt dan niet bij de
+admin-API. Een **404 op de proxy** betekent dat de proxy nog niet is aangemaakt; de console doet dat
+zelf, maar pas nadat hij de Toxiproxy kan bereiken, dus dat wijst op dezelfde ontbrekende regel.
+
+**Controleer daarna de upstream.** Dit is de stap die de stilste fout vangt: een preview die het
+verkeer van `test` afhandelt. De admin-API op 8474 is bewust cluster-intern — de ingress publiceert
+alleen `ports[0]` — dus die is van een werkplek niet te bevragen. Lees het antwoord af waar het wél
+staat, in de log van de console die de proxies aanmaakt:
+
+```bash
+zadctl -p mpfm-w3h logs <deployment> -c democonsole --since 1h -n 200 | grep "aangemaakt:"
+```
+
+Verwacht regels `Proxy <naam> aangemaakt: <listen> -> <deployment>-<upstream>`, waarin de upstream de
+deployment van *deze* preview noemt (`pr-<n>-profiel`), niet `test-profiel`. Klopt dat niet, dan is
+`TOXIPROXY_*_UPSTREAM` als gewone env-var gezet in plaats van als alias — alleen een alias vult
+`$DEPLOYMENT_NAME` in. Levert het commando niets op, dan is dat geen bewijs dat het goed staat: de
+console logt alleen bij een daadwerkelijke aanmaak, dus doe eerst stap 8.
+
+## 7. De berichtenbox in het frame
+
+Open `$CONSOLE/`. Verwacht links de berichtenbox van de proeftuin, met de bediening ernaast; niet
+het blok "Berichtenbox niet bereikbaar".
+
+Zie je dat blok wél, dan is `BERICHTENBOX_URL` niet gezet — het paneel toetst een geconfigureerd
+adres niet, dus een leeg frame komt hier nooit door een mislukte toets. Staat de variabele er wel,
+open het adres dan los in de browser: geeft het daar een pagina, dan is het frame het probleem;
+geeft het een fout, dan staat het proeftuin-component niet of wijst de alias mis.
+
+Kies daarna in de berichtenbox een testaccount van het stelsel — `Garage Van Dijk B.V.` is er een
+met een KVK-nummer. Verwacht berichten. Krijg je "Er gaat iets mis met het ophalen van uw berichten
+bij de bronnen", kijk dan eerst hier:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  "https://demopersonas-<deployment>-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/api/demo/personas"
+```
+
+| Code | Betekenis |
+|---|---|
+| `200` | Goed. |
+| `403` | Er staat per ongeluk een `authorization-wall` op dit component — de berichtenbox haalt dit pad server-side op en heeft geen sessie. |
+| `404` | Het component staat er niet, of publiceert zijn poort niet. |
+| `502`, `503` | Er draait niets. Kijk **eerst** naar `replicas` in het gerenderde manifest (stap 0); pas als dat `1` is, is het image de volgende verdachte — bijvoorbeeld een image dat op een andere poort luistert dan de 8098 die het component publiceert, of een tijdelijk image dat nog op de eerste uitrol wacht. |
+| `000` | Geen verbinding: DNS of TLS, niet het component. |
+
+Let op de tweede orde: wijst `BACKEND_PERSONAS` van de proeftuin naar een dienst die niet luistert,
+dan geeft óók `proeftuin-<deployment>-…/api/demo/personas` een 503. De fout zit dan niet in de
+proeftuin.
+
+Klopt dat adres wel, toets dan hetzelfde pad via de proeftuin — dat is de route die de berichtenbox
+zelf loopt, en die hangt aan `BACKEND_PERSONAS`:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  "https://proeftuin-<deployment>-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/api/demo/personas"
+```
+
+Een `403` hier terwijl de dienst zelf `200` geeft, betekent dat `BACKEND_PERSONAS` ontbreekt en de
+proeftuin op `BACKEND_DEMO` terugvalt — dus op het bedieningspaneel, dat wél een muur draagt.
+`BACKEND_DEMO` hoort naar `democonsole` te blijven wijzen; verzet die niet.
+
+Druk daarna in de berichtenbox op **Ophalen** en laat de ronde helemaal uitlopen, ook als er tussen
+twee organisaties lang niets komt. Breekt de stream na ongeveer een minuut stilte af, dan loopt het
+keten-verkeer nog door de catch-all `/api/` van de proeftuin, met zijn leestijdslimiet van zestig
+seconden: die deployment draait dan op een image van vóór de splitsing van `/api/v1/`, of
+`BACKEND_KETEN` staat er niet — zie stap 7 van `README.md`.
+
+## 8. Herstart-bestendigheid
+
+Toxiproxy houdt zijn proxies in het geheugen, dus elke herstart laat de keten dood achter tot de
+console ze opnieuw aanmaakt. Deze stap toetst dat die reconcile echt draait.
+
+**Niet met `zadctl deployment refresh`.** Dat reconcilet vanuit git en herstart geen pods zolang het
+gerenderde manifest gelijk blijft. De proxies staan er daarna nog steeds — maar om een reden die
+niets met de reconcile te maken heeft, dus de stap zou groen melden terwijl de reconcile stuk is.
+
+**En ook niet door op een merge naar main te wachten.** `TOXIPROXY_IMAGE` in `deploy.yml` staat op
+een vaste digest, en elke uitrol stuurt exact diezelfde waarde mee. Het gerenderde manifest
+verandert dus niet, Argo synct niet, en de pod blijft staan.
+
+Wat de pod wél vervangt, is een verandering in dat manifest. Dwing die af door de image van één
+Toxiproxy-component op de tag zónder digest te zetten en meteen weer terug:
+
+```bash
+zadctl -p mpfb-8wh --strict deployment update-image test -c toxiproxy-redis \
+  --image ghcr.io/shopify/toxiproxy:2.12.0
+zadctl -p mpfb-8wh --strict deployment update-image test -c toxiproxy-redis \
+  --image "<de volledige waarde van TOXIPROXY_IMAGE uit deploy.yml>"
+```
+
+Kijk daarna in de console-log, begrensd op de tijd sinds die herstart — zonder `--since` tel je
+regels van dagen geleden mee en meldt de stap groen zonder iets getoetst te hebben:
+
+```bash
+zadctl -p mpfm-w3h logs test -c democonsole --since 5m -n 200 | grep -c "aangemaakt:"
+```
+
+Verwacht `4`, binnen een halve minuut na de herstart. Blijft dat uit, kijk dan naar de drie meldingen
+die `ProxyBootstrap` bij een mislukking logt, want elk wijst een andere laag aan:
+
+| Melding | Oorzaak |
+|---|---|
+| `Proxies ... niet te verzoenen: ...` | Verbinding of timeout naar de admin-API — de netwerkregel. |
+| `Proxy ... niet aangemaakt: HTTP <code>` | De Toxiproxy antwoordde, maar weigerde — meestal de poort of een dubbele naam. |
+| `Geen listen/upstream voor proxy ...` | Een `TOXIPROXY_*_URL` of `*_UPSTREAM` ontbreekt in de configuratie. |
 
 ## Daarna
 

@@ -31,7 +31,17 @@ server {
         proxy_pass ${CONSOLE_UPSTREAM}/;
     }
 
-    # Demo-gereedschap: personalijst, storingen, vullen, legen.
+    # De personalijst komt uit een eigen dienst, zodat een berichtenbox hem kan lezen zonder bij
+    # het bedieningspaneel te kunnen. Op een gedeelde omgeving is dat het verschil tussen een
+    # leeslijst en een knop die twee databases leegt; lokaal houden we dezelfde scheiding aan, want
+    # anders bewijst de demo iets dat online niet klopt. nginx kiest het langste passende prefix,
+    # dus de volgorde hieronder is vrij; het specifieke pad staat vóór de catch-all omdat het zo
+    # leest.
+    location = /api/demo/personas {
+        proxy_pass ${PERSONAS_UPSTREAM};
+    }
+
+    # Demo-gereedschap: storingen, vullen, legen.
     location /api/demo/ {
         proxy_pass ${CONSOLE_UPSTREAM};
     }

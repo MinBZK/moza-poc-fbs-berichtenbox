@@ -43,15 +43,21 @@ woont en niet in een eigen deployment. `demo/environment/zad-demo/` bevat de een
 de verificatie erna.
 
 Knopgroepen waarvan de backend er niet is, verbergt het paneel zelf op basis van
-`GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, en een
-onbereikbare sessiecache haalt de cache-verval-knop weg. Op ZAD raakt dat de storingen en de
-veel-magazijnen-schuif.
+`GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, een onbereikbare
+sessiecache haalt de cache-verval-knop weg, en zonder simulator vallen de knoppen voor de
+gesimuleerde magazijnen weg. De magazijn-storingen zelf hebben op ZAD geen proxy: daar staat naast de vier
+bestaande Toxiproxy's geen vijfde en zesde voor A en B, dus hun `TOXIPROXY_MAGAZIJN_*_URL` blijven
+leeg. Lokaal zijn die knoppen er wél.
 
-De cache-verval-knop wérkt daar, ook op een preview. Hij vraagt als enige overgebleven knop
+De cache-verval-knop en de vier storingsknoppen wérken daar, ook op een preview. Ze vragen allemaal
 cluster-intern verkeer naar een ander project, en zo'n netwerkregel noemt op ZAD altijd één vaste
-deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` hem per preview bij en weer weg.
-Wat de storingen en de veel-magazijnen-schuif nog missen is dus niet die regel, maar hun eigen
-componenten.
+deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` ze per preview bij en weer weg.
+
+De vier Toxiproxy's op ZAD dragen géén `proxies.json` — de KDoc van `ProxyBootstrap` legt uit waarom
+een attachment daar niet werkt. De console maakt de proxies zelf aan via de admin-API en herhaalt dat
+elke dertig seconden, want Toxiproxy houdt ze in het geheugen en verliest ze bij een herstart.
+Lokaal gebeurt er niets: compose zet ze uit `toxiproxy/proxies.json`, die met dezelfde configuratie
+overeenkomen, dus er valt niets aan te maken of te herbouwen.
 
 Drie dingen horen bij het wonen in `test`. De demo rolt mee met elke merge naar main, dus de
 omgeving kan tijdens een presentatie herstarten. Previews klonen `test` en krijgen de console dus
@@ -62,21 +68,22 @@ heeft zijn eigen database.
 ## De knoppen
 
 Vier tabbladen. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom, storingen en
-actieve stub-magazijnen — zodat je niet naar de toestand hoeft te vragen, en een melding met de
+gesimuleerde magazijnen zonder storing — zodat je niet naar de toestand hoeft te vragen, en een melding met de
 uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ of ✗ vast.
 
 | Tabblad | Knop | Wat het doet |
 |---|---|---|
-| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo |
+| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
 | Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json` |
-| Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek |
+| Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek. De gesimuleerde magazijnen gaan als deelstap mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen |
 | Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten |
 | Demo | Stroom starten / stoppen | Eén willekeurig bericht per interval; stopt vanzelf na 500 berichten of 60 minuten |
-| Storingen | Traag / Uit per proxy | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie |
+| Storingen | Traag (alleen magazijn A/B) / Uit per proxy | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie en meldt pas succes nadat het teruggelezen heeft dat alles normaal staat |
 | Scenario's | Cache verlopen | Wist de sessiecache in Redis |
 | Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |
-| Scenario's | Veel magazijnen | Zet *k* van de *n* gegenereerde stub-magazijnen actief, of alle *n* weer aan; *n* ligt vast bij het draaien van `demo/genereer-magazijnen.py` |
+| Scenario's | Gesimuleerde magazijnen | Zet *k* van de *n* zonder storing, zet berichten klaar, en leegt alles inclusief het gedrag; *n* vraagt de console aan de simulator zelf |
+| Info | Gesimuleerde magazijnen | Toont hoe elk gesimuleerd magazijn zich gedraagt |
 | Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
 
 Een refresh laat je staan waar je was: het paneel bewaart het actieve tabblad, de in-/uitgeklapte
@@ -99,9 +106,13 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `TOXIPROXY_ADMIN_URL` | `http://localhost:8474` | Alle Toxiproxy-instanties tegelijk |
 | `TOXIPROXY_<PROXY>_URL` | de waarde hierboven | Eén instantie apart; op ZAD staat elke stroom op een eigen adres. Leeg zetten schakelt die proxy uit — het paneel verbergt dan zelf de bijbehorende knop (bv. `TOXIPROXY_MAGAZIJN_A_URL=` op ZAD) |
 | `UITVRAAG_BASIS` | leeg | Browser-zichtbaar adres van de uitvraag-API, **inclusief** het `/api/v1`-pad (bv. `https://uitvraag.example/api/v1`); leeg = afleiden uit de browser-locatie. `berichtenbox.js` gebruikt de waarde ongewijzigd als request-basis en de paginering strípt `/api/v1` uit de HAL-links op die aanname — zonder het pad faalt elke call zichtbaar voor de gebruiker (foutmelding in het paneel of een `alert`) |
+| `BERICHTENBOX_URL` | leeg | Browser-zichtbaar adres van de berichtenbox, voor het frame in het paneel. Leeg = het eigen pad `/moza/berichtenbox/`, dat lokaal achter de demo-proxy klopt; op een gedeelde omgeving de volledige URL van het proeftuin-component. Een geconfigureerd adres wordt niet vooraf getoetst: een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar te onderscheiden |
 | `UITVRAAG_URL` | `http://localhost:8086` | Adres dat de console zélf aanroept voor de ontdubbeling-webhook |
-| `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop |
+| `TOXIPROXY_<PROXY>_LISTEN`, `TOXIPROXY_<PROXY>_UPSTREAM` | de waarden uit `toxiproxy/proxies.json` | Waar de proxy luistert en naartoe stuurt; hiermee maakt de console hem aan. Op ZAD komt de upstream uit een alias, zodat `$DEPLOYMENT_NAME` de proxy naar de upstream van dezelfde deployment wijst |
+| `TOXIPROXY_RECONCILE_INTERVAL` | `30s` | Hoe vaak de console controleert of de proxies er nog zijn |
+| `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop. Wijst bewust rechtstreeks op Redis en niet door de proxy: het is een beheeractie, die moet blijven werken terwijl je de Redis-stroom uitzet |
 | `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
 | `SESSIECACHE_BEREIKBAAR` | `true` | Op `false` laat het paneel de cache-verval-knop weg. Voor omgevingen waar Redis niet bereikbaar is; een knop die gegarandeerd faalt kost tijdens een demo uitleg die niets toevoegt |
-| `DEMO_MAGAZIJN_STUBS` | `12` | Aantal stub-magazijnen voor de veel-magazijnen-schuif |
-| `MAGAZIJN_STUBS_ADMIN_URL` | `http://localhost:8092` | WireMock-admin van de stub-magazijnen, voor diezelfde schuif |
+| `MAGAZIJN_SIMULATOR_URL` | `http://localhost:8092` | Beheerpad van de magazijn-simulator: vullen, legen en gedrag bijstellen |
+| `MAGAZIJN_SIMULATOR_BEHEER_TOKEN` | leeg | Token voor dat beheerpad. Leeg lokaal — dan blijft de header helemaal weg; op een gedeelde omgeving verplicht, anders geeft elke knop een 401 |
+| `SIMULATOR_BEREIKBAAR` | `true` | Op `false` laat het paneel de knoppen en de chip voor de gesimuleerde magazijnen weg |

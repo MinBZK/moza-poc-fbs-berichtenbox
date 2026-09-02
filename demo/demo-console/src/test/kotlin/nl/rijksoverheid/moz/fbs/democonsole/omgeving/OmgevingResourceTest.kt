@@ -3,25 +3,42 @@ package nl.rijksoverheid.moz.fbs.democonsole.omgeving
 import io.mockk.every
 import io.mockk.mockk
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
+import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.util.Optional
 
 class OmgevingResourceTest {
 
+    private fun persona(id: String) = DemoPersona(
+        id = id,
+        label = id.replaceFirstChar { it.uppercase() },
+        type = "BSN",
+        waarde = "999993653",
+        magazijnen = emptyList(),
+        bron = PersonaBron.KETEN,
+    )
+
     private fun resource(
         basis: String?,
         vararg proxies: String,
-        stubMagazijnen: Int = 12,
+        simulator: Boolean = true,
         sessiecache: Boolean = true,
+        berichtenbox: String? = null,
+        personas: List<DemoPersona> = emptyList(),
     ): OmgevingResource {
         val config = mockk<OmgevingConfig> {
             every { uitvraagBasis() } returns Optional.ofNullable(basis)
             every { sessiecache() } returns sessiecache
+            every { simulator() } returns simulator
+            every { berichtenboxUrl() } returns Optional.ofNullable(berichtenbox)
         }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
+        val personaService = mockk<PersonaService> { every { alle() } returns personas }
 
-        return OmgevingResource(config, register, stubMagazijnen)
+        return OmgevingResource(config, register, personaService)
     }
 
     @Test
@@ -59,15 +76,15 @@ class OmgevingResourceTest {
     }
 
     @Test
-    fun `het ingerichte aantal stub-magazijnen komt mee`() {
-        // Het paneel moet vooraf weten of deze omgeving stub-magazijnen kent, anders leest een
-        // mislukte uitlezing als "niet ingericht".
-        assertEquals(40, resource(null, stubMagazijnen = 40).omgeving().stubMagazijnen)
+    fun `een ingerichte simulator komt als true door`() {
+        // Het paneel moet vooraf weten of deze omgeving gesimuleerde magazijnen kent, anders leest
+        // een mislukte uitlezing als "niet ingericht".
+        assertEquals(true, resource(null).omgeving().simulator)
     }
 
     @Test
-    fun `een omgeving zonder stub-magazijnen meldt nul`() {
-        assertEquals(0, resource(null, stubMagazijnen = 0).omgeving().stubMagazijnen)
+    fun `een omgeving zonder simulator meldt false zodat de pagina die knoppen weglaat`() {
+        assertEquals(false, resource(null, simulator = false).omgeving().simulator)
     }
 
     @Test
@@ -81,5 +98,33 @@ class OmgevingResourceTest {
         // openstaat, geeft de knop gegarandeerd een fout; hem tonen kost tijdens een demo uitleg
         // die niets toevoegt.
         assertEquals(false, resource(null, sessiecache = false).omgeving().sessiecache)
+    }
+
+    @Test
+    fun `de persona-lijst komt mee in het antwoord`() {
+        // Het paneel en de wegwerp-berichtenbox lezen hem hieruit, dus een lege lijst is iets
+        // anders dan een ontbrekend veld: het eerste betekent "niets ingericht", het tweede
+        // "deze module is niet bij te werken".
+        assertEquals(emptyList<String>(), resource(null).omgeving().personas.map { it.id })
+
+        assertEquals(
+            listOf("pietersen", "vandijk"),
+            resource(null, personas = listOf(persona("pietersen"), persona("vandijk"))).omgeving().personas.map { it.id },
+        )
+    }
+
+    @Test
+    fun `zonder geconfigureerde berichtenbox blijft het veld leeg zodat het paneel het eigen pad probeert`() {
+        // Lokaal zet de demo-proxy de berichtenbox op dezelfde origin; daar is een adres uit de
+        // configuratie niet alleen overbodig maar ook fout zodra iemand de stack op een ander
+        // adres opent.
+        assertEquals("", resource(null).omgeving().berichtenboxUrl)
+    }
+
+    @Test
+    fun `een geconfigureerde berichtenbox komt ongewijzigd door`() {
+        val url = "https://proeftuin-demo-mpfm-w3h.example/moza/berichtenbox/"
+
+        assertEquals(url, resource(null, berichtenbox = url).omgeving().berichtenboxUrl)
     }
 }

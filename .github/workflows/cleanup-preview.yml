@@ -75,10 +75,23 @@ env:
   # Deze workflow zoekt de comment op deze tekst; deploy.yml geeft dezelfde tekst mee aan de
   # deploy-action. Houd de twee gelijk — drift laat de comment stil achter op een gesloten PR.
   COMMENT_HEADER: "## 🚀 Preview Deployment"
-  # Dezelfde naam als CROSS_DOMAIN_REGEL in deploy.yml, die hem bij het aanmaken van een preview
-  # zet. Drift laat de regel achter op een deployment die niet meer bestaat: de resolver slaat zo'n
-  # regel over en logt dat, dus hij faalt stil en stapelt op.
-  CROSS_DOMAIN_REGEL: democonsole-naar-redis
+  # Dezelfde namen als de CROSS_DOMAIN_REGELS_*-lijsten in deploy.yml, die ze bij het aanmaken van
+  # een preview zet. Drift laat een regel achter op een deployment die niet meer bestaat: de
+  # resolver slaat zo'n regel over en logt dat, dus hij faalt stil en stapelt op.
+  # test-cross-domain-preview.sh vergelijkt de twee workflows per project.
+  CROSS_DOMAIN_REGELS_UITVRAAG: >-
+    democonsole-naar-redis
+    democonsole-naar-toxiproxy-aanmeld
+    democonsole-naar-toxiproxy-redis
+  CROSS_DOMAIN_REGELS_EXTERNE_STUBS: >-
+    democonsole-naar-toxiproxy-profiel
+    democonsole-naar-toxiproxy-notificatie
+  CROSS_DOMAIN_REGELS_MAGAZIJNEN: >-
+    democonsole-naar-redis
+    democonsole-naar-toxiproxy-aanmeld
+    democonsole-naar-toxiproxy-redis
+    democonsole-naar-toxiproxy-profiel
+    democonsole-naar-toxiproxy-notificatie
 
 jobs:
   # Eén plek waar het PR-nummer vandaan komt en gevalideerd wordt.
@@ -172,21 +185,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # `richting` zegt welke kant van de cross-domain-regel in dít project staat: de
-          # sessiecache bij de uitvraag (inbound), de console bij de magazijnen (outbound). De
-          # externe stubs dragen er geen, en slaan die stap over.
+          # `richting` zegt welke kant van de cross-domain-regels in dít project staat: de
+          # aangeroepen kant bij de uitvraag en de externe stubs (inbound), de aanroepende console
+          # bij de magazijnen (outbound). `regels` noemt welke regels dat zijn — een leg zonder
+          # regels slaat die stap over.
           - naam: uitvraag
             project: mpfb-8wh
             key: ZAD_API_KEY_UITVRAAG
             richting: inbound
+            regelsleutel: CROSS_DOMAIN_REGELS_UITVRAAG
           - naam: externe-stubs
             project: mpfpsm-lcl
             key: ZAD_API_KEY_PROFIEL
-            richting: ""
+            richting: inbound
+            regelsleutel: CROSS_DOMAIN_REGELS_EXTERNE_STUBS
           - naam: magazijnen
             project: mpfm-w3h
             key: ZAD_API_KEY_MAGAZIJNEN
             richting: outbound
+            regelsleutel: CROSS_DOMAIN_REGELS_MAGAZIJNEN
     # Zelfde groepsnaam als de deploy-job van dit project + deze PR in deploy.yml: opruimen mag een
     # lopende deploy niet onder handen wegtrekken. Concurrency-groepen zijn repo-breed, dus de
     # verhuizing naar een eigen workflow verandert daar niets aan — de namen moeten wél gelijk
@@ -199,18 +216,21 @@ jobs:
       # `pull_request_target`-checkout pakt de basisbranch, niet de PR-code — dat is precies wat
       # hier hoort, want dit script draait met de projectsleutels.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ matrix.richting != '' }}
         with:
           persist-credentials: false
 
-      - name: Haal de cross-domain-regel van deze preview weg
-        if: ${{ matrix.richting != '' }}
+      - name: Haal de cross-domain-regels van deze preview weg
         env:
           ZAD_API_KEY: ${{ secrets[matrix.key] }}
-        run: >-
-          .github/scripts/cross-domain-preview.sh verwijder
-          "${{ matrix.project }}" "pr-${{ needs.doel.outputs.pr }}"
-          "${{ matrix.richting }}" "${{ env.CROSS_DOMAIN_REGEL }}"
+          REGELS: ${{ env[matrix.regelsleutel] }}
+        run: |
+          # Bewust ongequote: REGELS draagt meerdere regelnamen, gescheiden door spaties, en die
+          # moeten als losse argumenten aankomen. De waarde komt uit het env-blok hierboven en is
+          # daarmee een vaste, spatie-vrije lijst.
+          # shellcheck disable=SC2086
+          .github/scripts/cross-domain-preview.sh verwijder \
+            "${{ matrix.project }}" "pr-${{ needs.doel.outputs.pr }}" \
+            "${{ matrix.richting }}" $REGELS
 
       - name: Verwijder de ZAD-deployment
         # Ook draaien als de stap hierboven faalde: een regel die blijft staan mag geen hele
@@ -498,8 +518,11 @@ jobs:
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
           # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
           # de `build`-matrix, `build-externe-stubs`, `build-contract-bootstrap` en
-          # `build-democonsole` in deploy.yml; een vergeten package laat weesversies achter.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console; do
+          # `build-demo-images` in deploy.yml; een vergeten package laat weesversies achter.
+          #
+          # Alleen onze eigen images: `proeftuin` draait op een image uit MinBZK/moza-poc, dat een
+          # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen.
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-demo-personas fbs-magazijn-simulator; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
               fail=1

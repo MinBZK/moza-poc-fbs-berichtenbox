@@ -30,6 +30,8 @@ ongewijzigde code.
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
 ./mvnw clean test -pl demo/demo-console -am                   # pure JVM + één @QuarkusTest, geen Docker
+./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
+./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
@@ -86,6 +88,79 @@ DB_JDBC_URL=jdbc:postgresql://localhost:5433/berichtenmagazijn \
 `docker compose up -d`); `-Ddebug=5006` voorkomt een conflict op de debug-poort van de eerste
 dev-mode. Voor meer dan twee magazijnen is de demo-stack handiger dan losse dev-modes.
 
+## De demo draaien met de proeftuin als berichtenbox
+
+De berichtenbox die de ondernemer ziet komt uit de proeftuin (`MinBZK/moza-poc`) en draait als
+container mee in de demo-stack. Node, npm of Eleventy zijn daarvoor niet nodig.
+
+De eigen services wél: die draaien als image en worden niet gepulld. Bouw ze eerst met jib en
+genereer de stub-artefacten — [`demo-runbook.md`](demo-runbook.md), §2 en §3. Sla je dat over, dan
+meldt compose `denied: requested access to the resource is denied` op `fbs-demo/…:demo`, en die
+melding wijst niet naar de overgeslagen bouwstap.
+
+```bash
+docker compose --profile demo up -d
+```
+
+Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de berichtenbox met het
+bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat achter `PROEFTUIN_TAG`,
+gepind op een `sha-`-tag uit hun main; `latest` verschuift stil onder een lopende demo door. De
+rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
+
+### De berichtenbox op een andere keten-omgeving richten
+
+> **Kan pas na [MinBZK/moza-poc#142](https://github.com/MinBZK/moza-poc/pull/142).** Die PR brengt de
+> padsplitsing hieronder en staat nog open, dus er is geen image om op te pinnen. Waar
+> `PROEFTUIN_TAG` vandaag op staat, kent de proeftuin alleen `BACKEND_ORIGIN` en gaat heel `/api/`
+> naar één bestemming; de zes `BACKEND_*`-regels in `compose.yaml` doen daar niets. Lokaal merk je
+> dat niet — `demo-proxy` splitst de paden al vóór de container, zie de eerste rij — maar de andere
+> twee opstellingen werken pas na die merge.
+
+De bestemming is dan een instelling en geen aparte versie van de proeftuin. Hun nginx splitst het
+API-verkeer per pad: `/api/v1/` naar de uitvraag (`BACKEND_KETEN`), `/api/demo/personas` naar de
+personadienst (`BACKEND_PERSONAS`) en de rest van `/api/demo/` naar het bedieningspaneel
+(`BACKEND_DEMO`). Waar je die zet, hangt af van de opstelling:
+
+| Opstelling | Waar de bestemming vandaan komt |
+|---|---|
+| Alles lokaal | Niets te doen. `compose.yaml` zet de drie variabelen op containernamen, en vóór de container onderschept `demo-proxy` dezelfde paden al met zijn eigen `UITVRAAG_UPSTREAM`, `PERSONAS_UPSTREAM` en `CONSOLE_UPSTREAM` |
+| Lokale berichtenbox, keten elders | Overschrijf `BACKEND_KETEN` en `BACKEND_PERSONAS` in de shell en open de container zelf op `:8096` (zie het voorbeeld hieronder). Via `:8097` heeft dat geen effect: daar beslist de proxy waar `/api/` heen gaat, niet de container |
+| Proeftuin op een gedeelde omgeving | Zes aliassen op het component: de drie variabelen plus hun `*_HOST`-tegenhangers, want de ingress ervóór routeert op de Host-header. `demo/environment/zad-demo/proeftuin-component.sh` zet ze — zie [de ZAD-handleiding](../demo/environment/zad-demo/README.md) |
+
+Een lokale berichtenbox tegen de keten op ZAD ziet er dan zo uit. De `*_HOST`-variabelen horen
+erbij zodra de bestemming achter een ingress staat die op de Host-header routeert: zonder die
+variabelen stuurt de proeftuin de host van de browser mee, en dan komt het verzoek bij de verkeerde
+vhost uit.
+
+```bash
+Z=rig.prd1.gn2.quattro.rijksapps.nl
+BACKEND_KETEN=https://uitvraag-test-mpfb-8wh.$Z \
+BACKEND_KETEN_HOST=uitvraag-test-mpfb-8wh.$Z \
+BACKEND_PERSONAS=https://demopersonas-test-mpfm-w3h.$Z \
+BACKEND_PERSONAS_HOST=demopersonas-test-mpfm-w3h.$Z \
+  docker compose --profile demo up -d proeftuin
+```
+
+Ontbreekt `BACKEND_KETEN`, dan antwoordt de proeftuin met een 502 die de variabelenaam noemt, in
+plaats van het verkeer stil bij een andere dienst af te leveren. Een onvolledig ingerichte omgeving
+is daardoor te onderscheiden van een storing, en de berichtenbox zegt ook welk van de twee het is —
+bij het eerste helpt verversen namelijk niet.
+
+Zodra #142 gemerged is en er een main-image ligt: `PROEFTUIN_TAG` in `compose.yaml` op die nieuwe
+`sha-`-tag zetten. Tot die tijd toont de berichtenbox alleen de gegenereerde dataset van de
+proeftuin en blijft de keten onzichtbaar, zonder dat er iets misgaat.
+
+### Twee beperkingen die tijdens een demonstratie opvallen
+
+Zolang [#996](https://github.com/MinBZK/MijnOverheidZakelijk/issues/996) en
+[#997](https://github.com/MinBZK/MijnOverheidZakelijk/issues/997) openstaan:
+
+- Van elke organisatie komen alleen de eerste twintig berichten mee. Heeft een organisatie er meer,
+  dan ontbreekt de rest zonder dat de berichtenbox dat meldt.
+- Bij tientallen aangesloten organisaties valt een deel buiten de lijst, met de melding "tijdelijk
+  niet beschikbaar" terwijl er niets stuk is. Vermoedelijk treft dat steeds dezelfde organisaties,
+  want ze worden in vaste volgorde bevraagd. Zichtbaar bij de persona's met 45 en 100 organisaties.
+
 ## API-requests handmatig uitvoeren (Bruno)
 
 De `bruno/`-folder bevat per service een collectie van voorbeeld-requests die je tegen de lokale
@@ -107,7 +182,7 @@ afzender-OIN als map-key:
 
 ```properties
 magazijnen."00000000000000100000".url=${MAGAZIJN_A_URL}
-magazijnen."00000000000000100000".naam=Magazijn A
+magazijnen."00000000000000100000".naam=RVO
 magazijnen."00000000000000100000".grantHash=${MAGAZIJN_A_GRANT_HASH:}
 ```
 

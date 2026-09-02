@@ -23,6 +23,8 @@
         <module>services/berichtenmagazijn</module>
         <module>services/berichtenuitvraag</module>
         <module>demo/demo-console</module>
+        <module>demo/demo-personas</module>
+        <module>demo/magazijn-simulator</module>
     </modules>
 
     <properties>
@@ -48,6 +50,11 @@
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
         <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
+        <!-- Expliciete versie: demo/magazijn-simulator declareert maven-resources-plugin om de
+             OpenAPI-spec van het magazijn op zijn test-classpath te zetten. Zonder beheerde versie
+             waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
+        <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+        <maven-jar-plugin.version>3.4.2</maven-jar-plugin.version>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
         <jandex-maven-plugin.version>3.6.0</jandex-maven-plugin.version>
@@ -169,6 +176,20 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>${maven-compiler-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>${maven-resources-plugin.version}</version>
+                </plugin>
+                <!-- Gepind omdat demo-personas een test-jar publiceert: zonder versie komt de
+                     plugin uit de super-POM van de gebruikte Maven-versie, en dan hangt het
+                     artefact dat de demo-console als afhankelijkheid opneemt af van wie de build
+                     draait. Maven waarschuwt daar terecht over. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>${maven-jar-plugin.version}</version>
                 </plugin>
 
                 <!-- API-generatie uit de OpenAPI-spec. Identiek voor elke service op

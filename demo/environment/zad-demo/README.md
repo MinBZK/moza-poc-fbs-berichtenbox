@@ -1,10 +1,15 @@
 # De demo-console op ZAD
 
 De demo draait op de keten die al op ZAD staat: de bestaande uitvraag, de twee magazijnen en de
-externe stubs. Er komt één component bij, `democonsole` in het magazijnen-project `mpfm-w3h`. Dit
-bestand beschrijft de **eenmalige creatie** van dat component; de doorlopende image-tag-updates
-lopen daarna via `deploy-test-magazijnen` en `deploy-preview-magazijnen` in
-`.github/workflows/deploy.yml`.
+externe stubs. Dit bestand beschrijft de **eenmalige creatie** van de componenten die daar in het
+magazijnen-project `mpfm-w3h` bijkomen — `democonsole`, vier Toxiproxy's verdeeld over `mpfb-8wh` en
+`mpfpsm-lcl`, en in §7 `demopersonas` en `proeftuin`. De doorlopende image-tag-updates lopen daarna
+via `deploy-test-magazijnen` en `deploy-preview-magazijnen` in `.github/workflows/deploy.yml`, dat de
+componentenlijst per project bijhoudt.
+
+De magazijn-simulator heeft een eigen runbook met een eigen status: `magazijn-simulator.md` ernaast.
+Dat bestand is de bron voor wat er van de simulator wél en niet staat; dit bestand doet daar geen
+uitspraak over.
 
 Waarom de console in `mpfm-w3h` woont en niet in een eigen deployment staat in
 `docs/plans/2026-08-26-demo-op-zad-design.md`. Kort: `postgresql-database` is deployment-gebonden,
@@ -13,12 +18,34 @@ secret is wat de legen-knop mogelijk maakt.
 
 ## Waarom dit handwerk is
 
-ZAD past component-configuratie — `aliases`, `user-env-vars`, poorten, diensten — alleen toe bij
-**creatie**, niet bij een re-POST op een bestaand component. Het component moet dus in één keer
-compleet worden aangemaakt. Daarna draagt de deploy-workflow alleen nog `name` + `image`.
+**Poorten en diensten passen alleen bij het aanmaken** van een component, niet bij een re-POST op
+een bestaand component. Die twee moeten dus in één keer goed staan; daarna draagt de deploy-workflow
+alleen nog `name` + `image`.
 
-Wijzigt er later een alias, dan is verwijderen-en-opnieuw-aanmaken de enige route. Het component
-draagt geen attachments, dus daar raak je niets mee kwijt.
+**Aliassen en omgevingsvariabelen zijn wél los bij te werken**, met `zadctl alias add`/`set` en
+`zadctl env add`/`set` op een bestaand component. Een vertypte alias kost dus geen hercreatie. Dit
+runbook doet dat op meerdere plekken, en `proeftuin-component.sh` is er helemaal op gebouwd.
+
+### Als een component uitstaat
+
+Moeten poorten of diensten toch bijgesteld worden, of staat een component na een ImagePullBackOff
+door Operations Manager uitgeschakeld, dan gaat het om twee heel verschillende handelingen — en de
+tweede is destructief:
+
+- **`zadctl component remove` + opnieuw aanmaken** is de route voor foute poorten of diensten. Het
+  component draagt geen attachments, maar wél zijn `user-env-vars`: je raakt daarmee alles kwijt wat
+  stap 3, stap 5 en `magazijn-simulator.md` §4 hebben gezet — inclusief `REDIS_PASSWORD`, dat via de
+  API niet terug te lezen is. Noteer die waarden dus vóór je verwijdert.
+- **De deployment verwijderen en opnieuw upserten** (`DELETE /api/v2/projects/{p}/{d}` — let op: het
+  korte pad, zónder `/deployments/` — gevolgd door `POST /api/v2/projects/{p}/:upsert-deployment`) is
+  de enige route die een door OM uitgeschakeld component reactiveert; `:refresh`, `deployment
+  update-image` en "herverwerken" in de UI verhogen `replicas` niet.
+
+  > **DESTRUCTIEF.** Die `DELETE` draait Argo `prune` + `Delete` en, voor elk project met de
+  > `postgresql-database`-dienst, `database_cleanup`. In `mpfm-w3h` is daarmee de database weg die
+  > `magazijna`, `magazijnb`, `magazijnsimulator` en `democonsole` delen — de hele gevulde demo. Doe
+  > dit nooit tegen `test` zonder dat iemand meekijkt; tegen een preview is het goedkoop, want die
+  > kloont bij het aanmaken opnieuw van `test`.
 
 ## Vooraf
 
@@ -27,8 +54,24 @@ zadctl login                 # SSO; de ZAD_API_KEY_*-secrets zijn niet lokaal le
 zadctl project use mpfm-w3h  # schrijft .env.zadctl (0600, gitignored) in de werkmap
 ```
 
-Draai de rest van dit runbook vanuit deze map, zodat `.env.zadctl` gevonden wordt. Zet `--dry-run`
-achter elk commando om eerst de request te zien zonder iets te versturen.
+**Draai dit runbook vanuit de repository-root.** De commando's hieronder verwijzen naar
+`.github/scripts/…` en `demo/environment/zad-demo/…`, dus alleen daar kloppen de paden — en
+`.env.zadctl` wordt uitsluitend in de werkmap van dat moment gelezen, dus log ook vanuit de root in.
+Zet `--dry-run` achter elk `zadctl`-commando om eerst de request te zien zonder iets te versturen.
+
+**De drie API-sleutels.** Stap 5 en stap 6 praten rechtstreeks met de Operations-Manager-API, en die
+gebruikt een sleutel per project in plaats van je SSO-sessie. Ze staan als
+`ZAD_API_KEY_UITVRAAG`, `ZAD_API_KEY_MAGAZIJNEN` en `ZAD_API_KEY_PROFIEL` in de GitHub-secrets van
+deze repository en zijn daar niet uit te lezen; vraag ze op bij iemand met OM-beheerrechten. Zet ze
+vóór je aan stap 5 begint, zodat een lege waarde niet stilletjes een 401 oplevert:
+
+```bash
+export SLEUTEL_UITVRAAG=...    # mpfb-8wh
+export SLEUTEL_MAGAZIJNEN=...  # mpfm-w3h
+export SLEUTEL_PROFIEL=...     # mpfpsm-lcl
+
+: "${SLEUTEL_UITVRAAG:?zet de drie sleutels eerst}" "${SLEUTEL_MAGAZIJNEN:?}" "${SLEUTEL_PROFIEL:?}"
+```
 
 ## 1. Keycloak en de authorization-wall
 
@@ -102,11 +145,16 @@ zadctl service assign keycloak -c democonsole
 Controleer het meteen, en niet pas bij de verificatie:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/
+curl -sS -o /dev/null -w '%{http_code}\n' https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/
 ```
 
 `403` is goed: dat is de muur. `200` betekent dat hij er niet staat — bind dan `keycloak` alsnog, of
 haal `publish-on-web` van het component tot het klopt.
+
+Krijg je `000` of `404`, dan is er nog niets uitgerold: de ingress ontstaat pas bij stap 8. Dat zegt
+dus niets over de muur; kom hier na die stap op terug. Krijg je `502` of `503`, dan staat de ingress
+wel maar draait er geen pod — controleer `replicas` in het gerenderde manifest (stap 0 van
+`verify-zad.md`).
 
 ## 3. De omgevingsvariabelen die geen alias kunnen zijn
 
@@ -115,6 +163,8 @@ zadctl env add -c democonsole \
   MAGAZIJN_A_DB_SCHEMA=<schema van magazijna> \
   MAGAZIJN_B_DB_SCHEMA=<schema van magazijnb> \
   SESSIECACHE_BEREIKBAAR=false \
+  SIMULATOR_BEREIKBAAR=false \
+  MAGAZIJN_SIMULATOR_BEHEER_TOKEN= \
   TOXIPROXY_PROFIEL_URL= \
   TOXIPROXY_NOTIFICATIE_URL= \
   TOXIPROXY_AANMELD_URL= \
@@ -129,10 +179,16 @@ dan leegt de console een leeg schema en meldt nul verwijderde berichten zónder 
 van `verify-zad.md` is er om dat te vangen.
 
 De zes lege `TOXIPROXY_*`-waarden schakelen de storingsknoppen uit: het paneel leest
-`GET /api/demo/omgeving` en laat een knop weg zodra zijn proxy niet geconfigureerd is. Er staat op
-ZAD geen Toxiproxy; waarom niet, staat onderaan bij "Wat er bewust niet meekomt".
+`GET /api/demo/omgeving` en laat een knop weg zodra zijn proxy niet geconfigureerd is. Stap 6 vult er
+vier van in zodra de Toxiproxy-componenten staan; de twee magazijn-proxies blijven leeg, want er
+bestaan op ZAD geen `toxiproxy-magazijn*`-componenten. Lokaal houden A en B hun proxy wél — zij
+dragen het aanleveren, de bijlagen, de notificatie-outbox en FSC, en dat zit niet in de simulator.
+
 `SESSIECACHE_BEREIKBAAR=false` doet hetzelfde voor de cache-verval-knop; stap 5 zet hem aan zodra
-het verkeer naar de sessiecache openstaat.
+het verkeer naar de sessiecache openstaat. `SIMULATOR_BEREIKBAAR=false` idem voor de groep
+"Gesimuleerde magazijnen"; `magazijn-simulator.md` §4 zet hem aan. Beide móeten hier expliciet
+gezet worden: de defaults in de console zijn `true` respectievelijk een leeg token, en die
+combinatie levert zichtbare knoppen op die elk een 401 geven.
 
 ## 4. CORS op de uitvraag
 
@@ -160,11 +216,23 @@ het lokaal ook doet. De property heet `quarkus.http.cors.enabled` en niet `quark
 
 Controleer het met een preflight, en toets meteen dat het géén wildcard werd:
 
+Toets daarbij eerst de HTTP-status en pas daarna de header. Zonder die eerste toets meldt de lus
+"geweigerd" voor béide origins zodra de uitvraag niet antwoordt — en dat is precies de uitkomst die
+je voor `kwaadaardig.example` wilt zien, dus een dode uitvraag leest hier als een geslaagde controle:
+
 ```bash
 for o in https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://kwaadaardig.example; do
-  curl -s -o /dev/null -D - -X OPTIONS -H "Origin: $o" -H 'Access-Control-Request-Method: GET' \
-    https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/berichten |
-    grep -i access-control-allow-origin || echo "geweigerd: $o"
+  antwoord=$(curl -sS -o /dev/null -D - -w 'STATUS=%{http_code}\n' \
+    -X OPTIONS -H "Origin: $o" -H 'Access-Control-Request-Method: GET' \
+    https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/berichten) || {
+      echo "geen antwoord van de uitvraag — deze toets zegt niets over CORS"; continue; }
+
+  case "$antwoord" in
+    *STATUS=200*|*STATUS=204*) ;;
+    *) echo "onverwachte status voor $o; deze toets zegt niets:"; printf '%s\n' "$antwoord" | tail -2; continue ;;
+  esac
+
+  printf '%s' "$antwoord" | grep -i '^access-control-allow-origin:' || echo "geweigerd: $o"
 done
 ```
 
@@ -181,18 +249,37 @@ patch die hem invult. Voor `test` doe je dat hier met de hand; voor previews doe
 
 De ontvanger beslist, dus beide projecten dragen een regel — één kant alleen zet niets open.
 
+Gebruik hiervoor de helper hieronder, en niet een kale `curl`. De reden staat in
+`.github/scripts/cross-domain-preview.sh`, dat dezelfde API aanroept: de OM-API antwoordt op een
+aangenomen verzoek met 202 en een taak-id, dus een `curl` zonder `-f` én zonder controle op dat id
+eindigt met 0 bij een 401, een 404 én bij een foutmelding die als HTTP 200 terugkomt. Je ziet dan
+een regel die er nooit komt — en dat merk je pas als iemand tijdens een demo op de knop drukt.
+
 ```bash
 API=https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api
 
+patch_regel() {  # project, sleutel, richting, json-body
+  local antwoord
+  antwoord=$(curl -sS --fail-with-body -X PATCH -H "X-API-Key: $2" \
+    -H 'Content-Type: application/json' \
+    "$API/v2/projects/$1/services/cross-domain-access/config/project/$3" -d "$4") || {
+      echo "PATCH $3 op $1 geweigerd: $antwoord" >&2
+      return 1
+    }
+
+  printf '%s' "$antwoord" | grep -q '"task_id"' || {
+    echo "geen taak-id in het antwoord van $1/$3 — dat is een foutmelding met HTTP 200: $antwoord" >&2
+    return 1
+  }
+}
+
 # mpfb-8wh: hier staat Redis, dus hier hoort de inbound-regel.
-curl -s -X PATCH -H "X-API-Key: $SLEUTEL_UITVRAAG" -H 'Content-Type: application/json' \
-  "$API/v2/projects/mpfb-8wh/services/cross-domain-access/config/project/inbound" \
-  -d '{"add":[{"name":"democonsole-naar-redis","to":{"component":"redis","port":6379},"from":{"project":"mpfm-w3h","component":"democonsole"}}]}'
+patch_regel mpfb-8wh "$SLEUTEL_UITVRAAG" inbound \
+  '{"add":[{"name":"democonsole-naar-redis","to":{"component":"redis","port":6379},"from":{"project":"mpfm-w3h","component":"democonsole"}}]}'
 
 # mpfm-w3h: hier staat de console, dus hier hoort de outbound-regel.
-curl -s -X PATCH -H "X-API-Key: $SLEUTEL_MAGAZIJNEN" -H 'Content-Type: application/json' \
-  "$API/v2/projects/mpfm-w3h/services/cross-domain-access/config/project/outbound" \
-  -d '{"add":[{"name":"democonsole-naar-redis","from":{"component":"democonsole"},"to":{"project":"mpfb-8wh","component":"redis","port":6379}}]}'
+patch_regel mpfm-w3h "$SLEUTEL_MAGAZIJNEN" outbound \
+  '{"add":[{"name":"democonsole-naar-redis","from":{"component":"democonsole"},"to":{"project":"mpfb-8wh","component":"redis","port":6379}}]}'
 ```
 
 `zadctl service config set cross-domain-access` kan dit niet: dat is een PUT over de héle
@@ -228,7 +315,8 @@ netwerkregel doet zijn werk — maar antwoordt Redis `NOAUTH Authentication requ
 opdracht. Dat is een fout die pas bij een druk op de knop verschijnt.
 
 De waarde staat in de `user-env-vars` van `uitvraag` in `mpfb-8wh` en is via de API niet te lezen
-(`(set, not returned by the API)`); haal hem uit Operations Manager en zet dezelfde waarde hier:
+(`(set, not returned by the API)`). Haal hem uit de Operations-Manager-UI — project `mpfb-8wh`,
+component `uitvraag`, sectie *user-env-vars* — en zet dezelfde waarde hier:
 
 ```bash
 zadctl env add -c democonsole REDIS_PASSWORD=<dezelfde waarde als bij uitvraag>
@@ -237,7 +325,393 @@ zadctl env add -c democonsole REDIS_PASSWORD=<dezelfde waarde als bij uitvraag>
 Loopt die waarde ooit uiteen met die van de uitvraag, dan faalt alleen deze knop, en pas op het
 moment dat iemand hem gebruikt.
 
-## 6. Uitrollen en verifiëren
+## 6. De storingsknoppen
+
+Vier stromen lopen op ZAD langs een eigen Toxiproxy: `profiel` en `notificatie` in `mpfpsm-lcl`,
+`aanmeld` en `redis` in `mpfb-8wh`. Elke proxy staat in dezelfde deployment als zijn upstream, zodat
+een preview zijn eigen stubs aanspreekt en niet die van `test`.
+
+Er komt géén `proxies.json` mee. De inhoud van een attachment wordt ongewijzigd gemount, dus zo'n
+bestand zou in elke preview naar de upstream van `test` wijzen — en dat is de stilste faalwijze die
+er is. De console maakt de proxies daarom zelf aan via de admin-API, met een upstream uit een alias;
+aliassen kennen `$DEPLOYMENT_NAME` wél. Hij herhaalt dat elke dertig seconden, want Toxiproxy houdt
+zijn proxies in het geheugen en verliest ze bij een herstart — en hij vergelijkt daarbij: een proxy
+die naar de verkeerde upstream of poort wijst wordt opnieuw gebouwd. Zo blijft een bijgestelde alias
+niet hangen achter een pod die toevallig bleef draaien. Wat klopt blijft ongemoeid, ook een bewust
+uitgezette proxy.
+
+### Twee poorten per component
+
+Een component publiceert één ingress, maar het mág meer poorten dragen: `service.yaml.jinja` zet elke
+poort ná de eerste als extra Service-poort, en de Ingress pakt alleen de eerste. Zo draagt de eerste
+poort de stroom (publiek, TLS door de router) en blijft 8474 — de admin-API — cluster-intern, alleen
+bereikbaar via de netwerkregel hieronder.
+
+De volgorde is dus niet vrij: de listen-poort eerst, 8474 daarna.
+
+| Component | Project | `--ports` | `publish-on-web` | Upstream |
+|---|---|---|---|---|
+| `toxiproxy-profiel` | `mpfpsm-lcl` | 18089, 8474 | ja | `$DEPLOYMENT_NAME-profiel:8080` |
+| `toxiproxy-notificatie` | `mpfpsm-lcl` | 18084, 8474 | ja | `$DEPLOYMENT_NAME-notificatie:8080` |
+| `toxiproxy-aanmeld` | `mpfb-8wh` | 18086, 8474 | ja | `$DEPLOYMENT_NAME-uitvraag:8086` |
+| `toxiproxy-redis` | `mpfb-8wh` | 16379, 8474 | nee | `$DEPLOYMENT_NAME-redis:6379` |
+
+De drie ingressen zijn geen luxe. Het magazijn weigert buiten dev een downstream die geen `https`
+draagt of die op een intern adres uitkomt (`DownstreamClient.valideerUrl`: TLS-eis uit BIO 13.2.1
+plus de SSRF-blocklist). `aanmeld` en `notificatie` móéten dus over de publieke ingress, en dan is
+`profiel` ernaast houden eenvoudiger dan één stroom apart bedraden. `toxiproxy-redis` heeft er geen
+nodig: hij staat in dezelfde deployment als de uitvraag, en dáár laat de tenant-baseline het verkeer
+al toe.
+
+### De probe moet naar 8474, niet naar de stroom
+
+Zonder de `health-check`-dienst probeert Kubernetes een component op zijn eerste inbound-poort, met
+een TCP-probe. Precies die poort sluit Toxiproxy zodra je een proxy uitzet — dus ongeveer anderhalve
+minuut na een druk op "uit" zou de pod herstarten, mét verlies van álle proxies. De knop zou zichzelf
+ongedaan maken en de keten meenemen.
+
+Richt de probe daarom op de admin-API, die altijd staat:
+
+```bash
+zadctl service assign health-check -c toxiproxy-profiel
+zadctl service config set health-check -c toxiproxy-profiel \
+  --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
+```
+
+Readiness op 8474 is precies goed: de pod blijft `Ready` terwijl de stroom dicht is, dus de router
+antwoordt een 503 en het magazijn ziet een dienst die wegviel — wat de demo wil laten zien.
+
+### De vier componenten aanmaken
+
+Toxiproxy start met zijn eigen default-`CMD` (`-host=0.0.0.0`) prima op met nul proxies. Er is dus
+geen startcommando nodig, en dat scheelt het UI-handwerk dat een hercreatie niet overleeft.
+
+**Het image wordt op de amd64-child gepind, niet op de tag.** De ZAD-mirror geeft op
+`rcr.rijksapps.nl/ghcr-rig/shopify/toxiproxy:2.12.0` een HTTP 500: de manifest list van Toxiproxy
+draagt `linux/arm/v6` twee keer met dezelfde digest, en de Quay-pull-through-cache schendt daarop een
+unique constraint. Een child is een gewoon manifest zónder kinderen, dus daar struikelt hij niet
+over. `TOXIPROXY_IMAGE` in `deploy.yml` draagt de volledige verwijzing; de tag staat er alleen bij
+zodat `pin-consistency.yml` hem aan `compose.yaml` kan binden.
+
+```bash
+# Dezelfde waarde als TOXIPROXY_IMAGE in deploy.yml; die is de bron.
+TOXIPROXY_IMAGE='ghcr.io/shopify/toxiproxy:2.12.0@sha256:a3e244375123dad8849091bcc59775e188624d3f602db01901f9af855682fef8'
+
+for c in profiel:18089 notificatie:18084; do
+  naam=toxiproxy-${c%%:*}
+  zadctl -p mpfpsm-lcl component add "$naam" \
+    --image "$TOXIPROXY_IMAGE" \
+    --deployment test \
+    --ports "${c##*:}" --ports 8474 \
+    --service publish-on-web \
+    --service health-check
+  zadctl -p mpfpsm-lcl service config set health-check -c "$naam" \
+    --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
+done
+
+for c in aanmeld:18086; do
+  naam=toxiproxy-${c%%:*}
+  zadctl -p mpfb-8wh component add "$naam" \
+    --image "$TOXIPROXY_IMAGE" \
+    --deployment test \
+    --ports "${c##*:}" --ports 8474 \
+    --service publish-on-web \
+    --service health-check
+  zadctl -p mpfb-8wh service config set health-check -c "$naam" \
+    --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
+done
+
+zadctl -p mpfb-8wh component add toxiproxy-redis \
+  --image "$TOXIPROXY_IMAGE" \
+  --deployment test \
+  --ports 16379 --ports 8474 \
+  --service health-check
+zadctl -p mpfb-8wh service config set health-check -c toxiproxy-redis \
+  --set scheme=http --set port=8474 --set liveness-path=/version --set readiness-path=/version
+```
+
+`pin-consistency.yml` houdt de tag in `deploy.yml` gelijk aan die in `compose.yaml`; de digest
+ernaast beweegt bij een versiebump mee, en `deploy.yml` legt uit hoe je hem opzoekt. De verwijzing in
+de OM-projectspec valt buiten die guard (andere repository, net als bij Redis), maar die beweegt
+vanzelf mee met elke uitrol.
+
+Alleen amd64: ZAD draait daarop. `compose.yaml` houdt bewust de multi-arch-tag, zodat de demo lokaal
+ook op arm werkt.
+
+Haalt upstream de dubbele child weg, of komt de Quay-dedupe (PROJQUAY-10068) in een release, dan kan
+de digest weg en volstaat de tag.
+
+**Nog op te ruimen.** Onderweg is het image korte tijd onder onze eigen namespace doorgepubliceerd
+(`ghcr.io/minbzk/fbs-toxiproxy`), en de componenten in `test` zijn met díe verwijzing aangemaakt. De
+eerstvolgende `deploy-test-*` zet ze op `TOXIPROXY_IMAGE`; daarna is dat package wees en kan het
+weg. Het staat niet in de sweep-lijst van `cleanup-preview.yml`, dus tot die tijd verdwijnt het niet
+vanzelf — en dat is maar goed ook, want `test` trekt het nog.
+
+### De netwerkregels voor de admin-API's
+
+Vier hops, dus vier regels — één regel opent één poort op één component bij één peer. Elke regel
+draagt twee kanten: de ontvanger beslist, dus één kant alleen zet niets open.
+
+Beide helpers gaan door `patch_regel` uit stap 5 — draai die shell-functie en de `API`-variabele
+dus eerst, zodat een geweigerde of stil mislukte patch hier net zo hard opvalt:
+
+```bash
+inbound() {  # project, sleutel, regel, component
+  patch_regel "$1" "$2" inbound \
+    "{\"add\":[{\"name\":\"$3\",\"to\":{\"component\":\"$4\",\"port\":8474},\"from\":{\"project\":\"mpfm-w3h\",\"component\":\"democonsole\"}}]}"
+}
+
+outbound() {  # project van de peer, regel, component
+  patch_regel mpfm-w3h "$SLEUTEL_MAGAZIJNEN" outbound \
+    "{\"add\":[{\"name\":\"$2\",\"from\":{\"component\":\"democonsole\"},\"to\":{\"project\":\"$1\",\"component\":\"$3\",\"port\":8474}}]}"
+}
+
+inbound mpfpsm-lcl "$SLEUTEL_PROFIEL"  democonsole-naar-toxiproxy-profiel     toxiproxy-profiel
+inbound mpfpsm-lcl "$SLEUTEL_PROFIEL"  democonsole-naar-toxiproxy-notificatie toxiproxy-notificatie
+inbound mpfb-8wh   "$SLEUTEL_UITVRAAG" democonsole-naar-toxiproxy-aanmeld     toxiproxy-aanmeld
+inbound mpfb-8wh   "$SLEUTEL_UITVRAAG" democonsole-naar-toxiproxy-redis       toxiproxy-redis
+
+outbound mpfpsm-lcl democonsole-naar-toxiproxy-profiel     toxiproxy-profiel
+outbound mpfpsm-lcl democonsole-naar-toxiproxy-notificatie toxiproxy-notificatie
+outbound mpfb-8wh   democonsole-naar-toxiproxy-aanmeld     toxiproxy-aanmeld
+outbound mpfb-8wh   democonsole-naar-toxiproxy-redis       toxiproxy-redis
+```
+
+Daarna de invulling voor `test`, met hetzelfde script dat CI voor previews gebruikt. Het neemt
+meerdere regelnamen in één patch:
+
+```bash
+ZAD_API_KEY=$SLEUTEL_PROFIEL .github/scripts/cross-domain-preview.sh zet mpfpsm-lcl test inbound \
+  democonsole-naar-toxiproxy-profiel democonsole-naar-toxiproxy-notificatie
+
+ZAD_API_KEY=$SLEUTEL_UITVRAAG .github/scripts/cross-domain-preview.sh zet mpfb-8wh test inbound \
+  democonsole-naar-toxiproxy-aanmeld democonsole-naar-toxiproxy-redis
+
+ZAD_API_KEY=$SLEUTEL_MAGAZIJNEN .github/scripts/cross-domain-preview.sh zet mpfm-w3h test outbound \
+  democonsole-naar-toxiproxy-profiel democonsole-naar-toxiproxy-notificatie \
+  democonsole-naar-toxiproxy-aanmeld democonsole-naar-toxiproxy-redis
+```
+
+### Twee dingen die in deze volgorde moeten
+
+**De componenten eerst, de netwerkregels daarna.** Operations Manager rendert een regel waarvan het
+peer-component niet bestaat gewoon niet — met een waarschuwing in een log die niemand leest. De
+regel staat dan wél in de configuratie en de deployment meldt `Healthy`, maar de NetworkPolicy mist
+die egress-regel en het verkeer loopt in een timeout. Zet je de regels vóór de componenten, draai dan
+daarna `zadctl deployment refresh <deployment>` en controleer de gerenderde policy:
+
+```bash
+pad=repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production/mpfm-w3h/test/test-cross-domain-access-democonsole-network-policy.yaml
+
+if ruw=$(gh api "$pad" --jq '.content'); then
+  printf '%s' "$ruw" | base64 -d | grep -E 'app:|port:'
+else
+  echo "de policy is niet op te halen — bestaat hij wel? dat is zelf het antwoord" >&2
+fi
+```
+
+Er horen vijf peers in te staan: `redis` plus de vier `toxiproxy-*`. Staat alleen `redis` er, dan is
+precies dit gebeurd. De `||`-tak hierboven is er omdat het bestand in juist dát geval mogelijk
+helemaal niet bestaat: zonder die tak levert `gh api` niets, decodeert `base64` niets met exit 0, en
+drukt `grep` niets af — een lege uitvoer die als "geen peers" leest terwijl er niets gelezen ís.
+
+**De keten pas omhangen als de console overal draait.** De stap hieronder leidt het verkeer door de
+proxies, maar die proxies bestaan pas nadat de console ze heeft aangemaakt — en dat doet alleen een
+console-image dat `ProxyBootstrap` kent. Hang je de keten om terwijl er nog een ouder image draait,
+dan wijst de uitvraag naar een Redis-proxy die niemand aanmaakt en ligt de demo plat. Wacht dus tot
+de merge naar main `deploy-test-*` heeft laten draaien.
+
+### De keten door de proxies leiden
+
+Welke dienst achter welke proxy hoort, staat vast in `compose.yaml`; ZAD spiegelt dat, anders doet
+dezelfde knop lokaal iets anders dan op de demo.
+
+| Proxy | Wie roept aan | Sleutel om te verzetten |
+|---|---|---|
+| `profiel` | `uitvraag` (`mpfb-8wh`) | `PROFIEL_SERVICE_URL` |
+| `notificatie` | `magazijna`, `magazijnb` (`mpfm-w3h`) | `NOTIFICATIE_URL` |
+| `aanmeld` | `magazijna`, `magazijnb` (`mpfm-w3h`) | `AANMELD_URL` |
+| `redis` | `uitvraag` (`mpfb-8wh`) | `REDIS_HOSTS` |
+
+Let op de eerste rij: het is de **uitvraag** die de profielservice bevraagt om te bepalen welke
+magazijnen een ontvanger gebruikt. De magazijnen hebben óók een `PROFIEL_SERVICE_URL` — die blijft
+rechtstreeks, precies zoals in `compose.yaml`. Zet je die ook om, dan haalt "profiel uit" twee
+verschillende dingen tegelijk onderuit en is niet meer te vertellen wat de demo laat zien.
+
+Op `uitvraag` in `mpfb-8wh`. Let op het schema in `REDIS_HOSTS`: het commando hieronder schrijft de
+héle waarde, dus ook `redis://`. Draait de uitvraag op ZAD onder `%prod`, `%staging` of
+`%acceptatie`, dan eist `RedisVerbindingValidator` daar `rediss://` en weigert hij de start — en dan
+ligt de gedeelde keten plat, voor `test` én voor elke preview die daarvan kloont. Controleer dus
+eerst met `zadctl -p mpfb-8wh env list -c uitvraag` welk schema er nu staat, en houd datzelfde
+schema aan; staat er `rediss://`, dan hoort er hier ook `rediss://`. De Toxiproxy zelf spreekt
+platte TCP, dus TLS naar de proxy vraagt om `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT=true` op de uitvraag —
+een bewuste keuze die bij elke boot een `REDIS_UNPROTECTED`-waarschuwing logt.
+
+```bash
+zadctl -p mpfb-8wh alias set -c uitvraag \
+  'PROFIEL_SERVICE_URL=https://toxiproxy-profiel-$DEPLOYMENT_NAME-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl' \
+  'REDIS_HOSTS=redis://$DEPLOYMENT_NAME-toxiproxy-redis:16379'
+```
+
+Op `magazijna` én `magazijnb` in `mpfm-w3h`:
+
+```bash
+for m in magazijna magazijnb; do
+  zadctl -p mpfm-w3h alias set -c "$m" \
+    'NOTIFICATIE_URL=https://toxiproxy-notificatie-$DEPLOYMENT_NAME-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl/events' \
+    'AANMELD_URL=https://toxiproxy-aanmeld-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/aanmeldingen'
+done
+```
+
+**Alleen een preview omhangen kan ook**, zonder `test` te raken. Aliassen kunnen dat niet — die
+bestaan alleen op componentniveau (`Service 'aliases' has no values at target
+'deployment-component'`) — maar `user-env-vars` wél:
+
+```bash
+zadctl env add -c uitvraag --deployment pr-<n> \
+  'REDIS_HOSTS=redis://pr-<n>-toxiproxy-redis:16379'
+```
+
+Dat werkt omdat het gerenderde `envFrom` het user-secret ná het platform-secret zet, en bij gelijke
+sleutels wint de laatste. Geen `$DEPLOYMENT_NAME` hierin: de waarde geldt maar voor één deployment,
+dus de naam mag er hard in. Zo is een preview volledig te demonstreren terwijl `test` nog op een
+oudere console draait.
+
+**Let op bij `test`:** dat draagt zelf al een deployment-override voor `PROFIEL_SERVICE_URL`. Een
+alias op componentniveau komt daar dus niet doorheen — verzet daar de deployment-waarde, niet de
+alias.
+
+**De console blijft rechtstreeks op Redis staan.** Zijn `REDIS_HOSTS` uit stap 5 verandert niet: de
+cache-verval-knop is een beheeractie, en die hoort te blijven werken terwijl je de Redis-stroom
+uitzet. Loopt hij mee door de proxy, dan valt met "redis uit" ook de knop weg waarmee je het verhaal
+vertelt.
+
+### En de console erheen wijzen
+
+**Haal eerst de lege omgevingsvariabelen uit stap 3 weg.** Het gerenderde `envFrom` zet het
+user-secret ná het platform-secret, en bij gelijke sleutels wint de laatste — zoals hierboven bij de
+preview-override al werd gebruikt. Blijft de lege `TOXIPROXY_PROFIEL_URL` uit stap 3 dus staan, dan
+overschrijft die de alias die je hier zet, laat het paneel alle vier de knoppen weg, en wijst niets
+naar die oorzaak:
+
+```bash
+zadctl env unset -c democonsole \
+  TOXIPROXY_PROFIEL_URL TOXIPROXY_NOTIFICATIE_URL TOXIPROXY_AANMELD_URL TOXIPROXY_REDIS_URL
+
+zadctl alias add -c democonsole \
+  'TOXIPROXY_PROFIEL_URL=http://$DEPLOYMENT_NAME-toxiproxy-profiel.rig-prd-mpfpsm-lcl.svc.cluster.local:8474' \
+  'TOXIPROXY_NOTIFICATIE_URL=http://$DEPLOYMENT_NAME-toxiproxy-notificatie.rig-prd-mpfpsm-lcl.svc.cluster.local:8474' \
+  'TOXIPROXY_AANMELD_URL=http://$DEPLOYMENT_NAME-toxiproxy-aanmeld.rig-prd-mpfb-8wh.svc.cluster.local:8474' \
+  'TOXIPROXY_REDIS_URL=http://$DEPLOYMENT_NAME-toxiproxy-redis.rig-prd-mpfb-8wh.svc.cluster.local:8474' \
+  'TOXIPROXY_PROFIEL_UPSTREAM=$DEPLOYMENT_NAME-profiel:8080' \
+  'TOXIPROXY_NOTIFICATIE_UPSTREAM=$DEPLOYMENT_NAME-notificatie:8080' \
+  'TOXIPROXY_AANMELD_UPSTREAM=$DEPLOYMENT_NAME-uitvraag:8086' \
+  'TOXIPROXY_REDIS_UPSTREAM=$DEPLOYMENT_NAME-redis:6379'
+```
+
+De vier `TOXIPROXY_*_URL` waren in stap 3 leeg gezet en zijn hierboven weggehaald; deze aliassen
+vullen ze. `TOXIPROXY_MAGAZIJN_A_URL` en `TOXIPROXY_MAGAZIJN_B_URL` blijven wél leeg staan — er zijn
+op ZAD geen `toxiproxy-magazijn*`-componenten, en het paneel laat hun knoppen weg zolang de waarde
+leeg is.
+
+De listen-poorten hebben geen alias nodig; hun defaults in `application.properties` zijn al de
+poorten uit de tabel hierboven. De upstreams wél: die noemen een deployment, en alleen een alias
+vult `$DEPLOYMENT_NAME` in.
+
+**De upstream wordt in de Toxiproxy-pod opgelost, niet in die van de console.** Daarom een korte
+servicenaam (`$DEPLOYMENT_NAME-profiel`) en geen volledige cross-namespace-naam: de proxy staat in
+dezelfde namespace als zijn upstream. De admin-URL's zijn andersom — die lost de console zelf op, en
+dus staan daar de volledige namen.
+
+## 7. De berichtenbox naast het paneel
+
+Het paneel toont de berichtenbox van de proeftuin in een frame. Lokaal zet de demo-proxy beide
+achter één origin; hier bestaat die proxy niet, dus draait de proeftuin als eigen component in dít
+project. Dat is bewust niet het component uit hun eigen project: zo bepalen wij welke versie er
+onder een demo hangt, en volgt de berichtenbox onze previews in plaats van hun uitrolritme.
+
+**Deze stap gaat vóór de merge van de PR die `demopersonas` én `proeftuin` in `deploy.yml` zet.** Die
+workflow noemt beide componenten bij naam, en een `reference` naar een component dat nog niet in de
+projectspec staat laat de uitrol falen — één van de twee vergeten is dus genoeg. Andersom is
+onschuldig: staat een component er wel en noemt de workflow het nog niet, dan draait het alleen op
+`test`.
+
+De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
+onze eigen images. De tag die hier meegegeven wordt geldt alleen tot de eerste uitrol: daarna zet
+`deploy.yml` hem per deployment, met de waarde van `PROEFTUIN_IMAGE`. Die staat in Git en is dus de
+bron; deze pin is alleen de startwaarde. Pin een `sha-<7>`-tag uit hun main; `latest` verschuift
+stil onder een lopende demo door. Om nog niet gemergd werk te beproeven kan een preview-tag
+(`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`), maar alleen tijdelijk: hun opruiming verwijdert
+alle `pr-<n>-*`-versies zodra die PR sluit, dus zwaai bij het mergen om naar een `sha-`-tag uit hun
+main. Blijft die pin staan, dan trekt een herstart een tag die niet meer bestaat.
+
+```bash
+demo/environment/zad-demo/proeftuin-component.sh plan   # toont beide aanroepen, muteert niets
+demo/environment/zad-demo/proeftuin-component.sh apply
+```
+
+Het script doet drie dingen: `demopersonas` aanmaken, `proeftuin` aanmaken, en `BERICHTENBOX_URL`
+op `democonsole` zetten. De image van de proeftuin leest het uit `PROEFTUIN_IMAGE` in `deploy.yml`, zodat er één
+waarde is die bepaalt wat er draait; de tag van de personadienst leest het af van de `democonsole`
+die al in dezelfde deployment draait — hetzelfde register, dezelfde tag.
+
+Dat werkt pas ná de eerste uitrol van deze module. Vóór die tijd zit je klem: het component moet
+bestaan vóórdat `deploy.yml` het bij naam noemt, maar het image bestaat pas ná die uitrol. Geef
+dan met `PERSONAS_IMAGE` een bestaand, onschadelijk image mee — bijvoorbeeld dat van een
+WireMock-stub — en laat de eerste uitrol het vervangen. Neem daar níet het console-image voor: dat
+draagt de legen-knop, op een component dat bewust geen muur krijgt. Draai eerst `plan`: dat toont
+beide aanroepen en alle aliassen zonder iets te muteren, ook wanneer de componenten nog niet
+bestaan. Poorten en diensten zijn wat je in één keer goed wilt hebben — die passen alleen bij het
+aanmaken; de aliassen trekt een tweede aanroep alsnog recht.
+
+**`demopersonas` krijgt geen `authorization-wall`, en dat is de hele reden dat hij bestaat.** De
+berichtenbox van de proeftuin vraagt bij het kiezen van een testaccount `/api/demo/personas` op. Dat
+verzoek loopt via de nginx van de proeftuin, die het server-side ophaalt en dus geen sessie heeft:
+achter een muur is het antwoord 403 en meldt de berichtenbox dat het ophalen van berichten is
+mislukt. De muur is daar niet gedeeltelijk voor open te zetten — hij is een sidecar in de pod van de
+console, de Service publiceert alleen de poort van die sidecar, en de dienst kent geen uitzonderingen
+per pad. Vandaar een eigen image dat niets anders kan dan die lijst teruggeven; het bedieningspaneel
+houdt zijn muur, want daar zit het legen achter.
+
+Staat het `proeftuin`-component er al van vóór de splitsing, dan hoeft het niet opnieuw: aliassen
+zijn los bij te werken. Draai dan gewoon het script nog een keer. Het kiest per sleutel de vorm die
+past bij wat er staat — `add` weigert een bestaande sleutel en `set` een nieuwe, dus geen van beide
+is op zichzelf idempotent — en het zet alle zes de aliassen. Doe je het met de hand, dan mis je
+`BACKEND_KETEN`, en dan kapt de catch-all `/api/` de ophaalstream na zestig seconden af.
+
+`BACKEND_PERSONAS` en niet `BACKEND_DEMO`: de proeftuin kent sinds hun splitsing een eigen variabele
+voor de testaccountlijst, en `BACKEND_DEMO` blijft naar het bedieningspaneel wijzen. Er ís een
+terugval van de eerste op de tweede, maar daarop leunen zou het paneel onbereikbaar maken voor alles
+wat niet de personalijst is.
+
+Waarom zes aliassen en niet drie: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag,
+`/api/demo/personas` naar de personadienst en de rest van `/api/demo/` naar het paneel, en de
+ingress ervóór routeert op de Host-header. De browser-host
+doorgeven levert daar de verkeerde bestemming op, dus de `*_HOST`-variant zet de servernaam apart.
+
+Die twee paden hebben een eigen bestemming nodig omdat de catch-all `/api/` een leestijdslimiet van
+zestig seconden draagt. Een ophaalronde langs tientallen magazijnen is een SSE-stream die langer stil
+kan liggen dan dat, en wordt daar dus middenin afgekapt. Ontbreekt `BACKEND_KETEN`, dan antwoordt de
+proeftuin met een 502 die de variabelenaam noemt in plaats van stil naar een andere dienst te
+proxyen; `BACKEND_DEMO` valt bij afwezigheid terug op `BACKEND_KETEN`.
+
+**Richt de health-check niet op `/health`.** Dat pad proxyt in het proeftuin-image naar een
+chat-backend die in dit project niet bestaat; een probe erop faalt gegarandeerd en herstart de pod
+anderhalve minuut later. De TCP-probe op de eerste poort volstaat.
+
+**Geen `authorization-wall` op dit component.** De muur staat op het paneel, waar de legen-knop op
+zit. De berichtenbox zelf leest alleen, en leest bij de uitvraag die op deze omgeving toch al
+publiek bereikbaar moet zijn — de browser praat er rechtstreeks mee. Een muur zou hem bovendien
+onbruikbaar maken in het frame: de aanmeldpagina van Keycloak laat zich niet in een frame tonen.
+
+De aliassen gebruiken `$DEPLOYMENT_NAME`, zodat elke preview zijn eigen berichtenbox en zijn eigen
+keten aanspreekt.
+
+Blijft het frame leeg, dan is die variabele niet gezet of wijst hij mis: het paneel toetst het adres
+niet vooraf, want een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar
+te onderscheiden. Open het adres los in de browser om de twee gevallen uit elkaar te halen.
+
+## 8. Uitrollen en verifiëren
 
 ```bash
 zadctl deployment refresh test
@@ -253,32 +727,34 @@ schema aanwijst.
 
 ## Wat er bewust niet meekomt
 
-**De storingsknoppen (Toxiproxy).** Drie eigenschappen van ZAD maken de opzet uit het ontwerp
-onbruikbaar zodra previews meetellen:
+**De magazijn-storingen.** De twee `TOXIPROXY_MAGAZIJN_*_URL` blijven leeg en het paneel laat die
+knoppen weg: er zijn op ZAD geen `toxiproxy-magazijn*`-componenten aangemaakt. Lokaal houden A en B
+hun proxy wél. Dat is geen inconsistentie die nog rechtgetrokken moet worden — de variatie in
+storingsgedrag komt op een gedeelde omgeving uit de simulator, terwijl A en B daar juist het
+aanleveren, de bijlagen, de notificatie-outbox en FSC dragen.
 
-- De inhoud van een attachment wordt ongewijzigd gemount; er is geen `$DEPLOYMENT_NAME`-substitutie.
-  Een `proxies.json` moet dus een vaste upstream noemen, en die is in een preview de verkeerde.
-- Het `command` dat Toxiproxy naar dat bestand wijst, staat niet in `AddComponentRequest` of
-  `UpdateComponentRequest` en kent `zadctl` niet: het is UI-handwerk dat elke hercreatie overleeft
-  noch meeklont.
-- Een `cross-domain-access`-regel noemt altijd één concrete peer-deployment; een regel waarvan die
-  open blijft, wordt bij het genereren overgeslagen. De console kan de admin-API's in een preview
-  dus niet bereiken.
+**De knoppen voor de gesimuleerde magazijnen** hangen aan `SIMULATOR_BEREIKBAAR`, dat stap 3 op
+`false` zet en `magazijn-simulator.md` §4 op `true`. Blijft hij op `false` staan, dan is de bediening
+onzichtbaar terwijl alles eronder werkt.
 
-Het gevolg zonder maatregelen is de slechtste soort: een preview zou zijn keten-verkeer stilzwijgend
-door de proxy van `test` sturen. Zie het vervolgontwerp voor de route die dat wél oplost — de console
-maakt de proxies zelf aan via de admin-API, en de netwerkregels komen per preview mee uit de
-deploy-workflow.
+De andere knoppen werken wél. **De cache-verval-knop** sinds stap 5, **de vier storingsknoppen**
+sinds stap 6. Ze vragen allebei cluster-intern verkeer naar een ander project, en zo'n netwerkregel
+noemt op ZAD altijd één vaste deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` de
+per-deployment invulling zelf bij en weer weg.
 
-**De cache-verval-knop** werkt wél, sinds stap 5. Hij vraagt als enige knop cluster-intern verkeer
-naar een ander project, en daarom een `cross-domain-access`-regel per deployment. Voor previews
-zetten `deploy.yml` en `cleanup-preview.yml` die zelf.
-
-**De veel-magazijnen-schuif.** Wacht op de magazijn-simulator (#938).
+Wat daarbij níet meekomt is een `proxies.json`: de inhoud van een attachment wordt ongewijzigd
+gemount, dus zo'n bestand zou in elke preview de upstream van `test` noemen — een preview die
+stilzwijgend het verkeer van een ander magazijn afhandelt. De console maakt de proxies daarom zelf
+aan. Dat schrapt meteen het `command` dat Toxiproxy naar zo'n bestand zou wijzen, en dat scheelt
+UI-handwerk dat een hercreatie niet overleeft.
 
 ## Wat het wonen in `test` met zich meebrengt
 
 - De demo rolt mee met elke merge naar main, dus de omgeving kan tijdens een presentatie herstarten.
 - De legen-knop op de console ín `test` wist de database van `test`, waar nieuwe previews van
   klonen. Op een preview raakt legen alleen die preview: elke deployment heeft zijn eigen database.
-- Elke openstaande PR draagt de console mee, ongeveer 250 Mi.
+- Elke openstaande PR draagt de hele set mee: de console (~250 Mi), vier Toxiproxy's (~32 Mi elk),
+  `demopersonas`, `proeftuin`, de magazijn-simulator (~450 MB met 98 magazijnen) en zeven ingressen.
+  `zadctl resource tune` stelt de aanvragen bij op werkelijk gebruik.
+- Het ketenverkeer loopt voortaan altijd door die proxies, ook als niemand demonstreert. Dat is een
+  extra hop in het pad, bewust geaccepteerd omdat de knoppen anders niet bestaan.

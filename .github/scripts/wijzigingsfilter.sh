@@ -52,16 +52,21 @@ UITROL_RELEVANT='deploy'
 # Bewust per pad opgesomd en niet als kaal `^demo/`: onder demo/ staan Maven-modules, en zo'n
 # module kan een eigen image en ZAD-component hebben. Een kale `^demo/`-uitsluiting zou die
 # imagebuild overslaan, en dat faalt stil — een overgeslagen job telt als succes voor branch
-# protection. TODO(#938): een volgende demo-module met een eigen image (bv. uit de
-# magazijn-simulator) vraagt dezelfde afweging — een eigen job, geen matrix-regel.
+# protection. demo/magazijn-simulator/ ging dezelfde kant op: eigen image, eigen ZAD-component, dus
+# ook buiten deze uitsluiting.
 #
 # De opsomming staat aan de veilige kant van zijn eigen veroudering: een demo-onderdeel dat hier
 # ontbreekt valt uit de uitsluiting en kost een overbodige build. Andersom — een allowlist van
 # paden die wél een image voeden — zou een vergeten pad juist een overgeslagen build opleveren, en
 # dat is precies de stille faalwijze die dit script moet uitsluiten.
 #
+# Alleen shellscripts direct onder demo/, en niet meer elk script: genereer-magazijnen.py schrijft de
+# ondernemer-stubs die in het fbs-demo-profiel-image gebakken worden. Een wijziging aan de fan-out
+# hoort dus een preview te kopen — anders draait die preview een stub van een oudere tag en bewijst
+# de groene check niets over de wijziging.
+#
 # demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.
-DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/[^/]*\.(sh|py)$'
+DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/[^/]*\.sh$'
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.

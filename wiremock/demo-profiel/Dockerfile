@@ -14,3 +14,9 @@ COPY externe-stubs/mappings /home/wiremock/mappings
 # Als subdir, want WireMock leest recursief en de persona-mappings winnen op priority, niet op
 # bestandsvolgorde. Zo blijft zichtbaar wat gedeeld is en wat bij de demo hoort.
 COPY demo-profiel/mappings /home/wiremock/mappings/demo-profiel
+# De vier ondernemers met hun volledige fan-out (3, 15, 45 en 100 organisaties), gegenereerd door
+# demo/genereer-magazijnen.py en door de CI-stap hierheen gekopieerd — het script schrijft in
+# demo/generated/, en dat ligt buiten deze build-context. Voorrang 1 wint van de handgeschreven
+# persona's hierboven (5), die alleen de twee echte magazijnen dragen. Zonder deze laag draait de
+# demo nog steeds, met een fan-out van twee; de map is daarom leeg-maar-aanwezig in git.
+COPY demo-profiel/generated /home/wiremock/mappings/demo-profiel-generated

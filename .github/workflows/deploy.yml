@@ -123,6 +123,20 @@ env:
   # "Permission denied". Kan uit: de sessiecache is ephemeral en rekent nergens op
   # persistence (idempotente RediSearch-bootstrap, TTL-entries, crash-safe vangnet-lock).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
+  # De berichtenbox van de proeftuin (MinBZK/moza-poc), als component in ons eigen project. Zo
+  # bepalen wij welke versie er onder een demo hangt, in plaats van het uitrolritme van een ander
+  # project te volgen. De tag hoort hier en niet alleen in de projectspec: OM's upsert-deployment
+  # neemt bij het aanmaken alleen de meegegeven componenten over en kopieert die van de kloonbron
+  # niet, dus zonder deze regel heeft alleen `test` een berichtenbox en geen enkele preview.
+  #
+  # Bewust niet in pin-consistency.yml: die guard eist één identieke pin over alle vindplaatsen, en
+  # zolang dit een preview-tag uit hun repo is (`.../preview:pr-<n>-<sha>`) staat er een ander
+  # image-pad dan in compose.yaml. Zodra hun keten op main staat en beide plekken dezelfde
+  # `sha-`-tag dragen, hoort dit image alsnog in die guard.
+  #
+  # LET OP: een `pr-<n>-*`-tag verdwijnt zodra hun PR sluit. Zwaai bij het mergen om naar een
+  # `sha-`-tag uit hun main, anders trekt de eerstvolgende herstart een tag die niet meer bestaat.
+  PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc/preview:pr-142-41c83e3
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
@@ -137,12 +151,47 @@ env:
   # cleanup-preview.yml zoekt de comment op deze tekst, dus drift tussen plaatsen en opruimen laat
   # hem stil achter op een gesloten PR.
   COMMENT_HEADER: '## 🚀 Preview Deployment'
-  # De cross-domain-regel die de demo-console bij de sessiecache laat. De regel zelf staat op
-  # projectniveau zónder peer-deployment; die vult elke deployment zelf in, want een regel waarvan
-  # de peer-deployment open blijft wordt bij het genereren overgeslagen. Dezelfde naam staat in
-  # cleanup-preview.yml — lopen die twee uit elkaar, dan blijft de regel achter op een deployment
-  # die niet meer bestaat.
-  CROSS_DOMAIN_REGEL: democonsole-naar-redis
+  # De cross-domain-regels die de demo-console bij de sessiecache en bij de vier Toxiproxy-admin-API's
+  # laten. Elke regel staat op projectniveau zónder peer-deployment; die vult elke deployment zelf
+  # in, want een regel waarvan de peer-deployment open blijft wordt bij het genereren overgeslagen.
+  # Dezelfde namen staan in cleanup-preview.yml — lopen die twee uit elkaar, dan blijft een regel
+  # achter op een deployment die niet meer bestaat.
+  #
+  # Eén regel opent één poort op één component bij één peer, dus elke hop is een eigen regel. De
+  # console is altijd de aanroepende kant, dus het magazijnen-project draagt de outbound-kant van
+  # álle regels en is per definitie de vereniging van de twee lijsten erboven —
+  # test-cross-domain-preview.sh bewaakt dat.
+  CROSS_DOMAIN_REGELS_UITVRAAG: >-
+    democonsole-naar-redis
+    democonsole-naar-toxiproxy-aanmeld
+    democonsole-naar-toxiproxy-redis
+  CROSS_DOMAIN_REGELS_EXTERNE_STUBS: >-
+    democonsole-naar-toxiproxy-profiel
+    democonsole-naar-toxiproxy-notificatie
+  CROSS_DOMAIN_REGELS_MAGAZIJNEN: >-
+    democonsole-naar-redis
+    democonsole-naar-toxiproxy-aanmeld
+    democonsole-naar-toxiproxy-redis
+    democonsole-naar-toxiproxy-profiel
+    democonsole-naar-toxiproxy-notificatie
+  # Toxiproxy op de amd64-child in plaats van op de manifest list. Die lijst draagt vier entries met
+  # drie unieke digests — `linux/arm/v6` staat er twee keer in met dezelfde digest — en de
+  # Quay-pull-through-cache van ZAD schendt daarop een unique constraint en geeft HTTP 500. Een
+  # child is een gewoon manifest zonder kinderen, dus daar struikelt hij niet over.
+  #
+  # De tag staat er alleen bij zodat pin-consistency.yml deze regel aan compose.yaml kan binden; de
+  # digest bepaalt wat er getrokken wordt. Bij een versiebump moeten ze samen bewegen:
+  #
+  #   TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:shopify/toxiproxy:pull" | jq -r .token)
+  #   curl -s -H "Authorization: Bearer $TOKEN" \
+  #     -H "Accept: application/vnd.oci.image.index.v1+json" \
+  #     "https://ghcr.io/v2/shopify/toxiproxy/manifests/<versie>" |
+  #     jq -r '.manifests[] | select(.platform.architecture=="amd64") | .digest'
+  #
+  # Alleen amd64: ZAD draait daarop, en compose houdt de multi-arch-tag voor wie op arm werkt.
+  # Verdwijnt de dubbele child upstream, of komt de Quay-dedupe (PROJQUAY-10068) in een release, dan
+  # kan de digest hier weg en volstaat de tag.
+  TOXIPROXY_IMAGE: 'ghcr.io/shopify/toxiproxy:2.12.0@sha256:a3e244375123dad8849091bcc59775e188624d3f602db01901f9af855682fef8'
 
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
@@ -359,8 +408,56 @@ jobs:
           # wiremock/demo-profiel/Dockerfile voor waarom die niet in het gedeelde image passen.
           # Eén job, want het demo-image layert op de mappings van het gedeelde image: los
           # bouwen zou ze uit elkaar kunnen laten lopen zonder dat iets dat merkt.
+          #
+          # De vier ondernemers met hun volledige fan-out komen uit het generatiescript. Lokaal
+          # bind-mount compose die map; hier moeten ze het image in, anders kent elke persona op de
+          # gedeelde omgeving alleen de twee echte magazijnen. Geen SIMULATOR_URL: de
+          # ondernemer-stubs dragen alleen OIN's, geen adressen. Ook geen eigen aantal — de default
+          # van het script (98) is hetzelfde getal als waarmee de twee ZAD-attachments
+          # (magazijn-simulator-set, magazijnen-register) gegenereerd zijn, en een profiel dat naar
+          # een niet-bestaand magazijn wijst wordt door de uitvraag stil overgeslagen.
+          python3 demo/genereer-magazijnen.py
+          mkdir -p wiremock/demo-profiel/generated
+          # Eerst leegmaken: hernoemt iemand een ondernemer, dan zou de oude naam in een werkkopie
+          # blijven staan en als extra mapping met dezelfde voorrang meegaan. In CI is de checkout
+          # schoon, maar dezelfde regels draaien met de hand.
+          rm -f wiremock/demo-profiel/generated/*.json
+          cp demo/generated/profiel/ondernemer-*.json wiremock/demo-profiel/generated/
+
+          # Hardop falen in plaats van terugvallen op een fan-out van twee: dat is precies de
+          # stille faalwijze die deze stap opheft.
+          gegenereerd=$(find demo/generated/profiel -name 'ondernemer-*.json' | wc -l)
+          gekopieerd=$(find wiremock/demo-profiel/generated -name 'ondernemer-*.json' | wc -l)
+
+          if [ "$gegenereerd" -eq 0 ] || [ "$gegenereerd" -ne "$gekopieerd" ]; then
+            echo "::error::$gegenereerd ondernemer-stubs gegenereerd, $gekopieerd in de build-context beland."
+            exit 1
+          fi
+
           DEMO_IMG="$REGISTRY/$OWNER/fbs-demo-profiel:$TAG"
           docker build -t "$DEMO_IMG" -f wiremock/demo-profiel/Dockerfile wiremock
+
+          # Het artefact zelf toetsen, niet de bestanden ernaartoe: dit is de enige plek waar de
+          # voorrang tussen de handgeschreven persona's (5) en de gegenereerde ondernemers (1)
+          # werkelijk uitkomt. Landelijk Concern is de grootste van de vier en dus de scherpste
+          # controle.
+          docker run -d --rm --name profiel-controle -p 8089:8080 "$DEMO_IMG"
+
+          for _ in $(seq 30); do
+            curl -sf http://localhost:8089/__admin/mappings >/dev/null && break
+            sleep 1
+          done
+
+          scopes=$(curl -sf http://localhost:8089/api/profielservice/v1/KVK/90000003 \
+            | jq '.voorkeuren[0].scopes | length' || echo 0)
+          docker rm -f profiel-controle >/dev/null || true
+
+          if [ "$scopes" != "100" ]; then
+            echo "::error::Landelijk Concern geeft $scopes organisaties in plaats van 100; de gegenereerde stubs zitten niet in het image of verliezen op voorrang."
+            exit 1
+          fi
+
+          echo "Fan-out geverifieerd: Landelijk Concern kent $scopes organisaties."
           docker push "$DEMO_IMG"
 
   # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
@@ -395,18 +492,23 @@ jobs:
           docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
 
-  # De demo-console is een component van `test` in het magazijnen-project en rolt dus mee met
-  # de rest van de keten, previews inbegrepen. De job hangt aan `run` en niet aan `deploy`: `run`
-  # is de ruimere uitkomst van de twee, dus een PR die de uitrol niet raakt bouwt het image tóch
-  # en laat een kapotte jib-configuratie vallen vóór de merge. Omdat `deploy=true` altijd
-  # `run=true` impliceert, is deze job er ook wanneer deploy-*-magazijnen hem nodig heeft.
-  build-democonsole:
+  # De drie demo-modules met een eigen image: het bedieningspaneel, de personadienst en de
+  # magazijn-simulator. Alle drie componenten van `test` in het magazijnen-project, dus ze rollen
+  # mee met de rest van de keten,
+  # previews inbegrepen. De job hangt aan `run` en niet aan `deploy`: `run` is de ruimere uitkomst
+  # van de twee, dus een PR die de uitrol niet raakt bouwt de images tóch en laat een kapotte
+  # jib-configuratie vallen vóór de merge. Omdat `deploy=true` altijd `run=true` impliceert, is deze
+  # job er ook wanneer deploy-*-magazijnen hem nodig heeft.
+  #
+  # Eén job en één Maven-aanroep voor alle drie: ze delen hun afhankelijkheden, dus een tweede runner
+  # zou vooral dezelfde boom nog een keer ophalen.
+  build-demo-images:
     if: github.event_name == 'push' || needs.changes.outputs.run == 'true'
     needs: [meta, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
-      group: build-democonsole-${{ github.event.pull_request.number || github.ref }}
+      group: build-demo-images-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
     permissions:
       contents: read
@@ -429,7 +531,7 @@ jobs:
           QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./mvnw -B package -DskipTests \
-            -pl demo/demo-console -am \
+            -pl demo/demo-console,demo/demo-personas,demo/magazijn-simulator -am \
             -Dquarkus.container-image.build=true \
             -Dquarkus.container-image.push=true \
             -Dquarkus.container-image.registry="$REGISTRY" \
@@ -639,18 +741,21 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "toxiproxy-aanmeld", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-redis", "image": "${{ env.TOXIPROXY_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
-      # Redis staat in dít project en de console in het magazijnen-project, dus deze kant draagt de
-      # inbound-regel. Ná de deploy: de regel noemt een deployment, en die moet bestaan.
-      - name: Sessiecache openzetten voor de console van deze preview
+      # De sessiecache en twee Toxiproxy-admin-API's staan in dít project en de console in het
+      # magazijnen-project, dus deze kant draagt de inbound-regels. Ná de deploy: een regel noemt een
+      # deployment, en die moet bestaan.
+      - name: Sessiecache en storingen openzetten voor de console van deze preview
         env:
           ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
         run: >-
           .github/scripts/cross-domain-preview.sh zet
           "${{ env.PROJECT_UITVRAAG }}" "pr-${{ github.event.pull_request.number }}"
-          inbound "${{ env.CROSS_DOMAIN_REGEL }}"
+          inbound ${{ env.CROSS_DOMAIN_REGELS_UITVRAAG }}
 
   deploy-preview-externe-stubs:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
@@ -672,10 +777,19 @@ jobs:
     permissions:
       contents: read
     steps:
+      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
+      # draait een script uit .github/scripts/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       # profiel + notificatie = losse componenten (eigen subdomein per stub). De profiel-stub draait
       # het demo-image: dat layert op dezelfde gedeelde mappings en voegt de voorkeuren van de
       # demo-persona's toe. Zonder die voorkeuren geeft de catch-all voor élke ontvanger hetzelfde
       # ene magazijn terug, en valt er van de federatie niets te zien.
+      #
+      # De twee Toxiproxy's staan in dezelfde deployment als hun upstream, zodat de proxy die de
+      # console aanmaakt naar de stub van díe preview wijst en niet naar die van `test`.
       - name: Deploy externe-stubs-project
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
@@ -688,8 +802,20 @@ jobs:
           components: |
             [
               {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
-              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
+              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "toxiproxy-profiel", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
             ]
+
+      # De admin-API's van die twee Toxiproxy's staan in dít project, dus deze kant draagt hun
+      # inbound-regels. Ná de deploy: een regel noemt een deployment, en die moet bestaan.
+      - name: Storingen openzetten voor de console van deze preview
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_PROFIEL }}
+        run: >-
+          .github/scripts/cross-domain-preview.sh zet
+          "${{ env.PROJECT_EXTERNE_STUBS }}" "pr-${{ github.event.pull_request.number }}"
+          inbound ${{ env.CROSS_DOMAIN_REGELS_EXTERNE_STUBS }}
 
   deploy-preview-magazijnen:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
@@ -700,10 +826,26 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
-      && needs.build-democonsole.result == 'success'
+      && needs.build-demo-images.result == 'success'
+      && needs.deploy-preview-uitvraag.result == 'success'
+      && needs.deploy-preview-externe-stubs.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    needs: [meta, build, build-externe-stubs, build-democonsole, gate, changes]
+    # Ná de twee andere preview-deploys, en niet er parallel aan. Dit project draagt de
+    # outbound-kant van álle regels, en elke regel noemt een peer-deployment in een ánder project.
+    # Bestaat die peer nog niet op het moment van genereren, dan slaat de resolver de regel over —
+    # met een regel in een log en verder niets (`resolve.py`: "a missing deployment/component in a
+    # project that IS known ... is logged with the rule name and skipped"). De preview meldt dan
+    # groen met dode storingsknoppen. Kost wat doorlooptijd; die twee jobs zijn kort.
+    needs:
+      - meta
+      - build
+      - build-externe-stubs
+      - build-demo-images
+      - gate
+      - changes
+      - deploy-preview-uitvraag
+      - deploy-preview-externe-stubs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -731,18 +873,22 @@ jobs:
             [
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
+              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
+              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
+              {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
+              {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
             ]
 
-      # De tegenhanger van de inbound-regel bij de uitvraag: de ontvanger beslist, dus één kant
-      # alleen zet niets open.
-      - name: De console van deze preview bij de sessiecache laten
+      # De tegenhanger van de inbound-regels in de twee andere projecten: de ontvanger beslist, dus
+      # één kant alleen zet niets open. De console is overal de aanroepende kant, dus dit project
+      # draagt de outbound-kant van álle regels.
+      - name: De console van deze preview bij de sessiecache en de storingen laten
         env:
           ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
         run: >-
           .github/scripts/cross-domain-preview.sh zet
           "${{ env.PROJECT_MAGAZIJNEN }}" "pr-${{ github.event.pull_request.number }}"
-          outbound "${{ env.CROSS_DOMAIN_REGEL }}"
+          outbound ${{ env.CROSS_DOMAIN_REGELS_MAGAZIJNEN }}
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
@@ -784,6 +930,8 @@ jobs:
           components: |
             [
               {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
+              {"name": "toxiproxy-aanmeld", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-redis", "image": "${{ env.TOXIPROXY_IMAGE }}"},
               {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
             ]
 
@@ -839,7 +987,9 @@ jobs:
           components: |
             [
               {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
-              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"}
+              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
+              {"name": "toxiproxy-profiel", "image": "${{ env.TOXIPROXY_IMAGE }}"},
+              {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
             ]
 
   deploy-test-magazijnen:
@@ -851,11 +1001,11 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.build-contract-bootstrap.result == 'success'
-      && needs.build-democonsole.result == 'success'
+      && needs.build-demo-images.result == 'success'
       && needs.gate.result == 'success'
       && github.event_name == 'push'
       && github.ref == 'refs/heads/main'
-    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, build-democonsole, gate]
+    needs: [meta, build, build-externe-stubs, build-contract-bootstrap, build-demo-images, gate]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Dekt ook de tweede stap (deployment `fsc-magazijna`) — die hoort bij hetzelfde project.
@@ -875,7 +1025,10 @@ jobs:
             [
               {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"}
+              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
+              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
+              {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
+              {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
             ]
 
       # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in
@@ -914,7 +1067,7 @@ jobs:
       - build
       - build-externe-stubs
       - build-contract-bootstrap
-      - build-democonsole
+      - build-demo-images
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
       - deploy-preview-magazijnen

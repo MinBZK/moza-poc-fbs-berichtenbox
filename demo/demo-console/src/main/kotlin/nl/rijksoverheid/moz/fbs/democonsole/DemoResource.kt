@@ -14,7 +14,17 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.herstel.HerstelResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.herstel.HerstelService
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import kotlin.random.Random
+
+/**
+ * Wat het legen weghaalde. Twee benoemde velden en niet één platte map: de echte magazijnen tellen
+ * per magazijn wat er stónd, de simulator telt zijn totalen. Samengevoegd las de melding als
+ * "RVO 240, Bel.dienst 180, berichten 7840, magazijnen 98" — waarin "berichten 7840" eruitziet als
+ * een magazijn dat nog vol staat, precies het tegenovergestelde van wat de knop deed.
+ */
+data class LeegAntwoord(val magazijnen: Map<String, Int>, val gesimuleerd: GesimuleerdHerstel)
 
 @Path("/api/demo")
 @Produces(MediaType.APPLICATION_JSON)
@@ -24,11 +34,20 @@ class DemoResource(
     private val generator: DemoBerichtGenerator,
     private val magazijnDatabase: MagazijnDatabase,
     private val herstelService: HerstelService,
+    private val simulatorService: SimulatorService,
 ) {
 
+    /**
+     * Leegt de twee echte magazijnen én de gesimuleerde. Zou dit alleen de echte raken, dan zou de
+     * demo na een druk op de knop nog steeds honderd gevulde organisaties tonen — en dat is precies
+     * het beeld dat "legen" hoort weg te halen.
+     *
+     * De echte magazijnen eerst, en de gesimuleerde als deelstap die mag ontbreken: een omgeving
+     * zonder simulator liet deze knop anders gegarandeerd falen zónder iets te legen.
+     */
     @POST
     @Path("/legen")
-    fun legen(): Map<String, Int> = magazijnDatabase.leegAlles()
+    fun legen(): LeegAntwoord = LeegAntwoord(magazijnDatabase.leegAlles(), simulatorService.herstelZoMogelijk())
 
     @POST
     @Path("/herstel")

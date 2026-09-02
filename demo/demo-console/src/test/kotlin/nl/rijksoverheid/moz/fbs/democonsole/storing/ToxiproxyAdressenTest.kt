@@ -5,21 +5,13 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.util.Optional
 
 class ToxiproxyAdressenTest {
 
     private fun adressen(vararg paren: Pair<String, String>) =
-        adressenMetOptionals(*paren.map { (naam, adres) -> naam to Optional.of(adres) }.toTypedArray())
+        adressenVan(*paren.map { (naam, adres) -> naam to TestInstantie(url = adres) }.toTypedArray())
 
-    private fun adressenMetOptionals(vararg paren: Pair<String, Optional<String>>) =
-        ToxiproxyAdressen(object : ToxiproxyConfig {
-            override fun toxiproxy() = paren.toMap().mapValues { (_, optioneel) ->
-                object : ToxiproxyConfig.Instantie {
-                    override fun url() = optioneel
-                }
-            }
-        })
+    private fun adressenVan(vararg paren: Pair<String, TestInstantie>) = ToxiproxyAdressen(testConfig(*paren))
 
     @Test
     fun `een lege configuratie kent geen namen en geen instanties`() {
@@ -84,9 +76,9 @@ class ToxiproxyAdressenTest {
 
     @Test
     fun `een proxy zonder waarde telt niet mee, net als een lege string`() {
-        val gemengd = adressenMetOptionals(
-            "profiel" to Optional.of("http://een:8474"),
-            "magazijn-a" to Optional.empty(),
+        val gemengd = adressenVan(
+            "profiel" to TestInstantie(url = "http://een:8474"),
+            "magazijn-a" to TestInstantie(url = null),
         )
 
         assertEquals(setOf("profiel"), gemengd.namen())

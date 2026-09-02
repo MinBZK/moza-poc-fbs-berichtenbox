@@ -39,16 +39,34 @@ class StoringService(private val register: ToxiproxyRegister) {
             .sortedBy { (naam, _) -> naam }
             .toMap()
 
-    fun traag(proxy: String, latencyMs: Int) {
+    /**
+     * Zet er een latency-toxic op en geeft terug wat er daarna daadwerkelijk staat.
+     *
+     * Teruglezen omdat Toxiproxy een toxic ook op een uitgezette proxy aanneemt, met HTTP 200: de
+     * toxic staat er dan wel, maar er komt geen byte doorheen. Zonder deze regel meldde het paneel
+     * "traag" boven een verbinding die dicht staat, en sprak het zichzelf tegen met zijn eigen chip.
+     */
+    fun traag(proxy: String, latencyMs: Int): Storingstoestand {
         controleer(
             register.client(proxy).voegToxicToe(proxy, ToxicVerzoek("latency", mapOf("latency" to latencyMs))),
             "traag zetten van $proxy",
+            // 409 = deze toxic staat er al, want een tweede druk op dezelfde knop biedt hem opnieuw
+            // aan. De gewenste toestand is dan juist bereikt; dat als fout melden zette het paneel
+            // op "Mislukt" terwijl de chip ernaast onverminderd "traag" toonde.
+            bereikt = Response.Status.CONFLICT.statusCode,
         )
+
+        return toestandVan(proxy)
     }
 
-    fun uit(proxy: String) {
+    /** Zet de proxy uit en geeft terug wat er daarna staat; zie [traag] voor het waarom. */
+    fun uit(proxy: String): Storingstoestand {
         controleer(register.client(proxy).zetProxy(proxy, ProxyPatch(enabled = false)), "uitschakelen van $proxy")
+
+        return toestandVan(proxy)
     }
+
+    private fun toestandVan(proxy: String): Storingstoestand = toestand(register.client(proxy).proxies()[proxy])
 
     // Herstel: elke proxy op elke instantie weer aan, alle toxics weg. Elke instantie krijgt zijn
     // eigen poging, los van de andere: op een gedeelde omgeving met meerdere instanties mag één
@@ -58,14 +76,14 @@ class StoringService(private val register: ToxiproxyRegister) {
     // zelf geen message heeft — anders valt zo'n fout stil uit de lijst en meldt reset() ten
     // onrechte dat alles gelukt is.
     fun reset() {
-        val instanties = register.instanties()
+        val perInstantie = register.namen().groupBy { register.client(it) }
 
-        check(instanties.isNotEmpty()) {
+        check(perInstantie.isNotEmpty()) {
             "Geen enkele proxy geconfigureerd: er is niets om te herstellen. Controleer de TOXIPROXY_*_URL-configuratie."
         }
 
-        val fouten = instanties.withIndex().mapNotNull { (index, instantie) ->
-            runCatching { herstel(instantie) }.exceptionOrNull()?.let { fout ->
+        val fouten = perInstantie.entries.withIndex().mapNotNull { (index, ingang) ->
+            runCatching { herstel(ingang.key, ingang.value) }.exceptionOrNull()?.let { fout ->
                 "instantie ${index + 1}: ${fout.message ?: fout::class.simpleName}"
             }
         }
@@ -75,24 +93,50 @@ class StoringService(private val register: ToxiproxyRegister) {
         }
     }
 
-    private fun herstel(instantie: ToxiproxyClient) {
+    private fun herstel(instantie: ToxiproxyClient, verwacht: List<String>) {
         val proxies = instantie.proxies()
 
-        // Toxiproxy start gezond op met nul proxies zodra zijn configuratie ontbreekt of misvormd
-        // is. Al het verkeer van die stroom loopt erdoorheen, dus dan is de keten dood — en juist
-        // deze knop moet dat aanwijzen in plaats van "alles normaal" te bevestigen.
-        check(proxies.isNotEmpty()) {
-            "Toxiproxy kent geen enkele proxy: de keten loopt nergens doorheen. Controleer proxies.json en herstart toxiproxy."
+        // Eerst goedmaken wat er wél staat, en per proxy vangen: één proxy die niet mee wil, mag de
+        // storingen op alle proxies die erná komen niet laten staan. Alle meldingen samen, zodat
+        // deze knop niet één probleem tegelijk prijsgeeft.
+        val fouten = proxies.mapNotNull { (naam, status) ->
+            runCatching { herstelEen(instantie, naam, status) }.exceptionOrNull()?.let { fout ->
+                "$naam: ${fout.message ?: fout::class.simpleName}"
+            }
         }
 
-        proxies.forEach { (naam, status) ->
-            if (!status.enabled) {
-                controleer(instantie.zetProxy(naam, ProxyPatch(enabled = true)), "inschakelen van $naam")
-            }
+        check(fouten.isEmpty()) { "Niet elke proxy is teruggezet:\n" + fouten.joinToString("\n") }
 
-            status.toxics.forEach { toxic ->
-                controleer(instantie.verwijderToxic(naam, toxic.name), "verwijderen toxic ${toxic.name} van $naam")
-            }
+        // Tegen de geconfigureerde namen aan houden en niet alleen tegen "kent er tenminste één".
+        // Een proxy die Toxiproxy niet kent, bestaat niet: al het verkeer van die stroom loopt
+        // erdoorheen, dus die stroom is dood. Herstellen-wat-er-is zou dat bevestigen met "alles
+        // normaal", precies wanneer iemand deze knop indrukt omdat er al iets niet klopt. De twee
+        // oorzaken verschillen per omgeving, vandaar beide in de melding: lokaal een ontbrekende of
+        // misvormde proxies.json, op een gedeelde omgeving een Toxiproxy die net herstartte
+        // (ProxyBootstrap zet hem bij de volgende ronde terug) of een admin-API die de console niet
+        // bereikt.
+        val ontbrekend = (verwacht - proxies.keys).sorted()
+
+        check(ontbrekend.isEmpty()) {
+            "Toxiproxy kent $ontbrekend niet: die stroom loopt nergens doorheen. Lokaal wijst dat op proxies.json; " +
+                "op een gedeelde omgeving op een Toxiproxy die net herstartte, of op een onbereikbare admin-API."
+        }
+    }
+
+    private fun herstelEen(instantie: ToxiproxyClient, naam: String, status: ProxyStatus) {
+        if (!status.enabled) {
+            controleer(instantie.zetProxy(naam, ProxyPatch(enabled = true)), "inschakelen van $naam")
+        }
+
+        status.toxics.forEach { toxic ->
+            controleer(
+                instantie.verwijderToxic(naam, toxic.name),
+                "verwijderen toxic ${toxic.name} van $naam",
+                // 404 = die toxic is er al niet meer. Dat is precies wat deze knop wilde bereiken,
+                // en het gebeurt zodra iets anders hem tussen het uitlezen en het verwijderen
+                // weghaalde.
+                bereikt = Response.Status.NOT_FOUND.statusCode,
+            )
         }
     }
 
@@ -122,9 +166,13 @@ class StoringService(private val register: ToxiproxyRegister) {
         else -> Storingstoestand.NORMAAL
     }
 
-    private fun controleer(response: Response, actie: String) {
+    /**
+     * [bereikt] is een statuscode waarmee Toxiproxy zegt dat de gewenste toestand er al is. Die
+     * telt als geslaagd: de knop wilde een toestand, niet een verandering.
+     */
+    private fun controleer(response: Response, actie: String, bereikt: Int? = null) {
         response.use {
-            check(it.status in 200..299) { "Toxiproxy-fout bij $actie: HTTP ${it.status}" }
+            check(it.status in 200..299 || it.status == bereikt) { "Toxiproxy-fout bij $actie: HTTP ${it.status}" }
         }
     }
 }

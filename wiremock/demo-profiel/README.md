@@ -11,7 +11,25 @@ een geldig nummer hebben. Dat compromis blijft opgesloten in het demo-image in p
 van het gedeelde image te verruimen.
 
 Lokaal mount de compose-`profiel-service` deze map als extra subdir naast de gedeelde mappings; op
-ZAD draait het `profiel`-component het demo-image, dat dezelfde twee lagen al bevat.
+ZAD draait het `profiel`-component het demo-image, dat dezelfde lagen al bevat.
+
+## Drie lagen, van breed naar smal
+
+WireMock leest recursief en breekt gelijke voorrang op leesvolgorde; het lagere getal wint. Van
+zwakst naar sterkst:
+
+| Laag | Voorrang | Waar |
+|---|---|---|
+| Gedeelde catch-all en foutgevallen | 100 en 10 | `externe-stubs/mappings/` |
+| Handgeschreven persona's | 5 | `demo-profiel/mappings/`, deze map |
+| De vier ondernemers, met volledige fan-out | 1 | `demo-profiel/generated/`, gegenereerd |
+
+De onderste laag komt uit `demo/genereer-magazijnen.py` en draagt naast de twee echte magazijnen ook
+de gesimuleerde: 3, 15, 45 en 100 organisaties. Lokaal bind-mount compose die map rechtstreeks; in
+het image kopieert de stap `Build + push externe-stubs` in `deploy.yml` ze naar `generated/` vóór de
+build, en controleert daarna op het draaiende image dat Landelijk Concern werkelijk 100 organisaties
+teruggeeft. Zonder die laag werkt de demo nog steeds — dan kent elke persona alleen de twee echte
+magazijnen, en dat is precies wat de nacontrole moet afvangen.
 
 De gebruikte BSN's zijn **elfproef-geldig maar verzonnen**: ze komen uit de conventionele
 999-testreeks, die nooit aan een echt persoon wordt uitgegeven. Ze horen dus tot geen enkele
@@ -20,7 +38,7 @@ Wie hier een persona bijzet, houdt die reeks aan; een elfproef-geldig nummer bui
 van een bestaand persoon zijn.
 
 Elke persona krijgt een `OntvangViaBerichtenbox`-voorkeur met de organisatie-OIN's in scope
-waar die persona berichten van ontvangt (prioriteit 1, wint van de gedeelde catch-all):
+waar die persona berichten van ontvangt (voorrang 5, wint van de gedeelde catch-all):
 
 | Persona | Sleutel | Ontvangt van (OIN) |
 |---|---|---|

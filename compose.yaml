@@ -6,7 +6,7 @@
 # `DEMO_BIND` bepaalt op welk hostadres de stack publiceert; default `127.0.0.1`, en verder wordt
 # alleen `0.0.0.0` ondersteund — `demo/podman-up.sh` controleert elke service over 127.0.0.1 en een
 # specifiek adres laat die controles aflopen. Zonder die binding staat de hele demo op élke
-# interface van de machine: Redis zonder wachtwoord, drie PostgreSQL-instanties met
+# interface van de machine: Redis zonder wachtwoord, vier PostgreSQL-instanties met
 # demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
 # aan een kantoor- of thuisnetwerk is dat het hele subnet.
 #
@@ -151,7 +151,7 @@ services:
   #
   # Images bouwen met jib (geen Dockerfile):
   #   ./mvnw clean package -DskipTests \
-  #     -pl services/berichtenmagazijn,services/berichtenuitvraag -am \
+  #     -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/magazijn-simulator -am \
   #     -Dquarkus.container-image.build=true \
   #     -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo
   #
@@ -227,17 +227,61 @@ services:
       - ./toxiproxy/proxies.json:/proxies.json:ro
     command: ["-host=0.0.0.0", "-config=/proxies.json"]
 
-  # Lichtgewicht stub-magazijnen voor 'veel magazijnen' (fase 6). Eén WireMock, n pad-gebaseerde
-  # magazijnen (/mNN) uit demo/generated/ — draai eerst demo/genereer-magazijnen.py. De demo-console
-  # zet stubs live op storing via de admin-API (:8092/__admin/mappings).
-  magazijn-stubs:
-    image: docker.io/wiremock/wiremock:3.13.2
+  # De gesimuleerde magazijnen: één service die er tientallen bedient, elk op pad-prefix
+  # /magazijn/<OIN>. Welke dat zijn komt uit demo/generated/ — draai eerst
+  # demo/genereer-magazijnen.py; hetzelfde artefact vult het register van de uitvraag.
+  #
+  # Dit verving de WireMock-antwoordmachines van fase 6. Die konden geen toestand dragen: een PATCH
+  # verdween in het niets en de volgende GET toonde weer de oude waarde, dus mappen en leesstatus —
+  # precies wat we over veel magazijnen willen tonen — waren alleen op de twee echte magazijnen te
+  # demonstreren. De simulator slaat wél op, en genereert uit dezelfde OpenAPI-spec als het echte
+  # magazijn.
+  postgres-simulator:
+    image: docker.io/library/postgres:18
     profiles: [demo]
     ports:
-      - "${DEMO_BIND:-127.0.0.1}:8092:8080"
+      - "${DEMO_BIND:-127.0.0.1}:5435:5432"
+    environment:
+      POSTGRES_USER: magazijnsimulator
+      POSTGRES_PASSWORD: magazijnsimulator
+      POSTGRES_DB: magazijnsimulator
+    # Meer verbindingen dan de standaard honderd: dit is de database van één service die er honderd
+    # voorstelt, en die houdt bij een volle fan-out vijftig connecties aan (DB_POOL_MAX). Ruim boven
+    # die vijftig, want die grens raken levert dezelfde storing op als een te kleine pool — de
+    # Berichtenbox ziet magazijnen die er niet zijn, en de weigering telt niet mee in de tellers van
+    # de pool zelf.
+    command: ["postgres", "-c", "max_connections=200"]
     volumes:
-      - ./demo/generated/magazijn-stubs-mappings:/home/wiremock/mappings
-    command: ["--verbose"]
+      - postgres-data-simulator:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U magazijnsimulator -d magazijnsimulator"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  magazijn-simulator:
+    image: fbs-demo/fbs-magazijn-simulator:demo
+    profiles: [demo]
+    ports:
+      # Uitsluitend op loopback, net als de demo-console en om dezelfde reden: onder %dev draait het
+      # beheerpad zonder token, en `POST /beheer/legen` wist alle berichten van alle gesimuleerde
+      # magazijnen. Met DEMO_BIND=0.0.0.0 zou dat vanaf het hele subnet bereikbaar zijn. De uitvraag
+      # benadert de simulator container-intern en heeft de gepubliceerde poort niet nodig.
+      - "127.0.0.1:8092:8092"  # NIET via DEMO_BIND
+    depends_on:
+      postgres-simulator:
+        condition: service_healthy
+    environment:
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      DB_JDBC_URL: jdbc:postgresql://postgres-simulator:5432/magazijnsimulator
+      # De set die deze instantie voorstelt, uit hetzelfde artefact dat het register van de uitvraag
+      # vult. SmallRye leest dit absolute pad als extra config-bron.
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijn-simulator.properties
+      # Lokaal geen token: het beheerpad zit op loopback en de simulator eist er alleen buiten dev en
+      # test een. Op een gedeelde omgeving hoort BEHEER_TOKEN wél gezet te zijn.
+    volumes:
+      - ./demo/generated/magazijn-simulator.properties:/demo-config/magazijn-simulator.properties:ro
 
   berichtenuitvraag:
     image: fbs-demo/fbs-berichtenuitvraag:demo
@@ -255,6 +299,8 @@ services:
         condition: service_started
       postgres-uitvraag:
         condition: service_healthy
+      magazijn-simulator:
+        condition: service_started
     environment:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
@@ -263,7 +309,9 @@ services:
       # aanroep van een ander adres dan localhost een lege 400 op. Alleen hier, in de demo-compose:
       # de service zelf houdt de standaardinstelling.
       QUARKUS_HTTP_HOST_VALIDATION_REQUIRE_LOCALHOST: "false"
-      # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf).
+      # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf). De
+      # gesimuleerde magazijnen niet: die hebben hun storingsgedrag in zichzelf, en per magazijn
+      # verschillend — een proxy kan een verbinding alleen helemaal open of dicht zetten.
       REDIS_HOSTS: redis://toxiproxy:16379
       MAGAZIJN_A_URL: http://toxiproxy:18090
       MAGAZIJN_B_URL: http://toxiproxy:18091
@@ -288,14 +336,30 @@ services:
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
       BERICHTENSESSIECACHE_TTL: PT2M
-      # Extra register-entries voor de stub-magazijnen (fase 6), gegenereerd in demo/generated/.
+      # Extra register-entries voor de gesimuleerde magazijnen, gegenereerd in demo/generated/.
       # SmallRye leest dit absolute pad als additionele config-bron en merge't het bij de baked A/B.
-      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-stubs.properties
-      # Bulkhead ruim boven het ingerichte aantal stubs (fase 6), zodat bij veel magazijnen niet de
-      # helft als OVERBELAST wordt geweigerd. Alleen demo; prod houdt de default (20).
-      BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "60"
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties
+      # Bulkhead ruim boven het aantal magazijnen van de grootste ondernemer (100), zodat er bij veel
+      # magazijnen niet een deel als OVERBELAST wordt geweigerd. Alleen demo; prod houdt de default
+      # (20). Wat er gebeurt als de bulkhead wél de bottleneck wordt, is een eigen scenario — dat
+      # meet stap 6 van het simulator-ontwerp.
+      BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "120"
     volumes:
-      - ./demo/generated/magazijnen-stubs.properties:/demo-config/magazijnen-stubs.properties:ro
+      - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
+
+  # De demo-identiteiten, als eigen dienst. Wél op DEMO_BIND en niet op DEMO_BEDIENING_BIND: dit is
+  # een leeslijst zonder knoppen, en een berichtenbox moet erbij kunnen zonder dat daarmee het legen
+  # bereikbaar wordt. Online is die scheiding een muur die niet per pad open kan; lokaal houden we
+  # hem aan omdat een demo die lokaal anders loopt het verkeerde bewijst.
+  demo-personas:
+    image: fbs-demo/fbs-demo-personas:demo
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:8098:8098"
+    environment:
+      # Binnen de eigen netns; de ports-regel hierboven bepaalt wat er van buiten bij kan. In de
+      # gedeelde-netns-modus zet de overlay dit op loopback, want daar is 0.0.0.0 de hele machine.
+      QUARKUS_HTTP_HOST: 0.0.0.0
 
   # Wegwerp-bediening (legen/vullen/random). Aanleveren gaat via de magazijn-HTTP-API;
   # legen gaat via directe JDBC op de magazijn-databases (vandaar de DB-URL's).
@@ -316,6 +380,8 @@ services:
         condition: service_started
       berichtenmagazijn-b:
         condition: service_started
+      magazijn-simulator:
+        condition: service_started
       toxiproxy:
         condition: service_started
       redis:
@@ -332,10 +398,9 @@ services:
       MAGAZIJN_B_URL: http://berichtenmagazijn-b:8090
       MAGAZIJN_A_DB_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
-      MAGAZIJN_STUBS_ADMIN_URL: http://magazijn-stubs:8080
-      # Eén bron van waarheid voor n: compose leest het uit je shell (default 12). Gebruik dezelfde
-      # export voor het script:  export DEMO_MAGAZIJN_STUBS=40 && python3 demo/genereer-magazijnen.py
-      DEMO_MAGAZIJN_STUBS: "${DEMO_MAGAZIJN_STUBS:-12}"
+      # De console vraagt het aantal magazijnen aan de simulator zelf; er is hier bewust geen tweede
+      # getal dat daarmee uit de pas kan lopen.
+      MAGAZIJN_SIMULATOR_URL: http://magazijn-simulator:8092
 
   # Berichtenbox van de proeftuin (MinBZK/moza-poc) als container, zodat de demo geen Node, npm ci
   # of Eleventy op de machine vraagt. Zijn nginx zet /api/ server-side door naar BACKEND_ORIGIN, dus
@@ -345,9 +410,9 @@ services:
   # maar verschuift stil onder een lopende demo door. Een release-tag (bv. gebruikersonderzoeken-
   # 2026-08) kan net zo goed:  PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 docker compose ...
   #
-  # Alleen het leespad loopt hier: /api/demo/personas valt onder dezelfde `location /api/` en zou
-  # dus ook bij de uitvraag uitkomen. Een tweede bestemming vraagt een wijziging in moza-poc, want
-  # NGINX_ENVSUBST_FILTER laat daar op dit moment alleen BACKEND_ORIGIN door.
+  # De env-vars hieronder werken vanaf de proeftuin-versie die het keten-verkeer per prefix splitst.
+  # Op een oudere tag vallen ze weg en loopt alleen het leespad, want /api/demo/personas valt daar
+  # nog onder dezelfde `location /api/` en komt dus bij de uitvraag uit.
   proeftuin:
     image: ghcr.io/minbzk/moza-poc:${PROEFTUIN_TAG:-sha-934de70}
     profiles: [demo]
@@ -359,7 +424,32 @@ services:
     environment:
       # Alleen in gebruik wanneer de container rechtstreeks op 8096 benaderd wordt; via de
       # demo-proxy onderschept die /api/ al vóór het de container bereikt.
-      BACKEND_ORIGIN: http://berichtenuitvraag:8086
+      #
+      # De proeftuin-nginx splitst het verkeer per prefix: /api/v1/ naar de uitvraag,
+      # /api/demo/personas naar de personadienst en de rest van /api/demo/ naar het paneel. Nodig
+      # omdat de catch-all /api/ een leestijdslimiet van zestig seconden draagt: een ophaalronde
+      # langs tientallen magazijnen ligt langer stil dan dat en wordt daar middenin afgekapt.
+      #
+      # BACKEND_PERSONAS apart en niet via de terugval op BACKEND_DEMO: die terugval bestaat voor
+      # opstellingen van vóór de splitsing, en erop leunen zou het paneel onbereikbaar maken voor
+      # alles wat niet de personalijst is.
+      #
+      # De drie bestemmingen zijn te overschrijven vanuit de shell, zodat een lokale berichtenbox
+      # tegen een keten elders kan praten zonder ander image of andere compose. Dat werkt alleen op
+      # de container zelf (:8096): via de demo-proxy (:8097) is /api/ al onderschept vóór het hier
+      # aankomt.
+      BACKEND_KETEN: ${BACKEND_KETEN:-http://berichtenuitvraag:8086}
+      BACKEND_PERSONAS: ${BACKEND_PERSONAS:-http://demo-personas:8098}
+      BACKEND_DEMO: ${BACKEND_DEMO:-http://demo-console:8095}
+      # De *_HOST-varianten zetten de Host-header apart, voor een ingress die daarop routeert. Leeg
+      # gelaten neemt de proeftuin de host van de browser, en dat is precies goed zolang de keten
+      # hier in het containernetwerk staat: lokaal routeert niets op Host en is er geen TLS.
+      BACKEND_KETEN_HOST: ${BACKEND_KETEN_HOST:-}
+      BACKEND_PERSONAS_HOST: ${BACKEND_PERSONAS_HOST:-}
+      BACKEND_DEMO_HOST: ${BACKEND_DEMO_HOST:-}
+      # Ook overschrijfbaar, en zolang de gepinde proeftuin de padsplitsing nog niet kent is dit de
+      # énige die telt: die versie stuurt heel /api/ hierheen.
+      BACKEND_ORIGIN: ${BACKEND_ORIGIN:-http://berichtenuitvraag:8086}
 
   # Eén origin voor de hele demo: berichtenbox, bedieningspaneel en keten-API's achter hetzelfde
   # adres. Zie demo/proxy/demo.conf voor het waarom.
@@ -376,6 +466,8 @@ services:
         condition: service_started
       demo-console:
         condition: service_started
+      demo-personas:
+        condition: service_started
       berichtenuitvraag:
         condition: service_started
     environment:
@@ -384,13 +476,15 @@ services:
       PROXY_PORT: "8080"
       PROEFTUIN_UPSTREAM: http://proeftuin:8080
       CONSOLE_UPSTREAM: http://demo-console:8095
+      PERSONAS_UPSTREAM: http://demo-personas:8098
       UITVRAAG_UPSTREAM: http://berichtenuitvraag:8086
-      # Beperk envsubst tot deze vier, zodat nginx-eigen variabelen ($$host, $$uri) blijven staan.
-      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|UITVRAAG)_UPSTREAM)$$'
+      # Beperk envsubst tot deze variabelen, zodat nginx-eigen namen ($$host, $$uri) blijven staan.
+      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|PERSONAS|UITVRAAG)_UPSTREAM)$$'
     volumes:
       - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
 
 volumes:
   postgres-data-a:
+  postgres-data-simulator:
   postgres-data-b:
   postgres-data-uitvraag:

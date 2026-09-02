@@ -14,8 +14,11 @@
 # past de projectregel aan, een andere naam maakt een eigen regel voor die deployment.
 #
 # Gebruik:
-#   ZAD_API_KEY=... cross-domain-preview.sh zet       <project> <deployment> inbound|outbound <regel>
-#   ZAD_API_KEY=... cross-domain-preview.sh verwijder <project> <deployment> inbound|outbound <regel>
+#   ZAD_API_KEY=... cross-domain-preview.sh zet       <project> <deployment> inbound|outbound <regel>...
+#   ZAD_API_KEY=... cross-domain-preview.sh verwijder <project> <deployment> inbound|outbound <regel>...
+#
+# Meerdere regelnamen gaan in één patch. De API neemt een lijst, en een deployment die vier regels
+# nodig heeft zou anders vier keer de projectcontrole doen en vier keer op een taak wachten.
 #
 # `verwijder` op een regel die er niet is, is een no-op aan de API-kant; twee keer opruimen mag dus.
 
@@ -36,11 +39,18 @@ fout() {
 # De body van de patch. Het veld dat de peer draagt hangt aan de richting; die twee door elkaar
 # halen levert een regel op die valideert maar niets openzet, en dat faalt stil.
 patch_body() {
-  local actie=$1 deployment=$2 richting=$3 regel=$4
+  local actie=$1 deployment=$2 richting=$3
+  shift 3
+
+  local regel items=""
 
   case "$actie" in
     verwijder)
-      printf '{"remove":["%s"]}' "$regel"
+      for regel in "$@"; do
+        items="${items:+$items,}$(printf '"%s"' "$regel")"
+      done
+
+      printf '{"remove":[%s]}' "$items"
       ;;
     zet)
       local zijde
@@ -50,7 +60,11 @@ patch_body() {
         *) fout "Richting moet inbound of outbound zijn, was '$richting'." ;;
       esac
 
-      printf '{"add":[{"name":"%s","%s":{"deployment":"%s"}}]}' "$regel" "$zijde" "$deployment"
+      for regel in "$@"; do
+        items="${items:+$items,}$(printf '{"name":"%s","%s":{"deployment":"%s"}}' "$regel" "$zijde" "$deployment")"
+      done
+
+      printf '{"add":[%s]}' "$items"
       ;;
     *)
       fout "Actie moet zet of verwijder zijn, was '$actie'."
@@ -65,22 +79,28 @@ patch_body() {
 # een netwerkregel die er nooit komt, en valt dat pas op wanneer iemand tijdens een demo op de knop
 # drukt.
 vereis_projectregel() {
-  local api_url=$1 api_key=$2 project=$3 richting=$4 regel=$5
-  local config
+  local api_url=$1 api_key=$2 project=$3 richting=$4
+  shift 4
 
+  local config regel
+
+  # Eén keer ophalen voor alle regels: de configuratie van een project is er één, en per regel
+  # opnieuw vragen zou alleen de API belasten.
   if ! config=$("$CURL" -sf -H "X-API-Key: $api_key" \
     "$api_url/v2/projects/$project/services/cross-domain-access/config"); then
-    fout "Cross-domain-configuratie van $project niet op te vragen; kan de projectregel niet controleren."
+    fout "Cross-domain-configuratie van $project niet op te vragen; kan de projectregels niet controleren."
   fi
 
   # De naam moet in dít antwoord staan; welke richting is niet uit de platte tekst te halen zonder
   # JSON-parser, en een regelnaam is uniek per project in de praktijk. Een naam die alleen in de
   # andere richting bestaat is daarmee niet te onderscheiden — de melding zegt dat.
-  case "$config" in
-    *"\"$regel\""*) return 0 ;;
-  esac
+  for regel in "$@"; do
+    case "$config" in
+      *"\"$regel\""*) continue ;;
+    esac
 
-  fout "Geen $richting-regel '$regel' op projectniveau in $project. Een deployment-patch vult een bestaande regel aan; zonder die regel wordt hij bij het genereren overgeslagen en komt er geen netwerkregel. Zie demo/environment/zad-demo/README.md."
+    fout "Geen $richting-regel '$regel' op projectniveau in $project. Een deployment-patch vult een bestaande regel aan; zonder die regel wordt hij bij het genereren overgeslagen en komt er geen netwerkregel. Zie demo/environment/zad-demo/README.md."
+  done
 }
 
 # Wacht tot de taak een eindtoestand heeft. Zonder deze lus meldt de stap groen zodra de API het
@@ -112,11 +132,12 @@ wacht_op_taak() {
 }
 
 main() {
-  local actie=${1:-} project=${2:-} deployment=${3:-} richting=${4:-} regel=${5:-}
+  local actie=${1:-} project=${2:-} deployment=${3:-} richting=${4:-}
+  [ "$#" -ge 4 ] && shift 4 || shift "$#"
 
   case "$actie" in
     zet | verwijder) ;;
-    *) fout "Gebruik: $0 zet|verwijder <project> <deployment> inbound|outbound <regel>" ;;
+    *) fout "Gebruik: $0 zet|verwijder <project> <deployment> inbound|outbound <regel>..." ;;
   esac
 
   case "$richting" in
@@ -126,24 +147,29 @@ main() {
 
   [ -n "$project" ] || fout "Geen project opgegeven."
   [ -n "$deployment" ] || fout "Geen deployment opgegeven."
-  [ -n "$regel" ] || fout "Geen regelnaam opgegeven."
+  [ "$#" -gt 0 ] || fout "Geen regelnaam opgegeven."
+
+  local regel
+  for regel in "$@"; do
+    [ -n "$regel" ] || fout "Een lege regelnaam is geen regelnaam."
+  done
 
   local api_key=${ZAD_API_KEY:-}
   [ -n "$api_key" ] || fout "ZAD_API_KEY ontbreekt; zonder sleutel valt er niets te zetten."
 
   local api_url=${ZAD_API_URL:-$STANDAARD_API_URL}
   if [ "$actie" = zet ]; then
-    vereis_projectregel "$api_url" "$api_key" "$project" "$richting" "$regel"
+    vereis_projectregel "$api_url" "$api_key" "$project" "$richting" "$@"
   fi
 
   local body antwoord taak
-  body=$(patch_body "$actie" "$deployment" "$richting" "$regel")
+  body=$(patch_body "$actie" "$deployment" "$richting" "$@")
 
   if ! antwoord=$("$CURL" -sf -X PATCH \
     -H "X-API-Key: $api_key" -H 'Content-Type: application/json' \
     "$api_url/v2/projects/$project/services/cross-domain-access/config/deployment/$deployment/$richting" \
     -d "$body"); then
-    fout "Patch van de $richting-regel '$regel' op $project/$deployment is geweigerd."
+    fout "Patch van de $richting-regels ($*) op $project/$deployment is geweigerd."
   fi
 
   taak=$(printf '%s' "$antwoord" | sed -n 's/.*"task_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
@@ -154,7 +180,7 @@ main() {
 
   wacht_op_taak "$api_url" "$api_key" "$taak"
 
-  echo "$actie: $richting-regel '$regel' op $project/$deployment (taak $taak)"
+  echo "$actie: $richting-regels ($*) op $project/$deployment (taak $taak)"
 }
 
 # Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.

@@ -1806,9 +1806,9 @@ en de reden per keuze; hier alleen de vorm.
   project volgt geen preview tenzij de deploy-workflow de regel per deployment bijschrijft en
   `cleanup-preview.yml` hem weer opruimt; dat doet `.github/scripts/cross-domain-preview.sh` nu, en
   daarmee werkt de cache-verval-knop.
-- **De storingsknoppen** — open. Vier Toxiproxy-componenten over twee projecten, plus de wijziging
-  die de console zijn proxies zelf laat aanmaken via de admin-API. Leunde op de netwerkregels
-  hierboven, en die staan nu.
+- **De storingsknoppen** — gedaan. Vier Toxiproxy-componenten over twee projecten, plus de wijziging
+  die de console zijn proxies zelf laat aanmaken via de admin-API. Zie
+  `2026-08-28-storingsknoppen-op-zad-plan.md`.
 
 ## Zelfcontrole van dit plan
 

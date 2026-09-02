@@ -1,4 +1,4 @@
-**Status:** Stap 1 uitgevoerd en geverifieerd; stap 2 concept. Zie "Wat er staat" onderaan.
+**Status:** Uitgevoerd; de keten op `test` gaat door de proxies zodra de nieuwe console daar staat. Zie "Wat er staat" onderaan.
 
 # Storingsknoppen en cluster-intern verkeer op ZAD — ontwerp
 
@@ -11,8 +11,8 @@ de console) en #938 (magazijn-simulator).
 
 ## De aanleiding
 
-> Stap 1 hieronder is uitgevoerd, dus van de twee knoppen in deze tabel werkt de eerste inmiddels.
-> De beschrijving blijft staan omdat ze de reden van stap 2 draagt.
+> Stap 1 hieronder is uitgevoerd en stap 2 is gebouwd. De beschrijving blijft staan omdat ze
+> vastlegt waaróm de opzet werd zoals hij is.
 
 Op ZAD staat de console als `democonsole` in `mpfm-w3h/test` en in elke preview daarvan. Alles wat
 hij doet is óf binnen zijn eigen deployment (de magazijnen, de database) óf over de publieke
@@ -21,7 +21,7 @@ ingress (de uitvraag). Twee knopgroepen vallen daarbuiten:
 | Knop | Wat hij nodig heeft | Waar dat staat | Nu |
 |---|---|---|---|
 | Cache verlopen | Redis, poort 6379 | `mpfb-8wh`, ander project | werkt (stap 1) |
-| Storingen | vier Toxiproxy-admin-API's, poort 8474 | `mpfb-8wh` en `mpfpsm-lcl` | open (stap 2) |
+| Storingen | vier Toxiproxy-admin-API's, poort 8474 | `mpfb-8wh` en `mpfpsm-lcl` | stap 2 |
 
 De console laat weg wat een omgeving niet kan bedienen, op grond van `GET /api/demo/omgeving`: lege
 `TOXIPROXY_*_URL`-waarden halen de storingsknoppen uit het paneel. `SESSIECACHE_BEREIKBAAR` deed
@@ -86,7 +86,7 @@ over de héle configuratie en zou de bestaande regels overschrijven — de `PATC
 preview-deploy-jobs hadden geen `actions/checkout`: de deploy-stap is een action en heeft de repo
 niet nodig, een script wel.
 
-### Stap 2: de console maakt zijn eigen proxies aan
+### Stap 2: de console maakt zijn eigen proxies aan — uitgevoerd
 
 Toxiproxy start met zijn eigen default-`CMD` (`-host=0.0.0.0`, geverifieerd op de image-config van
 2.12.0) prima op, met nul proxies en zijn admin-API omhoog. Dat schrapt eigenschap 1 en 2 in één
@@ -121,6 +121,57 @@ Kosten: vier containers van ~32 Mi plus drie ingressen, per deployment inclusief
 permanente extra hop in het verkeerspad van de keten, ook wanneer er niemand demonstreert. Dat is
 de afweging die bij dit werk hoort en die eerder al als open stond aangemerkt.
 
+Drie dingen bleken bij de uitvoering, alle drie in `RijksICTGilde/RIG-Cluster` na te lezen.
+
+**Een component draagt méér dan één poort.** `ports: [...]` bestaat in `AddComponentRequest`, elke
+poort ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`. Dit ontwerp
+ging nog uit van één poort per component; in werkelijkheid geldt die beperking voor de ingress, niet
+voor de Service. Elke Toxiproxy draagt daarom zijn stroom op de eerste poort en zijn admin-API op
+8474, cluster-intern achter de netwerkregel.
+
+**De standaard-probe zou de uit-knop terugdraaien.** Zonder de `health-check`-dienst probeert
+Kubernetes een TCP-socket op `ports[0]` — precies de poort die Toxiproxy sluit als je een proxy
+uitzet. Anderhalve minuut na een druk op "uit" zou de pod herstarten en álle proxies meenemen. De
+probe wijst daarom naar 8474.
+
+**De ingressen zijn een eis, geen voorkeur.** `DownstreamClient.valideerUrl` weigert buiten dev een
+downstream zonder `https` of op een intern adres (BIO 13.2.1 plus de SSRF-blocklist). `aanmeld` en
+`notificatie` móéten dus over de publieke ingress lopen.
+
+**En het image komt niet van upstream.** De ZAD-mirror geeft op `ghcr.io/shopify/toxiproxy` een
+HTTP 500. De oorzaak zit in het image, niet in de mirror-configuratie: de manifest list draagt vier
+entries met drie unieke digests, want `linux/arm/v6` staat er twee keer in met dezelfde digest — bij
+elke tag van 2.9.0 tot 2.12.0. Docker en containerd negeren dat; de Quay-pull-through-cache schrijft
+per child een rij in een tabel met een unique constraint, en de tweede identieke child geeft daar een
+IntegrityError die als 500 naar buiten komt. Upstream Quay dedupliceert inmiddels (PROJQUAY-10068,
+4 augustus 2026), maar dat zit in geen enkele release, ook niet in v3.17.4.
+
+De uitweg is de lijst overslaan: `TOXIPROXY_IMAGE` pint de amd64-child, en een child is een gewoon
+manifest zónder kinderen. Beproefd op de preview — de pod trok hem door de mirror en Toxiproxy
+startte. De tag staat er alleen bij zodat `pin-consistency.yml` de verwijzing aan `compose.yaml` kan
+binden; `compose.yaml` houdt de multi-arch-tag, zodat lokaal ook arm werkt.
+
+Onderweg hebben we het image eerst onder onze eigen namespace doorgepubliceerd. Dat werkte, maar
+kostte een Dockerfile, een build-job en een kopie die met upstream mee moet bewegen; de digest-pin
+doet hetzelfde met één regel. Docker Hub was geen optie: dat staat sinds 2019 stil op 2.1.4.
+
+**Twee ordeningen die niet vrij zijn.** Een regel waarvan het peer-component nog niet bestaat, wordt
+bij het renderen overgeslagen — met een waarschuwing, terwijl de deployment `Healthy` meldt en de
+NetworkPolicy die egress-regel mist. En de keten mag pas door de proxies wanneer overal een console
+draait die ze aanmaakt; eerder omhangen wijst de uitvraag naar een proxy die niemand maakt.
+
+En één ding dat het ontwerp helemaal niet had: **de proxies staan alleen in het geheugen van
+Toxiproxy.** Zonder `proxies.json` laat een herstart van die pod de keten dood achter, want al het
+profiel-, notificatie-, aanmeld- en Redis-verkeer loopt erdoorheen. De console verzoent daarom elke
+dertig seconden: ontbrekende proxies maakt hij aan, en een proxy waarvan de upstream of de poort
+afwijkt bouwt hij opnieuw. Dat laatste dekt het geval dat iemand een upstream bijstelt terwijl de
+Toxiproxy-pod blijft draaien — de console herstart dan wel, de proxy niet. Wat klopt blijft
+ongemoeid, ook een bewust uitgezette proxy.
+
+De listen-vergelijking gaat op de poort: Toxiproxy antwoordt met het adres waaraan hij gebónden is,
+dus een gepostte `0.0.0.0:18089` komt terug als `[::]:18089`. Letterlijk vergelijken zou elke proxy
+elke ronde afgeweken noemen en hem blijven herbouwen.
+
 ## Overwogen en afgevallen
 
 | Alternatief | Waarom niet |
@@ -138,7 +189,11 @@ de afweging die bij dit werk hoort en die eerder al als open stond aangemerkt.
 | De regel op projectniveau in `mpfb-8wh` (inbound) | Gezet |
 | De regel op projectniveau in `mpfm-w3h` (outbound) | Gezet |
 | `REDIS_HOSTS`, `REDIS_PASSWORD` en `SESSIECACHE_BEREIKBAAR=true` op de console | Gezet |
-| Stap 2 (de storingsknoppen) | Concept |
+| Console maakt zijn eigen proxies aan, met reconcile + tests | Uitgevoerd |
+| Netwerkregels per preview in `deploy.yml`/`cleanup-preview.yml`, runbook | Uitgevoerd |
+| De vier Toxiproxy-componenten op `test`, met netwerkregels | Uitgevoerd |
+| Geverifieerd op de preview: eigen proxies, eigen upstreams, eigen NetworkPolicy | Uitgevoerd |
+| De keten op `test` door de proxies leiden | Na de merge, zie het runbook |
 
 De cache-verval-knop werkt, op `test` en op een preview. Eén ding kwam er bij de verificatie
 bovenop dat hier niet stond: de Redis op ZAD eist een wachtwoord, en de console kende de property

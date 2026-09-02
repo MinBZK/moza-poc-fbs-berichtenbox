@@ -1,7 +1,12 @@
 /* Bediening van de demo-stack. Los van index.html zodat de opmaak leesbaar blijft: elke actieknop
  * draagt zijn methode en pad als data-attribuut, en één listener op het document voert ze uit. */
 
+/* Waar de berichtenbox staat. Dit pad klopt lokaal: daar zet de demo-proxy de proeftuin en dit
+ * paneel achter één origin. Op een gedeelde omgeving draagt elk component zijn eigen hostnaam en
+ * levert /api/demo/omgeving de volledige URL. */
 const BOX_PAD = '/moza/berichtenbox/';
+
+let boxUrl = BOX_PAD;
 
 /* Waar je gebleven was, zodat een refresh je niet terugzet op het eerste tabblad met het paneel
  * open over de berichtenbox heen. In sessionStorage en niet in localStorage: dit overleeft een
@@ -23,21 +28,25 @@ const MAGAZIJN_NAMEN = {
     'magazijn-b': 'Bel.dienst',
 };
 
-/* Loopt er een actie, dan slaat de poll over — de statusbalk zou anders de toestand van halverwege
- * een herstel tonen. */
-let bezig = false;
+/* Hoeveel acties er lopen; zolang dat er meer dan nul zijn slaat de poll over, want de statusbalk
+ * zou anders de toestand van halverwege een herstel tonen. Een teller en geen vlag: de ingedrukte
+ * knop gaat op disabled maar een ándere niet, dus twee acties kunnen overlappen — en dan zette de
+ * eerste die terugkwam de vlag voor allebei terug. */
+let bezig = 0;
 
 /* Volgnummer per ververs-ronde. Een poll die al onderweg was toen je klikte, mag de verse toestand
  * van ná die actie niet overschrijven. */
 let ververslus = 0;
 
-/* Of deze omgeving stub-magazijnen kent, uit /api/demo/omgeving; null zolang dat nog niet gelezen
- * is. Uit de configuratie en niet uit een geslaagde uitlezing: anders is "niet ingericht" niet te
- * onderscheiden van "niet kunnen lezen", en verdwijnt de chip juist wanneer er iets stuk is. */
-let heeftStubMagazijnen = null;
+/* Of deze omgeving gesimuleerde magazijnen kent, uit /api/demo/omgeving; null zolang dat nog niet
+ * gelezen is. Uit de configuratie en niet uit een geslaagde uitlezing: anders is "niet ingericht"
+ * niet te onderscheiden van "niet kunnen lezen", en verdwijnt de chip juist wanneer er iets stuk
+ * is. */
+let heeftSimulator = null;
 
 const melding = document.getElementById('melding');
 const meldingTekst = document.getElementById('melding-tekst');
+const meldingLetOp = document.getElementById('melding-letop');
 const meldingRuw = document.getElementById('melding-ruw');
 const meldingJson = document.getElementById('melding-json');
 
@@ -94,11 +103,23 @@ function herstelStand() {
 
 // ---------------------------------------------------------------- berichtenbox in het frame
 
-/* Zonder de demo-proxy bestaat dit pad niet op deze origin en toont het frame een 404-pagina. Een
- * frame dat mis laadt geeft geen gebeurtenis die JavaScript van een geslaagde kan onderscheiden,
- * dus toetsen we het pad vooraf in plaats van achteraf te raden. */
-function bepaalBox() {
-    fetch(BOX_PAD, { method: 'HEAD' })
+/* Zonder de demo-proxy bestaat het eigen pad niet op deze origin en toont het frame een
+ * 404-pagina. Een frame dat mis laadt geeft geen gebeurtenis die JavaScript van een geslaagde kan
+ * onderscheiden, dus toetsen we dat pad vooraf in plaats van achteraf te raden.
+ *
+ * Een geconfigureerd adres nemen we juist op zijn woord: dat wijst naar een ander component, en
+ * daar strandt een HEAD op CORS. Die uitkomst is niet van onbereikbaar te onderscheiden, dus
+ * toetsen zou de berichtenbox altijd verbergen — precies waar hij wél staat. */
+function bepaalBox(url) {
+    boxUrl = url || BOX_PAD;
+
+    if (url) {
+        toonBox(true);
+
+        return;
+    }
+
+    fetch(boxUrl, { method: 'HEAD' })
         .then((respons) => toonBox(respons.ok))
         .catch(() => toonBox(false));
 }
@@ -109,12 +130,14 @@ function toonBox(bereikbaar) {
     box.hidden = !bereikbaar;
     document.getElementById('geen-box').hidden = bereikbaar;
 
-    if (bereikbaar) box.src = BOX_PAD;
+    if (bereikbaar) box.src = boxUrl;
 }
 
-/* Zelfde origin, dus een gerichte herlaad kan zonder dat de proeftuin daar iets voor hoeft te
- * bouwen. Bewust een knop en niet automatisch na elke actie: een herlaad zet de berichtenbox terug
- * op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag. */
+/* Bewust een knop en niet automatisch na elke actie: een herlaad zet de berichtenbox terug op zijn
+ * beginstand, en midden in een demo bepaal je zelf wanneer dat mag. Op dezelfde origin kan dat
+ * gericht, zonder dat de proeftuin daar iets voor hoeft te bouwen; staat de berichtenbox op een
+ * eigen hostnaam, dan weigert de browser die toegang en zet het opnieuw zetten van `src` hem
+ * alsnog terug. */
 function verversBox() {
     const box = document.getElementById('box');
 
@@ -123,7 +146,7 @@ function verversBox() {
     try {
         box.contentWindow.location.reload();
     } catch (fout) {
-        box.src = BOX_PAD;
+        box.src = boxUrl;
     }
 }
 
@@ -143,10 +166,19 @@ function klap() {
 
 // ---------------------------------------------------------------- melding
 
-function toonMelding(tekst, soort, ruw) {
+/* Sommige antwoorden dragen uitleg die los staat van de uitkomst — waarom de Berichtenbox na een
+ * reset nog even doet alsof er niets veranderd is, bijvoorbeeld. Op een eigen regel en niet in de
+ * samenvatting: die moet in één oogopslag te lezen blijven. */
+function letOp(body) {
+    return body && typeof body.letOp === 'string' ? body.letOp : null;
+}
+
+function toonMelding(tekst, soort, ruw, uitleg) {
     melding.hidden = false;
     melding.className = 'melding' + (soort ? ' melding--' + soort : '');
     meldingTekst.textContent = tekst;
+    meldingLetOp.hidden = !uitleg;
+    meldingLetOp.textContent = uitleg || '';
     meldingRuw.hidden = !ruw;
 
     // Bij twijfel staat het antwoord meteen open: dan is de ruwe JSON het enige aanknopingspunt,
@@ -172,10 +204,25 @@ const SAMENVATTINGEN = {
 
     vulling: (body) => vullingTekst(body),
 
+    /* Apart van `berichten`, dat "wat er nu staat" toont: hier gaat het om wat er wég is. Dezelfde
+     * formatter voor beide las na het legen als een magazijn dat nog vol stond. */
+    legen: (body) =>
+        'Geleegd: ' +
+        Object.entries(body.magazijnen).map(([sleutel, aantal]) => naam(sleutel) + ' ' + aantal).join(', ') +
+        (body.gesimuleerd.overgeslagen
+            ? '. Gesimuleerde magazijnen overgeslagen: ' + body.gesimuleerd.overgeslagen
+            : '. Gesimuleerd: ' + body.gesimuleerd.berichten + ' berichten uit ' +
+              body.gesimuleerd.magazijnen + ' magazijnen'),
+
     herstel: (body) =>
         'Hersteld. Geleegd: ' +
         Object.entries(body.geleegd).map(([sleutel, aantal]) => naam(sleutel) + ' ' + aantal).join(', ') +
-        '. ' + vullingTekst(body.vulling),
+        '. ' + vullingTekst(body.vulling) +
+        // De echte magazijnen zijn dan wél hersteld; wie dat niet leest gaat de knop opnieuw
+        // indrukken of zoeken naar een fout die er niet is.
+        (body.gesimuleerd.overgeslagen
+            ? '. Gesimuleerde magazijnen overgeslagen: ' + body.gesimuleerd.overgeslagen
+            : '. Gesimuleerd: ' + body.gesimuleerd.berichten + ' weg, ' + body.gesimuleerdGevuld + ' klaargezet'),
 
     status: (body) => body.status,
 
@@ -186,7 +233,23 @@ const SAMENVATTINGEN = {
 
     storingen: (body) => storingenTekst(body),
 
-    'veel-magazijnen': (body) => body.actief + ' van ' + body.totaal + ' stub-magazijnen actief',
+    simulator: (body) => body.actief + ' van ' + body.totaal + ' gesimuleerde magazijnen zonder storing',
+
+    'simulator-vullen': (body) =>
+        body.berichten + ' berichten en ' + body.bijlagen + ' bijlagen klaargezet in ' +
+        body.magazijnen + ' gesimuleerde magazijnen' +
+        (body.overgeslagen ? ', ' + body.overgeslagen + ' stonden er al' : ''),
+
+    'simulator-legen': (body) =>
+        body.berichten + ' berichten weg; ' + body.magazijnen + ' gesimuleerde magazijnen terug op hun gedrag',
+
+    'simulator-magazijnen': (body) =>
+        body.length + ' gesimuleerde magazijnen: ' +
+        Object.entries(body.reduce((telling, magazijn) => {
+            telling[magazijn.modus] = (telling[magazijn.modus] || 0) + 1;
+
+            return telling;
+        }, {})).map(([modus, aantal]) => aantal + '× ' + modus.toLowerCase()).join(', '),
 
     sessie: (body) => body.gewisteKeys + ' sessie-key(s) gewist; de volgende uitvraag geeft 409',
 
@@ -200,7 +263,10 @@ const SAMENVATTINGEN = {
         'Uitvraag: ' + (body.uitvraagBasis || 'afgeleid uit de browser') +
         '. Storingsknoppen: ' + (body.storingen.join(', ') || 'geen'),
 
-    personas: (body) => body.length + " persona's: " + body.map((persona) => persona.label).join(', '),
+    // Uit /api/demo/omgeving: het adres /api/demo/personas hoort bij de personadienst en wordt door
+    // deze module bewust met 404 beantwoord.
+    personas: (body) =>
+        body.personas.length + " persona's: " + body.personas.map((persona) => persona.label).join(', '),
 };
 
 function vullingTekst(vulling) {
@@ -238,6 +304,10 @@ function samenvatting(soort, body) {
 /* HTTP 200 zegt alleen dat de console het verzoek verwerkte, niet dat de berichten aankwamen. Een
  * groene melding boven "100 mislukt" is het verkeerde signaal. */
 function vullingSoort(body) {
+    // Een overgeslagen stap is geen fout — het echte werk is gelukt — maar hij hoort ook niet groen
+    // te zijn: er is iets niet gebeurd waar de bediener op rekende.
+    if (body && body.gesimuleerd && body.gesimuleerd.overgeslagen) return 'let-op';
+
     const vulling = body && body.vulling ? body.vulling : body;
 
     if (!vulling || typeof vulling.aangeboden !== 'number') return 'goed';
@@ -338,23 +408,26 @@ async function voerUit(knop) {
 
     if (pad === null) return;
 
-    bezig = true;
+    bezig += 1;
     knop.disabled = true;
     zetUitkomst(knop, 'bezig');
     toonMelding('Bezig…', null, null);
 
-    // Alles opruimen in een finally: een bezig-vlag die blijft hangen zet de poll stil, en dan
-    // toont de balk de rest van de sessie verouderde waarden zonder dat iets dat verraadt.
+    // Alles opruimen in een finally: een teller die blijft hangen zet de poll stil, en dan toont de
+    // balk de rest van de sessie verouderde waarden zonder dat iets dat verraadt.
     try {
         const uitkomst = await roep(pad, knop.dataset.methode);
-
-        zetUitkomst(knop, uitkomst.gelukt ? 'gelukt' : 'mislukt');
 
         if (uitkomst.gelukt) {
             const samengevat = samenvatting(knop.dataset.samenvatting, uitkomst.body);
 
-            toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw);
+            // Het merkteken pas hierna, en naar de soort van de samenvatting. HTTP 200 alleen zegt
+            // te weinig: bij "geslaagd, maar het antwoord had een onverwachte vorm" stond er anders
+            // een groen vinkje naast een melding die twijfel uitsprak.
+            zetUitkomst(knop, samengevat.soort === 'let-op' ? 'let-op' : 'gelukt');
+            toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw, letOp(uitkomst.body));
         } else {
+            zetUitkomst(knop, 'mislukt');
             toonMelding(uitkomst.tekst, 'fout', uitkomst.ruw);
         }
     } catch (fout) {
@@ -368,7 +441,7 @@ async function voerUit(knop) {
         // getabd is.
         if (document.activeElement === document.body) knop.focus();
 
-        bezig = false;
+        bezig -= 1;
 
         verversToestand();
     }
@@ -572,8 +645,8 @@ function toonStoringen(storingen) {
 
 function toonMagazijnen(veel) {
     // Verbergen mag alleen op gezag van de configuratie. Verbergen omdat de uitlezing mislukte zou
-    // van een storing een omgeving-zonder-stub-magazijnen maken — visueel niet te onderscheiden.
-    if (heeftStubMagazijnen !== true) return;
+    // van een storing een omgeving-zonder-simulator maken — visueel niet te onderscheiden.
+    if (heeftSimulator !== true) return;
 
     document.getElementById('chip-magazijnen').hidden = false;
 
@@ -593,7 +666,7 @@ function toonMagazijnen(veel) {
 /* Elke uitlezing valt apart terug: een endpoint dat niet antwoordt maakt alleen zijn eigen chip
  * onbekend, want juist bij een storing wil je de overige tellingen nog zien. */
 async function verversToestand() {
-    if (bezig) return;
+    if (bezig > 0) return;
 
     const beurt = ++ververslus;
 
@@ -603,7 +676,7 @@ async function verversToestand() {
         lees('/api/demo/storing'),
         // Niet vragen naar wat deze omgeving niet heeft: dat levert elke vijf seconden een fout in
         // het log op, zonder dat er iets te tonen valt.
-        heeftStubMagazijnen === false ? null : lees('/api/demo/veel-magazijnen'),
+        heeftSimulator === false ? null : lees('/api/demo/simulator'),
     ]);
 
     // Een ronde die al liep toen er geklikt werd, mag de verse toestand van ná die actie niet
@@ -624,7 +697,12 @@ async function verversToestand() {
 async function pasOmgevingToe() {
     const omgeving = await lees('/api/demo/omgeving');
 
-    heeftStubMagazijnen = omgeving ? omgeving.stubMagazijnen > 0 : true;
+    heeftSimulator = omgeving ? omgeving.simulator : true;
+
+    // Pas hierna, want het adres van de berichtenbox komt uit ditzelfde antwoord. Is de console
+    // onbereikbaar, dan blijft het eigen pad over — lokaal is dat het juiste adres.
+    bepaalBox(omgeving ? omgeving.berichtenboxUrl : '');
+
 
     if (omgeving) {
         const beschikbaar = new Set(omgeving.storingen);
@@ -646,6 +724,28 @@ async function pasOmgevingToe() {
         // De sessiecache staat op een gedeelde omgeving in een ander project dan de console; zonder
         // netwerkregel daarheen faalt die knop gegarandeerd.
         document.getElementById('groep-sessie').hidden = omgeving.sessiecache === false;
+
+        // Zonder simulator faalt elke knop in die groep gegarandeerd; een knop die alleen een fout
+        // oplevert kost tijdens een demo uitleg die niets toevoegt. Los daarvan de uitlees-knop op
+        // het info-blad: die deelt zijn groep met knoppen die er wél altijd zijn, dus hij hangt aan
+        // zijn eigen markering in plaats van aan de groep.
+        document.getElementById('groep-simulator').hidden = omgeving.simulator === false;
+
+        document.querySelectorAll('button[data-simulator]').forEach((knop) => {
+            knop.hidden = omgeving.simulator === false;
+        });
+    }
+
+    // Als laatste, en apart: de keuzelijst hangt aan de vorm van één veld, en een antwoord dat die
+    // vorm mist mag de knoppen hierboven niet meeslepen. Uit ditzelfde antwoord en niet van
+    // /api/demo/personas: dat adres hoort bij de personadienst, en deze module beantwoordt het
+    // bewust niet. Console onbereikbaar levert null op, waarop de keuzelijst zegt dat ze niet te
+    // lezen was in plaats van dat er niets is ingericht.
+    try {
+        vulPersonas(omgeving ? omgeving.personas : null);
+    } catch (fout) {
+        console.error('[bediening] persona-keuzelijst niet te vullen', fout);
+        vulPersonas(null);
     }
 
     // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de
@@ -655,10 +755,9 @@ async function pasOmgevingToe() {
 
 /* De ontdubbeling loopt op een BSN, dus alleen persona's met een BSN kunnen hem spelen. Een vrij
  * tekstveld zou een BSN vragen die verderop in dezelfde pagina al als keuzelijst bestaat. */
-async function vulPersonas() {
+function vulPersonas(personas) {
     const keuze = document.getElementById('ontdubbelPersona');
     const knop = document.querySelector('button[data-samenvatting="ontdubbeling"]');
-    const personas = await lees('/api/demo/personas');
 
     keuze.replaceChildren();
 
@@ -698,7 +797,7 @@ async function vulPersonas() {
 
     const bewaard = (leesStand().velden || {}).ontdubbelPersona;
 
-    // Een persona die er niet meer is — andere configuratie, ander stub-register — valt terug op
+    // Een persona die er niet meer is — andere configuratie, andere personaset — valt terug op
     // de eerste in de lijst in plaats van op een lege keuze die de knop laat falen.
     if (bewaard && Array.from(keuze.options).some((optie) => optie.value === bewaard)) {
         keuze.value = bewaard;
@@ -757,9 +856,7 @@ document.querySelectorAll('button[data-pad]').forEach((knop) => {
 });
 
 herstelStand();
-bepaalBox();
 pasOmgevingToe();
-vulPersonas();
 verversToestand();
 
 // Alleen pollen terwijl er iemand kijkt: een demo-console blijft dagen in een tab openstaan.

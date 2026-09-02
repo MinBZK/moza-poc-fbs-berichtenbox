@@ -16,6 +16,8 @@
       <p>Deze pagina toont de berichtenbox van de proeftuin in een frame. Dat werkt alleen via de
         demo-proxy, die alles achter één adres zet: <a href="http://127.0.0.1:8097/bediening/">
         http://127.0.0.1:8097/bediening/</a>.</p>
+      <p>Op een gedeelde omgeving is er geen proxy en draagt elk onderdeel zijn eigen adres; zet
+        daar <code>BERICHTENBOX_URL</code> op dit component.</p>
       <p>De wegwerp-berichtenbox staat er zolang nog naast:
         <a href="berichtenbox.html">berichtenbox.html</a>.</p>
     </div>
@@ -37,6 +39,7 @@
 
       <div class="melding" id="melding" role="status" aria-live="polite" hidden>
         <p class="melding__tekst" id="melding-tekst"></p>
+        <p class="melding__letop" id="melding-letop" hidden></p>
         <details class="melding__ruw" id="melding-ruw" hidden>
           <summary>Antwoord van de console</summary>
           <pre id="melding-json"></pre>
@@ -63,7 +66,7 @@
           <div class="knoppen">
             <button type="button" class="knop knop--primair" data-methode="POST" data-pad="/api/demo/herstel"
                     data-samenvatting="herstel"
-                    data-bevestig="Stopt de stroom, zet alle storingen uit, leegt beide magazijnen en laadt de basisvulling opnieuw.">Herstel
+                    data-bevestig="Stopt de stroom, zet alle storingen uit, leegt beide magazijnen en alle gesimuleerde, en laadt de basisvulling opnieuw.">Herstel
               demo</button>
             <button type="button" class="knop knop--subtiel" data-actie="ververs-box">Berichtenbox verversen</button>
           </div>
@@ -77,8 +80,8 @@
             <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/basisvulling"
                     data-samenvatting="vulling">Basisvulling laden</button>
             <button type="button" class="knop knop--gevaar" data-methode="POST" data-pad="/api/demo/legen"
-                    data-samenvatting="berichten"
-                    data-bevestig="Leegt beide magazijn-databases volledig: berichten, bijlagen, status en logboek.">Magazijnen
+                    data-samenvatting="legen"
+                    data-bevestig="Leegt beide magazijn-databases volledig — berichten, bijlagen, status en logboek — en daarbij alle gesimuleerde magazijnen.">Magazijnen
               legen</button>
           </div>
           <p class="uitleg">Twee keer vullen zonder legen geeft dubbele berichten.</p>
@@ -203,20 +206,26 @@
             sessie verschijnt er niets.</p>
         </div>
 
-        <div class="groep">
-          <p class="groep__kop">Veel magazijnen</p>
+        <div class="groep" id="groep-simulator">
+          <p class="groep__kop">Gesimuleerde magazijnen</p>
           <label class="veld">Actief aantal
             <input id="actiefAantal" type="number" value="2" min="0">
           </label>
           <div class="knoppen">
             <button type="button" class="knop" data-methode="POST"
-                    data-pad="/api/demo/veel-magazijnen/actief/{actiefAantal}"
-                    data-samenvatting="veel-magazijnen">Zet actief<span class="scenario">#3</span></button>
-            <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/veel-magazijnen/reset"
-                    data-samenvatting="veel-magazijnen">Alle magazijnen aan</button>
+                    data-pad="/api/demo/simulator/actief/{actiefAantal}"
+                    data-samenvatting="simulator">Zet actief<span class="scenario">#3</span></button>
+            <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/simulator/vullen"
+                    data-samenvatting="simulator-vullen">Berichten klaarzetten</button>
+            <button type="button" class="knop knop--gevaar" data-methode="POST"
+                    data-pad="/api/demo/simulator/legen" data-samenvatting="simulator-legen"
+                    data-bevestig="Leegt alle gesimuleerde magazijnen en zet hun gedrag terug op de vastgelegde verdeling.">Legen
+              en gedrag terugzetten</button>
           </div>
-          <p class="uitleg">Persona <em>Grootbedrijf B.V.</em> haalt op bij alle stub-magazijnen. Het
-            ingerichte totaal ligt vast bij het genereren (<code>DEMO_MAGAZIJN_STUBS</code>).</p>
+          <p class="uitleg">De vier ondernemers halen op bij 3, 15, 45 en 100 organisaties; de
+            kleinere sets zitten volledig in de grotere, zodat het verschil in wachttijd puur door
+            het aantal komt. Het ingerichte aantal ligt vast bij genereren en opstarten
+            (<code>DEMO_MAGAZIJNEN</code>) en de simulator vertelt zelf hoeveel het er zijn.</p>
         </div>
       </section>
 
@@ -232,8 +241,13 @@
                     data-samenvatting="storingen">Storingen</button>
             <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
                     data-samenvatting="omgeving">Omgeving</button>
-            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/personas"
+            <!-- Uit /api/demo/omgeving en niet uit /api/demo/personas: dat adres hoort bij de
+                 personadienst, en deze module beantwoordt het met 404. -->
+            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
                     data-samenvatting="personas">Persona&rsquo;s</button>
+            <button type="button" class="knop" data-simulator data-methode="GET"
+                    data-pad="/api/demo/simulator/magazijnen"
+                    data-samenvatting="simulator-magazijnen">Gesimuleerde magazijnen</button>
           </div>
           <p class="uitleg">De volledige JSON staat onder <em>Antwoord van de console</em> in de
             melding bovenaan.</p>
