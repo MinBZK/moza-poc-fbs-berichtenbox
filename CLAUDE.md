@@ -137,8 +137,9 @@ class Voorbeeld {
 > laat Surefire stale `.class`-bestanden draaien → misleidende `NoSuchMethodError`/
 > "Failed to start quarkus"-fouten in ongewijzigde code. `mvn clean ...` voorkomt dit.
 
-De volledige ontwikkelgids (tests per module, gates, linting, tweede magazijn, configuratie) staat
-in `docs/ontwikkelen.md`; houd dat bestand leidend en werk het bij als deze commando's wijzigen.
+De volledige ontwikkelgids (tests per module, gates, linting, tweede magazijn, de gekoppelde demo,
+configuratie) staat in `docs/ontwikkelen.md`; houd dat bestand leidend en werk het bij als deze
+commando's wijzigen.
 
 ```bash
 # Tests draaien hun eigen infra via Dev Services; compose is voor dev-mode.
@@ -353,7 +354,7 @@ project **en** PR, dus die race sluiten ze niet uit.
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
-| `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, configuratie |
+| `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, de demo met de proeftuin als berichtenbox, configuratie |
 | `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL, magazijn-simulator) |
