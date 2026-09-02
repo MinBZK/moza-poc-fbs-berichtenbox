@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.simulator
 
 import io.quarkus.test.junit.QuarkusTest
-import jakarta.ws.rs.ProcessingException
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -24,14 +23,15 @@ class BeheerTokenHeaderTest {
 
     @Test
     fun `een lege beheertoken levert een aanroep op en geen configuratiefout`() {
-        // In deze test draait er geen simulator: het verkeer hoort te stranden op de verbinding,
-        // niet op het invullen van de header.
+        // Het nagebootste beheerpad wijst elke aanroep af; dát antwoord bewijst dat het verzoek de
+        // deur uit ging. Struikelde de client op het invullen van de header, dan viel de fout vóór
+        // het netwerkverkeer en was er niets om af te wijzen.
         val fout = runCatching { beheer.magazijnen() }.exceptionOrNull()
 
-        assertTrue(fout != null, "zonder simulator hoort deze aanroep te falen")
+        assertTrue(fout != null, "het nagebootste beheerpad hoort deze aanroep af te wijzen")
         assertTrue(
-            fout is ProcessingException,
-            "verwachtte een mislukte verbinding, kreeg ${fout!!::class.simpleName}: ${fout.message}",
+            fout!!.message.orEmpty().contains("HTTP 401"),
+            "verwachtte het antwoord van het beheerpad, kreeg ${fout::class.simpleName}: ${fout.message}",
         )
     }
 }

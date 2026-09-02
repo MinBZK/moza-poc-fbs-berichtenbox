@@ -159,6 +159,38 @@ class ProxyBootstrapTest {
     }
 
     @Test
+    fun `een mislukte verwijdering blokkeert de overige proxies op dezelfde instantie evenmin`() {
+        // Lokaal dragen alle zes proxies dezelfde Toxiproxy. Vangt de bootstrap per instantie in
+        // plaats van per proxy, dan slaat één mislukte herbouw alles wat erná komt elke ronde
+        // opnieuw over — en blijft de stroom van die vijf dood zonder dat iets ze noemt.
+        every { eerste.proxies() } returns mapOf("profiel" to zoalsGebonden("18089", "test-profiel:8080"))
+        every { eerste.verwijderProxy("profiel") } returns respons(500)
+        every { eerste.maakProxy(any()) } returns respons(201)
+
+        ProxyBootstrap(
+            registerMet("profiel" to eerste, "redis" to eerste),
+            testConfig("profiel" to profiel, "redis" to redis.copy(url = "http://een:8474")),
+        ).reconcile()
+
+        verify { eerste.maakProxy(ProxyVerzoek("redis", "0.0.0.0:16379", "redis:6379")) }
+        verify(exactly = 0) { eerste.maakProxy(ProxyVerzoek("profiel", "0.0.0.0:18089", "profiel-service:8080")) }
+    }
+
+    @Test
+    fun `een onleesbare instantie levert één melding en geen poging per proxy`() {
+        // Komt er niets uit het uitlezen, dan is er over geen enkele proxy van die instantie iets
+        // te zeggen; hem dan tóch per proxy proberen levert alleen een rij identieke fouten op.
+        every { eerste.proxies() } throws ProcessingException("connection refused")
+
+        ProxyBootstrap(
+            registerMet("profiel" to eerste, "redis" to eerste),
+            testConfig("profiel" to profiel, "redis" to redis.copy(url = "http://een:8474")),
+        ).reconcile()
+
+        verify(exactly = 0) { eerste.maakProxy(any()) }
+    }
+
+    @Test
     fun `een niet-2xx-antwoord bij het aanmaken blokkeert de overige instanties niet`() {
         every { eerste.proxies() } returns emptyMap()
         every { eerste.maakProxy(any()) } returns respons(500)

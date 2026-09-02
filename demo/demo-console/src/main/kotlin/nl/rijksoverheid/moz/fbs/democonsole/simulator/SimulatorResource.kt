@@ -24,7 +24,7 @@ data class LegenAntwoord(val berichten: Int, val magazijnen: Int, val letOp: Str
 class SimulatorResource(private val service: SimulatorService) {
 
     @GET
-    fun status(): Map<String, Int> = service.status()
+    fun status(): SimulatorStand = service.status()
 
     @GET
     @Path("/magazijnen")
@@ -32,7 +32,7 @@ class SimulatorResource(private val service: SimulatorService) {
 
     @POST
     @Path("/actief/{aantal}")
-    fun zetActief(@PathParam("aantal") aantal: Int): Map<String, Int> = try {
+    fun zetActief(@PathParam("aantal") aantal: Int): SimulatorStand = try {
         service.zetActief(aantal)
     } catch (ex: IllegalArgumentException) {
         throw BadRequestException(ex.message, ex)
@@ -54,9 +54,6 @@ class SimulatorResource(private val service: SimulatorService) {
     fun legen(): LegenAntwoord {
         val uitkomst = service.herstel()
 
-        return LegenAntwoord(
-            berichten = uitkomst.getValue("berichten"),
-            magazijnen = uitkomst.getValue("magazijnen"),
-        )
+        return LegenAntwoord(berichten = uitkomst.berichten, magazijnen = uitkomst.magazijnen)
     }
 }

@@ -39,6 +39,7 @@
 
       <div class="melding" id="melding" role="status" aria-live="polite" hidden>
         <p class="melding__tekst" id="melding-tekst"></p>
+        <p class="melding__letop" id="melding-letop" hidden></p>
         <details class="melding__ruw" id="melding-ruw" hidden>
           <summary>Antwoord van de console</summary>
           <pre id="melding-json"></pre>
@@ -79,7 +80,7 @@
             <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/basisvulling"
                     data-samenvatting="vulling">Basisvulling laden</button>
             <button type="button" class="knop knop--gevaar" data-methode="POST" data-pad="/api/demo/legen"
-                    data-samenvatting="berichten"
+                    data-samenvatting="legen"
                     data-bevestig="Leegt beide magazijn-databases volledig — berichten, bijlagen, status en logboek — en daarbij alle gesimuleerde magazijnen.">Magazijnen
               legen</button>
           </div>
@@ -240,7 +241,9 @@
                     data-samenvatting="storingen">Storingen</button>
             <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
                     data-samenvatting="omgeving">Omgeving</button>
-            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/personas"
+            <!-- Uit /api/demo/omgeving en niet uit /api/demo/personas: dat adres hoort bij de
+                 personadienst, en deze module beantwoordt het met 404. -->
+            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
                     data-samenvatting="personas">Persona&rsquo;s</button>
             <button type="button" class="knop" data-simulator data-methode="GET"
                     data-pad="/api/demo/simulator/magazijnen"

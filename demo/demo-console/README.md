@@ -45,18 +45,19 @@ de verificatie erna.
 Knopgroepen waarvan de backend er niet is, verbergt het paneel zelf op basis van
 `GET /api/demo/omgeving`: een proxy waarvan de URL leeg is verdwijnt uit de lijst, een onbereikbare
 sessiecache haalt de cache-verval-knop weg, en zonder simulator vallen de knoppen voor de
-gesimuleerde magazijnen weg. De magazijn-storingen zelf hebben op ZAD geen proxy: het storingsgedrag
-van een gesimuleerd magazijn zit in de simulator, per magazijn verschillend.
+gesimuleerde magazijnen weg. De magazijn-storingen zelf hebben op ZAD geen proxy: daar staat naast de vier
+bestaande Toxiproxy's geen vijfde en zesde voor A en B, dus hun `TOXIPROXY_MAGAZIJN_*_URL` blijven
+leeg. Lokaal zijn die knoppen er wél.
 
 De cache-verval-knop en de vier storingsknoppen wérken daar, ook op een preview. Ze vragen allemaal
 cluster-intern verkeer naar een ander project, en zo'n netwerkregel noemt op ZAD altijd één vaste
 deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` ze per preview bij en weer weg.
 
-De vier Toxiproxy's op ZAD dragen géén `proxies.json`: de inhoud van een attachment wordt daar
-ongewijzigd gemount en zou in elke preview de upstream van `test` noemen. De console maakt de proxies
-daarom zelf aan via de admin-API (`ProxyBootstrap`) en herhaalt dat elke dertig seconden, want
-Toxiproxy houdt ze in het geheugen en verliest ze bij een herstart. Lokaal is dat een no-op: compose
-zet ze uit `toxiproxy/proxies.json` en Toxiproxy antwoordt dan 409.
+De vier Toxiproxy's op ZAD dragen géén `proxies.json` — de KDoc van `ProxyBootstrap` legt uit waarom
+een attachment daar niet werkt. De console maakt de proxies zelf aan via de admin-API en herhaalt dat
+elke dertig seconden, want Toxiproxy houdt ze in het geheugen en verliest ze bij een herstart.
+Lokaal gebeurt er niets: compose zet ze uit `toxiproxy/proxies.json`, die met dezelfde configuratie
+overeenkomen, dus er valt niets aan te maken of te herbouwen.
 
 Drie dingen horen bij het wonen in `test`. De demo rolt mee met elke merge naar main, dus de
 omgeving kan tijdens een presentatie herstarten. Previews klonen `test` en krijgen de console dus
@@ -72,13 +73,13 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 
 | Tabblad | Knop | Wat het doet |
 |---|---|---|
-| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo |
+| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
 | Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json` |
-| Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek |
+| Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek. De gesimuleerde magazijnen gaan als deelstap mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen |
 | Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten |
 | Demo | Stroom starten / stoppen | Eén willekeurig bericht per interval; stopt vanzelf na 500 berichten of 60 minuten |
-| Storingen | Traag / Uit per proxy | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie |
+| Storingen | Traag (alleen magazijn A/B) / Uit per proxy | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie en meldt pas succes nadat het teruggelezen heeft dat alles normaal staat |
 | Scenario's | Cache verlopen | Wist de sessiecache in Redis |
 | Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |
 | Scenario's | Gesimuleerde magazijnen | Zet *k* van de *n* zonder storing, zet berichten klaar, en leegt alles inclusief het gedrag; *n* vraagt de console aan de simulator zelf |
@@ -107,7 +108,7 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `UITVRAAG_BASIS` | leeg | Browser-zichtbaar adres van de uitvraag-API, **inclusief** het `/api/v1`-pad (bv. `https://uitvraag.example/api/v1`); leeg = afleiden uit de browser-locatie. `berichtenbox.js` gebruikt de waarde ongewijzigd als request-basis en de paginering strípt `/api/v1` uit de HAL-links op die aanname — zonder het pad faalt elke call zichtbaar voor de gebruiker (foutmelding in het paneel of een `alert`) |
 | `BERICHTENBOX_URL` | leeg | Browser-zichtbaar adres van de berichtenbox, voor het frame in het paneel. Leeg = het eigen pad `/moza/berichtenbox/`, dat lokaal achter de demo-proxy klopt; op een gedeelde omgeving de volledige URL van het proeftuin-component. Een geconfigureerd adres wordt niet vooraf getoetst: een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar te onderscheiden |
 | `UITVRAAG_URL` | `http://localhost:8086` | Adres dat de console zélf aanroept voor de ontdubbeling-webhook |
-| `TOXIPROXY_<PROXY>_LISTEN`, `TOXIPROXY_<PROXY>_UPSTREAM` | de waarden uit `toxiproxy/proxies.json` | Waar de proxy luistert en naartoe stuurt; hiermee maakt de console hem aan. Op ZAD komt de upstream uit een alias, zodat `$DEPLOYMENT_NAME` de proxy naar de stubs van dezelfde deployment wijst |
+| `TOXIPROXY_<PROXY>_LISTEN`, `TOXIPROXY_<PROXY>_UPSTREAM` | de waarden uit `toxiproxy/proxies.json` | Waar de proxy luistert en naartoe stuurt; hiermee maakt de console hem aan. Op ZAD komt de upstream uit een alias, zodat `$DEPLOYMENT_NAME` de proxy naar de upstream van dezelfde deployment wijst |
 | `TOXIPROXY_RECONCILE_INTERVAL` | `30s` | Hoe vaak de console controleert of de proxies er nog zijn |
 | `REDIS_HOSTS` | `redis://localhost:6379` | Cache-verval-knop. Wijst bewust rechtstreeks op Redis en niet door de proxy: het is een beheeractie, die moet blijven werken terwijl je de Redis-stroom uitzet |
 | `REDIS_PASSWORD` | leeg | Wachtwoord van diezelfde Redis. Leeg = geen AUTH, wat lokaal klopt; op een gedeelde omgeving vereist, anders geeft de knop `NOAUTH Authentication required` |
