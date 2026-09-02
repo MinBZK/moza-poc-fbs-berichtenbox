@@ -104,6 +104,17 @@ case "$IMAGE" in
     *) echo "PROEFTUIN_IMAGE '$IMAGE' ziet er niet uit als een image met een tag of digest" >&2; exit 1 ;;
 esac
 
+# Een preview-tag van de proeftuin verdwijnt uit ghcr zodra hún PR sluit, en dan trekt de
+# eerstvolgende herstart een tag die niet meer bestaat. Dat mag tijdelijk, om nog niet gemergd werk
+# te beproeven, maar niet ongemerkt: waarschuwen en doorgaan.
+case "$IMAGE" in
+    */preview:*|*:pr-*)
+        echo "LET OP: '$IMAGE' is een preview-tag. Die verdwijnt zodra de bijbehorende PR sluit;" >&2
+        echo "  zwaai vóór het mergen om naar een sha-tag uit hun main." >&2
+        echo >&2
+        ;;
+esac
+
 # Eén keer opvragen: hieruit komt zowel de tag van de personadienst als het antwoord op de vraag
 # welke componenten er al staan. Geen 2>/dev/null: niet-ingelogd, verkeerd project of een lock bij
 # OM zou anders als "niet gevonden" langskomen, en dan ga je een image-naam invullen terwijl je moet
