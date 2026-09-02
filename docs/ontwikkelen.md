@@ -91,7 +91,12 @@ dev-mode. Voor meer dan twee magazijnen is de demo-stack handiger dan losse dev-
 ## De demo draaien met de proeftuin als berichtenbox
 
 De berichtenbox die de ondernemer ziet komt uit de proeftuin (`MinBZK/moza-poc`) en draait als
-container mee in de demo-stack. Node, npm of Eleventy zijn daarvoor niet nodig:
+container mee in de demo-stack. Node, npm of Eleventy zijn daarvoor niet nodig.
+
+De eigen services wél: die draaien als image en worden niet gepulld. Bouw ze eerst met jib en
+genereer de stub-artefacten — [`demo-runbook.md`](demo-runbook.md), §2 en §3. Sla je dat over, dan
+meldt compose `denied: requested access to the resource is denied` op `fbs-demo/…:demo`, en die
+melding wijst niet naar de overgeslagen bouwstap.
 
 ```bash
 docker compose --profile demo up -d
@@ -104,7 +109,14 @@ rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sect
 
 ### De berichtenbox op een andere keten-omgeving richten
 
-De bestemming is een instelling, geen aparte versie van de proeftuin. Hun nginx splitst het
+> **Kan pas na [MinBZK/moza-poc#142](https://github.com/MinBZK/moza-poc/pull/142).** Die PR brengt de
+> padsplitsing hieronder en staat nog open, dus er is geen image om op te pinnen. Waar
+> `PROEFTUIN_TAG` vandaag op staat, kent de proeftuin alleen `BACKEND_ORIGIN` en gaat heel `/api/`
+> naar één bestemming; de zes `BACKEND_*`-regels in `compose.yaml` doen daar niets. Lokaal merk je
+> dat niet — `demo-proxy` splitst de paden al vóór de container, zie de eerste rij — maar de andere
+> twee opstellingen werken pas na die merge.
+
+De bestemming is dan een instelling en geen aparte versie van de proeftuin. Hun nginx splitst het
 API-verkeer per pad: `/api/v1/` naar de uitvraag (`BACKEND_KETEN`), `/api/demo/personas` naar de
 personadienst (`BACKEND_PERSONAS`) en de rest van `/api/demo/` naar het bedieningspaneel
 (`BACKEND_DEMO`). Waar je die zet, hangt af van de opstelling:
@@ -134,9 +146,9 @@ plaats van het verkeer stil bij een andere dienst af te leveren. Een onvolledig 
 is daardoor te onderscheiden van een storing, en de berichtenbox zegt ook welk van de twee het is —
 bij het eerste helpt verversen namelijk niet.
 
-De gepinde tag in `compose.yaml` moet wel een versie mét keten-koppeling zijn. Is dat nog een tag
-van vóór die koppeling, dan toont de berichtenbox alleen de gegenereerde dataset van de proeftuin en
-blijft de keten onzichtbaar, zonder dat er iets misgaat.
+Zodra #142 gemerged is en er een main-image ligt: `PROEFTUIN_TAG` in `compose.yaml` op die nieuwe
+`sha-`-tag zetten. Tot die tijd toont de berichtenbox alleen de gegenereerde dataset van de
+proeftuin en blijft de keten onzichtbaar, zonder dat er iets misgaat.
 
 ### Twee beperkingen die tijdens een demonstratie opvallen
 

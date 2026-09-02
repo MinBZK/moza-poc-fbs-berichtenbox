@@ -447,7 +447,9 @@ services:
       BACKEND_KETEN_HOST: ${BACKEND_KETEN_HOST:-}
       BACKEND_PERSONAS_HOST: ${BACKEND_PERSONAS_HOST:-}
       BACKEND_DEMO_HOST: ${BACKEND_DEMO_HOST:-}
-      BACKEND_ORIGIN: http://berichtenuitvraag:8086
+      # Ook overschrijfbaar, en zolang de gepinde proeftuin de padsplitsing nog niet kent is dit de
+      # énige die telt: die versie stuurt heel /api/ hierheen.
+      BACKEND_ORIGIN: ${BACKEND_ORIGIN:-http://berichtenuitvraag:8086}
 
   # Eén origin voor de hele demo: berichtenbox, bedieningspaneel en keten-API's achter hetzelfde
   # adres. Zie demo/proxy/demo.conf voor het waarom.
