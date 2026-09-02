@@ -7,9 +7,10 @@ hieronder zijn dus geen voornemen meer maar een verslag.
 Deze stap (MinBZK/MijnOverheidZakelijk#1013) wachtte op MinBZK/MijnOverheidZakelijk#936; dat issue is
 gesloten, dus die volgorde staat niets meer in de weg.
 
-**Draai alles vanuit deze map.** `zadctl login` schrijft `.env.zadctl` in de werkmap van dat moment
-en leest hem nergens anders; vanuit de repository-root krijg je "no API key" terwijl je gewoon
-ingelogd bent.
+**Draai alles vanuit de repository-root.** De commando's hieronder verwijzen naar `demo/generated/…`
+en `demo/genereer-magazijnen.py`, dus alleen daar kloppen de paden. `zadctl login` schrijft
+`.env.zadctl` in de werkmap van dat moment en leest hem nergens anders — log dus ook vanuit de root
+in, anders krijg je "no API key" terwijl je gewoon ingelogd bent. Zie §Vooraf in `README.md`.
 
 ## De volgorde die ertoe doet
 
@@ -19,8 +20,10 @@ Twee dingen moeten in deze volgorde, en allebei falen ze hard als je ze omdraait
    `--image`, en dat image bestaat pas nadat de deploy-workflow het gebouwd heeft. Laat
    `--deployment` dus weg: dat definieert het component zonder het te draaien, en de deploy-workflow
    hangt het er later aan. Een component aanmaken met een tag die niet bestaat, levert een
-   ImagePullBackOff op en in het slechtste geval een uitgeschakeld component dat alleen met
-   verwijderen-en-opnieuw-aanmaken terugkomt.
+   ImagePullBackOff op en in het slechtste geval een door Operations Manager uitgeschakeld
+   component. Dat laatste is een deadlock die alleen met het **herscheppen van de deployment**
+   doorbroken wordt, en dat is in dit project destructief — lees "Als een component uitstaat" in
+   `README.md` vóór je die route inslaat.
 2. **Eerst de alias op de uitvraag, dan het register.** Het register bevat
    `${MAGAZIJN_SIMULATOR_URL}` en SmallRye vult dat in bij het lezen. Staat de variabele er nog niet,
    dan start de uitvraag niet meer — `SRCFG00011: Could not expand value` — en ligt de hele
@@ -173,12 +176,12 @@ zadctl attachment assign magazijnen-register -c uitvraag \
 ```
 
 Daarnaast twee omgevingsvariabelen, plus een alias. `MAGAZIJN_SIMULATOR_URL` móet een alias zijn:
-alleen aliassen kennen `$DEPLOYMENT_NAME`, en aliassen worden alleen bij de creatie van een component
-toegepast — bestaat `uitvraag` al zonder, dan is hercreëren de enige route.
+alleen aliassen kennen `$DEPLOYMENT_NAME`. Een alias is los bij te werken op een bestaand component,
+dus `uitvraag` hoeft hier niet voor herschapen te worden:
 
 ```bash
-# alias, bij de creatie van het component of via een hercreatie:
-#   MAGAZIJN_SIMULATOR_URL: https://magazijnsimulator-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl
+zadctl -p mpfb-8wh alias add -c uitvraag \
+  'MAGAZIJN_SIMULATOR_URL=https://magazijnsimulator-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl'
 
 zadctl env set -c uitvraag \
   SMALLRYE_CONFIG_LOCATIONS=/config/magazijnen-register.properties \
@@ -213,11 +216,12 @@ zadctl env set -c democonsole \
 stond hij op `false` en liet het paneel de hele groep "Gesimuleerde magazijnen" weg — knoppen die
 gegarandeerd falen kosten tijdens een demo uitleg die niets toevoegt. Vergeet je hem, dan draait de
 console met een werkende verbinding naar de simulator terwijl er geen enkele knop te zien is, en
-lijkt de bediening simpelweg te ontbreken. `env set` en niet `env add`: de sleutel bestaat al.
+lijkt de bediening simpelweg te ontbreken. `env set` en niet `env add`: stap 3 van `README.md` heeft
+beide sleutels al aangemaakt, en `add` ziet een bestaande sleutel als een conflict. Sloeg je die
+stap over, dan is het hier eenmalig `env add` — de default van `SIMULATOR_BEREIKBAAR` in de console
+is `true`, dus zonder token toont het paneel dan knoppen die elk een 401 opleveren.
 
-**Een alias erbij zetten kan gewoon op een bestaand component**, met `zadctl alias add`. Het
-zusterrunbook (`README.md` §2) schrijft dat aliassen alleen bij creatie worden toegepast en dat
-verwijderen-en-opnieuw-aanmaken de enige route is; voor aliassen klopt dat niet meer. Dat scheelt
+**Een alias erbij zetten kan gewoon op een bestaand component**, met `zadctl alias add`. Dat scheelt
 hier het herscheppen van `democonsole` — de duurste handeling van de hele operatie. Poorten en
 diensten zijn niet getoetst en horen nog steeds in één keer goed te staan.
 
@@ -275,8 +279,9 @@ via `clone-from: test`.
 
 ## Wat er nog open staat
 
-- **De eerste uitrol afwachten en verifiëren.** Het component is gedefinieerd maar draait nog niet;
-  `zadctl deployment describe test` toont hem pas nadat de deploy-workflow een image heeft geleverd.
+- **De eerste uitrol afwachten en verifiëren.** §5 wijzigde de workflow; die levert pas een image
+  bij de eerstvolgende merge naar main. Tot dat moment is het component wél gedefinieerd maar draait
+  het niet, en toont `zadctl deployment describe test` hem nog niet.
   Breid `verify-zad.md` daarna uit met de fan-out: vier ondernemers, 3 / 15 / 45 / 100 organisaties,
   gemeten met `demo/meet-fanout.sh` tegen de ZAD-URL.
 - Nagaan hoeveel geheugen het component nodig heeft. Lokaal staat de simulator met 98 magazijnen op

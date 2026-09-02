@@ -4,17 +4,19 @@
 # tag-updates lopen daarna via .github/workflows/deploy.yml, dat allebei in zijn componentenlijst
 # noemt.
 #
-# Hoofdstuk 7 van README.md hiernaast beschrijft het waarom: de berichtenbox draait als eigen
-# component in ons project zodat wij de versie bepalen, en het paneel toont hem in een frame.
+# Hoofdstuk 7 van README.md hiernaast beschrijft het waarom — de aliassen, de afwezige muur op
+# beide componenten, en waarom de berichtenbox als eigen component in dít project draait.
 #
-# DRAAI DIT VÓÓR de merge van de PR die deze componenten in deploy.yml zet: die workflow noemt ze
-# bij naam, en een verwijzing naar een component dat niet bestaat laat de uitrol falen. Voor een
-# component waarvan het image nog niet gebouwd is, geef je met PERSONAS_IMAGE een bestaand,
-# onschadelijk image mee; de eerste uitrol vervangt het door de juiste tag.
+# DRAAI DIT VÓÓR de merge van de PR die `demopersonas` én `proeftuin` in deploy.yml zet: die
+# workflow noemt ze bij naam, en een verwijzing naar een component dat niet bestaat laat de uitrol
+# falen. Voor een component waarvan het image nog niet gebouwd is, geef je met PERSONAS_IMAGE een
+# bestaand, onschadelijk image mee; de eerste uitrol vervangt het door de juiste tag.
 #
-# LET OP: ZAD past component-config (aliassen, poorten, diensten) alleen toe bij het AANMAKEN van
-# een component. Een tweede aanroep op een bestaand component laat die config staan; aanpassen
-# betekent het component eerst verwijderen en opnieuw aanmaken. Draai daarom eerst `plan`.
+# LET OP: poorten en diensten passen alleen bij het AANMAKEN van een component. Die twee bijstellen
+# betekent het component verwijderen en opnieuw aanmaken — `zadctl component remove`, nooit de
+# deployment: een deployment verwijderen in mpfm-w3h wist de database die de magazijnen, de
+# simulator en het paneel delen. Aliassen zijn wél los bij te werken; daar is deze tweede aanroep op
+# gebouwd. Draai eerst `plan`.
 #
 # Usage:
 #   zadctl login && zadctl project use mpfm-w3h
@@ -22,6 +24,14 @@
 #   demo/environment/zad-demo/proeftuin-component.sh apply [deployment=test]
 
 set -euo pipefail
+
+# `mapfile` en een lege array onder `set -u` vragen allebei bash 4.4. De bash die macOS meelevert is
+# 3.2 en zou hier struikelen op een melding die de oorzaak niet noemt.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+    echo "dit script vraagt bash 4.4 of nieuwer; deze is ${BASH_VERSION}" >&2
+    echo "op macOS: 'brew install bash' en opnieuw draaien" >&2
+    exit 1
+fi
 
 MODE="${1:?usage: proeftuin-component.sh <plan|apply> [deployment=test]}"
 DEPLOYMENT="${2:-test}"
@@ -35,21 +45,86 @@ case "$MODE" in
     *) echo "onbekende modus '$MODE'; gebruik plan of apply" >&2; exit 1 ;;
 esac
 
-command -v zadctl >/dev/null || { echo "zadctl niet gevonden; zie CLAUDE.md voor de installatie" >&2; exit 1; }
+for hulp in zadctl python3 sed; do
+    command -v "$hulp" >/dev/null || {
+        echo "$hulp niet gevonden; dit script heeft het nodig" >&2
+        echo "zadctl: https://github.com/RijksICTGilde/zad-cli/releases/latest" >&2
+        exit 1
+    }
+done
+
+# Het project komt expliciet mee in plaats van uit .env.zadctl in de werkmap: die is per directory,
+# en de runbooks ernaast schakelen tussenin naar mpfb-8wh. Zonder deze vlag belanden de componenten
+# stil in het project dat toevallig actief is, terwijl de aliassen hieronder mpfm-w3h-adressen
+# dragen. `--strict` erbij, want zonder die vlag telt "aangenomen, maar er ging iets mis" — een taak
+# die door een gelijktijdige deploy overruled is — als succes.
+ZAD=(zadctl --strict -p "$PROJECT_MAGAZIJNEN")
+
+# Exitcode 2 is platform of netwerk en dus de moeite van opnieuw proberen waard; 1 en 3 niet. Dat
+# onderscheid doorgeven scheelt zoeken in een configuratie waar niets mis mee is.
+meld_zadctl_fout() {
+    local status="$1" wat="$2"
+
+    if [ "$status" -eq 2 ]; then
+        echo "$wat: platform of netwerk (exit 2). Vaak een deploy die op dit project al loopt —" >&2
+        echo "  kijk met 'gh run list --workflow \"Deploy ZAD\"' en draai daarna opnieuw." >&2
+    else
+        echo "$wat (exit $status); zie de melding hierboven" >&2
+    fi
+
+    exit "$status"
+}
 
 # De image staat in deploy.yml en niet hier: die waarde is de bron, want zij bepaalt wat elke
 # preview draait. Deze creatie zet alleen de startwaarde voor `test`.
-WORTEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-IMAGE="$(sed -n 's/^ *PROEFTUIN_IMAGE: *//p' "$WORTEL/.github/workflows/deploy.yml")"
-[ -n "$IMAGE" ] || { echo "geen PROEFTUIN_IMAGE gevonden in .github/workflows/deploy.yml" >&2; exit 1; }
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+
+# Precies één treffer eisen, en de vorm toetsen. De buurvariabele TOXIPROXY_IMAGE in hetzelfde
+# env-blok staat tussen aanhalingstekens; krijgt PROEFTUIN_IMAGE ooit dezelfde stijl, dan zouden die
+# quotes zonder deze bewerking in de image-naam belanden en het component in ImagePullBackOff laten
+# hangen.
+mapfile -t IMAGE_TREFFERS < <(
+    sed -n 's/^[[:space:]]*PROEFTUIN_IMAGE:[[:space:]]*//p' "$REPO_ROOT/.github/workflows/deploy.yml"
+)
+
+[ "${#IMAGE_TREFFERS[@]}" -eq 1 ] || {
+    echo "verwachtte precies één PROEFTUIN_IMAGE in .github/workflows/deploy.yml," >&2
+    echo "  maar vond er ${#IMAGE_TREFFERS[@]}" >&2
+    exit 1
+}
+
+IMAGE="${IMAGE_TREFFERS[0]}"
+IMAGE="${IMAGE%%[[:space:]]#*}"
+IMAGE="${IMAGE%"${IMAGE##*[![:space:]]}"}"
+IMAGE="${IMAGE#[\'\"]}"
+IMAGE="${IMAGE%[\'\"]}"
+
+case "$IMAGE" in
+    */*:*) ;;
+    *) echo "PROEFTUIN_IMAGE '$IMAGE' ziet er niet uit als een image met een tag of digest" >&2; exit 1 ;;
+esac
 
 # Eén keer opvragen: hieruit komt zowel de tag van de personadienst als het antwoord op de vraag
 # welke componenten er al staan. Geen 2>/dev/null: niet-ingelogd, verkeerd project of een lock bij
 # OM zou anders als "niet gevonden" langskomen, en dan ga je een image-naam invullen terwijl je moet
 # inloggen.
-BESCHRIJVING="$(zadctl deployment describe "$DEPLOYMENT" -o json)" || {
-    echo "zadctl kon deployment '$DEPLOYMENT' niet beschrijven; zie de melding hierboven" >&2
+BESCHRIJVING="$("${ZAD[@]}" deployment describe "$DEPLOYMENT" -o json)" ||
+    meld_zadctl_fout $? "zadctl kon deployment '$DEPLOYMENT' niet beschrijven"
+
+# Gestructureerd lezen en niet greppen: een grep op `"name": "x"` hangt aan de opmaak die de CLI
+# niet belooft, en matcht bovendien elke andere benoemde zaak in het antwoord — een dienst of
+# attachment met dezelfde naam zou een component als "bestaat al" laten wegvallen.
+COMPONENTEN="$(printf '%s' "$BESCHRIJVING" | python3 -c "
+import json, sys
+
+print('\n'.join(c['name'] for c in json.load(sys.stdin).get('components', [])))
+")" || {
+    echo "componentenlijst niet uit het describe-antwoord te lezen" >&2
     exit 1
+}
+
+component_bestaat() {
+    printf '%s\n' "$COMPONENTEN" | grep -qxF "$1"
 }
 
 # De personadienst is ons eigen image en draagt dus de tag van de deploy, niet een vaste pin. Die
@@ -71,7 +146,7 @@ if 'fbs-demo-console' not in console:
 
 print(console.replace('fbs-demo-console', 'fbs-demo-personas'))
 ")" || {
-        echo "zet PERSONAS_IMAGE zelf" >&2
+        echo "zet PERSONAS_IMAGE zelf, met een bestaand en onschadelijk image" >&2
         exit 1
     }
 fi
@@ -86,27 +161,24 @@ echo "   proeftuin:    ${IMAGE}"
 echo "   demopersonas: ${PERSONAS_IMAGE}"
 echo
 
-# De personadienst draagt één leeslijst en geen enkele knop. Daarom géén authorization-wall: de
-# nginx van de proeftuin haalt dit pad server-side op en heeft geen sessie, dus achter een muur
-# krijgt hij 403 en meldt de berichtenbox dat het ophalen mislukt. Dat is precies het probleem dat
-# deze dienst oplost. Het bedieningspaneel houdt zijn muur, want daar zit het legen achter.
 component_add() {
     # Een bestaand component is geen fout: dit script wordt gedraaid op omgevingen die al half
     # ingericht zijn, en zonder deze tak sterft het onder `set -e` vóór de aliassen verderop.
-    # Config van een bestaand component verandert een tweede `add` toch niet — dat kan alleen door
-    # het te verwijderen en opnieuw aan te maken.
     #
     # Alleen dát geval overslaan, en niet elke fout: niet-ingelogd, een OM-lock of een ongeldige
     # image-naam zou anders ook als "bestaat hij al" langskomen, waarna het script doorloopt en met
     # 0 eindigt terwijl het component er niet is. De uitrol faalt dan later, op een fout die hier
     # gemaakt is.
-    if printf '%s' "$BESCHRIJVING" | grep -q "\"name\": \"$1\""; then
-        echo "component '$1' bestaat al in deployment '$DEPLOYMENT'; overgeslagen" >&2
+    if component_bestaat "$1"; then
+        echo "component '$1' bestaat al in deployment '$DEPLOYMENT'; overgeslagen." >&2
+        echo "  Poorten en diensten van een bestaand component verandert dit script niet — die" >&2
+        echo "  passen alleen bij het aanmaken. Kloppen ze niet, dan is verwijderen en opnieuw" >&2
+        echo "  aanmaken de route; de aliassen hieronder worden wél bijgewerkt." >&2
 
         return 0
     fi
 
-    zadctl component add "$@" "${DROOG[@]}"
+    "${ZAD[@]}" component add "$@" "${DROOG[@]}"
 }
 
 component_add demopersonas \
@@ -115,43 +187,41 @@ component_add demopersonas \
     --port 8098 \
     --service publish-on-web
 
-# Zes aliassen: de nginx van de proeftuin proxyt /api/v1/ naar de uitvraag, /api/demo/personas naar
-# de personadienst en de rest van /api/demo/ naar het paneel, en de ingress ervóór routeert op de
-# Host-header. De browser-host doorgeven levert daar de verkeerde bestemming op, dus de servernaam
-# gaat per bestemming apart mee.
-#
-# Geen authorization-wall: die staat op het paneel, waar de legen-knop op zit. De berichtenbox
-# leest alleen, en leest bij een uitvraag die hier toch al publiek bereikbaar is. Een muur zou hem
-# bovendien onbruikbaar maken in een frame — de aanmeldpagina van Keycloak laat zich niet framen.
 component_add proeftuin \
     --image "$IMAGE" \
     --deployment "$DEPLOYMENT" \
     --port 8080 \
     --service publish-on-web
 
-# Apart van het aanmaken en niet als `--aliases`: config bij creatie geldt alleen voor een component
-# dat nog niet bestaat, en dit script draait juist ook op omgevingen die er al staan. Verschuift er
-# een variabelenaam aan de kant van de proeftuin, dan trekt een tweede aanroep hem hiermee recht.
+# Apart van het aanmaken en niet als `--aliases`: dit script draait juist ook op omgevingen die er
+# al staan, en dan komt config-bij-creatie nooit langs. Verschuift er een variabelenaam aan de kant
+# van de proeftuin, dan trekt een tweede aanroep hem hiermee recht.
 alias_zet() {
     local component="$1"
     shift
 
+    # In plan-modus is het component niet aangemaakt, dus is er niets om tegenaan te lezen. Zonder
+    # deze tak zou juist de verse omgeving — het geval waarvoor `plan` bedoeld is — afbreken op een
+    # component dat nog niet bestaat, en zag je de aliassen nooit.
+    if [ "$MODE" = plan ] && ! component_bestaat "$component"; then
+        echo "plan: '$component' bestaat nog niet; deze aliassen komen er bij het aanmaken op:" >&2
+        printf '  %s\n' "$@" >&2
+
+        return 0
+    fi
+
     # `add` is POST en weigert een bestaande sleutel; `set` is PATCH en weigert een nieuwe. Geen van
     # beide is dus op zichzelf idempotent — vandaar per sleutel de vorm die past bij wat er staat.
-    local bestaand
-    bestaand="$(zadctl alias list --component "$component" -o json)" || {
-        echo "kon de aliassen van '$component' niet lezen; zie de melding hierboven" >&2
-        exit 1
-    }
-
+    # `alias get` beantwoordt precies die vraag met zijn exitcode; stderr blijft open, zodat een
+    # auth- of netwerkfout niet als "sleutel bestaat niet" wegvalt.
     local paar naam
     for paar in "$@"; do
         naam="${paar%%=*}"
 
-        if printf '%s' "$bestaand" | grep -q "\"$naam\":"; then
-            zadctl alias set --component "$component" "$paar" "${DROOG[@]}"
+        if "${ZAD[@]}" alias get "$naam" -c "$component" >/dev/null; then
+            "${ZAD[@]}" alias set --component "$component" "$paar" "${DROOG[@]}"
         else
-            zadctl alias add --component "$component" "$paar" "${DROOG[@]}"
+            "${ZAD[@]}" alias add --component "$component" "$paar" "${DROOG[@]}"
         fi
     done
 }
@@ -182,8 +252,10 @@ Klaar. Verifiëren (stap 7 van verify-zad.md):
   curl -sS -o /dev/null -w '%{http_code}\\n' \\
     "https://proeftuin-${DEPLOYMENT}-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}/moza/berichtenbox/"
 
-Verwacht 200. Daarna het paneel openen en kijken of de berichtenbox in het frame staat; dat vraagt
-wel een democonsole-image waarin BERICHTENBOX_URL gelezen wordt.
+Verwacht 200. Een 502 of 503 betekent meestal dat er geen pod draait: kijk dan eerst naar replicas
+in het gerenderde deployment.yaml, niet naar het image. Daarna het paneel openen en kijken of de
+berichtenbox in het frame staat; dat vraagt wel een democonsole-image waarin BERICHTENBOX_URL
+gelezen wordt.
 
 Richt de health-check niet op /health: dat pad proxyt naar een chat-backend die in dit project niet
 bestaat, en een probe erop herstart de pod anderhalve minuut later.
