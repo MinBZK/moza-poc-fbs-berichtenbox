@@ -1,4 +1,8 @@
-# Houdt de pins van de zelf-gedeployde infra-images uniform over alle locaties.
+# Drie pin-controles: `infra-image-pins` houdt de pins van de zelf-gedeployde infra-images uniform
+# over alle vindplaatsen, `fuzz-basis-pin` en `proeftuin-pin` bewaken of een pin nog actueel is.
+# Alleen de eerste is blokkerend van aard; de motivatie per job staat erboven.
+#
+# Over `infra-image-pins`:
 #
 # De pins staan (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
 # plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE, TOXIPROXY_IMAGE),
@@ -23,6 +27,12 @@ on:
   pull_request:
     branches-ignore: [main]
     types: [opened, synchronize, reopened]
+  # De twee actualiteitscontroles hangen anders volledig aan PR-verkeer: in een rustige week meldt
+  # niemand dat een pin onvindbaar is geworden of dat het bron-repository is verdwenen. Wekelijks
+  # is genoeg — het gaat om toestanden die dagen blijven staan, niet om iets dat per commit wijzigt.
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -206,8 +216,10 @@ jobs:
   # zijn parser struikelt over een volgende wijziging in dat bestand — valt zonder deze job niemand
   # op. Hier staat actief wat de stand is.
   #
-  # WAARSCHUWT en blokkeert niet, om dezelfde reden als fuzz-basis-pin: een oudere berichtenbox is
-  # een oudere demo, geen kapotte build.
+  # Achterlopen waarschuwt en blokkeert niet: een oudere berichtenbox is een oudere demo, geen
+  # kapotte build, en meebewegen vraagt een oordeel omdat hun main ook halfaf werk draagt. Wat wél
+  # blokkeert is een pin die niet te trekken is of een guard die zijn eigen bron kwijt is: daar
+  # levert doorgaan een kapot component op, of een controle die niets meer meet.
   proeftuin-pin:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -218,6 +230,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Wijst de pin naar de huidige main van de proeftuin
         id: pin
@@ -232,10 +246,19 @@ jobs:
         env:
           STATUS: ${{ steps.pin.outputs.status }}
           TAG: ${{ steps.pin.outputs.verwachte_tag }}
-          DIGEST: ${{ steps.pin.outputs.verwachte_digest }}
-          HUIDIG: ${{ steps.pin.outputs.huidige_digest }}
+          REGEL: ${{ steps.pin.outputs.verwachte_regel }}
+          HUIDIG: ${{ steps.pin.outputs.huidige_referentie }}
         run: |
           set -euo pipefail
+
+          # Eén opbouw voor de twee gevallen die om een oordeel van een mens vragen.
+          melding() {
+            {
+              echo "melding<<EOM"
+              printf '%s\n' "$@"
+              echo "EOM"
+            } >> "$GITHUB_OUTPUT"
+          }
 
           case "$STATUS" in
             ok)
@@ -243,21 +266,27 @@ jobs:
               ;;
             verouderd)
               echo "::warning::De berichtenbox loopt achter; hun main is $TAG."
-              {
-                echo "melding<<EOM"
-                echo "De demo draait \`$HUIDIG\`, terwijl \`MinBZK/moza-poc\` op \`$TAG\` staat."
-                echo
-                echo "**Blokkeert niets** en is geen opdracht: hun main draagt ook werk dat halfaf kan zijn."
-                echo
-                echo "Normaal komt deze bump vanzelf langs als Dependabot-PR, want de pin staat op digest."
-                echo "Blijft die uit terwijl deze melding staat, dan is er iets mis met dat pad en is dit"
-                echo "de regel om met de hand te zetten in \`compose.yaml\`:"
-                echo
-                echo '```yaml'
-                echo "    image: ghcr.io/minbzk/moza-poc:latest@$DIGEST"
-                echo '```'
-                echo "EOM"
-              } >> "$GITHUB_OUTPUT"
+              melding \
+                "De demo draait \`$HUIDIG\`, terwijl \`MinBZK/moza-poc\` op \`$TAG\` staat." \
+                "" \
+                "**Blokkeert niets** en is geen opdracht: hun main draagt ook werk dat halfaf kan zijn." \
+                "" \
+                "Normaal komt deze bump vanzelf langs als Dependabot-PR, want de pin staat op digest." \
+                "Blijft die uit terwijl deze melding staat, dan is er iets mis met dat pad en is dit" \
+                "de regel om met de hand te zetten in \`compose.yaml\`:" \
+                "" \
+                '```yaml' \
+                "$REGEL" \
+                '```'
+              ;;
+            preview)
+              echo "::warning::De berichtenbox staat op een preview van hun kant: $HUIDIG"
+              melding \
+                "De demo draait \`$HUIDIG\` — nog niet gemergd werk uit hun preview-repository." \
+                "" \
+                "Dat mag tijdelijk, om hun werk vóór hun merge te beproeven. Maar die tag verdwijnt uit" \
+                "ghcr zodra hun PR sluit, en dan trekt de eerstvolgende herstart een image dat er niet" \
+                "meer is. Zwaai vóór het mergen van déze PR terug naar een digest uit hun main."
               ;;
             ontbreekt)
               # Hun bouw loopt nog, of viel. Beide keren valt er niets te kiezen, dus geen melding
@@ -266,6 +295,17 @@ jobs:
               ;;
             oncontroleerbaar)
               echo "::warning::De proeftuin-pin is deze run NIET gecontroleerd (GitHub of ghcr niet te bevragen)."
+              ;;
+            pin-onvindbaar)
+              # Anders dan achterlopen is dit geen kwestie van smaak: het image bestaat niet meer,
+              # dus de eerstvolgende herstart van het component levert ImagePullBackOff op. Dat
+              # laten passeren maakt de demo stuk op een moment dat niemand aan deze pin denkt.
+              echo "::error::De gepinde berichtenbox ($HUIDIG) bestaat niet in het register; een herstart zou hem niet kunnen trekken."
+              exit 1
+              ;;
+            bron-weg)
+              echo "::error::Het bron-repository van de proeftuin bestaat niet meer onder die naam; deze controle meet niets meer."
+              exit 1
               ;;
             *)
               # geen-pin: de image-regel is uit compose.yaml verdwenen of onleesbaar geworden. Dan
@@ -278,13 +318,14 @@ jobs:
 
       # Zelfde afweging als bij fuzz-basis-pin: op een fork is GITHUB_TOKEN read-only, en een
       # gemiste melding mag nooit zwaarder wegen dan de wijziging zelf.
-      - name: Meld een verouderde pin op de PR
+      - name: Meld de stand van de pin op de PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          STATUS: ${{ steps.pin.outputs.status }}
           MELDING: ${{ steps.oordeel.outputs.melding }}
           MARKER: '<!-- proeftuin-pin -->'
         run: |
@@ -294,14 +335,19 @@ jobs:
             --jq "[.[] | select(.body | contains(\"$MARKER\"))] | first | .id // empty" | head -1)
 
           if [ -z "$MELDING" ]; then
-            if [ -n "$bestaand" ]; then
+            # Alleen wissen bij een positief vastgestelde stand. Een run die niets kón vaststellen —
+            # of die op hun bouw wacht — zou anders een eerder wél vastgestelde bevinding van de PR
+            # halen, met "Pin is weer bij" in het logboek. De PR ziet er dan schoon uit terwijl er
+            # niets gecontroleerd is.
+            if [ -n "$bestaand" ] && [ "$STATUS" = ok ]; then
               gh api -X DELETE "repos/$REPO/issues/comments/$bestaand"
               echo "Pin is weer bij; melding verwijderd."
             fi
+
             exit 0
           fi
 
-          body=$(printf '%s\n### De berichtenbox van de proeftuin loopt achter op hun main\n\n%s\n' "$MARKER" "$MELDING")
+          body=$(printf '%s\n### De berichtenbox van de proeftuin vraagt aandacht\n\n%s\n' "$MARKER" "$MELDING")
 
           if [ -n "$bestaand" ]; then
             gh api -X PATCH "repos/$REPO/issues/comments/$bestaand" -f body="$body" --jq .html_url

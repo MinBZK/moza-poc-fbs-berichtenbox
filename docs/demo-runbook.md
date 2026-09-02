@@ -222,12 +222,12 @@ zijn eigen `location /api/` en zou het bij de uitvraag uitkomen — en kan het p
 niet laten verversen. Online geldt dit niet: daar proxyt de proeftuin zelf.
 
 Geen Node of Eleventy nodig. De image staat op digest gepind in `compose.yaml`; een andere versie
-(een release-tag voor een gebruikersonderzoek, of nog niet gemergd werk van hun kant) draai je met
-de overlay ernaast:
+(een release-tag voor een gebruikersonderzoek, of nog niet gemergd werk uit hun preview-repository)
+draai je met de overlay ernaast, die een hele image-referentie neemt:
 
 ```bash
-PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 \
-  docker compose -f compose.yaml -f compose.proeftuin-tag.yaml --profile demo up -d proeftuin
+PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 \
+  docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo up -d proeftuin
 ```
 
 **Van buiten de machine of van buiten een dev-container.** Standaard bindt alles op loopback, want

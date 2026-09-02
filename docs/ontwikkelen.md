@@ -107,14 +107,16 @@ bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat in `comp
 digest: `latest` alleen zou stil onder een lopende demo door verschuiven. Die ene regel is ook wat
 `deploy.yml` en `proeftuin-component.sh` lezen (via `.github/scripts/proeftuin-image.sh`), dus een
 demo op de eigen machine en een demo op ZAD tonen dezelfde berichtenbox. Bijwerken doet Dependabot:
-digest-pins houdt hij bij, en dat is precies waarom er geen env-var meer in die regel staat — een
-`${VAR:-...}` maakt hem blind. Blijft die bump uit terwijl hun main doorloopt, dan meldt
-`pin-consistency.yml` dat op de PR. Een andere versie draaien zonder de pin aan te raken kan met de
-overlay:
+digest-pins houdt hij bij, en dat is precies waarom er geen variabele meer in die regel staat.
+Blijft die bump uit terwijl hun main doorloopt, dan meldt `pin-consistency.yml` de stand op de
+eerstvolgende PR — en wekelijks in een eigen run, zodat een onvindbaar geworden pin niet op
+PR-verkeer hoeft te wachten. Een andere versie draaien zonder de pin aan te raken kan met de
+overlay; die neemt een hele referentie, want hun nog niet gemergde werk staat in een ander
+ghcr-repository:
 
 ```bash
-PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 \
-  docker compose -f compose.yaml -f compose.proeftuin-tag.yaml --profile demo up -d proeftuin
+PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 \
+  docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo up -d proeftuin
 ```
 
 De rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
@@ -146,13 +148,14 @@ BACKEND_PERSONAS_HOST=demopersonas-test-mpfm-w3h.$Z \
   docker compose --profile demo up -d proeftuin
 ```
 
-Zet `BACKEND_KETEN` altijd expliciet. Leeggemaakt antwoordt de proeftuin met een 502 die de
-variabelenaam noemt in plaats van het verkeer stil bij een andere dienst af te leveren — een
-onvolledig ingerichte omgeving is daardoor te onderscheiden van een storing. Maar hun image draagt
-sinds de padsplitsing ook een ingebouwde bestemming, en die wijst naar een omgeving van ons die niet
-eeuwig bestaat: laat je de variabele weg, dan praat de berichtenbox met een omgeving die je niet
-bedoelde, of met een adres dat er niet meer is — en dat laatste leest als een storing, want de
-variabele *is* gezet. `compose.yaml` en `proeftuin-component.sh` zetten hem daarom allebei.
+Zet `BACKEND_KETEN` altijd expliciet, en let op het verschil tussen leeg zetten en weglaten.
+Leeggemaakt (`BACKEND_KETEN=`) antwoordt de proeftuin met een 502 die de variabelenaam noemt in
+plaats van het verkeer stil bij een andere dienst af te leveren — een onvolledig ingerichte omgeving
+is daardoor te onderscheiden van een storing. Weggelaten pakt hij de bestemming die sinds de
+padsplitsing in hun image gebakken zit: een `uitvraag-<deployment>-mpfb-8wh`-adres van ons. Wijst
+dat naar een omgeving die niet meer bestaat, dan leest dat als een storing en niet als een
+configuratiefout, want de variabele *is* gezet. `compose.yaml` en `proeftuin-component.sh` zetten
+hem daarom allebei.
 
 ### Twee beperkingen die tijdens een demonstratie opvallen
 

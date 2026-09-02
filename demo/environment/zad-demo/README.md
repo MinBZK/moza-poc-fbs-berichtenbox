@@ -641,10 +641,10 @@ onze eigen images. Welke versie dat is, staat op één plek: de `proeftuin`-rege
 gepind op digest. `deploy.yml` leest die regel en zet hem per deployment, en het script hieronder
 leest hem voor de eenmalige creatie — dus een bump in `compose.yaml` (meestal een Dependabot-PR)
 werkt de demo op de eigen machine én die op ZAD bij. Om nog niet gemergd werk van hun kant te
-beproeven kan een preview-tag (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`), maar alleen
-tijdelijk: hun opruiming verwijdert alle `pr-<n>-*`-versies zodra die PR sluit, dus zwaai vóór het
-mergen terug naar een digest uit hun main. Blijft die pin staan, dan trekt een herstart een tag die
-niet meer bestaat.
+beproeven kan daar een preview-referentie staan (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`),
+maar alleen tijdelijk: hun opruiming verwijdert alle `pr-<n>-*`-versies zodra die PR sluit, en dan
+trekt een herstart een image dat er niet meer is. `pin-consistency.yml` waarschuwt zolang zo'n pin
+staat, en faalt zodra hij onvindbaar is geworden.
 
 ```bash
 demo/environment/zad-demo/proeftuin-component.sh plan   # toont beide aanroepen, muteert niets

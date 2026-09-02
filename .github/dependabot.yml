@@ -27,10 +27,10 @@ updates:
   # images uit compose.yaml (die via pin-consistency.yml ook de ZAD-runtime-pins
   # sturen) is deze version-update-ronde het enige signaal dat er een nieuwe versie is.
   #
-  # Hier hangt ook de berichtenbox van de proeftuin aan. Die staat op digest gepind
-  # (`...moza-poc:latest@sha256:...`), want dat is de enige vorm die hij bijhoudt: een
-  # `sha-<commit>`-tag kan hij niet ordenen en een `${VAR:-...}` niet lezen. Zet daar
-  # dus geen env-var in terug — dan valt de enige automatische bump van de demo weg.
+  # Hier hangt ook de berichtenbox van de proeftuin aan. Die staat op digest gepind, want
+  # dat is voor dát image de enige vorm die hij kan bijhouden — de reden staat bij die
+  # regel in compose.yaml. Zet daar dus geen variabele in terug: dan valt de enige
+  # automatische bump van de demo weg.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:

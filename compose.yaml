@@ -406,21 +406,24 @@ services:
   # of Eleventy op de machine vraagt. Zijn nginx zet het API-verkeer server-side door, dus de
   # browser praat met één origin en er is geen CORS nodig.
   #
-  # Gepind op digest, met `latest` ernaast als leesbare aanduiding van wat het is: hun main. De
-  # digest is wat telt — `latest` alleen zou stil onder een lopende demo door verschuiven. Deze vorm
-  # is bovendien de enige die Dependabot kan bijhouden: hij bumpt de digest zodra hun main verder
-  # gaat, waar hij een `sha-<commit>`-tag niet kan ordenen en een `${VAR:-...}` niet kan lezen.
-  # Daarom staat hier ook geen env-var meer; een andere versie draaien gaat via
-  # compose.proeftuin-tag.yaml.
+  # Gepind op digest. Die bepaalt wat er getrokken wordt; `latest` staat er alleen bij als
+  # leesbare aanduiding van wat het is — hun main — en wordt nergens geverifieerd. Alleen die tag
+  # zou stil onder een lopende demo door verschuiven.
+  #
+  # Deze vorm is bovendien de enige die Dependabot voor dit image kan bijhouden: hij bumpt de digest
+  # zodra hun main verder gaat, waar hij een `sha-<commit>`-tag niet kan ordenen en een
+  # `${VAR:-...}` niet kan lezen. Daarom staat hier geen variabele meer; een andere versie draaien
+  # gaat via compose.proeftuin-versie.yaml.
+  #
+  # Deze regel is de enige vindplaats: alles wat wil weten welke berichtenbox draait — de deploy en
+  # het ZAD-creatiescript — leest hem via .github/scripts/proeftuin-image.sh, zodat een bump hier
+  # vanzelf ook de demo op ZAD bijwerkt.
   #
   # Deze versie splitst het keten-verkeer per prefix; de BACKEND_*-regels hieronder werken vanaf
   # hier. Op een oudere valt dat weg en loopt alleen het leespad, want /api/demo/personas valt daar
   # nog onder dezelfde `location /api/` en komt dus bij de uitvraag uit.
-  #
-  # Eén vindplaats voor drie aanroepers: deploy.yml en proeftuin-component.sh lezen deze regel via
-  # .github/scripts/proeftuin-image.sh, zodat een bump hier vanzelf ook de ZAD-demo bijwerkt.
   proeftuin:
-    image: ghcr.io/minbzk/moza-poc:latest@sha256:3e2974ac9e9692b509dee4f5b9c5a63fccbf94f413c65b03916115ee8f850875
+    image: ghcr.io/minbzk/moza-poc:latest@sha256:453e5732e6b25c6648871675ea6efa9a8db8d683cef7e81fb14e61ebc26b45ef
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8096:8080"

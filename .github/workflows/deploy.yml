@@ -42,7 +42,7 @@
 # GESTAPELDE PR'S (base != main) deployen niet — zie het `branches`-filter hieronder. Hun
 # wijzigingen belanden alsnog in een preview zodra ze de PR bereiken die wél op main mikt: die
 # krijgt dan een `synchronize` en rolt zijn eigen pr-<n> opnieuw uit. Wat zo'n PR aan controles
-# houdt: test, detekt-gate en infra-image-pins — die workflows draaien zichzelf op elke PR
+# houdt: test, detekt-gate en de pin-controles — die workflows draaien zichzelf op elke PR
 # BEHALVE die naar main (`branches-ignore: [main]`), en worden voor een PR naar main juist hier
 # aangeroepen. CodeQL en de fuzz-check draaien er NIET: codeql.yml filtert op main en
 # cflite_pr.yml draait uitsluitend als aangeroepen workflow vanuit deze. Die dekking komt dus pas
@@ -283,9 +283,7 @@ jobs:
       # kopieert die van de kloonbron niet, dus zonder dit heeft alleen `test` een berichtenbox en
       # geen enkele preview.
       #
-      # Uit compose.yaml en niet uit een eigen env-regel hier: dan tonen een demo op de eigen
-      # machine en een demo op ZAD dezelfde berichtenbox, en werkt een Dependabot-bump van die ene
-      # regel beide bij.
+      # Uit compose.yaml en niet uit een eigen env-regel hier; het waarom staat bij die regel.
       - id: proeftuin
         run: |
           set -euo pipefail
@@ -600,7 +598,7 @@ jobs:
 
   checks-pins:
     uses: ./.github/workflows/pin-consistency.yml
-    # pull-requests: write voor de melding over een verouderde fuzz-basis-image-pin; een
+    # pull-requests: write voor de pin-meldingen op de PR; een
     # aangeroepen workflow kan nooit meer krijgen dan de aanroeper-job toekent.
     permissions:
       contents: read
@@ -650,7 +648,7 @@ jobs:
           RESULTATEN: |
             test=${{ needs.checks-test.result }}
             detekt-gate=${{ needs.checks-detekt.result }}
-            infra-image-pins=${{ needs.checks-pins.result }}
+            pin-consistency=${{ needs.checks-pins.result }}
             ${{ github.event_name == 'pull_request' && format('PR={0}', needs.checks-fuzz.result) || '' }}
         run: |
           set -euo pipefail
