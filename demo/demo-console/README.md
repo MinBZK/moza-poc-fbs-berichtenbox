@@ -53,12 +53,11 @@ De cache-verval-knop en de vier storingsknoppen wérken daar, ook op een preview
 cluster-intern verkeer naar een ander project, en zo'n netwerkregel noemt op ZAD altijd één vaste
 deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` ze per preview bij en weer weg.
 
-De vier Toxiproxy's op ZAD dragen géén `proxies.json`: de inhoud van een attachment wordt daar
-ongewijzigd gemount en zou in elke preview de upstream van `test` noemen. De console maakt de proxies
-daarom zelf aan via de admin-API (`ProxyBootstrap`) en herhaalt dat elke dertig seconden, want
-Toxiproxy houdt ze in het geheugen en verliest ze bij een herstart. Lokaal is dat een no-op: compose
-zet ze uit `toxiproxy/proxies.json`, die met dezelfde configuratie overeenkomen, dus er wordt niets
-aangemaakt of herbouwd.
+De vier Toxiproxy's op ZAD dragen géén `proxies.json` — de KDoc van `ProxyBootstrap` legt uit waarom
+een attachment daar niet werkt. De console maakt de proxies zelf aan via de admin-API en herhaalt dat
+elke dertig seconden, want Toxiproxy houdt ze in het geheugen en verliest ze bij een herstart.
+Lokaal gebeurt er niets: compose zet ze uit `toxiproxy/proxies.json`, die met dezelfde configuratie
+overeenkomen, dus er valt niets aan te maken of te herbouwen.
 
 Drie dingen horen bij het wonen in `test`. De demo rolt mee met elke merge naar main, dus de
 omgeving kan tijdens een presentatie herstarten. Previews klonen `test` en krijgen de console dus

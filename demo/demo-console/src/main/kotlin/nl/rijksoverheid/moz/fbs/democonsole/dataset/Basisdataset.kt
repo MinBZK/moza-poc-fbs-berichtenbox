@@ -33,7 +33,11 @@ class Basisdataset(private val mapper: ObjectMapper) {
         val volgnummers = mutableMapOf<Bak, Int>()
 
         return opdrachten.map { opdracht ->
-            val volgnummer = volgnummers.merge(opdracht.bak(), 0) { bestaand, _ -> bestaand + 1 } ?: 0
+            val bak = opdracht.bak()
+            val volgnummer = volgnummers.getOrDefault(bak, -1) + 1
+
+            volgnummers[bak] = volgnummer
+
             val metBijlage = if (volgnummer % 3 == 0) {
                 opdracht.metBijlage(DemoBijlage.bij(bestandsnaam(opdracht.verzoek.onderwerp)))
             } else {

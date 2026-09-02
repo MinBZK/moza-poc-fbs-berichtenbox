@@ -26,8 +26,7 @@ interface ToxiproxyConfig {
 
         /**
          * Waar de proxy zelf luistert, als `host:poort`. Nodig omdat de console de proxy op ZAD
-         * zelf aanmaakt: er is daar geen `proxies.json`, want de inhoud van een attachment wordt
-         * ongewijzigd gemount en zou dus in elke preview dezelfde upstream noemen.
+         * zelf aanmaakt; [ProxyBootstrap] legt uit waarom daar geen `proxies.json` staat.
          */
         fun listen(): Optional<String>
 

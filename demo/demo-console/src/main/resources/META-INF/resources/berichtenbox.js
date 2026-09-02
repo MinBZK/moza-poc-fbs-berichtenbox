@@ -440,7 +440,7 @@ async function leesProblem(respons) {
 
 // Uit /api/demo/omgeving, same-origin — anders dan de rest van deze pagina, die met de uitvraag
 // praat. Niet van /api/demo/personas: dat adres hoort bij de personadienst, en deze module
-// beantwoordt het bewust niet; de lijst komt uit dezelfde bron. Mislukt het ophalen, dan blijven
+// beantwoordt het bewust niet; de lijst komt uit dezelfde PersonaService die die dienst gebruikt. Mislukt het ophalen, dan blijven
 // Ophalen en Vernieuw uit: met een lege keuzelijst zou de volgende klik een lege X-Ontvanger
 // sturen en een 400 opleveren die naar de verkeerde component wijst.
 async function laadPersonas() {

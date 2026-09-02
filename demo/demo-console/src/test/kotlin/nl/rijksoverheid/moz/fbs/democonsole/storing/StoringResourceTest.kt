@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.BadRequestException
+import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -35,7 +36,12 @@ class StoringResourceTest {
             "redis" to Storingstoestand.NORMAAL,
         )
 
-        assertEquals("alles normaal", resource.reset()["status"])
+        val antwoord = resource.reset()
+
+        assertEquals("alles normaal", antwoord["status"])
+        // Het paneel toont deze uitleg onder de melding; zonder dit veld staat de bediener na een
+        // reset naar een Berichtenbox te kijken die de organisatie nog als onbereikbaar meldt.
+        assertEquals(HERSTELTIJD_MELDING, antwoord["letOp"])
     }
 
     @ParameterizedTest

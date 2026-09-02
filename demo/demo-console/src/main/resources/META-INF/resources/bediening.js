@@ -28,9 +28,11 @@ const MAGAZIJN_NAMEN = {
     'magazijn-b': 'Bel.dienst',
 };
 
-/* Loopt er een actie, dan slaat de poll over — de statusbalk zou anders de toestand van halverwege
- * een herstel tonen. */
-let bezig = false;
+/* Hoeveel acties er lopen; zolang dat er meer dan nul zijn slaat de poll over, want de statusbalk
+ * zou anders de toestand van halverwege een herstel tonen. Een teller en geen vlag: de ingedrukte
+ * knop gaat op disabled maar een ándere niet, dus twee acties kunnen overlappen — en dan zette de
+ * eerste die terugkwam de vlag voor allebei terug. */
+let bezig = 0;
 
 /* Volgnummer per ververs-ronde. Een poll die al onderweg was toen je klikte, mag de verse toestand
  * van ná die actie niet overschrijven. */
@@ -44,6 +46,7 @@ let heeftSimulator = null;
 
 const melding = document.getElementById('melding');
 const meldingTekst = document.getElementById('melding-tekst');
+const meldingLetOp = document.getElementById('melding-letop');
 const meldingRuw = document.getElementById('melding-ruw');
 const meldingJson = document.getElementById('melding-json');
 
@@ -163,10 +166,19 @@ function klap() {
 
 // ---------------------------------------------------------------- melding
 
-function toonMelding(tekst, soort, ruw) {
+/* Sommige antwoorden dragen uitleg die los staat van de uitkomst — waarom de Berichtenbox na een
+ * reset nog even doet alsof er niets veranderd is, bijvoorbeeld. Op een eigen regel en niet in de
+ * samenvatting: die moet in één oogopslag te lezen blijven. */
+function letOp(body) {
+    return body && typeof body.letOp === 'string' ? body.letOp : null;
+}
+
+function toonMelding(tekst, soort, ruw, uitleg) {
     melding.hidden = false;
     melding.className = 'melding' + (soort ? ' melding--' + soort : '');
     meldingTekst.textContent = tekst;
+    meldingLetOp.hidden = !uitleg;
+    meldingLetOp.textContent = uitleg || '';
     meldingRuw.hidden = !ruw;
 
     // Bij twijfel staat het antwoord meteen open: dan is de ruwe JSON het enige aanknopingspunt,
@@ -396,23 +408,26 @@ async function voerUit(knop) {
 
     if (pad === null) return;
 
-    bezig = true;
+    bezig += 1;
     knop.disabled = true;
     zetUitkomst(knop, 'bezig');
     toonMelding('Bezig…', null, null);
 
-    // Alles opruimen in een finally: een bezig-vlag die blijft hangen zet de poll stil, en dan
-    // toont de balk de rest van de sessie verouderde waarden zonder dat iets dat verraadt.
+    // Alles opruimen in een finally: een teller die blijft hangen zet de poll stil, en dan toont de
+    // balk de rest van de sessie verouderde waarden zonder dat iets dat verraadt.
     try {
         const uitkomst = await roep(pad, knop.dataset.methode);
-
-        zetUitkomst(knop, uitkomst.gelukt ? 'gelukt' : 'mislukt');
 
         if (uitkomst.gelukt) {
             const samengevat = samenvatting(knop.dataset.samenvatting, uitkomst.body);
 
-            toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw);
+            // Het merkteken pas hierna, en naar de soort van de samenvatting. HTTP 200 alleen zegt
+            // te weinig: bij "geslaagd, maar het antwoord had een onverwachte vorm" stond er anders
+            // een groen vinkje naast een melding die twijfel uitsprak.
+            zetUitkomst(knop, samengevat.soort === 'let-op' ? 'let-op' : 'gelukt');
+            toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw, letOp(uitkomst.body));
         } else {
+            zetUitkomst(knop, 'mislukt');
             toonMelding(uitkomst.tekst, 'fout', uitkomst.ruw);
         }
     } catch (fout) {
@@ -426,7 +441,7 @@ async function voerUit(knop) {
         // getabd is.
         if (document.activeElement === document.body) knop.focus();
 
-        bezig = false;
+        bezig -= 1;
 
         verversToestand();
     }
@@ -651,7 +666,7 @@ function toonMagazijnen(veel) {
 /* Elke uitlezing valt apart terug: een endpoint dat niet antwoordt maakt alleen zijn eigen chip
  * onbekend, want juist bij een storing wil je de overige tellingen nog zien. */
 async function verversToestand() {
-    if (bezig) return;
+    if (bezig > 0) return;
 
     const beurt = ++ververslus;
 

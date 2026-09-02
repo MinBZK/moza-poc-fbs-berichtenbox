@@ -20,10 +20,9 @@ class ToxiproxyRegister(config: ToxiproxyConfig) {
                 // Korte timeouts, want de default van 15 seconden is hier schadelijk. Ontbreekt de
                 // netwerkregel naar een admin-API, dan wórden de pakketten gedropt en niet
                 // geweigerd: elke aanroep blijft dan hangen tot de timeout. ProxyBootstrap loopt bij
-                // het starten alle instanties serieel langs, dus vier onbereikbare adressen kosten
-                // vier keer die wachttijd vóórdat de console zijn poort opent. Twee seconden is ruim
-                // voor een admin-API in hetzelfde cluster, en houdt die stapeling binnen tien
-                // seconden.
+                // het starten alle instanties serieel langs, dus elke onbereikbare kost die
+                // wachttijd vóórdat de console zijn poort opent. Twee seconden is ruim voor een
+                // admin-API in hetzelfde cluster en houdt die stapeling kort.
                 .connectTimeout(CONNECT_TIMEOUT_SECONDEN, TimeUnit.SECONDS)
                 .readTimeout(READ_TIMEOUT_SECONDEN, TimeUnit.SECONDS)
                 .build(ToxiproxyClient::class.java)

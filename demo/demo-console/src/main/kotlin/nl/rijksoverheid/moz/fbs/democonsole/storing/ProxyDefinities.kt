@@ -28,8 +28,7 @@ internal data class ProxyDefinitie(val naam: String, val listen: String, val ups
 
 /**
  * Welke proxies deze omgeving zelf moet aanmaken. Lokaal zet compose ze uit `toxiproxy/proxies.json`
- * en is het aanmaken een no-op; op ZAD bestaat dat bestand niet, want de inhoud van een attachment
- * wordt daar ongewijzigd gemount en zou in elke preview naar de upstream van `test` wijzen.
+ * en is er niets aan te maken; op ZAD bestaat dat bestand niet — [ProxyBootstrap] legt uit waarom.
  *
  * Een proxy telt alleen mee als hij alle drie de waarden draagt en zijn adressen bruikbaar zijn. Een
  * lege url schakelt hem uit — dezelfde afspraak als in [ToxiproxyAdressen], zodat een omgeving een
@@ -38,8 +37,8 @@ internal data class ProxyDefinitie(val naam: String, val listen: String, val ups
  * aanroeper erover kan klagen in plaats van de proxy stilzwijgend over te slaan — hij zou nooit
  * ontstaan en de hele stroom zou dood zijn.
  *
- * Los van [ToxiproxyRegister] om dezelfde reden als [ToxiproxyAdressen]: zo blijft de beslissing
- * toetsbaar zonder draaiende Quarkus.
+ * Los van [ToxiproxyRegister], want het bouwen van REST-clients vraagt een draaiende Quarkus: zo
+ * blijft de beslissing welke proxy meetelt toetsbaar in een pure unittest.
  */
 internal class ProxyDefinities(config: ToxiproxyConfig) {
 

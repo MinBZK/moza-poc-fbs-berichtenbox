@@ -10,12 +10,9 @@ import java.util.Optional
  * Zet `X-Beheer-Token` op de aanroepen naar het beheerpad van de simulator, maar alleen als er een
  * token is.
  *
- * Dit deed eerder een `@ClientHeaderParam` met de configuratie-expressie als waarde. Dat werkt niet
- * voor het lokale pad, waar het beheerpad openstaat en de variabele leeg blijft: SmallRye leest een
- * lege waarde als "geen waarde" en laat de conversie naar String falen. Die fout valt vóór het
- * netwerkverkeer, dus elke knop van het paneel gaf "Failed to convert value ... to String" in
- * plaats van te doen wat hij moest doen — lokaal én op een gedeelde omgeving waar het token nog
- * niet gezet was.
+ * Niet via `@ClientHeaderParam` met de configuratie-expressie als waarde: SmallRye leest een lege
+ * waarde als "geen waarde" en laat de conversie naar String falen, nog vóór het netwerkverkeer.
+ * Elke knop van het paneel breekt dan zodra het token leegstaat — wat lokaal de normale stand is.
  *
  * Ontbreekt het token waar de simulator het wél eist, dan antwoordt die met 401. Dat is een fout die
  * zichzelf aanwijst; stilzwijgend een lege header meesturen zou hetzelfde effect hebben met een

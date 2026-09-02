@@ -17,7 +17,7 @@ import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
  * `personas` staat hier omdat de twee pagina's die deze module zelf serveert — het paneel en de
  * wegwerp-berichtenbox — een keuzelijst van identiteiten nodig hebben. Het adres `/api/demo/personas`
  * hoort bij de personadienst en wordt hier bewust niet ook beantwoord; de lijst komt uit dezelfde
- * module, dus er is één bron.
+ * `PersonaService` als die dienst gebruikt — de jar van `demo-personas` — dus er is één bron.
  *
  * `simulator` zegt of deze omgeving gesimuleerde magazijnen kent, niet hoeveel: het aantal vraagt
  * het paneel aan de simulator zelf, zodat er geen tweede getal is dat daarvan kan afwijken. Het

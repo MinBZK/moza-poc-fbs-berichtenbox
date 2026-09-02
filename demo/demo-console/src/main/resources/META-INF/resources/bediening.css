@@ -267,6 +267,14 @@ body.ingeklapt #paneel {
     margin: 0;
 }
 
+/* Uitleg die los staat van de uitkomst; kleiner en rustiger dan de samenvatting, zodat die de
+   eerste regel blijft die je leest. */
+.melding__letop {
+    color: var(--bediening-color-text-subtle);
+    font-size: var(--bediening-font-size-sm);
+    margin: var(--bediening-space-xs) 0 0;
+}
+
 .melding__ruw {
     color: var(--bediening-color-text-subtle);
     font-size: var(--bediening-font-size-sm);
@@ -426,6 +434,12 @@ body.ingeklapt #paneel {
 
 .knop[data-uitkomst="mislukt"] .knop__uitkomst::after {
     content: "\2717";
+}
+
+/* Geslaagd, maar niet zoals verwacht: een eigen teken, want een vinkje naast een melding die
+   twijfel uitspreekt is het verkeerde signaal. */
+.knop[data-uitkomst="let-op"] .knop__uitkomst::after {
+    content: "\0021";
 }
 
 @keyframes bediening-draai {
