@@ -3,9 +3,12 @@ package nl.rijksoverheid.moz.fbs.demopersonas
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
+import jakarta.inject.Inject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import java.net.URL
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -23,6 +26,9 @@ class PersonaResourceTest {
     @TestHTTPResource("/api/demo/personas")
     lateinit var url: URL
 
+    @Inject
+    lateinit var personaService: PersonaService
+
     private fun haal(): HttpResponse<String> = HttpClient.newHttpClient()
         .send(HttpRequest.newBuilder(url.toURI()).GET().build(), HttpResponse.BodyHandlers.ofString())
 
@@ -38,16 +44,24 @@ class PersonaResourceTest {
         val vandijk = personas.first { it.path("ontvanger").asText() == "KVK:90000014" }
 
         assertEquals("keten", vandijk.path("bron").asText())
+
+        // Ook de wáárde van het label: het is het eerste wat een toeschouwer in de keuzelijst ziet,
+        // en `naarDto()` zet vier positionele strings naast elkaar.
+        assertEquals("Garage Van Dijk B.V.", vandijk.path("label").asText())
     }
 
     @Test
     fun `wat de lijst teruggeeft is wat er in de configuratie staat`() {
         // Sluit de keten binnen deze module: de handgeschreven parser en de mapping van SmallRye
         // lezen hetzelfde bestand, en dit endpoint levert af wat die mapping oplevert.
-        val verwacht = TestPersonas.uitConfiguratie().alle().map { it.id }
         val geleverd = ObjectMapper().readTree(haal().body()).map { it.path("id").asText() }
 
-        assertEquals(verwacht, geleverd)
+        assertEquals(personaService.alle().map { it.id }, geleverd)
+
+        // En op de héle DemoPersona, niet alleen op de ids: `magazijnen` gaat bewust niet over de
+        // lijn, dus een mapping die "OIN_A,OIN_B" ooit als één element leest valt hier nergens op —
+        // terwijl de generator dan nog maar bij één magazijn aanlevert.
+        assertEquals(TestPersonas.uitConfiguratie().alle(), personaService.alle())
     }
 
     @Test
@@ -66,15 +80,20 @@ class PersonaResourceTest {
         ).statusCode())
     }
 
-    @Test
-    fun `het antwoord mag niet bewaard worden`() {
-        // De lijst verandert met de inrichting van de demo; een hergebruikt antwoord toont een
-        // testaccount dat er niet meer is. Op een gedeelde omgeving zit er bovendien een ingress
-        // tussen die zich aan deze header houdt.
-        assertEquals(
-            "no-store",
-            haal().headers().firstValue("Cache-Control").orElse(null),
-        )
+    @ParameterizedTest
+    @CsvSource(
+        "Cache-Control, no-store",
+        "X-Frame-Options, DENY",
+        "X-Content-Type-Options, nosniff",
+        "Referrer-Policy, no-referrer",
+    )
+    fun `het antwoord draagt de headers van een dienst zonder authenticatiemuur`(header: String, waarde: String) {
+        // Alle vier en niet alleen no-store: ze staan in één blok in de configuratie van deze
+        // module, dat op ordinal 100 ook geldt voor elke afnemer die de sleutel niet zelf zet.
+        // Voor no-store speelt daarbovenop dat de lijst met de inrichting van de demo verandert —
+        // een hergebruikt antwoord toont een testaccount dat er niet meer is, en op een gedeelde
+        // omgeving zit er een ingress tussen die zich aan deze header houdt.
+        assertEquals(waarde, haal().headers().firstValue(header).orElse(null))
     }
 
     private fun statusVan(pad: String): Int = HttpClient.newHttpClient().send(

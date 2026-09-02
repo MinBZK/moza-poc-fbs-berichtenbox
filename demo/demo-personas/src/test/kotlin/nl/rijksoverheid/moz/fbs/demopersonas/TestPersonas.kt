@@ -66,6 +66,10 @@ object TestPersonas {
         // Alle treffers en niet de eerste: die naam is niet uniek op een classpath, en zodra een
         // andere afhankelijkheid er ook een meelevert zou deze parser stil een ander bestand lezen
         // dan de dienst. Er hoort er precies één de persona's te dragen.
+        //
+        // Deze guard hangt aan wat er op het classpath staat en is als enige van de vier niet in
+        // een test uit te lokken: dat vraagt een eigen classloader, en dat is meer machinerie dan
+        // de guard waard is.
         val bronnen = TestPersonas::class.java.classLoader.getResources(BESTAND).toList()
             .map { bron -> bron to bron.openStream().use { String(it.readAllBytes()) } }
             .filter { (_, inhoud) -> inhoud.contains("demo.personas.") }
@@ -77,17 +81,23 @@ object TestPersonas {
 
         eigenschappen.load(bronnen.single().second.reader())
 
-        // Deze parser leest geen profiel-sleutels: stilzwijgend negeren zou een divergentie met
-        // SmallRye opleveren die pas bij het starten van de demo blijkt.
-        eigenschappen.stringPropertyNames().forEach {
-            check(!it.startsWith("%") || !it.contains(".demo.")) { "profiel-sleutel '$it' wordt hier niet gelezen" }
-        }
+        vereisGeenProfielSleutels(eigenschappen)
 
         return eigenschappen
     }
 
+    /**
+     * Deze parser leest geen profiel-sleutels: stilzwijgend negeren zou een divergentie met
+     * SmallRye opleveren die pas bij het starten van de demo blijkt.
+     */
+    internal fun vereisGeenProfielSleutels(eigenschappen: Properties) {
+        eigenschappen.stringPropertyNames().forEach {
+            check(!it.startsWith("%") || !it.contains(".demo.")) { "profiel-sleutel '$it' wordt hier niet gelezen" }
+        }
+    }
+
     /** Per persona-id de gelezen velden: `demo.personas.<id>.<veld>` = waarde. */
-    private fun personaVelden(eigenschappen: Properties): Map<String, Map<String, String>> {
+    internal fun personaVelden(eigenschappen: Properties): Map<String, Map<String, String>> {
         val velden = eigenschappen.stringPropertyNames()
             .mapNotNull { SLEUTEL.matchEntire(it) }
             .groupBy({ it.groupValues[1] }, { it.groupValues[2] to eigenschappen.getProperty(it.value) })

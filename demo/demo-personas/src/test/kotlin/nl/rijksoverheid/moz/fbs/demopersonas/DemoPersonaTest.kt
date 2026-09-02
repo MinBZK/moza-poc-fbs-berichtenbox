@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.ValueSource
 
 class DemoPersonaTest {
 
@@ -76,9 +77,18 @@ class DemoPersonaTest {
         assertFalse(NUMMER.containsMatchIn(fout.message!!), fout.message)
     }
 
-    @Test
-    fun `weigert een nummer als persona-id, want de id komt wel in meldingen`() {
-        assertThrows(IllegalArgumentException::class.java) { persona(id = "999993653") }
+    @ParameterizedTest
+    @ValueSource(strings = ["999993653", "12345678"])
+    fun `weigert een identificatienummer als persona-id, want de id komt wel in meldingen`(id: String) {
+        assertThrows(IllegalArgumentException::class.java) { persona(id = id) }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["1234567", "00000000000000100000"])
+    fun `laat een cijferreeks toe die geen BSN, RSIN of KVK-nummer kan zijn`(id: String) {
+        // De guard weert de vorm van een identificatienummer, niet elk cijfer: een OIN is publiek
+        // en mag dus wél voluit in een melding of in de opstartlog staan.
+        assertEquals(id, persona(id = id).id)
     }
 
     @Test
@@ -100,16 +110,30 @@ class DemoPersonaTest {
 
     @Test
     fun `weigert hetzelfde magazijn twee keer`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
             persona(magazijnen = listOf("00000000000000100000", "00000000000000100000"))
         }
+
+        assertTrue(fout.message!!.contains("dubbel"), fout.message)
     }
 
     @Test
     fun `weigert een dataset-persona met magazijnen`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
             persona(magazijnen = listOf("00000000000000100000"), bron = PersonaBron.DATASET)
         }
+
+        // De melding noemt de bron in zijn lijnvorm, want dat is wat de bediener in de
+        // configuratie ziet staan.
+        assertTrue(fout.message!!.contains("'dataset'"), fout.message)
+    }
+
+    @Test
+    fun `weigert een waarde met witruimte, die een properties-bestand ongemerkt meelevert`() {
+        // Java Properties bewaart een volgspatie in de waarde. De melding echoot de waarde bewust
+        // niet, dus de bediener ziet een regel die visueel negen cijfers telt; dat dit toch
+        // geweigerd wordt hoort vast te liggen.
+        assertThrows(IllegalArgumentException::class.java) { persona(waarde = "999993653 ") }
     }
 
     @Test
