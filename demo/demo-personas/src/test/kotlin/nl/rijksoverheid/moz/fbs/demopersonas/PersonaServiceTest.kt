@@ -65,13 +65,20 @@ class PersonaServiceTest {
         assertTrue(melding.contains("pietersen"), melding)
     }
 
-    @Test
-    fun `weigert een magazijn-OIN met witruimte eromheen, zoals een spatie na de komma oplevert`() {
+    @ParameterizedTest
+    @MethodSource("witruimteVarianten")
+    fun `weigert een magazijn-OIN met witruimte eromheen, zoals een spatie na de komma oplevert`(oin: String) {
         val melding = weigering(
-            "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf(" " + TestPersonas.RVO)),
+            "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf(oin)),
+            kenners = listOf(strikt),
         ).message!!
 
         assertTrue(melding.contains("witruimte"), melding)
+
+        // Mét een kenner erbij, want de witruimte-guard bestaat juist om de kenners over te slaan:
+        // hun bezwaar zou naar de magazijn-inrichting wijzen, waar niets mis is, en dan repareert
+        // de bediener de verkeerde kant.
+        assertFalse(melding.contains("onbekend magazijn"), melding)
     }
 
     @Test
@@ -116,6 +123,25 @@ class PersonaServiceTest {
     }
 
     @Test
+    fun `noemt per persona de bron en het aantal magazijnen, ook bij meerdere`() {
+        // Het magazijn-aantal staat nergens anders in de runtime — het personas-endpoint geeft het
+        // niet terug — terwijl een weggevallen `magazijnen`-regel de generator deze persona stil
+        // laat overslaan. Drie persona's, zodat ook de scheiding tussen de regels vastligt.
+        val regel = PersonaService.logregel(
+            service(
+                "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO)),
+                "grootbedrijf" to VastePersona("Grootbedrijf B.V.", "KVK", "90000001"),
+                "verzonnen" to VastePersona("Verzonnen B.V.", "KVK", "87654321", bron = "dataset"),
+            ).alle(),
+            kenners = 1,
+        )
+
+        assertTrue(regel.contains("grootbedrijf (keten, 0 magazijn(en))"), regel)
+        assertTrue(regel.contains("pietersen (keten, 1 magazijn(en))"), regel)
+        assertTrue(regel.contains("verzonnen (dataset, 0 magazijn(en))"), regel)
+    }
+
+    @Test
     fun `weigert twee persona's op hetzelfde identificatienummer`() {
         val melding = weigering(
             "eerste" to VastePersona("Eerste B.V.", "KVK", "90000014"),
@@ -123,14 +149,39 @@ class PersonaServiceTest {
         ).message!!
 
         assertTrue(melding.contains("eerste") && melding.contains("tweede"), melding)
-        assertFalse(melding.contains("12345678"), "het nummer hoort niet in de melding")
+
+        // Op elke reeks van acht of meer cijfers en niet op één letterlijk nummer: een assertie op
+        // een getal dat in deze test niet voorkomt, kan de invariant niet bewaken.
+        assertFalse(NUMMER.containsMatchIn(melding), "het nummer hoort niet in de melding: $melding")
+    }
+
+    @Test
+    fun `noemt elke botsende groep, ook als het er meer dan één is`() {
+        val melding = weigering(
+            "alfa" to VastePersona("Alfa B.V.", "KVK", "90000014"),
+            "bravo" to VastePersona("Bravo B.V.", "KVK", "90000014"),
+            "charlie" to VastePersona("Charlie B.V.", "KVK", "87654321"),
+            "delta" to VastePersona("Delta B.V.", "KVK", "87654321"),
+            "echo" to VastePersona("Echo B.V.", "KVK", "87654321"),
+        ).message!!
+
+        // Twee groepen, waarvan één van drie: met één groep van twee blijft ongetoetst of de
+        // melding er meer dan één aankan, en dan kost elke botsing een eigen herstart.
+        listOf("alfa", "bravo", "charlie", "delta", "echo").forEach {
+            assertTrue(melding.contains(it), "'$it' ontbreekt in: $melding")
+        }
+
+        assertTrue(melding.contains("charlie en delta en echo"), melding)
     }
 
     @Test
     fun `weigert hetzelfde magazijn twee keer bij één persona`() {
-        weigering(
+        val melding = weigering(
             "pietersen" to VastePersona("J. Pietersen", "BSN", "999993653", listOf(TestPersonas.RVO, TestPersonas.RVO)),
-        )
+        ).message!!
+
+        assertTrue(melding.contains("pietersen"), melding)
+        assertTrue(melding.contains("dubbel"), melding)
     }
 
     @Test
@@ -232,12 +283,21 @@ class PersonaServiceTest {
 
     @Test
     fun `weigert een dataset-persona die ook ketenberichten zou krijgen`() {
-        weigering("mengvorm" to VastePersona("Mengvorm", "KVK", "90000014", listOf(TestPersonas.RVO), "dataset"))
+        val melding = weigering(
+            "mengvorm" to VastePersona("Mengvorm", "KVK", "90000014", listOf(TestPersonas.RVO), "dataset"),
+        ).message!!
+
+        assertTrue(melding.contains("mengvorm"), melding)
+        assertTrue(melding.contains("'dataset'"), melding)
     }
 
     @Test
-    fun `weigert een onbekende bron`() {
-        weigering("mock" to VastePersona("Mock", "KVK", "90000014", bron = "mock"))
+    fun `weigert een onbekende bron en noemt de persona plus wat wel mag`() {
+        val melding = weigering("verzonnen" to VastePersona("Verzonnen B.V.", "KVK", "90000014", bron = "mock")).message!!
+
+        assertTrue(melding.contains("verzonnen"), melding)
+        assertTrue(melding.contains("keten") && melding.contains("dataset"), melding)
+        assertFalse(melding.contains("mock"), "de aangeboden waarde hoort niet in de melding: $melding")
     }
 
     @ParameterizedTest
@@ -268,8 +328,15 @@ class PersonaServiceTest {
         const val EERSTE = "00000000000000000001"
         const val TWEEDE = "00000000000000000002"
 
+        /** Elke reeks van acht of meer cijfers is een identificatienummer en hoort niet in een melding. */
+        val NUMMER = Regex("[0-9]{8,}")
+
         /** Kent alleen RVO; elk ander OIN levert een bezwaar dat dat OIN noemt. */
         val strikt = MagazijnKennis { oin -> if (oin == TestPersonas.RVO) null else "onbekend magazijn '$oin'" }
+
+        /** Voor- én volgspatie: de tweede is de realistischere typfout in een properties-bestand. */
+        @JvmStatic
+        fun witruimteVarianten() = listOf(" " + TestPersonas.RVO, TestPersonas.RVO + " ")
 
         @JvmStatic
         fun optIns() = listOf(

@@ -69,12 +69,11 @@ class PersonaService(config: PersonaConfig, @All kenners: MutableList<MagazijnKe
         // in één `magazijnen`-regel horen geen twee herstarts te kosten.
         val bezwaren = magazijnen.flatMap { oin ->
             // SmallRye trimt lijstwaarden niet, dus "OIN_A, OIN_B" levert een OIN met een spatie
-            // ervoor. Dan heeft het geen zin er ook nog naar te laten zoeken: het bezwaar van een
-            // kenner zou naar de magazijn-inrichting wijzen, waar niets mis is.
+            // ervoor. Dan heeft het geen zin de kenners er ook nog naar te laten zoeken: hun bezwaar
+            // zou naar de magazijn-inrichting wijzen, waar niets mis is. Of een OIN zónder witruimte
+            // een ingericht magazijn is weet deze dienst niet; een afnemer die het wél weet levert
+            // die kennis aan.
             if (oin != oin.trim()) listOf("magazijn-OIN '$oin' heeft witruimte om zich heen")
-
-            // Of het OIN ook een ingericht magazijn is weet deze dienst niet; een afnemer die het
-            // wél weet levert die kennis aan.
             else kenners.mapNotNull { it.bezwaarTegen(oin) }
         }
 

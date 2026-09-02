@@ -41,9 +41,15 @@ class ProeftuinPersonaTest {
         // één kant op — zo bleef Landelijk Concern onzichtbaar terwijl hij netjes ingericht was.
         val hunNummers = overgenomen.map { it.path("bedrijf").path("kvkNummer").asText() }.toSet()
 
-        val ontbrekend = ingericht.values
+        val gecontroleerd = ingericht.values
             .filter { it.bron == PersonaBron.KETEN && it.type == "KVK" && it.id !in ALLEEN_BIJ_ONS }
-            .filterNot { it.waarde in hunNummers }
+
+        // Zonder deze guard is de test voor altijd groen zodra het filter hierboven breekt: de set
+        // is dan leeg en `ontbrekend.isEmpty()` klopt per constructie. Een kruiscontrole die niets
+        // meer controleert ziet er precies zo uit als één die niets te melden heeft.
+        assertTrue(gecontroleerd.isNotEmpty(), "geen enkele KVK-keten-persona gecontroleerd; klopt het filter nog?")
+
+        val ontbrekend = gecontroleerd.filterNot { it.waarde in hunNummers }
 
         assertTrue(
             ontbrekend.isEmpty(),
@@ -62,10 +68,25 @@ class ProeftuinPersonaTest {
 
             // Een persona die alleen ophaalt krijgt zijn berichten van de stub-magazijnen; die
             // staan niet in demo.magazijnen en dus ook niet in zijn opt-ins.
-            if (!it.path("opthaaltAlleen").asBoolean()) {
+            if (!it.path("ophaaltAlleen").asBoolean()) {
                 assertTrue(persona.magazijnen.isNotEmpty(), "keten-persona '${persona.id}' heeft geen opt-in")
             }
         }
+    }
+
+    @Test
+    fun `een uitzondering vervalt zodra de proeftuin de persona wel aanbiedt`() {
+        // Zonder deze test blijft een uitzondering staan nadat hij overbodig is geworden, en dan
+        // kijkt de kruiscontrole aan die persona voorbij — precies waar hij voor bedoeld was.
+        val hunIds = overgenomen.map { it.path("id").asText() }.toSet()
+
+        val overbodig = ALLEEN_BIJ_ONS.filter { it in hunIds }
+
+        assertTrue(
+            overbodig.isEmpty(),
+            "de proeftuin biedt deze persona's inmiddels aan; haal ze uit ALLEEN_BIJ_ONS: " +
+                overbodig.joinToString(),
+        )
     }
 
     private companion object {

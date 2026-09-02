@@ -4,9 +4,8 @@ package nl.rijksoverheid.moz.fbs.demopersonas
  * Een demo-identiteit: wat een keuzelijst toont plus het nummer waarmee de keten hem kent. De
  * nummers zijn fictief — BSN's uit de 999-testreeks, zie `wiremock/demo-profiel/README.md`. Een
  * afnemende berichtenbox krijgt ze via het personas-endpoint en hoeft ze niet in zijn eigen
- * broncode op te nemen. Binnen de demo staan ze op meer plekken (profielstubs, basisdataset), die
- * `DemoDatasetConsistentieTest` van de demo-console op elkaar houdt voor de persona's waarvoor de generator aanlevert;
- * de gegenereerde stubs onder `demo/generated/profiel/` vallen daarbuiten.
+ * broncode op te nemen. Binnen de demo staan dezelfde nummers ook in de profielstubs en de
+ * basisdataset; het bedieningspaneel toetst die tegen deze lijst.
  */
 data class DemoPersona(
     val id: String,
@@ -21,7 +20,8 @@ data class DemoPersona(
         require(id.isNotBlank()) { "id mag niet leeg zijn" }
 
         // De id komt in foutmeldingen en in de opstartlog terecht; een nummer als sleutel zou het
-        // identificatienummer daar alsnog in zetten.
+        // identificatienummer daar alsnog in zetten. Acht of negen cijfers is de vorm van een
+        // KVK-nummer, BSN of RSIN; een langere reeks blijft toegestaan, want een OIN is publiek.
         require(!id.matches(Regex("[0-9]{8,9}"))) { "gebruik een naam als persona-id, geen nummer" }
         require(label.isNotBlank()) { "label mag niet leeg zijn" }
 
