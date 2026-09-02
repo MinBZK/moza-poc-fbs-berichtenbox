@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.pool
 
 import java.time.Duration
+import java.util.Locale
 
 /**
  * Wat de connection pool op één moment doet.
@@ -45,7 +46,12 @@ data class Poolmoment(
     private fun kort(duur: Duration): String {
         val millis = duur.toMillis()
 
-        return if (millis < MILLIS_PER_SECONDE) "${millis}ms" else "%.1fs".format(millis / MILLIS_PER_SECONDE.toDouble())
+        if (millis < MILLIS_PER_SECONDE) return "${millis}ms"
+
+        // Locale.ROOT: met een NL-locale schrijft `format` "1,2s", en op een machine met andere
+        // cijfertekens iets dat helemaal niet meer als getal leest. Een logregel hoort er overal
+        // hetzelfde uit te zien.
+        return "%.1fs".format(Locale.ROOT, millis / MILLIS_PER_SECONDE.toDouble())
     }
 
     private companion object {

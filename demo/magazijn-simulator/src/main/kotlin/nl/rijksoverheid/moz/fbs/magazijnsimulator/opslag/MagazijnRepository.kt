@@ -4,6 +4,7 @@ import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnInstelling
 import org.jboss.logging.Logger
 
 /** Eén magazijn-rij zoals de rest van de applicatie hem nodig heeft. */
@@ -36,7 +37,7 @@ class MagazijnRepository : PanacheRepositoryBase<MagazijnEntity, Long> {
      * oude berichten toont.
      */
     @Transactional
-    fun brengInOvereenstemming(gewenst: Map<String, Paar>): List<MagazijnRij> {
+    fun brengInOvereenstemming(gewenst: Map<String, MagazijnInstelling>): List<MagazijnRij> {
         val bestaand = listAll().associateBy { it.oin }
 
         gewenst.forEach { (oin, instelling) ->
@@ -88,7 +89,4 @@ class MagazijnRepository : PanacheRepositoryBase<MagazijnEntity, Long> {
      */
     internal fun referentie(magazijnDbId: Long): MagazijnEntity =
         getEntityManager().getReference(MagazijnEntity::class.java, magazijnDbId)
-
-    /** Naam plus gedrag van één magazijn, zoals de configuratie het voorschrijft. */
-    data class Paar(val naam: String, val gedrag: Gedrag)
 }

@@ -71,17 +71,27 @@ data class BerichtStatus(
     val gewijzigdOp: Instant,
 ) {
     init {
-        if (map != null) {
-            vereis(map.isNotBlank()) { "Mapnaam mag niet leeg zijn" }
-            vereis(map.length <= MAX_MAPNAAM_LENGTE) {
-                "Mapnaam mag maximaal $MAX_MAPNAAM_LENGTE tekens zijn"
-            }
-        }
+        valideerMapnaam(map)
     }
 
     companion object {
         /** Gelijk aan `BerichtStatusPatch.map.maxLength` in de spec en aan de kolombreedte in V1. */
         const val MAX_MAPNAAM_LENGTE = 128
+
+        /**
+         * De regel geldt aan beide kanten: op wat er binnenkomt ([BerichtStatusWijziging]) en op wat
+         * er uit de opslag terugkomt. Stond hij alleen op deze kant, dan zou een lege mapnaam eerst
+         * worden weggeschreven en pas bij het teruglezen stuklopen — de juiste uitkomst langs een
+         * omweg die niemand kan volgen.
+         */
+        fun valideerMapnaam(map: String?) {
+            if (map == null) return
+
+            vereis(map.isNotBlank()) { "Mapnaam mag niet leeg zijn" }
+            vereis(map.length <= MAX_MAPNAAM_LENGTE) {
+                "Mapnaam mag maximaal $MAX_MAPNAAM_LENGTE tekens zijn"
+            }
+        }
     }
 }
 
@@ -91,17 +101,33 @@ data class BerichtStatus(
  * niets zetten" is precies wat een `PATCH` op een map betekent.
  */
 data class BerichtStatusWijziging(val gelezen: Boolean?, val map: String?) {
+
+    init {
+        BerichtStatus.valideerMapnaam(map)
+    }
+
     val isLeeg: Boolean get() = gelezen == null && map == null
 }
 
-/** Metadata van een bijlage; de bytes worden apart opgehaald. */
+/**
+ * Metadata van een bijlage; de bytes worden apart opgehaald.
+ *
+ * Geen vormcontrole — zie [Bijlage.valideerVorm] voor waar die wél staat en waarom.
+ */
 data class BijlageMetadata(
     val bijlageId: UUID,
     val naam: String,
     val mimeType: String,
 )
 
-/** Een bijlage inclusief bytes, zoals de download-endpoint hem teruggeeft. */
+/**
+ * Een bijlage inclusief bytes, zoals de download-endpoint hem teruggeeft.
+ *
+ * De bytes worden hier bewaakt en de vorm van naam en MIME-type niet: dit type wordt óók gebouwd uit
+ * wat er ín de opslag staat. Een rij die een latere regel niet meer haalt zou anders bij het
+ * teruglezen een domeinfout worden — een 400 die zegt dat het verzoek van de aanroeper niet deugt,
+ * terwijl hij niets fout deed. Zie [valideerVorm].
+ */
 data class Bijlage(
     val bijlageId: UUID,
     val naam: String,
@@ -109,10 +135,6 @@ data class Bijlage(
     val inhoud: ByteArray,
 ) {
     init {
-        vereis(naam.isNotBlank()) { "Bijlagenaam mag niet leeg zijn" }
-        vereis(naam.length <= MAX_NAAM_LENGTE) { "Bijlagenaam mag maximaal $MAX_NAAM_LENGTE tekens zijn" }
-        vereis(mimeType.isNotBlank()) { "MIME-type mag niet leeg zijn" }
-        vereis(mimeType.length <= MAX_MIME_LENGTE) { "MIME-type mag maximaal $MAX_MIME_LENGTE tekens zijn" }
         vereis(inhoud.isNotEmpty()) { "Bijlage mag niet leeg zijn" }
         vereis(inhoud.size <= MAX_INHOUD_BYTES) {
             "Bijlage mag maximaal ${MAX_INHOUD_BYTES / 1024 / 1024} MiB zijn (kreeg ${inhoud.size} bytes)"
@@ -122,6 +144,40 @@ data class Bijlage(
     companion object {
         const val MAX_NAAM_LENGTE = 255
         const val MAX_MIME_LENGTE = 127
+
+        /**
+         * `type/subtype`, met de tekens die RFC 6838 in een token toestaat. De spec eist alleen een
+         * lengte, maar een waarde die geen mediatype ís komt pas bij het downloaden aan het licht:
+         * de aanlevering slaagt met 201 en de bijlage is daarna onophaalbaar, want er valt geen
+         * `Content-Type` van te maken. Een 400 bij het aanleveren zegt wat er mis is, op het moment
+         * dat het nog te herstellen valt.
+         *
+         * Parameters horen erbij: `text/plain; charset=utf-8` is een geldig mediatype, het echte
+         * magazijn accepteert het en er valt prima een `Content-Type` van te maken. Zou de simulator
+         * dat weigeren, dan is hij op zijn aanleverpad van buiten te herkennen — precies wat deze
+         * module moet uitsluiten.
+         */
+        private const val TOKEN = """[A-Za-z0-9!#${'$'}%&'*+.^_`|~-]+"""
+
+        private const val PARAMETER_WAARDE = """($TOKEN|"[^"]*")"""
+
+        private val MEDIATYPE_VORM =
+            Regex("""^$TOKEN/$TOKEN(\s*;\s*$TOKEN=$PARAMETER_WAARDE)*${'$'}""")
+
+        /**
+         * De vormregels op het aanleverpad, aangeroepen door de service die een aanlevering
+         * aanneemt. Bewust niet in `init`: dan zou dezelfde regel ook gelden voor wat er uit de
+         * opslag terugkomt, en maakt één rij die een latere regel niet haalt van de hele pagina een
+         * 400. Op het leespad verdedigt het download-pad zich zelf tegen een MIME-type waar geen
+         * `Content-Type` van te maken is.
+         */
+        fun valideerVorm(naam: String, mimeType: String) {
+            vereis(naam.isNotBlank()) { "Bijlagenaam mag niet leeg zijn" }
+            vereis(naam.length <= MAX_NAAM_LENGTE) { "Bijlagenaam mag maximaal $MAX_NAAM_LENGTE tekens zijn" }
+            vereis(mimeType.isNotBlank()) { "MIME-type mag niet leeg zijn" }
+            vereis(mimeType.length <= MAX_MIME_LENGTE) { "MIME-type mag maximaal $MAX_MIME_LENGTE tekens zijn" }
+            vereis(MEDIATYPE_VORM.matches(mimeType)) { "MIME-type hoort de vorm type/subtype te hebben" }
+        }
 
         /**
          * 25 MiB, gelijk aan het echte magazijn. Géén spec-grens — die kent alleen `minLength: 1` —

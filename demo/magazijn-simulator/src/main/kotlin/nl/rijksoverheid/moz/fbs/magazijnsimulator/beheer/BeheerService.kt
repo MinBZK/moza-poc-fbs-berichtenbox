@@ -2,10 +2,12 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdMagazijn
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdeMagazijnen
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkBericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkOpslag
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.vereis
 import org.jboss.logging.Logger
 import java.time.Clock
@@ -55,30 +57,46 @@ class BeheerService(
      *
      * De waardes worden wél allemaal vooraf getoetst. Een ongeldige regel halverwege zou anders een
      * half doorgevoerde lijst achterlaten, en dan weet de aanroeper niet meer wat er staat.
+     *
+     * Wat vooraf niet te toetsen valt, is of de database meewerkt. Elke regel is een eigen
+     * transactie, dus een fout op regel veertig laat er negenendertig bijgesteld achter. Die regels
+     * komen als `mislukt` terug in plaats van als een 500 die niets zegt over wat er wél gebeurd is —
+     * anders klikt de presentator opnieuw zonder te weten dat de helft al omstaat.
      */
     fun zetGedragInBulk(verzoek: BulkGedragVerzoek): BulkGedragUitkomst {
-        val gewenst = verzoek.aanpassingen.map { aanpassing ->
-            aanpassing.oin to bouwGedrag(
-                GedragVerzoek(
-                    modus = aanpassing.modus,
-                    latencyP50Ms = aanpassing.latencyP50Ms,
-                    latencyP95Ms = aanpassing.latencyP95Ms,
-                    foutkans = aanpassing.foutkans,
-                    foutStatus = aanpassing.foutStatus,
-                ),
-            )
-        }
+        // Twee regels voor dezelfde OIN spreken elkaar tegen: de laatste zou winnen en het antwoord
+        // zou er twee tellen. Anders dan bij een dubbele ontvanger in de seed — die levert exact
+        // dezelfde berichten op en is dus onschadelijk — valt hier niet te raden wat bedoeld is.
+        val dubbel = verzoek.aanpassingen.groupingBy { it.oin }.eachCount().filterValues { it > 1 }.keys
+
+        vereis(dubbel.isEmpty()) { "Elke OIN mag maar één keer in de lijst staan; dubbel: ${dubbel.sorted()}" }
+
+        val gewenst = verzoek.aanpassingen.map { aanpassing -> aanpassing.oin to bouwGedrag(aanpassing.gedrag()) }
 
         val onbekend = mutableListOf<String>()
+        val mislukt = mutableListOf<String>()
         var aangepast = 0
 
         gewenst.forEach { (oin, gedrag) ->
-            if (magazijnen.stelGedragBij(oin, gedrag)) aangepast++ else onbekend += oin
+            try {
+                if (magazijnen.stelGedragBij(oin, gedrag)) aangepast++ else onbekend += oin
+            } catch (ex: RuntimeException) {
+                // Breed vangen en niet op één exception-type: welke soort de persistentielaag
+                // opwerpt hangt af van wat er misgaat, en de uitkomst is voor de aanroeper dezelfde.
+                log.warnf(ex, "Gedrag van magazijn %s niet bijgesteld", oin)
+
+                mislukt += oin
+            }
         }
 
-        log.infof("Gedrag van %d magazijn(en) bijgesteld; %d onbekend", aangepast, onbekend.size)
+        log.infof(
+            "Gedrag van %d magazijn(en) bijgesteld; %d onbekend, %d mislukt",
+            aangepast,
+            onbekend.size,
+            mislukt.size,
+        )
 
-        return BulkGedragUitkomst(aangepast = aangepast, onbekend = onbekend)
+        return BulkGedragUitkomst(aangepast = aangepast, onbekend = onbekend, mislukt = mislukt)
     }
 
     /**
@@ -105,10 +123,29 @@ class BeheerService(
                 "${FOUT_STATUS_BEREIK.last} (kreeg $foutStatus)"
         }
 
+        // De getallen moeten ook bij de gevraagde modus passen. Zonder deze toets is een magazijn
+        // in te stellen dat volgens het overzicht onbereikbaar is en ondertussen gewoon antwoordt —
+        // en dan wijst een demo de schuld toe aan het stelsel in plaats van aan de knop.
+        val bezwaar = Gedrag.bezwaarTegenModus(verzoek.modus, p50, p95, foutkans, foutStatus)
+
+        vereis(bezwaar == null) { "Dit past niet bij modus ${verzoek.modus}: ${bezwaar.orEmpty()}" }
+
         return Gedrag(verzoek.modus, p50, p95, foutkans, foutStatus)
     }
 
-    fun seed(verzoek: SeedVerzoek): SeedUitkomst {
+    /**
+     * Toetst het verzoek vóórdat er ook maar iets geschreven is, en levert de ontdubbelde ontvangers.
+     *
+     * Ontdubbelen: dezelfde ontvanger twee keer in de lijst zou binnen één magazijn twee keer
+     * dezelfde bericht-nummers opleveren, en die zijn per magazijn uniek. Een typefout in een
+     * JSON-lijst hoort geen serverfout te worden.
+     *
+     * De botsingscontrole hoort hier en niet in de schrijflus: een bericht van een magazijn aan
+     * zichzelf schendt een domein-invariant die pas tijdens het schrijven toeslaat, en dan staan de
+     * magazijnen die eerder aan de beurt waren al vol terwijl de aanroeper een 400 krijgt die daar
+     * niets over zegt.
+     */
+    private fun valideer(verzoek: SeedVerzoek, teVullen: List<GesimuleerdMagazijn>): List<Identificatie> {
         vereis(verzoek.ontvangers.isNotEmpty()) { "Geef minstens één ontvanger op" }
         vereis(verzoek.berichtenPerMagazijn in 1..SeedVerzoek.MAX_AANTAL) {
             "berichtenPerMagazijn hoort tussen 1 en ${SeedVerzoek.MAX_AANTAL} te liggen " +
@@ -116,16 +153,24 @@ class BeheerService(
         }
         vereis(verzoek.bijlageElke >= 0) { "bijlageElke mag niet negatief zijn (kreeg ${verzoek.bijlageElke})" }
 
-        // Ontdubbelen: dezelfde ontvanger twee keer in de lijst zou binnen één magazijn twee keer
-        // dezelfde bericht-nummers opleveren, en die zijn per magazijn uniek. Een typefout in een
-        // JSON-lijst hoort geen serverfout te worden.
         val ontvangers = verzoek.ontvangers.map { Identificatie.uitHeader(it) }.distinct()
+        val eigenOins = teVullen.map { it.oin }.toSet()
+        val botsend = ontvangers.filter { it.type == IdentificatieType.OIN && it.waarde in eigenOins }
+
+        vereis(botsend.isEmpty()) {
+            "Een magazijn kan geen bericht aan zichzelf sturen; deze ontvangers zijn zelf een " +
+                "gesimuleerd magazijn: ${botsend.map { it.waarde }.sorted()}"
+        }
+
+        return ontvangers
+    }
+
+    fun seed(verzoek: SeedVerzoek): SeedUitkomst {
         val begin = System.nanoTime()
         val nu = klok.instant()
+        val teVullen = magazijnen.alle()
+        val ontvangers = valideer(verzoek, teVullen)
 
-        // Eén momentopname van de set: `alle()` geeft een levende weergave terug, en dan zou het
-        // aantal in het rapport van een ander moment kunnen komen dan de lus die schreef.
-        val teVullen = magazijnen.alle().toList()
         var berichten = 0
         var bijlagen = 0
         var overgeslagen = 0
@@ -133,7 +178,7 @@ class BeheerService(
         // Per magazijn één transactie. Alles in één zou bij honderd magazijnen een erg grote worden,
         // en omdat vullen herhaalbaar is, is opnieuw draaien na een mislukking halverwege gewoon de
         // uitweg: wat er al stond wordt overgeslagen.
-        teVullen.forEach { magazijn ->
+        teVullen.forEachIndexed { index, magazijn ->
             val teSchrijven = ontvangers.flatMap { ontvanger ->
                 DemoBerichten.voor(
                     magazijnOin = magazijn.oin,
@@ -141,10 +186,26 @@ class BeheerService(
                     aantal = verzoek.berichtenPerMagazijn,
                     bijlageElke = verzoek.bijlageElke,
                     nu = nu,
-                ).map { BulkBericht(it.bericht, it.bijlagen) }
+                )
             }
 
-            val uitkomst = bulk.voegToe(magazijn.dbId, teSchrijven)
+            val uitkomst = try {
+                bulk.voegToe(magazijn.dbId, teSchrijven)
+            } catch (ex: RuntimeException) {
+                // Welk magazijn en hoever: zonder die twee is een half gevulde demo niet te
+                // onderscheiden van een lege, en dan weet niemand of opnieuw draaien veilig is.
+                // (Dat is het — wat er staat wordt overgeslagen.)
+                log.errorf(
+                    ex,
+                    "Vullen faalde op magazijn %s (%d van %d); %d berichten stonden er al",
+                    magazijn.oin,
+                    index + 1,
+                    teVullen.size,
+                    berichten,
+                )
+
+                throw ex
+            }
 
             berichten += uitkomst.berichten
             bijlagen += uitkomst.bijlagen
@@ -177,7 +238,15 @@ class BeheerService(
 
         // Ook het gedrag terug. Een magazijn dat tijdens de vorige demo op storing is gezet, zou er
         // anders de volgende keer nog zo bij staan.
-        magazijnen.herstelGedrag()
+        try {
+            magazijnen.herstelGedrag()
+        } catch (ex: RuntimeException) {
+            // De berichten zijn hier al weg. Wie alleen de 500 ziet, denkt dat er niets gebeurd is
+            // en gaat op zoek naar berichten die er niet meer zijn.
+            log.errorf(ex, "Berichten zijn geleegd (%d), maar het gedrag terugzetten faalde", verwijderd)
+
+            throw ex
+        }
 
         log.infof("Demo geleegd: %d berichten weg, gedrag teruggezet", verwijderd)
 

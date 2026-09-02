@@ -4,8 +4,12 @@ import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.PROBLEM_JSON
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.onverwachteFoutProblem
 import org.jboss.logging.Logger
+import java.util.UUID
 
 /**
  * Request-property waarmee de resource het MIME-type van een bijlage doorgeeft aan
@@ -27,25 +31,40 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.simulator.bijlage.mimeType"
  *
  * Het MIME-type wordt hier opnieuw geparsed, ook al deed de resource dat al: een waarde die
  * ongeparseerd in een header belandt, laat header-splitting via `\r\n` toe. Bij een onbruikbare
- * waarde blijft de standaard-`Content-Type` staan.
+ * waarde gaan de bytes niet de deur uit maar volgt een 500 met correlatie-id — een bijlage met een
+ * `Content-Type` dat niet klopt is erger dan geen bijlage.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {
 
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
+
+        // Vóór het parsen, zodat geen enkele weg langs deze header heen loopt; gaat het parsen mis,
+        // dan haalt die tak hem hieronder weer weg omdat er dan een problem+json uitgaat en geen
+        // bijlage. Geen filename: de naam staat al in de detail-response, en een filename in deze
+        // header vraagt om RFC 5987-encoding en sanering die hier niets toevoegt.
+        responseContext.headers.putSingle("Content-Disposition", "attachment")
+
         val geparsed = try {
             MediaType.valueOf(mimeType)
         } catch (ex: IllegalArgumentException) {
-            log.warnf(ex, "Ongeldig MIME-type op de request-property (%s); Content-Type ongewijzigd", mimeType)
+            val foutId = UUID.randomUUID()
+
+            log.errorf(ex, "Ongeldig MIME-type op de request-property (foutId=%s)", foutId)
+
+            // Niet doorlaten met de standaard-`Content-Type`: dan gaan de bytes alsnog de deur uit,
+            // met een type dat niet klopt. De resource heeft de waarde al geparsed, dus hier komen
+            // betekent dat er iets is dat we niet begrijpen — en dan is 500 het eerlijke antwoord.
+            responseContext.status = Response.Status.INTERNAL_SERVER_ERROR.statusCode
+            responseContext.entity = onverwachteFoutProblem(foutId)
+            responseContext.headers.putSingle("Content-Type", PROBLEM_JSON.toString())
+            responseContext.headers.remove("Content-Disposition")
 
             return
         }
 
         responseContext.headers.putSingle("Content-Type", geparsed.toString())
-        // Geen filename: de naam staat al in de detail-response, en een filename in deze header
-        // vraagt om RFC 5987-encoding en sanering die hier niets toevoegt.
-        responseContext.headers.putSingle("Content-Disposition", "attachment")
     }
 
     private companion object {

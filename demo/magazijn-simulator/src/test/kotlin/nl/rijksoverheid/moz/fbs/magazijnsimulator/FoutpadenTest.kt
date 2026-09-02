@@ -6,7 +6,10 @@ import io.restassured.http.ContentType
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.startsWith
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
  * De randen van het foutpad: wat er gebeurt als een bericht niet bestaat, als de invoer niet klopt,
@@ -216,6 +219,62 @@ class FoutpadenTest {
             .`when`().get("/q/health/ready")
             .then()
             .statusCode(200)
+    }
+
+    /**
+     * Kapotte JSON hoort net als bij het echte magazijn een `problem+json`-400 op te leveren, met
+     * een melding die niets van Jackson doorgeeft: die noemt veldnamen, klassenamen en soms een stuk
+     * van de aangeboden waarde, en dat laatste kan een BSN zijn.
+     */
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            """{"afzender":""",
+            "dit is helemaal geen json",
+            "[]",
+            """{"afzender": 42}""",
+        ],
+    )
+    fun `onleesbare of niet-passende JSON levert 400 problem+json zonder Jackson-details`(body: String) {
+        val antwoord = given()
+            .contentType(ContentType.JSON)
+            .body(body)
+            .`when`().post("$BASIS/aanleveringen")
+            .then()
+            .statusCode(400)
+            .contentType(PROBLEM_JSON)
+            .extract().asString()
+
+        listOf("com.fasterxml", "nl.rijksoverheid", ".kt:", "at ").forEach { spoor ->
+            assertFalse(antwoord.contains(spoor), "de foutbody hoort geen '$spoor' te bevatten")
+        }
+    }
+
+    /**
+     * Een MIME-type dat geen mediatype ís, hoort al bij het aanleveren te stranden. Zonder die
+     * controle slaagt de aanlevering met 201 en is de bijlage daarna permanent onophaalbaar: er
+     * valt geen `Content-Type` van te maken, dus elke download geeft 500.
+     */
+    @Test
+    fun `een bijlage met een onbruikbaar MIME-type wordt bij het aanleveren geweigerd`() {
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "$MAGAZIJN",
+                  "ontvanger": {"type": "KVK", "waarde": "90000001"},
+                  "onderwerp": "Met een kapotte bijlage",
+                  "inhoud": "Inhoud",
+                  "bijlagen": [{"naam": "raar.bin", "mimeType": "kaas", "inhoud": "cGRm"}]
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("$BASIS/aanleveringen")
+            .then()
+            .statusCode(400)
+            .contentType(PROBLEM_JSON)
+            .body("detail", containsString("type/subtype"))
     }
 
     private companion object {

@@ -59,12 +59,22 @@ class MagazijnPadFilter(
         val herschreven = herschrijf(requestContext, oin)
 
         if (herschreven == null) {
-            requestContext.abortWith(geenMagazijnPad(pad))
+            requestContext.abortWith(onbruikbaarPad())
 
             return
         }
 
-        context.magazijn = magazijn
+        // Het beheerpad is ook via het magazijn-prefix te bereiken: `/magazijn/<OIN>/api/v1/beheer/…`
+        // herschrijft naar `/beheer/…` en matcht dan de beheer-resource, mét een magazijn in de
+        // context. Het token blijft afgedwongen, maar het gedrag-filter zou dan wél toeslaan — en
+        // een magazijn dat op stuk staat zou langs die route niet meer te repareren zijn.
+        if (MagazijnPad.isBeheerPad(herschreven.path)) {
+            requestContext.abortWith(beheerpadOnderMagazijn())
+
+            return
+        }
+
+        context.kies(magazijn)
         requestContext.setRequestUri(herschreven)
     }
 
@@ -78,26 +88,34 @@ class MagazijnPadFilter(
      * 404 omdat `{id}` geen UUID is; hier hoort hetzelfde uit te komen, niet een 500 die de demo-log
      * volschrijft met "onverwachte fout".
      *
-     * De herkenning hierboven werkt op het gedecodeerde pad (Quarkus REST biedt geen onbewerkte
-     * variant: `getPath(false)` gooit), het herschrijven op het onbewerkte. Voor het prefix zelf
-     * maakt dat niets uit — `/magazijn/` en `/api/v1/` bevatten geen tekens die gecodeerd worden —
-     * en waar het wél uiteenloopt, valt het de veilige kant op: dan knipt [MagazijnPad.padNaPrefix]
-     * niets weg, blijft het prefix in het pad staan en matcht geen enkele resource. Dus 404, nooit
-     * een ánder magazijn.
+     * Herkennen gebeurt op het gedecodeerde pad, herschrijven op het onbewerkte; waarom dat veilig
+     * is, staat bij [MagazijnPad].
      */
     private fun herschrijf(requestContext: ContainerRequestContext, oin: String): URI? = try {
         MagazijnPad.zonderPrefix(requestContext.uriInfo.requestUri, oin)
     } catch (ex: IllegalArgumentException) {
-        // Op debug en niet hoger: dit is invoer van een aanroeper, geen storing. Wél loggen, zodat
-        // een 404 die iemand niet verwacht na te zoeken is.
-        log.debugf(ex, "Pad niet te herschrijven tot een geldige URI")
+        // Op info en niet hoger: dit is invoer van een aanroeper, geen storing. Wél zichtbaar zonder
+        // debug aan te zetten, want de 404 die hieruit volgt verrast iemand die een pad stuurt dat
+        // er van buiten correct uitziet.
+        log.infof(ex, "Pad niet te herschrijven tot een geldige URI")
 
         null
     } catch (ex: URISyntaxException) {
-        log.debugf(ex, "Pad niet te herschrijven tot een geldige URI")
+        log.infof(ex, "Pad niet te herschrijven tot een geldige URI")
 
         null
     }
+
+    /**
+     * Apart van [geenMagazijnPad]: het pad hád de juiste vorm, er valt alleen geen bruikbare URI van
+     * te maken. "Pad hoort de vorm … te hebben" zou hier het tegenovergestelde beweren van wat er
+     * aan de hand is, en dan zoekt de aanroeper aan de verkeerde kant.
+     */
+    private fun onbruikbaarPad(): Response = problemResponse(
+        status = Response.Status.NOT_FOUND.statusCode,
+        title = "Not Found",
+        detail = "Pad bevat tekens die niet in een URI kunnen voorkomen",
+    )
 
     private fun geenMagazijnPad(pad: String): Response = problemResponse(
         status = Response.Status.NOT_FOUND.statusCode,
@@ -107,12 +125,29 @@ class MagazijnPadFilter(
         detail = "Pad hoort de vorm ${MagazijnPad.VORM} te hebben; ontvangen: ${pad.take(MAX_PAD_IN_MELDING)}",
     )
 
+    /**
+     * Apart van [geenMagazijnPad]: dit pad hád de vorm van een magazijn-pad, het is alleen de
+     * verkeerde weg naar het beheerpad. "Pad hoort de vorm … te hebben" zou hier beweren dat de vorm
+     * niet klopt, terwijl die exact klopte.
+     */
+    private fun beheerpadOnderMagazijn(): Response = problemResponse(
+        status = Response.Status.NOT_FOUND.statusCode,
+        title = "Not Found",
+        detail = "Het beheerpad hoort niet bij een magazijn; gebruik /${MagazijnPad.BEHEER_SEGMENT}/…",
+    )
+
     private fun onbekendMagazijn(oin: String): Response = problemResponse(
         status = Response.Status.NOT_FOUND.statusCode,
         title = "Not Found",
-        // De OIN mag voluit in het antwoord: het is een publieke organisatie-identificator en
-        // precies de waarde die de aanroeper nodig heeft om zijn register na te lopen.
-        detail = "Geen gesimuleerd magazijn met OIN $oin",
+        // Een OIN mag voluit in het antwoord: het is een publieke organisatie-identificator en
+        // precies de waarde die de aanroeper nodig heeft om zijn register na te lopen. Een segment
+        // dat geen OIN-vorm heeft wordt níét geëchood — daar kan een BSN in staan, of tekst die de
+        // aanroeper zelf koos, en die hoort niet in een antwoord of in de access-logs.
+        detail = if (MagazijnPad.isOinVorm(oin)) {
+            "Geen gesimuleerd magazijn met OIN $oin"
+        } else {
+            "Geen gesimuleerd magazijn op dit pad; het tweede segment hoort een OIN te zijn"
+        },
     )
 
     private companion object {

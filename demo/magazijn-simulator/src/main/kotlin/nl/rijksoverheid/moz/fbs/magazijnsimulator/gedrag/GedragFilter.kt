@@ -17,8 +17,8 @@ import org.jboss.logging.Logger
  * aanleveren van een bericht. Dat is realistisch — in het echte stelsel is een schrijfactie net zo
  * goed een aanroep naar een andere organisatie — maar het heeft een gevolg dat niet mag verrassen:
  * een magazijn dat op storing staat weigert ook nieuwe berichten. Vullen doe je dus vóór de storing,
- * of via het beheerpad, dat buiten de simulatie valt. Anders zou een kapot gezet magazijn niet meer
- * te repareren zijn.
+ * of via het beheerpad; waarom dat buiten de simulatie valt, staat bij
+ * [nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad.BEHEER_SEGMENT].
  *
  * **Bewust geen `@PreMatching`.** Dit filter wacht, en wachten hoort op een worker-thread. Een
  * `@PreMatching`-filter draait vóórdat Quarkus weet welke resource geraakt wordt en dus vóór de
@@ -27,8 +27,11 @@ import org.jboss.logging.Logger
  *
  * Die garantie hangt eraan dat élke resource-methode een gewoon antwoordtype teruggeeft: Quarkus
  * beslist per methode of hij blocking draait. Komt er ooit een endpoint bij dat een `Uni` of `Multi`
- * teruggeeft — een SSE-stroom ligt in deze demo voor de hand — dan draait dit filter voor dát
- * endpoint wél op de event-loop, en dan hoort de vertraging daar op een andere manier te landen.
+ * teruggeeft, dan draait dit filter voor dát endpoint wél op de event-loop, en dan hoort de
+ * vertraging daar op een andere manier te landen.
+ *
+ * Wachten kost een worker-thread en geen database-connection; hoeveel threads er zijn, staat met de
+ * rekensom erbij in `application.properties` (`quarkus.thread-pool.max-threads`).
  *
  * Het magazijn is op dit punt al gekozen door
  * [nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPadFilter]; een verzoek dat daar is
@@ -43,44 +46,85 @@ class GedragFilter(
     private val log = Logger.getLogger(GedragFilter::class.java)
 
     override fun filter(requestContext: ContainerRequestContext) {
-        // Geen magazijn gekozen betekent: dit is het beheerpad. Dat valt buiten de simulatie, want
-        // anders is een kapot gezet magazijn niet meer te repareren of te vullen.
+        // Geen magazijn gekozen betekent: dit is het beheerpad, dat buiten de simulatie valt. Het
+        // pad-filter is de enige die kiest, en het breekt elk ander pad af — een verzoek zonder
+        // magazijn dat hier komt, kan dus alleen het beheerpad zijn.
         val magazijn = context.magazijnOfNiets ?: return
         val gedrag = magazijn.gedrag
 
         if (gedrag.modus == GedragModus.NORMAAL && gedrag.latencyP50Ms == 0) return
 
-        wacht(uitvoering.vertragingMs(magazijn.oin, gedrag))
+        if (!wacht(uitvoering.vertragingMs(magazijn.oin, gedrag))) {
+            requestContext.abortWith(afgebroken())
 
-        // `UIT` heeft geen foutantwoord: het punt ís dat er niets komt. De aanroeper hoort in zijn
-        // eigen timeout te lopen, en dat is wat de Berichtenbox als "onbereikbaar" registreert.
-        if (gedrag.modus == GedragModus.UIT) return
+            return
+        }
+
+        // `UIT` rekent erop dat de aanroeper in zijn eigen timeout loopt — dat is wat de Berichtenbox
+        // als "onbereikbaar" registreert, en het wachten hierboven duurt langer dan de tijd die zij
+        // een magazijn gunt. Wie zónder timeout kijkt (curl, Bruno, een browser) moet daarna niet
+        // alsnog een gezond antwoord met echte berichten krijgen: dan spreekt het magazijn zijn eigen
+        // overzicht tegen. Het antwoord komt dus te laat én zegt dat er niets te halen viel.
+        if (gedrag.modus == GedragModus.UIT) {
+            meld(magazijn.oin, gedrag, gedrag.foutStatus)
+            requestContext.abortWith(storing(gedrag))
+
+            return
+        }
 
         if (gedrag.modus == GedragModus.MALFORMED) {
+            meld(magazijn.oin, gedrag, Response.Status.OK.statusCode)
             requestContext.abortWith(onbruikbaarAntwoord())
 
             return
         }
 
         if (uitvoering.valtOm(magazijn.oin, gedrag)) {
+            meld(magazijn.oin, gedrag, gedrag.foutStatus)
             requestContext.abortWith(storing(gedrag))
         }
     }
 
-    private fun wacht(vertragingMs: Long) {
-        if (vertragingMs <= 0) return
+    /**
+     * Eén regel per gesimuleerde afbreking. Zonder die regel is een 503 van dit filter in de log
+     * niet te onderscheiden van een 503 die er niet had moeten zijn — er is dan alleen de afwezigheid
+     * van een foutregel, en "niets gevonden" is het omgekeerde van een bewijs.
+     *
+     * Op info en niet op debug: het effectieve niveau is info, dus op debug zou `zadctl logs` tijdens
+     * een demo geen enkele regel opleveren en zou dat bewijs er alsnog niet zijn.
+     */
+    private fun meld(oin: String, gedrag: Gedrag, status: Int) {
+        log.infof("Gesimuleerd gedrag %s voor magazijn %s: status %d", gedrag.modus, oin, status)
+    }
 
-        try {
+    /** `false` als het wachten is onderbroken en dit verzoek dus niet meer af te maken is. */
+    private fun wacht(vertragingMs: Long): Boolean {
+        if (vertragingMs <= 0) return true
+
+        return try {
             Thread.sleep(vertragingMs)
+
+            true
         } catch (ex: InterruptedException) {
-            // De aanroeper heeft opgehangen of de server gaat uit. De interrupt-vlag terugzetten en
-            // gewoon doorgaan: het verzoek afbreken met een fout zou een storing suggereren die er
-            // niet is.
+            // Iets onderbreekt deze thread — meestal een server die uitgaat, maar wat precies weten
+            // we hier niet. De vlag hoort terug, en doorgaan kan niet: de resource erachter loopt met
+            // een gezette interrupt-vlag de database in, waar Agroal en de driver daarop reageren met
+            // een SQLException — een echte 500 met stacktrace, terwijl er niets stuk is. Het verzoek
+            // hier afbreken zegt wat er aan de hand is zonder een oorzaak te verzinnen.
             Thread.currentThread().interrupt()
 
-            log.debugf(ex, "Wachten onderbroken na %d ms", vertragingMs)
+            log.infof(ex, "Wachten onderbroken na %d ms; verzoek afgebroken", vertragingMs)
+
+            false
         }
     }
+
+    /** Niet het gesimuleerde gedrag maar de simulator zelf: het wachten van dit verzoek is onderbroken. */
+    private fun afgebroken(): Response = problemResponse(
+        status = Response.Status.SERVICE_UNAVAILABLE.statusCode,
+        title = "Service Unavailable",
+        detail = "De simulator kon dit verzoek niet afmaken",
+    )
 
     /**
      * Een antwoord dat de aanroeper wél krijgt maar niet kan gebruiken: status 200, `application/json`,

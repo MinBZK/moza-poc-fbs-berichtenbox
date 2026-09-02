@@ -6,8 +6,11 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
@@ -16,13 +19,17 @@ import java.util.Optional
 /**
  * De afscherming van het beheerpad.
  *
+ * Erft van [MagazijnTestBasis] om de opruiming: het eigen `@TestProfile` herstart de applicatie maar
+ * niet de database, en `een geweigerde seed schrijft niets` telt op nul. Zonder die opruiming hangt
+ * de uitslag af van welke test toevallig als laatste rijen achterliet.
+ *
  * De WireMock-admin-API van de stubs op de gedeelde omgeving stond publiek en zonder authenticatie
  * open. Dat is precies het pad waarlangs iemand hier de demo zou kunnen legen of een magazijn kapot
  * zetten, dus die fout is de moeite van het niet-herhalen waard — en van het vastpinnen.
  */
 @QuarkusTest
 @TestProfile(BeheerTokenTest.MetToken::class)
-class BeheerTokenTest {
+class BeheerTokenTest : MagazijnTestBasis() {
 
     class MetToken : QuarkusTestProfile {
         override fun getConfigOverrides(): Map<String, String> =
@@ -92,17 +99,45 @@ class BeheerTokenTest {
             .statusCode(200)
     }
 
-    /** Ook de handelingen die iets kapotmaken, niet alleen het lezen. */
-    @Test
-    fun `ook legen en gedrag bijstellen zijn afgeschermd`() {
-        given().`when`().post("/beheer/legen").then().statusCode(401)
+    /**
+     * Élk beheerpad, en niet alleen het lezen. Het filter kiest op padprefix, dus vandaag is dit één
+     * codepad — maar verhuist `seed` ooit naar een eigen resource met een ander prefix, dan valt
+     * precies dat endpoint erbuiten zonder dat iets rood wordt. En `seed` en de bulk zijn de twee
+     * zwaarste knoppen: honderd magazijnen volschrijven of tegelijk op storing zetten.
+     */
+    @ParameterizedTest
+    @MethodSource("beheerAanroepen")
+    fun `elk beheerpad is afgeschermd`(methode: String, pad: String, body: String?) {
+        listOf(null, "", "verkeerd-token").forEach { aangeboden ->
+            val verzoek = given().contentType(ContentType.JSON)
 
+            aangeboden?.let { verzoek.header(HEADER, it) }
+            body?.let { verzoek.body(it) }
+
+            verzoek
+                .`when`().request(methode, pad)
+                .then()
+                .statusCode(401)
+                .contentType("application/problem+json")
+        }
+    }
+
+    /** Een 401 die tóch schrijft, is precies wat een filter dat te laat draait zou opleveren. */
+    @Test
+    fun `een geweigerde seed schrijft niets`() {
         given()
             .contentType(ContentType.JSON)
-            .body("""{"modus": "STUK"}""")
-            .`when`().put("/beheer/magazijnen/00000009000000000001/gedrag")
+            .body(SEED_BODY)
+            .`when`().post("/beheer/seed")
             .then()
             .statusCode(401)
+
+        given()
+            .header("X-Ontvanger", "KVK:90000001")
+            .`when`().get("/magazijn/00000009000000000001/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("totalElements", org.hamcrest.Matchers.equalTo(0))
     }
 
     /** Het gewone verkeer heeft niets met dit token te maken en hoort er niet op te stuiten. */
@@ -142,6 +177,21 @@ class BeheerTokenTest {
     }
 
     private companion object {
+        const val SEED_BODY = """{"ontvangers": ["KVK:90000001"], "berichtenPerMagazijn": 1, "bijlageElke": 0}"""
+
+        @JvmStatic
+        fun beheerAanroepen(): List<Arguments> = listOf(
+            Arguments.of("GET", "/beheer/magazijnen", null),
+            Arguments.of("POST", "/beheer/legen", null),
+            Arguments.of("POST", "/beheer/seed", SEED_BODY),
+            Arguments.of("PUT", "/beheer/magazijnen/00000009000000000001/gedrag", """{"modus": "STUK"}"""),
+            Arguments.of(
+                "PUT",
+                "/beheer/gedrag",
+                """{"aanpassingen": [{"oin": "00000009000000000001", "modus": "STUK"}]}""",
+            ),
+        )
+
         const val HEADER = "X-Beheer-Token"
         const val TOKEN = "demo-token-voor-de-test"
         const val PROBLEM_JSON = "application/problem+json"

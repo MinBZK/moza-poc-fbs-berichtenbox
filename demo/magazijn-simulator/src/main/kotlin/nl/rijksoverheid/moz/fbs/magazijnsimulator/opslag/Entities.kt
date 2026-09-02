@@ -18,9 +18,10 @@ import java.util.UUID
 
 /**
  * De JPA-mapping van het schema uit `V1__init.sql`. Alle vier de entities staan in één bestand
- * omdat ze samen één tabelgroep zijn en apart nooit betekenis hebben; ze zijn `internal` zodat
- * alleen de repositories in dit package ermee werken en niemand de invarianten van [Bericht]
- * langs de zijkant kan omzeilen.
+ * omdat ze samen één tabelgroep zijn en apart nooit betekenis hebben; ze zijn `internal` zodat ze
+ * buiten deze module niet bestaan en niemand de invarianten van [Bericht] langs de zijkant kan
+ * omzeilen. Binnen de module is het een afspraak dat alleen de repositories ermee werken —
+ * `internal` is module-scope en Kotlin kent geen package-scope.
  *
  * Velden hebben default-waardes in plaats van `lateinit`, zodat Hibernate via de no-arg
  * constructor kan hydrateren zonder een venster waarin een leesactie op een niet-geïnitialiseerd

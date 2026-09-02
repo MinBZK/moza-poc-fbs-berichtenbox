@@ -68,6 +68,8 @@ object BerichtDtoMapper {
      * naam). Dat is wat het schema `BerichtSamenvatting` voorschrijft; de beschrijving bij de
      * operatie beweert het tegendeel, maar het schema is leidend en het echte magazijn volgt het
      * schema. Hier afwijken zou de simulator herkenbaar maken.
+     *
+     * TODO(#1053): zodra de spec één lezing heeft, deze alinea vervangen door de gekozen regel.
      */
     private fun naarSamenvatting(bericht: Bericht, basis: UriBuilder): BerichtSamenvatting =
         BerichtSamenvatting().apply {

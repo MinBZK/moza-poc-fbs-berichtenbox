@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -149,9 +150,9 @@ class DomeinInvariantenTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["", " "])
-    fun `een bijlage zonder naam of mimetype wordt geweigerd`(leeg: String) {
-        assertThrows<DomeinFout> { bijlage(naam = leeg) }
-        assertThrows<DomeinFout> { bijlage(mimeType = leeg) }
+    fun `een aanlevering zonder naam of mimetype wordt geweigerd`(leeg: String) {
+        assertThrows<DomeinFout> { Bijlage.valideerVorm(leeg, "application/pdf") }
+        assertThrows<DomeinFout> { Bijlage.valideerVorm("a.pdf", leeg) }
     }
 
     /** Twee bijlagen met dezelfde bytes horen gelijk te zijn; een kale array vergelijkt op referentie. */
@@ -200,5 +201,87 @@ class DomeinInvariantenTest {
 
     private companion object {
         const val AFZENDER = "00000009000000000001"
+    }
+
+    /**
+     * `split(limit = 2)` betekent dat alles ná de eerste dubbele punt de waarde is. Een header met
+     * een extra scheidingsteken hoort dus op de vorm van de waarde te stranden, niet op het type —
+     * en een leeg deel hoort geen `IndexOutOfBounds` te geven.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["KVK:", "BSN:999993653:extra", ":90000001", "KVK"])
+    fun `een misvormde X-Ontvanger levert een domeinfout`(header: String) {
+        assertThrows<DomeinFout> { Identificatie.uitHeader(header) }
+    }
+
+    /**
+     * De melding mag de aangeboden waarde niet echoën: op het beheerpad komt deze functie langs een
+     * lijst die geen spec-regex heeft gepasseerd, en een omgekeerd getypte `123456782:BSN` zou
+     * anders een BSN in een foutantwoord zetten.
+     */
+    @Test
+    fun `de melding bij een onbekend type bevat de aangeboden waarde niet`() {
+        val fout = assertThrows<DomeinFout> { Identificatie.uitHeader("123456782:BSN") }
+
+        assertFalse(fout.message.orEmpty().contains("123456782"), "de melding hoort geen invoer te echoën")
+    }
+
+    /** OIN is een publiek organisatienummer; alleen BSN en RSIN worden gemaskeerd. */
+    @Test
+    fun `een OIN blijft in toString leesbaar`() {
+        assertEquals(
+            "OIN:00000009000000000001",
+            Identificatie(IdentificatieType.OIN, "00000009000000000001").toString(),
+        )
+    }
+
+    /**
+     * De vorm van een MIME-type wordt bij het aanleveren getoetst en niet pas bij het downloaden.
+     * Zonder die controle slaagt een aanlevering met 201 en is de bijlage daarna onophaalbaar.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["kaas", "application", "application/", "/pdf", "application/pdf;", "application/pdf; ="])
+    fun `een bijlage met een onbruikbaar MIME-type wordt geweigerd`(mimeType: String) {
+        assertThrows<DomeinFout> { Bijlage.valideerVorm("bijlage.pdf", mimeType) }
+    }
+
+    /**
+     * Parameters horen bij een mediatype. Het echte magazijn accepteert `text/plain; charset=utf-8`
+     * en de spec kent alleen een lengtegrens, dus een simulator die het weigert is op zijn
+     * aanleverpad van buiten te herkennen — precies wat deze module moet uitsluiten.
+     */
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "application/pdf",
+            "text/plain; charset=utf-8",
+            "text/plain;charset=utf-8",
+            "application/vnd.api+json; version=1; charset=utf-8",
+            "application/pdf; name=\"twee woorden\"",
+        ],
+    )
+    fun `een bijlage met een geldig MIME-type wordt aanvaard`(mimeType: String) {
+        assertDoesNotThrow { Bijlage.valideerVorm("bijlage.pdf", mimeType) }
+    }
+
+    /**
+     * Het leespad toetst de vorm níét — niet op de projectie en niet op de bijlage met bytes. Een rij
+     * die een latere regel niet haalt is geen invoerfout van wie de lijst opvraagt; hem bij het
+     * teruglezen afkeuren zou van één kapotte bijlage een 400 voor de hele pagina maken. Het
+     * download-pad verdedigt zich daar zelf tegen, met een 500.
+     */
+    @Test
+    fun `een bijlage uit de opslag mag een vorm hebben die bij het aanleveren geweigerd zou zijn`() {
+        assertDoesNotThrow { BijlageMetadata(UUID.randomUUID(), "  ", "kaas") }
+        assertDoesNotThrow { Bijlage(UUID.randomUUID(), "  ", "kaas", "pdf".toByteArray()) }
+    }
+
+    /**
+     * De mapnaam-regel geldt aan beide kanten. Stond hij alleen op de opgeslagen status, dan zou een
+     * lege mapnaam eerst worden weggeschreven en pas bij het teruglezen stuklopen.
+     */
+    @Test
+    fun `een lege mapnaam wordt al bij de wijziging geweigerd`() {
+        assertThrows<DomeinFout> { BerichtStatusWijziging(gelezen = null, map = "   ") }
     }
 }

@@ -13,7 +13,7 @@ import java.util.logging.Logger
  * regel is niet te zien of dat verschil ergens knelt: een aanvraag die op een connection wacht is
  * van buiten niet te onderscheiden van een magazijn dat traag antwoordt.
  *
- * De metingen komen uit Agroal zelf en vragen `quarkus.datasource.jdbc.enable-metrics`; zonder die
+ * De metingen komen uit Agroal zelf en vragen `quarkus.datasource.jdbc.metrics.enabled`; zonder die
  * vlag geeft elke teller nul terug.
  */
 @ApplicationScoped
@@ -21,6 +21,10 @@ class Poolmonitor(private val bron: AgroalDataSource) {
 
     private val log = Logger.getLogger(Poolmonitor::class.java.name)
 
+    // `@Volatile`: de scheduler voert elke ronde op een willekeurige thread uit zijn pool uit. Zonder
+    // dit mag een thread een verouderde waarde zien en herhaalt de regel zich, of blijft hij juist
+    // weg terwijl de stand wél veranderde.
+    @Volatile
     private var vorige: Poolmoment? = null
 
     /** De tellers van dit moment. Los van het loggen, zodat een test ze kan bekijken. */

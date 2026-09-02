@@ -125,6 +125,41 @@ class MagazijnPadFilterTest : MagazijnTestBasis() {
     }
 
     /**
+     * Het beheerpad is ook via het magazijn-prefix te bereiken — `/magazijn/<OIN>/api/v1/beheer/…`
+     * herschrijft naar `/beheer/…` — en dan zou het gedrag-filter er wél op slaan: een magazijn dat
+     * op stuk staat, is langs die route niet meer te repareren. Het filter breekt dat af, en de
+     * melding zegt wat er aan de hand is: de vorm van dit pad klopte, alleen de weg niet.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["/magazijn/$MAGAZIJN_EEN/api/v1/beheer/magazijnen", "/magazijn/$MAGAZIJN_EEN/api/v1/beheer/seed"])
+    fun `het beheerpad is niet via een magazijn te bereiken`(pad: String) {
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get(pad)
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("detail", containsString("/beheer/"))
+            .body("detail", not(containsString("hoort de vorm")))
+    }
+
+    /**
+     * Het tweede padsegment is invoer van de aanroeper en kan van alles zijn — een BSN, of tekst die
+     * hij zelf koos. Alleen iets met de vorm van een OIN mag terug het antwoord in; de rest zou via
+     * de body en de access-logs een waarde vasthouden die daar niet hoort.
+     */
+    @Test
+    fun `een tweede segment dat geen OIN is komt niet terug in het antwoord`() {
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("/magazijn/999993653/api/v1/berichten")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("detail", not(containsString("999993653")))
+    }
+
+    /**
      * Accolades zijn geen geldige URI-tekens, maar gecodeerd is `%7Bid%7D` een pad dat elke client
      * kan sturen. Quarkus REST bouwt `UriInfo.requestUri` met een `UriBuilder` die accolades als
      * URI-template leest, dus dit is precies het pad waarlangs een onvindbaar bericht een 500 zou

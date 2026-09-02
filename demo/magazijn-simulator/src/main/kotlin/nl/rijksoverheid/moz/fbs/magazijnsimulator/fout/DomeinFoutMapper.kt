@@ -4,6 +4,8 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.DomeinFout
+import org.jboss.logging.Logger
+import java.util.UUID
 
 /**
  * Vertaalt een geschonden domein-invariant naar de 400 `problem+json` die de spec voorschrijft —
@@ -17,9 +19,22 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.DomeinFout
 @Provider
 class DomeinFoutMapper : ExceptionMapper<DomeinFout> {
 
-    override fun toResponse(exception: DomeinFout): Response = problemResponse(
-        status = Response.Status.BAD_REQUEST.statusCode,
-        title = "Bad Request",
-        detail = exception.message,
-    )
+    private val log = Logger.getLogger(DomeinFoutMapper::class.java)
+
+    override fun toResponse(exception: DomeinFout): Response {
+        val foutId = UUID.randomUUID()
+
+        // Op info en niet op debug: een clientfout is geen incident, maar het effectieve niveau is
+        // info en een regel die niet uitgezonden wordt maakt het `instance`-id uit het antwoord
+        // onvindbaar — en dat is precies waar iemand mee aanklopt. Dezelfde keuze als
+        // ProblemExceptionMapper maakt voor zijn 4xx.
+        log.infof("Geschonden domein-invariant (foutId=%s)", foutId)
+
+        return problemResponse(
+            status = Response.Status.BAD_REQUEST.statusCode,
+            title = "Bad Request",
+            detail = exception.message,
+            foutId = foutId,
+        )
+    }
 }
