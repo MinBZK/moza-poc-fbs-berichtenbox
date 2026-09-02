@@ -830,5 +830,83 @@
       "inhoud": "Beste Demo-onderneming 3,\n\nU heeft de aangifte omzetbelasting over het tweede kwartaal nog niet ingediend. Dien deze uiterlijk 31 juli in om een boete te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
       "publicatietijdstip": "2026-02-03T12:50:00Z"
     }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000014"
+      },
+      "onderwerp": "Gecombineerde opgave verwerkt",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nUw gecombineerde opgave is verwerkt. Controleer in Mijn RVO of alle percelen correct zijn geregistreerd.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-03T14:20:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000014"
+      },
+      "onderwerp": "Uitnodiging webinar verduurzaming",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nOp 12 september organiseren wij een webinar over het verduurzamen van uw bedrijf. Aanmelden kan kosteloos via Mijn RVO.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-09T14:20:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000014"
+      },
+      "onderwerp": "Subsidieaanvraag ontvangen",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nWe hebben uw aanvraag voor de SDE++-subsidie ontvangen. U hoort binnen acht weken of de subsidie wordt toegekend. U hoeft nu niets te doen.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-16T14:20:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000014"
+      },
+      "onderwerp": "Beschikking SDE++",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nUw aanvraag voor de SDE++-subsidie is toegekend. De beschikking met de uitbetalingsvoorwaarden vindt u in de bijlage.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-23T14:20:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000014"
+      },
+      "onderwerp": "Controle mestboekhouding",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nIn het kader van de gecombineerde opgave voeren wij een controle uit op uw mestboekhouding. Houd uw administratie van de afgelopen twee jaar beschikbaar.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-28T14:20:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000014"
+      },
+      "onderwerp": "Eenmalige verlenging eHerkenning",
+      "inhoud": "Beste Garage Van Dijk B.V.,\n\nUw eHerkenningsmiddel verloopt over vier weken. Verleng het tijdig om toegang tot Mijn RVO te behouden.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-03T14:20:00Z"
+    }
   }
 ]

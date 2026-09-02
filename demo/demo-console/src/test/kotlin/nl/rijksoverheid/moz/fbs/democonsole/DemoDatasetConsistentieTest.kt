@@ -20,19 +20,23 @@ import kotlin.random.Random
 import kotlin.streams.asSequence
 
 /**
- * Bewaakt dat de vier bronnen die samen de demo-vulling bepalen niet uiteenlopen: de
- * persona-lijst in `application.properties`, de curated `dataset/basis.json`, de magazijn-URL's in
- * `application.properties` en de profielservice-stubs onder `wiremock/demo-profiel/`.
+ * Bewaakt dat de bronnen die samen de demo-vulling bepalen niet uiteenlopen: de persona-lijst van de
+ * personadienst (`META-INF/microprofile-config.properties`), de curated `dataset/basis.json`, de
+ * ondernemerslijst van de simulator, de magazijn-URL's in `application.properties` en de
+ * profielservice-stubs onder `wiremock/demo-profiel/`.
  *
- * Divergeert er één, dan weigert het magazijn élke aanlevering met een 403 en meldt de console
- * "aangeboden 40 / geslaagd 0" — midden in een demo, zonder aanwijzing waar het misging.
+ * Divergeert er één, dan weigert het magazijn de aanlevering met een 403 en meldt de console dat er
+ * nul berichten zijn aangeleverd — midden in een demo, zonder aanwijzing waar het misging.
  */
 class DemoDatasetConsistentieTest {
 
     private val mapper = ObjectMapper().registerKotlinModule()
 
-    /** De echte generator: organisaties uit [GeneratorProducer], persona's uit `application.properties`. */
+    /** De echte generator: organisaties uit [GeneratorProducer], persona's uit de personadienst. */
     private fun generator() = GeneratorProducer().generator(TestPersonas.uitConfiguratie())
+
+    /** De ingerichte persona's die hun berichten uit de keten halen; zie [PersonaBron]. */
+    private fun ketenPersonas() = TestPersonas.uitConfiguratie().alle().filter { it.bron == PersonaBron.KETEN }
 
     @Test
     fun `de echte generator-configuratie voldoet aan haar eigen invarianten`() {
@@ -69,32 +73,57 @@ class DemoDatasetConsistentieTest {
     }
 
     /**
-     * Elke persona die zijn berichten uit de keten haalt, hoort na een druk op "Herstel demo" een
-     * gevulde bak te hebben: uit `basis.json` bij de twee echte magazijnen, of uit de
-     * standaardvulling van de simulator.
+     * Een persona die zelf magazijnen noemt, krijgt zijn berichten van dit paneel aangeleverd — en
+     * dan hoort er bij élk van die magazijnen iets te staan. Op magazijn én ontvanger dus, niet op
+     * ontvanger alleen: een persona die bij één van zijn organisaties leeg blijft, ziet daar een
+     * lege map terwijl dat magazijn keurig met nul berichten antwoordt en de ophaalronde slaagt.
+     * Tijdens een demo is dat niet te onderscheiden van een keten die stukstaat.
      *
-     * Faalscenario zonder deze test: er komt een persona bij — de proeftuin bracht er drie mee — die
-     * in geen van beide lijsten staat. Elk magazijn antwoordt dan netjes met nul berichten, de
-     * ophaalronde slaagt, en de Berichtenbox toont een lege bak zonder dat er iets rood wordt. Dat
-     * is tijdens een demo niet te onderscheiden van een keten die stukstaat.
+     * De basisvulling en niet de generator: de knop die willekeurige berichten opvoert bedient elke
+     * persona met magazijnen al, en dekt dit gat dus niet af — de beginsituatie van een demo komt
+     * uit `basis.json`.
      */
     @Test
-    fun `elke keten-persona krijgt vulling uit de basisdataset of de simulator`() {
-        val gevuld = Basisdataset(mapper).laad()
-            .map { "${it.verzoek.ontvanger.type}:${it.verzoek.ontvanger.waarde}" }
-            .toSet() + SimulatorService.ONDERNEMERS
+    fun `elke persona met eigen magazijnen heeft daar berichten in de basisdataset`() {
+        val bakken = Basisdataset(mapper).laad()
+            .map { it.magazijnOin to "${it.verzoek.ontvanger.type}:${it.verzoek.ontvanger.waarde}" }
+            .toSet()
 
-        val ketenPersonas = TestPersonas.uitConfiguratie().alle().filter { it.bron == PersonaBron.KETEN }
+        val verwacht = ketenPersonas()
+            .filter { it.magazijnen.isNotEmpty() }
+            .flatMap { persona -> persona.magazijnen.map { persona to it } }
 
-        assertTrue(ketenPersonas.isNotEmpty(), "zonder keten-personas toetst deze test niets")
+        assertTrue(verwacht.isNotEmpty(), "zonder persona's met eigen magazijnen toetst deze test niets")
 
-        // De persona-id en niet zijn nummer: dat laatste is bij een BSN-persona precies wat niet in
-        // een foutmelding hoort te staan.
-        ketenPersonas.forEach {
+        // De persona-id en niet zijn identificatienummer: de id wijst de bediener rechtstreeks naar
+        // de regel in de personadienst die hij naast basis.json moet leggen.
+        verwacht.forEach { (persona, magazijn) ->
             assertTrue(
-                it.ontvanger in gevuld,
-                "persona '${it.id}' krijgt van geen enkele vulknop berichten: hij staat niet in " +
-                    "basis.json en niet bij de ondernemers van de simulator",
+                (magazijn to persona.ontvanger) in bakken,
+                "persona '${persona.id}' noemt magazijn $magazijn maar heeft daar geen bericht in basis.json",
+            )
+        }
+    }
+
+    /**
+     * De tegenhanger: wie geen eigen magazijnen noemt, haalt zijn berichten uit de gesimuleerde
+     * magazijnen en moet dus bij de ondernemers van de simulator staan. Zonder deze eis kan een
+     * persona in beide lijsten ontbreken — precies wat de drie proeftuin-persona's overkwam.
+     *
+     * Let op de reikwijdte: dit toetst de inrichting, niet een omgeving. Staat de simulator er niet,
+     * dan meldt `HerstelService` dat als overgeslagen en blijven deze persona's alsnog leeg.
+     */
+    @Test
+    fun `elke keten-persona zonder eigen magazijnen staat bij de ondernemers van de simulator`() {
+        val zonderEigenMagazijnen = ketenPersonas().filter { it.magazijnen.isEmpty() }
+
+        assertTrue(zonderEigenMagazijnen.isNotEmpty(), "zonder zulke persona's toetst deze test niets")
+
+        zonderEigenMagazijnen.forEach {
+            assertTrue(
+                it.ontvanger in SimulatorService.ONDERNEMERS,
+                "persona '${it.id}' krijgt van geen enkele vulling berichten: geen eigen magazijnen " +
+                    "en niet bij de ondernemers van de simulator",
             )
         }
     }

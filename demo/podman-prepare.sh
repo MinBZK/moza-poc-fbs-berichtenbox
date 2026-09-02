@@ -7,15 +7,15 @@
 set -euo pipefail
 
 MODUS="${1:-bridge}"
-WORTEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GEN="$WORTEL/demo/generated"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GEN="$ROOT/demo/generated"
 
 case "$MODUS" in
     bridge|hostnet) ;;
     *) echo "Onbekende modus '$MODUS'; kies 'bridge' of 'hostnet'." >&2; exit 1 ;;
 esac
 
-python3 "$WORTEL/demo/genereer-magazijnen.py"
+python3 "$ROOT/demo/genereer-magazijnen.py"
 
 if [ "$MODUS" = "bridge" ]; then
     echo "Klaar (bridge): container-DNS-namen ongewijzigd."
@@ -47,7 +47,7 @@ sed -e 's|"listen": "0\.0\.0\.0:|"listen": "127.0.0.1:|g' \
     -e 's|"profiel-service:8080"|"127.0.0.1:8089"|' \
     -e 's|"notificatie-stub:8080"|"127.0.0.1:8084"|' \
     -e 's|"berichtenuitvraag:8086"|"127.0.0.1:8086"|' \
-    "$WORTEL/toxiproxy/proxies.json" > "$PROXIES.tmp"
+    "$ROOT/toxiproxy/proxies.json" > "$PROXIES.tmp"
 
 # De guards tellen éérst wat ze herkennen. Vinden ze niets — hernoemd veld, verminkte invoer, een
 # formaat waarin het patroon niet meer matcht — dan is 'nul afwijkingen' niet te onderscheiden van
@@ -72,7 +72,7 @@ if grep -E '^magazijnen\."[^"]*"\.url=' "$REGISTER.tmp" |
     exit 1
 fi
 
-BRON_UPSTREAMS="$(tel '"upstream": *"[^"]*"' "$WORTEL/toxiproxy/proxies.json")"
+BRON_UPSTREAMS="$(tel '"upstream": *"[^"]*"' "$ROOT/toxiproxy/proxies.json")"
 DOEL_UPSTREAMS="$(tel '"upstream": *"[^"]*"' "$PROXIES.tmp")"
 DOEL_LISTENS="$(tel '"listen": *"[^"]*"' "$PROXIES.tmp")"
 

@@ -23,8 +23,8 @@
 # toelichting bij de laatste controle onderaan dit script.
 set -euo pipefail
 
-WORTEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$WORTEL"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 
 export DEMO_HOST="${DEMO_HOST:-localhost}"
 
@@ -235,7 +235,7 @@ if [ "$MODUS" = "hostnet" ] && printf '%s\n' "$RENDER" | grep -q 'published:'; t
 fi
 
 echo "[2/4] artefacten genereren"
-"$WORTEL/demo/podman-prepare.sh" "$MODUS"
+"$ROOT/demo/podman-prepare.sh" "$MODUS"
 
 # --- starten ----------------------------------------------------------------------------------
 
@@ -365,10 +365,10 @@ wacht_op "postgres-simulator" postgres-simulator "${C[@]}" exec -T postgres-simu
 # het bestand ongeladen en blijft daarna gezond draaien met een status 200 op `GET /proxies` — dus
 # noch de containerstatus noch een steekproef op één naam ziet het. In een gedeelde netns is een
 # bezette proxy-poort een reëel geval, en de keten is dan stil kapot.
-PROXY_BRON="$WORTEL/toxiproxy/proxies.json"
+PROXY_BRON="$ROOT/toxiproxy/proxies.json"
 
 if [ "$MODUS" = "hostnet" ]; then
-    PROXY_BRON="$WORTEL/demo/generated/proxies-host.json"
+    PROXY_BRON="$ROOT/demo/generated/proxies-host.json"
 fi
 
 # Niet alleen de namen vergelijken maar ook waar elke proxy luistert en naartoe stuurt. De
