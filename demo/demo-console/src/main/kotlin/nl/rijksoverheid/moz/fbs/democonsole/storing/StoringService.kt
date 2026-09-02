@@ -58,14 +58,14 @@ class StoringService(private val register: ToxiproxyRegister) {
     // zelf geen message heeft — anders valt zo'n fout stil uit de lijst en meldt reset() ten
     // onrechte dat alles gelukt is.
     fun reset() {
-        val instanties = register.instanties()
+        val perInstantie = register.namen().groupBy { register.client(it) }
 
-        check(instanties.isNotEmpty()) {
+        check(perInstantie.isNotEmpty()) {
             "Geen enkele proxy geconfigureerd: er is niets om te herstellen. Controleer de TOXIPROXY_*_URL-configuratie."
         }
 
-        val fouten = instanties.withIndex().mapNotNull { (index, instantie) ->
-            runCatching { herstel(instantie) }.exceptionOrNull()?.let { fout ->
+        val fouten = perInstantie.entries.withIndex().mapNotNull { (index, ingang) ->
+            runCatching { herstel(ingang.key, ingang.value) }.exceptionOrNull()?.let { fout ->
                 "instantie ${index + 1}: ${fout.message ?: fout::class.simpleName}"
             }
         }
@@ -75,20 +75,11 @@ class StoringService(private val register: ToxiproxyRegister) {
         }
     }
 
-    private fun herstel(instantie: ToxiproxyClient) {
+    private fun herstel(instantie: ToxiproxyClient, verwacht: List<String>) {
         val proxies = instantie.proxies()
 
-        // Toxiproxy start gezond op met nul proxies. Al het verkeer van die stroom loopt erdoorheen,
-        // dus dan is de keten dood — en juist deze knop moet dat aanwijzen in plaats van "alles
-        // normaal" te bevestigen. De twee oorzaken verschillen per omgeving, vandaar beide in de
-        // melding: lokaal een ontbrekende of misvormde proxies.json, op een gedeelde omgeving een
-        // Toxiproxy die net herstartte (ProxyBootstrap vult hem binnen een halve minuut) of een
-        // admin-API die de console niet bereikt.
-        check(proxies.isNotEmpty()) {
-            "Toxiproxy kent geen enkele proxy: de keten loopt nergens doorheen. Lokaal wijst dat op proxies.json; " +
-                "op een gedeelde omgeving op een Toxiproxy die net herstartte, of op een onbereikbare admin-API."
-        }
-
+        // Eerst goedmaken wat er wél staat: een proxy die Toxiproxy niet kent, mag de storingen op
+        // de proxies die hij wél kent niet laten staan.
         proxies.forEach { (naam, status) ->
             if (!status.enabled) {
                 controleer(instantie.zetProxy(naam, ProxyPatch(enabled = true)), "inschakelen van $naam")
@@ -97,6 +88,21 @@ class StoringService(private val register: ToxiproxyRegister) {
             status.toxics.forEach { toxic ->
                 controleer(instantie.verwijderToxic(naam, toxic.name), "verwijderen toxic ${toxic.name} van $naam")
             }
+        }
+
+        // Tegen de geconfigureerde namen aan houden en niet alleen tegen "kent er tenminste één".
+        // Een proxy die Toxiproxy niet kent, bestaat niet: al het verkeer van die stroom loopt
+        // erdoorheen, dus die stroom is dood. Herstellen-wat-er-is zou dat bevestigen met "alles
+        // normaal", precies wanneer iemand deze knop indrukt omdat er al iets niet klopt. De twee
+        // oorzaken verschillen per omgeving, vandaar beide in de melding: lokaal een ontbrekende of
+        // misvormde proxies.json, op een gedeelde omgeving een Toxiproxy die net herstartte
+        // (ProxyBootstrap zet hem bij de volgende ronde terug) of een admin-API die de console niet
+        // bereikt.
+        val ontbrekend = (verwacht - proxies.keys).sorted()
+
+        check(ontbrekend.isEmpty()) {
+            "Toxiproxy kent $ontbrekend niet: die stroom loopt nergens doorheen. Lokaal wijst dat op proxies.json; " +
+                "op een gedeelde omgeving op een Toxiproxy die net herstartte, of op een onbereikbare admin-API."
         }
     }
 

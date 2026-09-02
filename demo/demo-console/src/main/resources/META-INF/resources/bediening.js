@@ -196,7 +196,11 @@ const SAMENVATTINGEN = {
         'Hersteld. Geleegd: ' +
         Object.entries(body.geleegd).map(([sleutel, aantal]) => naam(sleutel) + ' ' + aantal).join(', ') +
         '. ' + vullingTekst(body.vulling) +
-        '. Gesimuleerd: ' + body.gesimuleerd.berichten + ' weg, ' + body.gesimuleerdGevuld + ' klaargezet',
+        // De echte magazijnen zijn dan wél hersteld; wie dat niet leest gaat de knop opnieuw
+        // indrukken of zoeken naar een fout die er niet is.
+        (body.gesimuleerdOvergeslagen
+            ? '. Gesimuleerde magazijnen overgeslagen: ' + body.gesimuleerdOvergeslagen
+            : '. Gesimuleerd: ' + body.gesimuleerd.berichten + ' weg, ' + body.gesimuleerdGevuld + ' klaargezet'),
 
     status: (body) => body.status,
 
@@ -237,7 +241,10 @@ const SAMENVATTINGEN = {
         'Uitvraag: ' + (body.uitvraagBasis || 'afgeleid uit de browser') +
         '. Storingsknoppen: ' + (body.storingen.join(', ') || 'geen'),
 
-    personas: (body) => body.length + " persona's: " + body.map((persona) => persona.label).join(', '),
+    // Uit /api/demo/omgeving: het adres /api/demo/personas hoort bij de personadienst en wordt door
+    // deze module bewust met 404 beantwoord.
+    personas: (body) =>
+        body.personas.length + " persona's: " + body.personas.map((persona) => persona.label).join(', '),
 };
 
 function vullingTekst(vulling) {
@@ -275,6 +282,10 @@ function samenvatting(soort, body) {
 /* HTTP 200 zegt alleen dat de console het verzoek verwerkte, niet dat de berichten aankwamen. Een
  * groene melding boven "100 mislukt" is het verkeerde signaal. */
 function vullingSoort(body) {
+    // Een overgeslagen stap is geen fout — het herstel zelf is gelukt — maar hij hoort ook niet
+    // groen te zijn: er is iets niet gebeurd waar de bediener op rekende.
+    if (body && body.gesimuleerdOvergeslagen) return 'let-op';
+
     const vulling = body && body.vulling ? body.vulling : body;
 
     if (!vulling || typeof vulling.aangeboden !== 'number') return 'goed';

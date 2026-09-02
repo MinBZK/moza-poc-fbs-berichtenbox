@@ -57,44 +57,56 @@ class ProxyBootstrap(private val register: ToxiproxyRegister, config: ToxiproxyC
     // volgende ronde er niet bovenop komen.
     @Scheduled(every = "{toxiproxy.reconcile-interval}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     fun reconcile() {
-        // Per instantie, niet per proxy: dat scheelt in de normale ronde één GET in plaats van een
-        // POST per proxy, en lokaal staan alle zes op dezelfde Toxiproxy.
+        // Gegroepeerd per instantie: het uitlezen kost dan één GET per instantie in plaats van één
+        // per proxy, en lokaal staan alle zes op dezelfde Toxiproxy.
         definities.alle().groupBy { register.client(it.naam) }.forEach { (instantie, gewenst) ->
-            // Per instantie vangen: die staan op ZAD in verschillende projecten, dus één
-            // onbereikbare Toxiproxy mag de overige niet ongemoeid laten.
-            try {
-                verzoen(instantie, gewenst)
-            } catch (fout: Exception) {
-                log.warnf(
-                    "Proxies %s niet te verzoenen: %s",
-                    gewenst.joinToString(", ") { it.naam },
-                    fout.message ?: fout::class.simpleName,
-                )
-            }
+            verzoen(instantie, gewenst)
         }
     }
 
     private fun verzoen(instantie: ToxiproxyClient, gewenst: List<ProxyDefinitie>) {
-        val bestaand = instantie.proxies()
+        // Het uitlezen geldt de hele instantie: komt daar niets uit, dan is er over geen enkele van
+        // haar proxies iets te zeggen. Die staan op ZAD in verschillende projecten, dus één
+        // onbereikbare Toxiproxy mag de overige instanties niet ongemoeid laten.
+        val bestaand = try {
+            instantie.proxies()
+        } catch (fout: Exception) {
+            log.warnf(
+                "Proxies %s niet uit te lezen: %s",
+                gewenst.joinToString(", ") { it.naam },
+                fout.message ?: fout::class.simpleName,
+            )
+
+            return
+        }
 
         gewenst.forEach { definitie ->
-            val huidig = bestaand[definitie.naam]
+            // Per proxy vangen, niet per instantie: lokaal dragen alle zes proxies dezelfde
+            // Toxiproxy, en één mislukte herbouw zou de proxies die erná komen elke ronde opnieuw
+            // overslaan — de stroom van vijf ervan blijft dan dood zonder dat iets die vijf noemt.
+            try {
+                verzoen(instantie, bestaand[definitie.naam], definitie)
+            } catch (fout: Exception) {
+                log.warnf("Proxy %s niet te verzoenen: %s", definitie.naam, fout.message ?: fout::class.simpleName)
+            }
+        }
+    }
 
-            when {
-                huidig == null -> maak(instantie, definitie)
+    private fun verzoen(instantie: ToxiproxyClient, huidig: ProxyStatus?, definitie: ProxyDefinitie) {
+        when {
+            huidig == null -> maak(instantie, definitie)
 
-                afgeweken(huidig, definitie) -> {
-                    log.warnf(
-                        "Proxy %s wees naar %s op %s in plaats van %s op %s; opnieuw gebouwd.",
-                        definitie.naam,
-                        huidig.upstream,
-                        huidig.listen,
-                        definitie.upstream,
-                        definitie.listen,
-                    )
-                    controleer(instantie.verwijderProxy(definitie.naam), "verwijderen van ${definitie.naam}")
-                    maak(instantie, definitie)
-                }
+            afgeweken(huidig, definitie) -> {
+                log.warnf(
+                    "Proxy %s wees naar %s op %s in plaats van %s op %s; opnieuw gebouwd.",
+                    definitie.naam,
+                    huidig.upstream,
+                    huidig.listen,
+                    definitie.upstream,
+                    definitie.listen,
+                )
+                controleer(instantie.verwijderProxy(definitie.naam), "verwijderen van ${definitie.naam}")
+                maak(instantie, definitie)
             }
         }
     }

@@ -50,6 +50,17 @@ class StoringResource(private val storingService: StoringService) {
     fun reset(): Map<String, String> {
         storingService.reset()
 
+        // Teruglezen in plaats van "alles normaal" opschrijven. Deze knop wordt juist ingedrukt
+        // wanneer er al iets niet klopt, dus een zin die niemand controleert is hier het duurst:
+        // een groene bevestiging boven een stroom die nog dichtstaat, kost tijdens een demo de rest
+        // van het verhaal.
+        val afwijkend = storingService.status().filterValues { it != Storingstoestand.NORMAAL }
+
+        check(afwijkend.isEmpty()) {
+            "Herstel uitgevoerd, maar niet alles staat normaal: " +
+                afwijkend.entries.joinToString(", ") { (proxy, toestand) -> "$proxy ${toestand.waarde}" }
+        }
+
         return mapOf("status" to "alles normaal", "letOp" to HERSTELTIJD_MELDING)
     }
 

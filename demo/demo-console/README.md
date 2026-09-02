@@ -72,7 +72,7 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 
 | Tabblad | Knop | Wat het doet |
 |---|---|---|
-| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo |
+| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
 | Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json` |
 | Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek |

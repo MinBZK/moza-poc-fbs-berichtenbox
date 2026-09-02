@@ -6,17 +6,24 @@ import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
+import nl.rijksoverheid.moz.fbs.democonsole.omgeving.OmgevingConfig
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
+import java.util.logging.Logger
 
 data class HerstelResultaat(
     val geleegd: Map<String, Int>,
     val vulling: AanleverResultaat,
-    /** Wat de gesimuleerde magazijnen kwijtraakten en hoeveel er hun gedrag terugkregen. */
-    val gesimuleerd: Map<String, Int>,
+    /**
+     * `berichten` = hoeveel er uit de gesimuleerde magazijnen weg zijn, `magazijnen` = hoeveel er
+     * hun vastgelegde gedrag terugkregen. Leeg wanneer ze zijn overgeslagen.
+     */
+    val gesimuleerd: Map<String, Int> = emptyMap(),
     /** Hoeveel berichten er weer in de gesimuleerde magazijnen zijn klaargezet. */
-    val gesimuleerdGevuld: Int,
+    val gesimuleerdGevuld: Int = 0,
+    /** Waarom de gesimuleerde magazijnen zijn overgeslagen; `null` als ze meegingen. */
+    val gesimuleerdOvergeslagen: String? = null,
     val letOp: String = HERSTELTIJD_MELDING,
 )
 
@@ -34,25 +41,55 @@ class HerstelService(
     private val basisdataset: Basisdataset,
     private val aanleverService: AanleverService,
     private val simulatorService: SimulatorService,
+    private val omgeving: OmgevingConfig,
 ) {
+
+    private val log = Logger.getLogger(HerstelService::class.java.name)
 
     fun herstel(): HerstelResultaat {
         tempoService.stop()
         storingService.reset()
 
-        // Ook de gesimuleerde magazijnen: berichten weg én hun gedrag terug naar de vastgelegde
-        // verdeling. Zonder dat staat een magazijn dat tijdens de vorige demo op storing is gezet er
-        // de volgende keer nog zo bij, en is "terug naar het begin" een halve waarheid.
-        val gesimuleerd = simulatorService.herstel()
         val geleegd = magazijnDatabase.leegAlles()
         val vulling = aanleverService.leverAan(basisdataset.laad())
 
-        // Ook de gesimuleerde magazijnen weer vullen. "Terug naar de toestand van vlak na de eerste
-        // basisvulling" hoort ook voor hen te gelden; anders staat de fan-out-demo na een herstel op
-        // honderd organisaties met nul berichten, en moet iemand middenin het verhaal alsnog een
-        // tweede knop zoeken.
-        val gesimuleerdGevuld = simulatorService.vulStandaard().berichten
+        return metGesimuleerde(geleegd, vulling)
+    }
 
-        return HerstelResultaat(geleegd, vulling, gesimuleerd, gesimuleerdGevuld)
+    /**
+     * De gesimuleerde magazijnen horen erbij — anders staat de fan-out-demo na een herstel op
+     * honderd organisaties met nul berichten, en staat een magazijn dat vorige keer op storing werd
+     * gezet er nog zo bij.
+     *
+     * Maar ze komen ná de twee echte magazijnen en ze mogen het herstel niet tegenhouden. Een
+     * simulator die er niet is of niet antwoordt, staat het legen en vullen van A en B nergens in
+     * de weg; hem eerst aanroepen liet die twee ongemoeid en de omgeving halverwege staan, met de
+     * berichten van de vorige demo er nog in.
+     */
+    private fun metGesimuleerde(geleegd: Map<String, Int>, vulling: AanleverResultaat): HerstelResultaat {
+        if (!omgeving.simulator()) {
+            return HerstelResultaat(
+                geleegd,
+                vulling,
+                gesimuleerdOvergeslagen = "deze omgeving kent geen magazijn-simulator",
+            )
+        }
+
+        // Overslaan is hier een uitkomst en geen fout: het herstel zelf is al gelukt, en dat als
+        // mislukt melden zou de bediener een tweede keer laten legen en vullen. Het paneel toont de
+        // reden bij de knop, dus stil is dit niet.
+        return try {
+            val gesimuleerd = simulatorService.herstel()
+
+            HerstelResultaat(geleegd, vulling, gesimuleerd, simulatorService.vulStandaard().berichten)
+        } catch (fout: Exception) {
+            log.warning("gesimuleerde magazijnen niet hersteld: $fout")
+
+            HerstelResultaat(
+                geleegd,
+                vulling,
+                gesimuleerdOvergeslagen = fout.message ?: fout::class.simpleName.orEmpty(),
+            )
+        }
     }
 }

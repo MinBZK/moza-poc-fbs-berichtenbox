@@ -240,7 +240,9 @@
                     data-samenvatting="storingen">Storingen</button>
             <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
                     data-samenvatting="omgeving">Omgeving</button>
-            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/personas"
+            <!-- Uit /api/demo/omgeving en niet uit /api/demo/personas: dat adres hoort bij de
+                 personadienst, en deze module beantwoordt het met 404. -->
+            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
                     data-samenvatting="personas">Persona&rsquo;s</button>
             <button type="button" class="knop" data-simulator data-methode="GET"
                     data-pad="/api/demo/simulator/magazijnen"

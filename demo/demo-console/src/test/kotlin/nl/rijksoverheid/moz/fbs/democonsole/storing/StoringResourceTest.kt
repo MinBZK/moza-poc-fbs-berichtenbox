@@ -4,9 +4,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.BadRequestException
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.ValueSource
 
 class StoringResourceTest {
@@ -22,6 +25,37 @@ class StoringResourceTest {
         resource.infraUit(proxy)
 
         verify { storingService.uit(proxy) }
+    }
+
+    @Test
+    fun `reset meldt alles normaal pas nadat hij dat teruggelezen heeft`() {
+        every { storingService.reset() } returns Unit
+        every { storingService.status() } returns mapOf(
+            "magazijn-a" to Storingstoestand.NORMAAL,
+            "redis" to Storingstoestand.NORMAAL,
+        )
+
+        assertEquals("alles normaal", resource.reset()["status"])
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Storingstoestand::class, names = ["TRAAG", "UIT", "ONBEKEND"])
+    fun `reset weigert alles normaal te melden zolang een proxy dat niet is`(toestand: Storingstoestand) {
+        // De aanroepen naar Toxiproxy slaagden, dus reset() zelf klaagt niet. Zonder terug te lezen
+        // schreef de resource hier "alles normaal" op — een groene bevestiging boven een stroom die
+        // nog dichtstaat, precies wanneer iemand deze knop indrukt omdat er al iets niet klopt.
+        every { storingService.reset() } returns Unit
+        every { storingService.status() } returns mapOf(
+            "magazijn-a" to Storingstoestand.NORMAAL,
+            "profiel" to toestand,
+        )
+
+        val fout = assertThrows(IllegalStateException::class.java) { resource.reset() }
+
+        assertTrue(
+            fout.message!!.contains("profiel ${toestand.waarde}"),
+            "melding moet de proxy en zijn toestand noemen, was: ${fout.message}",
+        )
     }
 
     @Test

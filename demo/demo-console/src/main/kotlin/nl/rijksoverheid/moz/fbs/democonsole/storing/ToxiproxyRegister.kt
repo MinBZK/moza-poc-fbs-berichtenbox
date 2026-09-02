@@ -31,8 +31,6 @@ class ToxiproxyRegister(config: ToxiproxyConfig) {
 
     fun client(proxy: String): ToxiproxyClient = perAdres.getValue(adressen.adres(proxy))
 
-    fun instanties(): Collection<ToxiproxyClient> = perAdres.values
-
     private companion object {
 
         const val CONNECT_TIMEOUT_SECONDEN = 2L
