@@ -26,10 +26,10 @@ class Basisdataset(private val mapper: ObjectMapper) {
         // download-demo), en elk vierde alvast op gelezen (voor een realistische lees-mix).
         //
         // Geteld per berichtenbak — magazijn plus ontvanger — en niet over de vlakke lijst.
-        // basis.json staat in een vaste cyclus van vier bakken, en een regel met diezelfde periode
+        // basis.json doorloopt de bakken in een vaste cyclus, en een regel met diezelfde periode
         // raakt dan telkens dezelfde bak: "elk vierde op gelezen" zette één bak volledig op gelezen
-        // en de andere drie helemaal niet. Per bak tellen maakt de mix bovendien onafhankelijk van
-        // de volgorde waarin de dataset toevallig staat.
+        // en de rest helemaal niet. Per bak tellen maakt de mix bovendien onafhankelijk van de
+        // volgorde waarin de dataset toevallig staat.
         val volgnummers = mutableMapOf<Bak, Int>()
 
         return opdrachten.map { opdracht ->

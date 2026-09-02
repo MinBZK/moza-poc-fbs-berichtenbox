@@ -6,7 +6,9 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.GeneratorProducer
+import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.demopersonas.Identificatiecheck
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
 import nl.rijksoverheid.moz.fbs.demopersonas.TestPersonas
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -63,6 +65,37 @@ class DemoDatasetConsistentieTest {
         // Eén magazijn = één organisatie: een afwijkende afzender levert een 403 op.
         Basisdataset(mapper).laad().forEach {
             assertEquals(it.magazijnOin, it.verzoek.afzender, "afzender moet de OIN van het doelmagazijn zijn")
+        }
+    }
+
+    /**
+     * Elke persona die zijn berichten uit de keten haalt, hoort na een druk op "Herstel demo" een
+     * gevulde bak te hebben: uit `basis.json` bij de twee echte magazijnen, of uit de
+     * standaardvulling van de simulator.
+     *
+     * Faalscenario zonder deze test: er komt een persona bij — de proeftuin bracht er drie mee — die
+     * in geen van beide lijsten staat. Elk magazijn antwoordt dan netjes met nul berichten, de
+     * ophaalronde slaagt, en de Berichtenbox toont een lege bak zonder dat er iets rood wordt. Dat
+     * is tijdens een demo niet te onderscheiden van een keten die stukstaat.
+     */
+    @Test
+    fun `elke keten-persona krijgt vulling uit de basisdataset of de simulator`() {
+        val gevuld = Basisdataset(mapper).laad()
+            .map { "${it.verzoek.ontvanger.type}:${it.verzoek.ontvanger.waarde}" }
+            .toSet() + SimulatorService.ONDERNEMERS
+
+        val ketenPersonas = TestPersonas.uitConfiguratie().alle().filter { it.bron == PersonaBron.KETEN }
+
+        assertTrue(ketenPersonas.isNotEmpty(), "zonder keten-personas toetst deze test niets")
+
+        // De persona-id en niet zijn nummer: dat laatste is bij een BSN-persona precies wat niet in
+        // een foutmelding hoort te staan.
+        ketenPersonas.forEach {
+            assertTrue(
+                it.ontvanger in gevuld,
+                "persona '${it.id}' krijgt van geen enkele vulknop berichten: hij staat niet in " +
+                    "basis.json en niet bij de ondernemers van de simulator",
+            )
         }
     }
 

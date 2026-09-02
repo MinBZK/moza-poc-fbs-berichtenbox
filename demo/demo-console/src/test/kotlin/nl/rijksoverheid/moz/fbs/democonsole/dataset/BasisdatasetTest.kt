@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.democonsole.dataset
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -11,9 +10,9 @@ import org.junit.jupiter.api.Test
  * De beginsituatie van een demo. De variatie die de dataset zelf niet draagt — bijlagen en de
  * lees-mix — komt uit [Basisdataset], en die mix hoort in elke berichtenbak te vallen.
  *
- * Dat ging eerder mis: de regel telde over de vlakke lijst, basis.json staat in een cyclus van vier
- * bakken, en met "elk vierde op gelezen" stond precies één bak volledig op gelezen en de andere drie
- * helemaal niet. Zichtbaar pas in de berichtenbox, tijdens een demo.
+ * Dat ging eerder mis: de regel telde over de vlakke lijst terwijl basis.json de bakken in een vaste
+ * cyclus doorloopt, en met "elk vierde op gelezen" stond precies één bak volledig op gelezen en de
+ * rest helemaal niet. Zichtbaar pas in de berichtenbox, tijdens een demo.
  */
 class BasisdatasetTest {
 
@@ -22,11 +21,16 @@ class BasisdatasetTest {
     private fun perBak(): Map<String, List<AanleverOpdracht>> =
         opdrachten.groupBy { "${it.magazijnOin}/${it.verzoek.ontvanger.type}:${it.verzoek.ontvanger.waarde}" }
 
+    /**
+     * Welke bakken er horen te zijn, bewaakt `DemoDatasetConsistentieTest` tegen de persona-lijst;
+     * hier gaat het om hun omvang. Onder de vier is de mix hieronder niet te halen: dan valt er
+     * geen bericht meer buiten "elk vierde op gelezen" of "elk derde met bijlage".
+     */
     @Test
-    fun `de dataset vult vier berichtenbakken`() {
+    fun `elke berichtenbak is groot genoeg om te variëren`() {
         val bakken = perBak()
 
-        assertEquals(4, bakken.size, "verwachtte vier bakken, kreeg ${bakken.keys}")
+        assertTrue(bakken.isNotEmpty(), "zonder bakken toetst deze test niets")
         bakken.forEach { (bak, inhoud) -> assertTrue(inhoud.size >= 4, "bak $bak is te klein om te variëren: ${inhoud.size}") }
     }
 

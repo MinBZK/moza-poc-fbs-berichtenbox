@@ -518,5 +518,317 @@
       "inhoud": "Beste Garage Van Dijk B.V.,\n\nDe definitieve aanslag over 2025 is vastgesteld. Er is een verschil met uw voorlopige aanslag; de toelichting vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
       "publicatietijdstip": "2026-02-28T16:40:00Z"
     }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000011"
+      },
+      "onderwerp": "Subsidieaanvraag ontvangen",
+      "inhoud": "Beste Demo-onderneming 1,\n\nWe hebben uw aanvraag voor de SDE++-subsidie ontvangen. U hoort binnen acht weken of de subsidie wordt toegekend. U hoeft nu niets te doen.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-03T08:15:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000011"
+      },
+      "onderwerp": "Beschikking SDE++",
+      "inhoud": "Beste Demo-onderneming 1,\n\nUw aanvraag voor de SDE++-subsidie is toegekend. De beschikking met de uitbetalingsvoorwaarden vindt u in de bijlage.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-09T08:15:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000011"
+      },
+      "onderwerp": "Controle mestboekhouding",
+      "inhoud": "Beste Demo-onderneming 1,\n\nIn het kader van de gecombineerde opgave voeren wij een controle uit op uw mestboekhouding. Houd uw administratie van de afgelopen twee jaar beschikbaar.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-16T08:15:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000011"
+      },
+      "onderwerp": "Eenmalige verlenging eHerkenning",
+      "inhoud": "Beste Demo-onderneming 1,\n\nUw eHerkenningsmiddel verloopt over vier weken. Verleng het tijdig om toegang tot Mijn RVO te behouden.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-23T08:15:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000011"
+      },
+      "onderwerp": "Gecombineerde opgave verwerkt",
+      "inhoud": "Beste Demo-onderneming 1,\n\nUw gecombineerde opgave is verwerkt. Controleer in Mijn RVO of alle percelen correct zijn geregistreerd.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-28T08:15:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000011"
+      },
+      "onderwerp": "Uitnodiging webinar verduurzaming",
+      "inhoud": "Beste Demo-onderneming 1,\n\nOp 12 september organiseren wij een webinar over het verduurzamen van uw bedrijf. Aanmelden kan kosteloos via Mijn RVO.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-03T08:15:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000012"
+      },
+      "onderwerp": "Voorlopige aanslag 2026",
+      "inhoud": "Beste Demo-onderneming 2,\n\nUw voorlopige aanslag inkomstenbelasting 2026 staat klaar. Het te betalen bedrag en de termijnen vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-03T09:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000012"
+      },
+      "onderwerp": "Definitieve aanslag 2025",
+      "inhoud": "Beste Demo-onderneming 2,\n\nDe definitieve aanslag over 2025 is vastgesteld. Er is een verschil met uw voorlopige aanslag; de toelichting vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-09T09:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000012"
+      },
+      "onderwerp": "Herinnering aangifte omzetbelasting",
+      "inhoud": "Beste Demo-onderneming 2,\n\nU heeft de aangifte omzetbelasting over het tweede kwartaal nog niet ingediend. Dien deze uiterlijk 31 juli in om een boete te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-16T09:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000012"
+      },
+      "onderwerp": "Teruggaaf inkomstenbelasting",
+      "inhoud": "Beste Demo-onderneming 2,\n\nU ontvangt een teruggaaf inkomstenbelasting. Het bedrag wordt binnen zes weken op uw bekende rekeningnummer bijgeschreven.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-23T09:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000012"
+      },
+      "onderwerp": "Betalingsherinnering",
+      "inhoud": "Beste Demo-onderneming 2,\n\nWij hebben uw betaling voor de openstaande aanslag nog niet ontvangen. Betaal het bedrag vóór de vervaldatum om invorderingskosten te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-28T09:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000012"
+      },
+      "onderwerp": "Wijziging rekeningnummer bevestigd",
+      "inhoud": "Beste Demo-onderneming 2,\n\nHet rekeningnummer waarop u teruggaven ontvangt is gewijzigd. Heeft u dit niet zelf gedaan? Neem dan direct contact met ons op.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-03T09:40:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Eenmalige verlenging eHerkenning",
+      "inhoud": "Beste Demo-onderneming 3,\n\nUw eHerkenningsmiddel verloopt over vier weken. Verleng het tijdig om toegang tot Mijn RVO te behouden.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-03T11:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Gecombineerde opgave verwerkt",
+      "inhoud": "Beste Demo-onderneming 3,\n\nUw gecombineerde opgave is verwerkt. Controleer in Mijn RVO of alle percelen correct zijn geregistreerd.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-09T11:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Uitnodiging webinar verduurzaming",
+      "inhoud": "Beste Demo-onderneming 3,\n\nOp 12 september organiseren wij een webinar over het verduurzamen van uw bedrijf. Aanmelden kan kosteloos via Mijn RVO.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-16T11:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Subsidieaanvraag ontvangen",
+      "inhoud": "Beste Demo-onderneming 3,\n\nWe hebben uw aanvraag voor de SDE++-subsidie ontvangen. U hoort binnen acht weken of de subsidie wordt toegekend. U hoeft nu niets te doen.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-23T11:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Beschikking SDE++",
+      "inhoud": "Beste Demo-onderneming 3,\n\nUw aanvraag voor de SDE++-subsidie is toegekend. De beschikking met de uitbetalingsvoorwaarden vindt u in de bijlage.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-01-28T11:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000000000000100000",
+    "verzoek": {
+      "afzender": "00000000000000100000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Controle mestboekhouding",
+      "inhoud": "Beste Demo-onderneming 3,\n\nIn het kader van de gecombineerde opgave voeren wij een controle uit op uw mestboekhouding. Houd uw administratie van de afgelopen twee jaar beschikbaar.\n\nMet vriendelijke groet,\nRVO",
+      "publicatietijdstip": "2026-02-03T11:05:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Teruggaaf inkomstenbelasting",
+      "inhoud": "Beste Demo-onderneming 3,\n\nU ontvangt een teruggaaf inkomstenbelasting. Het bedrag wordt binnen zes weken op uw bekende rekeningnummer bijgeschreven.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-03T12:50:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Betalingsherinnering",
+      "inhoud": "Beste Demo-onderneming 3,\n\nWij hebben uw betaling voor de openstaande aanslag nog niet ontvangen. Betaal het bedrag vóór de vervaldatum om invorderingskosten te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-09T12:50:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Wijziging rekeningnummer bevestigd",
+      "inhoud": "Beste Demo-onderneming 3,\n\nHet rekeningnummer waarop u teruggaven ontvangt is gewijzigd. Heeft u dit niet zelf gedaan? Neem dan direct contact met ons op.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-16T12:50:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Voorlopige aanslag 2026",
+      "inhoud": "Beste Demo-onderneming 3,\n\nUw voorlopige aanslag inkomstenbelasting 2026 staat klaar. Het te betalen bedrag en de termijnen vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-23T12:50:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Definitieve aanslag 2025",
+      "inhoud": "Beste Demo-onderneming 3,\n\nDe definitieve aanslag over 2025 is vastgesteld. Er is een verschil met uw voorlopige aanslag; de toelichting vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-01-28T12:50:00Z"
+    }
+  },
+  {
+    "magazijnOin": "00000001823288444000",
+    "verzoek": {
+      "afzender": "00000001823288444000",
+      "ontvanger": {
+        "type": "KVK",
+        "waarde": "90000013"
+      },
+      "onderwerp": "Herinnering aangifte omzetbelasting",
+      "inhoud": "Beste Demo-onderneming 3,\n\nU heeft de aangifte omzetbelasting over het tweede kwartaal nog niet ingediend. Dien deze uiterlijk 31 juli in om een boete te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
+      "publicatietijdstip": "2026-02-03T12:50:00Z"
+    }
   }
 ]
