@@ -104,19 +104,15 @@ docker compose --profile demo up -d
 
 Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de berichtenbox met het
 bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat achter `PROEFTUIN_TAG`,
-gepind op een `sha-`-tag uit hun main; `latest` verschuift stil onder een lopende demo door. De
+gepind op een `sha-`-tag uit hun main; `latest` verschuift stil onder een lopende demo door.
+Diezelfde tag staat in `.github/workflows/deploy.yml` (`PROEFTUIN_IMAGE`), zodat een demo op de eigen
+machine en een demo op ZAD dezelfde berichtenbox tonen; `pin-consistency.yml` faalt zodra de twee
+uiteenlopen, dus naar een nieuwere proeftuin gaan is: op beide plekken dezelfde tag zetten. De
 rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
 
 ### De berichtenbox op een andere keten-omgeving richten
 
-> **Kan pas na [MinBZK/moza-poc#142](https://github.com/MinBZK/moza-poc/pull/142).** Die PR brengt de
-> padsplitsing hieronder en staat nog open, dus er is geen image om op te pinnen. Waar
-> `PROEFTUIN_TAG` vandaag op staat, kent de proeftuin alleen `BACKEND_ORIGIN` en gaat heel `/api/`
-> naar één bestemming; de zes `BACKEND_*`-regels in `compose.yaml` doen daar niets. Lokaal merk je
-> dat niet — `demo-proxy` splitst de paden al vóór de container, zie de eerste rij — maar de andere
-> twee opstellingen werken pas na die merge.
-
-De bestemming is dan een instelling en geen aparte versie van de proeftuin. Hun nginx splitst het
+De bestemming is een instelling en geen aparte versie van de proeftuin. Hun nginx splitst het
 API-verkeer per pad: `/api/v1/` naar de uitvraag (`BACKEND_KETEN`), `/api/demo/personas` naar de
 personadienst (`BACKEND_PERSONAS`) en de rest van `/api/demo/` naar het bedieningspaneel
 (`BACKEND_DEMO`). Waar je die zet, hangt af van de opstelling:
@@ -141,14 +137,13 @@ BACKEND_PERSONAS_HOST=demopersonas-test-mpfm-w3h.$Z \
   docker compose --profile demo up -d proeftuin
 ```
 
-Ontbreekt `BACKEND_KETEN`, dan antwoordt de proeftuin met een 502 die de variabelenaam noemt, in
-plaats van het verkeer stil bij een andere dienst af te leveren. Een onvolledig ingerichte omgeving
-is daardoor te onderscheiden van een storing, en de berichtenbox zegt ook welk van de twee het is —
-bij het eerste helpt verversen namelijk niet.
-
-Zodra #142 gemerged is en er een main-image ligt: `PROEFTUIN_TAG` in `compose.yaml` op die nieuwe
-`sha-`-tag zetten. Tot die tijd toont de berichtenbox alleen de gegenereerde dataset van de
-proeftuin en blijft de keten onzichtbaar, zonder dat er iets misgaat.
+Zet `BACKEND_KETEN` altijd expliciet. Leeggemaakt antwoordt de proeftuin met een 502 die de
+variabelenaam noemt in plaats van het verkeer stil bij een andere dienst af te leveren — een
+onvolledig ingerichte omgeving is daardoor te onderscheiden van een storing. Maar hun image draagt
+sinds de padsplitsing ook een ingebouwde bestemming, en die wijst naar een omgeving van ons die niet
+eeuwig bestaat: laat je de variabele weg, dan praat de berichtenbox met een omgeving die je niet
+bedoelde, of met een adres dat er niet meer is — en dat laatste leest als een storing, want de
+variabele *is* gezet. `compose.yaml` en `proeftuin-component.sh` zetten hem daarom allebei.
 
 ### Twee beperkingen die tijdens een demonstratie opvallen
 

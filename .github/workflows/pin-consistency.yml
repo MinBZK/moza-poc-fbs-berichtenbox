@@ -1,10 +1,10 @@
 # Houdt de pins van de zelf-gedeployde infra-images uniform over alle locaties.
 #
 # De pins staan (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
-# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE, TOXIPROXY_IMAGE),
-# demo/environment/zad-demo/README.md en de test-devservices-image-names. Dependabot's
-# docker-compose-ecosystem ziet alléén compose.yaml; de workflow-env, het runbook en de
-# Kotlin-test-strings niet. Een Dependabot-bump zou dus drift veroorzaken. Deze guard maakt zo'n
+# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE, TOXIPROXY_IMAGE,
+# PROEFTUIN_IMAGE), demo/environment/zad-demo/README.md en de test-devservices-image-names.
+# Dependabot's docker-compose-ecosystem ziet alléén compose.yaml; de workflow-env, het runbook en
+# de Kotlin-test-strings niet. Een Dependabot-bump zou dus drift veroorzaken. Deze guard maakt zo'n
 # gedeeltelijke bump een harde fout, zodat alle pins samen bewegen (de pins zelf blijven expliciet).
 #
 # De melding hieronder noemt de vindplaatsen niet met naam: die lijst verouderde eerder al. Ze zegt
@@ -36,7 +36,7 @@ jobs:
       - name: infra-image-pins moeten overal identiek zijn
         run: |
           fail=0
-          for img in redis/redis-stack-server ghcr.io/shopify/toxiproxy; do
+          for img in redis/redis-stack-server ghcr.io/shopify/toxiproxy ghcr.io/minbzk/moza-poc; do
             # -I slaat binaire bestanden over (pins staan in tekst), zodat geen stderr-ruis;
             # stderr verder NIET dempen — een echte grep/xargs-fout moet zichtbaar zijn.
             #
@@ -55,7 +55,12 @@ jobs:
             # `docs/plans/` valt erbuiten: een plan is een verslag van een moment en citeert de pin
             # die tóen gold. Die meeslepen zou de vastlegging vervalsen, en hem meetellen zou deze
             # guard laten falen op een bestand dat niets uitrolt.
-            ruwe_pins=$(git grep --cached -hoIE "${img}:[A-Za-z0-9._-]+" -- . ':!docs/plans/' ) || rc=$?
+            #
+            # De alternatief-tak dekt de compose-vorm `image: <img>:${VAR:-<tag>}`; de sed hieronder
+            # haalt dat `${VAR:-` er weer af, zodat een pin achter een env-var en een kale pin
+            # elders als dezelfde waarde tellen. Zonder die tak zou de compose-vindplaats niet
+            # matchen en zou de guard een drift tussen compose.yaml en een workflow niet meer zien.
+            ruwe_pins=$(git grep --cached -hoIE "${img}:([\$][{][A-Za-z_][A-Za-z0-9_]*:-)?[A-Za-z0-9._-]+" -- . ':!docs/plans/' ) || rc=$?
             rc=${rc:-0}
 
             if [ "$rc" -gt 1 ]; then
@@ -67,7 +72,8 @@ jobs:
             fi
 
             unset rc
-            mapfile -t pins < <(printf '%s\n' "$ruwe_pins" | grep -v '^$' | sort -u)
+            mapfile -t pins < <(printf '%s\n' "$ruwe_pins" | grep -v '^$' \
+              | sed -E 's/:[$][{][A-Za-z_][A-Za-z0-9_]*:-/:/' | sort -u)
             printf '%s pin(s): %s\n' "$img" "${pins[*]:-<geen>}"
             if [ "${#pins[@]}" -eq 0 ]; then
               # Nul matches = image overal hernoemd/verwijderd (of regex matcht niet meer).

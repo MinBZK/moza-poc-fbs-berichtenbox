@@ -403,18 +403,18 @@ services:
       MAGAZIJN_SIMULATOR_URL: http://magazijn-simulator:8092
 
   # Berichtenbox van de proeftuin (MinBZK/moza-poc) als container, zodat de demo geen Node, npm ci
-  # of Eleventy op de machine vraagt. Zijn nginx zet /api/ server-side door naar BACKEND_ORIGIN, dus
-  # de browser praat met één origin en er is geen CORS nodig.
+  # of Eleventy op de machine vraagt. Zijn nginx zet het API-verkeer server-side door, dus de
+  # browser praat met één origin en er is geen CORS nodig.
   #
   # De tag staat achter een env-var en is gepind op een sha-tag uit hun main: `latest` bestaat wel,
   # maar verschuift stil onder een lopende demo door. Een release-tag (bv. gebruikersonderzoeken-
   # 2026-08) kan net zo goed:  PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 docker compose ...
   #
-  # De env-vars hieronder werken vanaf de proeftuin-versie die het keten-verkeer per prefix splitst.
+  # Deze tag splitst het keten-verkeer per prefix; de BACKEND_*-regels hieronder werken vanaf hier.
   # Op een oudere tag vallen ze weg en loopt alleen het leespad, want /api/demo/personas valt daar
   # nog onder dezelfde `location /api/` en komt dus bij de uitvraag uit.
   proeftuin:
-    image: ghcr.io/minbzk/moza-poc:${PROEFTUIN_TAG:-sha-934de70}
+    image: ghcr.io/minbzk/moza-poc:${PROEFTUIN_TAG:-sha-6e0751e}
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8096:8080"
@@ -447,8 +447,10 @@ services:
       BACKEND_KETEN_HOST: ${BACKEND_KETEN_HOST:-}
       BACKEND_PERSONAS_HOST: ${BACKEND_PERSONAS_HOST:-}
       BACKEND_DEMO_HOST: ${BACKEND_DEMO_HOST:-}
-      # Ook overschrijfbaar, en zolang de gepinde proeftuin de padsplitsing nog niet kent is dit de
-      # énige die telt: die versie stuurt heel /api/ hierheen.
+      # Sinds de padsplitsing draagt deze variabele alleen nog /chat, /health en /tools plus de
+      # terugval van de catch-all /api/. Die drie paden hebben in deze demo geen dienst achter zich;
+      # de uitvraag antwoordt er met een 404. Blijft staan omdat leeglaten die locaties een 502 laat
+      # geven die een ontbrekende variabele meldt — een storing die er geen is.
       BACKEND_ORIGIN: ${BACKEND_ORIGIN:-http://berichtenuitvraag:8086}
 
   # Eén origin voor de hele demo: berichtenbox, bedieningspaneel en keten-API's achter hetzelfde
