@@ -123,16 +123,6 @@ env:
   # "Permission denied". Kan uit: de sessiecache is ephemeral en rekent nergens op
   # persistence (idempotente RediSearch-bootstrap, TTL-entries, crash-safe vangnet-lock).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
-  # De berichtenbox van de proeftuin (MinBZK/moza-poc), als component in ons eigen project. Zo
-  # bepalen wij welke versie er onder een demo hangt, in plaats van het uitrolritme van een ander
-  # project te volgen. De tag hoort hier en niet alleen in de projectspec: OM's upsert-deployment
-  # neemt bij het aanmaken alleen de meegegeven componenten over en kopieert die van de kloonbron
-  # niet, dus zonder deze regel heeft alleen `test` een berichtenbox en geen enkele preview.
-  #
-  # Dezelfde pin als in compose.yaml, bewaakt door pin-consistency.yml: een demo op de eigen machine
-  # en een demo op ZAD horen dezelfde berichtenbox te tonen, anders verklaart een verschil tussen
-  # beide niets over de keten.
-  PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc:sha-6e0751e
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
@@ -280,7 +270,32 @@ jobs:
     outputs:
       tag: ${{ steps.m.outputs.tag }}
       owner: ${{ steps.m.outputs.owner }}
+      proeftuin_image: ${{ steps.proeftuin.outputs.image }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # De berichtenbox van de proeftuin (MinBZK/moza-poc), als component in ons eigen project. Zo
+      # bepalen wij welke versie er onder een demo hangt, in plaats van het uitrolritme van een
+      # ander project te volgen. De referentie hoort in de deploy en niet alleen in de projectspec:
+      # OM's upsert-deployment neemt bij het aanmaken alleen de meegegeven componenten over en
+      # kopieert die van de kloonbron niet, dus zonder dit heeft alleen `test` een berichtenbox en
+      # geen enkele preview.
+      #
+      # Uit compose.yaml en niet uit een eigen env-regel hier: dan tonen een demo op de eigen
+      # machine en een demo op ZAD dezelfde berichtenbox, en werkt een Dependabot-bump van die ene
+      # regel beide bij.
+      - id: proeftuin
+        run: |
+          set -euo pipefail
+
+          # Eerst toewijzen, dan pas schrijven: `echo "image=$(...)"` zou bij een falend script een
+          # lege waarde wegschrijven en de deploy een component zonder image laten zetten.
+          image=$(.github/scripts/proeftuin-image.sh)
+
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
       - id: m
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         env:
@@ -872,7 +887,7 @@ jobs:
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
               {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
-              {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
+              {"name": "proeftuin", "image": "${{ needs.meta.outputs.proeftuin_image }}"}
             ]
 
       # De tegenhanger van de inbound-regels in de twee andere projecten: de ontvanger beslist, dus
@@ -1024,7 +1039,7 @@ jobs:
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
               {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
-              {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
+              {"name": "proeftuin", "image": "${{ needs.meta.outputs.proeftuin_image }}"}
             ]
 
       # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in

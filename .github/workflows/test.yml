@@ -357,3 +357,12 @@ jobs:
           persist-credentials: false
       - name: compose.yaml valideren
         run: docker compose --profile demo config -q
+
+      # De overlay draait alleen als iemand hem er met de hand bij zet, dus een kapotte overlay
+      # blijft anders onopgemerkt tot vlak vóór een demo — het moment waarop je hem gebruikt.
+      # PROEFTUIN_TAG moet gezet zijn: de overlay eist dat expliciet in plaats van stil op de
+      # gepinde versie terug te vallen.
+      - name: De proeftuin-overlay valideren
+        env:
+          PROEFTUIN_TAG: valideer
+        run: docker compose -f compose.yaml -f compose.proeftuin-tag.yaml --profile demo config -q

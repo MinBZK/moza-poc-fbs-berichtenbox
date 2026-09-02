@@ -1,10 +1,10 @@
 # Houdt de pins van de zelf-gedeployde infra-images uniform over alle locaties.
 #
 # De pins staan (bewust expliciet, conform Scorecard Pinned-Dependencies) op meerdere
-# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE, TOXIPROXY_IMAGE,
-# PROEFTUIN_IMAGE), demo/environment/zad-demo/README.md en de test-devservices-image-names.
-# Dependabot's docker-compose-ecosystem ziet alléén compose.yaml; de workflow-env, het runbook en
-# de Kotlin-test-strings niet. Een Dependabot-bump zou dus drift veroorzaken. Deze guard maakt zo'n
+# plekken: compose.yaml, .github/workflows/deploy.yml (REDIS_IMAGE, TOXIPROXY_IMAGE),
+# demo/environment/zad-demo/README.md en de test-devservices-image-names. Dependabot's
+# docker-compose-ecosystem ziet alléén compose.yaml; de workflow-env, het runbook en de
+# Kotlin-test-strings niet. Een Dependabot-bump zou dus drift veroorzaken. Deze guard maakt zo'n
 # gedeeltelijke bump een harde fout, zodat alle pins samen bewegen (de pins zelf blijven expliciet).
 #
 # De melding hieronder noemt de vindplaatsen niet met naam: die lijst verouderde eerder al. Ze zegt
@@ -36,7 +36,7 @@ jobs:
       - name: infra-image-pins moeten overal identiek zijn
         run: |
           fail=0
-          for img in redis/redis-stack-server ghcr.io/shopify/toxiproxy ghcr.io/minbzk/moza-poc; do
+          for img in redis/redis-stack-server ghcr.io/shopify/toxiproxy; do
             # -I slaat binaire bestanden over (pins staan in tekst), zodat geen stderr-ruis;
             # stderr verder NIET dempen — een echte grep/xargs-fout moet zichtbaar zijn.
             #
@@ -55,12 +55,7 @@ jobs:
             # `docs/plans/` valt erbuiten: een plan is een verslag van een moment en citeert de pin
             # die tóen gold. Die meeslepen zou de vastlegging vervalsen, en hem meetellen zou deze
             # guard laten falen op een bestand dat niets uitrolt.
-            #
-            # De alternatief-tak dekt de compose-vorm `image: <img>:${VAR:-<tag>}`; de sed hieronder
-            # haalt dat `${VAR:-` er weer af, zodat een pin achter een env-var en een kale pin
-            # elders als dezelfde waarde tellen. Zonder die tak zou de compose-vindplaats niet
-            # matchen en zou de guard een drift tussen compose.yaml en een workflow niet meer zien.
-            ruwe_pins=$(git grep --cached -hoIE "${img}:([\$][{][A-Za-z_][A-Za-z0-9_]*:-)?[A-Za-z0-9._-]+" -- . ':!docs/plans/' ) || rc=$?
+            ruwe_pins=$(git grep --cached -hoIE "${img}:[A-Za-z0-9._-]+" -- . ':!docs/plans/' ) || rc=$?
             rc=${rc:-0}
 
             if [ "$rc" -gt 1 ]; then
@@ -72,8 +67,7 @@ jobs:
             fi
 
             unset rc
-            mapfile -t pins < <(printf '%s\n' "$ruwe_pins" | grep -v '^$' \
-              | sed -E 's/:[$][{][A-Za-z_][A-Za-z0-9_]*:-/:/' | sort -u)
+            mapfile -t pins < <(printf '%s\n' "$ruwe_pins" | grep -v '^$' | sort -u)
             printf '%s pin(s): %s\n' "$img" "${pins[*]:-<geen>}"
             if [ "${#pins[@]}" -eq 0 ]; then
               # Nul matches = image overal hernoemd/verwijderd (of regex matcht niet meer).
@@ -206,16 +200,14 @@ jobs:
             gh api "repos/$REPO/issues/$PR/comments" -f body="$body" --jq .html_url
           fi
 
-  # De berichtenbox van de proeftuin (MinBZK/moza-poc) valt buiten Dependabot: zijn
-  # docker-compose-parser resolvet de `${VAR:-<tag>}`-vorm niet, en een `sha-<commit>`-tag heeft
-  # geen opvolgerelatie die hij kan ordenen. De andere images in compose.yaml krijgen wél een
-  # bump-PR; deze niet, en dan toont een demo maandenlang een oude berichtenbox zonder dat iemand
-  # het merkt. De job hierboven bewaakt alleen dát compose.yaml en deploy.yml dezelfde tag dragen,
-  # niet dát die tag bij is.
+  # De berichtenbox van de proeftuin (MinBZK/moza-poc) staat in compose.yaml op digest gepind, en
+  # Dependabot bumpt die digest zodra hun main verder gaat. Dit is het vangnet naast dat pad: geen
+  # PR is precies hoe "alles bij" eruitziet, dus een stilgevallen bump — hun `latest` blijft staan,
+  # zijn parser struikelt over een volgende wijziging in dat bestand — valt zonder deze job niemand
+  # op. Hier staat actief wat de stand is.
   #
-  # Deze job WAARSCHUWT en blokkeert niet, om dezelfde reden als fuzz-basis-pin: een oudere
-  # proeftuin is een oudere demo, geen kapotte build. Bijwerken vraagt bovendien een oordeel — hun
-  # main draagt ook halfaf werk — dus dit is een melding aan een mens, geen automatische bump.
+  # WAARSCHUWT en blokkeert niet, om dezelfde reden als fuzz-basis-pin: een oudere berichtenbox is
+  # een oudere demo, geen kapotte build.
   proeftuin-pin:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -239,32 +231,30 @@ jobs:
         id: oordeel
         env:
           STATUS: ${{ steps.pin.outputs.status }}
-          VERWACHT: ${{ steps.pin.outputs.verwachte_tag }}
-          HUIDIG: ${{ steps.pin.outputs.huidige_tag }}
+          TAG: ${{ steps.pin.outputs.verwachte_tag }}
+          DIGEST: ${{ steps.pin.outputs.verwachte_digest }}
+          HUIDIG: ${{ steps.pin.outputs.huidige_digest }}
         run: |
           set -euo pipefail
 
           case "$STATUS" in
             ok)
-              echo "Proeftuin-pin wijst naar de huidige main van MinBZK/moza-poc."
+              echo "De berichtenbox staat op de huidige main van MinBZK/moza-poc ($TAG)."
               ;;
             verouderd)
-              echo "::warning::De proeftuin staat op $HUIDIG; hun main is $VERWACHT."
+              echo "::warning::De berichtenbox loopt achter; hun main is $TAG."
               {
                 echo "melding<<EOM"
-                echo "De demo toont de berichtenbox van \`$HUIDIG\`, terwijl \`MinBZK/moza-poc\` op"
-                echo "\`$VERWACHT\` staat."
+                echo "De demo draait \`$HUIDIG\`, terwijl \`MinBZK/moza-poc\` op \`$TAG\` staat."
                 echo
                 echo "**Blokkeert niets** en is geen opdracht: hun main draagt ook werk dat halfaf kan zijn."
-                echo "Meebewegen is een keuze, en dit is het enige signaal dat er iets te kiezen valt —"
-                echo "Dependabot ziet deze pin niet."
                 echo
-                echo "Meebewegen betekent \`$VERWACHT\` zetten op **beide** plekken, anders faalt"
-                echo "\`infra-image-pins\`:"
+                echo "Normaal komt deze bump vanzelf langs als Dependabot-PR, want de pin staat op digest."
+                echo "Blijft die uit terwijl deze melding staat, dan is er iets mis met dat pad en is dit"
+                echo "de regel om met de hand te zetten in \`compose.yaml\`:"
                 echo
-                echo '```'
-                echo "compose.yaml:                   image: ghcr.io/minbzk/moza-poc:\${PROEFTUIN_TAG:-$VERWACHT}"
-                echo ".github/workflows/deploy.yml:   PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc:$VERWACHT"
+                echo '```yaml'
+                echo "    image: ghcr.io/minbzk/moza-poc:latest@$DIGEST"
                 echo '```'
                 echo "EOM"
               } >> "$GITHUB_OUTPUT"
@@ -272,14 +262,15 @@ jobs:
             ontbreekt)
               # Hun bouw loopt nog, of viel. Beide keren valt er niets te kiezen, dus geen melding
               # op de PR: die zou bij de volgende run vanzelf weer verdwijnen.
-              echo "::warning::Voor de huidige main-commit van de proeftuin ($VERWACHT) staat nog geen image in ghcr."
+              echo "::warning::Voor de huidige main-commit van de proeftuin ($TAG) staat nog geen image in ghcr."
               ;;
             oncontroleerbaar)
               echo "::warning::De proeftuin-pin is deze run NIET gecontroleerd (GitHub of ghcr niet te bevragen)."
               ;;
             *)
-              # geen-pin: het image is hernoemd of uit compose.yaml verdwenen. Dan meet deze job
-              # niets meer, en stil groen worden is het slechtste antwoord.
+              # geen-pin: de image-regel is uit compose.yaml verdwenen of onleesbaar geworden. Dan
+              # meet deze job niets meer, en stil groen worden is het slechtste antwoord — te meer
+              # omdat deploy.yml diezelfde regel leest en dus óók niets meer zou vinden.
               echo "::error::Proeftuin-pin niet te beoordelen (status=$STATUS) — er valt niets meer te controleren."
               exit 1
               ;;

@@ -103,14 +103,21 @@ docker compose --profile demo up -d
 ```
 
 Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de berichtenbox met het
-bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat achter `PROEFTUIN_TAG`,
-gepind op een `sha-`-tag uit hun main; `latest` verschuift stil onder een lopende demo door.
-Diezelfde tag staat in `.github/workflows/deploy.yml` (`PROEFTUIN_IMAGE`), zodat een demo op de eigen
-machine en een demo op ZAD dezelfde berichtenbox tonen; `pin-consistency.yml` faalt zodra de twee
-uiteenlopen, dus naar een nieuwere proeftuin gaan is: op beide plekken dezelfde tag zetten. Dat er
-iets nieuwers ís, meldt diezelfde workflow op de PR — Dependabot ziet deze pin niet, want hij
-resolvet de `${PROEFTUIN_TAG:-...}`-vorm niet en kan `sha-`-tags niet ordenen. De rondleiding langs
-de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
+bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat in `compose.yaml`, gepind op
+digest: `latest` alleen zou stil onder een lopende demo door verschuiven. Die ene regel is ook wat
+`deploy.yml` en `proeftuin-component.sh` lezen (via `.github/scripts/proeftuin-image.sh`), dus een
+demo op de eigen machine en een demo op ZAD tonen dezelfde berichtenbox. Bijwerken doet Dependabot:
+digest-pins houdt hij bij, en dat is precies waarom er geen env-var meer in die regel staat — een
+`${VAR:-...}` maakt hem blind. Blijft die bump uit terwijl hun main doorloopt, dan meldt
+`pin-consistency.yml` dat op de PR. Een andere versie draaien zonder de pin aan te raken kan met de
+overlay:
+
+```bash
+PROEFTUIN_TAG=gebruikersonderzoeken-2026-08 \
+  docker compose -f compose.yaml -f compose.proeftuin-tag.yaml --profile demo up -d proeftuin
+```
+
+De rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
 
 ### De berichtenbox op een andere keten-omgeving richten
 
