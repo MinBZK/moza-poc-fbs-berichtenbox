@@ -107,8 +107,10 @@ bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat achter `
 gepind op een `sha-`-tag uit hun main; `latest` verschuift stil onder een lopende demo door.
 Diezelfde tag staat in `.github/workflows/deploy.yml` (`PROEFTUIN_IMAGE`), zodat een demo op de eigen
 machine en een demo op ZAD dezelfde berichtenbox tonen; `pin-consistency.yml` faalt zodra de twee
-uiteenlopen, dus naar een nieuwere proeftuin gaan is: op beide plekken dezelfde tag zetten. De
-rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
+uiteenlopen, dus naar een nieuwere proeftuin gaan is: op beide plekken dezelfde tag zetten. Dat er
+iets nieuwers ís, meldt diezelfde workflow op de PR — Dependabot ziet deze pin niet, want hij
+resolvet de `${PROEFTUIN_TAG:-...}`-vorm niet en kan `sha-`-tags niet ordenen. De rondleiding langs
+de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
 
 ### De berichtenbox op een andere keten-omgeving richten
 

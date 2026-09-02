@@ -205,3 +205,115 @@ jobs:
           else
             gh api "repos/$REPO/issues/$PR/comments" -f body="$body" --jq .html_url
           fi
+
+  # De berichtenbox van de proeftuin (MinBZK/moza-poc) valt buiten Dependabot: zijn
+  # docker-compose-parser resolvet de `${VAR:-<tag>}`-vorm niet, en een `sha-<commit>`-tag heeft
+  # geen opvolgerelatie die hij kan ordenen. De andere images in compose.yaml krijgen wél een
+  # bump-PR; deze niet, en dan toont een demo maandenlang een oude berichtenbox zonder dat iemand
+  # het merkt. De job hierboven bewaakt alleen dát compose.yaml en deploy.yml dezelfde tag dragen,
+  # niet dát die tag bij is.
+  #
+  # Deze job WAARSCHUWT en blokkeert niet, om dezelfde reden als fuzz-basis-pin: een oudere
+  # proeftuin is een oudere demo, geen kapotte build. Bijwerken vraagt bovendien een oordeel — hun
+  # main draagt ook halfaf werk — dus dit is een melding aan een mens, geen automatische bump.
+  proeftuin-pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # pull-requests: write voor de melding hieronder; deze job blijft bij een verouderde pin groen,
+    # dus een annotatie alleen zou niemand openen.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Wijst de pin naar de huidige main van de proeftuin
+        id: pin
+        env:
+          # Alleen om de anonieme API-limiet (60 per uur per IP, gedeeld met elke andere runner op
+          # dat IP) te ontlopen; het gaat om een publiek repo.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/proeftuin-pin.sh
+
+      - name: Beoordeel de uitkomst
+        id: oordeel
+        env:
+          STATUS: ${{ steps.pin.outputs.status }}
+          VERWACHT: ${{ steps.pin.outputs.verwachte_tag }}
+          HUIDIG: ${{ steps.pin.outputs.huidige_tag }}
+        run: |
+          set -euo pipefail
+
+          case "$STATUS" in
+            ok)
+              echo "Proeftuin-pin wijst naar de huidige main van MinBZK/moza-poc."
+              ;;
+            verouderd)
+              echo "::warning::De proeftuin staat op $HUIDIG; hun main is $VERWACHT."
+              {
+                echo "melding<<EOM"
+                echo "De demo toont de berichtenbox van \`$HUIDIG\`, terwijl \`MinBZK/moza-poc\` op"
+                echo "\`$VERWACHT\` staat."
+                echo
+                echo "**Blokkeert niets** en is geen opdracht: hun main draagt ook werk dat halfaf kan zijn."
+                echo "Meebewegen is een keuze, en dit is het enige signaal dat er iets te kiezen valt —"
+                echo "Dependabot ziet deze pin niet."
+                echo
+                echo "Meebewegen betekent \`$VERWACHT\` zetten op **beide** plekken, anders faalt"
+                echo "\`infra-image-pins\`:"
+                echo
+                echo '```'
+                echo "compose.yaml:                   image: ghcr.io/minbzk/moza-poc:\${PROEFTUIN_TAG:-$VERWACHT}"
+                echo ".github/workflows/deploy.yml:   PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc:$VERWACHT"
+                echo '```'
+                echo "EOM"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            ontbreekt)
+              # Hun bouw loopt nog, of viel. Beide keren valt er niets te kiezen, dus geen melding
+              # op de PR: die zou bij de volgende run vanzelf weer verdwijnen.
+              echo "::warning::Voor de huidige main-commit van de proeftuin ($VERWACHT) staat nog geen image in ghcr."
+              ;;
+            oncontroleerbaar)
+              echo "::warning::De proeftuin-pin is deze run NIET gecontroleerd (GitHub of ghcr niet te bevragen)."
+              ;;
+            *)
+              # geen-pin: het image is hernoemd of uit compose.yaml verdwenen. Dan meet deze job
+              # niets meer, en stil groen worden is het slechtste antwoord.
+              echo "::error::Proeftuin-pin niet te beoordelen (status=$STATUS) — er valt niets meer te controleren."
+              exit 1
+              ;;
+          esac
+
+      # Zelfde afweging als bij fuzz-basis-pin: op een fork is GITHUB_TOKEN read-only, en een
+      # gemiste melding mag nooit zwaarder wegen dan de wijziging zelf.
+      - name: Meld een verouderde pin op de PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          MELDING: ${{ steps.oordeel.outputs.melding }}
+          MARKER: '<!-- proeftuin-pin -->'
+        run: |
+          set -euo pipefail
+
+          bestaand=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq "[.[] | select(.body | contains(\"$MARKER\"))] | first | .id // empty" | head -1)
+
+          if [ -z "$MELDING" ]; then
+            if [ -n "$bestaand" ]; then
+              gh api -X DELETE "repos/$REPO/issues/comments/$bestaand"
+              echo "Pin is weer bij; melding verwijderd."
+            fi
+            exit 0
+          fi
+
+          body=$(printf '%s\n### De berichtenbox van de proeftuin loopt achter op hun main\n\n%s\n' "$MARKER" "$MELDING")
+
+          if [ -n "$bestaand" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$bestaand" -f body="$body" --jq .html_url
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -f body="$body" --jq .html_url
+          fi
