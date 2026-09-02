@@ -10,7 +10,9 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
 import jakarta.enterprise.inject.Produces
 import jakarta.inject.Singleton
+import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.everyItem
 import org.junit.jupiter.api.Test
 import java.time.Clock
 import java.time.Instant
@@ -66,6 +68,25 @@ class KlokTest : MagazijnTestBasis() {
             .then()
             .statusCode(200)
             .body("status.gewijzigdOp", equalTo(MOMENT.toString()))
+    }
+
+    /**
+     * Twee berichten met exact hetzelfde ontvangsttijdstip — met een vaste klok is dat de regel en
+     * niet de uitzondering. Zonder tweede sorteersleutel bepaalt de database de volgorde, en dan kan
+     * paginering een bericht twee keer tonen of overslaan. De jongste hoort bovenaan te staan.
+     */
+    @Test
+    fun `berichten met hetzelfde tijdstip krijgen een vaste volgorde`() {
+        val eerste = leverAan()
+        val tweede = leverAan()
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten.tijdstipOntvangst", everyItem(equalTo(MOMENT.toString())))
+            .body("berichten.berichtId", contains(tweede, eerste))
     }
 
     private fun leverAan(): String = given()

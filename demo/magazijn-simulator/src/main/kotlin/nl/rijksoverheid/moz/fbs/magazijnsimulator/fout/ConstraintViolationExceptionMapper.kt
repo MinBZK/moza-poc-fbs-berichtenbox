@@ -29,9 +29,9 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
     override fun toResponse(exception: ConstraintViolationException): Response {
         val foutId = UUID.randomUUID()
 
-        // Op DEBUG: een geweigerde parameter is geen incident, maar zonder logregel is het
-        // `instance`-id uit het antwoord nergens terug te vinden.
-        log.debugf("Ongeldige invoer, %d schending(en) (foutId=%s)", exception.constraintViolations.size, foutId)
+        // Op info: een geweigerde parameter is geen incident, maar op debug wordt de regel bij het
+        // effectieve niveau niet uitgezonden en is het `instance`-id uit het antwoord onvindbaar.
+        log.infof("Ongeldige invoer, %d schending(en) (foutId=%s)", exception.constraintViolations.size, foutId)
 
         return problemResponse(
             status = Response.Status.BAD_REQUEST.statusCode,

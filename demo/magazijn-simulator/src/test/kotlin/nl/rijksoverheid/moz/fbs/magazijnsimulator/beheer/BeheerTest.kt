@@ -282,6 +282,17 @@ class BeheerTest : MagazijnTestBasis() {
             """{"modus": "WEIGERT", "foutStatus": 503}""",
             """{"modus": "STUK", "foutStatus": 403}""",
             """{"modus": "TRAAG", "latencyP50Ms": 0, "latencyP95Ms": 0}""",
+            // Een 4xx op een modus die het overzicht als beschikbaarheidsstoring toont: bij de
+            // Berichtenbox telt zo'n antwoord als contentfout en dus níét voor de circuit breaker —
+            // het tegenovergestelde van wat de knop belooft.
+            """{"modus": "UIT", "foutStatus": 404}""",
+            """{"modus": "HAPERT", "foutkans": 0.5, "foutStatus": 403}""",
+            // "Normaal" met de latency van een traag magazijn: het overzicht zegt gezond, de
+            // ondernemer wacht twintig seconden.
+            """{"modus": "NORMAAL", "latencyP50Ms": 20000, "latencyP95Ms": 20000}""",
+            // Boven het plafond waarop elke trekking wordt afgekapt: het overzicht zou een getal
+            // tonen dat nooit voorkomt.
+            """{"modus": "TRAAG", "latencyP50Ms": 900, "latencyP95Ms": 20000}""",
         ],
     )
     fun `getallen die niet bij de modus passen zijn een clientfout`(body: String) {

@@ -49,19 +49,16 @@ object DemoBerichten {
         "Verzoek om aanvullende gegevens",
     )
 
-    /**
-     * De tekst die in elke demobijlage staat. Eén vaste tekst en geen variatie per bericht: wie hem
-     * openslaat moet in één oogopslag zien waar hij naar kijkt, en die vraag is bij elk bericht
-     * dezelfde.
-     *
-     * **Houd deze tekst ASCII** — zie [PDF_REGELS].
-     */
     /** Waar ASCII ophoudt; zie de eis op [PDF_REGELS]. */
     private const val EERSTE_NIET_ASCII = 0x80
 
     private const val PDF_KOP = "Demonstratiemateriaal"
 
     /**
+     * De tekst die in elke demobijlage staat. Eén vaste tekst en geen variatie per bericht: wie hem
+     * openslaat moet in één oogopslag zien waar hij naar kijkt, en die vraag is bij elk bericht
+     * dezelfde.
+     *
      * **Houd deze tekst ASCII.** De pagina gebruikt Helvetica zonder eigen codering, en dan geldt de
      * standaardcodering van PDF: byte 0xE9 is daarin geen `é`. Een accent levert dus stilzwijgend
      * een ander letterteken op, en een gedachtestreepje of euroteken wordt een vraagteken. Een teken
@@ -119,6 +116,10 @@ object DemoBerichten {
                     bijlageId = UUID.nameUUIDFromBytes("$sleutel:bijlage".toByteArray()),
                     naam = "bijlage-$volgnummer.pdf",
                     mimeType = "application/pdf",
+                    // Elke demobijlage deelt deze bytes. Dat mag omdat niets ze muteert — de
+                    // opslag schrijft ze weg en de download leest ze — en kopiëren zou bij honderd
+                    // magazijnen met twintig berichten elk hetzelfde document duizenden keren in het
+                    // geheugen zetten.
                     inhoud = PDF_BYTES,
                 ),
             )

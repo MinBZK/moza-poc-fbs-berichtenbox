@@ -31,7 +31,8 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.simulator.bijlage.mimeType"
  *
  * Het MIME-type wordt hier opnieuw geparsed, ook al deed de resource dat al: een waarde die
  * ongeparseerd in een header belandt, laat header-splitting via `\r\n` toe. Bij een onbruikbare
- * waarde blijft de standaard-`Content-Type` staan.
+ * waarde gaan de bytes niet de deur uit maar volgt een 500 met correlatie-id — een bijlage met een
+ * `Content-Type` dat niet klopt is erger dan geen bijlage.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {
@@ -39,9 +40,10 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
 
-        // Vóór het parsen, want deze header hoort er ook te staan als het parsen misgaat. Geen
-        // filename: de naam staat al in de detail-response, en een filename in deze header vraagt om
-        // RFC 5987-encoding en sanering die hier niets toevoegt.
+        // Vóór het parsen, zodat geen enkele weg langs deze header heen loopt; gaat het parsen mis,
+        // dan haalt die tak hem hieronder weer weg omdat er dan een problem+json uitgaat en geen
+        // bijlage. Geen filename: de naam staat al in de detail-response, en een filename in deze
+        // header vraagt om RFC 5987-encoding en sanering die hier niets toevoegt.
         responseContext.headers.putSingle("Content-Disposition", "attachment")
 
         val geparsed = try {

@@ -86,7 +86,14 @@ class GesimuleerdeMagazijnen(
         // magazijn dat niemand kan bereiken, is een antwoord waar de aanroeper niets aan heeft.
         if (!magazijnen.containsKey(oin)) return@synchronized false
 
-        if (!repository.zetGedrag(oin, gedrag)) return@synchronized false
+        if (!repository.zetGedrag(oin, gedrag)) {
+            // De live set kent hem wél en de rij niet: de twee lopen uiteen, en dat is iets anders
+            // dan een OIN die deze simulator niet draait. Zonder deze regel komen beide oorzaken als
+            // "onbekend" terug en is er niets dat het verschil vasthoudt.
+            log.warnf("Magazijn %s staat in de live set maar heeft geen rij; gedrag niet bijgesteld", oin)
+
+            return@synchronized false
+        }
 
         magazijnen.computeIfPresent(oin) { _, bestaand -> bestaand.copy(gedrag = gedrag) }
 

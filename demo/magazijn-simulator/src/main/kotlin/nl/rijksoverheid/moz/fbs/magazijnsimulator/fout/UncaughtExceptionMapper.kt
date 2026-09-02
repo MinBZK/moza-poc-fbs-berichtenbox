@@ -17,11 +17,10 @@ import java.util.UUID
  * `@Priority` is een extra tiebreaker voor het onwaarschijnlijke geval dat ooit een andere mapper
  * hetzelfde generieke type claimt; hogere waarde is lagere prioriteit.
  *
- * Op `Throwable` en niet op `Exception`: een `OutOfMemoryError` of `StackOverflowError` is bij een
- * fan-out van honderd magazijnen met bijlagen tot 25 MiB geen theoretisch geval, en zou anders langs
- * dit vangnet gaan en als kale foutpagina naar buiten komen — zonder `problem+json`, zonder
- * correlatie-id en zonder deze logregel. Juist dán is de vraag "wat gebeurde er" het lastigst te
- * beantwoorden.
+ * Op `Throwable` en niet op `Exception`: een `Error` — `StackOverflowError`, `OutOfMemoryError` —
+ * gaat langs een vangnet op `Exception` heen en komt dan als kale foutpagina naar buiten, zonder
+ * `problem+json`, zonder correlatie-id en zonder deze logregel. Juist dán is de vraag "wat gebeurde
+ * er" het lastigst te beantwoorden.
  */
 @Provider
 @Priority(Priorities.USER + 100)

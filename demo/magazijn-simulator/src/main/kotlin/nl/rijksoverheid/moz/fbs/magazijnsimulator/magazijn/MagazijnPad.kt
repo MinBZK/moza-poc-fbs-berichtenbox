@@ -42,8 +42,20 @@ object MagazijnPad {
     /** Hoe een geldig pad eruitziet; voor in een foutmelding. */
     val VORM: String = "/$SEGMENT/<OIN>${ApiInfo.BASE_PATH}/…"
 
+    private val OIN_VORM = Regex("""^[0-9]{20}${'$'}""")
+
     private val ROOT = "/$SEGMENT/"
     private val API_PREFIX = "${ApiInfo.BASE_PATH}/"
+
+    /**
+     * Of dit segment de vorm van een OIN heeft: twintig cijfers.
+     *
+     * Bedoeld voor wie het segment teruggeeft in een antwoord of een logregel. De pad-ontleding zelf
+     * toetst het niet — of een magazijn bestaat is een vraag voor de set, en twee bronnen van
+     * waarheid over wat een OIN is lopen uiteen — maar een willekeurig segment mag daarom nog niet
+     * geëchood worden: daar kan een BSN in staan, of tekst die de aanroeper zelf koos.
+     */
+    fun isOinVorm(segment: String): Boolean = OIN_VORM.matches(segment)
 
     /** Of dit pad bij het beheerpad hoort in plaats van bij een magazijn. */
     fun isBeheerPad(pad: String): Boolean = genormaliseerd(pad).startsWith("/$BEHEER_SEGMENT/")
@@ -51,6 +63,9 @@ object MagazijnPad {
     /**
      * De OIN uit het pad, of `null` als dit geen magazijn-pad is. Er hoort minstens één segment ná
      * het base-path te staan: `/magazijn/<OIN>/api/v1/` op zichzelf adresseert geen operatie.
+     *
+     * Wat eruit komt is een pad-segment en niet noodzakelijk een OIN: of dit magazijn bestaat is een
+     * vraag voor de set. Wie het segment in een antwoord wil zetten, toetst eerst [isOinVorm].
      */
     fun oinUit(onbewerktPad: String): String? {
         val volledig = genormaliseerd(onbewerktPad)

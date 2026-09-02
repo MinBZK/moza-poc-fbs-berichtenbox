@@ -6,6 +6,7 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -18,13 +19,17 @@ import java.util.Optional
 /**
  * De afscherming van het beheerpad.
  *
+ * Erft van [MagazijnTestBasis] om de opruiming: het eigen `@TestProfile` herstart de applicatie maar
+ * niet de database, en `een geweigerde seed schrijft niets` telt op nul. Zonder die opruiming hangt
+ * de uitslag af van welke test toevallig als laatste rijen achterliet.
+ *
  * De WireMock-admin-API van de stubs op de gedeelde omgeving stond publiek en zonder authenticatie
  * open. Dat is precies het pad waarlangs iemand hier de demo zou kunnen legen of een magazijn kapot
  * zetten, dus die fout is de moeite van het niet-herhalen waard — en van het vastpinnen.
  */
 @QuarkusTest
 @TestProfile(BeheerTokenTest.MetToken::class)
-class BeheerTokenTest {
+class BeheerTokenTest : MagazijnTestBasis() {
 
     class MetToken : QuarkusTestProfile {
         override fun getConfigOverrides(): Map<String, String> =

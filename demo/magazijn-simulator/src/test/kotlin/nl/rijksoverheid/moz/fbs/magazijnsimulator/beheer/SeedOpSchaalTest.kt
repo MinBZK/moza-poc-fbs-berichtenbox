@@ -7,6 +7,7 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import org.hamcrest.Matchers.equalTo
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -75,7 +76,10 @@ class SeedOpSchaalTest : MagazijnTestBasis() {
             .groupingBy { it }
             .eachCount()
 
-        assertTrue(modi["NORMAAL"]!! > modi.values.sum() / 2, "veruit de meeste magazijnen doen het gewoon")
+        val normaal = modi["NORMAAL"]
+
+        assertNotNull(normaal, "geen enkel magazijn op NORMAAL, was $modi")
+        assertTrue(normaal!! > modi.values.sum() / 2, "veruit de meeste magazijnen doen het gewoon")
         assertTrue(modi["UIT"] == 2 && modi["STUK"] == 3, "twee onbereikbaar en drie stuk, was $modi")
         assertTrue(modi["WEIGERT"] == 1 && modi["MALFORMED"] == 1, "één weigering en één onbruikbaar, was $modi")
     }

@@ -232,6 +232,65 @@ class MagazijnSpecContractTest : MagazijnTestBasis() {
             .statusCode(201)
     }
 
+    /**
+     * Het antwoord ná een statuswijziging draagt als enige het `status`-object, en dat wordt in de
+     * resource zelf samengesteld — de generator ziet er niets van. Zonder deze test gaat er geen
+     * enkel gevalideerd antwoord langs dat deel van het schema.
+     */
+    @Test
+    fun `een bericht met status voldoet aan de spec`() {
+        val berichtId = leverAan(aantalBijlagen = 0)
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .contentType(MERGE_PATCH_JSON)
+            .body("""{"gelezen": true, "map": "Belastingen"}""")
+            .`when`().patch("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+            .body("status.gelezen", org.hamcrest.Matchers.equalTo(true))
+    }
+
+    /**
+     * De spec declareert 403 op elke ontvanger-gebonden operatie. Die tak komt uit onze eigen
+     * autorisatiecontrole en niet uit de generator, dus zonder deze test is het `problem+json` dat
+     * een ander dan de ontvanger krijgt, nooit tegen het schema gehouden.
+     */
+    @Test
+    fun `de 403 voor een andere ontvanger voldoet aan het Problem-schema`() {
+        val berichtId = leverAan(aantalBijlagen = 0)
+
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, "KVK:90000002")
+            .`when`().get("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(403)
+    }
+
+    /**
+     * En de 400. `KVK:00000000` haalt de regex van de spec — het verzoek is dus geldig, en de
+     * validator toetst hier écht het antwoord in plaats van het verzoek af te keuren — maar sneuvelt
+     * op de domein-invariant dat een nummer niet geheel uit nullen bestaat. Juist de foutbodies zijn
+     * waar een simulator van een echt magazijn gaat afwijken zonder dat iemand het merkt.
+     */
+    @Test
+    fun `de 400 op een ontvanger die de domeingrens niet haalt voldoet aan het Problem-schema`() {
+        given()
+            .filter(specValidatie)
+            .header(ONTVANGER_HEADER, "KVK:00000000")
+            .`when`().get("$BASIS/berichten")
+            .then()
+            .statusCode(400)
+    }
+
     private fun leverAan(aantalBijlagen: Int): String {
         val bijlagenJson = if (aantalBijlagen == 0) {
             ""

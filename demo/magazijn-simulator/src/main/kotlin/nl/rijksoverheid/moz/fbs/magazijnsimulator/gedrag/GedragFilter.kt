@@ -89,9 +89,12 @@ class GedragFilter(
      * Eén regel per gesimuleerde afbreking. Zonder die regel is een 503 van dit filter in de log
      * niet te onderscheiden van een 503 die er niet had moeten zijn — er is dan alleen de afwezigheid
      * van een foutregel, en "niets gevonden" is het omgekeerde van een bewijs.
+     *
+     * Op info en niet op debug: het effectieve niveau is info, dus op debug zou `zadctl logs` tijdens
+     * een demo geen enkele regel opleveren en zou dat bewijs er alsnog niet zijn.
      */
     private fun meld(oin: String, gedrag: Gedrag, status: Int) {
-        log.debugf("Gesimuleerd gedrag %s voor magazijn %s: status %d", gedrag.modus, oin, status)
+        log.infof("Gesimuleerd gedrag %s voor magazijn %s: status %d", gedrag.modus, oin, status)
     }
 
     /** `false` als het wachten is onderbroken en dit verzoek dus niet meer af te maken is. */
@@ -103,10 +106,11 @@ class GedragFilter(
 
             true
         } catch (ex: InterruptedException) {
-            // De server gaat uit. De vlag hoort terug, maar doorgaan kan niet: de resource erachter
-            // loopt met een gezette interrupt-vlag de database in, waar Agroal en de driver daarop
-            // reageren met een SQLException — een echte 500 met stacktrace, terwijl er niets stuk is.
-            // Het verzoek hier afbreken zegt eerlijk wat er aan de hand is.
+            // Iets onderbreekt deze thread — meestal een server die uitgaat, maar wat precies weten
+            // we hier niet. De vlag hoort terug, en doorgaan kan niet: de resource erachter loopt met
+            // een gezette interrupt-vlag de database in, waar Agroal en de driver daarop reageren met
+            // een SQLException — een echte 500 met stacktrace, terwijl er niets stuk is. Het verzoek
+            // hier afbreken zegt wat er aan de hand is zonder een oorzaak te verzinnen.
             Thread.currentThread().interrupt()
 
             log.infof(ex, "Wachten onderbroken na %d ms; verzoek afgebroken", vertragingMs)
@@ -115,11 +119,11 @@ class GedragFilter(
         }
     }
 
-    /** Niet het gesimuleerde gedrag maar de simulator zelf: die gaat uit terwijl dit verzoek liep. */
+    /** Niet het gesimuleerde gedrag maar de simulator zelf: het wachten van dit verzoek is onderbroken. */
     private fun afgebroken(): Response = problemResponse(
         status = Response.Status.SERVICE_UNAVAILABLE.statusCode,
         title = "Service Unavailable",
-        detail = "De simulator wordt afgesloten",
+        detail = "De simulator kon dit verzoek niet afmaken",
     )
 
     /**

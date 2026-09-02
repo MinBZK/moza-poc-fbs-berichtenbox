@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 
+import com.fasterxml.jackson.core.JsonGenerationException
+import com.fasterxml.jackson.core.exc.StreamConstraintsException
 import jakarta.validation.ConstraintViolation
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Path
@@ -19,7 +21,7 @@ import org.junit.jupiter.params.provider.ValueSource
 /**
  * De drie mappers die ervoor zorgen dat er nooit iets anders dan `problem+json` naar buiten komt.
  *
- * Twee ervan grijpen op elkaar in: [UncaughtExceptionMapper] staat op `Exception` en zou zonder de
+ * Twee ervan grijpen op elkaar in: [UncaughtExceptionMapper] staat op `Throwable` en zou zonder de
  * specifiekere [ProblemExceptionMapper] óók elke bewuste 404 opvangen en als 500 doorgeven. Dat is
  * geen theoretisch geval — het is de standaard-mapperkeuze van JAX-RS — en het is onzichtbaar tot
  * een client een 500 krijgt waar een 404 hoorde te staan.
@@ -101,6 +103,58 @@ class FoutMappersTest {
 
         assertEquals("Internal Server Error", problem.title)
         assertFalse(problem.detail.contains("select * from bericht"))
+    }
+
+    /**
+     * Het vangnet staat op `Throwable` en niet op `Exception`. Een `Error` gaat anders langs de
+     * mapper heen en komt als kale foutpagina naar buiten: zonder `problem+json`, zonder
+     * correlatie-id en zonder logregel.
+     */
+    @Test
+    fun `ook een Error krijgt een problem-antwoord`() {
+        val uitkomst = UncaughtExceptionMapper().toResponse(StackOverflowError("te diep"))
+
+        assertEquals(500, uitkomst.status)
+        assertEquals(PROBLEM_JSON, uitkomst.mediaType.toString())
+
+        val problem = uitkomst.entity as Problem
+
+        assertEquals("Internal Server Error", problem.title)
+        assertFalse(problem.detail.contains("te diep"))
+    }
+
+    /**
+     * Een body die een van Jacksons eigen grenzen overschrijdt — te lang, te diep genest — komt als
+     * [StreamConstraintsException] binnen, en die hangt rechtstreeks onder `JsonProcessingException`
+     * in plaats van onder `StreamReadException`. Het is nog steeds een leesfout van wat de aanroeper
+     * stuurde, dus een 400: het echte magazijn geeft er ook 400 op, en een 500 zou de simulator op
+     * zijn foutpad herkenbaar maken.
+     */
+    @Test
+    fun `een body die Jacksons grenzen overschrijdt is een clientfout`() {
+        val uitkomst = JsonFoutMapper().toResponse(StreamConstraintsException("String value length exceeds the maximum"))
+
+        assertEquals(400, uitkomst.status)
+        assertEquals(PROBLEM_JSON, uitkomst.mediaType.toString())
+        assertEquals("Bad Request", (uitkomst.entity as Problem).title)
+    }
+
+    /**
+     * De andere kant van datzelfde type: een fout bij het *schrijven* van een antwoord is geen
+     * clientfout. Als 400 gerapporteerd zou een programmeerfout aan de aanroeper worden
+     * toegeschreven, en zou hij niet te onderscheiden zijn van de gesimuleerde weigering die dit
+     * magazijn ook kan geven.
+     */
+    @Test
+    fun `een fout bij het schrijven van een antwoord is een serverfout`() {
+        val uitkomst = JsonFoutMapper().toResponse(JsonGenerationException("kan niet serialiseren"))
+
+        assertEquals(500, uitkomst.status)
+
+        val problem = uitkomst.entity as Problem
+
+        assertEquals("Internal Server Error", problem.title)
+        assertFalse(problem.detail.contains("kan niet serialiseren"))
     }
 
     /**

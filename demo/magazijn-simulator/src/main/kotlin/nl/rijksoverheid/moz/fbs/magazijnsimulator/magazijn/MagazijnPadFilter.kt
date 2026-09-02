@@ -69,7 +69,7 @@ class MagazijnPadFilter(
         // context. Het token blijft afgedwongen, maar het gedrag-filter zou dan wél toeslaan — en
         // een magazijn dat op stuk staat zou langs die route niet meer te repareren zijn.
         if (MagazijnPad.isBeheerPad(herschreven.path)) {
-            requestContext.abortWith(geenMagazijnPad(pad))
+            requestContext.abortWith(beheerpadOnderMagazijn())
 
             return
         }
@@ -125,12 +125,29 @@ class MagazijnPadFilter(
         detail = "Pad hoort de vorm ${MagazijnPad.VORM} te hebben; ontvangen: ${pad.take(MAX_PAD_IN_MELDING)}",
     )
 
+    /**
+     * Apart van [geenMagazijnPad]: dit pad hád de vorm van een magazijn-pad, het is alleen de
+     * verkeerde weg naar het beheerpad. "Pad hoort de vorm … te hebben" zou hier beweren dat de vorm
+     * niet klopt, terwijl die exact klopte.
+     */
+    private fun beheerpadOnderMagazijn(): Response = problemResponse(
+        status = Response.Status.NOT_FOUND.statusCode,
+        title = "Not Found",
+        detail = "Het beheerpad hoort niet bij een magazijn; gebruik /${MagazijnPad.BEHEER_SEGMENT}/…",
+    )
+
     private fun onbekendMagazijn(oin: String): Response = problemResponse(
         status = Response.Status.NOT_FOUND.statusCode,
         title = "Not Found",
-        // De OIN mag voluit in het antwoord: het is een publieke organisatie-identificator en
-        // precies de waarde die de aanroeper nodig heeft om zijn register na te lopen.
-        detail = "Geen gesimuleerd magazijn met OIN $oin",
+        // Een OIN mag voluit in het antwoord: het is een publieke organisatie-identificator en
+        // precies de waarde die de aanroeper nodig heeft om zijn register na te lopen. Een segment
+        // dat geen OIN-vorm heeft wordt níét geëchood — daar kan een BSN in staan, of tekst die de
+        // aanroeper zelf koos, en die hoort niet in een antwoord of in de access-logs.
+        detail = if (MagazijnPad.isOinVorm(oin)) {
+            "Geen gesimuleerd magazijn met OIN $oin"
+        } else {
+            "Geen gesimuleerd magazijn op dit pad; het tweede segment hoort een OIN te zijn"
+        },
     )
 
     private companion object {

@@ -61,7 +61,7 @@ data class Gedrag(
         require(foutkans in 0.0..1.0) { "foutkans hoort tussen 0 en 1 te liggen (kreeg $foutkans)" }
         require(foutStatus in FOUT_STATUS_BEREIK) { "foutStatus hoort een HTTP-foutcode te zijn (kreeg $foutStatus)" }
 
-        val bezwaar = bezwaarTegenModus(modus, latencyP50Ms, foutkans, foutStatus)
+        val bezwaar = bezwaarTegenModus(modus, latencyP50Ms, latencyP95Ms, foutkans, foutStatus)
 
         require(bezwaar == null) { bezwaar.orEmpty() }
     }
@@ -74,6 +74,14 @@ data class Gedrag(
 
         /** Een magazijn dat weigert antwoordt met een 4xx; 403 is de vorm die daar het beste bij past. */
         const val WEIGER_STATUS = 403
+
+        /**
+         * De bovengrens op de vertraging van een traag magazijn, ruim onder de tien seconden die de
+         * uitvraag een magazijn gunt. `GedragUitvoering` kapt elke trekking hierop af; hier wordt een
+         * ingestelde waarde erbóven geweigerd, want anders toont het overzicht een getal dat het
+         * magazijn nooit haalt en zegt de presentator twintig seconden waar er acht komen.
+         */
+        const val TRAAG_PLAFOND_MS = 8_000
 
         private val FOUT_STATUS_BEREIK = 400..599
 
@@ -88,34 +96,69 @@ data class Gedrag(
          * Als aparte functie omdat twee wegen hem nodig hebben met een verschillende uitkomst: hier
          * in `init` als `require` (een programmeerfout, 500), en in het beheerpad als domeinfout op
          * invoer uit een JSON-body (400 met een melding die zegt wat er mis is).
+         *
+         * Elke modus die het overzicht toont, wordt getoetst. Een combinatie die het overzicht
+         * tegenspreekt is in een demo erger dan een fout: wie meekijkt wantrouwt dan het stelsel in
+         * plaats van de knop.
          */
-        fun bezwaarTegenModus(modus: GedragModus, latencyP50Ms: Int, foutkans: Double, foutStatus: Int): String? =
-            when (modus) {
-                GedragModus.TRAAG -> (
-                    "een traag magazijn hoort trager te antwoorden dan een gezond magazijn " +
-                        "($NORMALE_LATENCY_MS ms); kreeg latencyP50Ms $latencyP50Ms"
-                    ).takeIf { latencyP50Ms <= NORMALE_LATENCY_MS }
+        fun bezwaarTegenModus(
+            modus: GedragModus,
+            latencyP50Ms: Int,
+            latencyP95Ms: Int,
+            foutkans: Double,
+            foutStatus: Int,
+        ): String? = when (modus) {
+            GedragModus.NORMAAL -> (
+                "een gezond magazijn antwoordt binnen $NORMALE_LATENCY_MS ms; voor trager gedrag is " +
+                    "er TRAAG (kreeg latencyP50Ms $latencyP50Ms)"
+                ).takeIf { latencyP50Ms > NORMALE_LATENCY_MS }
 
-                GedragModus.HAPERT ->
-                    "een haperend magazijn hoort een foutkans boven nul te hebben, anders hapert het nooit"
-                        .takeIf { foutkans <= 0.0 }
+            GedragModus.TRAAG -> traagBezwaar(latencyP50Ms, latencyP95Ms)
 
-                GedragModus.WEIGERT -> (
-                    "een weigering is een clientfout; foutStatus hoort tussen ${CLIENT_FOUT_BEREIK.first} " +
-                        "en ${CLIENT_FOUT_BEREIK.last} te liggen (kreeg $foutStatus)"
-                    ).takeIf { foutStatus !in CLIENT_FOUT_BEREIK }
+            GedragModus.HAPERT ->
+                "een haperend magazijn hoort een foutkans boven nul te hebben, anders hapert het nooit"
+                    .takeIf { foutkans <= 0.0 }
+                    ?: storingBezwaar(modus, foutStatus)
 
-                GedragModus.STUK -> (
-                    "een kapot magazijn geeft een serverfout; foutStatus hoort tussen " +
-                        "${SERVER_FOUT_BEREIK.first} en ${SERVER_FOUT_BEREIK.last} te liggen (kreeg $foutStatus)"
-                    ).takeIf { foutStatus !in SERVER_FOUT_BEREIK }
+            GedragModus.STUK, GedragModus.UIT -> storingBezwaar(modus, foutStatus)
 
-                // NORMAAL en MALFORMED hangen aan geen van deze getallen: de een gebruikt ze niet,
-                // de ander antwoordt altijd met 200 en een onbruikbare body. UIT evenmin: hoe lang
-                // dat magazijn wegblijft mag een demo zelf bepalen, en het antwoord dat er
-                // uiteindelijk komt zegt hoe dan ook dat er niets te halen viel.
-                GedragModus.NORMAAL, GedragModus.MALFORMED, GedragModus.UIT -> null
-            }
+            GedragModus.WEIGERT -> (
+                "een weigering is een clientfout; foutStatus hoort tussen ${CLIENT_FOUT_BEREIK.first} " +
+                    "en ${CLIENT_FOUT_BEREIK.last} te liggen (kreeg $foutStatus)"
+                ).takeIf { foutStatus !in CLIENT_FOUT_BEREIK }
+
+            // MALFORMED hangt aan geen van deze getallen: die antwoordt altijd met 200 en een
+            // onbruikbare body.
+            GedragModus.MALFORMED -> null
+        }
+
+        /**
+         * TRAAG moet trager zijn dan gezond én binnen wat de simulator werkelijk laat zien: elke
+         * trekking wordt op [TRAAG_PLAFOND_MS] afgekapt, dus een hogere instelling zou een getal in
+         * het overzicht zetten dat nooit voorkomt.
+         */
+        private fun traagBezwaar(latencyP50Ms: Int, latencyP95Ms: Int): String? = when {
+            latencyP50Ms <= NORMALE_LATENCY_MS ->
+                "een traag magazijn hoort trager te antwoorden dan een gezond magazijn " +
+                    "($NORMALE_LATENCY_MS ms); kreeg latencyP50Ms $latencyP50Ms"
+
+            latencyP95Ms > TRAAG_PLAFOND_MS ->
+                "een traag magazijn antwoordt binnen $TRAAG_PLAFOND_MS ms, anders loopt de aanroeper " +
+                    "in zijn timeout en is het UIT; kreeg latencyP95Ms $latencyP95Ms"
+
+            else -> null
+        }
+
+        /**
+         * STUK, UIT en HAPERT tonen zich in de Berichtenbox als beschikbaarheidsstoring — die telt
+         * mee voor de circuit breaker. Met een 4xx erop zou het magazijn als contentfout binnenkomen
+         * en dus het tegenovergestelde laten zien van wat het overzicht belooft; dat is precies het
+         * onderscheid dat WEIGERT moet maken.
+         */
+        private fun storingBezwaar(modus: GedragModus, foutStatus: Int): String? = (
+            "$modus is een beschikbaarheidsstoring; foutStatus hoort tussen ${SERVER_FOUT_BEREIK.first} " +
+                "en ${SERVER_FOUT_BEREIK.last} te liggen (kreeg $foutStatus)"
+            ).takeIf { foutStatus !in SERVER_FOUT_BEREIK }
 
         val NORMAAL = Gedrag(GedragModus.NORMAAL)
 

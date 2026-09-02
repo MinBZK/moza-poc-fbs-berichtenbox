@@ -1,7 +1,8 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 
-import com.fasterxml.jackson.core.JsonParseException
 import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.core.exc.StreamConstraintsException
+import com.fasterxml.jackson.core.exc.StreamReadException
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
 import jakarta.annotation.Priority
 import jakarta.ws.rs.Priorities
@@ -34,6 +35,12 @@ import java.util.UUID
  * onderscheiden zijn van de gesimuleerde weigering die dit magazijn ook kan geven. Alleen de
  * lees-kant is een clientfout; de rest is een 500 met een correlatie-id.
  *
+ * Het onderscheid loopt daarom over de leeskant als geheel en niet over twee losse subtypes.
+ * [StreamConstraintsException] — de body overschrijdt een van Jacksons eigen grenzen, bijvoorbeeld
+ * twintig miljoen tekens in één string — hangt rechtstreeks onder [JsonProcessingException] en
+ * niet onder [StreamReadException]. Op twee subtypes toetsen liet zo'n aanlevering als 500 naar
+ * buiten komen, terwijl het echte magazijn er 400 op geeft.
+ *
  * De melding van Jackson gaat níét mee naar de client. Die noemt veldnamen, klassenamen en soms een
  * stuk van de aangeboden waarde; dat laatste kan een BSN zijn. In de log staat hij wel — daar is hij
  * nodig om te zien wát er niet paste.
@@ -43,7 +50,10 @@ import java.util.UUID
 class JsonFoutMapper : ExceptionMapper<JsonProcessingException> {
 
     override fun toResponse(exception: JsonProcessingException): Response =
-        if (exception is JsonParseException || exception is MismatchedInputException) {
+        if (exception is StreamReadException ||
+            exception is StreamConstraintsException ||
+            exception is MismatchedInputException
+        ) {
             jsonFoutAntwoord(exception)
         } else {
             serialisatieFoutAntwoord(exception)
@@ -65,7 +75,9 @@ private val log: Logger = Logger.getLogger(JsonFoutMapper::class.java)
 private fun jsonFoutAntwoord(exception: JsonProcessingException): Response {
     val foutId = UUID.randomUUID()
 
-    log.debugf(exception, "Onleesbare of niet-passende JSON (foutId=%s)", foutId)
+    // Op info, net als de clientfouten in ProblemExceptionMapper: zonder uitgezonden regel is het
+    // `instance`-id uit het antwoord nergens terug te vinden, en dat is waar iemand mee aanklopt.
+    log.infof(exception, "Onleesbare of niet-passende JSON (foutId=%s)", foutId)
 
     return problemResponse(
         status = Response.Status.BAD_REQUEST.statusCode,

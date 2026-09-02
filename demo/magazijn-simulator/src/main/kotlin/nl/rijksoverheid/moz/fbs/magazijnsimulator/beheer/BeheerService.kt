@@ -57,6 +57,11 @@ class BeheerService(
      *
      * De waardes worden wél allemaal vooraf getoetst. Een ongeldige regel halverwege zou anders een
      * half doorgevoerde lijst achterlaten, en dan weet de aanroeper niet meer wat er staat.
+     *
+     * Wat vooraf niet te toetsen valt, is of de database meewerkt. Elke regel is een eigen
+     * transactie, dus een fout op regel veertig laat er negenendertig bijgesteld achter. Die regels
+     * komen als `mislukt` terug in plaats van als een 500 die niets zegt over wat er wél gebeurd is —
+     * anders klikt de presentator opnieuw zonder te weten dat de helft al omstaat.
      */
     fun zetGedragInBulk(verzoek: BulkGedragVerzoek): BulkGedragUitkomst {
         // Twee regels voor dezelfde OIN spreken elkaar tegen: de laatste zou winnen en het antwoord
@@ -69,15 +74,29 @@ class BeheerService(
         val gewenst = verzoek.aanpassingen.map { aanpassing -> aanpassing.oin to bouwGedrag(aanpassing.gedrag()) }
 
         val onbekend = mutableListOf<String>()
+        val mislukt = mutableListOf<String>()
         var aangepast = 0
 
         gewenst.forEach { (oin, gedrag) ->
-            if (magazijnen.stelGedragBij(oin, gedrag)) aangepast++ else onbekend += oin
+            try {
+                if (magazijnen.stelGedragBij(oin, gedrag)) aangepast++ else onbekend += oin
+            } catch (ex: RuntimeException) {
+                // Breed vangen en niet op één exception-type: welke soort de persistentielaag
+                // opwerpt hangt af van wat er misgaat, en de uitkomst is voor de aanroeper dezelfde.
+                log.warnf(ex, "Gedrag van magazijn %s niet bijgesteld", oin)
+
+                mislukt += oin
+            }
         }
 
-        log.infof("Gedrag van %d magazijn(en) bijgesteld; %d onbekend", aangepast, onbekend.size)
+        log.infof(
+            "Gedrag van %d magazijn(en) bijgesteld; %d onbekend, %d mislukt",
+            aangepast,
+            onbekend.size,
+            mislukt.size,
+        )
 
-        return BulkGedragUitkomst(aangepast = aangepast, onbekend = onbekend)
+        return BulkGedragUitkomst(aangepast = aangepast, onbekend = onbekend, mislukt = mislukt)
     }
 
     /**
@@ -107,7 +126,7 @@ class BeheerService(
         // De getallen moeten ook bij de gevraagde modus passen. Zonder deze toets is een magazijn
         // in te stellen dat volgens het overzicht onbereikbaar is en ondertussen gewoon antwoordt —
         // en dan wijst een demo de schuld toe aan het stelsel in plaats van aan de knop.
-        val bezwaar = Gedrag.bezwaarTegenModus(verzoek.modus, p50, foutkans, foutStatus)
+        val bezwaar = Gedrag.bezwaarTegenModus(verzoek.modus, p50, p95, foutkans, foutStatus)
 
         vereis(bezwaar == null) { "Dit past niet bij modus ${verzoek.modus}: ${bezwaar.orEmpty()}" }
 

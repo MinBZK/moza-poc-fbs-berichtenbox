@@ -6,9 +6,10 @@ import io.restassured.http.ContentType
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.emptyIterable
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.hasSize
+import org.hamcrest.Matchers.not
 import org.hamcrest.Matchers.notNullValue
-import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Test
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import io.quarkus.narayana.jta.QuarkusTransaction
@@ -116,7 +117,9 @@ class BerichtenKetenTest : MagazijnTestBasis() {
             .`when`().get("${basis(EEN)}/berichten/$berichtId")
             .then()
             .statusCode(200)
-            .body("status", nullValue())
+            // `not(hasKey)` en niet `nullValue()`: de spec laat `status` weg zolang de ontvanger het
+            // bericht niet heeft aangeraakt, en een JSON-`null` is iets anders dan afwezig.
+            .body("$", not(hasKey("status")))
     }
 
     @Test
@@ -388,7 +391,9 @@ class BerichtenKetenTest : MagazijnTestBasis() {
             .`when`().get("${basis(EEN)}/berichten/$berichtId")
             .then()
             .statusCode(200)
-            .body("status", nullValue())
+            // `not(hasKey)` en niet `nullValue()`: de spec laat `status` weg zolang de ontvanger het
+            // bericht niet heeft aangeraakt, en een JSON-`null` is iets anders dan afwezig.
+            .body("$", not(hasKey("status")))
     }
 
     @Test
@@ -432,9 +437,9 @@ class BerichtenKetenTest : MagazijnTestBasis() {
 
     /**
      * Een rij die met de hand is aangepast; via een aanlevering komt zo'n waarde er niet meer in.
-     * Het antwoord draagt `problem+json` met een correlatie-id en geen enkel spoor van de
-     * opgeslagen waarde. Dat de domeingrens hem al bij het teruglezen tegenhoudt, in plaats van pas
-     * bij het omzetten naar een `Content-Type`, is precies waar die grens voor is.
+     * Het downloadpad weigert dan bytes te serveren onder een `Content-Type` dat niet klopt: 500,
+     * `problem+json` met een correlatie-id en geen enkel spoor van de opgeslagen waarde. Geen 400 —
+     * de aanroeper deed niets fout, en een clientfout zou hem aan de verkeerde kant laten zoeken.
      */
     @Test
     fun `een onbruikbaar MIME-type in de opslag lekt niets naar buiten`() {
@@ -457,7 +462,7 @@ class BerichtenKetenTest : MagazijnTestBasis() {
             .header(ONTVANGER_HEADER, ONTVANGER)
             .`when`().get("${basis(EEN)}/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
-            .statusCode(400)
+            .statusCode(500)
             .contentType(PROBLEM_JSON)
             .body("instance", org.hamcrest.Matchers.startsWith("urn:uuid:"))
             .extract().asString()

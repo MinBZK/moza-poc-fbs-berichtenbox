@@ -85,11 +85,28 @@ data class GedragAanpassing(
     val foutkans: Double? = null,
     val foutStatus: Int? = null,
 ) {
-    fun gedrag(): GedragVerzoek = GedragVerzoek(modus, latencyP50Ms, latencyP95Ms, foutkans, foutStatus)
+    fun gedrag(): GedragVerzoek = GedragVerzoek(
+        modus = modus,
+        latencyP50Ms = latencyP50Ms,
+        latencyP95Ms = latencyP95Ms,
+        foutkans = foutkans,
+        foutStatus = foutStatus,
+    )
 }
 
-/** Wat er van een bulk-aanpassing terechtkwam. */
-data class BulkGedragUitkomst(val aangepast: Int, val onbekend: List<String>)
+/**
+ * Wat er van een bulk-aanpassing terechtkwam: hoeveel er omstaan, welke OIN's dit magazijn niet
+ * simuleert, en welke wél bestaan maar niet weggeschreven konden worden.
+ *
+ * Het antwoord blijft een 200, ook als er niets is aangepast: de aanroeper kréég antwoord en de
+ * lijst zegt precies wat er met elke regel gebeurd is. Een 4xx zou zeggen dat het verzoek niet
+ * deugde, terwijl het verzoek prima was en alleen de OIN's er niet zijn.
+ */
+data class BulkGedragUitkomst(
+    val aangepast: Int,
+    val onbekend: List<String>,
+    val mislukt: List<String> = emptyList(),
+)
 
 /** Eén magazijn zoals het beheerpad het toont. */
 data class MagazijnOverzicht(

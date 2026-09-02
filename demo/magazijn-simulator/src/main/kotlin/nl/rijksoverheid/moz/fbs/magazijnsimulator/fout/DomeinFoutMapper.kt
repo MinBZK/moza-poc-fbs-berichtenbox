@@ -24,9 +24,11 @@ class DomeinFoutMapper : ExceptionMapper<DomeinFout> {
     override fun toResponse(exception: DomeinFout): Response {
         val foutId = UUID.randomUUID()
 
-        // Op DEBUG: een clientfout is geen incident, maar zonder logregel is het `instance`-id uit
-        // het antwoord nergens terug te vinden — en dat is precies waar iemand mee aanklopt.
-        log.debugf("Geschonden domein-invariant (foutId=%s)", foutId)
+        // Op info en niet op debug: een clientfout is geen incident, maar het effectieve niveau is
+        // info en een regel die niet uitgezonden wordt maakt het `instance`-id uit het antwoord
+        // onvindbaar — en dat is precies waar iemand mee aanklopt. Dezelfde keuze als
+        // ProblemExceptionMapper maakt voor zijn 4xx.
+        log.infof("Geschonden domein-invariant (foutId=%s)", foutId)
 
         return problemResponse(
             status = Response.Status.BAD_REQUEST.statusCode,

@@ -21,6 +21,10 @@ class Poolmonitor(private val bron: AgroalDataSource) {
 
     private val log = Logger.getLogger(Poolmonitor::class.java.name)
 
+    // `@Volatile`: de scheduler voert elke ronde op een willekeurige thread uit zijn pool uit. Zonder
+    // dit mag een thread een verouderde waarde zien en herhaalt de regel zich, of blijft hij juist
+    // weg terwijl de stand wél veranderde.
+    @Volatile
     private var vorige: Poolmoment? = null
 
     /** De tellers van dit moment. Los van het loggen, zodat een test ze kan bekijken. */

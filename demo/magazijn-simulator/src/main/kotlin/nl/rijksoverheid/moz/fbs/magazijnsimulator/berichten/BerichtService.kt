@@ -114,6 +114,11 @@ class BerichtService(
         publicatietijdstip: java.time.Instant?,
         bijlagen: List<Bijlage>,
     ): Bericht {
+        // De vorm van naam en MIME-type wordt hier getoetst en niet in `Bijlage` zelf: dat type komt
+        // ook uit de opslag, en een rij die een latere regel niet haalt hoort geen clientfout te
+        // worden. Dit is de weg waarlangs invoer binnenkomt, dus hier hoort de 400.
+        bijlagen.forEach { Bijlage.valideerVorm(it.naam, it.mimeType) }
+
         val ontvangen = clock.instant()
         val bericht = Bericht(
             berichtId = UUID.randomUUID(),

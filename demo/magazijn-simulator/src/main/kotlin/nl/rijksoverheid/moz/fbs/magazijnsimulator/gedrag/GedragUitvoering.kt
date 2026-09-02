@@ -53,8 +53,9 @@ class GedragUitvoering {
      * De bovengrens op één trekking. De staart van een log-normale verdeling is onbegrensd, en één
      * uitschieter van een minuut is geen demonstratie maar een vastloper.
      *
-     * Voor [GedragModus.TRAAG] ligt de grens bovendien onder de query-timeout die de uitvraag per
-     * magazijn hanteert. Met de standaardwaardes (p50 1,2 s, p95 4 s) komt ongeveer twee op de
+     * Voor [GedragModus.TRAAG] ligt de grens bovendien op [Gedrag.TRAAG_PLAFOND_MS], onder de
+     * query-timeout die de uitvraag per magazijn hanteert. De ingestelde percentielen zelf komen
+     * daar niet boven — [Gedrag] weigert dat — dus deze grens kapt alleen de staart af. Met de standaardwaardes (p50 1,2 s, p95 4 s) komt ongeveer twee op de
      * duizend trekkingen anders boven die tien seconden uit, en dan registreert de Berichtenbox een
      * magazijn als onbereikbaar terwijl het overzicht "traag" toont — precies het verschil dat
      * [GedragModus.UIT] moet maken en dat TRAAG dus niet mag maken.
@@ -62,7 +63,7 @@ class GedragUitvoering {
     private fun plafondVoor(gedrag: Gedrag): Double {
         val staart = maxOf(gedrag.latencyP95Ms, 1).toDouble() * MAX_UITSCHIETER_FACTOR
 
-        return if (gedrag.modus == GedragModus.TRAAG) minOf(staart, TRAAG_PLAFOND_MS) else staart
+        return if (gedrag.modus == GedragModus.TRAAG) minOf(staart, Gedrag.TRAAG_PLAFOND_MS.toDouble()) else staart
     }
 
     /** Of deze aanroep omvalt. Alleen [GedragModus.HAPERT] wisselt; de rest is beslist door de modus. */
@@ -101,8 +102,5 @@ class GedragUitvoering {
 
         /** Hoever een uitschieter boven het 95e percentiel mag komen. */
         const val MAX_UITSCHIETER_FACTOR = 3.0
-
-        /** Ruim onder de tien seconden die de uitvraag een magazijn gunt; zie [plafondVoor]. */
-        const val TRAAG_PLAFOND_MS = 8_000.0
     }
 }

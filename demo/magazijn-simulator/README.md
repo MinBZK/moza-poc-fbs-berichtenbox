@@ -71,7 +71,9 @@ beleidskeuzes van dát magazijn die niet in de spec staan.
 
 - **Bijlagen mogen elk MIME-type hebben.** Het echte magazijn beperkt ze tot `application/pdf`; de
   spec laat elk type toe. Een berichtenbox waarin alleen PDF's bestaan, laat het bijlage-pad maar
-  half zien.
+  half zien. Wel moet de waarde de vorm van een mediatype hebben — `type/subtype`, desgewenst met
+  parameters — want anders is de bijlage daarna niet op te halen: er valt geen `Content-Type` van te
+  maken.
 - **Geen abonnementscontrole bij de Profiel-service.** Het echte magazijn weigert een aanlevering
   met 403 als de ontvanger die afzender niet heeft aangevinkt. Dat zou hier een externe
   afhankelijkheid in honderdvoud opleveren, en autorisatiediepte staat in het ontwerp expliciet
@@ -99,7 +101,7 @@ doet, laat niet zien wat een gebruiker merkt als het níét meezit.
 | `TRAAG` | een correct antwoord, later — log-normaal verdeeld, dus met een lange staart |
 | `HAPERT` | meestal goed, met een zekere kans een serverfout |
 | `STUK` | consequent een serverfout |
-| `UIT` | geen antwoord binnen de tijd die de aanroeper hem gunt; wie langer wacht krijgt een 503 |
+| `UIT` | geen antwoord binnen de tijd die de aanroeper hem gunt; wie langer wacht krijgt een serverfout (standaard 503) |
 | `WEIGERT` | een nette 4xx in `problem+json` |
 | `MALFORMED` | 200, maar met een body die het schema schendt |
 
@@ -208,7 +210,7 @@ Wat je eraan afleest:
 
 | Wat je wilt weten | Waar je kijkt |
 |---|---|
-| Worden er connections opgezet, en hoeveel accepteert de database? | `opgezet` en `vernietigd` — blijft `opgezet` onder de grens van de database, dan zit de rem in de gelijktijdigheid en niet in de pool |
+| Worden er connections opgezet, en hoeveel accepteert de database? | `opgezet` en `vernietigd` tellen cumulatief: wat er ooit is aangemaakt en opgeruimd, niet wat er nu staat. Blijft `opgezet` onder de grens van de database, dan heeft de pool die grens nooit hoeven raken |
 | Worden ze teruggegeven? | `in gebruik` tegenover `vrij`, en `piek` als hoogste bezetting ooit |
 | Wordt er gewacht, en hoe lang? | `wachtend` is de rij op dit moment; de drie wachttijden zeggen hoe erg het was |
 | Is de pool zelf de grens? | `van max` — het ingestelde maximum, tegenover wat de database toelaat |
@@ -249,7 +251,9 @@ WARN  [org.hibernate.orm.jdbc.error] FATAL: sorry, too many clients already
 ERROR [...UncaughtExceptionMapper] Unable to acquire JDBC Connection [FATAL: sorry, too many clients already]
 ```
 
-Gemeten met een pool van 120 op een database van twintig: van zestig gelijktijdige bevragingen
+Gemeten met een pool van 120 op een database van twintig (`DB_POOL_MAX` zet de poolgrens,
+`WORKER_THREADS` het aantal worker-threads — dat laatste is de bindende grens zolang een magazijn op
+`UIT` een thread vasthoudt, en het staat op 600): van zestig gelijktijdige bevragingen
 slaagden er 55 en vielen er vijf om met een 500. De pool-regel stond op dat moment op `piek 20 |
 opgezet 20` — hij had de grens van de database bereikt en probeerde het daarboven tevergeefs. Zie je
 dit, dan is `DB_POOL_MAX` te hoog voor die database, niet te laag.
@@ -260,9 +264,9 @@ een pool die nooit iets doet.
 
 ## Wat er nog niet is
 
-De uitrol op ZAD. De simulator draait lokaal in `compose.yaml` en staat als component
-`magazijnsimulator` in `deploy.yml`; het aanmaken van dat component in project `mpfm-w3h` is
-handwerk dat nog moet gebeuren. Zie `demo/environment/zad-demo/`.
+De simulator draait lokaal in `compose.yaml` en staat als component `magazijnsimulator` in
+`deploy.yml`; het component in project `mpfm-w3h` is aangemaakt en rolt mee met elke deployment.
+Wat er van het ZAD-werk nog open staat, staat onderaan `demo/environment/zad-demo/magazijn-simulator.md`.
 
 ## Draaien
 

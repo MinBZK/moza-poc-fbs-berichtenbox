@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -149,9 +150,9 @@ class DomeinInvariantenTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["", " "])
-    fun `een bijlage zonder naam of mimetype wordt geweigerd`(leeg: String) {
-        assertThrows<DomeinFout> { bijlage(naam = leeg) }
-        assertThrows<DomeinFout> { bijlage(mimeType = leeg) }
+    fun `een aanlevering zonder naam of mimetype wordt geweigerd`(leeg: String) {
+        assertThrows<DomeinFout> { Bijlage.valideerVorm(leeg, "application/pdf") }
+        assertThrows<DomeinFout> { Bijlage.valideerVorm("a.pdf", leeg) }
     }
 
     /** Twee bijlagen met dezelfde bytes horen gelijk te zijn; een kale array vergelijkt op referentie. */
@@ -239,18 +240,40 @@ class DomeinInvariantenTest {
      * Zonder die controle slaagt een aanlevering met 201 en is de bijlage daarna onophaalbaar.
      */
     @ParameterizedTest
-    @ValueSource(strings = ["kaas", "application", "application/", "/pdf", "application/pdf; charset=utf-8"])
+    @ValueSource(strings = ["kaas", "application", "application/", "/pdf", "application/pdf;", "application/pdf; ="])
     fun `een bijlage met een onbruikbaar MIME-type wordt geweigerd`(mimeType: String) {
-        assertThrows<DomeinFout> {
-            Bijlage(UUID.randomUUID(), "bijlage.pdf", mimeType, "pdf".toByteArray())
-        }
+        assertThrows<DomeinFout> { Bijlage.valideerVorm("bijlage.pdf", mimeType) }
     }
 
-    /** Dezelfde vormregels op de projectie: een rij met een lege naam hoort niet in een lijst. */
+    /**
+     * Parameters horen bij een mediatype. Het echte magazijn accepteert `text/plain; charset=utf-8`
+     * en de spec kent alleen een lengtegrens, dus een simulator die het weigert is op zijn
+     * aanleverpad van buiten te herkennen — precies wat deze module moet uitsluiten.
+     */
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "application/pdf",
+            "text/plain; charset=utf-8",
+            "text/plain;charset=utf-8",
+            "application/vnd.api+json; version=1; charset=utf-8",
+            "application/pdf; name=\"twee woorden\"",
+        ],
+    )
+    fun `een bijlage met een geldig MIME-type wordt aanvaard`(mimeType: String) {
+        assertDoesNotThrow { Bijlage.valideerVorm("bijlage.pdf", mimeType) }
+    }
+
+    /**
+     * Het leespad toetst de vorm níét — niet op de projectie en niet op de bijlage met bytes. Een rij
+     * die een latere regel niet haalt is geen invoerfout van wie de lijst opvraagt; hem bij het
+     * teruglezen afkeuren zou van één kapotte bijlage een 400 voor de hele pagina maken. Het
+     * download-pad verdedigt zich daar zelf tegen, met een 500.
+     */
     @Test
-    fun `bijlage-metadata dwingt dezelfde vorm af als de bijlage zelf`() {
-        assertThrows<DomeinFout> { BijlageMetadata(UUID.randomUUID(), "  ", "application/pdf") }
-        assertThrows<DomeinFout> { BijlageMetadata(UUID.randomUUID(), "bijlage.pdf", "kaas") }
+    fun `een bijlage uit de opslag mag een vorm hebben die bij het aanleveren geweigerd zou zijn`() {
+        assertDoesNotThrow { BijlageMetadata(UUID.randomUUID(), "  ", "kaas") }
+        assertDoesNotThrow { Bijlage(UUID.randomUUID(), "  ", "kaas", "pdf".toByteArray()) }
     }
 
     /**

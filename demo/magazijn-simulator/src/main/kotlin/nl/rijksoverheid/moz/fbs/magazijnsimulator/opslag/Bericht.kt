@@ -109,21 +109,25 @@ data class BerichtStatusWijziging(val gelezen: Boolean?, val map: String?) {
     val isLeeg: Boolean get() = gelezen == null && map == null
 }
 
-/** Metadata van een bijlage; de bytes worden apart opgehaald. */
+/**
+ * Metadata van een bijlage; de bytes worden apart opgehaald.
+ *
+ * Geen vormcontrole — zie [Bijlage.valideerVorm] voor waar die wél staat en waarom.
+ */
 data class BijlageMetadata(
     val bijlageId: UUID,
     val naam: String,
     val mimeType: String,
-) {
-    // Dezelfde vormcontroles als op [Bijlage]. Deze rijen komen uit een projectie-query en niet uit
-    // een aanlevering, dus zonder deze regels zou een kapotte rij ongemerkt in een lijstantwoord
-    // belanden — precies waar de spec zegt dat naam en type gevuld zijn.
-    init {
-        Bijlage.valideerVorm(naam, mimeType)
-    }
-}
+)
 
-/** Een bijlage inclusief bytes, zoals de download-endpoint hem teruggeeft. */
+/**
+ * Een bijlage inclusief bytes, zoals de download-endpoint hem teruggeeft.
+ *
+ * De bytes worden hier bewaakt en de vorm van naam en MIME-type niet: dit type wordt óók gebouwd uit
+ * wat er ín de opslag staat. Een rij die een latere regel niet meer haalt zou anders bij het
+ * teruglezen een domeinfout worden — een 400 die zegt dat het verzoek van de aanroeper niet deugt,
+ * terwijl hij niets fout deed. Zie [valideerVorm].
+ */
 data class Bijlage(
     val bijlageId: UUID,
     val naam: String,
@@ -131,7 +135,6 @@ data class Bijlage(
     val inhoud: ByteArray,
 ) {
     init {
-        valideerVorm(naam, mimeType)
         vereis(inhoud.isNotEmpty()) { "Bijlage mag niet leeg zijn" }
         vereis(inhoud.size <= MAX_INHOUD_BYTES) {
             "Bijlage mag maximaal ${MAX_INHOUD_BYTES / 1024 / 1024} MiB zijn (kreeg ${inhoud.size} bytes)"
@@ -148,12 +151,26 @@ data class Bijlage(
          * de aanlevering slaagt met 201 en de bijlage is daarna onophaalbaar, want er valt geen
          * `Content-Type` van te maken. Een 400 bij het aanleveren zegt wat er mis is, op het moment
          * dat het nog te herstellen valt.
+         *
+         * Parameters horen erbij: `text/plain; charset=utf-8` is een geldig mediatype, het echte
+         * magazijn accepteert het en er valt prima een `Content-Type` van te maken. Zou de simulator
+         * dat weigeren, dan is hij op zijn aanleverpad van buiten te herkennen — precies wat deze
+         * module moet uitsluiten.
          */
         private const val TOKEN = """[A-Za-z0-9!#${'$'}%&'*+.^_`|~-]+"""
 
-        private val MEDIATYPE_VORM = Regex("^$TOKEN/$TOKEN\$")
+        private const val PARAMETER_WAARDE = """($TOKEN|"[^"]*")"""
 
-        /** De vormregels die [Bijlage] en [BijlageMetadata] delen. */
+        private val MEDIATYPE_VORM =
+            Regex("""^$TOKEN/$TOKEN(\s*;\s*$TOKEN=$PARAMETER_WAARDE)*${'$'}""")
+
+        /**
+         * De vormregels op het aanleverpad, aangeroepen door de service die een aanlevering
+         * aanneemt. Bewust niet in `init`: dan zou dezelfde regel ook gelden voor wat er uit de
+         * opslag terugkomt, en maakt één rij die een latere regel niet haalt van de hele pagina een
+         * 400. Op het leespad verdedigt het download-pad zich zelf tegen een MIME-type waar geen
+         * `Content-Type` van te maken is.
+         */
         fun valideerVorm(naam: String, mimeType: String) {
             vereis(naam.isNotBlank()) { "Bijlagenaam mag niet leeg zijn" }
             vereis(naam.length <= MAX_NAAM_LENGTE) { "Bijlagenaam mag maximaal $MAX_NAAM_LENGTE tekens zijn" }
