@@ -42,7 +42,7 @@
 # GESTAPELDE PR'S (base != main) deployen niet — zie het `branches`-filter hieronder. Hun
 # wijzigingen belanden alsnog in een preview zodra ze de PR bereiken die wél op main mikt: die
 # krijgt dan een `synchronize` en rolt zijn eigen pr-<n> opnieuw uit. Wat zo'n PR aan controles
-# houdt: test, detekt-gate en infra-image-pins — die workflows draaien zichzelf op elke PR
+# houdt: test, detekt-gate en de pin-controles — die workflows draaien zichzelf op elke PR
 # BEHALVE die naar main (`branches-ignore: [main]`), en worden voor een PR naar main juist hier
 # aangeroepen. CodeQL en de fuzz-check draaien er NIET: codeql.yml filtert op main en
 # cflite_pr.yml draait uitsluitend als aangeroepen workflow vanuit deze. Die dekking komt dus pas
@@ -123,20 +123,6 @@ env:
   # "Permission denied". Kan uit: de sessiecache is ephemeral en rekent nergens op
   # persistence (idempotente RediSearch-bootstrap, TTL-entries, crash-safe vangnet-lock).
   REDIS_IMAGE: redis/redis-stack-server:7.4.0-v3
-  # De berichtenbox van de proeftuin (MinBZK/moza-poc), als component in ons eigen project. Zo
-  # bepalen wij welke versie er onder een demo hangt, in plaats van het uitrolritme van een ander
-  # project te volgen. De tag hoort hier en niet alleen in de projectspec: OM's upsert-deployment
-  # neemt bij het aanmaken alleen de meegegeven componenten over en kopieert die van de kloonbron
-  # niet, dus zonder deze regel heeft alleen `test` een berichtenbox en geen enkele preview.
-  #
-  # Bewust niet in pin-consistency.yml: die guard eist één identieke pin over alle vindplaatsen, en
-  # zolang dit een preview-tag uit hun repo is (`.../preview:pr-<n>-<sha>`) staat er een ander
-  # image-pad dan in compose.yaml. Zodra hun keten op main staat en beide plekken dezelfde
-  # `sha-`-tag dragen, hoort dit image alsnog in die guard.
-  #
-  # LET OP: een `pr-<n>-*`-tag verdwijnt zodra hun PR sluit. Zwaai bij het mergen om naar een
-  # `sha-`-tag uit hun main, anders trekt de eerstvolgende herstart een tag die niet meer bestaat.
-  PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc/preview:pr-142-41c83e3
   # Verse preview-provisioning (`clone-from: test` maakt nieuwe volumes + ingress aan) duurt
   # structureel langer dan het bijwerken van een bestaande deployment. De action-default van
   # 300s is daarvoor te krap: uitvraag en externe-stubs time-outen er reproduceerbaar op
@@ -284,7 +270,30 @@ jobs:
     outputs:
       tag: ${{ steps.m.outputs.tag }}
       owner: ${{ steps.m.outputs.owner }}
+      proeftuin_image: ${{ steps.proeftuin.outputs.image }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # De berichtenbox van de proeftuin (MinBZK/moza-poc), als component in ons eigen project. Zo
+      # bepalen wij welke versie er onder een demo hangt, in plaats van het uitrolritme van een
+      # ander project te volgen. De referentie hoort in de deploy en niet alleen in de projectspec:
+      # OM's upsert-deployment neemt bij het aanmaken alleen de meegegeven componenten over en
+      # kopieert die van de kloonbron niet, dus zonder dit heeft alleen `test` een berichtenbox en
+      # geen enkele preview.
+      #
+      # Uit compose.yaml en niet uit een eigen env-regel hier; het waarom staat bij die regel.
+      - id: proeftuin
+        run: |
+          set -euo pipefail
+
+          # Eerst toewijzen, dan pas schrijven: `echo "image=$(...)"` zou bij een falend script een
+          # lege waarde wegschrijven en de deploy een component zonder image laten zetten.
+          image=$(.github/scripts/proeftuin-image.sh)
+
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
       - id: m
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         env:
@@ -589,7 +598,7 @@ jobs:
 
   checks-pins:
     uses: ./.github/workflows/pin-consistency.yml
-    # pull-requests: write voor de melding over een verouderde fuzz-basis-image-pin; een
+    # pull-requests: write voor de pin-meldingen op de PR; een
     # aangeroepen workflow kan nooit meer krijgen dan de aanroeper-job toekent.
     permissions:
       contents: read
@@ -639,7 +648,7 @@ jobs:
           RESULTATEN: |
             test=${{ needs.checks-test.result }}
             detekt-gate=${{ needs.checks-detekt.result }}
-            infra-image-pins=${{ needs.checks-pins.result }}
+            pin-consistency=${{ needs.checks-pins.result }}
             ${{ github.event_name == 'pull_request' && format('PR={0}', needs.checks-fuzz.result) || '' }}
         run: |
           set -euo pipefail
@@ -876,7 +885,7 @@ jobs:
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
               {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
-              {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
+              {"name": "proeftuin", "image": "${{ needs.meta.outputs.proeftuin_image }}"}
             ]
 
       # De tegenhanger van de inbound-regels in de twee andere projecten: de ontvanger beslist, dus
@@ -1028,7 +1037,7 @@ jobs:
               {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
               {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
               {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
-              {"name": "proeftuin", "image": "${{ env.PROEFTUIN_IMAGE }}"}
+              {"name": "proeftuin", "image": "${{ needs.meta.outputs.proeftuin_image }}"}
             ]
 
       # De FSC-peer draait in een EIGEN deployment `fsc-magazijna` binnen hetzelfde project, niet in

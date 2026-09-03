@@ -75,34 +75,12 @@ meld_zadctl_fout() {
     exit "$status"
 }
 
-# De image staat in deploy.yml en niet hier: die waarde is de bron, want zij bepaalt wat elke
-# preview draait. Deze creatie zet alleen de startwaarde voor `test`.
+# De image staat in compose.yaml en niet hier: die regel is de bron, want zij bepaalt wat een demo
+# op de eigen machine én elke preview draait. Deze creatie zet alleen de startwaarde voor `test`.
+# Hetzelfde script leest hem voor deploy.yml, inclusief de vormcontrole.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
-# Precies één treffer eisen, en de vorm toetsen. De buurvariabele TOXIPROXY_IMAGE in hetzelfde
-# env-blok staat tussen aanhalingstekens; krijgt PROEFTUIN_IMAGE ooit dezelfde stijl, dan zouden die
-# quotes zonder deze bewerking in de image-naam belanden en het component in ImagePullBackOff laten
-# hangen.
-mapfile -t IMAGE_TREFFERS < <(
-    sed -n 's/^[[:space:]]*PROEFTUIN_IMAGE:[[:space:]]*//p' "$REPO_ROOT/.github/workflows/deploy.yml"
-)
-
-[ "${#IMAGE_TREFFERS[@]}" -eq 1 ] || {
-    echo "verwachtte precies één PROEFTUIN_IMAGE in .github/workflows/deploy.yml," >&2
-    echo "  maar vond er ${#IMAGE_TREFFERS[@]}" >&2
-    exit 1
-}
-
-IMAGE="${IMAGE_TREFFERS[0]}"
-IMAGE="${IMAGE%%[[:space:]]#*}"
-IMAGE="${IMAGE%"${IMAGE##*[![:space:]]}"}"
-IMAGE="${IMAGE#[\'\"]}"
-IMAGE="${IMAGE%[\'\"]}"
-
-case "$IMAGE" in
-    */*:*) ;;
-    *) echo "PROEFTUIN_IMAGE '$IMAGE' ziet er niet uit als een image met een tag of digest" >&2; exit 1 ;;
-esac
+IMAGE="$("$REPO_ROOT/.github/scripts/proeftuin-image.sh")"
 
 # Een preview-tag van de proeftuin verdwijnt uit ghcr zodra hún PR sluit, en dan trekt de
 # eerstvolgende herstart een tag die niet meer bestaat. Dat mag tijdelijk, om nog niet gemergd werk
@@ -110,7 +88,7 @@ esac
 case "$IMAGE" in
     */preview:*|*:pr-*)
         echo "LET OP: '$IMAGE' is een preview-tag. Die verdwijnt zodra de bijbehorende PR sluit;" >&2
-        echo "  zwaai vóór het mergen om naar een sha-tag uit hun main." >&2
+        echo "  zwaai vóór het mergen terug naar de digest-pin uit hun main." >&2
         echo >&2
         ;;
 esac

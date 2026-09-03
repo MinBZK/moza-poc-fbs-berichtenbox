@@ -1,0 +1,18 @@
+# Overlay om de berichtenbox op een andere versie te zetten dan de digest in compose.yaml.
+#
+# Bedoeld voor een release-tag van de proeftuin (een gebruikersonderzoek draait op een bevroren
+# versie) of om nog niet gemergd werk van hun kant te beproeven. De gewone pin blijft een digest,
+# want alleen die vorm houdt Dependabot bij; een variabele in compose.yaml zelf zou dat breken.
+#
+#   PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 \
+#     docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo up -d proeftuin
+#
+# De hele referentie en niet alleen de tag: hun nog niet gemergde werk staat in een ánder
+# ghcr-repository (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`), en met alleen een tag is dat
+# niet te bereiken.
+#
+# `:?` en geen default: zonder waarde stopt compose met die melding, in plaats van de overlay stil
+# te negeren en de gepinde versie te starten die je juist niet wilde.
+services:
+  proeftuin:
+    image: ${PROEFTUIN_IMAGE:?zet PROEFTUIN_IMAGE op de volledige image-referentie van de gewenste proeftuin}
