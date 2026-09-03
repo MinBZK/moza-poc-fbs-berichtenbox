@@ -74,6 +74,10 @@ sealed interface MagazijnBevragingVoltooid : MagazijnBevraging {
  * regel: een berichtenbox die post weglaat zonder het te zeggen, laat de ontvanger in de
  * veronderstelling dat hij alles heeft. `totaalBeschikbaar` staat er alleen als het magazijn zelf
  * een bruikbaar totaal meestuurde; zonder dat getal blijft het signaal een kwalitatief "er is meer".
+ *
+ * Het signaal leeft alleen in deze stroom: de sessiecache bewaart het niet, dus wie de lijst later
+ * opnieuw opvraagt krijgt hem zonder deze mededeling terug.
+ * TODO(MinBZK/MijnOverheidZakelijk#1072)
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam", "status", "aantalBerichten", "afgekapt", "totaalBeschikbaar")

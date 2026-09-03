@@ -172,4 +172,6 @@ specialisten legde daar bovenop:
 Het `afgekapt`-signaal reist mee met de SSE-ophaalronde, niet met de gecachede lijst. Vraagt de
 ontvanger de lijst daarna opnieuw op (refresh, volgende pagina), dan ziet hij een lijst die er
 compleet uitziet. Het signaal meenemen in de aggregatiestatus en in `GET /berichten` raakt het
-API-contract van de uitvraag en is een eigen keuze; hier is bewust alleen de ophaalronde gedekt.
+API-contract van de uitvraag en daarmee ook de berichtenbox uit de proeftuin; hier is bewust alleen
+de ophaalronde gedekt. Staat als
+[MinBZK/MijnOverheidZakelijk#1072](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1072).
