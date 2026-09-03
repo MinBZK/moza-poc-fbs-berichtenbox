@@ -1,11 +1,9 @@
 # De magazijn-simulator op ZAD
 
-**Status: §1 tot en met §5 zijn uitgevoerd** — §1 tot en met §4 op 2026-08-31 voor de deployment
-`test`, §5 op 2026-09-01 in de deploy-workflow. Wat er nog open staat, staat onderaan. De commando's
-hieronder zijn dus geen voornemen meer maar een verslag.
-
-Deze stap (MinBZK/MijnOverheidZakelijk#1013) wachtte op MinBZK/MijnOverheidZakelijk#936; dat issue is
-gesloten, dus die volgorde staat niets meer in de weg.
+Hoe het component `magazijnsimulator` is ingericht, en hoe je nagaat dat het werkt. §1 tot en met §7
+zijn de inrichting: voor de deployment `test` staan ze, dus je doorloopt ze alleen opnieuw voor een
+nieuw project of na het herscheppen van een deployment. De controlelijst onderaan geldt wél elke keer
+dat de simulator ergens nieuw is.
 
 **Draai alles vanuit de repository-root.** De commando's hieronder verwijzen naar `demo/generated/…`
 en `demo/genereer-magazijnen.py`, dus alleen daar kloppen de paden. `zadctl login` schrijft
@@ -228,7 +226,12 @@ diensten zijn niet getoetst en horen nog steeds in één keer goed te staan.
 Zonder de token-variabele wijst niets erop dat het misgaat aan de console-kant: het paneel laadt, de
 knoppen staan er, en elke druk levert een 401 uit de simulator.
 
-## 5. De vier ondernemers
+**Een preview krijgt zijn eigen, lege simulator en moet één keer gevuld worden.** De
+`postgresql-database`-dienst is deployment-gebonden: het gerenderde manifest van `test` leest zijn
+databasegegevens uit het secret `test-database`, dus `pr-<n>` krijgt zijn eigen database en daarmee
+een simulator zonder berichten. De alias hierboven wijst het paneel van diezelfde preview er al naar,
+dus de hele handeling is één druk op **Herstel demo** in de console van die preview. Wie een preview
+opent en overal nul berichten ziet, heeft dus geen kapotte koppeling maar een ongevulde database.
 
 De profiel-stubs van de vier ondernemers (`demo/generated/profiel/ondernemer-*.json`) zitten in het
 `fbs-demo-profiel`-image — niet in het gedeelde `fbs-externe-stubs`, want de persona's dragen
@@ -266,29 +269,106 @@ de preview vanzelf. De prijs is dat honderd bevragingen per ophaalronde over de 
 Het bedieningspaneel zit wél in hetzelfde project als de simulator; dat verkeer blijft binnen de
 deployment en heeft geen regel nodig.
 
-## 7. Daarna: de deploy-workflow
+## 7. De deploy-workflow
 
-Pas als het component bestaat, kan `.github/workflows/deploy.yml` er een image naartoe sturen. Dat is
-gedaan in dezelfde PR als dit runbook: `build-democonsole` heet nu `build-demo-images` en bouwt beide
-demo-modules in één Maven-aanroep, en `magazijnsimulator` staat in de `components`-payload van
-`deploy-test-magazijnen` en `deploy-preview-magazijnen`. Die payload is ook wat het component aan de
-deployment hangt — daarom hoefde `component add` geen `--deployment`.
+Pas als het component bestaat, kan `.github/workflows/deploy.yml` er een image naartoe sturen.
+`build-demo-images` bouwt de demo-modules in één Maven-aanroep, en `magazijnsimulator` staat in de
+`components`-payload van `deploy-test-magazijnen` en `deploy-preview-magazijnen`. Die payload is ook
+wat het component aan de deployment hangt — daarom heeft `component add` in §1 geen `--deployment`
+nodig.
 
 Bij de eerste uitrol na de merge verschijnt het component in `test`; daarna klonen previews het mee
 via `clone-from: test`.
 
-## Wat er nog open staat
+## Controleren dat hij staat
 
-- **De eerste uitrol afwachten en verifiëren.** §5 wijzigde de workflow; die levert pas een image
-  bij de eerstvolgende merge naar main. Tot dat moment is het component wél gedefinieerd maar draait
-  het niet, en toont `zadctl deployment describe test` hem nog niet.
-  Breid `verify-zad.md` daarna uit met de fan-out: vier ondernemers, 3 / 15 / 45 / 100 organisaties,
-  gemeten met `demo/meet-fanout.sh` tegen de ZAD-URL.
-- Nagaan hoeveel geheugen het component nodig heeft. Lokaal staat de simulator met 98 magazijnen op
-  ongeveer 450 MB; `zadctl resource tune` stelt het bij op werkelijk gebruik.
-- Bepalen of previews hun eigen gevulde simulator krijgen of die van `test` delen. Met een eigen
-  database per deployment is het eerste vanzelf zo, maar dan moet elke preview ook gevuld worden —
-  de vul-knop op het bedieningspaneel doet dat, en dat is één handeling.
-- Nagaan of Flyway het schema zelf mag aanmaken. Dat doet hij standaard, mits de databasegebruiker
-  `CREATE` mag; zo niet, dan het schema vooraf aanmaken en `quarkus.flyway.create-schemas=false`
-  zetten.
+Vijf controles, in deze volgorde: elke volgende gaat uit van de vorige, dus stop bij de eerste die
+niet klopt. Loop ze langs nadat de simulator ergens nieuw is — een nieuw project, een herschapen
+deployment, of de eerste uitrol na een wijziging aan de inrichting.
+
+### 1. Draait het component, en op welke tag?
+
+Een gewijzigde workflow levert pas een image bij de eerstvolgende merge naar main. Kijk niet
+naar de UI-melding maar naar het gerenderde manifest — dat is de grond-waarheid, en een bevroren
+ImagePullBackOff-event in "Technische details" kan een oude tag noemen terwijl de sync allang klopt:
+
+```bash
+gh api repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production/mpfm-w3h/test/magazijnsimulator-deployment.yaml \
+  --jq '.content' | base64 -d | grep -E '^\s+(replicas|image):'
+
+zadctl -p mpfm-w3h deployment describe test
+```
+
+**Klaar wanneer:** `replicas: 1` en een tag van de vorm `main-<sha7>`, en `describe` het component
+toont. Staat er `replicas: 0`, lees dan eerst "Als een component uitstaat" in `README.md` — de
+herstelroute is destructief en `:refresh` reactiveert niets.
+
+### 2. Bewijzen dat de simulator ook doorkomt
+
+```bash
+OIN=$(grep -oE '"[0-9]{20}"' demo/generated/magazijn-simulator.properties | head -1 | tr -d '"')
+
+curl -sS -w '\n%{http_code}\n' -H "X-Ontvanger: KVK:90000003" \
+  "https://magazijnsimulator-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/magazijn/$OIN/api/v1/berichten"
+```
+
+Neem een OIN die werkelijk in de set van dít component zit — vandaar dat het commando er een uit het
+gegenereerde bestand leest in plaats van er een te noemen. Dat de eerste regel gepakt wordt is geen
+toeval: volgnummer 1 staat in de gedragsverdeling op *normaal*, dus een fout hier is een echte fout
+en niet een magazijn dat hoort te haperen.
+
+**Klaar wanneer:** een `200` met een berichtenlijst (leeg mag, dat is stap 3). Dan staan de ingress,
+het pad-prefix en de databaseverbinding. Een `404` betekent dat deze OIN niet in de set van dít
+component zit — dan is het attachment uit §2 niet, of met een ander aantal, geüpload; een `503` dat
+de pod draait maar zijn database niet vindt.
+
+### 3. De fan-out meten
+
+Doorloop stap 9 van `verify-zad.md` ("De fan-out van de vier ondernemers"). Die stap zegt wat je
+vooraf controleert, hoe je het meetscript langs de authorization-wall krijgt, en welke uitkomsten
+horen bij de gedragsverdeling.
+
+**Klaar wanneer:** de vier ondernemers 3, 15, 45 en 100 organisaties bevraagd tonen zonder de
+waarschuwing over een afwijkend aantal. Wijkt de uitkomst af van het vergelijkingspunt hieronder, leg
+hem dan vast waar hij navolgbaar blijft — bij de meting in het ontwerp, of onder het issue waaraan je
+werkt.
+
+De uitkomst van `test` staat als vergelijkingspunt in
+`docs/plans/2026-08-21-magazijn-simulator-design.md`, onder "Dezelfde meting op de gedeelde
+omgeving": de lijst begint bij elke omvang binnen een halve seconde te vullen, en wanneer hij
+compleet is hangt aan de ene organisatie die niet reageert.
+
+### 4. Het geheugen op werkelijk gebruik zetten
+
+Lokaal staat de simulator met 98 magazijnen op ongeveer 450 MB. Wat hij hier nodig heeft, hangt af
+van de fan-out die stap 3 er net doorheen heeft gehaald — draai dit dus ná die meting, anders stel je
+af op een component dat nog niets gedaan heeft:
+
+```bash
+zadctl -p mpfm-w3h resource tune --dry-run
+zadctl -p mpfm-w3h resource tune
+```
+
+**Klaar wanneer:** de aanpassing is uitgerold en het component daarna nog steeds antwoordt (stap 2
+herhalen volstaat). Zag je in stap 3 magazijnen omvallen die op *normaal* staan, kijk dan eerst naar
+`DB_POOL_MAX` (default 50) en het aantal verbindingen dat de database toelaat — dat is een pool-grens
+en geen geheugenprobleem.
+
+Op `test` staat het component op `requests 256Mi / 50m` en `limits 768Mi / 1`, en de tune liet die
+staan; bij een volle fan-out meldt de poolregel daar `piek 37 ... van max 50, 0 wachtend`. Geheugen is
+op die schaal dus niet de grens — gebruik die getallen als vergelijkingspunt en niet als voorschrift.
+
+### 5. Flyway, en de previews
+
+```bash
+zadctl -p mpfm-w3h logs test -c magazijnsimulator --since 1h -n 300 | grep -iE 'flyway|migrat'
+```
+
+**Klaar wanneer:** de log meldt dat de twee migraties zijn toegepast. Zegt hij dat het schema niet
+aangemaakt kan worden, dan mag de databasegebruiker geen `CREATE`: maak het schema uit `DB_SCHEMA`
+vooraf aan en zet `quarkus.flyway.create-schemas=false`.
+
+En op een preview: **die krijgt zijn eigen, lege simulator** — zie §4 voor waarom en voor de
+handeling die erbij hoort. Dat is afgeleid uit de manifesten en nog niet in een draaiende preview
+gezien; kijk bij de eerstvolgende één keer of *Berichten per magazijn* inderdaad op nul staat vóór het
+vullen, en werk §4 bij als dat afwijkt.

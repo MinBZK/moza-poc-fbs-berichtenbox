@@ -160,7 +160,7 @@ hem daarom allebei.
 ### Twee beperkingen die tijdens een demonstratie opvallen
 
 Zolang [#996](https://github.com/MinBZK/MijnOverheidZakelijk/issues/996) en
-[#997](https://github.com/MinBZK/MijnOverheidZakelijk/issues/997) openstaan:
+[#1038](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1038) openstaan:
 
 - Van elke organisatie komen alleen de eerste twintig berichten mee. Heeft een organisatie er meer,
   dan ontbreekt de rest zonder dat de berichtenbox dat meldt.
