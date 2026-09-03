@@ -2,12 +2,19 @@ package nl.rijksoverheid.moz.fbs.democonsole.omgeving
 
 import io.mockk.every
 import io.mockk.mockk
+import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
+import nl.rijksoverheid.moz.fbs.democonsole.generator.Organisatie
+import nl.rijksoverheid.moz.fbs.democonsole.generator.Persona
+import nl.rijksoverheid.moz.fbs.democonsole.generator.Sjabloon
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
 import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import java.util.Optional
 
 class OmgevingResourceTest {
@@ -21,6 +28,16 @@ class OmgevingResourceTest {
         bron = PersonaBron.KETEN,
     )
 
+    // Geen mockk<DemoBerichtGenerator>(): de klasse is niet @ApplicationScoped en dus finaal, en
+    // MockK kan finale klassen alleen via zijn inline-agent aan, die deze module niet gebruikt.
+    private fun generator(vararg doelen: Pair<String, String>) = DemoBerichtGenerator(
+        personas = doelen.map { (id, label) ->
+            Persona(id, label, "BSN", "999993653", listOf(RVO))
+        },
+        organisaties = mapOf(RVO to Organisatie(RVO, "RVO", listOf(Sjabloon("Onderwerp", "Inhoud.")))),
+        klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
+    )
+
     private fun resource(
         basis: String?,
         vararg proxies: String,
@@ -28,6 +45,7 @@ class OmgevingResourceTest {
         sessiecache: Boolean = true,
         berichtenbox: String? = null,
         personas: List<DemoPersona> = emptyList(),
+        doelgroep: DemoBerichtGenerator = generator("pietersen" to "J. Pietersen"),
     ): OmgevingResource {
         val config = mockk<OmgevingConfig> {
             every { uitvraagBasis() } returns Optional.ofNullable(basis)
@@ -38,7 +56,7 @@ class OmgevingResourceTest {
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
         val personaService = mockk<PersonaService> { every { alle() } returns personas }
 
-        return OmgevingResource(config, register, personaService)
+        return OmgevingResource(config, register, personaService, doelgroep)
     }
 
     @Test
@@ -114,6 +132,23 @@ class OmgevingResourceTest {
     }
 
     @Test
+    fun `berichtPersonas draagt de persona's waarvoor de console kan aanleveren`() {
+        // Naast `personas` en niet erin: die lijst is het contract met een berichtenbox en draagt
+        // ook persona's zonder magazijn. Levert de console voor zo iemand aan, dan weigert het
+        // magazijn met 403 — dus het paneel hoort hem niet als keuze te tonen.
+        assertEquals(
+            listOf("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"),
+            resource(null, doelgroep = generator("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"))
+                .omgeving().berichtPersonas.map { it.id to it.label },
+        )
+    }
+
+    @Test
+    fun `berichtPersonas met precies één persona levert een lijst met dat ene element`() {
+        assertEquals(listOf("pietersen"), resource(null).omgeving().berichtPersonas.map { it.id })
+    }
+
+    @Test
     fun `zonder geconfigureerde berichtenbox blijft het veld leeg zodat het paneel het eigen pad probeert`() {
         // Lokaal zet de demo-proxy de berichtenbox op dezelfde origin; daar is een adres uit de
         // configuratie niet alleen overbodig maar ook fout zodra iemand de stack op een ander
@@ -126,5 +161,10 @@ class OmgevingResourceTest {
         val url = "https://proeftuin-demo-mpfm-w3h.example/moza/berichtenbox/"
 
         assertEquals(url, resource(null, berichtenbox = url).omgeving().berichtenboxUrl)
+    }
+
+    private companion object {
+
+        const val RVO = "00000000000000100000"
     }
 }

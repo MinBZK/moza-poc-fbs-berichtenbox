@@ -106,6 +106,32 @@ class PaneelContractTest {
     }
 
     @Test
+    fun `de omgeving draagt de persona's waarvoor het paneel een los bericht kan plaatsen`() {
+        // Een eigen lijst naast `personas`: alleen wie een magazijn heeft kan een bericht krijgen,
+        // en de knop stuurt de id — niet het identificatienummer, dat hoort niet in een URL.
+        val doelen = ObjectMapper().readTree(haalJson(omgevingUrl)).path("berichtPersonas")
+
+        assertTrue(doelen.isArray, "veld berichtPersonas ontbreekt of is geen lijst")
+        assertTrue(!doelen.isEmpty, "geen enkele persona om een bericht voor te plaatsen")
+        doelen.forEach { assertEquals(setOf("id", "label"), it.fieldNames().asSequence().toSet()) }
+    }
+
+    @Test
+    fun `een bericht voor een onbekende persona geeft 404 en niet een lege 500`() {
+        // De knop faalt dan met een leesbare melding in plaats van met de regel die het paneel voor
+        // elke storing toont; er gaat bovendien geen aanlevering naar een magazijn.
+        val respons = HttpClient.newHttpClient().send(
+            HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + "/api/demo/bericht?persona=bestaat-niet"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+
+        assertEquals(404, respons.statusCode())
+        assertTrue(respons.body().contains("bestaat-niet"), "de melding hoort de gevraagde persona te noemen")
+    }
+
+    @Test
     fun `deze module beantwoordt het personas-adres niet`() {
         // Dat adres hoort bij de personadienst. Zouden beide het beantwoorden, dan levert een proxy
         // die per ongeluk hierheen wijst hetzelfde antwoord en valt de scheiding stil weg.

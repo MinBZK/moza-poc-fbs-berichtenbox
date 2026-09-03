@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.democonsole
 
 import jakarta.ws.rs.DefaultValue
 import jakarta.ws.rs.GET
+import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
@@ -65,4 +66,21 @@ class DemoResource(
     @Path("/random")
     fun random(@QueryParam("aantal") @DefaultValue("10") aantal: Int): AanleverResultaat =
         aanleverService.leverAan(generator.genereer(aantal, Random.Default))
+
+    /**
+     * Berichten voor één aangewezen persona, zodat een demonstratie niet hoeft af te wachten of de
+     * willekeur ze bij de ondernemer legt die op het scherm staat. Op de persona-`id` en niet op
+     * zijn identificatienummer: een BSN hoort niet in een URL, ook niet in een demo.
+     */
+    @POST
+    @Path("/bericht")
+    fun bericht(
+        @QueryParam("persona") persona: String,
+        @QueryParam("aantal") @DefaultValue("1") aantal: Int,
+    ): AanleverResultaat {
+        val opdrachten = generator.genereerVoor(persona, aantal, Random.Default)
+            ?: throw NotFoundException("onbekende persona '$persona'; kies er een uit berichtPersonas van /api/demo/omgeving")
+
+        return aanleverService.leverAan(opdrachten)
+    }
 }

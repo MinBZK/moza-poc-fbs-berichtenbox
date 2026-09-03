@@ -23,7 +23,7 @@ class GeneratorProducer {
     fun generator(personaService: PersonaService): DemoBerichtGenerator =
         DemoBerichtGenerator(
             personas = personaService.metMagazijnen().map {
-                Persona(it.label, it.type, it.waarde, it.magazijnen)
+                Persona(it.id, it.label, it.type, it.waarde, it.magazijnen)
             },
             organisaties = mapOf(
                 RVO to Organisatie(RVO, "RVO", RVO_SJABLONEN),

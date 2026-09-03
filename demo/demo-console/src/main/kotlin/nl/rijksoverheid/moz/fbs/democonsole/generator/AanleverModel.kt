@@ -36,8 +36,22 @@ data class Sjabloon(val onderwerp: String, val inhoud: String)
 data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sjabloon>)
 
 /**
- * Vaste demo-ontvanger. `type` is BSN/KVK/RSIN; `waarde` het (geldige) nummer. `magazijnen`
- * zijn de organisatie-OIN's waar deze persona berichten van ontvangt — dit moet één-op-één
- * sporen met de profielservice-voorkeuren, anders weigert het magazijn de aanlevering (403).
+ * Vaste demo-ontvanger. `id` is de sleutel waarmee de bediener er één aanwijst; `type` is
+ * BSN/KVK/RSIN en `waarde` het (geldige) nummer. `magazijnen` zijn de organisatie-OIN's waar deze
+ * persona berichten van ontvangt — dit moet één-op-één sporen met de profielservice-voorkeuren,
+ * anders weigert het magazijn de aanlevering (403).
  */
-data class Persona(val naam: String, val type: String, val waarde: String, val magazijnen: List<String>)
+data class Persona(
+    val id: String,
+    val naam: String,
+    val type: String,
+    val waarde: String,
+    val magazijnen: List<String>,
+)
+
+/**
+ * Een persona zoals het bedieningspaneel hem aanwijst: de `id` gaat mee in de query, het `label`
+ * staat in de keuzelijst. Bewust niet de `PersonaDto` van de personadienst: die draagt het
+ * identificatienummer mee, en dat hoort niet in een URL die een demo-console logt.
+ */
+data class Doelpersona(val id: String, val label: String)

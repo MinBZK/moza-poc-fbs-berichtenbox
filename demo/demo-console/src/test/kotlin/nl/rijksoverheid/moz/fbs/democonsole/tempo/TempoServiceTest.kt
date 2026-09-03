@@ -65,7 +65,7 @@ class TempoServiceTest {
         rvo to Organisatie(rvo, "RVO", listOf(Sjabloon("Subsidie", "Uw subsidie is toegekend."))),
     )
 
-    private val personas = listOf(Persona("J. Pietersen", "BSN", "999993653", listOf(rvo)))
+    private val personas = listOf(Persona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo)))
 
     private val generator = DemoBerichtGenerator(
         personas,

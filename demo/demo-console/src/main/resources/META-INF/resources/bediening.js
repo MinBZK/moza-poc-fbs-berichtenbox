@@ -17,7 +17,7 @@ let boxUrl = BOX_PAD;
  * origin, en delen ze dus dezelfde storage. */
 const STAND_SLEUTEL = 'fbs-demo-bediening:stand';
 
-const VELDEN = ['aantal', 'tempoInterval', 'actiefAantal', 'ontdubbelPersona'];
+const VELDEN = ['aantal', 'tempoInterval', 'actiefAantal', 'ontdubbelPersona', 'berichtPersona', 'berichtAantal'];
 const POLL_MS = 5000;
 const UITKOMST_MS = 4000;
 
@@ -736,8 +736,8 @@ async function pasOmgevingToe() {
         });
     }
 
-    // Als laatste, en apart: de keuzelijst hangt aan de vorm van één veld, en een antwoord dat die
-    // vorm mist mag de knoppen hierboven niet meeslepen. Uit ditzelfde antwoord en niet van
+    // Als laatste, en apart per lijst: elke keuzelijst hangt aan de vorm van één veld, en een
+    // antwoord dat die vorm mist mag de knoppen hierboven niet meeslepen. Uit ditzelfde antwoord en niet van
     // /api/demo/personas: dat adres hoort bij de personadienst, en deze module beantwoordt het
     // bewust niet. Console onbereikbaar levert null op, waarop de keuzelijst zegt dat ze niet te
     // lezen was in plaats van dat er niets is ingericht.
@@ -746,6 +746,13 @@ async function pasOmgevingToe() {
     } catch (fout) {
         console.error('[bediening] persona-keuzelijst niet te vullen', fout);
         vulPersonas(null);
+    }
+
+    try {
+        vulBerichtPersonas(omgeving ? omgeving.berichtPersonas : null);
+    } catch (fout) {
+        console.error('[bediening] keuzelijst voor losse berichten niet te vullen', fout);
+        vulBerichtPersonas(null);
     }
 
     // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de
@@ -759,27 +766,65 @@ function vulPersonas(personas) {
     const keuze = document.getElementById('ontdubbelPersona');
     const knop = document.querySelector('button[data-samenvatting="ontdubbeling"]');
 
-    keuze.replaceChildren();
-
-    // De lijst niet kunnen lezen is iets anders dan niets ingericht hebben: met de verkeerde reden
-    // afhaken stuurt de bediener de configuratie in terwijl de console even weg was. De knop blijft
-    // daarom aan — die faalt dan zichtbaar met de echte fout.
     if (personas === null) {
-        const onbekend = document.createElement('option');
-
-        onbekend.textContent = 'persona-lijst niet op te halen';
-        keuze.append(onbekend);
-        keuze.disabled = true;
+        meldLijstOnbekend(keuze);
 
         return;
     }
 
-    const metBsn = personas.filter((persona) => persona.ontvanger.startsWith('BSN:'));
+    vulKeuze(
+        keuze,
+        knop,
+        personas
+            .filter((persona) => persona.ontvanger.startsWith('BSN:'))
+            .map((persona) => ({ waarde: persona.ontvanger.slice('BSN:'.length), label: persona.label })),
+        'geen persona met een BSN ingericht',
+    );
+}
 
-    if (!metBsn.length) {
+/* De persona's waarvoor de console kán aanleveren. Een eigen lijst en niet `personas`: wie geen
+ * magazijn heeft krijgt van het magazijn een 403, en een keuze die gegarandeerd faalt hoort niet in
+ * het paneel. De waarde is de persona-id — het identificatienummer hoort niet in de URL. */
+function vulBerichtPersonas(personas) {
+    const keuze = document.getElementById('berichtPersona');
+    const knop = document.getElementById('berichtKnop');
+
+    if (personas === null) {
+        meldLijstOnbekend(keuze);
+
+        return;
+    }
+
+    vulKeuze(
+        keuze,
+        knop,
+        personas.map((persona) => ({ waarde: persona.id, label: persona.label })),
+        'geen persona met een magazijn ingericht',
+    );
+}
+
+/* De lijst niet kunnen lezen is iets anders dan niets ingericht hebben: met de verkeerde reden
+ * afhaken stuurt de bediener de configuratie in terwijl de console even weg was. De knop blijft
+ * daarom aan — die faalt dan zichtbaar met de echte fout. */
+function meldLijstOnbekend(keuze) {
+    const onbekend = document.createElement('option');
+
+    onbekend.textContent = 'persona-lijst niet op te halen';
+
+    keuze.replaceChildren(onbekend);
+    keuze.disabled = true;
+}
+
+function vulKeuze(keuze, knop, opties, leegTekst) {
+    keuze.replaceChildren();
+    keuze.disabled = false;
+    knop.disabled = false;
+
+    if (!opties.length) {
         const leeg = document.createElement('option');
 
-        leeg.textContent = 'geen persona met een BSN ingericht';
+        leeg.textContent = leegTekst;
+
         keuze.append(leeg);
         keuze.disabled = true;
         knop.disabled = true;
@@ -787,15 +832,15 @@ function vulPersonas(personas) {
         return;
     }
 
-    metBsn.forEach((persona) => {
-        const optie = document.createElement('option');
+    opties.forEach((optie) => {
+        const element = document.createElement('option');
 
-        optie.value = persona.ontvanger.slice('BSN:'.length);
-        optie.textContent = persona.label;
-        keuze.append(optie);
+        element.value = optie.waarde;
+        element.textContent = optie.label;
+        keuze.append(element);
     });
 
-    const bewaard = (leesStand().velden || {}).ontdubbelPersona;
+    const bewaard = (leesStand().velden || {})[keuze.id];
 
     // Een persona die er niet meer is — andere configuratie, andere personaset — valt terug op
     // de eerste in de lijst in plaats van op een lege keuze die de knop laat falen.

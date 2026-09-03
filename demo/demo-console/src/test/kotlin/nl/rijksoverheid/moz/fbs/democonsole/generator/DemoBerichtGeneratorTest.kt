@@ -1,9 +1,12 @@
 package nl.rijksoverheid.moz.fbs.democonsole.generator
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -28,9 +31,9 @@ class DemoBerichtGeneratorTest {
     )
 
     private val personas = listOf(
-        Persona("J. Pietersen", "BSN", "999993653", listOf(rvo, belastingdienst)),
-        Persona("Bakkerij De Vroege Vogel", "BSN", "999996666", listOf(rvo)),
-        Persona("Garage Van Dijk B.V.", "KVK", "12345678", listOf(belastingdienst)),
+        Persona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo, belastingdienst)),
+        Persona("bakkerij", "Bakkerij De Vroege Vogel", "BSN", "999996666", listOf(rvo)),
+        Persona("vandijk", "Garage Van Dijk B.V.", "KVK", "12345678", listOf(belastingdienst)),
     )
 
     private val klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC)
@@ -123,8 +126,74 @@ class DemoBerichtGeneratorTest {
     }
 
     @Test
+    fun `een persona met een dubbele id faalt fail-fast`() {
+        // De id is waarmee het paneel er één aanwijst; de tweede zou onbereikbaar zijn zonder dat
+        // iets dat meldt.
+        val ongeldig = personas + Persona("bakkerij", "Andere Bakkerij", "BSN", "999993653", listOf(rvo))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            DemoBerichtGenerator(ongeldig, organisaties, klok)
+        }
+    }
+
+    @Test
+    fun `de doelgroep draagt elke persona met id en label`() {
+        assertEquals(
+            listOf(
+                Doelpersona("pietersen", "J. Pietersen"),
+                Doelpersona("bakkerij", "Bakkerij De Vroege Vogel"),
+                Doelpersona("vandijk", "Garage Van Dijk B.V."),
+            ),
+            generator().doelgroep(),
+        )
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, 25])
+    fun `genereerVoor levert exact het gevraagde aantal voor de gekozen persona`(aantal: Int) {
+        // Ook 0 en 1: bij 1 verbergt "alle opdrachten horen bij deze persona" een regressie naar
+        // "geeft de eerste persona terug", en 0 hoort een lege lijst te zijn en geen fout.
+        val opdrachten = generator().genereerVoor("bakkerij", aantal, Random(11))!!
+
+        assertEquals(aantal, opdrachten.size)
+        assertTrue(opdrachten.all { it.verzoek.ontvanger.waarde == "999996666" })
+    }
+
+    @Test
+    fun `genereerVoor kiest per persona en niet de eerste uit de lijst`() {
+        val vandijk = generator().genereerVoor("vandijk", 10, Random(12))!!
+
+        assertTrue(vandijk.all { it.verzoek.ontvanger.type == "KVK" && it.verzoek.ontvanger.waarde == "12345678" })
+        assertTrue(vandijk.all { it.magazijnOin == belastingdienst })
+    }
+
+    @Test
+    fun `genereerVoor blijft binnen de magazijnen van de persona en gebruikt ze allemaal`() {
+        // Pietersen staat bij beide organisaties opt-in; een implementatie die altijd het eerste
+        // magazijn pakt zou hier stil doorheen komen zonder de tweede assertie.
+        val opdrachten = generator().genereerVoor("pietersen", 100, Random(13))!!
+
+        assertTrue(opdrachten.all { it.magazijnOin in setOf(rvo, belastingdienst) })
+        assertEquals(setOf(rvo, belastingdienst), opdrachten.map { it.magazijnOin }.toSet())
+        assertTrue(opdrachten.all { it.verzoek.afzender == it.magazijnOin })
+    }
+
+    @Test
+    fun `genereerVoor met een onbekende persona geeft null zodat de aanroeper een 404 kan geven`() {
+        assertNull(generator().genereerVoor("bestaat-niet", 1, Random(14)))
+    }
+
+    @Test
+    fun `genereerVoor met dezelfde seed geeft identieke uitvoer`() {
+        assertEquals(
+            generator().genereerVoor("pietersen", 20, Random(42)),
+            generator().genereerVoor("pietersen", 20, Random(42)),
+        )
+    }
+
+    @Test
     fun `een persona met ongeldige elfproef faalt fail-fast bij constructie`() {
-        val ongeldig = listOf(Persona("Fout", "BSN", "999993654", listOf(rvo)))
+        val ongeldig = listOf(Persona("fout", "Fout", "BSN", "999993654", listOf(rvo)))
 
         assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
@@ -133,7 +202,7 @@ class DemoBerichtGeneratorTest {
 
     @Test
     fun `een persona met een onbekende organisatie-OIN faalt fail-fast`() {
-        val ongeldig = listOf(Persona("Fout", "BSN", "999993653", listOf("00000000000000000000")))
+        val ongeldig = listOf(Persona("fout", "Fout", "BSN", "999993653", listOf("00000000000000000000")))
 
         assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
@@ -142,7 +211,7 @@ class DemoBerichtGeneratorTest {
 
     @Test
     fun `een persona zonder magazijnen faalt fail-fast`() {
-        val ongeldig = listOf(Persona("Fout", "BSN", "999993653", emptyList()))
+        val ongeldig = listOf(Persona("fout", "Fout", "BSN", "999993653", emptyList()))
 
         assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)

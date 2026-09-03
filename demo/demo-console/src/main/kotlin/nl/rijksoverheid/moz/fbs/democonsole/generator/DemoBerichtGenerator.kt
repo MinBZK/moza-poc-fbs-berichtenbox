@@ -31,26 +31,48 @@ class DemoBerichtGenerator(
                 require(oin in organisaties) { "onbekende organisatie-OIN '$oin' voor ${persona.naam}" }
             }
         }
+
+        // De id is de sleutel waarop het paneel een persona aanwijst; twee gelijke id's zouden de
+        // tweede onbereikbaar maken zonder dat iets dat meldt.
+        require(personas.distinctBy { it.id }.size == personas.size) {
+            "demo-persona's delen een id: ${personas.groupBy { it.id }.filterValues { it.size > 1 }.keys}"
+        }
     }
 
+    /** De persona's die het paneel als doel kan aanwijzen; elk van hen heeft minstens één magazijn. */
+    fun doelgroep(): List<Doelpersona> = personas.map { Doelpersona(it.id, it.naam) }
+
     fun genereer(aantal: Int, random: Random): List<AanleverOpdracht> =
-        (0 until aantal).map {
-            val persona = personas[random.nextInt(personas.size)]
-            val organisatie = organisaties.getValue(persona.magazijnen[random.nextInt(persona.magazijnen.size)])
-            val sjabloon = organisatie.sjablonen[random.nextInt(organisatie.sjablonen.size)]
+        (0 until aantal).map { opdracht(personas[random.nextInt(personas.size)], random) }
 
-            // Gespreid tijdstip: willekeurige dag én tijd binnen kantooruren, zodat sorteren op
-            // datum betekenis heeft en berichten niet allemaal op hetzelfde moment lijken binnen te komen.
-            val minutenTerug = random.nextInt(1, 90 * 24 * 60).toLong()
+    /**
+     * Berichten voor één aangewezen persona. Magazijn en sjabloon blijven willekeurig binnen wat
+     * die persona ontvangt — de bediener wilde een bericht voor déze ondernemer, niet een tweede
+     * keuzelijst. `null` bij een onbekende id, zodat de aanroeper er een 404 van kan maken in
+     * plaats van een 500 met een stacktrace.
+     */
+    fun genereerVoor(personaId: String, aantal: Int, random: Random): List<AanleverOpdracht>? {
+        val persona = personas.firstOrNull { it.id == personaId } ?: return null
 
-            val verzoek = AanleverVerzoek(
-                afzender = organisatie.oin,
-                ontvanger = OntvangerDto(persona.type, persona.waarde),
-                onderwerp = sjabloon.onderwerp,
-                inhoud = "Beste ${persona.naam},\n\n${sjabloon.inhoud}\n\nMet vriendelijke groet,\n${organisatie.naam}",
-                publicatietijdstip = klok.instant().minus(minutenTerug, ChronoUnit.MINUTES).toString(),
-            )
+        return (0 until aantal).map { opdracht(persona, random) }
+    }
 
-            AanleverOpdracht(organisatie.oin, verzoek)
-        }
+    private fun opdracht(persona: Persona, random: Random): AanleverOpdracht {
+        val organisatie = organisaties.getValue(persona.magazijnen[random.nextInt(persona.magazijnen.size)])
+        val sjabloon = organisatie.sjablonen[random.nextInt(organisatie.sjablonen.size)]
+
+        // Gespreid tijdstip: willekeurige dag én tijd binnen kantooruren, zodat sorteren op
+        // datum betekenis heeft en berichten niet allemaal op hetzelfde moment lijken binnen te komen.
+        val minutenTerug = random.nextInt(1, 90 * 24 * 60).toLong()
+
+        val verzoek = AanleverVerzoek(
+            afzender = organisatie.oin,
+            ontvanger = OntvangerDto(persona.type, persona.waarde),
+            onderwerp = sjabloon.onderwerp,
+            inhoud = "Beste ${persona.naam},\n\n${sjabloon.inhoud}\n\nMet vriendelijke groet,\n${organisatie.naam}",
+            publicatietijdstip = klok.instant().minus(minutenTerug, ChronoUnit.MINUTES).toString(),
+        )
+
+        return AanleverOpdracht(organisatie.oin, verzoek)
+    }
 }
