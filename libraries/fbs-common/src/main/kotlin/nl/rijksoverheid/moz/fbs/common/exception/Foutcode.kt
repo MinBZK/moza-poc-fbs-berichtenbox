@@ -22,61 +22,70 @@ private const val NAMESPACE = "urn:fbs:fout:"
  * blijvende, gehoste pagina per code met zich meebrengt — een belofte die dood linkt zodra die
  * pagina verhuist. De waarden zijn contract voor afnemers: wijzig een bestaande code niet, voeg
  * er een toe.
+ *
+ * [uitleg] is de vaste, veilige tekst die een 5xx-antwoord meekrijgt in plaats van het gemaskeerde
+ * standaarddetail. Zonder die uitzondering krijgt een `503 ophalen-mislukt` het detail "onverwachte
+ * interne fout, vermeld errorId bij support", wat een afnemer precies het verkeerde laat doen. De
+ * tekst hangt aan de code en niet aan de exception, dus er lekt niets uit.
  */
-enum class Foutcode(val code: String) {
+enum class Foutcode(val code: String, val uitleg: String) {
 
     /**
      * Het bericht bestaat niet, hoort bij een andere ontvanger, of zat niet in de opgehaalde set.
      * Die drie zijn met opzet één uitkomst: een eigen code voor "bestaat wel, maar niet van jou"
      * zou het bestaan van andermans berichten aftastbaar maken.
      */
-    BERICHT_ONBEKEND("bericht-onbekend"),
+    BERICHT_ONBEKEND("bericht-onbekend", "Dit bericht is niet (meer) beschikbaar."),
 
     /**
-     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de sessie leeft en alleen
-     * voor verwijderingen die via deze keten liepen: het uitblijven van deze code bewijst dus
-     * niet dat er niets verwijderd is.
+     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone leeft — die
+     * krijgt bij het verwijderen de sessie-TTL mee en schuift daarna niet mee met leesverkeer — en
+     * alleen voor verwijderingen die via deze keten liepen. Het uitblijven van deze code bewijst
+     * dus niet dat er niets verwijderd is.
      */
-    BERICHT_VERWIJDERD("bericht-verwijderd"),
+    BERICHT_VERWIJDERD("bericht-verwijderd", "Dit bericht is verwijderd."),
 
     /** Nog geen ophaalronde geweest voor deze ontvanger: eerst `_ophalen` starten. */
-    NOG_NIET_OPGEHAALD("nog-niet-opgehaald"),
+    NOG_NIET_OPGEHAALD("nog-niet-opgehaald", "De berichten zijn nog niet opgehaald."),
 
     /** Er loopt een ophaalronde; wachten en opnieuw lezen, geen foutmelding waard. */
-    OPHALEN_BEZIG("ophalen-bezig"),
+    OPHALEN_BEZIG("ophalen-bezig", "De berichten worden opgehaald."),
 
     /** De vorige ophaalronde strandde; opnieuw `_ophalen` is de weg vooruit. */
-    OPHALEN_MISLUKT("ophalen-mislukt"),
+    OPHALEN_MISLUKT("ophalen-mislukt", "Het ophalen van de berichten is mislukt. Haal ze opnieuw op."),
 
     /** Tijdelijke storing waarop opnieuw proberen zin heeft; `Retry-After` staat erbij. */
-    TIJDELIJK_NIET_BESCHIKBAAR("tijdelijk-niet-beschikbaar"),
+    TIJDELIJK_NIET_BESCHIKBAAR("tijdelijk-niet-beschikbaar", "Tijdelijk niet beschikbaar. Probeer het straks opnieuw."),
 
     /** Geen actieve sessie voor deze ontvanger; er is niets om een bericht in bij te schrijven. */
-    GEEN_ACTIEVE_SESSIE("geen-actieve-sessie"),
+    GEEN_ACTIEVE_SESSIE("geen-actieve-sessie", "Er is geen actieve sessie voor deze ontvanger."),
 
     /** De opgevraagde resource bestaat niet — een onbekend pad, niet een onbekend bericht. */
-    NIET_GEVONDEN("niet-gevonden"),
+    NIET_GEVONDEN("niet-gevonden", "Niet gevonden."),
 
     /** Het verzoek zelf klopt niet: validatie, ontbrekende header, niet-ondersteund mediatype. */
-    ONGELDIG_VERZOEK("ongeldig-verzoek"),
+    ONGELDIG_VERZOEK("ongeldig-verzoek", "Het verzoek is ongeldig."),
 
     /** Ontbrekende of ontoereikende toegang. */
-    GEEN_TOEGANG("geen-toegang"),
+    GEEN_TOEGANG("geen-toegang", "Geen toegang."),
 
     /** Het verzoek botst met de huidige toestand van de resource. */
-    CONFLICT("conflict"),
+    CONFLICT("conflict", "Het verzoek botst met de huidige toestand."),
 
     /** Een schakel verderop in de keten hapert; niet de fout van de afnemer. */
-    KETEN_FOUT("keten-fout"),
+    KETEN_FOUT("keten-fout", "Een andere schakel in de keten reageerde niet. Probeer het straks opnieuw."),
 
     /**
      * De configuratie van de keten spreekt zichzelf tegen. Apart van [INTERNE_FOUT] omdat het
      * antwoord hier iets anders zegt: opnieuw proberen heeft geen zin, hier moet een beheerder aan te pas.
      */
-    CONFIGURATIE_MISMATCH("configuratie-mismatch"),
+    CONFIGURATIE_MISMATCH(
+        "configuratie-mismatch",
+        "De configuratie van de keten is niet sluitend. Opnieuw proberen helpt niet; meld dit bij de beheerder.",
+    ),
 
     /** Onverwachte fout aan onze kant; `instance` draagt de correlatie-id voor support. */
-    INTERNE_FOUT("interne-fout"),
+    INTERNE_FOUT("interne-fout", "Er is een onverwachte interne fout opgetreden. Vermeld errorId bij contact met support."),
     ;
 
     val uri: URI = URI.create(NAMESPACE + code)
@@ -95,12 +104,18 @@ enum class Foutcode(val code: String) {
         fun voorStatus(status: Int): Foutcode = when (status) {
             401, 403 -> GEEN_TOEGANG
             404 -> NIET_GEVONDEN
-            // Wél bericht-specifiek, in tegenstelling tot 404: geen enkel framework-pad
-            // produceert een 410. Die status ontstaat alleen waar de keten zelf vaststelt dat
-            // een bericht verwijderd is, ook wanneer die vaststelling een hop verderop viel.
+            // Wél bericht-specifiek, in tegenstelling tot 404: wij produceren zelf nergens een 410
+            // buiten de vaststelling dat een bericht verwijderd is, en die vaststelling kan een hop
+            // verderop vallen (het magazijn op PATCH). Een 410 die een tussenliggende proxy verzint
+            // krijgt hiermee ons kenmerk opgeplakt; dat risico wegen we lichter dan een `PATCH` op
+            // een eigen verwijderd bericht die als "ongeldig verzoek" bij de afnemer landt.
             410 -> BERICHT_VERWIJDERD
             409 -> CONFLICT
-            502 -> KETEN_FOUT
+            // 429 hoort niet bij ONGELDIG_VERZOEK: het verzoek was juist prima, de afnemer moet
+            // wachten. 504 hoort niet bij INTERNE_FOUT: een gateway-timeout is per definitie een
+            // schakel verderop.
+            429 -> TIJDELIJK_NIET_BESCHIKBAAR
+            502, 504 -> KETEN_FOUT
             503 -> TIJDELIJK_NIET_BESCHIKBAAR
             in 400..499 -> ONGELDIG_VERZOEK
             else -> INTERNE_FOUT

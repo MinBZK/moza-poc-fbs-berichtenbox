@@ -30,10 +30,10 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         val errorId = UUID.randomUUID()
 
-        // Een throw-site die de situatie kent, geeft zijn eigen kenmerk mee; de rest — inclusief
-        // de statussen die het framework zelf produceert (405, 415, 406) — krijgt de terugval,
-        // zodat geen enkel antwoord op `about:blank` blijft staan.
-        val foutcode = (exception as? FbsFoutException)?.foutcode ?: Foutcode.voorStatus(status)
+        // Een throw-site die de situatie kent, geeft zijn eigen kenmerk mee; de rest krijgt de
+        // terugval van [Foutcode.voorStatus].
+        val eigenFoutcode = (exception as? FbsFoutException)?.foutcode
+        val foutcode = eigenFoutcode ?: Foutcode.voorStatus(status)
 
         return if (status >= 500) {
             // Log met correlation-id; `exception.message` blijft eruit (saneer dekt geen
@@ -47,9 +47,21 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
             )
+            // Draagt de fout een eigen kenmerk, dan hoort daar de vaste uitleg van dat kenmerk bij
+            // in plaats van het generieke masker. Anders zegt een `503 ophalen-mislukt` in zijn
+            // `type` "haal opnieuw op" en in zijn `detail` "onverwachte interne fout, bel support".
+            // De uitleg komt uit de code, niet uit de exception, dus de maskering blijft intact.
+            val detail = eigenFoutcode?.uitleg
+
             metRetryAfter(
                 exception,
-                maskedServerErrorProblem(errorId = errorId, status = status, title = title, foutcode = foutcode),
+                maskedServerErrorProblem(
+                    errorId = errorId,
+                    status = status,
+                    title = title,
+                    foutcode = foutcode,
+                    detail = detail ?: Foutcode.INTERNE_FOUT.uitleg,
+                ),
             )
         } else {
             // 4xx: gesaneerde message naar de client (`sanitizeClientDetail`), maar uit de

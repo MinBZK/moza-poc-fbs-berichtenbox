@@ -24,7 +24,7 @@ internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () 
     try {
         block()
     } catch (e: WebApplicationException) {
-        if (!isUpstreamStoring(e)) throw e
+        if (!isUpstreamStoring(e)) throw hertaalMagazijnFout(e)
 
         // isUpstreamStoring liet door: óf geen response (transport-fout vóór
         // HTTP-antwoord) óf een non-4xx-status (3xx/5xx/onverwacht). Log eerlijk welke
@@ -50,6 +50,35 @@ internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () 
  * als storing — voor een server-naar-server-client is dat geen begrijpelijk
  * contract. Naam dekt bewust méér dan transport-fouten; zie de allowlist hierboven.
  */
+/**
+ * Geeft een propageerbare magazijn-`4xx` het kenmerk dat bij de situatie hoort.
+ *
+ * De REST-client levert een kale [WebApplicationException]; het `type` uit het magazijn-antwoord
+ * gaat daarbij verloren. Zonder deze hertaling zou dezelfde situatie twee kenmerken opleveren:
+ * een `PATCH` op een onbekend bericht meldt `niet-gevonden` wanneer het magazijn de misser
+ * opmerkt, en `bericht-onbekend` wanneer de cache dat doet. Eén endpoint hoort één kenmerk per
+ * situatie te geven, ongeacht welke laag het merkte.
+ *
+ * Alleen de statussen die over een bericht gaan; de rest houdt de terugval van de mapper.
+ */
+internal fun hertaalMagazijnFout(e: WebApplicationException): WebApplicationException {
+    if (e is FbsFoutException) return e
+
+    val foutcode = when (e.response?.status) {
+        404 -> Foutcode.BERICHT_ONBEKEND
+        410 -> Foutcode.BERICHT_VERWIJDERD
+        401, 403 -> Foutcode.GEEN_TOEGANG
+        else -> return e
+    }
+
+    return FbsFoutException(
+        foutcode,
+        Response.Status.fromStatusCode(e.response.status),
+        e.message.orEmpty(),
+        e,
+    )
+}
+
 internal fun isUpstreamStoring(e: WebApplicationException): Boolean {
     val status = e.response?.status ?: return true
 
@@ -126,13 +155,14 @@ private fun SessiecacheException.cacheFout(foutcode: Foutcode, status: Response.
 private fun tijdelijkNietBeschikbaar(foutcode: Foutcode, message: String?, oorzaak: SessiecacheException) =
     FbsFoutException(
         foutcode,
-        Response.status(Response.Status.SERVICE_UNAVAILABLE).header("Retry-After", RETRY_AFTER_SECONDEN).build(),
+        Response.Status.SERVICE_UNAVAILABLE,
         message.orEmpty(),
         oorzaak,
+        retryAfterSeconden = RETRY_AFTER_SECONDEN,
     )
 
 /** Gelijk aan wat de profiel-mapper hanteert; één waarde zodat clients niet per endpoint hoeven te leren wachten. */
-private const val RETRY_AFTER_SECONDEN = "30"
+private const val RETRY_AFTER_SECONDEN = 30
 
 /**
  * Lees-pad-grens voor cache-facade-calls. De cache classificeert zijn eigen uitkomst al
@@ -145,10 +175,11 @@ private const val RETRY_AFTER_SECONDEN = "30"
  * [mapUpstreamFout] blijft eromheen staan voor fouten die niet uit de cache-classificatie
  * komen: een transport-fout of een onverwachte upstream-status verdient nog steeds een 502.
  *
- * De lees-facademethoden (`lijst`/`zoek`/`bericht`) produceren alleen storing-fouten en de
- * 409-gating ([SessiecacheException.NogNietGevuld]/[SessiecacheException.OphalenBezig]); de
- * 400/404-gevallen ([SessiecacheException.OngeldigeInvoer]/[SessiecacheException.GeenActieveSessie])
- * ontstaan uitsluitend op de schrijfpaden en bereiken deze grens dus niet.
+ * De lees-facademethoden (`lijst`/`zoek`/`bericht`) produceren storing-fouten, de 409-gating
+ * ([SessiecacheException.NogNietGevuld]/[SessiecacheException.OphalenBezig]) en — alleen op
+ * `bericht` — de 410 van [SessiecacheException.BerichtVerwijderd]. De 400/404-gevallen
+ * ([SessiecacheException.OngeldigeInvoer]/[SessiecacheException.GeenActieveSessie]) ontstaan
+ * uitsluitend op de schrijfpaden en bereiken deze grens dus niet.
  */
 internal inline fun <T> leesUitCache(log: Logger, context: String, block: () -> T): T =
     try {

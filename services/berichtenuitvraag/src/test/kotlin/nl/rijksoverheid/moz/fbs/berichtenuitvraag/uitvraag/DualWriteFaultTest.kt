@@ -135,6 +135,54 @@ class DualWriteFaultTest {
     }
 
     @Test
+    fun `PATCH magazijn-410 propageert met het kenmerk bericht-verwijderd`() {
+        // Het magazijn stelt de verwijdering vast, niet de cache; het kenmerk hoort die hop te
+        // overleven. De REST-client levert een kale exception, dus zonder hertaling zou hier
+        // "ongeldig verzoek" of "niet gevonden" bij de client landen.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(410)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(410)
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-verwijderd"))
+
+        assertEquals(0, sessiecache.werkBijAanroepen)
+    }
+
+    @Test
+    fun `PATCH magazijn-404 draagt hetzelfde kenmerk als een cache-misser`() {
+        // Eén endpoint hoort één kenmerk per situatie te geven, ongeacht welke laag de misser
+        // opmerkte. Zonder hertaling zegt dit pad `niet-gevonden` en het cache-pad
+        // `bericht-onbekend` voor exact dezelfde vraag.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(404)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(404)
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-onbekend"))
+    }
+
+    @Test
     fun `PATCH magazijn-403 propageert 1-op-1 zonder cache-call`() {
         // Autorisatie afgewezen door het magazijn (4xx) is geen transport-storing:
         // de status moet 1-op-1 naar de client, niet hergetypeerd naar 502, en de

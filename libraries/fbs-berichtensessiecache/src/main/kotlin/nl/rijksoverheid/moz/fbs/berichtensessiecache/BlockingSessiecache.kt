@@ -82,8 +82,6 @@ internal class BlockingSessiecache(
 
         if (bericht != null) return bericht
 
-        // Pas ná de misser: staat het bericht er nog, dan is dát de waarheid en zegt een
-        // achtergebleven tombstone niets.
         val zelfVerwijderd = awaitOrServiceUnavailable { service.isBerichtVerwijderd(berichtId, ontvanger) }
 
         if (zelfVerwijderd) throw SessiecacheException.BerichtVerwijderd("Bericht is door de ontvanger verwijderd")

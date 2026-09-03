@@ -27,34 +27,45 @@ info:
     | `urn:fbs:fout:ophalen-bezig` | 409 | Er loopt een ophaalronde | "Een moment" — wachten, dit is geen fout |
     | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
-    | `urn:fbs:fout:geen-actieve-sessie` | 404 | Geen actieve sessie om een bericht in bij te schrijven (aanmeld-pad) | — |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
     | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
-    | `urn:fbs:fout:conflict` | 409 | Botsing met de huidige toestand | — |
     | `urn:fbs:fout:keten-fout` | 502 | Een schakel verderop hapert | "Probeer het straks nog eens" |
-    | `urn:fbs:fout:configuratie-mismatch` | 500 | De configuratie van de keten spreekt zichzelf tegen | Opnieuw proberen helpt niet; dit vraagt een beheerder |
+    | `urn:fbs:fout:configuratie-mismatch` | 500, 502 | De configuratie van de keten spreekt zichzelf tegen | Opnieuw proberen helpt niet; dit vraagt een beheerder |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout | "Er ging iets mis", met de referentie uit `instance` |
 
     ### Wat `bericht-verwijderd` wel en niet zegt
 
-    De keten weet van een verwijdering zolang de sessie leeft, en alleen van verwijderingen
-    die via deze API liepen. Twee gevolgen:
+    De keten weet van een verwijdering zolang het spoor ervan leeft — dat krijgt bij het
+    verwijderen de sessie-bewaartermijn mee en schuift daarna niet mee met leesverkeer — en
+    alleen van verwijderingen die via deze API liepen. Drie gevolgen:
 
-    - Na afloop van de sessie wordt het antwoord weer `bericht-onbekend`. Het uitblijven van
-      `bericht-verwijderd` is dus géén bewijs dat er niets verwijderd is.
+    - Zodra dat spoor verlopen is, wordt het antwoord weer `bericht-onbekend`, ook als de sessie
+      dan nog loopt. Het uitblijven van `bericht-verwijderd` is dus géén bewijs dat er niets
+      verwijderd is.
     - Haalt de organisatie het bericht in haar eigen magazijn weg, dan verdwijnt het bij de
       volgende ophaalronde uit de lijst zonder dat deze code verschijnt.
+    - Op `PATCH` komt de code niet uit dat spoor maar rechtstreeks uit het magazijn, dat de
+      verwijdering persistent kent. Daar geldt de bewaartermijn dus niet.
 
-    Het downloaden van een bijlage kent het onderscheid helemaal niet: daar filtert het
-    magazijn een verwijderd bericht al weg vóór het de eigenaar controleert, dus een eigen
-    code zou daar het bestaan van andermans bericht verraden. Die blijft `bericht-onbekend`.
+    Het downloaden van een bijlage begint met dezelfde opzoeking als het ophalen van het bericht
+    zelf en geeft dus dezelfde 410. Wat daar níét kan, is een verwijdering die alleen het magazijn
+    kent: dat filtert een verwijderd bericht weg vóór het de eigenaar controleert, dus een eigen
+    code op díé misser zou het bestaan van andermans bericht verraden. Die blijft
+    `bericht-onbekend`.
 
     ### Wat het nooit zegt
 
-    "Dit bericht bestaat niet" en "dit bericht bestaat wel, maar is niet van jou" leveren
-    exact hetzelfde antwoord: `bericht-onbekend` met een 404. Dat is opzet — een verschil
-    daartussen zou het bestaan van andermans berichten aftastbaar maken.
+    Bij het ophalen van een bericht of een bijlage leveren "dit bericht bestaat niet" en "dit
+    bericht bestaat wel, maar is niet van jou" exact hetzelfde antwoord: `bericht-onbekend` met
+    een 404. Dat is opzet — een verschil daartussen zou het bestaan van andermans berichten
+    aftastbaar maken. De opzoeking is per ontvanger gesleuteld, dus die twee gevallen zijn hier
+    letterlijk dezelfde misser.
+
+    Op `PATCH` en `DELETE` geldt dat niet: die gaan naar het magazijn, dat het bericht opzoekt
+    vóór het de eigenaar controleert en daardoor `geen-toegang` (403) geeft op andermans bericht
+    en `bericht-onbekend` (404) op een bericht dat niet bestaat. Wie dat verschil wil dichten,
+    kan het gedrag van het magazijn niet uit deze API afleiden.
   contact:
     name: MOZA Team
     email: moza@minbzk.nl
@@ -289,6 +300,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -384,9 +396,11 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Gone:
       description: |
-        De ondernemer verwijderde dit bericht zelf (`urn:fbs:fout:bericht-verwijderd`).
-        Alleen bekend zolang de sessie leeft en alleen voor verwijderingen die via deze API
-        liepen; daarbuiten is het antwoord een gewone 404.
+        De ondernemer verwijderde dit bericht zelf (`urn:fbs:fout:bericht-verwijderd`). Op de
+        ophaalpaden alleen bekend zolang het spoor van die verwijdering leeft (de
+        sessie-bewaartermijn vanaf het verwijderen) en alleen voor verwijderingen die via deze API
+        liepen; daarbuiten is het antwoord een gewone 404. Op `PATCH` komt de code uit het
+        magazijn, dat de verwijdering persistent kent.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

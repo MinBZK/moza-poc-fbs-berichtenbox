@@ -152,8 +152,6 @@ class BerichtOphaalServiceTest {
             service.haalBijlage("BSN:999990019", berichtId, bijlageId)
         }
 
-        // Ook als het bericht wél bestond maar verwijderd is: het magazijn filtert dat weg
-        // vóór de eigenaar-check, dus een eigen kenmerk zou hier andermans bestaan verraden.
         assertEquals(404, fout.response.status)
         assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }

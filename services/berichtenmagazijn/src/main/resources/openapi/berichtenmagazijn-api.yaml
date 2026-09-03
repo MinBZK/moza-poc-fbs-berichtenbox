@@ -33,11 +33,15 @@ info:
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Tijdelijk niet beschikbaar |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
 
-    Het onderscheid tussen "bestaat niet" en "bestaat wel, maar hoort bij een andere ontvanger"
-    blijft dicht: beide leveren dezelfde 404 zolang de eigenaar-check niet geslaagd is. `410`
-    verschijnt daarom alleen op `PATCH`, ná die check — bij het ophalen van een bericht of
-    bijlage filtert de query verwijderde berichten al weg vóór de eigenaar bekend is, en zou een
-    eigen code het bestaan van andermans bericht verraden.
+    Dit magazijn onderscheidt "bestaat niet" (404) wél van "bestaat wel, maar hoort bij een andere
+    ontvanger" (403): het zoekt het bericht op vóór het de eigenaar controleert. Een afnemer die
+    dat verschil voor zijn eigen gebruikers dicht wil houden, moet dat zelf doen — de
+    berichten-uitvraag doet dat door uitsluitend uit een per-ontvanger gesleutelde opslag te lezen.
+
+    `410` verschijnt alleen op `PATCH`, ná de eigenaar-check: daar staat vast dat de aanroeper de
+    eigenaar is. Bij het ophalen van een bericht of bijlage filtert de query verwijderde berichten
+    al weg vóór de eigenaar bekend is, dus zou een eigen code daar het bestaan van andermans
+    bericht verraden.
   contact:
     name: MijnOverheid Zakelijk
     email: moza@minbzk.nl
@@ -766,9 +770,9 @@ components:
             $ref: '#/components/schemas/Problem'
     NotFound:
       description: |
-        Bericht of bijlage niet gevonden voor de opgegeven IDs
-        (`urn:fbs:fout:bericht-onbekend`). Dekt ook het bericht dat wél bestaat maar bij een
-        andere ontvanger hoort, zolang de eigenaar-check nog niet geslaagd is.
+        Bericht of bijlage niet gevonden voor de opgegeven IDs (`urn:fbs:fout:bericht-onbekend`).
+        Een bericht dat wél bestaat maar bij een andere ontvanger hoort, geeft 403 — niet dit
+        antwoord.
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'

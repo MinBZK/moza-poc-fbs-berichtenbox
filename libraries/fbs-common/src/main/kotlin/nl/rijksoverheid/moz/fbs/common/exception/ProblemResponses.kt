@@ -8,10 +8,9 @@ import java.util.UUID
  * Bouwt een RFC 9457 Problem-response: status, content-type en entity in één regel.
  * Vervangt het 4-regels-patroon dat in elke ExceptionMapper terugkwam.
  *
- * [foutcode] wordt het `type` van het antwoord: het kenmerk waaraan een afnemer ziet dát dit
- * antwoord van de keten komt en om welke situatie het gaat. Verplicht, want een weggelaten
- * kenmerk laat het antwoord terugvallen op `about:blank` en dat is precies wat een afnemer
- * niet kan onderscheiden van een fout die onderweg is verzonnen.
+ * [foutcode] wordt het `type` van het antwoord. Zonder parameter-default, want een weggelaten
+ * kenmerk laat het antwoord terugvallen op `about:blank` — precies wat een afnemer niet kan
+ * onderscheiden van een fout die onderweg is verzonnen.
  */
 internal fun problemResponse(
     status: Int,
@@ -20,14 +19,17 @@ internal fun problemResponse(
     foutcode: Foutcode,
     instance: URI? = null,
 ): Response {
-    val problem = Problem(
-        type = foutcode.uri,
+    // Via `of` en niet via de constructor: die clamp-t een status buiten 400..599 naar 500. Een
+    // aanroeper kan een `WebApplicationException` met een 2xx-status bouwen — Jakarta weigert dat
+    // niet — en zonder deze clamp zou daar een `200 OK` met een foutkenmerk uit komen.
+    val problem = Problem.of(
         title = title,
         status = status,
         detail = detail,
         instance = instance,
+        type = foutcode.uri,
     )
-    return Response.status(status)
+    return Response.status(problem.status)
         .type(ProblemMediaType.APPLICATION_PROBLEM_JSON_TYPE)
         .entity(problem)
         .build()

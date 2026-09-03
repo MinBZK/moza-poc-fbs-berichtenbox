@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import nl.rijksoverheid.moz.fbs.common.exception.ProblemMediaType
 import org.hibernate.exception.ConstraintViolationException
@@ -28,6 +29,7 @@ class DbConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolation
         return if (sqlState == UNIQUE_VIOLATION_SQL_STATE) {
             log.infof("Unique constraint geschonden: %s", exception.constraintName ?: "(onbekend)")
             val problem = Problem(
+                type = Foutcode.CONFLICT.uri,
                 title = "Conflict",
                 status = 409,
                 detail = "Aanlevering conflicteert met bestaande data.",
@@ -46,6 +48,7 @@ class DbConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolation
                 exception.constraintName ?: "(onbekend)",
             )
             val problem = Problem(
+                type = Foutcode.INTERNE_FOUT.uri,
                 title = "Internal Server Error",
                 status = 500,
                 detail = "Er is een interne fout opgetreden. Vermeld errorId bij contact met support.",

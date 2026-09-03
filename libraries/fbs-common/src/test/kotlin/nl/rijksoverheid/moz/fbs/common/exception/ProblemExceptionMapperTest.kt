@@ -312,6 +312,38 @@ class ProblemExceptionMapperTest {
     }
 
     @Test
+    fun `het detail van een 5xx sluit aan op zijn kenmerk`() {
+        // Zonder dit zegt een 503 in zijn `type` "haal opnieuw op" en in zijn `detail`
+        // "onverwachte interne fout, bel support" — een afnemer die het detail toont, laat de
+        // gebruiker dan precies het verkeerde doen.
+        val fout = FbsFoutException(Foutcode.OPHALEN_MISLUKT, Response.Status.SERVICE_UNAVAILABLE, "ophaling strandde")
+
+        val problem = mapper.toResponse(fout).entity as Problem
+
+        assertEquals(Foutcode.OPHALEN_MISLUKT.uitleg, problem.detail)
+        assertFalse(problem.detail!!.contains("ophaling strandde"), "de exception-message hoort gemaskeerd te blijven")
+    }
+
+    @Test
+    fun `een 5xx zonder eigen kenmerk houdt het generieke masker`() {
+        val problem = mapper.toResponse(InternalServerErrorException("interne details")).entity as Problem
+
+        assertEquals(Foutcode.INTERNE_FOUT.uitleg, problem.detail)
+    }
+
+    @Test
+    fun `een fout met een 2xx-status wordt geen geslaagd antwoord`() {
+        // Jakarta weigert een 2xx in een WebApplicationException niet, en zonder clamp zou hier
+        // een `200 OK` met een foutkenmerk uit komen.
+        val fout = FbsFoutException(Foutcode.BERICHT_VERWIJDERD, Response.Status.OK, "weg")
+
+        val respons = mapper.toResponse(fout)
+
+        assertEquals(500, respons.status)
+        assertEquals(500, (respons.entity as Problem).status)
+    }
+
+    @Test
     fun `een 404 zonder eigen kenmerk claimt niets over een bericht`() {
         val problem = mapper.toResponse(NotFoundException("pad bestaat niet")).entity as Problem
 

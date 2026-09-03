@@ -16,6 +16,49 @@ class FoutcodeTest {
         assertEquals(URI.create("urn:fbs:fout:bericht-verwijderd"), Foutcode.BERICHT_VERWIJDERD.uri)
     }
 
+    /**
+     * De codewaarden zijn contract naar afnemers buiten dit repo: zij hangen er gedrag aan. Een
+     * hernoeming compileert en houdt elke andere test groen, dus die verschuiving hoort hier een
+     * bewuste, in review zichtbare handeling te zijn. Een nieuwe code toevoegen mag; deze lijst
+     * groeit dan mee.
+     */
+    @Test
+    fun `de codewaarden liggen vast`() {
+        val verwacht = mapOf(
+            Foutcode.BERICHT_ONBEKEND to "bericht-onbekend",
+            Foutcode.BERICHT_VERWIJDERD to "bericht-verwijderd",
+            Foutcode.NOG_NIET_OPGEHAALD to "nog-niet-opgehaald",
+            Foutcode.OPHALEN_BEZIG to "ophalen-bezig",
+            Foutcode.OPHALEN_MISLUKT to "ophalen-mislukt",
+            Foutcode.TIJDELIJK_NIET_BESCHIKBAAR to "tijdelijk-niet-beschikbaar",
+            Foutcode.GEEN_ACTIEVE_SESSIE to "geen-actieve-sessie",
+            Foutcode.NIET_GEVONDEN to "niet-gevonden",
+            Foutcode.ONGELDIG_VERZOEK to "ongeldig-verzoek",
+            Foutcode.GEEN_TOEGANG to "geen-toegang",
+            Foutcode.CONFLICT to "conflict",
+            Foutcode.KETEN_FOUT to "keten-fout",
+            Foutcode.CONFIGURATIE_MISMATCH to "configuratie-mismatch",
+            Foutcode.INTERNE_FOUT to "interne-fout",
+        )
+
+        assertEquals(verwacht, Foutcode.entries.associateWith { it.code })
+    }
+
+    @Test
+    fun `codes zijn onderling uniek`() {
+        // Twee entries met dezelfde code zouden twee situaties onder één kenmerk schuiven —
+        // precies wat deze enum bestaat om te voorkomen.
+        assertEquals(Foutcode.entries.size, Foutcode.entries.map { it.code }.toSet().size)
+    }
+
+    @ParameterizedTest
+    @EnumSource(Foutcode::class)
+    fun `elke code draagt een uitleg die aan een gebruiker getoond kan worden`(foutcode: Foutcode) {
+        // De uitleg landt als `detail` op een 5xx, waar het gemaskeerde standaarddetail anders
+        // iets anders zou zeggen dan het kenmerk. Leeg zou dat gat stil terugbrengen.
+        assertTrue(foutcode.uitleg.isNotBlank(), "${foutcode.code} heeft geen uitleg")
+    }
+
     @ParameterizedTest
     @EnumSource(Foutcode::class)
     fun `elke code levert een absolute uri die Problem accepteert`(foutcode: Foutcode) {
@@ -39,10 +82,11 @@ class FoutcodeTest {
         "410, BERICHT_VERWIJDERD",
         "415, ONGELDIG_VERZOEK",
         "422, ONGELDIG_VERZOEK",
+        "429, TIJDELIJK_NIET_BESCHIKBAAR",
         "500, INTERNE_FOUT",
         "502, KETEN_FOUT",
         "503, TIJDELIJK_NIET_BESCHIKBAAR",
-        "504, INTERNE_FOUT",
+        "504, KETEN_FOUT",
     )
     fun `voorStatus levert de terugval die bij de status hoort`(status: Int, verwacht: Foutcode) {
         assertEquals(verwacht, Foutcode.voorStatus(status))
@@ -50,9 +94,6 @@ class FoutcodeTest {
 
     @Test
     fun `voorStatus claimt nooit uit zichzelf dat een bericht onbekend is`() {
-        // Een 404 op een onbekend pad is geen onbekend bericht; die terugval zou de afnemer een
-        // uitspraak over een bericht laten doen die er niet is. Voor 410 ligt dat anders: geen
-        // framework-pad produceert die status, dus komt hij altijd van de keten zelf.
         val terugvallen = (100..599).map { Foutcode.voorStatus(it) }.toSet()
 
         assertTrue(Foutcode.BERICHT_ONBEKEND !in terugvallen, "terugval koos $terugvallen")

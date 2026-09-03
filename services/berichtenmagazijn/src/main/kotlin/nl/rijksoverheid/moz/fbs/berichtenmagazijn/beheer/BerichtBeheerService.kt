@@ -20,10 +20,14 @@ import java.util.UUID
  * Mutaties op een bericht voor de eigenaar (ontvanger): status (PATCH) en
  * soft-delete (DELETE).
  *
- * Voor consistentie met [nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtOphaalService]:
- * 404 als het bericht niet bestaat; 403 als het wel bestaat maar bij een andere ontvanger
- * hoort. Een eigen, al verwijderd bericht geeft op PATCH een 410 — de eigenaar-check is dan
- * al geslaagd, dus dat onthult niets wat de aanroeper niet mocht weten.
+ * 404 als het bericht niet bestaat; 403 als het wel bestaat maar bij een andere ontvanger hoort.
+ * Een eigen, al verwijderd bericht geeft op PATCH een 410 — de eigenaar-check is dan al geslaagd,
+ * dus dat onthult niets wat de aanroeper niet mocht weten.
+ *
+ * Op één punt wijkt dit bewust af van
+ * [nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtOphaalService]: daar levert andermans
+ * soft-deleted bericht een 404 (de query filtert verwijderde rijen weg vóór de eigenaar bekend is),
+ * hier een 403. Zie de toelichting bij [wijzigStatus].
  */
 @ApplicationScoped
 class BerichtBeheerService(

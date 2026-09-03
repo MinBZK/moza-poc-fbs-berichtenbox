@@ -61,6 +61,33 @@ class SessiecacheFoutMappingTest {
     }
 
     @Test
+    fun `isStoring en naApiFout spreken elkaar niet tegen`() {
+        // De twee `when`s worden met de hand consistent gehouden, en logEnVertaal bouwt daarop:
+        // het logniveau volgt uit isStoring, de status uit naApiFout. Loopt dat uiteen, dan
+        // verdwijnt een echte storing op debug of vult de gating de waarschuwingen.
+        val gevallen = listOf(
+            SessiecacheException.NogNietGevuld("x"),
+            SessiecacheException.OphalenBezig("x"),
+            SessiecacheException.OphalenMislukt("x"),
+            SessiecacheException.Onbereikbaar("x"),
+            SessiecacheException.Onleesbaar("x"),
+            SessiecacheException.OngeldigeInvoer("x"),
+            SessiecacheException.GeenActieveSessie("x"),
+            SessiecacheException.BerichtVerwijderd("x"),
+        )
+
+        gevallen.forEach { geval ->
+            val status = geval.naApiFout().response.status
+
+            assertEquals(
+                geval.isStoring(),
+                status >= 500,
+                "${geval.javaClass.simpleName}: isStoring=${geval.isStoring()} maar status=$status",
+            )
+        }
+    }
+
+    @Test
     fun `isStoring classificeert storing- versus client-fouten`() {
         assertTrue(SessiecacheException.OphalenMislukt("x").isStoring())
         assertTrue(SessiecacheException.Onbereikbaar("x").isStoring())

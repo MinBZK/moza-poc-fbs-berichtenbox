@@ -47,7 +47,8 @@ class BerichtOphaalService(
         // Lookup-then-route: cache is authoritative voor welk magazijn de
         // bron is. De extra cache-read is acceptabel: Redis is snel en
         // het bericht-detail is hoe dan ook nodig om de bijlage-toegang te
-        // autoriseren (404 op cache → 404 op uitvraag i.p.v. lekken via 502).
+        // autoriseren (een misser op de cache wordt hier de 404 of 410 van de
+        // client, i.p.v. te lekken via een 502).
         val bericht = zoekBerichtInCache(xOntvanger, berichtId)
             ?: throw berichtOnbekend()
         val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
@@ -130,10 +131,6 @@ class BerichtOphaalService(
             sessiecache.bericht(Identificatienummer.fromHeader(xOntvanger), berichtId)
         }
 
-    /**
-     * Eén uitkomst voor "bestaat niet", "is niet van jou" en "zat niet in de opgehaalde set" —
-     * het verschil daartussen zou het bestaan van andermans berichten aftastbaar maken.
-     */
     private fun berichtOnbekend() =
         FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
 
@@ -145,8 +142,13 @@ class BerichtOphaalService(
         403 -> FbsFoutException(Foutcode.GEEN_TOEGANG, Response.Status.FORBIDDEN, "magazijn-bijlage 403")
         // Het magazijn filtert een verwijderd bericht al in zijn query weg, vóór de eigenaar-check.
         // Een eigen kenmerk voor "verwijderd" zou hier dus het bestaan van andermans bericht
-        // verraden; de bijlage blijft daarom onbekend, ook als het bericht wél bestond.
-        404 -> FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "magazijn-bijlage 404")
+        // verraden; een magazijn-404 op de bytes blijft daarom onbekend. Het onderscheid dat de
+        // client wél krijgt komt uit de cache-lookup hierboven, die per ontvanger gesleuteld is.
+        404 -> berichtOnbekend()
+        // Ook een upstream-410: die kan alleen van een tussenliggende schakel komen (het magazijn
+        // geeft hem op dit pad niet) en zou via de statusterugval anders alsnog als "verwijderd"
+        // bij de client landen.
+        410 -> berichtOnbekend()
         in 400..499 -> WebApplicationException("magazijn-bijlage 4xx ($status)", status)
         else -> upstreamBadGateway("magazijn-bijlage 5xx ($status)")
     }

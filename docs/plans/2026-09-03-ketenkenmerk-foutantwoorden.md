@@ -86,20 +86,55 @@ verderop, in het magazijn.
 De profiel-mappers droegen al eigen `https://moza.nl/problems/...`-types. Die gaan mee naar
 dezelfde namespace: twee vormen naast elkaar is precies wat een afnemer niet moet hoeven leren.
 
+Elke mapper die zijn `Problem` met de hand bouwt in plaats van via `problemResponse` moet zijn
+kenmerk zelf zetten — `Problem.type` heeft een default, dus vergeten compileert zonder klacht. Dat
+raakt de twee profiel-mappers en de twee aanlever-mappers van het magazijn
+(`CircuitBreakerOpen`, `DbConstraintViolation`). Zolang die niet mee zijn, is de belofte
+"`about:blank` betekent: niet van ons" aantoonbaar onwaar.
+
+Een 5xx krijgt als `detail` de vaste uitleg van zijn eigen code in plaats van het generieke
+masker. Anders zegt een `503 ophalen-mislukt` in zijn `type` "haal opnieuw op" en in zijn `detail`
+"onverwachte interne fout, bel support" — en een afnemer die het detail toont, laat de gebruiker
+dan precies het verkeerde doen. De uitleg hangt aan de code en niet aan de exception, dus de
+maskering blijft intact.
+
+Een magazijn-`4xx` die door de uitvraag propageert, wordt hertaald naar het kenmerk dat bij de
+situatie hoort. De REST-client levert een kale exception, dus zonder die stap zou dezelfde vraag
+twee kenmerken opleveren: `bericht-onbekend` wanneer de cache de misser opmerkt, `niet-gevonden`
+wanneer het magazijn dat doet.
+
 ## Grenzen van "verwijderd"
 
-De tombstone leeft in de sessiecache en dus zolang de sessie leeft. Twee gevolgen die de
-API-beschrijving expliciet benoemt, zodat een afnemer er niet naar gaat raden:
+De tombstone krijgt bij het verwijderen de sessie-TTL mee en schuift daarna níét mee met
+leesverkeer, anders dan de sessie-keys en de berichthashes. Een tombstone hoort bij één handeling
+in het verleden, niet bij de activiteit van de sessie. Drie gevolgen die de API-beschrijving
+expliciet benoemt, zodat een afnemer er niet naar gaat raden:
 
-- Na afloop van de sessie-TTL valt de tombstone weg en wordt het antwoord weer
-  `bericht-onbekend`. "Niet verwijderd" is dus geen bewijs van het tegendeel.
+- Zodra de TTL verstrijkt valt de tombstone weg en wordt het antwoord weer `bericht-onbekend` —
+  ook als de sessie dan nog loopt. "Niet verwijderd" is dus geen bewijs van het tegendeel.
 - Alleen verwijderingen die via deze keten liepen zijn bekend. Verwijdert de organisatie het
   bericht in haar eigen magazijn, dan verdwijnt het bij de volgende ophaalronde uit de lijst
   zonder tombstone.
+- Op `PATCH` komt de 410 niet uit de tombstone maar uit het magazijn, dat de verwijdering
+  persistent kent. Daar geldt de bewaartermijn dus niet.
 
-De bijlage-download kent het onderscheid niet: de magazijn-query filtert verwijderde berichten
-weg vóór de eigenaar-check, dus daar zou een `410` het bestaan van andermans bericht verraden.
-Die blijft `bericht-onbekend`.
+De bijlage-download begint met dezelfde cache-opzoeking als het bericht zelf en geeft daarom
+dezelfde 410. Wat daar níét kan is een verwijdering die alleen het magazijn kent: die query
+filtert verwijderde berichten weg vóór de eigenaar-check, dus zou een eigen code op díé misser
+het bestaan van andermans bericht verraden. Die blijft `bericht-onbekend`.
+
+## Waar het onderscheid dicht blijft, en waar niet
+
+Bij het ophalen van een bericht of bijlage zijn "bestaat niet" en "is niet van jou" letterlijk
+dezelfde misser: de opzoeking is per ontvanger gesleuteld en raakt het magazijn niet. Daar is de
+belofte dus hard.
+
+Op `PATCH` en `DELETE` geldt hij niet. Die gaan naar het magazijn, dat het bericht opzoekt vóór het
+de eigenaar controleert en daarom `403` geeft op andermans bericht tegenover `404` op een
+onbestaand bericht. Dat gedrag is ouder dan deze wijziging en wordt hier niet aangepast — een
+`404` op dat pad zou de bestaande, bewuste keuze omdraaien dat een aanleveraar het verschil tussen
+"niet van jou" en "bestaat niet" wél mag zien. Wat deze wijziging wél doet, is de API-beschrijving
+eerlijk maken over waar de grens loopt.
 
 ## Structuur
 

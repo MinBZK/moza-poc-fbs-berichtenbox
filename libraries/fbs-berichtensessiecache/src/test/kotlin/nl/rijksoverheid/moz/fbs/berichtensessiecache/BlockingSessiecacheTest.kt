@@ -131,6 +131,20 @@ class BlockingSessiecacheTest {
     }
 
     @Test
+    fun `het bericht van een andere ontvanger levert dezelfde misser als een onbekend bericht`() {
+        // Het privacy-criterium van deze facade: de tombstone van de verwijderaar mag het
+        // antwoord aan een ander niet kleuren, anders is het bestaan van andermans bericht
+        // aftastbaar via het verschil tussen 404 en 410.
+        stubStatus(gereed)
+        val id = UUID.randomUUID()
+
+        every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(false)
+
+        assertNull(facade.bericht(ontvanger, id))
+    }
+
+    @Test
     fun `bericht raadpleegt de tombstone niet zolang het bericht er is`() {
         // Een achtergebleven tombstone van een eerder verwijderd-en-opnieuw-aangeleverd
         // bericht mag een bestaand bericht niet als verwijderd bestempelen.
