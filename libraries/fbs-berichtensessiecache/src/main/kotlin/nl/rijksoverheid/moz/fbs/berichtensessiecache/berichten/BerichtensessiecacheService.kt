@@ -33,6 +33,7 @@ import java.net.ConnectException
 import java.time.Duration
 import java.util.Collections
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 @ApplicationScoped
@@ -142,10 +143,17 @@ internal class BerichtensessiecacheService(
         // query-timeout duren. Is het budget korter, dan verliest een bevraging die aanklopt terwijl
         // alle permits door trage calls bezet zijn haar budget vóórdat er ook maar één permit kán
         // vrijkomen — en dan is de wachtrij voor die bevraging alsnog een zeef.
-        require(bulkhead.wachtbudgetMs() >= magazijnQueryTimeoutSeconds * MILLIS_PER_SECOND) {
+        // In seconden delen i.p.v. de timeout naar milliseconden tillen, om dezelfde reden als
+        // hierboven: die vermenigvuldiging loopt bij een absurde waarde over naar negatief en laat
+        // de check dan juist passeren. De boodschap noemt beide grenzen, want het wachtbudget kan
+        // niet boven zijn eigen plafond — bij een hogere query-timeout is dát de knop die moet
+        // zakken, en anders kost het de operator een tweede deploy om daarachter te komen.
+        require(bulkhead.wachtbudgetMs() / MILLIS_PER_SECOND >= magazijnQueryTimeoutSeconds) {
             "${MagazijnAggregatieBulkhead.MAX_WACHTTIJD_MS_PROPERTY} (${bulkhead.wachtbudgetMs()}) moet minstens " +
-                "berichtensessiecache.magazijn-query-timeout-seconds × 1000 " +
-                "(${magazijnQueryTimeoutSeconds * MILLIS_PER_SECOND}) zijn"
+                "berichtensessiecache.magazijn-query-timeout-seconds ($magazijnQueryTimeoutSeconds) seconden zijn. " +
+                "Het wachtbudget kan niet hoger dan ${MagazijnAggregatieBulkhead.MAX_WACHTTIJD_MS_PLAFOND} ms, dus " +
+                "verlaag bij een hogere query-timeout die timeout naar hooguit " +
+                "${MagazijnAggregatieBulkhead.MAX_WACHTTIJD_MS_PLAFOND / MILLIS_PER_SECOND} seconden."
         }
 
         require(cacheAwaitTimeoutSeconds > 0) {
@@ -259,29 +267,26 @@ internal class BerichtensessiecacheService(
 
         val ontvangerString = ontvanger.toCanonicalString()
 
-        // Alle GESTART-events vooruit, vóór de eerste bevraging. De merge hieronder subscribet op
-        // maximaal maxParallelPerRonde bevragingen tegelijk; zonder deze vooruitgeschoven events
-        // zou een wachtende organisatie helemáál niet in de stroom voorkomen — onzichtbaar in plaats
+        // Eén lookup per magazijn, gedeeld door het GESTART- en het VOLTOOID-event: twee keer
+        // ophalen zou de weergavenaam binnen dezelfde ronde uiteen kunnen laten lopen.
+        val namen = clients.keys.associateWith { magazijnId -> clientFactory.getNaam(magazijnId) }
+
+        // Alle GESTART-events vooruit, vóór de eerste bevraging. De ronde-wachtrij hieronder pakt
+        // een organisatie pas op als er een plek vrij is; zonder deze vooruitgeschoven events zou
+        // een wachtende organisatie helemáál niet in de stroom voorkomen — onzichtbaar in plaats
         // van "wordt nog opgehaald". Het portaal krijgt zo direct de volledige lijst.
         val gestartEvents: Multi<MagazijnEvent> = Multi.createFrom().iterable(
-            clients.keys.map { magazijnId -> MagazijnBevragingGestart(magazijnId, clientFactory.getNaam(magazijnId)) },
+            clients.keys.map { magazijnId -> MagazijnBevragingGestart(magazijnId, namen[magazijnId]) },
         )
 
         val voltooidStreams = clients.map { (magazijnId, client) ->
-            bouwVoltooidStream(magazijnId, client, ontvangerString, alleBerichten, geslaagd, mislukt)
+            bouwVoltooidStream(magazijnId, namen[magazijnId], client, ontvangerString, alleBerichten, geslaagd, mislukt)
         }
 
         // Aggregatie-pipeline: draait onafhankelijk van de SSE-client door tot voltooiing.
-        //
-        // `withConcurrency` is de wachtrij van de ophaalronde: de merge houdt hooguit zoveel
-        // bevragingen tegelijk onderweg en pakt de volgende pas als er één afgerond is. Zonder deze
-        // grens subscribet de merge op alle substreams in één keer (Mutiny's default is 128) en
-        // vroegen honderd organisaties tegelijk om twintig permits — waarna tachtig van hen een
-        // afwijzing kregen die niets over hén zei. De volgorde blijft register-volgorde, maar nu
-        // komt élke organisatie aan de beurt in plaats van alleen de eerste twintig.
         return Multi.createBy().concatenating().streams(
             gestartEvents,
-            Multi.createBy().merging().withConcurrency(bulkhead.maxParallelPerRonde).streams(voltooidStreams),
+            bulkhead.ronde(voltooidStreams),
             aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, geslaagd, mislukt),
         )
     }
@@ -532,13 +537,19 @@ internal class BerichtensessiecacheService(
      */
     private fun bouwVoltooidStream(
         magazijnId: String,
+        naam: String?,
         client: MagazijnClient,
         ontvangerString: String,
         alleBerichten: MutableList<Bericht>,
         geslaagd: AtomicInteger,
         mislukt: AtomicInteger,
     ): Multi<MagazijnEvent> {
-        val naam = clientFactory.getNaam(magazijnId)
+        // De half-open probe die `toegestaan()` claimt wordt door niets anders gewist dan een
+        // terminale melding: raakt die zoek, dan blijft dit magazijn tot de herstart overgeslagen
+        // met een CIRCUIT_OPEN die niets over dát magazijn zegt. De vlag maakt de melding
+        // idempotent, zodat het normale pad hem doet en de terminatie-haak hieronder alleen
+        // inspringt wanneer de bevraging afbrak vóór een uitkomst.
+        val circuitGemeld = AtomicBoolean(false)
 
         // `deferred` zodat de circuit-check PAS bij subscription loopt: een nooit-gesubscribete
         // stream (cancel vóór subscribe in het SSE-pad) claimt zo geen half-open probe. Het bulkhead
@@ -566,7 +577,7 @@ internal class BerichtensessiecacheService(
                         )
 
                         logMagazijnFault(result.error, magazijnId, naam, MagazijnFault.OVERBELAST)
-                        registreerCircuit(magazijnId, result)
+                        registreerCircuit(magazijnId, result, circuitGemeld)
 
                         Uni.createFrom().item(result)
                     },
@@ -585,15 +596,43 @@ internal class BerichtensessiecacheService(
                                 logMagazijnFault(error, magazijnId, naam, fault)
                                 MagazijnResult.Failure(magazijnId, naam, error, fault)
                             }
-                            .onItem().invoke { result -> registreerCircuit(magazijnId, result) }
+                            .onItem().invoke { result -> registreerCircuit(magazijnId, result, circuitGemeld) }
                     },
                 )
             }
         }
 
-        return resultUni.toMulti().map { result ->
-            naarVoltooidEvent(result, alleBerichten, geslaagd, mislukt)
-        }
+        return resultUni
+            // Vangnet rond álles wat buiten de recover van de taak valt: het inplannen van een
+            // wachtstap (scheduler weg bij shutdown), de verlopen-tak, en de circuit-registratie
+            // erna. Zonder dit vangnet faalt de substream, annuleert de merge zijn siblings en valt
+            // de hele ophaalronde om: geen slotevent, geen opslag, en de status blijft BEZIG tot de
+            // lock-TTL — voor de gebruiker minutenlang 409 op elke nieuwe poging. OVERBELAST is
+            // hier de eerlijke uitkomst: het magazijn is niet bevraagd, dus geen uitspraak erover,
+            // en een half-open probe komt via MELD_ONBESLIST terug.
+            .onFailure().recoverWithItem { fout ->
+                log.errorf(
+                    fout, "Bevraging van magazijn %s (%s) brak af vóór een uitkomst (cause=%s)",
+                    magazijnId, naam, fout.javaClass.simpleName,
+                )
+
+                MagazijnResult.Failure(magazijnId, naam, MagazijnOverbelastException(magazijnId), MagazijnFault.OVERBELAST)
+            }
+            .onTermination().invoke(Runnable { meldOnbeslistIndienNodig(magazijnId, circuitGemeld) })
+            .toMulti()
+            .map { result -> naarVoltooidEvent(result, alleBerichten, geslaagd, mislukt) }
+    }
+
+    /**
+     * Geeft een eventueel geclaimde half-open probe vrij wanneer de bevraging termineerde zonder
+     * uitkomst (annulering). Bij een normale afronding heeft [registreerCircuit] de vlag al gezet
+     * en doet dit niets.
+     */
+    private fun meldOnbeslistIndienNodig(magazijnId: String, circuitGemeld: AtomicBoolean) {
+        if (!circuitGemeld.compareAndSet(false, true)) return
+
+        log.debugf("Bevraging magazijn %s afgebroken vóór een uitkomst; half-open probe vrijgegeven", magazijnId)
+        meldCircuitVeilig(magazijnId) { circuitBreaker.meldOnbeslist(magazijnId) }
     }
 
     private fun naarMagazijnResult(response: MagazijnBerichtenResponse, magazijnId: String, naam: String?): MagazijnResult {
@@ -680,11 +719,29 @@ internal class BerichtensessiecacheService(
      * nooit blijft hangen — ook niet bij een niet-storing-fout (4xx/malformed) of een bevraging die
      * door een vol bulkhead niet gestart is (OVERBELAST).
      */
-    private fun registreerCircuit(magazijnId: String, result: MagazijnResult) {
-        when (circuitActieVoor(result)) {
-            CircuitActie.MELD_SUCCES -> circuitBreaker.meldSucces(magazijnId)
-            CircuitActie.MELD_FOUT -> circuitBreaker.meldFout(magazijnId)
-            CircuitActie.MELD_ONBESLIST -> circuitBreaker.meldOnbeslist(magazijnId)
+    private fun registreerCircuit(magazijnId: String, result: MagazijnResult, circuitGemeld: AtomicBoolean) {
+        circuitGemeld.set(true)
+
+        meldCircuitVeilig(magazijnId) {
+            when (circuitActieVoor(result)) {
+                CircuitActie.MELD_SUCCES -> circuitBreaker.meldSucces(magazijnId)
+                CircuitActie.MELD_FOUT -> circuitBreaker.meldFout(magazijnId)
+                CircuitActie.MELD_ONBESLIST -> circuitBreaker.meldOnbeslist(magazijnId)
+            }
+        }
+    }
+
+    /**
+     * Voert een circuit-melding uit zonder dat een fout daarin de bevraging kan wegnemen. De
+     * uitkomst van de bevraging is op dit punt al bepaald; een mislukte boekhouding kost hooguit
+     * één probe-venster, terwijl een doorgegeven fout de hele ophaalronde meesleurt. Wel `errorf`:
+     * hier falen is per definitie een eigen bug, geen upstream-conditie.
+     */
+    private fun meldCircuitVeilig(magazijnId: String, melding: () -> Unit) {
+        try {
+            melding()
+        } catch (bug: RuntimeException) {
+            log.errorf(bug, "Circuit-registratie mislukt voor magazijn %s; de uitkomst van de bevraging blijft geldig", magazijnId)
         }
     }
 

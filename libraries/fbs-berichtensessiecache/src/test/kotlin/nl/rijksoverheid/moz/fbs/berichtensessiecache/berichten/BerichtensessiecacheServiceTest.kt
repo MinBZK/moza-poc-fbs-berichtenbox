@@ -607,6 +607,49 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
+    fun `wachtbudget korter dan de query-timeout faalt fail-fast`() {
+        // De wachtrij is voor een bevraging alsnog een zeef als haar budget verstrijkt vóórdat er
+        // ook maar één permit kán vrijkomen — een permit komt pas terug als de call die hem houdt
+        // klaar is, en die mag tot de query-timeout duren.
+        val teKrap = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 9999L)
+
+        val fout = assertThrows<IllegalArgumentException> {
+            BerichtensessiecacheService(
+                berichtenCache, clientFactory, validator, resolver,
+                innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+                maxBerichtenPerMagazijn = 1000,
+                magazijnQueryTimeoutSeconds = 10L,
+                magazijnReadTimeoutMs = 12000L,
+                cacheAwaitTimeoutSeconds = 5L,
+                bulkhead = teKrap,
+                circuitBreaker = testBreaker,
+            ).valideerTimeouts()
+        }
+
+        assertTrue(
+            fout.message!!.contains("max-wachttijd-ms"),
+            "De melding moet de knop noemen die te laag staat; was: ${fout.message}",
+        )
+    }
+
+    @Test
+    fun `boundary - wachtbudget exact gelijk aan de query-timeout is toegestaan`() {
+        // Pinned off-by-one: de check is `>=`, niet `>`.
+        val exact = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 10_000L)
+
+        BerichtensessiecacheService(
+            berichtenCache, clientFactory, validator, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = exact,
+            circuitBreaker = testBreaker,
+        ).valideerTimeouts()
+    }
+
+    @Test
     fun `magazijn-response boven size-cap wordt geweigerd met overflow-foutmelding`() {
         // cap=2, magazijn levert 3 → FOUT + overflow-foutmelding.
         val serviceMetLageCap = BerichtensessiecacheService(
@@ -702,11 +745,20 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
+        val start = System.nanoTime()
         val events = serviceVolBulkhead.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
+        val verstrekenMs = (System.nanoTime() - start) / 1_000_000
 
         val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
+        // Zonder deze assertie blijft de test ook groen als de bevraging weer meteen afgewezen
+        // wordt: de status en de melding zijn dan immers dezelfde. Het wachten zélf is wat deze
+        // wijziging toevoegt, dus dat hoort gepind te zijn.
+        assertTrue(
+            verstrekenMs >= 1000L,
+            "de bevraging hoort haar wachtbudget van 1000 ms vol te maken; verstreken: $verstrekenMs ms",
+        )
         assertEquals(MagazijnStatus.NIET_OPGEHAALD, voltooid.status)
         assertTrue(
             voltooid.foutmelding.contains("Nog niet opgehaald"),
@@ -759,7 +811,7 @@ class BerichtensessiecacheServiceTest {
     @ParameterizedTest(name = "{0} organisaties tegen een grens van 5")
     @ValueSource(ints = [5, 6, 50])
     fun `elke organisatie wordt bevraagd, ook boven de gelijktijdigheidsgrens`(aantalMagazijnen: Int) {
-        // Het acceptatiecriterium van #1038: de grens vertaalt zich in wachten, niet in weglaten.
+        // Het acceptatiecriterium: de grens vertaalt zich in wachten, niet in weglaten.
         // Drie cardinaliteiten: precies op de grens (geen wachtrij), één erboven (één wachtende) en
         // ruim erboven (tien golven). Elke bevraging houdt zijn permit even vast, zodat de
         // wachtenden echt op een vrijkomende permit moeten wachten.
@@ -839,22 +891,24 @@ class BerichtensessiecacheServiceTest {
         val bulkheadKortBudget = MagazijnAggregatieBulkhead(
             maxConcurrent = grens,
             maxParallelPerRonde = grens,
-            maxWachttijdMs = 1000L,
+            maxWachttijdMs = 2000L,
         )
         val serviceKortBudget = BerichtensessiecacheService(
             berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
             maxBerichtenPerMagazijn = 1000,
-            magazijnQueryTimeoutSeconds = 1L,
+            magazijnQueryTimeoutSeconds = 2L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = bulkheadKortBudget,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
         ).also { it.valideerTimeouts() }
 
-        // 50 organisaties × 200 ms bij 5 tegelijk = tien golven van 200 ms; de hele ronde duurt dus
-        // ruim langer (~2 s) dan het wachtbudget van 1 s.
-        val magazijnIds = (1..50).map { nummer -> "magazijn-%03d".format(nummer) }
+        // 100 organisaties × 200 ms bij 5 tegelijk = twintig golven van 200 ms; de hele ronde duurt
+        // dus ruim langer (~4 s) dan het wachtbudget van 2 s. De marge tot de query-timeout van
+        // 2 s is een factor tien op de calls van 200 ms, zodat een trage runner de test niet op
+        // een TIMEOUT laat omvallen.
+        val magazijnIds = (1..100).map { nummer -> "magazijn-%03d".format(nummer) }
         val clients = magazijnIds.associateWith { magazijnId ->
             mockk<MagazijnClient>().also { client ->
                 every { client.getBerichten(any(), any()) } answers {

@@ -61,12 +61,15 @@ zouden zonder ingreep hetzelfde bug-patroon over sessies heen krijgen (de eerste
 de tweede krijgt overal OVERBELAST). Daarom wacht de acquire nu, met een budget:
 
 * Geen vrije permit → wachten en opnieuw proberen tot het wachtbudget (`max-wachttijd-ms`,
-  default 15000) verstreken is. Het poll-interval schaalt met het budget (minimaal 25 ms, hooguit
-  200 stappen), zodat de `Uni`-keten kort blijft hoe groot het budget ook staat.
+  default 15000) verstreken is. Het poll-interval schaalt met het budget (minimaal 25 ms, in de
+  orde van 200 stappen), zodat de `Uni`-keten kort blijft hoe groot het budget ook staat.
 * Het wachten is **asynchroon**: het draait op de scheduler van
   `Infrastructure.getDefaultWorkerPool()` en houdt géén worker-thread bezet. Daarmee blijft de
-  eigenschap die de bulkhead moest bewaken exact overeind: er zijn nooit meer dan `max-concurrent`
-  worker-threads met een magazijn-call bezig, hoeveel wachtenden er ook zijn.
+  eigenschap die de bulkhead moest bewaken overeind: het aantal worker-threads met een magazijn-call
+  hangt aan `max-concurrent` en niet aan het aantal wachtenden. Niet exact, overigens: de
+  query-timeout faalt de `Uni` zonder de blokkerende call te onderbreken, dus tussen query- en
+  read-timeout kan een verlaten thread nog draaien terwijl zijn permit alweer aan een wachtende is
+  gegeven. Het werkelijke plafond ligt rond `max-concurrent × read-timeout ÷ query-timeout`.
 * Permits blijven op één plek: `tryAcquire()` slaagt of slaagt niet, en de gepaarde `release()` zit
   net als voorheen op de terminatie van de taak. Er wordt nooit een permit "overgedragen" aan een
   wachtende, dus er is geen scenario waarin een permit bij een al afgebroken wachtende belandt en
@@ -82,9 +85,10 @@ heeft een race die niet lokaal op te lossen is: op het moment dat de release een
 kop-wachtende toekent, kan die wachtende net zijn budget hebben overschreden en geannuleerd zijn —
 de `complete()` is dan een no-op en de permit is van niemand meer. Polling heeft die klasse van
 fouten niet, want een permit wordt alleen ooit vastgehouden door een pijplijn die op dat moment
-leeft. Wat polling niet biedt is exacte FIFO-eerlijkheid; dat is hier geen bezwaar, omdat de
-volgorde binnen een ronde al door laag 1 geborgd is en de winnaar bij gelijktijdige sessies dus geen
-positie-afhankelijke, structurele achterstand meer kan oplopen.
+leeft. Wat polling niet biedt is FIFO-eerlijkheid, en dus ook geen garantie dat een individuele
+wachtende wint — `tryAcquire()` bargeert. Wat wél geborgd is, is dat er geen vaste deelverzameling
+structureel buiten beeld valt (de volgorde binnen een ronde komt van laag 1) en dat een wachtende
+die verliest een eigen, zichtbare uitkomst krijgt in plaats van stil te verdwijnen.
 
 ### Wat een verstreken wachtbudget aan de gebruiker toont
 
@@ -100,8 +104,8 @@ aggregatiestatus in Redis raken, en de per-organisatie-status draagt de nuance a
 
 ### Knoppen
 
-Alle drie onder `berichtensessiecache.magazijn-bulkhead.`, gevalideerd fail-fast bij boot in de
-bulkhead zelf:
+Alle drie onder `berichtensessiecache.magazijn-bulkhead.`, gevalideerd fail-fast bij boot — de
+eerste drie invarianten in de bulkhead zelf, de vierde in de service (zie hieronder):
 
 | Property | Default | Wat |
 |---|---|---|
@@ -124,9 +128,11 @@ Invarianten:
   voor haar alsnog een zeef. Dit is precies het gat dat de eerste versie van dit ontwerp had
   (budget 5 s, query-timeout 10 s).
 * `max-wachttijd-ms ≤ 120000`: inhoudelijk omdat langer wachten dan de vangnet-TTL van de
-  ophaal-lock zinloos is (de ronde waarvoor gewacht wordt is zichzelf dan al kwijt), mechanisch
-  omdat het budget naar nanoseconden gaat en een absurde waarde daar overloopt naar negatief — de
-  deadline is dan meteen verstreken en de wachtrij is stil weer de zeef die hij was.
+  ophaal-lock zinloos is (de ronde waarvoor gewacht wordt is zichzelf dan al kwijt) — die 120000 is
+  gelijk aan de *default* van `aggregation-lock-ttl` en schuift niet mee als die property wordt
+  aangepast. Mechanisch omdat het budget naar nanoseconden gaat en een absurde waarde daar
+  overloopt naar negatief: de deadline is dan meteen verstreken en elke bevraging krijgt
+  onmiddellijk de niet-gelukt-tak.
 
 `max-concurrent` gaat van 20 naar 40 zodat twee gelijktijdige rondes op volle snelheid draaien
 zonder aan de wachtrij te komen; dat is hooguit een vijfde van de Quarkus-worker-pool, die zonder
@@ -137,13 +143,17 @@ wegneemt — dus de handmatige 120 in de demo verdwijnt.
 ### De duur van een ronde tegenover de ophaal-lock
 
 Waar de ronde vroeger ongeveer één query-timeout duurde ongeacht het aantal organisaties, duurt hij
-nu in het slechtste geval `⌈organisaties ÷ max-parallel-per-ronde⌉ × query-timeout`. Bij honderd
-organisaties is dat vijftig seconden, ruim binnen de `PT2M` van
-`berichtensessiecache.aggregation-lock-ttl`; de gemeten praktijk blijft op tien seconden steken
-omdat alleen de niet-antwoordende organisaties hun timeout volmaken. Voorbij ongeveer 240
-organisaties zou de lock middenin een ronde verlopen en de bescherming tegen een tweede
-gelijktijdige ronde vervallen. Een startup-controle kan dat niet afdwingen — het aantal organisaties
-van een ondernemer is bij boot niet bekend — dus het staat als rekensom in de operator-handleiding.
+nu in het slechtste geval `⌈organisaties ÷ max-parallel-per-ronde⌉ × (wachtbudget + query-timeout)`.
+Het wachtbudget hoort erbij: een bevraging kan eerst haar budget volmaken en daarna alsnog op de
+query-timeout lopen. Bij honderd organisaties, twintig per ronde, 15 s budget en 10 s timeout is dat
+5 × 25 = 125 seconden — nét buiten de `PT2M` van `berichtensessiecache.aggregation-lock-ttl`.
+
+Dat is een echte worst case en geen verwachting: het wachtbudget komt pas in beeld als meerdere
+ondernemers tegelijk ophalen, en alleen niet-antwoordende organisaties maken hun timeout vol. De
+meting blijft dan ook op tien seconden steken bij honderd organisaties. Maar het is krapper dan het
+op het eerste gezicht lijkt, en een startup-controle kan het niet afdwingen — het aantal
+organisaties van een ondernemer is bij boot niet bekend. De rekensom staat daarom in de
+operator-handleiding, bij de knoppen die eraan draaien.
 
 ### Wat bewust niet gebeurt
 
@@ -161,10 +171,11 @@ deze dienst niet kent.
 
 **Library `fbs-berichtensessiecache`**
 - `MagazijnAggregatieBulkhead`: twee properties erbij, asynchroon wachten met budget, `verlopen`
-  in plaats van `afgewezen` als naam van de niet-gelukt-tak, `maxParallelPerRonde` en het
-  wachtbudget uitleesbaar voor de service.
-- `BerichtensessiecacheService.haalBerichtenOp`: GESTART-events vooruit, `withConcurrency(...)` op
-  de merge, `bouwMagazijnStream` levert alleen nog het VOLTOOID-event. `valideerTimeouts()` krijgt
+  in plaats van `afgewezen` als naam van de niet-gelukt-tak, en `ronde(...)` als tweede operatie
+  zodat de per-ronde-grens niet als los getal naar buiten hoeft.
+- `BerichtensessiecacheService.haalBerichtenOp`: GESTART-events vooruit, de ronde via
+  `bulkhead.ronde(...)`, `bouwMagazijnStream` levert alleen nog het VOLTOOID-event, een vangnet om
+  de hele bevraging en de half-open probe die aan de terminatie hangt. `valideerTimeouts()` krijgt
   de kruisvalidatie wachtbudget ≥ query-timeout erbij.
 - `MagazijnEvent`: `MagazijnStatus.NIET_OPGEHAALD` + `MagazijnFoutStatus.NIET_OPGEHAALD`.
 - `MagazijnResult`: KDoc van `OVERBELAST` en `MagazijnOverbelastException` bijgewerkt naar de
@@ -178,6 +189,39 @@ deze dienst niet kent.
 - `demo/environment/zad-demo/magazijn-simulator.md`, `docs/demo-runbook.md`,
   `docs/operator-handleiding-uitvraag.md`, `docs/plans/2026-08-21-magazijn-simulator-design.md`.
 - `demo/smoke.sh`: `NIET_OPGEHAALD` telt mee als gesignaleerde uitkomst.
+
+### Wat de review op deze PR nog aan het licht bracht
+
+Een tweede reviewronde legde drie manieren bloot waarop één lokale fout de héle ophaalronde kon
+meenemen, en die zijn alle drie gedicht:
+
+* **De wachtstap kon zelf falen.** `delayIt()` maakt van een `RejectedExecutionException` (dode
+  scheduler bij pod-shutdown) een gewone `Uni`-failure, en die viel buiten élke recover: de
+  substream faalde, de merge annuleerde zijn siblings, en `aggregeerEnSlaOp` werd nooit
+  gesubscribed. Geen slotevent, niets opgeslagen, status `BEZIG` tot de lock-TTL — minutenlang 409
+  voor de gebruiker. Er ligt nu een vangnet om de hele bevraging, dat elke fout die buiten de
+  taak-recover ontstaat vertaalt naar `NIET_OPGEHAALD` mét een `errorf`.
+* **`registreerCircuit` stond ná die recover.** Een throw daaruit (of uit de verlopen-tak) werd
+  hetzelfde probleem: een bug in de fóutregistratie nam de hele ronde mee. De circuit-melding kan nu
+  niet meer terugslaan op de bevraging; falen erin is een `errorf` en verder niets.
+* **De half-open probe lekte bij annulering.** `toegestaan()` claimt de enige probe, en die wordt
+  door niets anders gewist dan een terminale melding. Werd de bevraging afgebroken vóór een uitkomst
+  — met de wachtrij een venster van seconden in plaats van microseconden — dan bleef dat magazijn
+  tot de herstart overgeslagen met een `CIRCUIT_OPEN` die niets over dát magazijn zei. De melding
+  hangt nu aan de terminatie, idempotent met het normale pad.
+
+Wat bewust níét gefixt is: de per-organisatie-status onderscheidt `NIET_OPGEHAALD` van een storing,
+maar de tellers in `OPHALEN_GEREED` doen dat niet — een wachtbudget dat verstrijkt telt als
+`mislukt`, en daarmee zet `logboekStatusVoor` de verwerking in het Logboek Dataverwerkingen op
+`ERROR`. Dat is strikt genomen onjuist: capaciteitsbeleid is geen verwerkingsfout. Een derde teller
+zou echter het SSE-contract, de aggregatiestatus in Redis, `demo/meet-fanout.sh` (die de tellingen
+kruiscontroleert) en de berichtenbox-weergave raken, voor een toestand die alleen bij aanhoudende
+verzadiging over sessies heen voorkomt. Losgetrokken als vervolgwerk, niet stilzwijgend gelaten.
+
+Ook niet overgenomen: het bulkhead de query-timeout laten kennen zodat de vierde invariant in zijn
+eigen `init` past. Dat zou een tweede lezer van `magazijn-query-timeout-seconds` maken, terwijl álle
+timeout-ordening van deze service nu op één plek staat (`valideerTimeouts()`). De prijs is één
+getter (`wachtbudgetMs()`) naar buiten.
 
 ## Verificatie
 

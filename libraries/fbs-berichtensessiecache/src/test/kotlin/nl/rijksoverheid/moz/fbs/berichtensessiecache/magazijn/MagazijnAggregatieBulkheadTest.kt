@@ -68,7 +68,7 @@ class MagazijnAggregatieBulkheadTest {
     fun `vol bulkhead wacht en start de taak zodra er een permit vrijkomt`() {
         // Dit is de kern van de wachtrij: een tweede bevraging wordt NIET afgewezen maar wacht,
         // en draait alsnog zodra de vasthoudende bevraging termineert.
-        val bulkhead = bulkhead(maxWachttijdMs = 30_000)
+        val bulkhead = bulkhead(maxWachttijdMs = RUIM_BUDGET_MS)
 
         val vastgehouden = bulkhead.begrensd(
             verlopen = { Uni.createFrom().item("VERLOPEN") },
@@ -162,7 +162,7 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = MagazijnAggregatieBulkhead(
             maxConcurrent = 4,
             maxParallelPerRonde = 4,
-            maxWachttijdMs = 30_000,
+            maxWachttijdMs = RUIM_BUDGET_MS,
         )
 
         val gedraaid = ConcurrentLinkedQueue<Int>()
@@ -191,7 +191,7 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = MagazijnAggregatieBulkhead(
             maxConcurrent = 3,
             maxParallelPerRonde = 3,
-            maxWachttijdMs = 30_000,
+            maxWachttijdMs = RUIM_BUDGET_MS,
         )
 
         val actief = AtomicInteger(0)
@@ -216,7 +216,9 @@ class MagazijnAggregatieBulkheadTest {
 
         subscribers.forEach { it.awaitItem(Duration.ofSeconds(30)) }
 
-        assertTrue(piek.get() <= 3, "hoogste gelijktijdigheid was ${piek.get()}, verwacht ≤ 3")
+        // Exact, niet ≤: een bovengrens alleen blijft ook groen als een regressie de effectieve
+        // gelijktijdigheid terugbrengt naar één en de fan-out dus serieel wordt.
+        assertEquals(3, piek.get(), "hoogste gelijktijdigheid; permits horen benut én niet overschreden te worden")
         assertEquals(0, actief.get(), "geen taak blijft achter")
     }
 
@@ -238,7 +240,7 @@ class MagazijnAggregatieBulkheadTest {
         // De wachtende houdt niets vast: acquire en release zitten in hetzelfde synchrone blok, dus
         // een annulering tijdens het wachten kan er niet tussen vallen. Zou de acquire wél van het
         // aanhaken van de release gescheiden zijn, dan zou deze permit permanent kwijt zijn.
-        val bulkhead = bulkhead(maxWachttijdMs = 30_000)
+        val bulkhead = bulkhead(maxWachttijdMs = RUIM_BUDGET_MS)
 
         val vastgehouden = bulkhead.begrensd(
             verlopen = { Uni.createFrom().item("VERLOPEN") },
@@ -257,7 +259,7 @@ class MagazijnAggregatieBulkheadTest {
         wachtende.cancel()
         vastgehouden.cancel()
 
-        assertEquals(1, bulkhead.vrijePermits(), "beide permits terug na twee annuleringen")
+        assertEquals(1, bulkhead.vrijePermits(), "de permit is terug na het annuleren van houder en wachtende")
 
         // En de geannuleerde wachtende is nooit alsnog aan zijn taak begonnen.
         assertEquals(0, gestart.get())
@@ -288,9 +290,37 @@ class MagazijnAggregatieBulkheadTest {
         MagazijnAggregatieBulkhead(maxConcurrent = 4, maxParallelPerRonde = 4, maxWachttijdMs = WACHTBUDGET_MS)
     }
 
+    @Test
+    fun `annuleren diep in de poll-lus laat niets achter`() {
+        // De keten groeit met één niveau per wachtstap; annuleren op niveau 0 (de test hierboven)
+        // raakt een ander codepad dan annuleren als de keten al ruim tien niveaus diep is.
+        val bulkhead = bulkhead(maxWachttijdMs = RUIM_BUDGET_MS)
+
+        val vastgehouden = bulkhead.begrensd(
+            verlopen = { Uni.createFrom().item("VERLOPEN") },
+            taak = { Uni.createFrom().nothing<String>() },
+        ).subscribe().with({}, {})
+
+        val wachtende = bulkhead.begrensd(
+            verlopen = { Uni.createFrom().item("VERLOPEN") },
+            taak = { Uni.createFrom().item("OK") },
+        ).subscribe().with({}, {})
+
+        Thread.sleep(300)
+        wachtende.cancel()
+        vastgehouden.cancel()
+
+        assertEquals(1, bulkhead.vrijePermits(), "permit terug na annuleren diep in de poll-lus")
+    }
+
     private companion object {
         // Kort genoeg om een verstreken budget in een test af te wachten, ruim boven het
         // poll-interval van de bulkhead zodat er echt gepolld is voordat het budget verstrijkt.
         const val WACHTBUDGET_MS = 200L
+
+        // Voor tests die juist NIET op het budget mogen aflopen. Niet hoger: het poll-interval
+        // schaalt met het budget, dus een budget van tientallen seconden maakt elke wachtstap
+        // traag en de test daarmee onnodig lang.
+        const val RUIM_BUDGET_MS = 5_000L
     }
 }

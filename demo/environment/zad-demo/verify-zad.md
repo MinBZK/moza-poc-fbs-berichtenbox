@@ -325,8 +325,7 @@ Wat wél een bevinding is:
 |---|---|
 | `WAARSCHUWING: <n> organisaties bevraagd, verwacht <m>` | Het register op de uitvraag en de set van de simulator lopen uiteen — beide attachments komen uit hetzelfde script met hetzelfde getal, dus één is niet opnieuw geüpload. |
 | Veel meer mislukt dan de tabel, verspreid over alle ondernemers | Kijk eerst naar de simulator: zijn database-pool draagt honderd magazijnen tegelijk, en een te lage waarde laat magazijnen omvallen die op *normaal* staan. |
-| Precies 20 geslaagd bij 45 en 100, de rest `NIET_OPGEHAALD` | De wachtrij komt niet aan bod: er staat nog een handmatige `MAX_PARALLEL_PER_RONDE`/`MAX_CONCURRENT` van 20 zonder wachtbudget, of het wachtbudget is nul. Controle (b) hierboven. |
-| Losse `NIET_OPGEHAALD` bij gezonde magazijnen | Het wachtbudget (`MAX_WACHTTIJD_MS`) is te krap voor wat er tegelijk loopt; het is geen storing van die organisatie. |
+| `NIET_OPGEHAALD` bij gezonde magazijnen | De bevraging is niet gestart omdat de gelijktijdigheidsgrens vol bleef; geen storing van die organisatie. In vlagen: het wachtbudget (`MAGAZIJN_WACHTBUDGET_MS`) is te krap voor de piek. Aanhoudend: `MAX_CONCURRENT` is te laag voor wat er tegelijk loopt — draaien er meer metingen of demo's naast elkaar? |
 | `de uitvraag op … is niet gezond` | De meting is niet begonnen; dit zegt niets over de fan-out. |
 
 Bewaar de uitkomst als hij afwijkt van de tabel hierboven: het TSV-bestand uit `$UITVOER` (standaard
