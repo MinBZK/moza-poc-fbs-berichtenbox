@@ -157,7 +157,32 @@ portaal aan toevoegen.
 - `./mvnw clean verify -pl libraries/fbs-berichtensessiecache -am` (JaCoCo 90% + detekt).
 - `./mvnw clean test -pl services/berichtenuitvraag -am`.
 
-Wat hierna nog open staat: de meting uit
-[#1012](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1012) opnieuw draaien met
-`demo/meet-fanout.sh` bij 15, 45 en 100 organisaties, op de standaardinstellingen. De
-integratietest bewijst dat er niets meer wegvalt; de meting laat zien wat het aan doorlooptijd doet.
+### De meting
+
+`demo/meet-fanout.sh 3` tegen de lokale demo-stack, **op de standaardinstellingen** — de handmatige
+120 uit `compose.yaml` is weg, dus dit is 40 permits met 20 per ronde. Mediaan over drie rondes:
+
+| Ondernemer | Organisaties | Eerste bericht | Compleet | Geslaagd |
+|---|---|---|---|---|
+| kleine-eenmanszaak | 3 | 55 ms | 0,12 s | 3 van 3 |
+| klein-bedrijf | 15 | 24 ms | 2,8 s | 15 van 15 |
+| grootbedrijf | 45 | 24 ms | 10,1 s | 41 van 45 |
+| landelijk-concern | 100 | 122 ms | 10,3 s | 91 van 100 |
+
+Vóór deze wijziging leverde diezelfde standaardinstelling 20 van 45 en 20 van 100; de rest kreeg
+"tijdelijk niet beschikbaar". Nu komen de aantallen exact uit op de tabel van
+[#1012](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1012), die met de knop op 120 gemeten
+is — de knop is dus overbodig geworden en niet vervangen door verlies.
+
+Wat níét slaagde, is wat de simulator opzettelijk stuk zet: 33 FOUT en 6 TIMEOUT over alle rondes
+samen, en **geen enkele `NIET_OPGEHAALD`**. "Compleet" hangt net als voorheen aan de organisatie die
+niet reageert (de query-timeout van 10 s), niet aan het aantal organisaties: 45 en 100 komen op
+dezelfde 10,1 s uit. De wachtrij kost dus geen meetbare doorlooptijd.
+
+De volgorde klopt ook: in de ronde met honderd organisaties staan alle 100 GESTART-events vóór het
+eerste VOLTOOID-event, zodat het portaal meteen de volledige lijst met wachtindicaties heeft.
+
+Gemeten op één machine waarop de hele stack draaide (uitvraag, Redis, twee echte magazijnen met elk
+een PostgreSQL, de simulator met 98 magazijnen op nog een PostgreSQL, het bedieningspaneel en de
+stubs), dus de getallen zijn pessimistisch — zie de meetopstelling in
+`docs/plans/2026-08-21-magazijn-simulator-design.md`.

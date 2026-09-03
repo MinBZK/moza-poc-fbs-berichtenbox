@@ -557,8 +557,10 @@ die standaardwaarde: een ondernemer met 45 organisaties krijgt er 20 te zien en 
 
 > **Opgelost** in MinBZK/MijnOverheidZakelijk#1038: de grens is een wachtrij geworden. De uitvraag
 > bevraagt per ronde `max-parallel-per-ronde` organisaties tegelijk en pakt de volgende zodra er één
-> afgerond is, dus alle organisaties komen aan de beurt. De handmatige 120 in de demo is daarmee
-> vervallen; zie `docs/plans/2026-09-03-magazijn-bulkhead-wachtrij.md`.
+> afgerond is, dus alle organisaties komen aan de beurt. Dezelfde meting op de standaardinstellingen
+> levert nu 41 van 45 en 91 van 100 — gelijk aan de tabel hierboven, die met de knop op 120 gemeten
+> is. De handmatige 120 in de demo is daarmee vervallen; zie
+> `docs/plans/2026-09-03-magazijn-bulkhead-wachtrij.md`.
 
 **De simulator moet als één-voor-honderd worden ingesteld.** Elke per-service-default komt hier op
 een honderdste van zijn bedoelde last uit. Met de Quarkus-standaard van twintig database-connecties
