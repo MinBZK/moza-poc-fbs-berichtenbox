@@ -7,7 +7,7 @@
 # main een nieuw image en biedt hij de bijgewerkte FROM-regel zelf als pull request aan.
 #
 # Een verouderde pin is expres geen blokkade: de build werkt dan gewoon, Maven haalt op wat er in
-# de warme repository ontbreekt. Alleen de voorbereiding is trager tot iemand de pin bijwerkt.
+# de warme repository ontbreekt. Alleen de voorbereiding is trager tot de pin-PR gemerged is.
 FROM ghcr.io/minbzk/fbs-fuzz-base@sha256:283ebfd78ce10ac2d9e023d37f6f9eb60fbe7a72a23018d844a4ddbb9530ac95
 COPY . $SRC/moza-poc-fbs-berichtenbox
 WORKDIR $SRC/moza-poc-fbs-berichtenbox
