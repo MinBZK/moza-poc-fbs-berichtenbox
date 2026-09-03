@@ -3,8 +3,7 @@
 # veranderen, dus het hoort hier en niet in elke fuzz-run.
 #
 # `.clusterfuzzlite/Dockerfile` pint dit image op digest. Na een bouw hier moet die pin dus
-# bijgewerkt worden; de job `pin` hieronder biedt die wijziging als PR aan. De job `fuzz-basis-pin`
-# in `pin-consistency.yml` blijft melden zolang de pin niet bij de huidige pom's hoort.
+# bijgewerkt worden; de job `pin` hieronder biedt die wijziging als PR aan.
 #
 # Vereist de repo-secret FUZZ_PIN_TOKEN — zie de job `pin` voor wat erin hoort en waarom
 # GITHUB_TOKEN hier niet volstaat.
@@ -42,9 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # De pom-hash is de identiteit van dit image: gelijke pom's = gelijke warme repository.
-      # Hij wordt de image-tag, zodat `fuzz-basis-pin` in pin-consistency.yml de tag voor de
-      # huidige pom's kan opzoeken en met de gepinde digest kan vergelijken.
+      # De pom-hash is de identiteit van dit image: gelijke pom's = gelijke warme repository. Hij
+      # wordt de image-tag, zodat een ongewijzigde dependency-set zichzelf overschrijft in plaats
+      # van een tweede image naast zich te zetten.
       - name: Bepaal de pom-hash
         id: hash
         env:
@@ -137,8 +136,9 @@ jobs:
           token: ${{ secrets.FUZZ_PIN_TOKEN }}
 
       # Eén vaste tak, geen tak per pom-hash: bij twee pom-wijzigingen kort na elkaar zou de eerste
-      # PR blijven staan met een digest die dan al niet meer klopt. Force-push ververst de openstaande
-      # PR in plaats van er een tweede naast te zetten.
+      # PR blijven staan met een digest die dan al niet meer klopt. Force-push ververst de
+      # openstaande PR in plaats van er een tweede naast te zetten, en is de pin buiten die PR om
+      # goed gekomen, dan gaat hij dicht.
       - name: Bied de nieuwe pin als PR aan
         env:
           GH_TOKEN: ${{ secrets.FUZZ_PIN_TOKEN }}
@@ -153,8 +153,21 @@ jobs:
             exit 1
           fi
 
+          open_pr=$(gh pr list --head "$TAK" --state open --json number --jq '.[0].number // empty')
+
+          # De pin kan ook buiten deze PR om goed komen: iemand werkt hem met de hand bij, of een
+          # herbouw levert dezelfde digest. Blijft de PR dan openstaan, dan draagt hij een diff die
+          # niets meer verandert en kan een reviewer niet zien of hij nog actueel is.
           if grep -qF "FROM $DIGEST" .clusterfuzzlite/Dockerfile; then
-            echo "De pin hoort al bij dit image; niets te doen."
+            echo "De pin hoort al bij dit image."
+
+            if [ -n "$open_pr" ]; then
+              gh pr close "$open_pr" \
+                --comment "De pin in \`.clusterfuzzlite/Dockerfile\` hoort inmiddels bij het huidige basis-image; deze PR heeft geen wijziging meer te brengen."
+              git push origin --delete "$TAK"
+              echo "Openstaande pin-PR #$open_pr gesloten."
+            fi
+
             exit 0
           fi
 
@@ -174,8 +187,8 @@ jobs:
           git commit -am "chore(ci): pin het fuzz-basis-image op de huidige pom-set"
           git push -f origin "$TAK"
 
-          if [ -n "$(gh pr list --head "$TAK" --state open --json number --jq '.[0].number // empty')" ]; then
-            echo "De openstaande pin-PR is bijgewerkt."
+          if [ -n "$open_pr" ]; then
+            echo "Openstaande pin-PR #$open_pr bijgewerkt naar de nieuwe digest."
             exit 0
           fi
 
