@@ -250,6 +250,75 @@ die `ProxyBootstrap` bij een mislukking logt, want elk wijst een andere laag aan
 | `Proxy ... niet aangemaakt: HTTP <code>` | De Toxiproxy antwoordde, maar weigerde — meestal de poort of een dubbele naam. |
 | `Geen listen/upstream voor proxy ...` | Een `TOXIPROXY_*_URL` of `*_UPSTREAM` ontbreekt in de configuratie. |
 
+## 9. De fan-out van de vier ondernemers
+
+Deze stap toetst waar de simulator voor bestaat: dat een ondernemer met veel aangesloten
+organisaties er ook werkelijk veel bevraagd krijgt. Wat je hier vaststelt is het **aantal** — 3, 15,
+45 en 100 — en dat de lijst meteen begint te vullen. Niet de tijden van de laptopmeting: op ZAD gaat
+elke bevraging over de publieke ingress, dus die getallen horen hoger te liggen. Ze zijn een
+vergelijkingspunt, geen norm.
+
+Vooraf drie dingen, want elk ervan laat de meting anders stil verkeerd uitkomen:
+
+```bash
+# a. Draait de simulator, en met welke tag?
+gh api repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production/mpfm-w3h/test/magazijnsimulator-deployment.yaml \
+  --jq '.content' | base64 -d | grep -E '^\s+(replicas|image):'
+
+# b. Staat de bulkhead boven de grootste fan-out? Bij de standaard 20 meet je die grens en niet de keten.
+zadctl -p mpfb-8wh env list -c uitvraag | grep BULKHEAD    # verwacht 120
+
+# c. Is de simulator gevuld? Anders bevraagt de uitvraag honderd lege magazijnen.
+```
+
+Voor (c): open `$CONSOLE/`, tabblad **Scenario's**, en druk op **Vullen** in de groep *Gesimuleerde
+magazijnen* — of op **Herstel demo**, dat het ook doet.
+
+Dan de meting zelf, vanuit de repository-root:
+
+```bash
+UITVRAAG=https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl \
+CONSOLE=https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl \
+CONSOLE_COOKIE='<het sessiecookie van je ingelogde browser>' \
+  demo/meet-fanout.sh 3
+```
+
+**Het cookie is geen franje.** Het script leegt vóór elke ronde de sessiecache via het paneel, en dat
+paneel staat achter de muur: zonder cookie krijgt die aanroep 403 en stopt de meting met "de
+sessiecache legen mislukte". Lees het uit de devtools van een browser waarin je bent ingelogd
+(tabblad Netwerk, een verzoek aan de console, kopregel `Cookie`). Zonder cookie kan het ook met de
+hand — `demo/meet-fanout.sh 1` per ondernemer, en tussen de rondes in de browser op **Cache
+verlopen** — maar dan is de meting niet in één handeling te herhalen.
+
+Verwacht per ondernemer, met de laptopmeting uit
+`docs/plans/2026-08-21-magazijn-simulator-design.md` ernaast:
+
+| Ondernemer | Bevraagd | Geslaagd | Op de laptop: eerste / compleet |
+|---|---|---|---|
+| kleine-eenmanszaak | 3 | 3 | 43 ms / 0,13 s |
+| klein-bedrijf | 15 | 15 | 49 ms / 1,5 s |
+| grootbedrijf | 45 | 41 | 94 ms / 10,1 s → 3,0 s |
+| landelijk-concern | 100 | 91 | 137 ms / 10,1 s → 2,7 s |
+
+De uitvallers horen erbij: de gedragsverdeling zet er twee uit, drie op serverfout, één op weigeren
+en één op onbruikbaar antwoord, plus vier die de helft van de tijd haperen. Dat "compleet" in de
+eerste rondes rond de tien seconden ligt is ook goed — dat is de query-timeout op één organisatie die
+niet reageert, en na drie storingen slaat de circuit breaker hem dertig seconden over, waarna dezelfde
+ronde naar een paar seconden zakt.
+
+Wat wél een bevinding is:
+
+| Wat je ziet | Wat het betekent |
+|---|---|
+| `WAARSCHUWING: <n> organisaties bevraagd, verwacht <m>` | Het register op de uitvraag en de set van de simulator lopen uiteen — beide attachments komen uit hetzelfde script met hetzelfde getal, dus één is niet opnieuw geüpload. |
+| Veel meer mislukt dan de tabel, verspreid over alle ondernemers | Kijk eerst naar de simulator: zijn database-pool draagt honderd magazijnen tegelijk, en een te lage waarde laat magazijnen omvallen die op *normaal* staan. |
+| Precies 20 geslaagd bij 45 en 100 | De bulkhead staat nog op de standaardwaarde: controle (b) hierboven. |
+| `de uitvraag op … is niet gezond` | De meting is niet begonnen; dit zegt niets over de fan-out. |
+
+Noteer de uitkomst (het TSV-bestand uit `$UITVOER`, standaard `/tmp/fanout-meting.tsv`) in
+MinBZK/MijnOverheidZakelijk#1013, zodat de gedeelde omgeving een eigen meetpunt heeft naast de
+laptop.
+
 ## Daarna
 
 Laat de omgeving niet leeg achter: druk nog een keer op **Herstel demo**, zodat de volgende

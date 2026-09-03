@@ -1,8 +1,9 @@
 # De magazijn-simulator op ZAD
 
 **Status: §1 tot en met §5 zijn uitgevoerd** — §1 tot en met §4 op 2026-08-31 voor de deployment
-`test`, §5 op 2026-09-01 in de deploy-workflow. Wat er nog open staat, staat onderaan. De commando's
-hieronder zijn dus geen voornemen meer maar een verslag.
+`test`, §5 op 2026-09-01 in de deploy-workflow. De commando's hieronder zijn dus geen voornemen meer
+maar een verslag. Wat er nog te doen is, staat onderaan als vijf af te vinken stappen; daarna kan
+MinBZK/MijnOverheidZakelijk#1013 dicht.
 
 Deze stap (MinBZK/MijnOverheidZakelijk#1013) wachtte op MinBZK/MijnOverheidZakelijk#936; dat issue is
 gesloten, dus die volgorde staat niets meer in de weg.
@@ -279,16 +280,88 @@ via `clone-from: test`.
 
 ## Wat er nog open staat
 
-- **De eerste uitrol afwachten en verifiëren.** §5 wijzigde de workflow; die levert pas een image
-  bij de eerstvolgende merge naar main. Tot dat moment is het component wél gedefinieerd maar draait
-  het niet, en toont `zadctl deployment describe test` hem nog niet.
-  Breid `verify-zad.md` daarna uit met de fan-out: vier ondernemers, 3 / 15 / 45 / 100 organisaties,
-  gemeten met `demo/meet-fanout.sh` tegen de ZAD-URL.
-- Nagaan hoeveel geheugen het component nodig heeft. Lokaal staat de simulator met 98 magazijnen op
-  ongeveer 450 MB; `zadctl resource tune` stelt het bij op werkelijk gebruik.
-- Bepalen of previews hun eigen gevulde simulator krijgen of die van `test` delen. Met een eigen
-  database per deployment is het eerste vanzelf zo, maar dan moet elke preview ook gevuld worden —
-  de vul-knop op het bedieningspaneel doet dat, en dat is één handeling.
-- Nagaan of Flyway het schema zelf mag aanmaken. Dat doet hij standaard, mits de databasegebruiker
-  `CREATE` mag; zo niet, dan het schema vooraf aanmaken en `quarkus.flyway.create-schemas=false`
-  zetten.
+Vijf stappen, in deze volgorde: elke volgende gaat uit van de vorige. Vier ervan zijn af te vinken
+zonder iets te kiezen; de laatste vraagt één besluit. Staan ze alle vijf, dan kan
+MinBZK/MijnOverheidZakelijk#1013 dicht en mag de statusregel van
+`docs/plans/2026-08-21-magazijn-simulator-design.md` mee.
+
+### 1. Vaststellen dat de eerste uitrol geland is
+
+§5 wijzigde de workflow; die levert pas een image bij de eerstvolgende merge naar main. Kijk niet
+naar de UI-melding maar naar het gerenderde manifest — dat is de grond-waarheid, en een bevroren
+ImagePullBackOff-event in "Technische details" kan een oude tag noemen terwijl de sync allang klopt:
+
+```bash
+gh api repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production/mpfm-w3h/test/magazijnsimulator-deployment.yaml \
+  --jq '.content' | base64 -d | grep -E '^\s+(replicas|image):'
+
+zadctl -p mpfm-w3h deployment describe test
+```
+
+**Klaar wanneer:** `replicas: 1` en een tag van de vorm `main-<sha7>`, en `describe` het component
+toont. Staat er `replicas: 0`, lees dan eerst "Als een component uitstaat" in `README.md` — de
+herstelroute is destructief en `:refresh` reactiveert niets.
+
+### 2. Bewijzen dat de simulator ook doorkomt
+
+```bash
+OIN=$(grep -oE '"[0-9]{20}"' demo/generated/magazijn-simulator.properties | head -1 | tr -d '"')
+
+curl -sS -w '\n%{http_code}\n' -H "X-Ontvanger: KVK:90000003" \
+  "https://magazijnsimulator-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/magazijn/$OIN/api/v1/berichten"
+```
+
+Neem een OIN die werkelijk in de set van dít component zit — vandaar dat het commando er een uit het
+gegenereerde bestand leest in plaats van er een te noemen. Dat de eerste regel gepakt wordt is geen
+toeval: volgnummer 1 staat in de gedragsverdeling op *normaal*, dus een fout hier is een echte fout
+en niet een magazijn dat hoort te haperen.
+
+**Klaar wanneer:** een `200` met een berichtenlijst (leeg mag, dat is stap 3). Dan staan de ingress,
+het pad-prefix en de databaseverbinding. Een `404` betekent dat deze OIN niet in de set van dít
+component zit — dan is het attachment uit §2 niet, of met een ander aantal, geüpload; een `503` dat
+de pod draait maar zijn database niet vindt.
+
+### 3. De fan-out meten en de uitkomst vastleggen
+
+Doorloop stap 9 van `verify-zad.md` ("De fan-out van de vier ondernemers"). Die stap zegt wat je
+vooraf controleert, hoe je het meetscript langs de authorization-wall krijgt, en welke uitkomsten
+horen bij de gedragsverdeling.
+
+**Klaar wanneer:** de vier ondernemers 3, 15, 45 en 100 organisaties bevraagd tonen zonder de
+waarschuwing over een afwijkend aantal, en de meting als comment onder
+MinBZK/MijnOverheidZakelijk#1013 staat.
+
+### 4. Het geheugen op werkelijk gebruik zetten
+
+Lokaal staat de simulator met 98 magazijnen op ongeveer 450 MB. Wat hij hier nodig heeft, hangt af
+van de fan-out die stap 3 er net doorheen heeft gehaald — draai dit dus ná die meting, anders stel je
+af op een component dat nog niets gedaan heeft:
+
+```bash
+zadctl -p mpfm-w3h resource tune --dry-run
+zadctl -p mpfm-w3h resource tune
+```
+
+**Klaar wanneer:** de aanpassing is uitgerold en het component daarna nog steeds antwoordt (stap 2
+herhalen volstaat). Zag je in stap 3 magazijnen omvallen die op *normaal* staan, kijk dan eerst naar
+`DB_POOL_MAX` (default 50) en het aantal verbindingen dat de database toelaat — dat is een pool-grens
+en geen geheugenprobleem.
+
+### 5. Flyway, en het besluit over de previews
+
+```bash
+zadctl -p mpfm-w3h logs test -c magazijnsimulator --since 1h -n 300 | grep -iE 'flyway|migrat'
+```
+
+**Klaar wanneer:** de log meldt dat de twee migraties zijn toegepast. Zegt hij dat het schema niet
+aangemaakt kan worden, dan mag de databasegebruiker geen `CREATE`: maak het schema uit `DB_SCHEMA`
+vooraf aan en zet `quarkus.flyway.create-schemas=false`.
+
+En de vraag die daarna nog openstaat: **krijgen previews hun eigen gevulde simulator, of delen ze die
+van `test`?** Met een eigen database per deployment is het eerste vanzelf zo, maar dan moet elke
+preview ook gevuld worden. Stel het vast door de console van een lopende preview te openen en onder
+*Berichten per magazijn* te kijken of er nul staat; is dat zo, dan is één druk op **Herstel demo** de
+hele handeling. Schrijf de uitkomst bij §4, waar de koppeling van een preview aan zijn eigen
+simulator staat — anders ontdekt de volgende preview-bezoeker opnieuw dat zijn magazijnen leeg zijn.
+
+**Klaar wanneer:** dat besluit — vullen per preview, of delen — in dit runbook staat.
