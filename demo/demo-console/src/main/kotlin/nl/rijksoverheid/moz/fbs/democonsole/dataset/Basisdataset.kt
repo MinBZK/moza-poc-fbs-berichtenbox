@@ -16,20 +16,32 @@ private data class Bak(val magazijnOin: String, val ontvangerType: String, val o
 @ApplicationScoped
 class Basisdataset(private val mapper: ObjectMapper) {
 
-    fun laad(): List<AanleverOpdracht> {
+    fun laad(): List<AanleverOpdracht> = metVariatie(ruw())
+
+    /**
+     * De dataset zoals hij op schijf staat, zonder de variatie van [metVariatie]. Apart omdat de
+     * twee los te toetsen horen: de toekenning van bijlagen en leesstatus is de logica, het inlezen
+     * van het classpath niet.
+     */
+    internal fun ruw(): List<AanleverOpdracht> {
         val inputStream = javaClass.classLoader.getResourceAsStream(PAD)
             ?: throw IllegalStateException("basisdataset niet gevonden op classpath: $PAD")
 
-        val opdrachten: List<AanleverOpdracht> = inputStream.use { mapper.readValue(it) }
+        return inputStream.use { mapper.readValue(it) }
+    }
 
-        // Wat variatie in de beginsituatie: elk derde bericht een PDF-bijlage (voor de
-        // download-demo), en elk vierde alvast op gelezen (voor een realistische lees-mix).
-        //
-        // Geteld per berichtenbak — magazijn plus ontvanger — en niet over de vlakke lijst.
-        // basis.json staat in een vaste cyclus van vier bakken, en een regel met diezelfde periode
-        // raakt dan telkens dezelfde bak: "elk vierde op gelezen" zette één bak volledig op gelezen
-        // en de andere drie helemaal niet. Per bak tellen maakt de mix bovendien onafhankelijk van
-        // de volgorde waarin de dataset toevallig staat.
+    /**
+     * Wat variatie in de beginsituatie: elk derde bericht een PDF-bijlage (voor de download-demo),
+     * en elk vierde alvast op gelezen (voor een realistische lees-mix).
+     *
+     * Geteld per berichtenbak — magazijn plus ontvanger — en niet over de vlakke lijst. basis.json
+     * herhaalt de bakken in een vast patroon, en over de vlakke lijst valt "elk vierde op gelezen"
+     * dan telkens op dezelfde plek in die herhaling: één bak stond volledig op gelezen en een andere
+     * helemaal niet. Per bak tellen maakt de mix bovendien onafhankelijk van de volgorde waarin de
+     * dataset toevallig staat: welk bericht de vlag krijgt verschuift dan wel, hoevéél er per bak
+     * gelezen zijn niet.
+     */
+    internal fun metVariatie(opdrachten: List<AanleverOpdracht>): List<AanleverOpdracht> {
         val volgnummers = mutableMapOf<Bak, Int>()
 
         return opdrachten.map { opdracht ->

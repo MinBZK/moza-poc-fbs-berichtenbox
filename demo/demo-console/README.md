@@ -73,9 +73,9 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 
 | Tabblad | Knop | Wat het doet |
 |---|---|---|
-| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
+| Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee en krijgen daarna hun standaardvulling terug; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
-| Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json` |
+| Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo* |
 | Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek. De gesimuleerde magazijnen gaan als deelstap mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen |
 | Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten |
 | Demo | Stroom starten / stoppen | Eén willekeurig bericht per interval; stopt vanzelf na 500 berichten of 60 minuten |
