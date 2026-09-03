@@ -24,7 +24,7 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
+    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
 
 permissions:
   contents: read
@@ -75,6 +75,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 .github/scripts/jdk-handtekening.py .github/workflows
 
+      - name: De COPY-lijst van het fuzz-basis-image volgt de reactor
+        # De suite hieronder toetst deze guard tegen fixtures; deze stap laat hem los op de
+        # werkelijke root-pom en het werkelijke Dockerfile. Los, zodat een achterlopende COPY-lijst
+        # als eigen regel in de log staat en niet als één van de twintig meldingen van de
+        # unittest-stap. Het Dockerfile draagt dezelfde controle, maar die gaat pas af tijdens de
+        # bouw van het image — en die draait alleen op een push naar main, dus ná de merge.
+        if: ${{ !cancelled() }}
+        run: .github/scripts/fuzz-basis-modules.sh
+
       - name: shellcheck + bash-unittests
         # Ook draaien als actionlint viel: twee losse signalen zijn in één run meer waard dan één.
         if: ${{ !cancelled() }}
@@ -110,6 +119,7 @@ jobs:
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=29
             [.github/scripts/test-jdk-handtekening.sh]=22
+            [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-proeftuin-image.sh]=15
           )
 

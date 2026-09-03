@@ -18,7 +18,7 @@ ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ENV PATH=$JAVA_HOME/bin:$PATH
 
 # Alleen de pom's: dit image warmt de Maven-repository, het bouwt geen fuzz-doelen. Élke module uit
-# de reactor hoort erbij, ook demo/demo-console — zonder zijn pom kan Maven de reactor niet lezen en
+# de reactor hoort erbij, ook de demo-modules — zonder hun pom kan Maven de reactor niet lezen en
 # struikelt `go-offline`. Meekopiëren is dus geen fuzzen: welke modules daadwerkelijk gefuzzd worden
 # staat in de MODULES-lijst van ../build.sh, en demo-code staat daar niet in (het heeft ook geen
 # Jazzer-doelen). Een PR die alleen demo/ raakt slaat de fuzz-ronde helemaal over.
@@ -32,6 +32,8 @@ COPY libraries/fbs-berichtensessiecache/pom.xml libraries/fbs-berichtensessiecac
 COPY services/berichtenmagazijn/pom.xml services/berichtenmagazijn/pom.xml
 COPY services/berichtenuitvraag/pom.xml services/berichtenuitvraag/pom.xml
 COPY demo/demo-console/pom.xml demo/demo-console/pom.xml
+COPY demo/demo-personas/pom.xml demo/demo-personas/pom.xml
+COPY demo/magazijn-simulator/pom.xml demo/magazijn-simulator/pom.xml
 
 RUN chmod +x mvnw
 
