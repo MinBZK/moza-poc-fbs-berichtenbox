@@ -301,6 +301,66 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `delete laat een tombstone achter voor de ontvanger zelf`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `de tombstone geldt alleen voor de ontvanger die verwijderde`() {
+        // Anders zou het antwoord op andermans berichtId verraden dát het bestaat.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        val andereOntvanger = Oin(System.nanoTime().toString().padStart(20, '9').takeLast(20))
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        assertFalse(berichtenCache.isVerwijderdVoor(target.berichtId, andereOntvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een nooit verwijderd bericht heeft geen tombstone`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        assertFalse(berichtenCache.isVerwijderdVoor(berichten[0].berichtId, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(UUID.randomUUID(), ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een opnieuw aangeleverd bericht wint van zijn eigen tombstone`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        berichtenCache.createBericht(target, ontvanger).await().indefinitely()
+
+        // De tombstone blijft staan maar wordt nooit geraadpleegd zolang het bericht er is;
+        // de lookup-volgorde in de facade is wat dit afdekt.
+        assertNotNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `de tombstone duikt niet op als zoekresultaat`() {
+        // Onder de RediSearch-prefix zou een tombstone als bericht geïndexeerd worden.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        val treffers = berichtenCache.search(ontvanger, "bericht", 0, 50, null, null).await().indefinitely()
+        assertTrue(treffers.berichten.none { it.berichtId == target.berichtId })
+    }
+
+    @Test
     fun `delete onbestaand bericht is no-op`() {
         // Geen exceptie en geen kerneffect — er is simpelweg niets om te verwijderen.
         berichtenCache.delete(UUID.randomUUID(), ontvanger).await().indefinitely()

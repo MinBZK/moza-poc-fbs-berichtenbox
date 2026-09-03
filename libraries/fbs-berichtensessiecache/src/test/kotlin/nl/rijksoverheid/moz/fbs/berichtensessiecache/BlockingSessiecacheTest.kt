@@ -114,8 +114,34 @@ class BlockingSessiecacheTest {
         val id = UUID.randomUUID()
 
         every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(false)
 
         assertNull(facade.bericht(ontvanger, id))
+    }
+
+    @Test
+    fun `bericht meldt een misser met tombstone als zelf verwijderd`() {
+        stubStatus(gereed)
+        val id = UUID.randomUUID()
+
+        every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(true)
+
+        assertThrows<SessiecacheException.BerichtVerwijderd> { facade.bericht(ontvanger, id) }
+    }
+
+    @Test
+    fun `bericht raadpleegt de tombstone niet zolang het bericht er is`() {
+        // Een achtergebleven tombstone van een eerder verwijderd-en-opnieuw-aangeleverd
+        // bericht mag een bestaand bericht niet als verwijderd bestempelen.
+        stubStatus(gereed)
+        val bericht = testBericht()
+
+        every { service.getBerichtById(bericht.berichtId, ontvanger) } returns Uni.createFrom().item(bericht)
+
+        // `isBerichtVerwijderd` blijft bewust ongestubd: de mock is strikt, dus een aanroep
+        // laat deze test falen. Dat is directer dan een verify achteraf.
+        assertSame(bericht, facade.bericht(ontvanger, bericht.berichtId))
     }
 
     // --- werkBerichtBij ---

@@ -175,6 +175,10 @@ internal class BerichtensessiecacheService(
         return berichtenCache.getById(berichtId, ontvanger)
     }
 
+    /** Of [ontvanger] dit bericht zelf verwijderde; zie [BerichtenCache.isVerwijderdVoor]. */
+    fun isBerichtVerwijderd(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean> =
+        berichtenCache.isVerwijderdVoor(berichtId, ontvanger)
+
     fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?, map: String? = null): Uni<BerichtenPagina> {
         // q is user-input zonder CRLF-filter op spec-niveau; loggen van q.length voorkomt
         // log-injectie via newline-payloads. Voor diepere debug staat de query elders in

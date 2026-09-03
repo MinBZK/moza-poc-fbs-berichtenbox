@@ -45,6 +45,13 @@ internal interface BerichtenCache {
     fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
     fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void>
 
+    /**
+     * Of [ontvanger] dit bericht binnen deze sessie zélf verwijderde. Alleen te vertrouwen als
+     * antwoord op een misser: staat het bericht er nog, dan is dat de waarheid en zegt de
+     * tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
+     */
+    fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean>
+
     companion object {
         // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
         // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
@@ -62,6 +69,13 @@ internal interface BerichtenCache {
         }
         fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
         const val BERICHT_PREFIX = "bericht:v1:"
+
+        /**
+         * Key van de tombstone die een zelf-verwijderd bericht achterlaat. Bewust buiten
+         * [BERICHT_PREFIX]: die prefix is het indexeerpatroon van [SEARCH_INDEX], dus een
+         * tombstone daaronder zou als zoekresultaat terugkomen.
+         */
+        fun verwijderdKey(berichtId: UUID) = "verwijderd:v1:$berichtId"
         const val SEARCH_INDEX = "berichten-idx"
     }
 }
@@ -807,12 +821,45 @@ internal class RedisBerichtenCache(
                     fields["ontvanger"] != ontvanger.waarde ||
                     fields["ontvangerType"] != ontvanger.type.name
                 ) {
+                    // Zonder hash weten we niet wie de eigenaar was, dus valt er ook geen
+                    // tombstone te schrijven die aan een ontvanger toe te schrijven is. Dat is
+                    // het pad van een tweede DELETE of een verlopen TTL; in het eerste geval
+                    // staat de tombstone er al.
                     Uni.createFrom().voidItem()
                 } else {
                     pruneListEnDelHash(listKey, berichtKey, berichtId)
+                        .chain { _ -> schrijfTombstone(berichtId, ontvanger) }
                 }
             }
             .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor berichtId=%s", berichtId) }
+    }
+
+    override fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean> =
+        redis.hash(String::class.java).hgetall(BerichtenCache.verwijderdKey(berichtId))
+            .map { velden ->
+                velden["ontvanger"] == ontvanger.waarde && velden["ontvangerType"] == ontvanger.type.name
+            }
+            .onFailure().invoke { e -> log.errorf(e, "Redis tombstone-lookup mislukt voor berichtId=%s", berichtId) }
+
+    /**
+     * Laat achter dat déze ontvanger dit bericht verwijderde, zodat een volgende lookup het
+     * verschil kan maken tussen "nooit gezien" en "zelf weggegooid".
+     *
+     * De eigenaar staat in de tombstone en wordt bij het lezen vergeleken: een andere ontvanger
+     * die hetzelfde `berichtId` probeert, krijgt daardoor exact het antwoord dat hij voor een
+     * onbekend bericht zou krijgen. De TTL is die van de sessie — een tombstone hoort niet langer
+     * te leven dan de berichten waar hij tussen stond.
+     */
+    private fun schrijfTombstone(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
+        val tombstoneKey = BerichtenCache.verwijderdKey(berichtId)
+        val velden = mapOf(
+            "ontvanger" to ontvanger.waarde,
+            "ontvangerType" to ontvanger.type.name,
+        )
+
+        return redis.hash(String::class.java).hset(tombstoneKey, velden)
+            .chain { _ -> redis.key().expire(tombstoneKey, ttl) }
+            .replaceWithVoid()
     }
 
     private fun pruneListEnDelHash(listKey: String, berichtKey: String, berichtId: UUID): Uni<Void> =
