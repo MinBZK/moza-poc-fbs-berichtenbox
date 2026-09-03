@@ -767,7 +767,7 @@ function vulPersonas(personas) {
     const knop = document.querySelector('button[data-samenvatting="ontdubbeling"]');
 
     if (!Array.isArray(personas)) {
-        meldLijstOnbekend(keuze, knop);
+        meldOnbruikbareLijst('personas', personas, keuze, knop);
 
         return;
     }
@@ -788,10 +788,8 @@ function vulBerichtPersonas(personas) {
     const keuze = document.getElementById('berichtPersona');
     const knop = document.getElementById('berichtKnop');
 
-    // Niet op `=== null`: een console die dit veld nog niet kent levert `undefined`, en dat zou
-    // verderop een TypeError geven die als "lijst niet op te halen" leest — de verkeerde diagnose.
     if (!Array.isArray(personas)) {
-        meldLijstOnbekend(keuze, knop);
+        meldOnbruikbareLijst('berichtPersonas', personas, keuze, knop);
 
         return;
     }
@@ -804,20 +802,43 @@ function vulBerichtPersonas(personas) {
     );
 }
 
+/* Niet op `=== null`: een antwoord dat wel binnenkwam maar niet de vorm van een lijst heeft (een
+ * foutpagina van een proxy, een afgekapt antwoord) mag niet als "niets ingericht" lezen. Dat is een
+ * andere oorzaak dan een onbereikbare console, en alleen de console-regel houdt dat verschil vast:
+ * de keuzelijst zegt in beide gevallen hetzelfde. */
+function meldOnbruikbareLijst(veld, waarde, keuze, knop) {
+    if (waarde !== null) console.error('[bediening] ' + veld + ' heeft niet de verwachte vorm', waarde);
+
+    meldLijstOnbekend(keuze, knop);
+}
+
 /* De lijst niet kunnen lezen is iets anders dan niets ingericht hebben: met de verkeerde reden
- * afhaken stuurt de bediener de configuratie in terwijl de console even weg was. De knop blijft
- * daarom aan — die faalt dan zichtbaar met de echte fout. */
+ * afhaken stuurt de bediener de configuratie in terwijl de console even weg was.
+ *
+ * De knop blijft aan — expliciet, en niet "hij stond toch al aan", zodat zijn toestand niet afhangt
+ * van wat een eerdere ronde deed. De optie krijgt een lege `value`, want zonder dat attribuut is
+ * zijn waarde zijn tekst: de knop stuurde dan `?persona=persona-lijst niet op te halen` en kreeg een
+ * 404 terug die naar de persona-inrichting wijst in plaats van naar de mislukte uitlezing.
+ *
+ * Ontbreekt het element zelf, dan is de opmaak veranderd zonder dit script; dat hoort in de console
+ * te staan en niet het vangnet van de aanroeper om te trekken. */
 function meldLijstOnbekend(keuze, knop) {
+    if (!keuze) {
+        console.error('[bediening] keuzelijst ontbreekt in de opmaak');
+
+        return;
+    }
+
     const onbekend = document.createElement('option');
 
+    onbekend.value = '';
     onbekend.textContent = 'persona-lijst niet op te halen';
 
     keuze.replaceChildren(onbekend);
     keuze.disabled = true;
 
-    // Expliciet, en niet "hij stond toch al aan": zo hangt de toestand van de knop niet af van wat
-    // een eerdere ronde deed.
-    knop.disabled = false;
+    if (knop) knop.disabled = false;
+    else console.error('[bediening] knop bij keuzelijst ' + keuze.id + ' ontbreekt in de opmaak');
 }
 
 function vulKeuze(keuze, knop, opties, leegTekst) {
@@ -908,7 +929,15 @@ document.querySelectorAll('button[data-pad]').forEach((knop) => {
 });
 
 herstelStand();
-pasOmgevingToe();
+
+// Met een .catch(): deze aanroep is fire-and-forget, dus zonder dat zou een fout uit de bedrading
+// van het paneel als unhandled rejection in de console verdwijnen — zichtbaar voor niemand die
+// tijdens een demo niet toevallig de devtools openheeft.
+pasOmgevingToe().catch((fout) => {
+    console.error('[bediening] omgeving niet toe te passen', fout);
+    toonMelding('De omgeving kon niet gelezen worden; de keuzelijsten zijn niet gevuld', 'let-op', null);
+});
+
 verversToestand();
 
 // Alleen pollen terwijl er iemand kijkt: een demo-console blijft dagen in een tab openstaan.

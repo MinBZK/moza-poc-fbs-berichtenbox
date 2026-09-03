@@ -69,12 +69,71 @@ class PaneelPadenTest {
         assertEquals(emptySet<String>(), uitPaneel - uitConfiguratie, "knoppen voor een onbekende proxy")
     }
 
+    /**
+     * Elk `{veld}` in een knop-adres moet een element in dezelfde pagina aanwijzen, én in `VELDEN`
+     * staan.
+     *
+     * Beide falen stil. Wijst het niet naar een element, dan geeft `vulPadIn` null terug en keert
+     * `voerUit` terug zonder melding of merkteken: de knop doet niets en niets zegt waarom. Staat
+     * het veld niet in `VELDEN`, dan bewaart het paneel de invoer niet en herstelt hij hem ook niet
+     * — een keuzelijst valt na een refresh stil terug op zijn eerste optie.
+     */
+    @Test
+    fun `elk veld in een knop-adres bestaat en wordt bewaard`() {
+        val velden = uitPaneel("""\{(\w+)}""").toSet()
+        val elementen = uitPaneel("""id="([^"]+)"""").toSet()
+        val bewaard = Regex("""const VELDEN = \[([^\]]+)]""")
+            .find(File(SCRIPT).readText())
+            ?.groupValues?.get(1)
+            ?.split(",")
+            ?.map { it.trim().trim('\'') }
+            ?.toSet()
+            .orEmpty()
+
+        assertTrue(velden.isNotEmpty(), "geen enkel {veld} gevonden in $PANEEL")
+        assertTrue(bewaard.isNotEmpty(), "de VELDEN-lijst niet gevonden in $SCRIPT")
+        assertEquals(emptySet<String>(), velden - elementen, "knop-adres verwijst naar een onbekend veld")
+        assertEquals(emptySet<String>(), velden - bewaard, "veld uit een knop-adres ontbreekt in VELDEN")
+    }
+
+    /**
+     * Een `data-samenvatting` die `bediening.js` niet kent, valt terug op een kaal groen "Gelukt":
+     * de knop meldt succes zonder de samenvatting die zegt wát er gebeurde.
+     */
+    @Test
+    fun `elke knop noemt een samenvatting die het script kent`() {
+        val uitPaneel = uitPaneel("""data-samenvatting="([^"]+)"""").toSet()
+        val script = File(SCRIPT).readText()
+
+        assertTrue(uitPaneel.isNotEmpty(), "geen enkele data-samenvatting gevonden in $PANEEL")
+        assertEquals(
+            emptySet<String>(),
+            uitPaneel.filterNot { Regex("""^\s{4}'?${Regex.escape(it)}'?:""", RegexOption.MULTILINE).containsMatchIn(script) }.toSet(),
+            "knoppen met een samenvatting die niet in SAMENVATTINGEN staat",
+        )
+    }
+
+    /**
+     * De bovengrens staat zowel in het invoerveld als in de resource. Lopen ze uiteen, dan weigert
+     * de server een waarde die de browser aanbiedt — of andersom, en dan is de grens er niet.
+     */
+    @Test
+    fun `het aantal-veld voor een gericht bericht deelt zijn grenzen met de resource`() {
+        val veld = Regex("""<input id="berichtAantal"[^>]*>""").find(paneel)?.value
+
+        assertTrue(veld != null, "het veld berichtAantal niet gevonden in $PANEEL")
+        assertEquals("""min="1"""", Regex("""min="\d+"""").find(veld!!)?.value)
+        assertEquals("""max="${DemoResource.MAX_BERICHTEN}"""", Regex("""max="\d+"""").find(veld)?.value)
+    }
+
     private fun uitPaneel(patroon: String): List<String> =
         Regex(patroon).findAll(paneel).map { it.groupValues[1] }.toList()
 
     private companion object {
 
         const val PANEEL = "src/main/resources/META-INF/resources/index.html"
+
+        const val SCRIPT = "src/main/resources/META-INF/resources/bediening.js"
 
         const val PROPERTIES = "src/main/resources/application.properties"
     }

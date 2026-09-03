@@ -51,15 +51,10 @@ data class Persona(
 
 /**
  * Een persona zoals het bedieningspaneel hem aanwijst. Bewust niet de `PersonaDto` van de
- * personadienst: dat is het contract met een berichtenbox en draagt naast deze twee velden het
+ * personadienst: dat is het contract met een berichtenbox en draagt onder meer het
  * identificatienummer, dat het paneel niet nodig heeft — zo kan het ook niet in de query belanden.
+ *
+ * Niet-leeg zijn de velden omdat [DemoBerichtGenerator] dat van zijn persona's eist; die controle
+ * staat daar en niet hier, want alleen daar valt hij bij het opstarten.
  */
-data class Doelpersona(val id: String, val label: String) {
-
-    init {
-        // Een leeg label levert een onzichtbare optie in de keuzelijst op; een lege id een knop die
-        // gegarandeerd 404 geeft. Allebei liever bij het opstarten dan tijdens een demonstratie.
-        require(id.isNotBlank()) { "id mag niet leeg zijn" }
-        require(label.isNotBlank()) { "label mag niet leeg zijn" }
-    }
-}
+data class Doelpersona(val id: String, val label: String)

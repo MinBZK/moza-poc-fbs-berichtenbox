@@ -135,7 +135,7 @@ class DemoBerichtGeneratorTest {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
         }
 
-        // Het init-blok gooit hetzelfde type voor vier invarianten; zonder deze assertie zou de test
+        // Het init-blok gooit hetzelfde type voor elke invariant; zonder deze assertie zou de test
         // ook slagen als de id-controle verdwijnt en een andere aanslaat.
         assertTrue(fout.message!!.contains("bakkerij"), "de melding hoort de botsende id te noemen: ${fout.message}")
     }
@@ -210,6 +210,28 @@ class DemoBerichtGeneratorTest {
 
         assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
+        }
+    }
+
+    @Test
+    fun `zonder persona's faalt de generator fail-fast`() {
+        // Deze eis draagt meer dan hij lijkt: hij is de reden dat `doelgroep()` nooit leeg kan zijn,
+        // en dus dat het paneel geen keuzelijst zonder opties hoeft te kunnen tonen.
+        assertThrows(IllegalArgumentException::class.java) {
+            DemoBerichtGenerator(emptyList(), organisaties, klok)
+        }
+    }
+
+    @Test
+    fun `een persona zonder id of zonder naam faalt fail-fast`() {
+        // Beide komen in het paneel terecht: de id als queryparameter van de knop, de naam als
+        // zichtbare optie in de keuzelijst.
+        assertThrows(IllegalArgumentException::class.java) {
+            DemoBerichtGenerator(listOf(Persona(" ", "Naam", "BSN", "999993653", listOf(rvo))), organisaties, klok)
+        }
+
+        assertThrows(IllegalArgumentException::class.java) {
+            DemoBerichtGenerator(listOf(Persona("id", " ", "BSN", "999993653", listOf(rvo))), organisaties, klok)
         }
     }
 

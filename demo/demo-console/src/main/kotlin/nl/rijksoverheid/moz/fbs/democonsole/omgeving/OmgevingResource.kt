@@ -25,8 +25,9 @@ import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
  * console kán aanleveren — zonder magazijn is er geen bestemming, en een keuze die alleen een fout
  * kan opleveren hoort niet in het paneel. Die kennis zit in de inrichting van dit paneel en niet in
  * `PersonaDto`, dat een berichtenbox leest en het aantal magazijnen bewust weglaat. De lijst komt
- * van de generator en niet rechtstreeks van de personadienst, omdat alleen hij de magazijn-OIN's al
- * tegen de ingerichte organisaties getoetst heeft.
+ * van de generator en niet van de personadienst, omdat die van de generator precies de persona's
+ * bevat waarvoor hij een bericht kán maken: met een ingericht magazijn én een organisatie waarvoor
+ * hij sjablonen heeft.
  *
  * `simulator` zegt of deze omgeving gesimuleerde magazijnen kent, niet hoeveel: het aantal vraagt
  * het paneel aan de simulator zelf, zodat er geen tweede getal is dat daarvan kan afwijken. Het

@@ -19,6 +19,7 @@ import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -28,13 +29,15 @@ import java.net.URL
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * De afspraak tussen het bedieningspaneel en de console, over HTTP. `bediening.js` hangt aan drie
- * dingen die nergens anders vastliggen: de paden, de kleine letters van de storingstoestanden
- * (het paneel filtert op de letterlijke tekst `normaal`) en de sleutels `actief`/`totaal`. Alle
- * drie falen stil — een verschoven pad geeft een chip "onbekend", een `"NORMAAL"` in hoofdletters
- * kleurt élke proxy als afwijkend — dus zonder deze test merkt niemand het tot de dag van de demo.
+ * De afspraak tussen het bedieningspaneel en de console, over HTTP. `bediening.js` hangt aan een
+ * reeks dingen die nergens anders vastliggen: de paden, de kleine letters van de storingstoestanden
+ * (het paneel filtert op de letterlijke tekst `normaal`), de sleutels `actief`/`totaal`, de vorm van
+ * de persona-lijsten en de statussen die een bedieningsfout onderscheiden. Ze falen allemaal stil —
+ * een verschoven pad geeft een chip "onbekend", een `"NORMAAL"` in hoofdletters kleurt élke proxy
+ * als afwijkend — dus zonder deze test merkt niemand het tot de dag van de demo.
  *
  * De services zijn vervangen door vaste dubbels: hun logica heeft eigen unittests, en Toxiproxy en
  * de simulator draaien hier niet. Wat overblijft is precies wat we willen pinnen — route, status,
@@ -57,6 +60,14 @@ class PaneelContractTest {
 
     @TestHTTPResource("/")
     lateinit var basis: URL
+
+    // Onvoorwaardelijk en niet in de testbody: het dubbel vervangt AanleverService voor élke
+    // @QuarkusTest van deze module, dus de eerste test die een ander vulpad aanroept zou anders
+    // stil in deze lijst bijschrijven en een ándere test rood maken.
+    @BeforeEach
+    fun leegDeOpdrachten() {
+        VasteAanleverService.opdrachten.clear()
+    }
 
     private fun haal(url: URL): HttpResponse<String> =
         HttpClient.newHttpClient().send(
@@ -133,14 +144,14 @@ class PaneelContractTest {
 
     @Test
     fun `het label van een doelpersona is dat van dezelfde persona in personas`() {
-        // Twee vrije strings naast elkaar in dezelfde mapping: verwisseld compileert het, waarna de
-        // knop de mensennaam als id verstuurt en élke keuze een 404 geeft.
+        // Verwisseld compileert de mapping, waarna de knop de mensennaam als id verstuurt.
         val antwoord = ObjectMapper().readTree(haalJson(omgevingUrl))
         val labels = antwoord.path("personas").associate { it.path("id").asText() to it.path("label").asText() }
 
-        antwoord.path("berichtPersonas").forEach {
-            assertEquals(labels[it.path("id").asText()], it.path("label").asText())
-        }
+        val doelen = antwoord.path("berichtPersonas")
+
+        assertFalse(doelen.isEmpty, "zonder doelpersona's toetst deze vergelijking niets")
+        doelen.forEach { assertEquals(labels[it.path("id").asText()], it.path("label").asText()) }
     }
 
     @Test
@@ -151,12 +162,14 @@ class PaneelContractTest {
 
         assertEquals(404, respons.statusCode())
         assertTrue(respons.body().contains("bestaat-niet"), "de melding hoort de gevraagde persona te noemen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een onbekende persona hoort niets aan te leveren")
     }
 
     /**
-     * Een parameter die helemaal ontbreekt is iets anders dan een verkeerde waarde, en Kotlin maakt
-     * er zonder eigen afhandeling een `NullPointerException` van — dus HTTP 500 met een interne
-     * melding, precies waar de 404 hierboven tegen bedoeld is.
+     * Een ontbrekende parameter is een ander faalpad dan een onbekende waarde: Kotlin maakt er
+     * zonder eigen afhandeling een `NullPointerException` van, en dat wordt een HTTP 500 met een
+     * interne melding. Een lege of witruimte-waarde hoort er hetzelfde uit te zien als een
+     * ontbrekende, want voor de bediener is het dezelfde vergissing.
      */
     @ParameterizedTest
     @ValueSource(strings = ["", "?aantal=1", "?persona=", "?persona=%20"])
@@ -165,23 +178,59 @@ class PaneelContractTest {
 
         assertEquals(400, respons.statusCode(), "query '$query'")
         assertTrue(respons.body().contains("berichtPersonas"), "de melding hoort de weg terug te wijzen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "valideren hoort vóór aanleveren te gaan")
     }
 
     /**
-     * De grenzen staan ook in `index.html` (`min`/`max`), maar dat is de browser; het runbook en
-     * Bruno roepen dit adres rechtstreeks aan. Nul zou anders een groene melding "0 van 0
-     * aangeleverd" opleveren voor een actie die niets deed.
+     * De browser bewaakt deze grenzen ook, maar dat is geen contract: dit adres staat open op de
+     * origin van het paneel. Nul zou een groene melding "0 van 0 aangeleverd" opleveren voor een
+     * actie die niets deed.
      */
     @ParameterizedTest
     @ValueSource(ints = [0, -1, 101])
     fun `een bericht met een aantal buiten de grenzen geeft 400`(aantal: Int) {
         assertEquals(400, plaatsBericht("?persona=pietersen&aantal=$aantal").statusCode())
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een geweigerd aantal hoort niets aan te leveren")
+    }
+
+    /**
+     * De grenzen zelf, en niet alleen wat erbuiten valt: `aantal !in 1 until MAX_BERICHTEN` zou
+     * álle gevallen hierboven even goed doorstaan, en dan geeft de knop een fout op precies de
+     * bovengrens die het invoerveld aanbiedt.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [1, 100])
+    fun `een bericht op de grens van het toegestane aantal slaagt`(aantal: Int) {
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=$aantal").statusCode())
+        assertEquals(aantal, VasteAanleverService.opdrachten.size)
+    }
+
+    /**
+     * Zou de resource het aantal als `Int` laten injecteren, dan handelt JAX-RS een mislukte
+     * omzetting af vóór de eerste regel van de methode — met een 404, dezelfde status die dit
+     * endpoint voor een onbekende persona gebruikt. De bediener zoekt dan in de persona-lijst naar
+     * een fout die in het aantal-veld zit.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["abc", "1.5", "3000000000"])
+    fun `een bericht met een onleesbaar aantal geeft 400 en geen 404`(aantal: String) {
+        val respons = plaatsBericht("?persona=pietersen&aantal=$aantal")
+
+        assertEquals(400, respons.statusCode(), "aantal '$aantal'")
+        assertTrue(respons.body().contains("aantal"), "de melding hoort het aantal-veld aan te wijzen")
+    }
+
+    @Test
+    fun `een aantal-parameter zonder waarde valt terug op de default`() {
+        // `?aantal=` lost JAX-RS met @DefaultValue op, dus de resource ziet "1" en niet een lege
+        // waarde. Vastgelegd omdat het afwijkt van `?persona=`, dat wél als bedieningsfout telt:
+        // voor een aantal is er een zinnige default, voor een persona niet.
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=").statusCode())
+        assertEquals(1, VasteAanleverService.opdrachten.size)
     }
 
     @Test
     fun `het aantal komt door tot bij de aanlevering, met 1 als default`() {
-        VasteAanleverService.opdrachten.clear()
-
         assertEquals(200, plaatsBericht("?persona=pietersen").statusCode())
         assertEquals(1, VasteAanleverService.opdrachten.size, "zonder aantal hoort er één bericht te gaan")
 
@@ -195,18 +244,25 @@ class PaneelContractTest {
         )
     }
 
+    @Test
+    fun `het antwoord draagt de vier tellers die het paneel samenvat`() {
+        // `bediening.js` leest ze bij naam in zijn `vulling`-samenvatter; een hernoemd veld laat de
+        // knop "onverwachte vorm" melden terwijl de aanlevering gewoon lukte.
+        val body = ObjectMapper().readTree(plaatsBericht("?persona=pietersen&aantal=3").body())
+
+        assertEquals(
+            setOf("aangeboden", "geslaagd", "mislukt", "markeringMislukt"),
+            body.fieldNames().asSequence().toSet(),
+        )
+        assertEquals(3, body.path("aangeboden").asInt())
+    }
+
     private fun plaatsBericht(query: String): HttpResponse<String> = HttpClient.newHttpClient().send(
         HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + "/api/demo/bericht" + query))
             .POST(HttpRequest.BodyPublishers.noBody())
             .build(),
         HttpResponse.BodyHandlers.ofString(),
     )
-
-    private companion object {
-
-        /** Uit de ingerichte personaset van demo-personas; `pietersen` is de persona die de test aanwijst. */
-        const val PIETERSEN_BSN = "999993653"
-    }
 
     @Test
     fun `deze module beantwoordt het personas-adres niet`() {
@@ -269,6 +325,12 @@ class PaneelContractTest {
         HttpResponse.BodyHandlers.discarding(),
     ).statusCode()
 
+    private companion object {
+
+        /** Uit de ingerichte personaset van demo-personas; `pietersen` is de persona die de test aanwijst. */
+        const val PIETERSEN_BSN = "999993653"
+    }
+
     @Test
     fun `de omgeving meldt of de sessiecache bereikbaar is`() {
         // Het paneel laat de sessie-groep hierop weg; ontbreekt het veld, dan blijft een knop
@@ -312,8 +374,12 @@ class VasteSimulatorService(
 }
 
 /**
- * Vaste aanlevering in plaats van twee magazijnen: deze test pint de bedrading van de knop — komt
- * het aantal aan, en gaat het naar de gevraagde persona — niet wat een magazijn ermee doet.
+ * Vaste aanlevering in plaats van twee magazijnen: de tests hieraan pinnen de bedrading van de knop
+ * — komt het aantal aan, en gaat het naar de gevraagde persona — niet wat een magazijn ermee doet.
+ *
+ * `@Mock` vervangt AanleverService voor élke @QuarkusTest van deze module, en de opgenomen
+ * opdrachten staan dus in één procesbrede lijst. Vandaar de thread-veilige lijst — er wordt op een
+ * worker-thread geschreven en op de test-thread gelezen — en de @BeforeEach die hem leegt.
  */
 @Mock
 @Singleton
@@ -322,11 +388,16 @@ class VasteAanleverService(config: DemoConfig) : AanleverService(config) {
     override fun leverAan(opdrachten: List<AanleverOpdracht>): AanleverResultaat {
         Companion.opdrachten += opdrachten
 
-        return AanleverResultaat(opdrachten.size, opdrachten.size, 0, 0)
+        return AanleverResultaat(
+            aangeboden = opdrachten.size,
+            geslaagd = opdrachten.size,
+            mislukt = 0,
+            markeringMislukt = 0,
+        )
     }
 
     companion object {
 
-        val opdrachten: MutableList<AanleverOpdracht> = mutableListOf()
+        val opdrachten: MutableList<AanleverOpdracht> = CopyOnWriteArrayList()
     }
 }

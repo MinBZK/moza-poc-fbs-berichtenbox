@@ -23,6 +23,11 @@ class DemoBerichtGenerator(
         require(personas.isNotEmpty()) { "minstens één persona vereist" }
 
         personas.forEach { persona ->
+            // Een lege id levert een knop die om een persona vraagt die niet bestaat; een leeg label
+            // een onzichtbare optie in de keuzelijst. Hier, want dit blok draait bij het opstarten.
+            require(persona.id.isNotBlank()) { "persona-id mag niet leeg zijn" }
+            require(persona.naam.isNotBlank()) { "persona ${persona.id} heeft geen naam" }
+
             Identificatiecheck.valideer(persona.type, persona.waarde)
 
             require(persona.magazijnen.isNotEmpty()) { "persona ${persona.naam} heeft geen magazijnen" }

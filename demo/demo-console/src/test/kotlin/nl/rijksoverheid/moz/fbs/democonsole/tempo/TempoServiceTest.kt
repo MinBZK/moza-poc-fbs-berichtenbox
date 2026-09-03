@@ -57,8 +57,6 @@ class TempoServiceTest {
     private val testKlok = TestKlok()
     private val aanleverService = mockk<AanleverService>()
 
-    // Een echte generator en geen mock: hij is met drie regels testdata op te tuigen en levert
-    // echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's te pinnen.
     private val rvo = "00000000000000100000"
 
     private val organisaties = mapOf(
@@ -67,6 +65,8 @@ class TempoServiceTest {
 
     private val personas = listOf(Persona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo)))
 
+    // Een echte generator en geen mock: hij is met drie regels testdata op te tuigen en levert
+    // echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's te pinnen.
     private val generator = DemoBerichtGenerator(
         personas,
         organisaties,

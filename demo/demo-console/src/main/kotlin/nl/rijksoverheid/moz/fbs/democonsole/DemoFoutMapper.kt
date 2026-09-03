@@ -5,6 +5,7 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import java.util.logging.Level
 import java.util.logging.Logger
 
 /**
@@ -26,8 +27,11 @@ class DemoFoutMapper : ExceptionMapper<Exception> {
     override fun toResponse(fout: Exception): Response {
         val status = (fout as? WebApplicationException)?.response?.status ?: Response.Status.INTERNAL_SERVER_ERROR.statusCode
 
+        // Mét de throwable en niet als string: de fouten die hier binnenkomen zijn vaak wrappers
+        // (een ProcessingException om een ConnectException, bijvoorbeeld), en `toString()` laat
+        // juist de oorzaak weg — dan staat er één regel in de log die niets aanwijst.
         if (status >= Response.Status.INTERNAL_SERVER_ERROR.statusCode) {
-            log.warning("demo-actie mislukt: $fout")
+            log.log(Level.WARNING, "demo-actie mislukt", fout)
         }
 
         return Response.status(status)

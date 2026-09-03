@@ -73,38 +73,45 @@ class DemoResource(
      * willekeur ze bij de ondernemer legt die op het scherm staat. Op de persona-`id` en niet op
      * zijn identificatienummer: een BSN hoort niet in een URL, ook niet in een demo.
      *
-     * De twee bedieningsfouten worden hier afgevangen en niet met `require()`: [DemoFoutMapper]
-     * vertaalt alleen een `WebApplicationException` naar zijn eigen status, dus een `require()`
-     * zou een verkeerd ingevulde parameter als HTTP 500 tonen. `@DefaultValue` hoort bij dezelfde
-     * afspraak: zonder die annotatie injecteert JAX-RS `null` in een niet-nullable parameter en
-     * gooit Kotlin een `NullPointerException` vóór de eerste regel hieronder — ook een 500.
+     * Elke bedieningsfout wordt hier afgevangen en niet met `require()`: [DemoFoutMapper] vertaalt
+     * alleen een `WebApplicationException` naar zijn eigen status, dus een `require()` zou een
+     * verkeerd ingevulde parameter als HTTP 500 tonen.
+     *
+     * Vandaar ook `aantal` als tekst en `@DefaultValue("")` op `persona`. Laat je JAX-RS het werk
+     * doen, dan beantwoordt hij een mislukte omzetting naar `Int` met 404 — dezelfde status die
+     * hieronder "onbekende persona" betekent, waarna de bediener in de verkeerde lijst gaat zoeken;
+     * en een ontbrekende `persona` wordt `null` in een niet-nullable parameter, wat Kotlin met een
+     * `NullPointerException` beantwoordt vóór de eerste regel hieronder.
      */
     @POST
     @Path("/bericht")
     fun bericht(
         @QueryParam("persona") @DefaultValue("") persona: String,
-        @QueryParam("aantal") @DefaultValue("1") aantal: Int,
+        @QueryParam("aantal") @DefaultValue("1") aantal: String,
     ): AanleverResultaat {
         if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
 
+        val gevraagd = aantal.toIntOrNull()
+            ?: throw BadRequestException("aantal moet een geheel getal zijn tussen 1 en $MAX_BERICHTEN, was: '$aantal'")
+
         // Nul zou anders een groene melding "0 van 0 aangeleverd" opleveren voor een actie die niets
-        // deed, en een grote waarde levert evenveel synchrone aanleveringen op. De browser bewaakt
-        // dezelfde grenzen, maar het runbook en Bruno roepen dit adres rechtstreeks aan.
-        if (aantal !in 1..MAX_BERICHTEN) {
-            throw BadRequestException("aantal moet tussen 1 en $MAX_BERICHTEN liggen, was: $aantal")
+        // deed, en een groot getal evenveel synchrone aanleveringen. Dat het invoerveld dezelfde
+        // grenzen kent is geen contract: dit adres staat open op de origin van het paneel.
+        if (gevraagd !in 1..MAX_BERICHTEN) {
+            throw BadRequestException("aantal moet tussen 1 en $MAX_BERICHTEN liggen, was: $gevraagd")
         }
 
-        val opdrachten = generator.genereerVoor(persona, aantal, Random.Default)
+        val opdrachten = generator.genereerVoor(persona, gevraagd, Random.Default)
             ?: throw NotFoundException("onbekende persona '$persona'; $KIES_EEN_PERSONA")
 
         return aanleverService.leverAan(opdrachten)
     }
 
-    private companion object {
+    internal companion object {
 
-        /** Spiegelt de `max` van het aantal-veld in `index.html`; hoger is voor een demo geen realistische vraag. */
-        const val MAX_BERICHTEN = 100
+        /** Spiegelt de `max` van het veld `berichtAantal` in `index.html`; PaneelPadenTest bewaakt dat. */
+        internal const val MAX_BERICHTEN = 100
 
-        const val KIES_EEN_PERSONA = "kies een persona uit berichtPersonas van /api/demo/omgeving"
+        private const val KIES_EEN_PERSONA = "kies een persona uit berichtPersonas van /api/demo/omgeving"
     }
 }
