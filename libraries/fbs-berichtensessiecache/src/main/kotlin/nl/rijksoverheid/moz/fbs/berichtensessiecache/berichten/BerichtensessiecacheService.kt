@@ -248,13 +248,29 @@ internal class BerichtensessiecacheService(
 
         val ontvangerString = ontvanger.toCanonicalString()
 
-        val magazijnStreams = clients.map { (magazijnId, client) ->
-            bouwMagazijnStream(magazijnId, client, ontvangerString, alleBerichten, geslaagd, mislukt)
+        // Alle GESTART-events vooruit, vóór de eerste bevraging. De merge hieronder subscribet op
+        // maximaal maxParallelPerRonde bevragingen tegelijk; zonder deze vooruitgeschoven events
+        // zou een wachtende organisatie helemáál niet in de stroom voorkomen — onzichtbaar in plaats
+        // van "wordt nog opgehaald". Het portaal krijgt zo direct de volledige lijst.
+        val gestartEvents: Multi<MagazijnEvent> = Multi.createFrom().iterable(
+            clients.keys.map { magazijnId -> MagazijnBevragingGestart(magazijnId, clientFactory.getNaam(magazijnId)) },
+        )
+
+        val voltooidStreams = clients.map { (magazijnId, client) ->
+            bouwVoltooidStream(magazijnId, client, ontvangerString, alleBerichten, geslaagd, mislukt)
         }
 
         // Aggregatie-pipeline: draait onafhankelijk van de SSE-client door tot voltooiing.
+        //
+        // `withConcurrency` is de wachtrij van de ophaalronde: de merge houdt hooguit zoveel
+        // bevragingen tegelijk onderweg en pakt de volgende pas als er één afgerond is. Zonder deze
+        // grens subscribet de merge op alle substreams in één keer (Mutiny's default is 128) en
+        // vroegen honderd organisaties tegelijk om twintig permits — waarna tachtig van hen een
+        // afwijzing kregen die niets over hén zei. De volgorde blijft register-volgorde, maar nu
+        // komt élke organisatie aan de beurt in plaats van alleen de eerste twintig.
         return Multi.createBy().concatenating().streams(
-            Multi.createBy().merging().streams(magazijnStreams),
+            gestartEvents,
+            Multi.createBy().merging().withConcurrency(bulkhead.maxParallelPerRonde).streams(voltooidStreams),
             aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, geslaagd, mislukt),
         )
     }
@@ -494,14 +510,16 @@ internal class BerichtensessiecacheService(
     }
 
     /**
-     * Bouwt de event-stream voor één magazijn: een GESTART-event gevolgd door het
-     * VOLTOOID-event (OK/TIMEOUT/FOUT). De per-magazijn query-timeout levert het primaire
-     * TIMEOUT-signaal; de berichten-cap beschermt de heap tegen een rogue magazijn; de
-     * fout-classificatie ([classifyMagazijnFault]) bepaalt log-niveau + eindgebruiker-melding.
-     * Geslaagde berichten worden in [alleBerichten] verzameld; [geslaagd]/[mislukt] tellen
-     * de uitkomst voor de eind-aggregatie.
+     * Bouwt de event-stream voor één magazijn: het VOLTOOID-event
+     * (OK/TIMEOUT/FOUT/NIET_OPGEHAALD). Het bijbehorende GESTART-event is al vooruitgeschoven in
+     * [haalBerichtenOp], omdat de merge deze stream pas subscribet als het magazijn aan de beurt
+     * is. De per-magazijn query-timeout levert het primaire TIMEOUT-signaal; de berichten-cap
+     * beschermt de heap tegen een rogue magazijn; de fout-classificatie
+     * ([classifyMagazijnFault]) bepaalt log-niveau + eindgebruiker-melding. Geslaagde berichten
+     * worden in [alleBerichten] verzameld; [geslaagd]/[mislukt] tellen de uitkomst voor de
+     * eind-aggregatie.
      */
-    private fun bouwMagazijnStream(
+    private fun bouwVoltooidStream(
         magazijnId: String,
         client: MagazijnClient,
         ontvangerString: String,
@@ -510,8 +528,6 @@ internal class BerichtensessiecacheService(
         mislukt: AtomicInteger,
     ): Multi<MagazijnEvent> {
         val naam = clientFactory.getNaam(magazijnId)
-
-        val gestartEvent = MagazijnBevragingGestart(magazijnId = magazijnId, naam = naam)
 
         // `deferred` zodat de circuit-check PAS bij subscription loopt: een nooit-gesubscribete
         // stream (cancel vóór subscribe in het SSE-pad) claimt zo geen half-open probe. Het bulkhead
@@ -529,10 +545,11 @@ internal class BerichtensessiecacheService(
                 )
             } else {
                 bulkhead.begrensd(
-                    afgewezen = {
-                        // Bulkhead vol: call niet gestart, direct OVERBELAST. toegestaan() kan nét
-                        // een half-open probe hebben geclaimd; die MOET via registreerCircuit
-                        // (→ MELD_ONBESLIST) worden vrijgegeven, anders blijft het circuit open.
+                    verlopen = {
+                        // Wachtbudget verstreken zonder permit: call niet gestart, dus OVERBELAST.
+                        // toegestaan() kan nét een half-open probe hebben geclaimd; die MOET via
+                        // registreerCircuit (→ MELD_ONBESLIST) worden vrijgegeven, anders blijft het
+                        // circuit open.
                         val result = MagazijnResult.Failure(
                             magazijnId, naam, MagazijnOverbelastException(magazijnId), MagazijnFault.OVERBELAST,
                         )
@@ -563,14 +580,9 @@ internal class BerichtensessiecacheService(
             }
         }
 
-        val resultStream = resultUni.toMulti().map<MagazijnEvent> { result ->
+        return resultUni.toMulti().map { result ->
             naarVoltooidEvent(result, alleBerichten, geslaagd, mislukt)
         }
-
-        return Multi.createBy().concatenating().streams(
-            Multi.createFrom().item(gestartEvent),
-            resultStream,
-        )
     }
 
     private fun naarMagazijnResult(response: MagazijnBerichtenResponse, magazijnId: String, naam: String?): MagazijnResult {
@@ -654,7 +666,8 @@ internal class BerichtensessiecacheService(
     /**
      * Voedt de per-magazijn circuit breaker met de uitkomst van een echte aggregatie-call. Elke
      * afgeronde call geeft een terminale actie ([circuitActieVoor]) zodat een half-open probe
-     * nooit blijft hangen — ook niet bij een niet-storing-fout (4xx/malformed) of bulkhead-OVERBELAST.
+     * nooit blijft hangen — ook niet bij een niet-storing-fout (4xx/malformed) of een bevraging die
+     * door een vol bulkhead niet gestart is (OVERBELAST).
      */
     private fun registreerCircuit(magazijnId: String, result: MagazijnResult) {
         when (circuitActieVoor(result)) {
@@ -665,16 +678,19 @@ internal class BerichtensessiecacheService(
     }
 
     /**
-     * Vertaalt een fault naar de status die de gebruiker op de lijn ziet. Alleen een echte
-     * timeout verdient het eigen woord: de gebruiker kan dan zinnig opnieuw proberen, terwijl
-     * de overige faults ononderscheidbaar "mislukt" zijn (BIO 14.1.3 — geen technisch
-     * onderscheid richting eindgebruiker).
+     * Vertaalt een fault naar de status die de gebruiker op de lijn ziet. Twee faults verdienen een
+     * eigen woord omdat de gebruiker er iets anders mee kan: een echte timeout (opnieuw proberen is
+     * zinnig) en een bevraging die door onze eigen gelijktijdigheidsgrens niet eens gestart is
+     * (NIET_OPGEHAALD — geen uitspraak over dat magazijn). De overige faults zijn
+     * ononderscheidbaar "mislukt" (BIO 14.1.3 — geen technisch onderscheid richting
+     * eindgebruiker).
      */
     private fun magazijnFoutStatusVoor(fault: MagazijnFault): MagazijnFoutStatus = when (fault) {
         MagazijnFault.TIMEOUT -> MagazijnFoutStatus.TIMEOUT
+        MagazijnFault.OVERBELAST -> MagazijnFoutStatus.NIET_OPGEHAALD
         MagazijnFault.MALFORMED, MagazijnFault.OVERFLOW, MagazijnFault.HTTP_5XX,
         MagazijnFault.HTTP_4XX, MagazijnFault.HTTP_3XX, MagazijnFault.NETWORK,
-        MagazijnFault.INTERNAL_BUG, MagazijnFault.CIRCUIT_OPEN, MagazijnFault.OVERBELAST,
+        MagazijnFault.INTERNAL_BUG, MagazijnFault.CIRCUIT_OPEN,
         -> MagazijnFoutStatus.FOUT
     }
 
@@ -686,7 +702,7 @@ internal class BerichtensessiecacheService(
         MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
         MagazijnFault.HTTP_3XX -> "Magazijn verwijst door naar een ander adres (configuratiefout, contact beheerder)"
         MagazijnFault.CIRCUIT_OPEN -> "Magazijn tijdelijk niet beschikbaar (herhaalde storingen)"
-        MagazijnFault.OVERBELAST -> "Magazijn tijdelijk niet beschikbaar (systeem druk, probeer het later opnieuw)"
+        MagazijnFault.OVERBELAST -> "Nog niet opgehaald: te veel organisaties tegelijk in behandeling (probeer het opnieuw)"
         // BIO 14.1.3: generiek bericht aan eindgebruiker; technisch onderscheid alleen in log.
         MagazijnFault.INTERNAL_BUG, MagazijnFault.NETWORK -> "Magazijn kon niet geraadpleegd worden"
     }
@@ -1024,7 +1040,7 @@ internal class BerichtensessiecacheService(
             // Bulkhead-saturatie: warnf (capaciteits-/load-signaal voor ops), geen errorf — het is
             // geen eigen-bug maar een overload-conditie.
             MagazijnFault.OVERBELAST ->
-                log.warnf(error, "Aggregatie-bulkhead vol; magazijn %s (%s) afgewezen (OVERBELAST)", magazijnId, naam)
+                log.warnf(error, "Aggregatie-bulkhead bleef vol; magazijn %s (%s) niet bevraagd (OVERBELAST)", magazijnId, naam)
             MagazijnFault.INTERNAL_BUG ->
                 log.errorf(error, "Onverwachte fout bij magazijn %s (%s) (cause=%s)", magazijnId, naam, error.javaClass.simpleName)
         }

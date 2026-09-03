@@ -70,6 +70,33 @@ aanroeper de timeout-classificatie.
 | `berichtensessiecache.cache-await-timeout-seconds` | `CACHE_AWAIT_TIMEOUT_SECONDS` | `5` | Max wachttijd op één Redis-commando tijdens de ophaal-orkestratie |
 | `berichtensessiecache.facade-await-timeout-seconds` | `FACADE_AWAIT_TIMEOUT_SECONDS` | `5` | Idem voor élk lees-/schrijfpad door de `Sessiecache`-facade; overschrijding geeft 503 |
 
+## Gelijktijdige magazijn-bevragingen
+
+De uitvraag bevraagt de magazijnen met blokkerende calls op de gedeelde worker-pool. Twee grenzen
+houden dat in de hand, en ze doen iets verschillends:
+
+`max-concurrent` is het plafond op het aantal worker-threads dat tegelijk een magazijn bevraagt,
+over alle sessies heen. `max-parallel-per-ronde` bepaalt hoeveel bevragingen één ophaalronde
+tegelijk onderweg heeft; de rest van de organisaties wacht op zijn beurt zonder een thread of een
+permit te bezetten.
+
+**De grens is een wachtrij, geen zeef.** Is er geen vrije permit, dan wacht de bevraging
+asynchroon tot `max-wachttijd-ms` en levert ze pas daarna de status `NIET_OPGEHAALD` — een eigen
+uitkomst op de SSE-stroom die zegt "dit deel ontbreekt nog" en niet "die organisatie deed het
+niet". Daarom hoeft `max-concurrent` **niet** mee te groeien met het aantal organisaties waar een
+ondernemer bij aangesloten is: honderd organisaties worden bij een grens van twintig in golven
+bevraagd, niet gedeeltelijk overgeslagen.
+
+| Property | Default | Wanneer aanpassen |
+|---|---|---|
+| `berichtensessiecache.magazijn-bulkhead.max-concurrent` | `40` | Verhoog bij veel gelijktijdige ophaalrondes; houd het een fractie van `quarkus.thread-pool.max-threads`, anders verdwijnt de bescherming die deze grens is |
+| `berichtensessiecache.magazijn-bulkhead.max-parallel-per-ronde` | `20` | Verlaag om één ondernemer minder van de gedeelde capaciteit te laten pakken. MOET ≤ `max-concurrent` blijven — de service start anders niet |
+| `berichtensessiecache.magazijn-bulkhead.max-wachttijd-ms` | `5000` | Verhoog als `NIET_OPGEHAALD` optreedt terwijl de magazijnen gezond zijn: het wachtbudget is dan te krap voor de piek |
+
+`NIET_OPGEHAALD` in de logs staat als `Aggregatie-bulkhead bleef vol; magazijn … niet bevraagd
+(OVERBELAST)` op `WARN` — een capaciteitssignaal, geen storing van het magazijn. Zie je het
+structureel, dan is `max-concurrent` te laag voor de gelijktijdige belasting.
+
 ## Cache-levensduur
 
 | Property | Default | Wanneer aanpassen |

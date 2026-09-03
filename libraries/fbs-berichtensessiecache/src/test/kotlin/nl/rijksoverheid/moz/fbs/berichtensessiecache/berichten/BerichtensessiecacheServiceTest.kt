@@ -26,6 +26,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import jakarta.ws.rs.WebApplicationException
 import java.time.Duration
 import java.time.Instant
@@ -47,7 +49,7 @@ class BerichtensessiecacheServiceTest {
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
     // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
-    private val testBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20)
+    private val testBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 5000L)
     private val testBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L)
     // Korte timeouts in unit-tests: outer (3s) > inner (2s) zodat de cross-check
     // groen blijft maar tests niet wachten op het volledige prod-budget.
@@ -668,12 +670,13 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `vol bulkhead levert OVERBELAST-foutmelding en bezet geen extra permit`() {
-        // maxConcurrent=1, permit vooraf vastgehouden → de magazijn-call wordt afgewezen (OVERBELAST):
-        // VOLTOOID met FOUT + "systeem druk", en de afwijzing claimt zelf geen permit.
-        val volBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
+    fun `vol bulkhead levert NIET_OPGEHAALD na het wachtbudget en bezet geen extra permit`() {
+        // maxConcurrent=1, permit vooraf vastgehouden → de bevraging wacht zijn budget vol en levert
+        // dan de eigen status NIET_OPGEHAALD (geen storing van dat magazijn), zonder zelf een permit
+        // te claimen. Kort wachtbudget zodat de test niet op het prod-budget wacht.
+        val volBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 200L)
         val vastgehouden = volBulkhead.begrensd(
-            afgewezen = { Uni.createFrom().item("x") },
+            verlopen = { Uni.createFrom().item("x") },
             taak = { Uni.createFrom().nothing<String>() },
         ).subscribe().with({}, {})
 
@@ -703,10 +706,10 @@ class BerichtensessiecacheServiceTest {
 
         val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnStatus.FOUT, voltooid.status)
+        assertEquals(MagazijnStatus.NIET_OPGEHAALD, voltooid.status)
         assertTrue(
-            voltooid.foutmelding.contains("systeem druk"),
-            "Foutmelding moet OVERBELAST signaleren: ${voltooid.foutmelding}",
+            voltooid.foutmelding.contains("Nog niet opgehaald"),
+            "Foutmelding moet 'nog niet opgehaald' signaleren i.p.v. een storing: ${voltooid.foutmelding}",
         )
         // De magazijn-call is nooit gestart: de afwijzing claimt geen permit (blijft 0 = vastgehouden).
         assertEquals(0, volBulkhead.vrijePermits())
@@ -721,7 +724,7 @@ class BerichtensessiecacheServiceTest {
     fun `bulkhead-permit wordt vrijgegeven na een geslaagde aggregatie`() {
         // Permit-balans door de échte stream-pipeline (onTermination-release): met maxConcurrent=1
         // moet na één geslaagde ophaling de permit terug zijn, anders zou een volgende call lekken.
-        val balansBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
+        val balansBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 5000L)
         val serviceBalans = BerichtensessiecacheService(
             berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
@@ -750,6 +753,78 @@ class BerichtensessiecacheServiceTest {
         val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
         assertEquals(1, balansBulkhead.vrijePermits(), "permit teruggegeven na geslaagde aggregatie")
+    }
+
+    @ParameterizedTest(name = "{0} organisaties tegen een grens van 5")
+    @ValueSource(ints = [5, 6, 50])
+    fun `elke organisatie wordt bevraagd, ook boven de gelijktijdigheidsgrens`(aantalMagazijnen: Int) {
+        // Het acceptatiecriterium van #1038: de grens vertaalt zich in wachten, niet in weglaten.
+        // Drie cardinaliteiten: precies op de grens (geen wachtrij), één erboven (één wachtende) en
+        // ruim erboven (tien golven). Elke bevraging houdt zijn permit even vast, zodat de
+        // wachtenden echt op een vrijkomende permit moeten wachten.
+        val grens = 5
+        val bulkheadMetGrens = MagazijnAggregatieBulkhead(
+            maxConcurrent = grens,
+            maxParallelPerRonde = grens,
+            maxWachttijdMs = 30_000L,
+        )
+        val serviceMetGrens = BerichtensessiecacheService(
+            berichtenCache, clientFactory, validator, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = bulkheadMetGrens,
+            circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+        ).also { it.valideerTimeouts() }
+
+        val magazijnIds = (1..aantalMagazijnen).map { nummer -> "magazijn-%03d".format(nummer) }
+        val clients = magazijnIds.associateWith { magazijnId ->
+            mockk<MagazijnClient>().also { client ->
+                every { client.getBerichten(any(), any()) } answers {
+                    // Even vasthouden zodat de permits daadwerkelijk schaars zijn tijdens de ronde.
+                    Thread.sleep(5)
+                    MagazijnBerichtenResponse(listOf(testMagazijnBericht().copy(berichtId = UUID.randomUUID())))
+                }
+            }
+        }
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(magazijnIds.toSet())
+        every { clientFactory.getAllClients() } returns clients
+        every { clientFactory.getNaam(any()) } returns "Organisatie"
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = serviceMetGrens.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(60))
+
+        val gestart = events.filterIsInstance<MagazijnBevragingGestart>()
+        val geslaagd = events.filterIsInstance<MagazijnBevragingGeslaagd>()
+
+        assertEquals(magazijnIds.toSet(), gestart.map { it.magazijnId }.toSet(), "elke organisatie krijgt een GESTART-event")
+        assertEquals(magazijnIds.toSet(), geslaagd.map { it.magazijnId }.toSet(), "elke organisatie is daadwerkelijk bevraagd")
+        assertTrue(
+            events.filterIsInstance<MagazijnBevragingMislukt>().isEmpty(),
+            "geen enkele organisatie mag wegvallen: ${events.filterIsInstance<MagazijnBevragingMislukt>()}",
+        )
+
+        // De volledige lijst gaat vooruit: een wachtende organisatie is zichtbaar als "wordt nog
+        // opgehaald" en niet afwezig.
+        assertEquals(
+            aantalMagazijnen,
+            events.takeWhile { it is MagazijnBevragingGestart }.size,
+            "alle GESTART-events horen vóór de eerste uitkomst te komen",
+        )
+
+        val gereed = events.filterIsInstance<OphalenGereed>().single()
+
+        assertEquals(aantalMagazijnen, gereed.geslaagd)
+        assertEquals(0, gereed.mislukt)
+        assertEquals(aantalMagazijnen, gereed.totaalMagazijnen)
+        assertEquals(grens, bulkheadMetGrens.vrijePermits(), "alle permits terug na de ronde")
     }
 
     @Test

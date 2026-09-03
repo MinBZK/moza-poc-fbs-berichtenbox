@@ -80,10 +80,13 @@ curl -sf -N --max-time 30 "$UITVRAAG/api/v1/berichten/_ophalen" \
 
 # Een 2xx op de stream zegt niets over de afzonderlijke magazijnen: die degraderen stilletjes.
 # De uitvraag levert per magazijn een 'magazijn-bevraging-voltooid'-event met status
-# OK/FOUT/TIMEOUT en sluit af met 'ophalen-gereed' + een 'mislukt'-telling.
-if grep -Eq '"status"[[:space:]]*:[[:space:]]*"(FOUT|TIMEOUT)"' "$stream"; then
-    echo "FOUT: minstens één magazijn rapporteerde een foutstatus in de ophaal-stream:"
-    grep -E '"status"[[:space:]]*:[[:space:]]*"(FOUT|TIMEOUT)"' "$stream"
+# OK/FOUT/TIMEOUT/NIET_OPGEHAALD en sluit af met 'ophalen-gereed' + een 'mislukt'-telling.
+# NIET_OPGEHAALD is geen storing van het magazijn maar een bevraging die niet gestart is omdat de
+# gelijktijdigheidsgrens van de uitvraag vol bleef; in de smoke-keten (twee magazijnen) hoort dat
+# net zo goed niet voor te komen.
+if grep -Eq '"status"[[:space:]]*:[[:space:]]*"(FOUT|TIMEOUT|NIET_OPGEHAALD)"' "$stream"; then
+    echo "FOUT: minstens één magazijn rapporteerde geen geslaagde bevraging in de ophaal-stream:"
+    grep -E '"status"[[:space:]]*:[[:space:]]*"(FOUT|TIMEOUT|NIET_OPGEHAALD)"' "$stream"
     exit 1
 fi
 

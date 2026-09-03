@@ -550,11 +550,15 @@ kan worden zonder hem opnieuw te bedenken.
 ### Waar het plafond ligt
 
 **De begrenzing op gelijktijdige bevragingen is de harde grens, en die zit in de uitvraag.** Het
-bulkhead laat standaard twintig magazijn-aanroepen tegelijk toe en wijst de rest onmiddellijk af met
+bulkhead liet standaard twintig magazijn-aanroepen tegelijk toe en wees de rest onmiddellijk af met
 "tijdelijk niet beschikbaar" — geen wachtrij, geen tweede poging binnen dezelfde ronde. Gemeten met
 die standaardwaarde: een ondernemer met 45 organisaties krijgt er 20 te zien en 25 afwijzingen, bij
-100 organisaties 20 om 80. De demo zet de knop daarom op 120. Dit staat als eigen ticket op de
-backlog: MinBZK/MijnOverheidZakelijk#1038.
+100 organisaties 20 om 80. De demo zette de knop daarom op 120.
+
+> **Opgelost** in MinBZK/MijnOverheidZakelijk#1038: de grens is een wachtrij geworden. De uitvraag
+> bevraagt per ronde `max-parallel-per-ronde` organisaties tegelijk en pakt de volgende zodra er één
+> afgerond is, dus alle organisaties komen aan de beurt. De handmatige 120 in de demo is daarmee
+> vervallen; zie `docs/plans/2026-09-03-magazijn-bulkhead-wachtrij.md`.
 
 **De simulator moet als één-voor-honderd worden ingesteld.** Elke per-service-default komt hier op
 een honderdste van zijn bedoelde last uit. Met de Quarkus-standaard van twintig database-connecties

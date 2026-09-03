@@ -339,11 +339,6 @@ services:
       # Extra register-entries voor de gesimuleerde magazijnen, gegenereerd in demo/generated/.
       # SmallRye leest dit absolute pad als additionele config-bron en merge't het bij de baked A/B.
       SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties
-      # Bulkhead ruim boven het aantal magazijnen van de grootste ondernemer (100), zodat er bij veel
-      # magazijnen niet een deel als OVERBELAST wordt geweigerd. Alleen demo; prod houdt de default
-      # (20). Wat er gebeurt als de bulkhead wél de bottleneck wordt, is een eigen scenario — dat
-      # meet stap 6 van het simulator-ontwerp.
-      BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "120"
     volumes:
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
 
