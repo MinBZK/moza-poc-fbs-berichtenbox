@@ -326,9 +326,10 @@ Wat wél een bevinding is:
 | Precies 20 geslaagd bij 45 en 100 | De bulkhead staat nog op de standaardwaarde: controle (b) hierboven. |
 | `de uitvraag op … is niet gezond` | De meting is niet begonnen; dit zegt niets over de fan-out. |
 
-Noteer de uitkomst (het TSV-bestand uit `$UITVOER`, standaard `/tmp/fanout-meting.tsv`) in
-MinBZK/MijnOverheidZakelijk#1013, zodat de gedeelde omgeving een eigen meetpunt heeft naast de
-laptop.
+Bewaar de uitkomst als hij afwijkt van de tabel hierboven: het TSV-bestand uit `$UITVOER` (standaard
+`/tmp/fanout-meting.tsv`) is het bewijsstuk. Leg hem vast waar hij navolgbaar blijft — bij de meting
+in `docs/plans/2026-08-21-magazijn-simulator-design.md`, of onder het issue waaraan je werkt. Een
+meting die alleen in een terminal heeft gestaan, is een volgende keer niet te vergelijken.
 
 ## Daarna
 
