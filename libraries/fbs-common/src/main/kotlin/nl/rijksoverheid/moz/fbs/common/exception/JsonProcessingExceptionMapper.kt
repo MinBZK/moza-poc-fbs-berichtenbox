@@ -36,7 +36,7 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
         else -> "Ongeldige JSON-invoer."
     }
 
-    return problemResponse(status = 400, title = "Bad Request", detail = detail)
+    return problemResponse(status = 400, title = "Bad Request", detail = detail, foutcode = Foutcode.ONGELDIG_VERZOEK)
 }
 
 /**

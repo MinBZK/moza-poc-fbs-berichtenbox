@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.common.profiel
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import nl.rijksoverheid.moz.fbs.common.exception.ProblemMediaType
 import org.jboss.logging.Logger
@@ -62,7 +63,7 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
             }
 
             val problem = Problem(
-                type = URI.create("https://moza.nl/problems/configuratie-mismatch"),
+                type = Foutcode.CONFIGURATIE_MISMATCH.uri,
                 title = "Configuratie-mismatch tussen profielen en magazijnen",
                 status = 500,
                 detail = "Geen ophaling mogelijk wegens configuratie. Retry heeft geen effect — contact beheerder.",
@@ -90,7 +91,7 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
         )
 
         val problem = Problem(
-            type = URI.create("https://moza.nl/problems/profiel-service-onbereikbaar"),
+            type = Foutcode.TIJDELIJK_NIET_BESCHIKBAAR.uri,
             title = "Profiel-service tijdelijk niet beschikbaar",
             status = 503,
             detail = "De toestemmingscontrole kon niet uitgevoerd worden. Probeer over 30 seconden opnieuw.",

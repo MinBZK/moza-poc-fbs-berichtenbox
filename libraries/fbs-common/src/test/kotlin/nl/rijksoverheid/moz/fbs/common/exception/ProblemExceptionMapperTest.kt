@@ -292,6 +292,41 @@ class ProblemExceptionMapperTest {
         assertNull(respons.getHeaderString("Retry-After"))
     }
 
+    @Test
+    fun `een FbsFoutException levert zijn eigen kenmerk`() {
+        val fout = FbsFoutException(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE, "weg")
+
+        val problem = mapper.toResponse(fout).entity as Problem
+
+        assertEquals(Foutcode.BERICHT_VERWIJDERD.uri, problem.type)
+    }
+
+    @Test
+    fun `een FbsFoutException op een 5xx houdt zijn kenmerk ondanks de maskering`() {
+        val fout = FbsFoutException(Foutcode.KETEN_FOUT, Response.Status.BAD_GATEWAY, "magazijn stuk")
+
+        val problem = mapper.toResponse(fout).entity as Problem
+
+        assertEquals(Foutcode.KETEN_FOUT.uri, problem.type)
+        assertFalse(problem.detail!!.contains("magazijn stuk"), "5xx-detail hoort gemaskeerd te blijven")
+    }
+
+    @Test
+    fun `een 404 zonder eigen kenmerk claimt niets over een bericht`() {
+        val problem = mapper.toResponse(NotFoundException("pad bestaat niet")).entity as Problem
+
+        assertEquals(Foutcode.NIET_GEVONDEN.uri, problem.type)
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [400, 401, 403, 404, 405, 409, 415, 422, 500, 502, 503, 504])
+    fun `geen enkele status levert nog een antwoord zonder kenmerk`(status: Int) {
+        val problem = mapper.toResponse(WebApplicationException(Response.status(status).build())).entity as Problem
+
+        assertNotEquals(Problem.ABOUT_BLANK, problem.type)
+        assertTrue(problem.type.toString().startsWith("urn:fbs:fout:"), "onverwacht kenmerk ${problem.type}")
+    }
+
     private fun waeMetRetryAfter(status: Int, waarde: String) =
         WebApplicationException(Response.status(status).header("Retry-After", waarde).build())
 }

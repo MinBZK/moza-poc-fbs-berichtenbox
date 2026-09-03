@@ -7,14 +7,26 @@ import java.util.UUID
 /**
  * Bouwt een RFC 9457 Problem-response: status, content-type en entity in één regel.
  * Vervangt het 4-regels-patroon dat in elke ExceptionMapper terugkwam.
+ *
+ * [foutcode] wordt het `type` van het antwoord: het kenmerk waaraan een afnemer ziet dát dit
+ * antwoord van de keten komt en om welke situatie het gaat. Verplicht, want een weggelaten
+ * kenmerk laat het antwoord terugvallen op `about:blank` en dat is precies wat een afnemer
+ * niet kan onderscheiden van een fout die onderweg is verzonnen.
  */
 internal fun problemResponse(
     status: Int,
     title: String,
     detail: String?,
+    foutcode: Foutcode,
     instance: URI? = null,
 ): Response {
-    val problem = Problem(title = title, status = status, detail = detail, instance = instance)
+    val problem = Problem(
+        type = foutcode.uri,
+        title = title,
+        status = status,
+        detail = detail,
+        instance = instance,
+    )
     return Response.status(status)
         .type(ProblemMediaType.APPLICATION_PROBLEM_JSON_TYPE)
         .entity(problem)
@@ -33,9 +45,11 @@ internal fun maskedServerErrorProblem(
     status: Int = 500,
     title: String = "Internal Server Error",
     detail: String = "Er is een onverwachte interne fout opgetreden. Vermeld errorId bij contact met support.",
+    foutcode: Foutcode = Foutcode.INTERNE_FOUT,
 ): Response = problemResponse(
     status = status,
     title = title,
     detail = detail,
+    foutcode = foutcode,
     instance = URI.create("urn:uuid:$errorId"),
 )

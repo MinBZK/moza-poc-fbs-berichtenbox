@@ -30,6 +30,11 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         val errorId = UUID.randomUUID()
 
+        // Een throw-site die de situatie kent, geeft zijn eigen kenmerk mee; de rest — inclusief
+        // de statussen die het framework zelf produceert (405, 415, 406) — krijgt de terugval,
+        // zodat geen enkel antwoord op `about:blank` blijft staan.
+        val foutcode = (exception as? FbsFoutException)?.foutcode ?: Foutcode.voorStatus(status)
+
         return if (status >= 500) {
             // Log met correlation-id; `exception.message` blijft eruit (saneer dekt geen
             // niet-numerieke PII zoals namen/e-mail). Het exception-object geeft de stack
@@ -42,7 +47,10 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
             )
-            metRetryAfter(exception, maskedServerErrorProblem(errorId = errorId, status = status, title = title))
+            metRetryAfter(
+                exception,
+                maskedServerErrorProblem(errorId = errorId, status = status, title = title, foutcode = foutcode),
+            )
         } else {
             // 4xx: gesaneerde message naar de client (`sanitizeClientDetail`), maar uit de
             // log gelaten — 4xx-message is vaak user-input en saneer dekt geen niet-numerieke
@@ -59,6 +67,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 status = status,
                 title = title,
                 detail = sanitizeClientDetail(exception.message),
+                foutcode = foutcode,
                 instance = URI.create("urn:uuid:$errorId"),
             )
         }
