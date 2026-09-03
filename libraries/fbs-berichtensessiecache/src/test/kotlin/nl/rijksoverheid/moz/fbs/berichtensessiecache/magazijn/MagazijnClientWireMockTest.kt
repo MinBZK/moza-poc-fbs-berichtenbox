@@ -144,7 +144,7 @@ class MagazijnClientWireMockTest {
         val startNanos = System.nanoTime()
 
         val fout = assertThrows(Exception::class.java) {
-            client!!.getBerichten(ontvanger.toCanonicalString(), null)
+            client!!.getBerichten(ontvanger.toCanonicalString(), null, 0, 100)
         }
 
         val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000

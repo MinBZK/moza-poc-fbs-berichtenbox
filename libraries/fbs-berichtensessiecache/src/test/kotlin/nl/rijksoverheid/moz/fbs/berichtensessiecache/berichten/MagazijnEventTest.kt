@@ -41,7 +41,19 @@ class MagazijnEventTest {
             ),
             Arguments.of(
                 MagazijnBevragingGeslaagd(magazijnId = OIN, naam = "Magazijn A", aantalBerichten = 3),
-                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK","aantalBerichten":3}""",
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
+                    """"aantalBerichten":3,"afgekapt":false}""",
+            ),
+            Arguments.of(
+                MagazijnBevragingGeslaagd(
+                    magazijnId = OIN,
+                    naam = "Magazijn A",
+                    aantalBerichten = 500,
+                    afgekapt = true,
+                    totaalBeschikbaar = 1340L,
+                ),
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
+                    """"aantalBerichten":500,"afgekapt":true,"totaalBeschikbaar":1340}""",
             ),
             Arguments.of(
                 MagazijnBevragingMislukt(
@@ -102,7 +114,7 @@ class MagazijnEventTest {
             objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = null)),
         )
         assertEquals(
-            """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","status":"OK","aantalBerichten":0}""",
+            """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","status":"OK","aantalBerichten":0,"afgekapt":false}""",
             objectMapper.writeValueAsString(MagazijnBevragingGeslaagd(magazijnId = OIN, naam = null, aantalBerichten = 0)),
         )
     }

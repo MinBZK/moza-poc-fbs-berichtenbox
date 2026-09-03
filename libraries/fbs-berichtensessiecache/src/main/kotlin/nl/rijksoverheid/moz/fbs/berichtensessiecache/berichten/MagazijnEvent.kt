@@ -67,12 +67,21 @@ sealed interface MagazijnBevragingVoltooid : MagazijnBevraging {
     val status: MagazijnStatus
 }
 
+/**
+ * Een magazijn dat antwoord gaf. `afgekapt` meldt dat er méér berichten bij deze organisatie
+ * staan dan opgehaald zijn: de ontvanger heeft de nieuwste, maar niet alles. Het portaal hoort
+ * dat te tonen — een berichtenbox die post weglaat zonder het te zeggen, laat de ontvanger in de
+ * veronderstelling dat hij alles heeft. `totaalBeschikbaar` staat er alleen als het magazijn zelf
+ * een totaal meestuurde; zonder dat getal blijft het signaal een kwalitatief "er is meer".
+ */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder("event", "magazijnId", "naam", "status", "aantalBerichten")
+@JsonPropertyOrder("event", "magazijnId", "naam", "status", "aantalBerichten", "afgekapt", "totaalBeschikbaar")
 data class MagazijnBevragingGeslaagd(
     override val magazijnId: String,
     override val naam: String?,
     val aantalBerichten: Int,
+    val afgekapt: Boolean = false,
+    val totaalBeschikbaar: Long? = null,
 ) : MagazijnBevragingVoltooid {
     override val status: MagazijnStatus get() = MagazijnStatus.OK
 }

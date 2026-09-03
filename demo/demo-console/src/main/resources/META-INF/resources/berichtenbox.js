@@ -148,6 +148,18 @@ async function ophalen() {
   await laadLijst();
 }
 
+// Zegt erbij dat deze organisatie meer berichten heeft dan er opgehaald zijn. Zonder deze regel
+// lijkt een afgekapte lijst een volledige lijst, en dat is precies wat een berichtenbox niet mag
+// doen: de gebruiker kan dan niet weten wat hij mist. Het totaal komt alleen mee als het magazijn
+// het noemde.
+function afkapMelding(gebeurtenis) {
+  if (!gebeurtenis.afgekapt) return '';
+
+  return gebeurtenis.totaalBeschikbaar
+    ? `, van ${gebeurtenis.totaalBeschikbaar} — niet alles opgehaald`
+    : ', er zijn er meer — niet alles opgehaald';
+}
+
 // Werkt de voortgangsregels bij; geeft true terug bij een terminaal event.
 function verwerkOphaalEvent(gebeurtenis, regels) {
   if (gebeurtenis.magazijnId && gebeurtenis.naam) {
@@ -162,7 +174,9 @@ function verwerkOphaalEvent(gebeurtenis, regels) {
     case 'magazijn-bevraging-voltooid':
       regels.push(
         `${gebeurtenis.naam || gebeurtenis.magazijnId}: ${gebeurtenis.status}` +
-          (gebeurtenis.status === 'OK' ? ` (${gebeurtenis.aantalBerichten} berichten)` : ` — ${gebeurtenis.foutmelding || ''}`),
+          (gebeurtenis.status === 'OK'
+            ? ` (${gebeurtenis.aantalBerichten} berichten${afkapMelding(gebeurtenis)})`
+            : ` — ${gebeurtenis.foutmelding || ''}`),
       );
       break;
 

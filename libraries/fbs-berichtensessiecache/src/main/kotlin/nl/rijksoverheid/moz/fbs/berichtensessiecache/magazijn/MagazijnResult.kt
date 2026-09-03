@@ -6,10 +6,19 @@ internal sealed class MagazijnResult {
     abstract val magazijnId: String
     abstract val naam: String?
 
+    /**
+     * Een bevraagd magazijn dat antwoord gaf. [afgekapt] zegt dat het magazijn méér berichten
+     * heeft dan de cap toeliet: de nieuwste zijn opgehaald, de rest niet. Dat is geen fout — de
+     * post die er is, hoort de ontvanger te zien — maar het moet wél zichtbaar worden, anders
+     * verdwijnt er stil post. [totaalBeschikbaar] draagt het aantal dat het magazijn zei te
+     * hebben; null wanneer het die teller niet meestuurde.
+     */
     data class Success(
         override val magazijnId: String,
         override val naam: String?,
         val berichten: List<Bericht>,
+        val afgekapt: Boolean = false,
+        val totaalBeschikbaar: Long? = null,
     ) : MagazijnResult() {
         init {
             require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
@@ -116,12 +125,15 @@ internal fun circuitActieVoor(result: MagazijnResult): CircuitActie = when (resu
 }
 
 /**
- * Marker-exception voor de availability-cap op magazijn-responses (zie
- * `berichtensessiecache.max-berichten-per-magazijn`). Geen subclass van
- * `WebApplicationException`/`ProcessingException` — dit is een interne signalering,
- * geen upstream-fault, en wordt door de service in een aparte foutmelding gemapt.
+ * Marker-exception voor een magazijn dat zijn eigen paginering negeert: het leverde in één
+ * pagina méér berichten dan de gevraagde `pageSize`. Daarmee is de respons onbetrouwbaar — er
+ * valt niet op te pagineren en de omvang is niet begrensd — dus de bevraging faalt. Dit is iets
+ * anders dan een magazijn met véél berichten: dat wordt afgekapt (zie [MagazijnResult.Success]),
+ * niet als fout gemeld. Geen subclass van `WebApplicationException`/`ProcessingException` — dit
+ * is een interne signalering, geen upstream-fault, en wordt door de service in een aparte
+ * foutmelding gemapt.
  */
-internal class MagazijnResponseOverflow : RuntimeException("Magazijn leverde meer berichten dan toegestaan")
+internal class MagazijnResponseOverflow : RuntimeException("Magazijn leverde meer berichten dan de gevraagde paginagrootte")
 
 /**
  * Marker-exception voor een door de circuit breaker overgeslagen magazijn-call. Draagt de

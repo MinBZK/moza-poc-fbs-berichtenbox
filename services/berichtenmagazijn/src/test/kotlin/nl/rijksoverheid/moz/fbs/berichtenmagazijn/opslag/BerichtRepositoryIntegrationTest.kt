@@ -226,4 +226,69 @@ class BerichtRepositoryIntegrationTest {
         val nuNogSteedsActief = repository.findByBerichtId(bericht.berichtId)
         assertNotNull(nuNogSteedsActief, "bericht moet nog steeds zichtbaar zijn")
     }
+
+    @Test
+    @Transactional
+    fun `paginering met gelijk tijdstipOntvangst levert elk bericht precies eenmaal`() {
+        // Zonder tweede sorteersleutel is de volgorde binnen hetzelfde tijdstip aan de database:
+        // een bericht kan dan op twee pagina's staan of op geen. Vijf berichten op precies
+        // hetzelfde tijdstip, in pagina's van twee doorlopen, legt dat bloot.
+        val tijdstip = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+        val ontvanger = Bsn("999993653")
+        val opgeslagen = (1..5).map { volgnummer ->
+            val bericht = Bericht(
+                berichtId = UUID.randomUUID(),
+                afzender = Oin("00000001003214345000"),
+                ontvanger = ontvanger,
+                onderwerp = "Gelijktijdig $volgnummer",
+                inhoud = "Inhoud $volgnummer",
+                tijdstipOntvangst = tijdstip,
+                publicatietijdstip = tijdstip,
+            )
+
+            repository.save(bericht)
+            bericht.berichtId
+        }
+
+        entityManager.flush()
+
+        val doorlopen = (0..2).flatMap { pagina ->
+            repository.lijstVoorOntvanger(ontvanger, null, pagina, 2).berichten.map { it.berichtId }
+        }
+
+        assertEquals(opgeslagen.size, doorlopen.size, "elke pagina samen moet alle berichten dekken")
+        assertEquals(opgeslagen.toSet(), doorlopen.toSet(), "geen bericht mag ontbreken")
+        assertEquals(doorlopen.size, doorlopen.toSet().size, "geen bericht mag dubbel voorkomen")
+    }
+
+    @Test
+    @Transactional
+    fun `laatste pagina levert de rest en telt het totaal over alle paginas`() {
+        val basis = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+        val ontvanger = Bsn("999993653")
+        repeat(3) { volgnummer ->
+            repository.save(
+                Bericht(
+                    berichtId = UUID.randomUUID(),
+                    afzender = Oin("00000001003214345000"),
+                    ontvanger = ontvanger,
+                    onderwerp = "Bericht $volgnummer",
+                    inhoud = "Inhoud $volgnummer",
+                    tijdstipOntvangst = basis.plusSeconds(volgnummer.toLong()),
+                    publicatietijdstip = basis.plusSeconds(volgnummer.toLong()),
+                ),
+            )
+        }
+
+        entityManager.flush()
+
+        val eerste = repository.lijstVoorOntvanger(ontvanger, null, 0, 2)
+        val tweede = repository.lijstVoorOntvanger(ontvanger, null, 1, 2)
+        val voorbij = repository.lijstVoorOntvanger(ontvanger, null, 2, 2)
+
+        assertEquals(2, eerste.berichten.size)
+        assertEquals(1, tweede.berichten.size, "restpagina bevat het laatste bericht")
+        assertTrue(voorbij.berichten.isEmpty(), "pagina voorbij het einde is leeg")
+        assertEquals(3L, eerste.totalElements, "het totaal telt alle berichten, niet die van deze pagina")
+    }
 }

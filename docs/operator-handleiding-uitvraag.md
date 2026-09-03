@@ -70,6 +70,28 @@ aanroeper de timeout-classificatie.
 | `berichtensessiecache.cache-await-timeout-seconds` | `CACHE_AWAIT_TIMEOUT_SECONDS` | `5` | Max wachttijd op één Redis-commando tijdens de ophaal-orkestratie |
 | `berichtensessiecache.facade-await-timeout-seconds` | `FACADE_AWAIT_TIMEOUT_SECONDS` | `5` | Idem voor élk lees-/schrijfpad door de `Sessiecache`-facade; overschrijding geeft 503 |
 
+## Hoeveel berichten per organisatie
+
+De uitvraag pagineert per magazijn door tot alles binnen is of de bovengrens bereikt is. Zit een
+organisatie boven die grens, dan krijgt de ontvanger de nieuwste berichten mét het `afgekapt`-signaal
+in het `magazijn-bevraging-voltooid`-event — het magazijn blijft `status: OK`, want zijn post is er
+wel degelijk. Het portaal hoort dat signaal te tonen; een berichtenbox die post weglaat zonder het te
+melden, laat de ondernemer in de veronderstelling dat hij alles heeft.
+
+| Property | Env var | Default | Wanneer aanpassen |
+|---|---|---|---|
+| `berichtensessiecache.magazijn-page-size` | `MAGAZIJN_PAGE_SIZE` | `100` | Zelden. Dit is het spec-maximum van de magazijn-API; lager zetten kost extra round-trips binnen hetzelfde tijdsbudget, hoger antwoordt het magazijn met een 400 |
+| `berichtensessiecache.max-berichten-per-magazijn` | `MAX_BERICHTEN_PER_MAGAZIJN` | `500` | Verhoog alleen samen met de query-timeout: elke honderd berichten is een extra sequentiële call binnen datzelfde budget, en een magazijn dat de timeout raakt levert hélemaal niets |
+
+De grens ligt op 500 — vijf pagina's van honderd. Dat dekt jaren post bij dezelfde afzender ruim,
+terwijl vijf sequentiële calls per magazijn binnen de query-timeout van tien seconden passen. Het is
+een cap op het AANTAL berichten, niet op bytes: `quarkus.http.limits.max-body-size` geldt alleen voor
+inkomende requests naar deze service, niet voor wat een magazijn terugstuurt.
+
+Een magazijn dat in één pagina méér berichten levert dan gevraagd, is iets anders: dat negeert zijn
+eigen paginering en wordt als `FOUT` gemeld ("paginering genegeerd"). Die melding hoort bij de
+beheerder van dat magazijn, niet bij de ontvanger.
+
 ## Cache-levensduur
 
 | Property | Default | Wanneer aanpassen |
