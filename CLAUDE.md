@@ -357,7 +357,8 @@ project **en** PR, dus die race sluiten ze niet uit.
 | `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, de demo met de proeftuin als berichtenbox, configuratie |
 | `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
-| `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL, magazijn-simulator) |
+| `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL, magazijn-simulator). Draagt ook de enige pin van de berichtenbox uit de proeftuin; `.github/scripts/proeftuin-image.sh` leest die regel voor de deploy en het ZAD-creatiescript |
+| `compose.proeftuin-versie.yaml`         | Overlay om de berichtenbox op een andere versie te zetten dan de gepinde digest (release-tag, of nog niet gemergd werk uit hun preview-repository) |
 | `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |
 | `.github/scripts/wijzigingsfilter.sh`  | Bepaalt per PR wat er moet draaien (code-checks, deploy, test-scope, fuzz); deploy.yml, test.yml, detekt.yml en cflite_pr.yml delen dit script. Unittests ernaast in `test-wijzigingsfilter.sh`, gedraaid door `ci-scripts.yml` |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |

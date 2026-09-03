@@ -357,3 +357,15 @@ jobs:
           persist-credentials: false
       - name: compose.yaml valideren
         run: docker compose --profile demo config -q
+
+      # De twee overlays draaien alleen als iemand ze er met de hand bij zet, dus een kapotte
+      # overlay blijft anders onopgemerkt tot vlak vóór een demo — het moment waarop je hem
+      # gebruikt. PROEFTUIN_IMAGE moet gezet zijn: die overlay eist dat expliciet in plaats van
+      # stil op de gepinde versie terug te vallen.
+      - name: compose.proeftuin-versie.yaml valideren
+        env:
+          PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc:valideer
+        run: docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo config -q
+
+      - name: compose.proeftuin-lokaal.yaml valideren
+        run: docker compose -f compose.yaml -f compose.proeftuin-lokaal.yaml --profile demo config -q

@@ -103,20 +103,27 @@ docker compose --profile demo up -d
 ```
 
 Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de berichtenbox met het
-bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat achter `PROEFTUIN_TAG`,
-gepind op een `sha-`-tag uit hun main; `latest` verschuift stil onder een lopende demo door. De
-rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
+bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat in `compose.yaml`, gepind op
+digest: `latest` alleen zou stil onder een lopende demo door verschuiven. Die ene regel is ook wat
+`deploy.yml` en `proeftuin-component.sh` lezen (via `.github/scripts/proeftuin-image.sh`), dus een
+demo op de eigen machine en een demo op ZAD tonen dezelfde berichtenbox. Bijwerken doet Dependabot:
+digest-pins houdt hij bij, en dat is precies waarom er geen variabele meer in die regel staat.
+Blijft die bump uit terwijl hun main doorloopt, dan meldt `pin-consistency.yml` de stand op de
+eerstvolgende PR — en wekelijks in een eigen run, zodat een onvindbaar geworden pin niet op
+PR-verkeer hoeft te wachten. Een andere versie draaien zonder de pin aan te raken kan met de
+overlay; die neemt een hele referentie, want hun nog niet gemergde werk staat in een ander
+ghcr-repository:
+
+```bash
+PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 \
+  docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo up -d proeftuin
+```
+
+De rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
 
 ### De berichtenbox op een andere keten-omgeving richten
 
-> **Kan pas na [MinBZK/moza-poc#142](https://github.com/MinBZK/moza-poc/pull/142).** Die PR brengt de
-> padsplitsing hieronder en staat nog open, dus er is geen image om op te pinnen. Waar
-> `PROEFTUIN_TAG` vandaag op staat, kent de proeftuin alleen `BACKEND_ORIGIN` en gaat heel `/api/`
-> naar één bestemming; de zes `BACKEND_*`-regels in `compose.yaml` doen daar niets. Lokaal merk je
-> dat niet — `demo-proxy` splitst de paden al vóór de container, zie de eerste rij — maar de andere
-> twee opstellingen werken pas na die merge.
-
-De bestemming is dan een instelling en geen aparte versie van de proeftuin. Hun nginx splitst het
+De bestemming is een instelling en geen aparte versie van de proeftuin. Hun nginx splitst het
 API-verkeer per pad: `/api/v1/` naar de uitvraag (`BACKEND_KETEN`), `/api/demo/personas` naar de
 personadienst (`BACKEND_PERSONAS`) en de rest van `/api/demo/` naar het bedieningspaneel
 (`BACKEND_DEMO`). Waar je die zet, hangt af van de opstelling:
@@ -141,14 +148,14 @@ BACKEND_PERSONAS_HOST=demopersonas-test-mpfm-w3h.$Z \
   docker compose --profile demo up -d proeftuin
 ```
 
-Ontbreekt `BACKEND_KETEN`, dan antwoordt de proeftuin met een 502 die de variabelenaam noemt, in
-plaats van het verkeer stil bij een andere dienst af te leveren. Een onvolledig ingerichte omgeving
-is daardoor te onderscheiden van een storing, en de berichtenbox zegt ook welk van de twee het is —
-bij het eerste helpt verversen namelijk niet.
-
-Zodra #142 gemerged is en er een main-image ligt: `PROEFTUIN_TAG` in `compose.yaml` op die nieuwe
-`sha-`-tag zetten. Tot die tijd toont de berichtenbox alleen de gegenereerde dataset van de
-proeftuin en blijft de keten onzichtbaar, zonder dat er iets misgaat.
+Zet `BACKEND_KETEN` altijd expliciet, en let op het verschil tussen leeg zetten en weglaten.
+Leeggemaakt (`BACKEND_KETEN=`) antwoordt de proeftuin met een 502 die de variabelenaam noemt in
+plaats van het verkeer stil bij een andere dienst af te leveren — een onvolledig ingerichte omgeving
+is daardoor te onderscheiden van een storing. Weggelaten pakt hij de bestemming die sinds de
+padsplitsing in hun image gebakken zit: een `uitvraag-<deployment>-mpfb-8wh`-adres van ons. Wijst
+dat naar een omgeving die niet meer bestaat, dan leest dat als een storing en niet als een
+configuratiefout, want de variabele *is* gezet. `compose.yaml` en `proeftuin-component.sh` zetten
+hem daarom allebei.
 
 ### Twee beperkingen die tijdens een demonstratie opvallen
 

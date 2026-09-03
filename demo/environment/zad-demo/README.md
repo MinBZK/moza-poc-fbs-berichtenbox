@@ -637,13 +637,14 @@ onschuldig: staat een component er wel en noemt de workflow het nog niet, dan dr
 `test`.
 
 De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
-onze eigen images. De tag die hier meegegeven wordt geldt alleen tot de eerste uitrol: daarna zet
-`deploy.yml` hem per deployment, met de waarde van `PROEFTUIN_IMAGE`. Die staat in Git en is dus de
-bron; deze pin is alleen de startwaarde. Pin een `sha-<7>`-tag uit hun main; `latest` verschuift
-stil onder een lopende demo door. Om nog niet gemergd werk te beproeven kan een preview-tag
-(`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`), maar alleen tijdelijk: hun opruiming verwijdert
-alle `pr-<n>-*`-versies zodra die PR sluit, dus zwaai bij het mergen om naar een `sha-`-tag uit hun
-main. Blijft die pin staan, dan trekt een herstart een tag die niet meer bestaat.
+onze eigen images. Welke versie dat is, staat op één plek: de `proeftuin`-regel in `compose.yaml`,
+gepind op digest. `deploy.yml` leest die regel en zet hem per deployment, en het script hieronder
+leest hem voor de eenmalige creatie — dus een bump in `compose.yaml` (meestal een Dependabot-PR)
+werkt de demo op de eigen machine én die op ZAD bij. Om nog niet gemergd werk van hun kant te
+beproeven kan daar een preview-referentie staan (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`),
+maar alleen tijdelijk: hun opruiming verwijdert alle `pr-<n>-*`-versies zodra die PR sluit, en dan
+trekt een herstart een image dat er niet meer is. `pin-consistency.yml` waarschuwt zolang zo'n pin
+staat, en faalt zodra hij onvindbaar is geworden.
 
 ```bash
 demo/environment/zad-demo/proeftuin-component.sh plan   # toont beide aanroepen, muteert niets
@@ -651,9 +652,9 @@ demo/environment/zad-demo/proeftuin-component.sh apply
 ```
 
 Het script doet drie dingen: `demopersonas` aanmaken, `proeftuin` aanmaken, en `BERICHTENBOX_URL`
-op `democonsole` zetten. De image van de proeftuin leest het uit `PROEFTUIN_IMAGE` in `deploy.yml`, zodat er één
-waarde is die bepaalt wat er draait; de tag van de personadienst leest het af van de `democonsole`
-die al in dezelfde deployment draait — hetzelfde register, dezelfde tag.
+op `democonsole` zetten. De image van de proeftuin leest het uit `compose.yaml`, zodat er één waarde
+is die bepaalt wat er draait; de tag van de personadienst leest het af van de `democonsole` die al
+in dezelfde deployment draait — hetzelfde register, dezelfde tag.
 
 Dat werkt pas ná de eerste uitrol van deze module. Vóór die tijd zit je klem: het component moet
 bestaan vóórdat `deploy.yml` het bij naam noemt, maar het image bestaat pas ná die uitrol. Geef
