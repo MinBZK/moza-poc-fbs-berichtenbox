@@ -526,6 +526,27 @@ seconden.
 Praktisch voor een demo: **de eerste ronden na een herstart zijn de traagste die je ziet**, en die
 tien seconden komen van één organisatie die eruit ligt — niet van het aantal.
 
+### Dezelfde meting op de gedeelde omgeving
+
+Op 2026-09-03 herhaald tegen ZAD (`test`), drie ronden, mediaan — de volledige uitkomst staat onder
+MinBZK/MijnOverheidZakelijk#1013:
+
+| Ondernemer | Organisaties | Eerste bericht | Compleet | Geslaagd |
+|---|---|---|---|---|
+| kleine-eenmanszaak | 3 | 110 ms | 0,20 s | 3 van 3 |
+| klein-bedrijf | 15 | 111 ms | 2,9 s | 15 van 15 |
+| grootbedrijf | 45 | 135 ms | 3,3 s | 41 van 45 |
+| landelijk-concern | 100 | 266 ms | 10,2 s | 91 van 100 |
+
+De conclusie hierboven houdt stand op andere infrastructuur. Wat afwijkt is de tijd tot het eerste
+bericht — 110 tot 266 ms tegen 43 tot 137 ms op de laptop — en dat is te verwachten: het register van
+de uitvraag eist https buiten dev en test, dus elke bevraging gaat hier over de publieke ingress in
+plaats van over loopback. Het patroon is hetzelfde: de lijst vult zich binnen een halve seconde, en
+"compleet" hangt aan de organisatie die niet reageert.
+
+De stap staat als stap 9 in `demo/environment/zad-demo/verify-zad.md`, zodat de meting daar herhaald
+kan worden zonder hem opnieuw te bedenken.
+
 ### Waar het plafond ligt
 
 **De begrenzing op gelijktijdige bevragingen is de harde grens, en die zit in de uitvraag.** Het

@@ -2,8 +2,8 @@
 
 **Status: §1 tot en met §5 zijn uitgevoerd** — §1 tot en met §4 op 2026-08-31 voor de deployment
 `test`, §5 op 2026-09-01 in de deploy-workflow. De commando's hieronder zijn dus geen voornemen meer
-maar een verslag. Wat er nog te doen is, staat onderaan als vijf af te vinken stappen; daarna kan
-MinBZK/MijnOverheidZakelijk#1013 dicht.
+maar een verslag. Onderaan staan vijf af te vinken stappen; vier zijn op 2026-09-03 gedaan, en
+alleen het besluit over de previews is nog open. Daarna kan MinBZK/MijnOverheidZakelijk#1013 dicht.
 
 Deze stap (MinBZK/MijnOverheidZakelijk#1013) wachtte op MinBZK/MijnOverheidZakelijk#936; dat issue is
 gesloten, dus die volgorde staat niets meer in de weg.
@@ -302,6 +302,9 @@ zadctl -p mpfm-w3h deployment describe test
 toont. Staat er `replicas: 0`, lees dan eerst "Als een component uitstaat" in `README.md` — de
 herstelroute is destructief en `:refresh` reactiveert niets.
 
+**Gedaan 2026-09-03:** `replicas: 1` op `fbs-magazijn-simulator:main-86c81b9`; `test` meldt zich
+`Healthy` met `magazijnsimulator` in de componentenlijst.
+
 ### 2. Bewijzen dat de simulator ook doorkomt
 
 ```bash
@@ -321,6 +324,9 @@ het pad-prefix en de databaseverbinding. Een `404` betekent dat deze OIN niet in
 component zit — dan is het attachment uit §2 niet, of met een ander aantal, geüpload; een `503` dat
 de pod draait maar zijn database niet vindt.
 
+**Gedaan 2026-09-03:** `200` met een lege pagina, en HAL-links die het pad-prefix `/magazijn/<OIN>`
+terugzetten.
+
 ### 3. De fan-out meten en de uitkomst vastleggen
 
 Doorloop stap 9 van `verify-zad.md` ("De fan-out van de vier ondernemers"). Die stap zegt wat je
@@ -330,6 +336,21 @@ horen bij de gedragsverdeling.
 **Klaar wanneer:** de vier ondernemers 3, 15, 45 en 100 organisaties bevraagd tonen zonder de
 waarschuwing over een afwijkend aantal, en de meting als comment onder
 MinBZK/MijnOverheidZakelijk#1013 staat.
+
+**Gedaan 2026-09-03**, drie ronden, mediaan (de volledige uitkomst staat onder
+MinBZK/MijnOverheidZakelijk#1013):
+
+| Ondernemer | Organisaties | Eerste bericht | Compleet | Geslaagd |
+|---|---|---|---|---|
+| kleine-eenmanszaak | 3 | 110 ms | 0,20 s | 3 van 3 |
+| klein-bedrijf | 15 | 111 ms | 2,9 s | 15 van 15 |
+| grootbedrijf | 45 | 135 ms | 3,3 s | 41 van 45 |
+| landelijk-concern | 100 | 266 ms | 10,2 s | 91 van 100 |
+
+Alle vier bevragen hun volledige aantal, en wat uitvalt is wat de gedragsverdeling laat uitvallen. De
+tijd tot het eerste bericht ligt hoger dan op een laptop (43–137 ms) en dat hoort: elke bevraging gaat
+hier over de publieke ingress. "Compleet" wordt ook hier bepaald door de query-timeout op de
+organisatie die niet reageert, niet door het aantal.
 
 ### 4. Het geheugen op werkelijk gebruik zetten
 
@@ -346,6 +367,13 @@ zadctl -p mpfm-w3h resource tune
 herhalen volstaat). Zag je in stap 3 magazijnen omvallen die op *normaal* staan, kijk dan eerst naar
 `DB_POOL_MAX` (default 50) en het aantal verbindingen dat de database toelaat — dat is een pool-grens
 en geen geheugenprobleem.
+
+**Gedaan 2026-09-03: de tune liet de waarden staan.** `requests 256Mi / 50m` en `limits 768Mi / 1`
+zijn onveranderd, en de `history` in de projectspec houdt alleen de handmatige verhogingen van
+2026-09-01 (256Mi → 512Mi → 768Mi op de limiet). De meting erna liep zonder uitval buiten de
+gedragsverdeling, en de poolregel meldde `piek 37 ... van max 50, 0 wachtend`. Geheugen is hier dus
+niet de grens; de twee metingen rond de tune verschillen alleen in welke ronde de circuit breaker
+opengaat.
 
 ### 5. Flyway, en het besluit over de previews
 
