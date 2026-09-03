@@ -1,7 +1,9 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -251,6 +253,68 @@ class MagazijnClientWireMockTest {
         }
 
     private fun ophaalGereedEvent(): OphalenGereed = gereedEvent(ophaalEvents())
+
+    @Test
+    fun `de client zet page en pageSize op de lijn en haalt elke pagina op`() {
+        // De enige plek waar de queryparameters écht getoetst worden: elders staat er een MockK
+        // tussen, en die vangt een verkeerde parameternaam of een verdwenen annotatie niet. Zonder
+        // deze parameters valt het magazijn terug op zijn eigen default van twintig berichten.
+        stubPagina(WireMockMagazijnResource.serverA!!, pagina = 0, aantal = 100, totaal = 150)
+        stubPagina(WireMockMagazijnResource.serverA!!, pagina = 1, aantal = 50, totaal = 150)
+        stubMagazijnSuccess(WireMockMagazijnResource.serverB!!, "magazijn-b")
+
+        val events = ophaalEvents()
+        val magazijnA = events.filterIsInstance<MagazijnBevragingGeslaagd>()
+            .single { it.magazijnId == WireMockMagazijnResource.OIN_A }
+
+        assertEquals(150, magazijnA.aantalBerichten, "beide pagina's moeten meetellen")
+        assertEquals(false, magazijnA.afgekapt)
+
+        // 0-based paginanummers, conform de PageParam in berichtenmagazijn-api.yaml.
+        WireMockMagazijnResource.serverA!!.verify(
+            getRequestedFor(urlPathEqualTo("/api/v1/berichten"))
+                .withQueryParam("page", equalTo("0"))
+                .withQueryParam("pageSize", equalTo("100")),
+        )
+        WireMockMagazijnResource.serverA!!.verify(
+            getRequestedFor(urlPathEqualTo("/api/v1/berichten"))
+                .withQueryParam("page", equalTo("1"))
+                .withQueryParam("pageSize", equalTo("100")),
+        )
+    }
+
+    /** Eén pagina met [aantal] berichten, die zegt dat het magazijn er [totaal] heeft. */
+    private fun stubPagina(
+        server: com.github.tomakehurst.wiremock.WireMockServer,
+        pagina: Int,
+        aantal: Int,
+        totaal: Int,
+    ) {
+        val berichten = (1..aantal).joinToString(",") {
+            """
+                {
+                    "berichtId": "${java.util.UUID.randomUUID()}",
+                    "afzender": "00000001234567890000",
+                    "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
+                    "onderwerp": "Bericht op pagina $pagina",
+                    "inhoud": "Inhoud",
+                    "publicatietijdstip": "2026-03-10T10:00:00Z",
+                    "aantalBijlagen": 0
+                }
+            """.trimIndent()
+        }
+
+        server.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten"))
+                .withQueryParam("page", equalTo(pagina.toString()))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichten":[$berichten],"totalElements":$totaal,"totalPages":2}"""),
+                ),
+        )
+    }
 
     private fun stubMagazijnSuccess(server: com.github.tomakehurst.wiremock.WireMockServer, magazijnId: String) {
         server.stubFor(

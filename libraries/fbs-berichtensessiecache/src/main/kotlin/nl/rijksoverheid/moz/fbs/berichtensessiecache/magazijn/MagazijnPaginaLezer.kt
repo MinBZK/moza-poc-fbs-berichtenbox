@@ -6,12 +6,13 @@ import jakarta.enterprise.event.Observes
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.TimeoutException
 
 /**
- * Alle berichten van één magazijn, over de pagina's heen. [afgekapt] zegt dat het magazijn er méér
- * heeft dan de cap toeliet: [berichten] draagt de nieuwste, de rest is niet opgehaald.
- * [totaalBeschikbaar] is het aantal dat het magazijn zelf noemde, of null als het geen totaal
- * meestuurde.
+ * Alle berichten van één magazijn, over de pagina's heen. [afgekapt] zegt dat er méér bij die
+ * organisatie staat dan [berichten] draagt — meestal omdat de cap bereikt was, maar ook wanneer het
+ * magazijn zelf een hoger totaal meldt. [totaalBeschikbaar] is het aantal dat het magazijn noemde,
+ * of null als het geen totaal meestuurde of een onmogelijk getal gaf.
  */
 internal data class GepagineerdeBerichten(
     val berichten: List<MagazijnBericht>,
@@ -28,21 +29,22 @@ internal data class GepagineerdeBerichten(
  * en niets meldde dat. Een berichtenbox die post weglaat zonder het te zeggen is erger dan een die
  * traag is: de ontvanger kan niet weten wat hij mist.
  *
- * De cap is dus een grens, geen fout. Zit een magazijn erboven, dan levert dit de nieuwste
+ * De cap is dus een grens, geen fout. Zit een magazijn erboven, dan levert dit de eerste
  * [maxBerichtenPerMagazijn] berichten mét [GepagineerdeBerichten.afgekapt], zodat het portaal kan
- * tonen dat er meer is. Alleen een magazijn dat zijn eigen paginering negeert — één pagina groter
- * dan de gevraagde [paginaGrootte] — is een echte fout: dan is de respons onbegrensd én niet te
- * pagineren, en gooit dit een [MagazijnResponseOverflow].
+ * tonen dat er meer is. "Eerste" is letterlijk de volgorde die het magazijn aanhoudt: ons eigen
+ * magazijn zet de nieuwste vooraan, maar de magazijn-API schrijft geen ordening voor, dus die
+ * belofte is niet van deze lezer. Alleen een magazijn dat zijn eigen paginering negeert — één
+ * pagina groter dan de gevraagde [paginaGrootte] — is een echte fout: dan is de respons onbegrensd
+ * én niet te pagineren, en gooit dit een [MagazijnResponseOverflow].
  *
- * Blokkerend: de gegenereerde [MagazijnClient] is synchroon en de pagina's worden na elkaar
- * opgehaald. De aanroeper draait dit op de worker-pool, binnen de per-magazijn query-timeout die om
- * álle pagina's samen staat — een magazijn houdt zo hetzelfde totale tijdsbudget als toen het één
- * call was.
+ * Blokkerend: [MagazijnClient] is synchroon en de pagina's worden na elkaar opgehaald. De aanroeper
+ * draait dit op de worker-pool, binnen de per-magazijn query-timeout die om álle pagina's samen
+ * staat — een magazijn houdt zo hetzelfde totale tijdsbudget als toen het één call was.
  */
 @ApplicationScoped
 internal class MagazijnPaginaLezer(
     // Het spec-maximum van `pageSize` op de magazijn-API. Lager zetten kost extra round-trips
-    // binnen hetzelfde tijdsbudget; hoger wijst het magazijn af met een 400.
+    // binnen hetzelfde tijdsbudget; hoger weigert de service bij het opstarten (zie het init-blok).
     @param:ConfigProperty(name = "berichtensessiecache.magazijn-page-size", defaultValue = "100")
     private val paginaGrootte: Int,
     // Grens op wat één magazijn aan berichten in de sessiecache mag leggen. Vijf pagina's van
@@ -72,13 +74,16 @@ internal class MagazijnPaginaLezer(
     fun onStartup(@Observes event: StartupEvent) = Unit
 
     /**
-     * Haalt de berichten van [client] op voor [ontvanger], binnen [budget]. Gooit
-     * [MagazijnResponseOverflow] als een pagina groter is dan gevraagd.
+     * Haalt de berichten van [client] op voor [ontvanger]. Gooit [MagazijnResponseOverflow] als een
+     * pagina groter is dan gevraagd, en [TimeoutException] als [budget] op is voordat de lijst
+     * binnen was.
      *
      * [budget] is dezelfde per-magazijn query-timeout die de aanroeper om deze aanroep legt. Die
-     * timeout faalt de `Uni` wel, maar onderbreekt deze blokkerende lus niet: zonder eigen
-     * deadline zou de verlaten thread ná de timeout nog pagina's blijven ophalen, terwijl zijn
-     * bulkhead-permit al is vrijgegeven. De lus stopt daarom zelf zodra het budget op is.
+     * timeout faalt de `Uni` wel, maar onderbreekt deze blokkerende lus niet: zonder eigen deadline
+     * zou de verlaten thread ná de timeout nog pagina's blijven ophalen, terwijl zijn
+     * bulkhead-permit al is vrijgegeven. De lus stopt daarom zelf zodra het budget op is, en meldt
+     * dat als timeout in plaats van als deelresultaat — een halve lijst als "geslaagd" presenteren
+     * zou opnieuw post weglaten, en de ontvanger kan aan zo'n lijst niet zien dat er iets ontbreekt.
      */
     fun leesAlleBerichten(client: MagazijnClient, ontvanger: String, budget: Duration): GepagineerdeBerichten {
         // Op berichtId, want opeenvolgende pagina's zijn niet gegarandeerd disjunct: een bericht
@@ -96,29 +101,26 @@ internal class MagazijnPaginaLezer(
 
             totaalBeschikbaar = respons.totalElements ?: totaalBeschikbaar
             paginaNummer++
-
-            // Een niet-volle pagina is het einde van de lijst. `totalPages` is de tweede
-            // stopvoorwaarde, niet de eerste: een magazijn is hier een implementatie van derden, en
-            // een lus die volledig op andermans teller leunt, blijft doorvragen zodra die teller
-            // onzin is. Ontbreekt de teller, dan telt alleen de paginavulling.
-            lijstCompleet = respons.berichten.size < paginaGrootte ||
-                (respons.totalPages ?: Int.MAX_VALUE) <= paginaNummer
+            lijstCompleet = isEindeVanDeLijst(respons, verzameld.size, paginaNummer)
 
             // Een volle pagina zonder één nieuw bericht betekent dat het magazijn `page` negeert en
-            // steeds hetzelfde teruggeeft; doorvragen levert dan alleen herhaling op. De deadline is
-            // de eigen rem van deze lus: de query-timeout van de aanroeper faalt de `Uni` wel, maar
-            // onderbreekt de lopende blokkerende call niet.
-            if (lijstCompleet || !paginaLeverdeNieuws || System.nanoTime() >= deadline) {
+            // steeds hetzelfde teruggeeft; doorvragen levert dan alleen herhaling op.
+            if (lijstCompleet || !paginaLeverdeNieuws) {
                 break
+            }
+
+            if (System.nanoTime() >= deadline) {
+                throw TimeoutException("Magazijn niet uitgelezen binnen $budget (pagina $paginaNummer)")
             }
         }
 
         val berichten = verzameld.values.take(maxBerichtenPerMagazijn)
+        val bruikbaarTotaal = saneerTotaal(totaalBeschikbaar, verzameld.size)
 
         return GepagineerdeBerichten(
             berichten = berichten,
-            afgekapt = isAfgekapt(berichten.size, verzameld.size, totaalBeschikbaar, lijstCompleet),
-            totaalBeschikbaar = totaalBeschikbaar,
+            afgekapt = isAfgekapt(berichten.size, verzameld.size, bruikbaarTotaal, lijstCompleet),
+            totaalBeschikbaar = bruikbaarTotaal,
         )
     }
 
@@ -136,7 +138,6 @@ internal class MagazijnPaginaLezer(
         return respons
     }
 
-    /** Voegt de pagina toe zonder duplicaten; false zodra een pagina niets nieuws bracht. */
     private fun voegToe(verzameld: MutableMap<UUID, MagazijnBericht>, pagina: List<MagazijnBericht>): Boolean {
         val voorDezePagina = verzameld.size
 
@@ -146,11 +147,49 @@ internal class MagazijnPaginaLezer(
     }
 
     /**
-     * Of wij minder leveren dan het magazijn heeft. Noemt het magazijn een totaal, dan is dat exact
-     * te beantwoorden — ook als het kleinere pagina's teruggaf dan gevraagd, want dan zou een
-     * volle-pagina-heuristiek de lijst stil afkappen. Zonder totaal blijft over: hebben we zelf
-     * weggelaten, of stopte de lus vóór het einde van de lijst? In beide gevallen liever één keer te
-     * veel "er is meer" melden dan post laten verdwijnen zonder het te zeggen.
+     * Een lege pagina is het einde, punt. Een korte pagina alleen wanneer het magazijn het met een
+     * eigen teller bevestigt: een magazijn mag `pageSize` naar zijn eigen maximum bijstellen, en dan
+     * is een halfvolle pagina géén einde maar een clamp — precies het pad waarlangs deze lus opnieuw
+     * stil twintig van driehonderd berichten zou ophalen. Kost dat een extra lege call bij een
+     * magazijn dat geen tellers meestuurt, dan is dat de prijs voor een `afgekapt` dat klopt.
+     */
+    private fun isEindeVanDeLijst(respons: MagazijnBerichtenResponse, verzameld: Int, gelezenPaginas: Int): Boolean {
+        if (respons.berichten.isEmpty()) {
+            return true
+        }
+
+        // Het magazijn zegt zelf dat we alles hebben. Alleen geldig als de teller niet lager is dan
+        // wat we werkelijk binnenhaalden — anders spreekt hij zichzelf tegen en zegt hij niets.
+        if (respons.totalElements?.let { verzameld >= it && it >= 0 } == true) {
+            return true
+        }
+
+        val paginasOp = respons.totalPages?.let { gelezenPaginas >= it } ?: false
+
+        return respons.berichten.size < paginaGrootte && paginasOp
+    }
+
+    /**
+     * Het totaal dat het magazijn noemt, of null zodra dat getal aantoonbaar onzin is: negatief, of
+     * lager dan wat we zelf al uit dat magazijn hebben opgehaald. Zo'n teller weerspreekt zichzelf,
+     * en hem toch doorlaten zou hem als "er is niet meer" laten meetellen én als getal aan de
+     * gebruiker tonen ("3 van -1"). Onbekend is dan een eerlijker antwoord dan onzin.
+     */
+    private fun saneerTotaal(totaal: Long?, verzameld: Int): Long? = totaal?.takeIf { it >= 0 && it >= verzameld }
+
+    /**
+     * Of wij minder leveren dan er bij die organisatie staat.
+     *
+     * Noemt het magazijn een bruikbaar totaal, dan is dat het antwoord: het is exact, en het houdt
+     * de gebruiker een tegenstrijdige melding als "500 van 500 — niet alles opgehaald" bespaard.
+     * Bruikbaar betekent hier: door [saneerTotaal] gekomen, dus niet lager dan wat we al binnen
+     * hebben — een teller die zichzelf tegenspreekt is null en telt niet mee.
+     *
+     * Zonder zo'n totaal beslist ons eigen bewijs: hebben we op de cap weggelaten, of stopte de lus
+     * voordat de lijst uit was, dan is "er is meer" het veilige antwoord. Blijft één restrisico dat
+     * niemand kan wegnemen zonder voorbij de cap te lezen: een magazijn dat een totaal noemt dat
+     * precies gelijk is aan wat het uitpagineert terwijl er meer ligt. Liever dat restrisico dan
+     * standaard "er is meer" melden bij elke organisatie die toevallig precies de cap vult.
      */
     private fun isAfgekapt(geleverd: Int, verzameld: Int, totaalBeschikbaar: Long?, lijstCompleet: Boolean): Boolean =
         totaalBeschikbaar?.let { it > geleverd } ?: (verzameld > geleverd || !lijstCompleet)

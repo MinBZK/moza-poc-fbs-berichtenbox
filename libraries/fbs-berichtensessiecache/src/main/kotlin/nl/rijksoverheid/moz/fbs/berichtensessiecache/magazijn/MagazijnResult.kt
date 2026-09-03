@@ -7,18 +7,22 @@ internal sealed class MagazijnResult {
     abstract val naam: String?
 
     /**
-     * Een bevraagd magazijn dat antwoord gaf. [afgekapt] zegt dat het magazijn méér berichten
-     * heeft dan de cap toeliet: de nieuwste zijn opgehaald, de rest niet. Dat is geen fout — de
+     * Een bevraagd magazijn dat antwoord gaf. [afgekapt] zegt dat er méér bij deze organisatie
+     * staat dan wat [berichten] draagt — meestal omdat de cap bereikt was, maar ook wanneer het
+     * magazijn zelf een hoger totaal meldt of een bericht onbruikbaar bleek. Dat is geen fout — de
      * post die er is, hoort de ontvanger te zien — maar het moet wél zichtbaar worden, anders
      * verdwijnt er stil post. [totaalBeschikbaar] draagt het aantal dat het magazijn zei te
-     * hebben; null wanneer het die teller niet meestuurde.
+     * hebben; null wanneer het die teller niet meestuurde of een onmogelijk getal noemde.
+     *
+     * Geen defaults op de twee: "de ontvanger heeft alles" is de sterkste bewering die dit type kan
+     * doen, en die hoort niet gratis te ontstaan doordat een aanroeper een argument vergeet.
      */
     data class Success(
         override val magazijnId: String,
         override val naam: String?,
         val berichten: List<Bericht>,
-        val afgekapt: Boolean = false,
-        val totaalBeschikbaar: Long? = null,
+        val afgekapt: Boolean,
+        val totaalBeschikbaar: Long?,
     ) : MagazijnResult() {
         init {
             require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }

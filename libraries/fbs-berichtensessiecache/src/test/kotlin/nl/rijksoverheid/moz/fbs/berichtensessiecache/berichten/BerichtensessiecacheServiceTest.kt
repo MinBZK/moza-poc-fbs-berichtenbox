@@ -832,6 +832,10 @@ class BerichtensessiecacheServiceTest {
         val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
         assertEquals(1, voltooid.aantalBerichten)
+        assertTrue(
+            voltooid.afgekapt,
+            "een gedropt bericht is ook post die de ontvanger niet krijgt; dat mag niet als 'alles opgehaald' langskomen",
+        )
     }
 
     @Test

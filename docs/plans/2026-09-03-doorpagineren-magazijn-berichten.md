@@ -93,12 +93,16 @@ bezetting van een trage leverancier begrensd zoals het bulkhead veronderstelt.
 
 ### De timeout blijft om de héle lus staan
 
-`berichtensessiecache.magazijn-query-timeout-seconds` (10) dekt straks alle pagina's van één
-magazijn samen, niet elke pagina apart. Een magazijn heeft dus hetzelfde totale budget als nu, en de
-belofte "de ophaalronde is binnen tien seconden klaar of het magazijn heet traag" verandert niet.
-Prijs: loopt een magazijn halverwege pagina drie in de timeout, dan gaan ook de eerste twee pagina's
+`berichtensessiecache.magazijn-query-timeout-seconds` (10) dekt alle pagina's van één magazijn
+samen, niet elke pagina apart. Een magazijn heeft dus hetzelfde totale budget als nu, en de belofte
+"de ophaalronde is binnen tien seconden klaar of het magazijn heet traag" verandert niet. Prijs:
+loopt een magazijn halverwege pagina drie in de timeout, dan gaan ook de eerste twee pagina's
 verloren. Dat is dezelfde alles-of-niets-uitkomst als vandaag, en het alternatief — een deelresultaat
-als "geslaagd" tonen — zou opnieuw stilzwijgend post weglaten.
+als "geslaagd" tonen — zou opnieuw post weglaten zonder dat de ontvanger het kan zien.
+
+De lus houdt dat zelf vol: raakt zijn budget op, dan breekt hij af met een timeout en niet met een
+halve oogst. Dat is dezelfde uitkomst als wanneer de `Uni`-timeout eerst vuurt (wat meestal gebeurt,
+want die start eerder), maar nu is het een keuze in plaats van een race.
 
 ### Sortering met tiebreaker in het magazijn
 
@@ -116,10 +120,12 @@ deterministisch — de magazijn-simulator doet dit al zo.
 2. **`MagazijnClient`** — `page`- en `pageSize`-queryparameters op `getBerichten`.
 3. **`MagazijnBerichtenResponse`** — `totalElements`/`totalPages` erbij, nullable.
 4. **`MagazijnResult.Success`** — velden `afgekapt` en `totaalBeschikbaar`.
-5. **`BerichtensessiecacheService`** — pagineerlus in de blokkerende magazijn-call; cap als
-   stopvoorwaarde; OVERFLOW alleen nog bij een pagina groter dan de gevraagde `pageSize`; default van
-   `max-berichten-per-magazijn` naar 500 en een nieuwe `berichtensessiecache.magazijn-page-size`
-   (100).
+5. **`MagazijnPaginaLezer`** (nieuw) — de pagineerlus als eigen component, met
+   `GepagineerdeBerichten` als uitkomst: de berichten, `afgekapt` en het totaal dat het magazijn
+   noemde. Draagt beide config-knoppen (`magazijn-page-size` 100, `max-berichten-per-magazijn` 500,
+   met fail-fast bij boot) en de OVERFLOW-check op een pagina groter dan gevraagd.
+   `BerichtensessiecacheService` roept hem aan binnen dezelfde query-timeout en mapt het resultaat
+   naar het event.
 6. **`MagazijnBevragingGeslaagd`** — `afgekapt` + `totaalBeschikbaar` op de lijn.
 7. **`demo-console`** — de berichtenbox-UI toont het afkap-signaal in de voortgangsregel.
 8. **Docs** — `docs/operator-handleiding-uitvraag.md`: de twee properties met hun waarom.
@@ -137,6 +143,29 @@ precies vol (grensgeval waarin een tweede call nog volgt), meerdere pagina's, m�
 cap die geen veelvoud van de paginagrootte is, een magazijn zonder totalen, een magazijn dat
 kleinere pagina's teruggeeft, een magazijn dat `page` negeert, een bericht dat op twee pagina's
 staat, en een verbruikt budget.
+
+## Uit de review
+
+Een eerste reviewronde vond dat de cap overschreden kon worden, dat een magazijn dat `pageSize`
+verlaagt stil werd afgekapt, dat er geen dedupe over pagina's was, dat de lus na de timeout
+doorwerkte en dat de config-validatie pas bij het eerste request vuurde. Een tweede ronde met
+specialisten legde daar bovenop:
+
+- **Een korte pagina is geen bewijs van het einde.** Een magazijn mag `pageSize` naar zijn eigen
+  maximum bijstellen. De lus stopt daarom alleen op een lege pagina, op de cap, of op een korte
+  pagina die het magazijn met een eigen teller bevestigt.
+- **Een teller die zichzelf tegenspreekt telt niet.** Een `totalElements` dat negatief is of lager
+  dan wat we al uit dat magazijn haalden, wordt `null`: niet tonen, niet meetellen als "er is niet
+  meer". Blijft er een bruikbaar totaal over, dan is dat leidend — het is exact, en het bespaart de
+  gebruiker een tegenstrijdige melding als "500 van 500 — niet alles opgehaald".
+- **Een gedropt bericht is ook post die de ontvanger niet krijgt.** Berichten die op de
+  validatiegrens sneuvelen zetten nu `afgekapt`; anders meldde het event "8 berichten, niets
+  afgekapt, 10 beschikbaar".
+- **De slotregel van de demo-berichtenbox** herhaalt bij welke organisaties niet alles is opgehaald.
+  Dat is de regel die blijft staan; de per-magazijn-regels erboven scrollen weg.
+- **"De nieuwste" was een belofte die de magazijn-API niet waarmaakt.** Er staat geen sortering in
+  `berichtenmagazijn-api.yaml`; ons eigen magazijn zet de nieuwste vooraan, maar de lezer kan dat van
+  een derde partij niet afdwingen. De teksten spreken nu van "de eerste die het magazijn levert".
 
 ## Wat hierna nog open staat
 

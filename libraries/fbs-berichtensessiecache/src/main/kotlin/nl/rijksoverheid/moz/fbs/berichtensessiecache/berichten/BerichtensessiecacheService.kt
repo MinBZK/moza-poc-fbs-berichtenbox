@@ -2,7 +2,6 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import com.fasterxml.jackson.core.JsonProcessingException
 import io.smallrye.mutiny.Multi
-import io.smallrye.mutiny.TimeoutException
 import io.smallrye.mutiny.Uni
 import io.quarkus.runtime.StartupEvent
 import io.smallrye.mutiny.infrastructure.Infrastructure
@@ -80,14 +79,11 @@ internal class BerichtensessiecacheService(
     // Per-magazijn circuit breaker: slaat een magazijn na herhaalde storingen tijdelijk over,
     // zodat een dood magazijn niet onnodig bulkhead-permits bezet houdt.
     private val circuitBreaker: MagazijnCircuitBreaker,
-    // Doorpagineren van één magazijn tot alles binnen is of de cap bereikt is; draagt ook de
-    // heap-bescherming die vroeger hier stond.
     private val paginaLezer: MagazijnPaginaLezer,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
-    // Dezelfde deadline die `ifNoItem` om de bevraging legt, maar dan als budget vóór in de
-    // blokkerende pagineerlus: die timeout faalt de Uni wel, maar onderbreekt de lopende lus niet.
+    // Hetzelfde getal als de `ifNoItem`-timeout hieronder; de lus bewaakt het zelf.
     private val magazijnQueryBudget: Duration get() = Duration.ofSeconds(magazijnQueryTimeoutSeconds)
 
     /**
@@ -365,8 +361,7 @@ internal class BerichtensessiecacheService(
         // thread-sticky en zou een storing op een hergebruikte worker-thread als onderbreking
         // laten gelden — en dat oordeel stuurt hieronder de alert-onderdrukking aan.
         val wasInterrupted = chain.hasCauseOf(InterruptedException::class.java)
-        val isOuterTimeout = chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
-            chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java)
+        val isOuterTimeout = chain.bevatTimeout()
 
         when {
             wasInterrupted -> {
@@ -571,25 +566,31 @@ internal class BerichtensessiecacheService(
     }
 
     private fun naarMagazijnResult(oogst: GepagineerdeBerichten, magazijnId: String, naam: String?): MagazijnResult {
-        if (oogst.afgekapt) {
-            // Warn, geen error: dit is een grens die werkt, geen storing. Wel zichtbaar in de log,
-            // zodat een beheerder ziet aankomen dat de cap voor dit magazijn structureel knelt.
-            log.warnf(
-                "Magazijn %s (%s) afgekapt op de berichten-cap: %d opgehaald van %s beschikbaar",
-                magazijnId, naam, oogst.berichten.size, oogst.totaalBeschikbaar?.toString() ?: "onbekend",
-            )
-        }
-
-        // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein
-        // (toBericht) en valideer defensief (BerichtLimieten). Eén invalid bericht
-        // mag de batch niet killen — drop het stuk en log warn i.p.v. de hele
-        // magazijn-bevraging te laten falen. Dit geldt óók voor een ongeldige
-        // ontvanger-identificatie: toBericht bouwt het gevalideerde domeintype en kan
+        // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein (toBericht) en
+        // valideer defensief (BerichtLimieten). Eén invalid bericht mag de batch niet killen — drop
+        // het stuk en log warn i.p.v. de hele magazijn-bevraging te laten falen. Dit geldt óók voor
+        // een ongeldige ontvanger-identificatie: toBericht bouwt het gevalideerde domeintype en kan
         // gooien (onbekend type, elfproef/lengte), dus vangen we dat hier per bericht.
         val berichten = oogst.berichten
             .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId) }
 
-        return MagazijnResult.Success(magazijnId, naam, berichten, oogst.afgekapt, oogst.totaalBeschikbaar)
+        // Een gedropt bericht is ook post die de ontvanger niet krijgt. Zonder deze term zou het
+        // event "8 berichten, niets afgekapt, 10 beschikbaar" melden en zou de ontvanger juist bij
+        // een kapot bericht geen enkel signaal krijgen — dezelfde stille verdwijning waar de rest
+        // van dit pad tegen beschermt.
+        val afgekapt = oogst.afgekapt || berichten.size < oogst.berichten.size
+
+        if (afgekapt) {
+            // Warn, geen error: de gebruikelijke oorzaak is een grens die werkt, geen storing. De
+            // oorzaak staat bewust niet in de tekst — afkappen gebeurt ook wanneer een magazijn
+            // meer meldt dan het uitpagineert, en dan wijst "verhoog de cap" de beheerder verkeerd.
+            log.warnf(
+                "Magazijn %s (%s) leverde minder dan er beschikbaar is: %d opgehaald van %s",
+                magazijnId, naam, berichten.size, oogst.totaalBeschikbaar?.toString() ?: "onbekend",
+            )
+        }
+
+        return MagazijnResult.Success(magazijnId, naam, berichten, afgekapt, oogst.totaalBeschikbaar)
     }
 
     /**
@@ -905,6 +906,15 @@ internal class BerichtensessiecacheService(
 
     private fun List<Throwable>.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
 
+    /**
+     * Beide timeout-typen: de Mutiny-timeout van `ifNoItem`/`ifNoItem().after`, en de
+     * j.u.c.-timeout waarmee de pagineerlus zichzelf afbreekt als zijn budget op is. Ze staan voor
+     * dezelfde uitkomst — er kwam niets op tijd — en horen dus nergens los geteld te worden.
+     */
+    private fun List<Throwable>.bevatTimeout(): Boolean =
+        hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
+            hasCauseOf(java.util.concurrent.TimeoutException::class.java)
+
     private companion object {
         private const val MAX_CAUSE_DEPTH = 32
     }
@@ -918,8 +928,7 @@ internal class BerichtensessiecacheService(
         return when {
             chain.hasCauseOf(InterruptedException::class.java) -> LockAcquireError.INTERRUPTED
             chain.hasCauseOf(JsonProcessingException::class.java) -> LockAcquireError.JSON_SERIALIZATION
-            chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
-                chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java) -> LockAcquireError.TIMEOUT
+            chain.bevatTimeout() -> LockAcquireError.TIMEOUT
             chain.hasCauseOf(java.io.IOException::class.java) -> LockAcquireError.IO_FAULT
             else -> LockAcquireError.UNEXPECTED
         }
@@ -954,7 +963,7 @@ internal class BerichtensessiecacheService(
 
         return when {
             chain.hasCauseOf(MagazijnResponseOverflow::class.java) -> MagazijnFault.OVERFLOW
-            chain.hasCauseOf(TimeoutException::class.java) -> MagazijnFault.TIMEOUT
+            chain.bevatTimeout() -> MagazijnFault.TIMEOUT
             chain.hasCauseOf(JsonProcessingException::class.java) -> MagazijnFault.MALFORMED
             chain.hasCauseOf(ConnectException::class.java) -> MagazijnFault.NETWORK
             webEx != null -> {
@@ -995,9 +1004,6 @@ internal class BerichtensessiecacheService(
                 log.warnf(error, "Magazijn %s (%s) timeout", magazijnId, naam)
             MagazijnFault.MALFORMED ->
                 log.errorf(error, "Magazijn %s (%s) leverde onleesbare JSON-respons (schema-drift?)", magazijnId, naam)
-            // Map-pad logt overflow zelf met counts; warnf hier vangt overflows die
-            // onverwacht via dit pad komen (toekomstige refactor) — warn ipv debug
-            // omdat prod-INFO-niveau anders silent zou maken.
             MagazijnFault.OVERFLOW ->
                 // ErrorF voor alert-routing: een magazijn dat zijn eigen paginering negeert is een
                 // contractbreuk die een beheerder moet zien, niet een incident van de gebruiker.

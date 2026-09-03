@@ -259,6 +259,13 @@ class BerichtRepositoryIntegrationTest {
         assertEquals(opgeslagen.size, doorlopen.size, "elke pagina samen moet alle berichten dekken")
         assertEquals(opgeslagen.toSet(), doorlopen.toSet(), "geen bericht mag ontbreken")
         assertEquals(doorlopen.size, doorlopen.toSet().size, "geen bericht mag dubbel voorkomen")
+        // De richting is óók gedrag: wie op een bovengrens afkapt, levert de kop van de lijst. Met
+        // een oplopende tiebreaker zou dat bij gelijke tijdstippen juist de oudste post zijn.
+        assertEquals(
+            opgeslagen.reversed(),
+            doorlopen,
+            "binnen hetzelfde tijdstip hoort de laatst aangeleverde eerst te staan",
+        )
     }
 
     @Test
