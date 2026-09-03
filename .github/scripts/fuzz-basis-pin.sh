@@ -10,34 +10,48 @@
 # Verwacht in de omgeving:
 #   DIGEST     — image@sha256:… zoals de registry het onder de zojuist gepushte tag serveert
 #   POMS       — pom-hash van de dependency-set waar dat image bij hoort (gaat de PR-body in)
-#   GH_TOKEN   — PAT met Contents: write en Pull requests: write
-#   DOCKERFILE — te wijzigen bestand (default .clusterfuzzlite/Dockerfile)
-#   BRANCH     — branch waarop de pin wordt aangeboden (default chore/fuzz-basis-pin)
+#   GH_TOKEN   — PAT met Contents: write en Pull requests: write; dekt alleen de gh-aanroepen, de
+#                git push leunt op de credentials die de checkout in .git/config achterlaat
+#   DOCKERFILE — te wijzigen bestand (default .clusterfuzzlite/Dockerfile; alleen de suite zet dit)
+#   BRANCH     — branch waarop de pin wordt aangeboden (default chore/fuzz-basis-pin; idem)
 set -euo pipefail
 
 DOCKERFILE=${DOCKERFILE:-.clusterfuzzlite/Dockerfile}
 BRANCH=${BRANCH:-chore/fuzz-basis-pin}
 
 # De digest komt uit `docker buildx imagetools inspect --format`. Dat commando eindigt ook met 0 als
-# het template niets oplevert, en dan draagt DIGEST alleen nog het image-pad. Zonder deze controle
-# is `FROM ghcr.io/…@` een prefix van élke gepinde FROM-regel: de vergelijking hieronder matcht, het
-# script concludeert "pin staat al goed" en sluit de PR die de echte wijziging droeg.
+# het template niets oplevert, en dan draagt DIGEST alleen nog het image-pad. `vervang_pin` zet die
+# afgekapte waarde daarna gewoon in de FROM-regel: de sed raakt wél iets, de diff is niet leeg, en de
+# PR biedt een `FROM …@` aan zonder digest — een image dat niemand kan trekken.
+#
+# `[[ =~ ]]` en niet `grep -E`: die laatste ankert per regel, dus een waarde met een newline erin zou
+# op zijn tweede regel alsnog slagen. Deze functie bestaat juist als vangnet tegen onverwachte vorm.
 digest_is_welgevormd() {
-  printf '%s' "${1:-}" | grep -qE '^[a-z0-9.]+/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$'
+  [[ ${1:-} =~ ^[a-z0-9.]+/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
 }
 
-# `-x`: de hele regel moet gelijk zijn. Een niet-geankerde vergelijking leest ook het commentaarblok
-# bovenin het Dockerfile mee, en juist daar staat de FROM-regel die de bouw als voorbeeld print.
+# `-x`: de hele regel moet gelijk zijn. Zonder anker telt ook een commentaarregel die een FROM-regel
+# citeert (een voorbeeld, een oude pin) als "de pin staat al goed" — en dan sluit dit script de PR
+# die de echte wijziging droeg.
 pin_is_actueel() {
   grep -qxF "FROM $1" "$DOCKERFILE"
 }
 
-# Het image-pad komt uit DIGEST zelf, niet uit een tweede vastlegging die met de workflow-env in
-# sync gehouden moet worden. Wijst de FROM-regel naar een ánder image, dan matcht de sed niet en is
-# dat een harde fout — geen stille no-op.
+# Het image-pad komt uit DIGEST zelf, niet uit een tweede vastlegging die met de workflow-env in sync
+# gehouden moet worden. De vervangkant is bewust níét ge-escaped; dat mag alleen omdat
+# `digest_is_welgevormd` de tekenset al tot een pad plus hex beperkt.
 vervang_pin() {
-  local digest=$1 pad_regex
+  local digest=$1 pad_regex aantal
   pad_regex=$(printf '%s' "${digest%@*}" | sed 's/[].[^$*\/]/\\&/g')
+  aantal=$(grep -cE "^FROM +${pad_regex}@sha256:[a-f0-9]{64}$" "$DOCKERFILE" || true)
+
+  # Precies één: bij nul wijst de FROM-regel ergens anders heen of is hij van vorm veranderd, bij
+  # meer dan één (een multi-stage Dockerfile) zou de sed ze allemaal raken behalve die met een
+  # `AS <naam>` erachter — en dat levert stil een half bijgewerkt bestand op.
+  if [ "$aantal" -ne 1 ]; then
+    echo "::error::$DOCKERFILE heeft $aantal FROM-regels die op ${digest%@*} pinnen; verwacht precies één."
+    return 1
+  fi
 
   sed -i -E "s|^FROM +${pad_regex}@sha256:[a-f0-9]{64}\$|FROM ${digest}|" "$DOCKERFILE"
 }
@@ -60,25 +74,39 @@ Wijzigen de dependency-declaraties vóór de merge, dan ververst een volgende bo
 EOM
 }
 
-# Sluiten en de branch opruimen in twee stappen: `gh pr close --delete-branch` wil ook de lokale branch
-# weg en die bestaat in dit pad niet. De ls-remote ervoor houdt het idempotent — heeft de repo
-# "automatically delete head branches" aan, dan is de branch al weg en is dat geen fout.
+# Sluiten en de branch opruimen in twee stappen: `gh pr close --delete-branch` wil ook de lokale
+# branch weg en die bestaat in dit pad niet.
 ruim_pin_pr_op() {
-  local nummer=$1
+  local nummer=$1 status=0
 
   gh pr close "$nummer" \
     --comment "De pin in \`$DOCKERFILE\` hoort inmiddels bij het huidige basis-image; deze PR heeft geen wijziging meer te brengen."
 
-  if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-    git push origin --delete "$BRANCH"
-  fi
+  git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null || status=$?
+
+  # Alleen 2 betekent "die branch is er niet" — een vorige run die na de close afbrak, of iemand die
+  # hem met de hand verwijderde. Elke andere code (128 bij een auth- of netwerkfout) zegt dat we het
+  # niet weten, en dan is stil overslaan het slechtste antwoord: een ingetrokken `Contents: write`
+  # zou zo elke run de opruiming overslaan terwijl de log meldt dat er opgeruimd is.
+  case $status in
+    0) git push origin --delete "$BRANCH" ;;
+    2) echo "Branch $BRANCH bestond al niet meer." ;;
+    *)
+      echo "::error::kon niet vaststellen of $BRANCH nog bestaat (git ls-remote gaf $status)."
+      return 1
+      ;;
+  esac
 }
 
-publiceer_tak() {
+# Eén commit bovenop main, geen doorgroeiende branch: `switch -C` plus force-push zetten de pin-branch
+# elke bouw opnieuw neer. Wat iemand er zelf op zette gaat daarmee weg — bedoeld, want deze PR hoort
+# precies één FROM-regel te dragen. De commit is op het Dockerfile begrensd, net als de guard die
+# ervoor bepaalt of er iets te committen valt.
+publiceer_branch() {
   git config user.name "github-actions[bot]"
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
   git switch -C "$BRANCH"
-  git commit -am "chore(ci): pin het fuzz-basis-image op de huidige pom-set"
+  git commit -m "chore(ci): pin het fuzz-basis-image op de huidige pom-set" -- "$DOCKERFILE"
   git push -f origin "$BRANCH"
 }
 
@@ -93,12 +121,20 @@ main() {
     return 1
   fi
 
+  # Zonder deze controle antwoordt `pin_is_actueel` op een onleesbaar bestand met "niet actueel" —
+  # de verkeerde richting voor "niet vast te stellen", en de run struikelt pas een stap later over
+  # een kale tool-fout die de oorzaak niet noemt.
+  if [ ! -r "$DOCKERFILE" ]; then
+    echo "::error::$DOCKERFILE is niet te lezen — de pin is niet te vergelijken."
+    return 1
+  fi
+
   local open_pr body
   open_pr=$(open_pin_pr)
 
-  # De pin kan ook buiten deze PR om goed komen: iemand werkt hem met de hand bij, of een herbouw
-  # levert dezelfde digest. Blijft de PR dan openstaan, dan draagt hij een diff die niets meer
-  # verandert en kan een reviewer niet zien of hij nog actueel is.
+  # De pin kan ook buiten deze PR om goed komen: iemand werkt hem met de hand bij, of de bouw levert
+  # bij uitzondering dezelfde digest. Blijft de PR dan openstaan, dan draagt hij een diff die niets
+  # meer verandert en kan een reviewer niet zien of hij nog actueel is.
   if pin_is_actueel "$DIGEST"; then
     echo "De pin hoort al bij dit image."
 
@@ -112,18 +148,17 @@ main() {
 
   vervang_pin "$DIGEST"
 
-  # Raakt de sed niets, dan wijst de FROM-regel naar een ander image of is hij van vorm veranderd.
-  # Doorgaan zou een lege PR opleveren die niemand kan duiden.
+  # Vangnet onder `vervang_pin`: raakte de sed niets terwijl de telling wél één zei, dan zou een lege
+  # PR volgen die niemand kan duiden.
   if git diff --quiet -- "$DOCKERFILE"; then
-    echo "::error::de FROM-regel in $DOCKERFILE is niet herkend — wijst hij naar een ander image, of is de vorm gewijzigd?"
+    echo "::error::de FROM-regel in $DOCKERFILE is niet gewijzigd terwijl dat wel had gemoeten."
     return 1
   fi
 
-  publiceer_tak
+  publiceer_branch
   body=$(pr_body "${POMS:-onbekend}")
 
-  # Ook de body verversen: hij draagt de pom-hash, en dat is waaraan een reviewer ziet bij wélke
-  # dependency-set de aangeboden digest hoort.
+  # Ook de body verversen: hij draagt de pom-hash van déze bouw.
   if [ -n "$open_pr" ]; then
     gh pr edit "$open_pr" --body "$body"
     echo "Openstaande pin-PR #$open_pr bijgewerkt naar de nieuwe digest."
@@ -135,7 +170,7 @@ main() {
     --body "$body"
 }
 
-# Sourcen voert main niet uit, zodat de suite de functies los kan toetsen.
+# Sourcen voert main niet uit, zodat de suite het script kan laden zonder een PR te openen.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   main "$@"
 fi

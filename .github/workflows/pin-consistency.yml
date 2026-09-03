@@ -1,7 +1,7 @@
 # Twee pin-controles: `infra-image-pins` houdt de pins van de zelf-gedeployde infra-images uniform
 # over alle vindplaatsen en blokkeert onvoorwaardelijk; `proeftuin-pin` bewaakt of een pin nog
-# actueel is en waarschuwt daarover, maar blokkeert zodra hij niets meer kán meten. De motivatie
-# per job staat erboven.
+# actueel is en waarschuwt daarover, maar blokkeert bij een pin die niet te trekken is en bij een
+# controle die zijn eigen bron kwijt is. De motivatie per job staat erboven.
 #
 # Over `infra-image-pins`:
 #
