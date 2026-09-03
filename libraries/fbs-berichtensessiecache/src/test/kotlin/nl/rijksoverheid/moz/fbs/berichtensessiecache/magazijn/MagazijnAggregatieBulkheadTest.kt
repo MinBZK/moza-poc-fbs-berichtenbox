@@ -234,6 +234,49 @@ class MagazijnAggregatieBulkheadTest {
     }
 
     @Test
+    fun `een geannuleerde wachtende kost geen permit`() {
+        // De wachtende houdt niets vast: acquire en release zitten in hetzelfde synchrone blok, dus
+        // een annulering tijdens het wachten kan er niet tussen vallen. Zou de acquire wél van het
+        // aanhaken van de release gescheiden zijn, dan zou deze permit permanent kwijt zijn.
+        val bulkhead = bulkhead(maxWachttijdMs = 30_000)
+
+        val vastgehouden = bulkhead.begrensd(
+            verlopen = { Uni.createFrom().item("VERLOPEN") },
+            taak = { Uni.createFrom().nothing<String>() },
+        ).subscribe().with({}, {})
+
+        val gestart = AtomicInteger(0)
+        val wachtende = bulkhead.begrensd(
+            verlopen = { Uni.createFrom().item("VERLOPEN") },
+            taak = {
+                gestart.incrementAndGet()
+                Uni.createFrom().item("OK")
+            },
+        ).subscribe().with({}, {})
+
+        wachtende.cancel()
+        vastgehouden.cancel()
+
+        assertEquals(1, bulkhead.vrijePermits(), "beide permits terug na twee annuleringen")
+
+        // En de geannuleerde wachtende is nooit alsnog aan zijn taak begonnen.
+        assertEquals(0, gestart.get())
+    }
+
+    @Test
+    fun `een absurd wachtbudget faalt fail-fast in plaats van stil over te lopen`() {
+        // Het budget gaat naar nanoseconden; zonder plafond loopt een waarde als deze daar over naar
+        // negatief, is de deadline meteen verstreken en is de wachtrij stil weer een zeef.
+        assertThrows<IllegalArgumentException> { bulkhead(maxWachttijdMs = Long.MAX_VALUE) }
+        assertThrows<IllegalArgumentException> {
+            bulkhead(maxWachttijdMs = MagazijnAggregatieBulkhead.MAX_WACHTTIJD_MS_PLAFOND + 1)
+        }
+
+        // Precies op het plafond mag wel.
+        bulkhead(maxWachttijdMs = MagazijnAggregatieBulkhead.MAX_WACHTTIJD_MS_PLAFOND)
+    }
+
+    @Test
     fun `meer parallel per ronde dan permits faalt fail-fast bij constructie`() {
         // Anders biedt één ronde structureel meer bevragingen aan dan er permits zijn, en verbrandt
         // het overschot zijn wachtbudget in plaats van te wachten op een permit die zo vrijkomt.

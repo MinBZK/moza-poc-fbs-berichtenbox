@@ -91,11 +91,21 @@ bevraagd, niet gedeeltelijk overgeslagen.
 |---|---|---|
 | `berichtensessiecache.magazijn-bulkhead.max-concurrent` | `40` | Verhoog bij veel gelijktijdige ophaalrondes; houd het een fractie van de worker-pool (zonder expliciete `quarkus.thread-pool.max-threads` minimaal 200 threads), anders verdwijnt de bescherming die deze grens is |
 | `berichtensessiecache.magazijn-bulkhead.max-parallel-per-ronde` | `20` | Verlaag om één ondernemer minder van de gedeelde capaciteit te laten pakken. MOET ≤ `max-concurrent` blijven — de service start anders niet |
-| `berichtensessiecache.magazijn-bulkhead.max-wachttijd-ms` | `5000` | Verhoog als `NIET_OPGEHAALD` optreedt terwijl de magazijnen gezond zijn: het wachtbudget is dan te krap voor de piek |
+| `berichtensessiecache.magazijn-bulkhead.max-wachttijd-ms` | `15000` | Verhoog als `NIET_OPGEHAALD` optreedt terwijl de magazijnen gezond zijn: het wachtbudget is dan te krap voor de piek. MOET ≥ `magazijn-query-timeout-seconds × 1000` zijn en ≤ 120000 (de vangnet-TTL van de ophaal-lock) — buiten die band start de service niet |
 
 `NIET_OPGEHAALD` in de logs staat als `Aggregatie-bulkhead bleef vol; magazijn … niet bevraagd
 (OVERBELAST)` op `WARN` — een capaciteitssignaal, geen storing van het magazijn. Zie je het
 structureel, dan is `max-concurrent` te laag voor de gelijktijdige belasting.
+
+**Let op bij een grote fan-out.** Een ophaalronde duurt in het slechtste geval
+`⌈organisaties ÷ max-parallel-per-ronde⌉ × magazijn-query-timeout-seconds`: bij honderd
+organisaties, twintig per ronde en een timeout van tien seconden is dat vijftig seconden, ruim
+binnen de vangnet-TTL van de ophaal-lock (`berichtensessiecache.aggregation-lock-ttl`, `PT2M`).
+Ga je naar een veelvoud daarvan, reken die som dan na: verstrijkt de lock middenin een ronde, dan
+vervalt de bescherming tegen een tweede gelijktijdige ronde voor dezelfde ontvanger. Verhoog dan
+`aggregation-lock-ttl` mee, of `max-parallel-per-ronde` (binnen `max-concurrent`). Er is geen
+startup-controle op deze verhouding — het aantal organisaties van een ondernemer is bij het
+opstarten niet bekend.
 
 ## Cache-levensduur
 

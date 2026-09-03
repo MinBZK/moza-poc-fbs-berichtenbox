@@ -43,9 +43,16 @@ import java.util.concurrent.Semaphore
  * ronde niet in één keer meer permits opvraagt dan er zijn.
  *
  * De acquire/release-pairing zit volledig in [begrensd] (geen losse claim/vrijgave-API): de permit
- * wordt tijdens de subscription geclaimd en op élke terminatie (succes/fout/cancel) — óók als het
- * opbouwen van de taak-`Uni` gooit — precies één keer vrijgegeven. Zo kan een caller de permits niet
- * onbalanceren (lek of dubbele release die de semafoor stilletjes boven [maxConcurrent] oprekt).
+ * wordt geclaimd en de release aangehaakt in hetzelfde synchrone blok, en gaat op élke terminatie
+ * (succes/fout/cancel) — óók als het opbouwen van de taak-`Uni` gooit — precies één keer terug. Zo
+ * kan een caller de permits niet onbalanceren (lek of dubbele release die de semafoor stilletjes
+ * boven [maxConcurrent] oprekt). Een wachtende houdt niets vast: annuleren tijdens het wachten kost
+ * geen permit.
+ *
+ * Het aantal wachtenden is niet apart begrensd; het volgt uit [maxParallelPerRonde] × het aantal
+ * gelijktijdige ophaalrondes. Een aparte wachtrij-diepte met shedding daarboven is bewust niet
+ * gebouwd: dat zou de zeef terugbrengen voor een belasting die deze dienst niet kent, en het
+ * wachtbudget begrenst elke wachtende al in tijd.
  *
  * Bekende beperking (bewuste trade-off, geen per-magazijn bulkhead): de permits zijn gedeeld over
  * álle magazijnen/ontvangers. Tijdens het venster waarin een trage leverancier de permits opsoupeert
@@ -74,9 +81,11 @@ internal class MagazijnAggregatieBulkhead(
             "$MAX_PARALLEL_PER_RONDE_PROPERTY ($maxParallelPerRonde) moet groter zijn dan 0"
         }
 
-        // Een ronde die meer bevragingen tegelijk aanbiedt dan er permits zijn, laat het overschot
-        // structureel zijn wachtbudget verbranden in plaats van te wachten op een permit die zo
-        // vrijkomt. De per-ronde-laag hoort binnen de globale grens te blijven.
+        // Een ronde die meer bevragingen tegelijk aanbiedt dan er permits zijn, zet het overschot in
+        // de poll-lus in plaats van in de kosteloze backpressure-wachtrij van de merge — en juist
+        // die wachtenden verliezen hun budget zodra de permits door trage calls bezet blijven. De
+        // per-ronde-laag hoort dus binnen de globale grens te blijven. Verlaagt een omgeving
+        // max-concurrent, dan moet max-parallel-per-ronde mee omlaag.
         require(maxParallelPerRonde <= maxConcurrent) {
             "$MAX_PARALLEL_PER_RONDE_PROPERTY ($maxParallelPerRonde) mag niet groter zijn dan " +
                 "$MAX_CONCURRENT_PROPERTY ($maxConcurrent)"
@@ -86,12 +95,27 @@ internal class MagazijnAggregatieBulkhead(
         require(maxWachttijdMs > 0) {
             "$MAX_WACHTTIJD_MS_PROPERTY ($maxWachttijdMs) moet groter zijn dan 0"
         }
+
+        // Bovengrens, om twee redenen. Inhoudelijk: langer wachten dan de vangnet-TTL van de
+        // ophaal-lock (`berichtensessiecache.aggregation-lock-ttl`, PT2M) heeft geen zin — dan is
+        // de ronde waarvoor gewacht wordt zichzelf al kwijt. Mechanisch: het budget gaat naar
+        // nanoseconden, en een absurde waarde loopt daar over naar negatief; de deadline is dan
+        // meteen verstreken en de wachtrij is stil weer de zeef die hij was.
+        require(maxWachttijdMs <= MAX_WACHTTIJD_MS_PLAFOND) {
+            "$MAX_WACHTTIJD_MS_PROPERTY ($maxWachttijdMs) mag niet groter zijn dan $MAX_WACHTTIJD_MS_PLAFOND"
+        }
     }
 
     // Geen fairness: de acquires zijn `tryAcquire()` (barge), en fairness geldt in `Semaphore`
     // alleen voor de blokkerende varianten — `fair=true` zou hier een no-op zijn. De eerlijkheid
     // die telt komt van maxParallelPerRonde: binnen een ronde krijgt élke organisatie zijn beurt.
     private val semaphore = Semaphore(maxConcurrent)
+
+    // Vast per instantie en geen eigen knop: het interval volgt uit het wachtbudget, zodat de
+    // poll-keten ongeacht dat budget kort blijft (hooguit MAX_POLLS niveaus). De ondergrens van
+    // 25 ms is de resolutie die bij een gezonde magazijn-call (tientallen tot honderden ms)
+    // verwaarloosbare wachttijd toevoegt.
+    private val pollInterval: Duration = Duration.ofMillis(maxOf(POLL_INTERVAL_MIN_MS, maxWachttijdMs / MAX_POLLS))
 
     /**
      * Voert [taak] uit onder één permit. Is het bulkhead vol, dan wacht de bevraging tot er een
@@ -103,32 +127,32 @@ internal class MagazijnAggregatieBulkhead(
      * zo een gesloten paar dat de caller niet kan onbalanceren.
      */
     fun <T> begrensd(verlopen: () -> Uni<T>, taak: () -> Uni<T>): Uni<T> =
-        Uni.createFrom().deferred {
-            verwerfPermit(deadlineNanos = System.nanoTime() + maxWachttijdMs * NANOS_PER_MILLI)
-                .onItem().transformToUni { verkregen ->
-                    if (verkregen) metPermit(taak) else verlopen()
-                }
-        }
+        probeer(System.nanoTime() + maxWachttijdMs * NANOS_PER_MILLI, verlopen, taak)
 
     /**
-     * Probeert een permit te claimen tot [deadlineNanos]: `true` = geclaimd (de caller moet hem
-     * vrijgeven), `false` = budget verstreken. De wachtstap loopt op de scheduler van de
-     * default-worker-pool en houdt géén thread bezet.
+     * Eén poging tot [deadlineNanos]: permit vrij → [taak] onder die permit; budget verstreken →
+     * [verlopen]; anders even wachten en het opnieuw proberen. De wachtstap loopt op de scheduler
+     * van de default-worker-pool en houdt géén thread bezet.
      *
-     * Elke poll voegt één niveau aan de `Uni`-keten toe; het aantal is begrensd door
-     * wachtbudget ÷ [POLL_INTERVAL] (200 bij de defaults) en wordt bij terminatie in één keer
-     * vrijgegeven. Vergroot het wachtbudget dus niet met ordes van grootte zonder ook het
-     * poll-interval mee te laten lopen.
+     * De geslaagde `tryAcquire` en het aanhaken van de release staan bewust in hetzelfde
+     * synchrone `deferred`-blok. Zouden ze door een operator-grens gescheiden worden (acquire hier,
+     * release in een `transformToUni` erna), dan slaat een annulering die daartussen valt de
+     * release-tak over — Mutiny's `transformToUni` levert het item niet meer af aan een
+     * geannuleerde subscriber — en is die permit permanent kwijt. Er is geen reaper.
+     *
+     * Elke wachtstap voegt één niveau aan de `Uni`-keten toe; [pollInterval] schaalt met het
+     * wachtbudget zodat dat er nooit meer dan [MAX_POLLS] worden, ongeacht hoe groot het budget
+     * staat.
      */
-    private fun verwerfPermit(deadlineNanos: Long): Uni<Boolean> =
+    private fun <T> probeer(deadlineNanos: Long, verlopen: () -> Uni<T>, taak: () -> Uni<T>): Uni<T> =
         Uni.createFrom().deferred {
             when {
-                semaphore.tryAcquire() -> Uni.createFrom().item(true)
+                semaphore.tryAcquire() -> metPermit(taak)
                 // Overflow-veilige vergelijking: verstreken zodra het verschil niet-negatief is.
-                System.nanoTime() - deadlineNanos >= 0 -> Uni.createFrom().item(false)
+                System.nanoTime() - deadlineNanos >= 0 -> verlopen()
                 else -> Uni.createFrom().voidItem()
-                    .onItem().delayIt().by(POLL_INTERVAL)
-                    .onItem().transformToUni { _ -> verwerfPermit(deadlineNanos) }
+                    .onItem().delayIt().by(pollInterval)
+                    .onItem().transformToUni { _ -> probeer(deadlineNanos, verlopen, taak) }
             }
         }
 
@@ -143,6 +167,9 @@ internal class MagazijnAggregatieBulkhead(
             throw taakOpbouwFout
         }
 
+    /** Het wachtbudget, voor de kruisvalidatie tegen de per-magazijn query-timeout in de service. */
+    internal fun wachtbudgetMs(): Long = maxWachttijdMs
+
     /** Aantal vrije permits — alleen voor diagnostiek/tests. */
     internal fun vrijePermits(): Int = semaphore.availablePermits()
 
@@ -152,14 +179,15 @@ internal class MagazijnAggregatieBulkhead(
         const val MAX_PARALLEL_PER_RONDE_PROPERTY = "berichtensessiecache.magazijn-bulkhead.max-parallel-per-ronde"
         const val MAX_PARALLEL_PER_RONDE_DEFAULT = "20"
         const val MAX_WACHTTIJD_MS_PROPERTY = "berichtensessiecache.magazijn-bulkhead.max-wachttijd-ms"
-        const val MAX_WACHTTIJD_MS_DEFAULT = "5000"
+        const val MAX_WACHTTIJD_MS_DEFAULT = "15000"
+
+        /** Zie de toelichting bij de validatie: gelijk aan de vangnet-TTL van de ophaal-lock. */
+        const val MAX_WACHTTIJD_MS_PLAFOND = 120_000L
 
         private const val NANOS_PER_MILLI = 1_000_000L
+        private const val POLL_INTERVAL_MIN_MS = 25L
 
-        // Vast en niet configureerbaar: een magazijn-call duurt in de praktijk tientallen tot
-        // honderden milliseconden, dus 25 ms voegt verwaarloosbaar veel wachttijd toe terwijl het
-        // pollen zelf niets kost (een `tryAcquire` per wachtende per interval). Een knop erbij zou
-        // een afweging suggereren die er niet is.
-        private val POLL_INTERVAL: Duration = Duration.ofMillis(25)
+        /** Maximaal aantal wachtstappen binnen één budget; zie [pollInterval]. */
+        private const val MAX_POLLS = 200L
     }
 }

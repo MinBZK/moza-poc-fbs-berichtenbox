@@ -60,8 +60,9 @@ Laag 1 begrenst één ronde. De semafoor is gedeeld over sessies: twee gelijktij
 zouden zonder ingreep hetzelfde bug-patroon over sessies heen krijgen (de eerste pakt alle permits,
 de tweede krijgt overal OVERBELAST). Daarom wacht de acquire nu, met een budget:
 
-* Geen vrije permit → wachten en opnieuw proberen (poll-interval 25 ms) tot het wachtbudget
-  (`max-wachttijd-ms`, default 5000) verstreken is.
+* Geen vrije permit → wachten en opnieuw proberen tot het wachtbudget (`max-wachttijd-ms`,
+  default 15000) verstreken is. Het poll-interval schaalt met het budget (minimaal 25 ms, hooguit
+  200 stappen), zodat de `Uni`-keten kort blijft hoe groot het budget ook staat.
 * Het wachten is **asynchroon**: het draait op de scheduler van
   `Infrastructure.getDefaultWorkerPool()` en houdt géén worker-thread bezet. Daarmee blijft de
   eigenschap die de bulkhead moest bewaken exact overeind: er zijn nooit meer dan `max-concurrent`
@@ -70,6 +71,11 @@ de tweede krijgt overal OVERBELAST). Daarom wacht de acquire nu, met een budget:
   net als voorheen op de terminatie van de taak. Er wordt nooit een permit "overgedragen" aan een
   wachtende, dus er is geen scenario waarin een permit bij een al afgebroken wachtende belandt en
   lekt.
+* De geslaagde acquire en het aanhaken van de release staan in hetzelfde synchrone blok. Zouden ze
+  door een operator-grens gescheiden worden (acquire in de poll-stap, release in een
+  `transformToUni` erna), dan slaat een annulering die daartussen valt de release-tak over —
+  Mutiny levert een item niet meer af aan een geannuleerde subscriber — en is die permit
+  permanent kwijt.
 
 **Waarom polling en geen FIFO-wachtrij van emitters.** Een emitter-wachtrij die permits doorgeeft
 heeft een race die niet lokaal op te lossen is: op het moment dat de release een permit aan de
@@ -101,10 +107,26 @@ bulkhead zelf:
 |---|---|---|
 | `max-concurrent` | 40 | Globaal: hoeveel worker-threads tegelijk een magazijn bevragen, over alle sessies |
 | `max-parallel-per-ronde` | 20 | Per ophaalronde: hoeveel bevragingen tegelijk onderweg zijn |
-| `max-wachttijd-ms` | 5000 | Bovengrens op het wachten op een permit |
+| `max-wachttijd-ms` | 15000 | Bovengrens op het wachten op een permit |
 
-Invarianten: alle drie > 0, en `max-parallel-per-ronde ≤ max-concurrent` (anders wacht een enkele
-ronde structureel op permits die er nooit zijn en verbrandt hij zijn wachtbudget).
+Invarianten:
+
+* Alle drie > 0.
+* `max-parallel-per-ronde ≤ max-concurrent`: anders zet een ronde het overschot in de poll-lus in
+  plaats van in de kosteloze backpressure-wachtrij van de merge, en juist die wachtenden verliezen
+  hun budget zodra de permits door trage calls bezet blijven. Verlaagt een omgeving
+  `max-concurrent`, dan moet `max-parallel-per-ronde` mee omlaag — anders start de service niet.
+* `max-wachttijd-ms ≥ magazijn-query-timeout-seconds × 1000`, gekruisvalideerd in
+  `BerichtensessiecacheService.valideerTimeouts()` naast de bestaande timeout-invarianten. Een
+  permit komt pas vrij als de call die hem houdt afgerond is, en die mag tot de query-timeout
+  duren; bij een korter budget verliest een bevraging die aanklopt terwijl alle permits door trage
+  calls bezet zijn haar budget vóórdat er ook maar één permit kán vrijkomen — dan is de wachtrij
+  voor haar alsnog een zeef. Dit is precies het gat dat de eerste versie van dit ontwerp had
+  (budget 5 s, query-timeout 10 s).
+* `max-wachttijd-ms ≤ 120000`: inhoudelijk omdat langer wachten dan de vangnet-TTL van de
+  ophaal-lock zinloos is (de ronde waarvoor gewacht wordt is zichzelf dan al kwijt), mechanisch
+  omdat het budget naar nanoseconden gaat en een absurde waarde daar overloopt naar negatief — de
+  deadline is dan meteen verstreken en de wachtrij is stil weer de zeef die hij was.
 
 `max-concurrent` gaat van 20 naar 40 zodat twee gelijktijdige rondes op volle snelheid draaien
 zonder aan de wachtrij te komen; dat is hooguit een vijfde van de Quarkus-worker-pool, die zonder
@@ -112,12 +134,28 @@ expliciete `quarkus.thread-pool.max-threads` minimaal 200 threads groot is. De g
 meer mee te groeien met het aantal organisaties van een ondernemer — dat is precies wat laag 1
 wegneemt — dus de handmatige 120 in de demo verdwijnt.
 
+### De duur van een ronde tegenover de ophaal-lock
+
+Waar de ronde vroeger ongeveer één query-timeout duurde ongeacht het aantal organisaties, duurt hij
+nu in het slechtste geval `⌈organisaties ÷ max-parallel-per-ronde⌉ × query-timeout`. Bij honderd
+organisaties is dat vijftig seconden, ruim binnen de `PT2M` van
+`berichtensessiecache.aggregation-lock-ttl`; de gemeten praktijk blijft op tien seconden steken
+omdat alleen de niet-antwoordende organisaties hun timeout volmaken. Voorbij ongeveer 240
+organisaties zou de lock middenin een ronde verlopen en de bescherming tegen een tweede
+gelijktijdige ronde vervallen. Een startup-controle kan dat niet afdwingen — het aantal organisaties
+van een ondernemer is bij boot niet bekend — dus het staat als rekensom in de operator-handleiding.
+
 ### Wat bewust niet gebeurt
 
 De volgorde van bevragen wordt **niet** per ronde gehusseld. Het issue noemt dat als mogelijke
 pleister tegen de vaste blinde vlek, maar met een wachtrij is er geen blinde vlek meer om te
 verhullen: iedereen komt aan de beurt. Husselen zou daar alleen een onvoorspelbare volgorde in het
 portaal aan toevoegen.
+
+Er komt ook geen maximum op de wachtrij-diepte met shedding daarboven. Het aantal wachtenden volgt
+uit `max-parallel-per-ronde` × het aantal gelijktijdige ophaalrondes, elke wachtende is al in tijd
+begrensd door het wachtbudget, en een diepte-grens zou de zeef terugbrengen voor een belasting die
+deze dienst niet kent.
 
 ## Wijzigingen
 

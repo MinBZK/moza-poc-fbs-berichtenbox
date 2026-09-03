@@ -49,7 +49,7 @@ class BerichtensessiecacheServiceTest {
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
     // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
-    private val testBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 5000L)
+    private val testBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 15000L)
     private val testBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L)
     // Korte timeouts in unit-tests: outer (3s) > inner (2s) zodat de cross-check
     // groen blijft maar tests niet wachten op het volledige prod-budget.
@@ -673,8 +673,9 @@ class BerichtensessiecacheServiceTest {
     fun `vol bulkhead levert NIET_OPGEHAALD na het wachtbudget en bezet geen extra permit`() {
         // maxConcurrent=1, permit vooraf vastgehouden → de bevraging wacht zijn budget vol en levert
         // dan de eigen status NIET_OPGEHAALD (geen storing van dat magazijn), zonder zelf een permit
-        // te claimen. Kort wachtbudget zodat de test niet op het prod-budget wacht.
-        val volBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 200L)
+        // te claimen. Budget en query-timeout allebei op één seconde: dat is de ondergrens die de
+        // kruisvalidatie toelaat, en houdt de test kort.
+        val volBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 1000L)
         val vastgehouden = volBulkhead.begrensd(
             verlopen = { Uni.createFrom().item("x") },
             taak = { Uni.createFrom().nothing<String>() },
@@ -684,7 +685,7 @@ class BerichtensessiecacheServiceTest {
             berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
             maxBerichtenPerMagazijn = 1000,
-            magazijnQueryTimeoutSeconds = 10L,
+            magazijnQueryTimeoutSeconds = 1L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = volBulkhead,
@@ -724,7 +725,7 @@ class BerichtensessiecacheServiceTest {
     fun `bulkhead-permit wordt vrijgegeven na een geslaagde aggregatie`() {
         // Permit-balans door de échte stream-pipeline (onTermination-release): met maxConcurrent=1
         // moet na één geslaagde ophaling de permit terug zijn, anders zou een volgende call lekken.
-        val balansBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 5000L)
+        val balansBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 15000L)
         val serviceBalans = BerichtensessiecacheService(
             berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
@@ -838,26 +839,26 @@ class BerichtensessiecacheServiceTest {
         val bulkheadKortBudget = MagazijnAggregatieBulkhead(
             maxConcurrent = grens,
             maxParallelPerRonde = grens,
-            maxWachttijdMs = 100L,
+            maxWachttijdMs = 1000L,
         )
         val serviceKortBudget = BerichtensessiecacheService(
             berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
             maxBerichtenPerMagazijn = 1000,
-            magazijnQueryTimeoutSeconds = 10L,
+            magazijnQueryTimeoutSeconds = 1L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = bulkheadKortBudget,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
         ).also { it.valideerTimeouts() }
 
-        // 50 organisaties × 30 ms bij 5 tegelijk = tien golven van 30 ms; de hele ronde duurt dus
-        // ruim langer dan het wachtbudget van 100 ms.
+        // 50 organisaties × 200 ms bij 5 tegelijk = tien golven van 200 ms; de hele ronde duurt dus
+        // ruim langer (~2 s) dan het wachtbudget van 1 s.
         val magazijnIds = (1..50).map { nummer -> "magazijn-%03d".format(nummer) }
         val clients = magazijnIds.associateWith { magazijnId ->
             mockk<MagazijnClient>().also { client ->
                 every { client.getBerichten(any(), any()) } answers {
-                    Thread.sleep(30)
+                    Thread.sleep(200)
                     MagazijnBerichtenResponse(listOf(testMagazijnBericht().copy(berichtId = UUID.randomUUID())))
                 }
             }

@@ -137,6 +137,17 @@ internal class BerichtensessiecacheService(
             "berichtensessiecache.magazijn-query-timeout-seconds ($magazijnQueryTimeoutSeconds) moet groter zijn dan 0"
         }
 
+        // Het wachtbudget van het bulkhead MOET minstens één volledige magazijn-call overleven.
+        // Een permit komt pas vrij als de call die hem houdt afgerond is, en die mag tot de
+        // query-timeout duren. Is het budget korter, dan verliest een bevraging die aanklopt terwijl
+        // alle permits door trage calls bezet zijn haar budget vóórdat er ook maar één permit kán
+        // vrijkomen — en dan is de wachtrij voor die bevraging alsnog een zeef.
+        require(bulkhead.wachtbudgetMs() >= magazijnQueryTimeoutSeconds * MILLIS_PER_SECOND) {
+            "${MagazijnAggregatieBulkhead.MAX_WACHTTIJD_MS_PROPERTY} (${bulkhead.wachtbudgetMs()}) moet minstens " +
+                "berichtensessiecache.magazijn-query-timeout-seconds × 1000 " +
+                "(${magazijnQueryTimeoutSeconds * MILLIS_PER_SECOND}) zijn"
+        }
+
         require(cacheAwaitTimeoutSeconds > 0) {
             "berichtensessiecache.cache-await-timeout-seconds ($cacheAwaitTimeoutSeconds) moet groter zijn dan 0"
         }
@@ -929,6 +940,7 @@ internal class BerichtensessiecacheService(
 
     private companion object {
         private const val MAX_CAUSE_DEPTH = 32
+        const val MILLIS_PER_SECOND = 1000L
     }
 
     internal enum class LockAcquireError { JSON_SERIALIZATION, TIMEOUT, IO_FAULT, INTERRUPTED, UNEXPECTED }
