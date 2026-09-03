@@ -156,6 +156,26 @@ class OphaalBeheerOpenApiContractTest {
     }
 
     @Test
+    fun `410 Problem response op PATCH van een eigen verwijderd bericht respecteert spec`() {
+        val id = insertBericht()
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().delete("/api/v1/berichten/$id")
+            .then()
+            .statusCode(204)
+
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", "BSN:999993653")
+            .contentType("application/merge-patch+json")
+            .body("""{"gelezen": true}""")
+            .`when`().patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(410)
+    }
+
+    @Test
     fun `403 Problem response op GET bericht respecteert spec`() {
         val id = insertBericht()
         given()

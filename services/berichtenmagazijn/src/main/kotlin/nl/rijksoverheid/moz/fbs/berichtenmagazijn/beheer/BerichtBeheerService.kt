@@ -2,13 +2,15 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.beheer
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
-import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtAutorisatie
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.time.Instant
@@ -19,8 +21,9 @@ import java.util.UUID
  * soft-delete (DELETE).
  *
  * Voor consistentie met [nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtOphaalService]:
- * 404 als het bericht niet bestaat of al verwijderd is; 403 als het wel bestaat
- * maar bij een andere ontvanger hoort.
+ * 404 als het bericht niet bestaat; 403 als het wel bestaat maar bij een andere ontvanger
+ * hoort. Een eigen, al verwijderd bericht geeft op PATCH een 410 — de eigenaar-check is dan
+ * al geslaagd, dus dat onthult niets wat de aanroeper niet mocht weten.
  */
 @ApplicationScoped
 class BerichtBeheerService(
@@ -49,9 +52,15 @@ class BerichtBeheerService(
         // anders zou een UUID-rader uit het verschil 404 vs 403 het bestaan van
         // andermans (verwijderde) bericht kunnen afleiden.
         val record = berichtRepository.findIncludingDeleted(berichtId)
-            ?: throw NotFoundException("Bericht niet gevonden")
+            ?: throw FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
         BerichtAutorisatie.vereisOntvanger(record.bericht, ontvanger)
-        if (record.isVerwijderd) throw NotFoundException("Bericht niet gevonden")
+
+        // 410 kan hier veilig: de eigenaar-check hierboven slaagde, dus de aanroeper mag weten
+        // dat dit bericht bestond. Andermans verwijderde bericht strandt al op 403 en bereikt
+        // deze regel niet.
+        if (record.isVerwijderd) {
+            throw FbsFoutException(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE, "Bericht is verwijderd")
+        }
 
         val nieuweStatus = statusRepository.upsert(
             berichtId = berichtId,
@@ -80,7 +89,7 @@ class BerichtBeheerService(
     @Transactional
     fun verwijder(berichtId: UUID, ontvanger: Identificatienummer) {
         val record = berichtRepository.findIncludingDeleted(berichtId)
-            ?: throw NotFoundException("Bericht niet gevonden")
+            ?: throw FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
         BerichtAutorisatie.vereisOntvanger(record.bericht, ontvanger)
         if (record.isVerwijderd) return
 

@@ -14,6 +14,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import jakarta.ws.rs.NotFoundException
+import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.`is`
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
@@ -121,13 +122,14 @@ class BerichtenBeheerIntegrationTest {
     }
 
     @Test
-    fun `PATCH op onbekend bericht geeft 404`() {
+    fun `PATCH op onbekend bericht geeft 404 met het kenmerk bericht-onbekend`() {
         given()
             .header("X-Ontvanger", ontvangerHeader)
             .contentType("application/merge-patch+json")
             .body("""{"gelezen": true}""")
             .`when`().patch("/api/v1/berichten/${UUID.randomUUID()}")
             .then().statusCode(404)
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
     }
 
     @Test
@@ -211,7 +213,10 @@ class BerichtenBeheerIntegrationTest {
     }
 
     @Test
-    fun `PATCH op eigen soft-deleted bericht geeft 404 (bestaat niet meer voor zichtbaarheid)`() {
+    fun `PATCH op eigen soft-deleted bericht geeft 410 met het kenmerk bericht-verwijderd`() {
+        // De eigenaar-check is hier al geslaagd, dus het antwoord mag zeggen dát het bericht
+        // bestond — de aanroeper gooide het zelf weg. Andermans verwijderde bericht strandt
+        // op 403 en komt hier niet.
         val b = insertBericht()
         given().header("X-Ontvanger", ontvangerHeader)
             .`when`().delete("/api/v1/berichten/${b.berichtId}")
@@ -221,7 +226,8 @@ class BerichtenBeheerIntegrationTest {
             .contentType("application/merge-patch+json")
             .body("""{"gelezen": true}""")
             .`when`().patch("/api/v1/berichten/${b.berichtId}")
-            .then().statusCode(404)
+            .then().statusCode(410)
+            .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
     }
 
     @Test

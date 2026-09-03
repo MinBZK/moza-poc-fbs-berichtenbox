@@ -66,12 +66,25 @@ ontvanger-mismatch valt hij weg tegen een gewone misser.
 | `ophalen-bezig` | 409 | Een ophaalronde loopt | "Een moment" — wachten, geen foutmelding |
 | `ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — opnieuw `_ophalen` |
 | `tijdelijk-niet-beschikbaar` | 503 | Cache onbereikbaar; `Retry-After` staat erbij | "Probeer het straks nog eens" |
+| `geen-actieve-sessie` | 404 | Geen actieve sessie om een bericht in bij te schrijven (aanmeld-pad) | — |
+| `niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — géén uitspraak over een bericht | — |
 | `ongeldig-verzoek` | 4xx overig | Validatie, verkeerde header, niet-ondersteund mediatype | Fout bij de afnemer zelf |
 | `geen-toegang` | 401/403 | Ontbrekende of ontoereikende toegang | — |
+| `conflict` | 409 | Botsing met de huidige toestand van de resource | — |
 | `keten-fout` | 502 | Een schakel verderop in de keten hapert | "Probeer het straks nog eens" |
+| `configuratie-mismatch` | 500 | De configuratie van de keten spreekt zichzelf tegen | Opnieuw proberen helpt niet; dit vraagt een beheerder |
 | `interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id | "Er ging iets mis" + de referentie |
 
 Ontbreekt `type` of staat er `about:blank`, dan komt het antwoord niet van de keten.
+
+De terugval per statusklasse mag nooit uit zichzelf `bericht-onbekend` kiezen: een 404 op een
+onbekend pad is geen onbekend bericht. Voor 410 ligt dat anders — geen framework-pad produceert
+die status, dus komt hij altijd van de keten zelf en mag de terugval hem als "verwijderd" lezen.
+Dat is precies wat een `PATCH` op een verwijderd bericht nodig heeft: de 410 valt dan een hop
+verderop, in het magazijn.
+
+De profiel-mappers droegen al eigen `https://moza.nl/problems/...`-types. Die gaan mee naar
+dezelfde namespace: twee vormen naast elkaar is precies wat een afnemer niet moet hoeven leren.
 
 ## Grenzen van "verwijderd"
 
