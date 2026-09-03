@@ -72,8 +72,9 @@ env:
   # de job-timeout staat er ruim boven, zodat de CLI zijn eigen diagnose kan afmaken vóórdat GitHub
   # de job afkapt.
   CLEANUP_TASK_TIMEOUT: "900"
-  # Deze workflow zoekt de comment op deze tekst; deploy.yml geeft dezelfde tekst mee aan de
-  # deploy-action. Houd de twee gelijk — drift laat de comment stil achter op een gesloten PR.
+  # Deze workflow zoekt de comment op deze tekst; deploy.yml geeft dezelfde tekst mee aan
+  # preview-comment.sh, dat hem plaatst. Houd de twee gelijk — drift laat de comment stil achter op
+  # een gesloten PR. test-preview-comment.sh bewaakt dat.
   COMMENT_HEADER: "## 🚀 Preview Deployment"
   # Dezelfde namen als de CROSS_DOMAIN_REGELS_*-lijsten in deploy.yml, die ze bij het aanmaken van
   # een preview zet. Drift laat een regel achter op een deployment die niet meer bestaat: de

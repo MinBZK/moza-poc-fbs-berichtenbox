@@ -118,6 +118,7 @@ jobs:
             [.github/scripts/test-uitrol-poort.sh]=72
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=29
+            [.github/scripts/test-preview-comment.sh]=46
             [.github/scripts/test-jdk-handtekening.sh]=22
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=59
