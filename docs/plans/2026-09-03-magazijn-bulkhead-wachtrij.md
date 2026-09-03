@@ -161,10 +161,11 @@ deze dienst niet kent.
 
 **Library `fbs-berichtensessiecache`**
 - `MagazijnAggregatieBulkhead`: twee properties erbij, asynchroon wachten met budget, `verlopen`
-  in plaats van `afgewezen` als naam van de niet-gelukt-tak, `maxParallelPerRonde` uitleesbaar voor
-  de service.
+  in plaats van `afgewezen` als naam van de niet-gelukt-tak, `maxParallelPerRonde` en het
+  wachtbudget uitleesbaar voor de service.
 - `BerichtensessiecacheService.haalBerichtenOp`: GESTART-events vooruit, `withConcurrency(...)` op
-  de merge, `bouwMagazijnStream` levert alleen nog het VOLTOOID-event.
+  de merge, `bouwMagazijnStream` levert alleen nog het VOLTOOID-event. `valideerTimeouts()` krijgt
+  de kruisvalidatie wachtbudget ≥ query-timeout erbij.
 - `MagazijnEvent`: `MagazijnStatus.NIET_OPGEHAALD` + `MagazijnFoutStatus.NIET_OPGEHAALD`.
 - `MagazijnResult`: KDoc van `OVERBELAST` en `MagazijnOverbelastException` bijgewerkt naar de
   nieuwe betekenis.
@@ -181,19 +182,20 @@ deze dienst niet kent.
 ## Verificatie
 
 - `MagazijnAggregatieBulkheadTest`: wachten-tot-permit-vrijkomt, verstreken budget → `verlopen`,
-  geen permit-lek na een verstreken budget, config-validatie inclusief de nieuwe invariant, en
-  "alle wachtenden komen aan de beurt" (geen structurele uitsluiting).
+  geen permit-lek na een verstreken budget én niet na het annuleren van een wáchtende, "nooit meer
+  taken tegelijk dan permits", "alle wachtenden komen aan de beurt" (geen structurele uitsluiting)
+  en de config-validatie inclusief de nieuwe invarianten.
 - `BerichtensessiecacheServiceTest`: een ronde met 5, 6 en 50 organisaties tegen een limiet van 5
   levert per geval evenveel GESTART- als VOLTOOID-events, allemaal geslaagd, en géén
   `NIET_OPGEHAALD`. Dat is de test die het acceptatiecriterium "geen enkele organisatie valt
   structureel buiten beeld" pint.
-- Een tweede servicetest onderscheidt de twee lagen: 50 organisaties, limiet 5, calls van 30 ms en
-  een wachtbudget van 100 ms. Alleen als de merge de wachtenden pas op hun beurt subscribet, blijft
+- Een tweede servicetest onderscheidt de twee lagen: 50 organisaties, limiet 5, calls van 200 ms en
+  een wachtbudget van 1 s. Alleen als de merge de wachtenden pas op hun beurt subscribet, blijft
   er niets liggen. Gecontroleerd dat die test zonder `withConcurrency(...)` daadwerkelijk faalt
   (35 van de 50 verbrandden hun wachtbudget) — anders zou de wachtrij van laag 2 hem alsnog groen
   houden en bewees hij niets.
-- `./mvnw clean verify -pl libraries/fbs-berichtensessiecache -am` (JaCoCo 90% + detekt).
-- `./mvnw clean test -pl services/berichtenuitvraag -am`.
+- `./mvnw clean verify -pl services/berichtenuitvraag,libraries/fbs-berichtensessiecache -am`
+  (JaCoCo 90% + detekt); `shellcheck -x -S warning demo/smoke.sh`.
 
 ### De meting
 
