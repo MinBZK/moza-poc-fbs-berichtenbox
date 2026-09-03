@@ -62,16 +62,13 @@ jobs:
   # ze kost geen wachttijd op een PR, en het is precies de ronde waarin een trage voorbereiding een
   # week lang zichtbaar is.
   #
-  # Falen alleen is niet genoeg — een rode geplande run mailt hoogstens degene die het cron-bestand
-  # het laatst aanraakte. Daarom ook een issue, met de regel die bijgewerkt moet worden, dat zichzelf
-  # sluit zodra de pin weer klopt. Een issue mag wél door GITHUB_TOKEN aangemaakt worden; een PR zou
-  # zijn verplichte checks nooit krijgen.
+  # Het bijwerken zelf hoort hier niet: de job `pin` in fuzz-base-image.yml biedt de nieuwe FROM-regel
+  # na elke bouw als PR aan. Deze ronde is het vangnet dat aanslaat als die PR is blijven liggen.
   Basisimagepin:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -81,59 +78,6 @@ jobs:
         env:
           VERWACHT: ${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}
         run: .github/scripts/fuzz-basis-pin.sh
-
-      - name: Meld of ruim het issue op
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          STATUS: ${{ steps.pin.outputs.status }}
-          DIGEST: ${{ steps.pin.outputs.verwachte_digest }}
-          IMAGE_PAD: ${{ steps.pin.outputs.image_pad }}
-          MARKER: '<!-- fuzz-basis-pin -->'
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-
-          bestaand=$(gh api --paginate "repos/$REPO/issues?state=open" \
-            --jq "[.[] | select(.pull_request == null) | select(.body != null and (.body | contains(\"$MARKER\")))] | first | .number // empty" | head -1)
-
-          if [ "$STATUS" = "ok" ] || [ "$STATUS" = "oncontroleerbaar" ]; then
-            # Bij 'oncontroleerbaar' is er niets vastgesteld: dan het issue niet sluiten (de pin kan
-            # nog steeds achterlopen) maar ook geen nieuw openen op basis van een niet-meting.
-            if [ "$STATUS" = "ok" ] && [ -n "$bestaand" ]; then
-              gh issue comment "$bestaand" --repo "$REPO" --body "De pin hoort weer bij de huidige dependency-declaraties; automatisch gesloten."
-              gh issue close "$bestaand" --repo "$REPO"
-              echo "Issue #$bestaand gesloten."
-            fi
-
-            exit 0
-          fi
-
-          titel="Fuzz-basis-image loopt achter op de dependency-declaraties"
-          case "$STATUS" in
-            verouderd)
-              # shellcheck disable=SC2016
-              kern=$(printf 'Er is een basis-image dat bij de huidige declaraties hoort, maar `.clusterfuzzlite/Dockerfile` wijst naar een ander.\n\nWerk de pin bij naar:\n\n```dockerfile\nFROM ghcr.io/%s@%s\n```' "$IMAGE_PAD" "$DIGEST")
-              ;;
-            ontbreekt)
-              # shellcheck disable=SC2016
-              kern='Er is nog geen basis-image voor de huidige declaraties. Draai de workflow **Fuzz-basis-image** en pin de digest die hij print.'
-              ;;
-            *)
-              # shellcheck disable=SC2016
-              kern=$(printf 'De controle kon niets vaststellen (status `%s`) — waarschijnlijk is de `FROM`-regel of het bestandspatroon gewijzigd.' "$STATUS")
-              ;;
-          esac
-
-          body=$(printf '%s\n%s\n\nZolang dit openstaat betaalt elke fuzz-run de volle voorbereiding (~100s extra).\n\nGevonden in de wekelijkse ronde: %s\n' "$MARKER" "$kern" "$RUN_URL")
-
-          if [ -n "$bestaand" ]; then
-            gh issue edit "$bestaand" --repo "$REPO" --body "$body"
-            echo "Issue #$bestaand bijgewerkt."
-          else
-            gh issue create --repo "$REPO" --title "$titel" --body "$body" --jq .html_url 2>/dev/null || \
-              gh issue create --repo "$REPO" --title "$titel" --body "$body"
-          fi
 
       - name: Faal bij een verouderde pin
         env:
@@ -150,7 +94,7 @@ jobs:
               echo "::warning::De basis-image-pin is deze ronde NIET gecontroleerd (registry niet te bevragen)."
               ;;
             *)
-              echo "::error::Basis-image-pin niet in orde (status=$STATUS) — de fuzz-voorbereiding draait onnodig traag. Zie het bijbehorende issue."
+              echo "::error::Basis-image-pin niet in orde (status=$STATUS) — de fuzz-voorbereiding draait onnodig traag. Merge de openstaande pin-PR, of draai de workflow Fuzz-basis-image als die er niet is."
               exit 1
               ;;
           esac

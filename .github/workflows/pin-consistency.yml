@@ -142,7 +142,7 @@ jobs:
                 echo "elke run opnieuw op, en is daarmee zo traag als vóór het basis-image."
                 echo
                 echo "Na de merge naar \`main\` bouwt de workflow **Fuzz-basis-image** het nieuwe image en"
-                echo "print hij de digest. Zet die in \`.clusterfuzzlite/Dockerfile\` en deze melding verdwijnt."
+                echo "biedt hij de nieuwe pin als PR aan. Merge die PR en deze melding verdwijnt."
                 echo "EOM"
               } >> "$GITHUB_OUTPUT"
               ;;

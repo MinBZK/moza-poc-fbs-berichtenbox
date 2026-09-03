@@ -3,8 +3,11 @@
 # veranderen, dus het hoort hier en niet in elke fuzz-run.
 #
 # `.clusterfuzzlite/Dockerfile` pint dit image op digest. Na een bouw hier moet die pin dus
-# bijgewerkt worden; de bouw print de nieuwe digest en de job `fuzz-basis-pin` in
-# `pin-consistency.yml` meldt op de PR zolang de pin niet bij de huidige pom's hoort.
+# bijgewerkt worden; de job `pin` hieronder biedt die wijziging als PR aan. De job `fuzz-basis-pin`
+# in `pin-consistency.yml` blijft melden zolang de pin niet bij de huidige pom's hoort.
+#
+# Vereist de repo-secret FUZZ_PIN_TOKEN — zie de job `pin` voor wat erin hoort en waarom
+# GITHUB_TOKEN hier niet volstaat.
 name: Fuzz-basis-image
 
 on:
@@ -30,6 +33,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      poms: ${{ steps.hash.outputs.poms }}
     permissions:
       contents: read
       packages: write
@@ -109,3 +115,80 @@ jobs:
             echo
             echo "pom-hash: \`$POMS\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # De pin in `.clusterfuzzlite/Dockerfile` is na een geslaagde bouw per definitie verouderd: hij
+  # wijst nog naar het image van de vorige pom-set. Deze job zet de nieuwe FROM-regel als PR klaar,
+  # zodat het bijwerken niet van iemands geheugen afhangt.
+  #
+  # FUZZ_PIN_TOKEN is een fine-grained PAT op deze repo met alleen `Contents: write` en
+  # `Pull requests: write`. Bewust niet GITHUB_TOKEN: GitHub start geen workflows op events die dát
+  # token veroorzaakt, dus een PR van GITHUB_TOKEN krijgt nooit zijn verplichte checks en is met
+  # strict main niet te mergen. Verloopt de PAT of ontbreekt hij, dan faalt deze job hard — een
+  # pin-update die stilzwijgend uitblijft is precies wat hier opgelost moest worden.
+  pin:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.FUZZ_PIN_TOKEN }}
+
+      # Eén vaste tak, geen tak per pom-hash: bij twee pom-wijzigingen kort na elkaar zou de eerste
+      # PR blijven staan met een digest die dan al niet meer klopt. Force-push ververst de openstaande
+      # PR in plaats van er een tweede naast te zetten.
+      - name: Bied de nieuwe pin als PR aan
+        env:
+          GH_TOKEN: ${{ secrets.FUZZ_PIN_TOKEN }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          POMS: ${{ needs.build.outputs.poms }}
+          TAK: chore/fuzz-basis-pin
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::FUZZ_PIN_TOKEN ontbreekt — de pin-PR kan niet aangemaakt worden. Zet de repo-secret (fine-grained PAT met Contents: write en Pull requests: write)."
+            exit 1
+          fi
+
+          if grep -qF "FROM $DIGEST" .clusterfuzzlite/Dockerfile; then
+            echo "De pin hoort al bij dit image; niets te doen."
+            exit 0
+          fi
+
+          sed -i -E "s|^FROM +ghcr\.io/minbzk/fbs-fuzz-base@sha256:[a-f0-9]{64}\$|FROM $DIGEST|" \
+            .clusterfuzzlite/Dockerfile
+
+          # Raakt de sed niets, dan is de FROM-regel van vorm veranderd. Doorgaan zou een lege PR
+          # opleveren die niemand kan duiden.
+          if git diff --quiet; then
+            echo "::error::de FROM-regel in .clusterfuzzlite/Dockerfile is niet herkend — is de vorm gewijzigd?"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$TAK"
+          git commit -am "chore(ci): pin het fuzz-basis-image op de huidige pom-set"
+          git push -f origin "$TAK"
+
+          if [ -n "$(gh pr list --head "$TAK" --state open --json number --jq '.[0].number // empty')" ]; then
+            echo "De openstaande pin-PR is bijgewerkt."
+            exit 0
+          fi
+
+          body=$(cat <<EOM
+          Automatisch aangemaakt na een geslaagde bouw van het fuzz-basis-image.
+
+          pom-hash: \`$POMS\`
+
+          Zolang deze pin achterloopt, betaalt elke fuzz-run de volle voorbereiding (~100s extra).
+          Wijzigen de dependency-declaraties vóór de merge, dan ververst een volgende bouw deze PR.
+          EOM
+          )
+
+          gh pr create --base main --head "$TAK" \
+            --title "chore(ci): pin het fuzz-basis-image op de huidige pom-set" \
+            --body "$body"
