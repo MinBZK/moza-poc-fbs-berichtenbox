@@ -285,10 +285,21 @@ CONSOLE_COOKIE='<het sessiecookie van je ingelogde browser>' \
 
 **Het cookie is geen franje.** Het script leegt vóór elke ronde de sessiecache via het paneel, en dat
 paneel staat achter de muur: zonder cookie krijgt die aanroep 403 en stopt de meting met "de
-sessiecache legen mislukte". Lees het uit de devtools van een browser waarin je bent ingelogd
-(tabblad Netwerk, een verzoek aan de console, kopregel `Cookie`). Zonder cookie kan het ook met de
-hand — `demo/meet-fanout.sh 1` per ondernemer, en tussen de rondes in de browser op **Cache
-verlopen** — maar dan is de meting niet in één handeling te herhalen.
+sessiecache legen mislukte".
+
+Welk cookie: de muur is een **oauth2-proxy**-sidecar, en die zet zijn sessie in `_oauth2_proxy`. De
+sidecar geeft geen `--cookie-name` mee, dus dat is de standaardnaam. Is de sessie groot, dan splitst
+oauth2-proxy hem over `_oauth2_proxy_0`, `_oauth2_proxy_1`, … — dan moeten die stukken **allemaal**
+mee, in dezelfde volgorde. Kopieer daarom niet één waarde maar de hele kopregel: open de devtools van
+een browser waarin je op `$CONSOLE` bent ingelogd, tabblad Netwerk, klik een verzoek aan de console
+aan en kopieer bij *Request Headers* de waarde van `Cookie`. Die vorm — `naam=waarde; naam=waarde` —
+is precies wat `CONSOLE_COOKIE` verwacht, en hij klopt ook als de naam ooit verandert.
+
+Het is een geldige sessie op jouw rijksaccount: hou hem uit shell-geschiedenis, issues en logs, en
+haal een verse op als je meting stukloopt op een 403 (hij verloopt).
+
+Zonder cookie kan het ook met de hand — `demo/meet-fanout.sh 1` per ondernemer, en tussen de rondes
+in de browser op **Cache verlopen** — maar dan is de meting niet in één handeling te herhalen.
 
 Verwacht per ondernemer, met de laptopmeting uit
 `docs/plans/2026-08-21-magazijn-simulator-design.md` ernaast:
