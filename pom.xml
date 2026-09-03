@@ -53,7 +53,7 @@
         <!-- Expliciete versie: demo/magazijn-simulator declareert maven-resources-plugin om de
              OpenAPI-spec van het magazijn op zijn test-classpath te zetten. Zonder beheerde versie
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
-        <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+        <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-jar-plugin.version>3.4.2</maven-jar-plugin.version>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
