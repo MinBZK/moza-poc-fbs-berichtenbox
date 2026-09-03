@@ -1,5 +1,8 @@
-**Status:** In uitvoering — stap 1 t/m 6 gedaan (`demo/magazijn-simulator`, meting hieronder); stap 7 is
-voorbereid en kan uitgevoerd worden nu #936 gesloten is.
+**Status:** In uitvoering — stap 1 t/m 6 gedaan (`demo/magazijn-simulator`, meting hieronder), stap 7
+uitgevoerd: de simulator is als ZAD-component `magazijnsimulator` ingericht (2026-08-31) en staat
+sinds 2026-09-01 in de deploy-workflow, zodat `test` en elke preview hem meekrijgen. Wat rest is
+verificatie op de gedeelde omgeving — zie "Wat er nog open staat" in
+`demo/environment/zad-demo/magazijn-simulator.md`.
 
 # Magazijn-simulator — veel magazijnen met echte state — ontwerp
 
@@ -473,8 +476,9 @@ herhaalbaar is en niet met een stopwatch gebeurt.
 
 Verwacht dat de demo hier optimalisatiepunten oplevert; dat is een doel en geen bijwerking. Wat stap
 6 vindt hoort als issue op de backlog, niet stilzwijgend in dit document. Twee daarvan staan er al —
-#996 hierboven en MinBZK/MijnOverheidZakelijk#997 over de onvolledige lijst bij veel aangesloten
-organisaties.
+#996 hierboven en MinBZK/MijnOverheidZakelijk#1038 over de onvolledige lijst bij veel aangesloten
+organisaties — dat laatste is samengevoegd met MinBZK/MijnOverheidZakelijk#997, dat dezelfde
+bevinding beschreef vóórdat de meting hieronder liet zien hoe groot ze is.
 
 ## Meting (stap 6)
 
@@ -521,6 +525,27 @@ seconden.
 
 Praktisch voor een demo: **de eerste ronden na een herstart zijn de traagste die je ziet**, en die
 tien seconden komen van één organisatie die eruit ligt — niet van het aantal.
+
+### Dezelfde meting op de gedeelde omgeving
+
+Op 2026-09-03 herhaald tegen ZAD (`test`), drie ronden, mediaan — de volledige uitkomst staat onder
+MinBZK/MijnOverheidZakelijk#1013:
+
+| Ondernemer | Organisaties | Eerste bericht | Compleet | Geslaagd |
+|---|---|---|---|---|
+| kleine-eenmanszaak | 3 | 110 ms | 0,20 s | 3 van 3 |
+| klein-bedrijf | 15 | 111 ms | 2,9 s | 15 van 15 |
+| grootbedrijf | 45 | 135 ms | 3,3 s | 41 van 45 |
+| landelijk-concern | 100 | 266 ms | 10,2 s | 91 van 100 |
+
+De conclusie hierboven houdt stand op andere infrastructuur. Wat afwijkt is de tijd tot het eerste
+bericht — 110 tot 266 ms tegen 43 tot 137 ms op de laptop — en dat is te verwachten: het register van
+de uitvraag eist https buiten dev en test, dus elke bevraging gaat hier over de publieke ingress in
+plaats van over loopback. Het patroon is hetzelfde: de lijst vult zich binnen een halve seconde, en
+"compleet" hangt aan de organisatie die niet reageert.
+
+De stap staat als stap 9 in `demo/environment/zad-demo/verify-zad.md`, zodat de meting daar herhaald
+kan worden zonder hem opnieuw te bedenken.
 
 ### Waar het plafond ligt
 
@@ -681,17 +706,22 @@ bij die net zo goed getest horen te worden.
    op de SSE-stroom; de uitkomsten staan hierboven onder "Meting (stap 6)". De harde grens bleek de
    begrenzing op gelijktijdige bevragingen in de uitvraag, niet het aantal magazijnen; die staat als
    MinBZK/MijnOverheidZakelijk#1038 op de backlog.
-7. **ZAD.** Component, database, register-attachment, persona's in het stubs-image. **Voorbereid,
-   nog niet uitgevoerd.** Klaar is wat zonder cluster kon: het runbook
-   `demo/environment/zad-demo/magazijn-simulator.md`, de schema-isolatie in `%prod`, en een generator
-   die het register met een configuratie-expressie kan schrijven in plaats van een vast adres. Wat
-   rest is het runbook doorlopen — dat vraagt een `zadctl login` — plus één build-job en één regel in
-   de deploy-payload, die pas kúnnen zodra het component bestaat.
+7. ~~**ZAD.**~~ **Gedaan** (MinBZK/MijnOverheidZakelijk#1013). Component, database,
+   register-attachment en de persona's in het stubs-image: §1 t/m §4 van het runbook
+   `demo/environment/zad-demo/magazijn-simulator.md` zijn op 2026-08-31 tegen de deployment `test`
+   doorlopen, §5 op 2026-09-01 in `deploy.yml` — `build-demo-images` bouwt het image en
+   `magazijnsimulator` staat in de payload van `deploy-test-magazijnen` en
+   `deploy-preview-magazijnen`, dus previews klonen hem mee uit `test`. De uitvraag bereikt de
+   simulator over de publieke ingress en niet cluster-intern: het register eist https buiten dev en
+   test, en dat sluit een http-adres binnen de cluster uit. Wat nog open staat is verificatie en
+   afstelling op de gedeelde omgeving — de fan-out van de vier ondernemers in `verify-zad.md`, het
+   geheugen van het component, en de vraag of previews hun eigen gevulde simulator krijgen; die punten
+   staan onderaan het runbook.
 
 Stap 1 t/m 5 leveren de lokale demo; stap 6 levert de onderbouwing die #938 vraagt. Stap 7 wachtte
 op #936, en niet slechts als afhankelijkheid: zonder bediening en zonder Berichtenbox op ZAD kan die
 stap technisch slagen — de simulator draait, de fan-out klopt — terwijl er voor een stakeholder niets
-te zien is. Dat issue is gesloten op 2026-08-31, dus stap 7 kan uitgevoerd worden.
+te zien is. Dat issue is op 2026-08-31 gesloten en stap 7 is diezelfde dag begonnen.
 
 Elke stap wordt een sub-issue onder MinBZK/MijnOverheidZakelijk#938, zodat het werk op het bord staat
 en niet alleen in dit document.

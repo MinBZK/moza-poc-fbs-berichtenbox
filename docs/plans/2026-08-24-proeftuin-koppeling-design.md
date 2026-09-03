@@ -344,13 +344,13 @@ Deze eis is scherper dan die van het simulator-ontwerp en vervangt hem niet: `/b
 simulator blijft ongepubliceerd, en het enige dat in het demo-project publiek hoort te staan is de
 personalijst.
 
-**4. De onvolledige lijst (#996, #997).** De uitvraag haalt per magazijn één pagina van twintig
-berichten op (#996), en bij veel aangesloten organisaties valt er nog meer buiten de lijst (#997). In
-de wegwerp-UI valt dat nauwelijks op; in de proeftuin, waar de mock 120 berichten over veertien
-organisaties toont, wordt het direct zichtbaar — en met de simulator erbij (45 of 100 magazijnen)
-wordt #997 het opvallendst van de twee.
+**4. De onvolledige lijst (#996, #1038).** De uitvraag haalt per magazijn één pagina van twintig
+berichten op (#996), en bij veel aangesloten organisaties valt er nog meer buiten de lijst (#1038,
+waarin #997 is opgegaan). In de wegwerp-UI valt dat nauwelijks op; in de proeftuin, waar de mock 120
+berichten over veertien organisaties toont, wordt het direct zichtbaar — en met de simulator erbij
+(45 of 100 magazijnen) wordt #1038 het opvallendst van de twee.
 
-Dit is een volgorde-afhankelijkheid, geen bezwaar: landen #996 en #997 vóór de koppeling een
+Dit is een volgorde-afhankelijkheid, geen bezwaar: landen #996 en #1038 vóór de koppeling een
 stakeholder bereikt, dan is er niets om te weten. Beide staan vandaag open en in refine, dus tot dat
 moment hoort de beperking bekend te zijn bij wie de demo geeft. Dat een echte koppeling dit zichtbaar
 maakt terwijl een mock-dataset het verbergt, is precies het argument vóór koppelen.
