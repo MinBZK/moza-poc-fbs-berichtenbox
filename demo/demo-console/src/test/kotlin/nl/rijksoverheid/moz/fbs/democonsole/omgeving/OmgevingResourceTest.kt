@@ -28,11 +28,14 @@ class OmgevingResourceTest {
         bron = PersonaBron.KETEN,
     )
 
-    // Geen mockk<DemoBerichtGenerator>(): de klasse is niet @ApplicationScoped en dus finaal, en
-    // MockK kan finale klassen alleen via zijn inline-agent aan, die deze module niet gebruikt.
+    // Een echte generator en geen mock: hij bewaakt zijn eigen invarianten, dus een testdubbel zou
+    // een doelgroep kunnen teruggeven die de productie-generator nooit zou opleveren.
+    //
+    // Elke persona krijgt een eigen BSN: gelijke nummers zouden in de personadienst juist fail-fast
+    // geweigerd worden, en een fixture die niet kan bestaan bewijst niets.
     private fun generator(vararg doelen: Pair<String, String>) = DemoBerichtGenerator(
-        personas = doelen.map { (id, label) ->
-            Persona(id, label, "BSN", "999993653", listOf(RVO))
+        personas = doelen.mapIndexed { volgnummer, (id, label) ->
+            Persona(id = id, naam = label, type = "KVK", waarde = KVK_NUMMERS[volgnummer], magazijnen = listOf(RVO))
         },
         organisaties = mapOf(RVO to Organisatie(RVO, "RVO", listOf(Sjabloon("Onderwerp", "Inhoud.")))),
         klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
@@ -133,9 +136,8 @@ class OmgevingResourceTest {
 
     @Test
     fun `berichtPersonas draagt de persona's waarvoor de console kan aanleveren`() {
-        // Naast `personas` en niet erin: die lijst is het contract met een berichtenbox en draagt
-        // ook persona's zonder magazijn. Levert de console voor zo iemand aan, dan weigert het
-        // magazijn met 403 — dus het paneel hoort hem niet als keuze te tonen.
+        // Op volgorde en met beide velden: een verwisseling van id en label compileert, en levert
+        // een keuzelijst die er normaal uitziet terwijl elke keuze een 404 geeft.
         assertEquals(
             listOf("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"),
             resource(null, doelgroep = generator("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"))
@@ -166,5 +168,8 @@ class OmgevingResourceTest {
     private companion object {
 
         const val RVO = "00000000000000100000"
+
+        /** Geldige, onderling verschillende KVK-nummers; de fixture kent er nooit meer dan twee toe. */
+        val KVK_NUMMERS = listOf("12345678", "87654321")
     }
 }

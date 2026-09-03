@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
+import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.DefaultValue
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.NotFoundException
@@ -71,16 +72,39 @@ class DemoResource(
      * Berichten voor één aangewezen persona, zodat een demonstratie niet hoeft af te wachten of de
      * willekeur ze bij de ondernemer legt die op het scherm staat. Op de persona-`id` en niet op
      * zijn identificatienummer: een BSN hoort niet in een URL, ook niet in een demo.
+     *
+     * De twee bedieningsfouten worden hier afgevangen en niet met `require()`: [DemoFoutMapper]
+     * vertaalt alleen een `WebApplicationException` naar zijn eigen status, dus een `require()`
+     * zou een verkeerd ingevulde parameter als HTTP 500 tonen. `@DefaultValue` hoort bij dezelfde
+     * afspraak: zonder die annotatie injecteert JAX-RS `null` in een niet-nullable parameter en
+     * gooit Kotlin een `NullPointerException` vóór de eerste regel hieronder — ook een 500.
      */
     @POST
     @Path("/bericht")
     fun bericht(
-        @QueryParam("persona") persona: String,
+        @QueryParam("persona") @DefaultValue("") persona: String,
         @QueryParam("aantal") @DefaultValue("1") aantal: Int,
     ): AanleverResultaat {
+        if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
+
+        // Nul zou anders een groene melding "0 van 0 aangeleverd" opleveren voor een actie die niets
+        // deed, en een grote waarde levert evenveel synchrone aanleveringen op. De browser bewaakt
+        // dezelfde grenzen, maar het runbook en Bruno roepen dit adres rechtstreeks aan.
+        if (aantal !in 1..MAX_BERICHTEN) {
+            throw BadRequestException("aantal moet tussen 1 en $MAX_BERICHTEN liggen, was: $aantal")
+        }
+
         val opdrachten = generator.genereerVoor(persona, aantal, Random.Default)
-            ?: throw NotFoundException("onbekende persona '$persona'; kies er een uit berichtPersonas van /api/demo/omgeving")
+            ?: throw NotFoundException("onbekende persona '$persona'; $KIES_EEN_PERSONA")
 
         return aanleverService.leverAan(opdrachten)
+    }
+
+    private companion object {
+
+        /** Spiegelt de `max` van het aantal-veld in `index.html`; hoger is voor een demo geen realistische vraag. */
+        const val MAX_BERICHTEN = 100
+
+        const val KIES_EEN_PERSONA = "kies een persona uit berichtPersonas van /api/demo/omgeving"
     }
 }

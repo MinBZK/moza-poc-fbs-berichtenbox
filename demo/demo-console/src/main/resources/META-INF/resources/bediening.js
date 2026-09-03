@@ -736,7 +736,7 @@ async function pasOmgevingToe() {
         });
     }
 
-    // Als laatste, en apart per lijst: elke keuzelijst hangt aan de vorm van één veld, en een
+    // Als laatste, en apart per lijst: elke keuzelijst hangt aan de vorm van het antwoord, en een
     // antwoord dat die vorm mist mag de knoppen hierboven niet meeslepen. Uit ditzelfde antwoord en niet van
     // /api/demo/personas: dat adres hoort bij de personadienst, en deze module beantwoordt het
     // bewust niet. Console onbereikbaar levert null op, waarop de keuzelijst zegt dat ze niet te
@@ -766,8 +766,8 @@ function vulPersonas(personas) {
     const keuze = document.getElementById('ontdubbelPersona');
     const knop = document.querySelector('button[data-samenvatting="ontdubbeling"]');
 
-    if (personas === null) {
-        meldLijstOnbekend(keuze);
+    if (!Array.isArray(personas)) {
+        meldLijstOnbekend(keuze, knop);
 
         return;
     }
@@ -782,15 +782,16 @@ function vulPersonas(personas) {
     );
 }
 
-/* De persona's waarvoor de console kán aanleveren. Een eigen lijst en niet `personas`: wie geen
- * magazijn heeft krijgt van het magazijn een 403, en een keuze die gegarandeerd faalt hoort niet in
- * het paneel. De waarde is de persona-id — het identificatienummer hoort niet in de URL. */
+/* De persona's waarvoor de console kán aanleveren; de uitvraag levert die deelverzameling apart.
+ * De waarde is de persona-id, want die gaat als queryparameter mee. */
 function vulBerichtPersonas(personas) {
     const keuze = document.getElementById('berichtPersona');
     const knop = document.getElementById('berichtKnop');
 
-    if (personas === null) {
-        meldLijstOnbekend(keuze);
+    // Niet op `=== null`: een console die dit veld nog niet kent levert `undefined`, en dat zou
+    // verderop een TypeError geven die als "lijst niet op te halen" leest — de verkeerde diagnose.
+    if (!Array.isArray(personas)) {
+        meldLijstOnbekend(keuze, knop);
 
         return;
     }
@@ -806,13 +807,17 @@ function vulBerichtPersonas(personas) {
 /* De lijst niet kunnen lezen is iets anders dan niets ingericht hebben: met de verkeerde reden
  * afhaken stuurt de bediener de configuratie in terwijl de console even weg was. De knop blijft
  * daarom aan — die faalt dan zichtbaar met de echte fout. */
-function meldLijstOnbekend(keuze) {
+function meldLijstOnbekend(keuze, knop) {
     const onbekend = document.createElement('option');
 
     onbekend.textContent = 'persona-lijst niet op te halen';
 
     keuze.replaceChildren(onbekend);
     keuze.disabled = true;
+
+    // Expliciet, en niet "hij stond toch al aan": zo hangt de toestand van de knop niet af van wat
+    // een eerdere ronde deed.
+    knop.disabled = false;
 }
 
 function vulKeuze(keuze, knop, opties, leegTekst) {
@@ -840,6 +845,8 @@ function vulKeuze(keuze, knop, opties, leegTekst) {
         keuze.append(element);
     });
 
+    // De id van het <select> is tegelijk zijn sleutel in VELDEN; staat hij daar niet, dan bewaart
+    // het paneel niets en herstelt deze regel stil niets.
     const bewaard = (leesStand().velden || {})[keuze.id];
 
     // Een persona die er niet meer is — andere configuratie, andere personaset — valt terug op

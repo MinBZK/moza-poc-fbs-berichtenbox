@@ -5,6 +5,9 @@ import io.quarkus.test.Mock
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Singleton
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
@@ -14,8 +17,11 @@ import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorStand
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.io.File
 import java.net.URI
 import java.net.URL
@@ -106,29 +112,100 @@ class PaneelContractTest {
     }
 
     @Test
-    fun `de omgeving draagt de persona's waarvoor het paneel een los bericht kan plaatsen`() {
-        // Een eigen lijst naast `personas`: alleen wie een magazijn heeft kan een bericht krijgen,
-        // en de knop stuurt de id — niet het identificatienummer, dat hoort niet in een URL.
-        val doelen = ObjectMapper().readTree(haalJson(omgevingUrl)).path("berichtPersonas")
+    fun `berichtPersonas is de echte deelverzameling van personas, met alleen id en label`() {
+        // Op de ingerichte personaset, want die draagt het tegenvoorbeeld: Grootbedrijf en Landelijk
+        // Concern staan zonder magazijn in de configuratie. Een regressie naar "geef alle persona's
+        // terug" zet hen in de keuzelijst en levert bij elke klik een weigering van het magazijn.
+        val antwoord = ObjectMapper().readTree(haalJson(omgevingUrl))
+        val doelen = antwoord.path("berichtPersonas")
+        val alle = antwoord.path("personas").map { it.path("id").asText() }.toSet()
+        val doelIds = doelen.map { it.path("id").asText() }.toSet()
 
         assertTrue(doelen.isArray, "veld berichtPersonas ontbreekt of is geen lijst")
-        assertTrue(!doelen.isEmpty, "geen enkele persona om een bericht voor te plaatsen")
+        assertFalse(doelen.isEmpty, "geen enkele persona om een bericht voor te plaatsen")
+        assertEquals(emptySet<String>(), doelIds - alle, "berichtPersonas hoort binnen personas te vallen")
+        assertTrue(doelIds.size < alle.size, "er wordt niets gefilterd; het tegenvoorbeeld is weggevallen")
+        assertEquals(emptySet<String>(), doelIds intersect setOf("grootbedrijf", "concern"))
+
+        // Geen `ontvanger`: dit is de lijst die als queryparameter in een URL belandt.
         doelen.forEach { assertEquals(setOf("id", "label"), it.fieldNames().asSequence().toSet()) }
+    }
+
+    @Test
+    fun `het label van een doelpersona is dat van dezelfde persona in personas`() {
+        // Twee vrije strings naast elkaar in dezelfde mapping: verwisseld compileert het, waarna de
+        // knop de mensennaam als id verstuurt en élke keuze een 404 geeft.
+        val antwoord = ObjectMapper().readTree(haalJson(omgevingUrl))
+        val labels = antwoord.path("personas").associate { it.path("id").asText() to it.path("label").asText() }
+
+        antwoord.path("berichtPersonas").forEach {
+            assertEquals(labels[it.path("id").asText()], it.path("label").asText())
+        }
     }
 
     @Test
     fun `een bericht voor een onbekende persona geeft 404 en niet een lege 500`() {
         // De knop faalt dan met een leesbare melding in plaats van met de regel die het paneel voor
         // elke storing toont; er gaat bovendien geen aanlevering naar een magazijn.
-        val respons = HttpClient.newHttpClient().send(
-            HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + "/api/demo/bericht?persona=bestaat-niet"))
-                .POST(HttpRequest.BodyPublishers.noBody())
-                .build(),
-            HttpResponse.BodyHandlers.ofString(),
-        )
+        val respons = plaatsBericht("?persona=bestaat-niet")
 
         assertEquals(404, respons.statusCode())
         assertTrue(respons.body().contains("bestaat-niet"), "de melding hoort de gevraagde persona te noemen")
+    }
+
+    /**
+     * Een parameter die helemaal ontbreekt is iets anders dan een verkeerde waarde, en Kotlin maakt
+     * er zonder eigen afhandeling een `NullPointerException` van — dus HTTP 500 met een interne
+     * melding, precies waar de 404 hierboven tegen bedoeld is.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["", "?aantal=1", "?persona=", "?persona=%20"])
+    fun `een bericht zonder bruikbare persona geeft 400 en geen 500`(query: String) {
+        val respons = plaatsBericht(query)
+
+        assertEquals(400, respons.statusCode(), "query '$query'")
+        assertTrue(respons.body().contains("berichtPersonas"), "de melding hoort de weg terug te wijzen")
+    }
+
+    /**
+     * De grenzen staan ook in `index.html` (`min`/`max`), maar dat is de browser; het runbook en
+     * Bruno roepen dit adres rechtstreeks aan. Nul zou anders een groene melding "0 van 0
+     * aangeleverd" opleveren voor een actie die niets deed.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [0, -1, 101])
+    fun `een bericht met een aantal buiten de grenzen geeft 400`(aantal: Int) {
+        assertEquals(400, plaatsBericht("?persona=pietersen&aantal=$aantal").statusCode())
+    }
+
+    @Test
+    fun `het aantal komt door tot bij de aanlevering, met 1 als default`() {
+        VasteAanleverService.opdrachten.clear()
+
+        assertEquals(200, plaatsBericht("?persona=pietersen").statusCode())
+        assertEquals(1, VasteAanleverService.opdrachten.size, "zonder aantal hoort er één bericht te gaan")
+
+        VasteAanleverService.opdrachten.clear()
+
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=3").statusCode())
+        assertEquals(3, VasteAanleverService.opdrachten.size)
+        assertTrue(
+            VasteAanleverService.opdrachten.all { it.verzoek.ontvanger.waarde == PIETERSEN_BSN },
+            "elk bericht hoort naar de gevraagde persona te gaan",
+        )
+    }
+
+    private fun plaatsBericht(query: String): HttpResponse<String> = HttpClient.newHttpClient().send(
+        HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + "/api/demo/bericht" + query))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build(),
+        HttpResponse.BodyHandlers.ofString(),
+    )
+
+    private companion object {
+
+        /** Uit de ingerichte personaset van demo-personas; `pietersen` is de persona die de test aanwijst. */
+        const val PIETERSEN_BSN = "999993653"
     }
 
     @Test
@@ -232,4 +309,24 @@ class VasteSimulatorService(
 ) : SimulatorService(beheer, omgeving) {
 
     override fun status(): SimulatorStand = SimulatorStand(actief = 3, totaal = 12)
+}
+
+/**
+ * Vaste aanlevering in plaats van twee magazijnen: deze test pint de bedrading van de knop — komt
+ * het aantal aan, en gaat het naar de gevraagde persona — niet wat een magazijn ermee doet.
+ */
+@Mock
+@Singleton
+class VasteAanleverService(config: DemoConfig) : AanleverService(config) {
+
+    override fun leverAan(opdrachten: List<AanleverOpdracht>): AanleverResultaat {
+        Companion.opdrachten += opdrachten
+
+        return AanleverResultaat(opdrachten.size, opdrachten.size, 0, 0)
+    }
+
+    companion object {
+
+        val opdrachten: MutableList<AanleverOpdracht> = mutableListOf()
+    }
 }

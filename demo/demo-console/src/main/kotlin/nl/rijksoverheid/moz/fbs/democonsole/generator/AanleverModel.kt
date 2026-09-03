@@ -50,8 +50,16 @@ data class Persona(
 )
 
 /**
- * Een persona zoals het bedieningspaneel hem aanwijst: de `id` gaat mee in de query, het `label`
- * staat in de keuzelijst. Bewust niet de `PersonaDto` van de personadienst: die draagt het
- * identificatienummer mee, en dat hoort niet in een URL die een demo-console logt.
+ * Een persona zoals het bedieningspaneel hem aanwijst. Bewust niet de `PersonaDto` van de
+ * personadienst: dat is het contract met een berichtenbox en draagt naast deze twee velden het
+ * identificatienummer, dat het paneel niet nodig heeft — zo kan het ook niet in de query belanden.
  */
-data class Doelpersona(val id: String, val label: String)
+data class Doelpersona(val id: String, val label: String) {
+
+    init {
+        // Een leeg label levert een onzichtbare optie in de keuzelijst op; een lege id een knop die
+        // gegarandeerd 404 geeft. Allebei liever bij het opstarten dan tijdens een demonstratie.
+        require(id.isNotBlank()) { "id mag niet leeg zijn" }
+        require(label.isNotBlank()) { "label mag niet leeg zijn" }
+    }
+}

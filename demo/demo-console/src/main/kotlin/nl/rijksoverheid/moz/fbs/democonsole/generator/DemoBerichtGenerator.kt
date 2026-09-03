@@ -32,15 +32,14 @@ class DemoBerichtGenerator(
             }
         }
 
-        // De id is de sleutel waarop het paneel een persona aanwijst; twee gelijke id's zouden de
-        // tweede onbereikbaar maken zonder dat iets dat meldt.
+        // De configuratie sleutelt op id en kan er dus geen twee leveren; deze constructor wel.
+        // Twee gelijke id's maken de tweede onbereikbaar zonder dat iets dat meldt.
         require(personas.distinctBy { it.id }.size == personas.size) {
             "demo-persona's delen een id: ${personas.groupBy { it.id }.filterValues { it.size > 1 }.keys}"
         }
     }
 
-    /** De persona's die het paneel als doel kan aanwijzen; elk van hen heeft minstens één magazijn. */
-    fun doelgroep(): List<Doelpersona> = personas.map { Doelpersona(it.id, it.naam) }
+    fun doelgroep(): List<Doelpersona> = personas.map { Doelpersona(id = it.id, label = it.naam) }
 
     fun genereer(aantal: Int, random: Random): List<AanleverOpdracht> =
         (0 until aantal).map { opdracht(personas[random.nextInt(personas.size)], random) }

@@ -131,9 +131,13 @@ class DemoBerichtGeneratorTest {
         // iets dat meldt.
         val ongeldig = personas + Persona("bakkerij", "Andere Bakkerij", "BSN", "999993653", listOf(rvo))
 
-        assertThrows(IllegalArgumentException::class.java) {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
         }
+
+        // Het init-blok gooit hetzelfde type voor vier invarianten; zonder deze assertie zou de test
+        // ook slagen als de id-controle verdwijnt en een andere aanslaat.
+        assertTrue(fout.message!!.contains("bakkerij"), "de melding hoort de botsende id te noemen: ${fout.message}")
     }
 
     @Test
@@ -151,8 +155,8 @@ class DemoBerichtGeneratorTest {
     @ParameterizedTest
     @ValueSource(ints = [0, 1, 25])
     fun `genereerVoor levert exact het gevraagde aantal voor de gekozen persona`(aantal: Int) {
-        // Ook 0 en 1: bij 1 verbergt "alle opdrachten horen bij deze persona" een regressie naar
-        // "geeft de eerste persona terug", en 0 hoort een lege lijst te zijn en geen fout.
+        // 0 hoort een lege lijst te zijn en geen fout; 25 dwingt af dat élke opdracht bij dezelfde
+        // persona hoort, niet alleen de eerste.
         val opdrachten = generator().genereerVoor("bakkerij", aantal, Random(11))!!
 
         assertEquals(aantal, opdrachten.size)

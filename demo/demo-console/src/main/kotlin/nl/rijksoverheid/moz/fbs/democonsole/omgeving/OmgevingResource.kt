@@ -22,9 +22,11 @@ import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
  * `PersonaService` als die dienst gebruikt — de jar van `demo-personas` — dus er is één bron.
  *
  * `berichtPersonas` staat naast `personas` en niet erin: dit is de deelverzameling waarvoor de
- * console kán aanleveren — wie geen magazijn heeft, krijgt van het magazijn een 403 in plaats van
- * een bericht. Die kennis zit in de inrichting van dit paneel en niet in `PersonaDto`, dat een
- * berichtenbox leest en het aantal magazijnen bewust weglaat.
+ * console kán aanleveren — zonder magazijn is er geen bestemming, en een keuze die alleen een fout
+ * kan opleveren hoort niet in het paneel. Die kennis zit in de inrichting van dit paneel en niet in
+ * `PersonaDto`, dat een berichtenbox leest en het aantal magazijnen bewust weglaat. De lijst komt
+ * van de generator en niet rechtstreeks van de personadienst, omdat alleen hij de magazijn-OIN's al
+ * tegen de ingerichte organisaties getoetst heeft.
  *
  * `simulator` zegt of deze omgeving gesimuleerde magazijnen kent, niet hoeveel: het aantal vraagt
  * het paneel aan de simulator zelf, zodat er geen tweede getal is dat daarvan kan afwijken. Het
