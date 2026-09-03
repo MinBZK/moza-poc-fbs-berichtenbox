@@ -229,7 +229,12 @@ diensten zijn niet getoetst en horen nog steeds in één keer goed te staan.
 Zonder de token-variabele wijst niets erop dat het misgaat aan de console-kant: het paneel laadt, de
 knoppen staan er, en elke druk levert een 401 uit de simulator.
 
-## 5. De vier ondernemers
+**Een preview krijgt zijn eigen, lege simulator en moet één keer gevuld worden.** De
+`postgresql-database`-dienst is deployment-gebonden: het gerenderde manifest van `test` leest zijn
+databasegegevens uit het secret `test-database`, dus `pr-<n>` krijgt zijn eigen database en daarmee
+een simulator zonder berichten. De alias hierboven wijst het paneel van diezelfde preview er al naar,
+dus de hele handeling is één druk op **Herstel demo** in de console van die preview. Wie een preview
+opent en overal nul berichten ziet, heeft dus geen kapotte koppeling maar een ongevulde database.
 
 De profiel-stubs van de vier ondernemers (`demo/generated/profiel/ondernemer-*.json`) zitten in het
 `fbs-demo-profiel`-image — niet in het gedeelde `fbs-externe-stubs`, want de persona's dragen
@@ -385,11 +390,11 @@ zadctl -p mpfm-w3h logs test -c magazijnsimulator --since 1h -n 300 | grep -iE '
 aangemaakt kan worden, dan mag de databasegebruiker geen `CREATE`: maak het schema uit `DB_SCHEMA`
 vooraf aan en zet `quarkus.flyway.create-schemas=false`.
 
-En de vraag die daarna nog openstaat: **krijgen previews hun eigen gevulde simulator, of delen ze die
-van `test`?** Met een eigen database per deployment is het eerste vanzelf zo, maar dan moet elke
-preview ook gevuld worden. Stel het vast door de console van een lopende preview te openen en onder
-*Berichten per magazijn* te kijken of er nul staat; is dat zo, dan is één druk op **Herstel demo** de
-hele handeling. Schrijf de uitkomst bij §4, waar de koppeling van een preview aan zijn eigen
-simulator staat — anders ontdekt de volgende preview-bezoeker opnieuw dat zijn magazijnen leeg zijn.
+En de vraag die daarna openstond: **krijgen previews hun eigen gevulde simulator, of delen ze die van
+`test`?** Eigen, en leeg — het antwoord staat nu bij §4, samen met de handeling die erbij hoort.
 
-**Klaar wanneer:** dat besluit — vullen per preview, of delen — in dit runbook staat.
+**Gedaan 2026-09-03,** al is het uit de manifesten afgeleid en niet in een draaiende preview gezien:
+op dat moment bestonden in `mpfm-w3h` alleen `test` en `fsc-magazijna`, en de twee openstaande PR's
+raken geen code die uitrolt. Kijk daarom bij de eerstvolgende preview één keer of *Berichten per
+magazijn* inderdaad op nul staat vóór het vullen; wijkt dat af, dan klopt de aanname over de
+deployment-gebonden database niet en hoort §4 bijgewerkt.
