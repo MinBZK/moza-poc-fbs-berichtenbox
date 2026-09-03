@@ -1,13 +1,14 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.util.UUID
@@ -80,7 +81,11 @@ class BerichtBeheerService(
             // stil als gewone not-found wegschrijven.
             log.errorf("%s cache-PATCH miste het bericht ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
 
-            throw NotFoundException("Bericht niet gevonden in cache")
+            throw FbsFoutException(
+                Foutcode.BERICHT_ONBEKEND,
+                Response.Status.NOT_FOUND,
+                "Bericht niet gevonden in cache",
+            )
         }
 
         return UitvraagDtoMapper.toApiBericht(bijgewerkt)

@@ -3,13 +3,13 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import jakarta.ws.rs.ForbiddenException
-import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -55,23 +55,29 @@ class BerichtOphaalServiceTest {
     }
 
     @Test
-    fun `haalBericht geeft 404 wanneer de cache het bericht niet kent`() {
+    fun `haalBericht geeft 404 met het kenmerk bericht-onbekend wanneer de cache het bericht niet kent`() {
         val id = UUID.randomUUID()
         every { sessiecache.bericht(ontvangerId, id) } returns null
 
-        assertThrows(NotFoundException::class.java) {
+        val fout = assertThrows(FbsFoutException::class.java) {
             service.haalBericht("BSN:999990019", id)
         }
+
+        assertEquals(404, fout.response.status)
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Test
-    fun `haalBijlage geeft 404 wanneer de cache het bericht niet kent`() {
+    fun `haalBijlage geeft 404 met het kenmerk bericht-onbekend wanneer de cache het bericht niet kent`() {
         val id = UUID.randomUUID()
         every { sessiecache.bericht(ontvangerId, id) } returns null
 
-        assertThrows(NotFoundException::class.java) {
+        val fout = assertThrows(FbsFoutException::class.java) {
             service.haalBijlage("BSN:999990019", id, UUID.randomUUID())
         }
+
+        assertEquals(404, fout.response.status)
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Test
@@ -142,9 +148,14 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
-        assertThrows(NotFoundException::class.java) {
+        val fout = assertThrows(FbsFoutException::class.java) {
             service.haalBijlage("BSN:999990019", berichtId, bijlageId)
         }
+
+        // Ook als het bericht wél bestond maar verwijderd is: het magazijn filtert dat weg
+        // vóór de eigenaar-check, dus een eigen kenmerk zou hier andermans bestaan verraden.
+        assertEquals(404, fout.response.status)
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Test
@@ -158,9 +169,12 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
-        assertThrows(ForbiddenException::class.java) {
+        val fout = assertThrows(FbsFoutException::class.java) {
             service.haalBijlage("BSN:999990019", berichtId, bijlageId)
         }
+
+        assertEquals(403, fout.response.status)
+        assertEquals(Foutcode.GEEN_TOEGANG, fout.foutcode)
     }
 
     @Test

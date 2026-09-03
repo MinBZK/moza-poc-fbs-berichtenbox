@@ -51,6 +51,9 @@ enum class Foutcode(val code: String) {
     /** Tijdelijke storing waarop opnieuw proberen zin heeft; `Retry-After` staat erbij. */
     TIJDELIJK_NIET_BESCHIKBAAR("tijdelijk-niet-beschikbaar"),
 
+    /** Geen actieve sessie voor deze ontvanger; er is niets om een bericht in bij te schrijven. */
+    GEEN_ACTIEVE_SESSIE("geen-actieve-sessie"),
+
     /** De opgevraagde resource bestaat niet — een onbekend pad, niet een onbekend bericht. */
     NIET_GEVONDEN("niet-gevonden"),
 
@@ -92,6 +95,10 @@ enum class Foutcode(val code: String) {
         fun voorStatus(status: Int): Foutcode = when (status) {
             401, 403 -> GEEN_TOEGANG
             404 -> NIET_GEVONDEN
+            // Wél bericht-specifiek, in tegenstelling tot 404: geen enkel framework-pad
+            // produceert een 410. Die status ontstaat alleen waar de keten zelf vaststelt dat
+            // een bericht verwijderd is, ook wanneer die vaststelling een hop verderop viel.
+            410 -> BERICHT_VERWIJDERD
             409 -> CONFLICT
             502 -> KETEN_FOUT
             503 -> TIJDELIJK_NIET_BESCHIKBAAR

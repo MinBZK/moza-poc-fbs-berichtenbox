@@ -236,6 +236,38 @@ class OpenApiContractTest {
     }
 
     @Test
+    fun `GET bericht by id - zelf verwijderd levert valide Problem-410 met kenmerk`() {
+        val id = UUID.randomUUID()
+        sessiecache.berichtFout =
+            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.BerichtVerwijderd("weg")
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(410)
+            .contentType("application/problem+json")
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-verwijderd"))
+    }
+
+    @Test
+    fun `GET bericht by id - onbekend bericht levert 404 met het kenmerk bericht-onbekend`() {
+        // Ononderscheidbaar van het bericht van een andere ondernemer: de cache is per
+        // ontvanger gesleuteld, dus beide gevallen komen hier als dezelfde misser binnen.
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/${UUID.randomUUID()}")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-onbekend"))
+    }
+
+    @Test
     fun `GET berichten - cache nog niet gevuld levert valide Problem-409`() {
         sessiecache.lijstFout = nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
 

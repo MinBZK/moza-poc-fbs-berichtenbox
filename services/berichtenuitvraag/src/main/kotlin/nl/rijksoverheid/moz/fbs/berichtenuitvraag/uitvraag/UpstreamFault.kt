@@ -4,6 +4,8 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import org.jboss.logging.Logger
 
 /**
@@ -59,7 +61,7 @@ internal fun isUpstreamStoring(e: WebApplicationException): Boolean {
 // hele uitvraag-service. Geef waar beschikbaar de onderliggende fout als cause
 // mee zodat exception-keten-gebaseerde logging de oorzaak niet verliest.
 internal fun upstreamBadGateway(detail: String, cause: Throwable? = null): WebApplicationException =
-    WebApplicationException(detail, cause, Response.Status.BAD_GATEWAY)
+    FbsFoutException(Foutcode.KETEN_FOUT, Response.Status.BAD_GATEWAY, detail, cause)
 
 /**
  * Of een cache-fout een upstream-storing is (de cache zelf hapert) dan wel een client-/
@@ -80,6 +82,7 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
     is SessiecacheException.OphalenBezig,
     is SessiecacheException.OngeldigeInvoer,
     is SessiecacheException.GeenActieveSessie,
+    is SessiecacheException.BerichtVerwijderd,
     -> false
 }
 
@@ -94,29 +97,38 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
  * classificatie komen.
  */
 internal fun SessiecacheException.naApiFout(): WebApplicationException = when (this) {
-    is SessiecacheException.NogNietGevuld -> WebApplicationException(message, this, Response.Status.CONFLICT)
-    is SessiecacheException.OphalenBezig -> WebApplicationException(message, this, Response.Status.CONFLICT)
+    is SessiecacheException.NogNietGevuld -> cacheFout(Foutcode.NOG_NIET_OPGEHAALD, Response.Status.CONFLICT)
+    is SessiecacheException.OphalenBezig -> cacheFout(Foutcode.OPHALEN_BEZIG, Response.Status.CONFLICT)
     // Een mislukte ophaalronde is geen defect maar een toestand: het ophalen strandde (bv. de
     // voorkeurenbron gaf een serverfout) en opnieuw ophalen is de weg vooruit. 503 zegt dat,
     // en het is dezelfde status die `_ophalen` in precies deze situatie al geeft; 500 zou de
     // client naar een bug bij ons wijzen.
-    is SessiecacheException.OphalenMislukt -> tijdelijkNietBeschikbaar(message, this)
-    is SessiecacheException.Onbereikbaar -> tijdelijkNietBeschikbaar(message, this)
-    is SessiecacheException.Onleesbaar -> WebApplicationException(message, this, Response.Status.INTERNAL_SERVER_ERROR)
-    is SessiecacheException.OngeldigeInvoer -> WebApplicationException(message, this, Response.Status.BAD_REQUEST)
-    is SessiecacheException.GeenActieveSessie -> WebApplicationException(message, this, Response.Status.NOT_FOUND)
+    is SessiecacheException.OphalenMislukt -> tijdelijkNietBeschikbaar(Foutcode.OPHALEN_MISLUKT, message, this)
+    is SessiecacheException.Onbereikbaar -> tijdelijkNietBeschikbaar(Foutcode.TIJDELIJK_NIET_BESCHIKBAAR, message, this)
+    is SessiecacheException.Onleesbaar -> cacheFout(Foutcode.INTERNE_FOUT, Response.Status.INTERNAL_SERVER_ERROR)
+    is SessiecacheException.OngeldigeInvoer -> cacheFout(Foutcode.ONGELDIG_VERZOEK, Response.Status.BAD_REQUEST)
+    is SessiecacheException.GeenActieveSessie -> cacheFout(Foutcode.GEEN_ACTIEVE_SESSIE, Response.Status.NOT_FOUND)
+    // 410 en niet 404: een afnemer die alleen naar de status kijkt, weet dan al dat dit bericht
+    // bestond en weg is. De cache honoreert de tombstone alleen voor de eigenaar, dus dit
+    // antwoord verraadt niets over het bericht van een ander.
+    is SessiecacheException.BerichtVerwijderd -> cacheFout(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE)
 }
+
+/** Cache-fout met kenmerk; de message van de cache blijft het detail. */
+private fun SessiecacheException.cacheFout(foutcode: Foutcode, status: Response.Status) =
+    FbsFoutException(foutcode, status, message.orEmpty(), this)
 
 /**
  * Een 503 waar opnieuw proberen zin heeft, met dezelfde `Retry-After` als de profiel-mapper op
  * zijn retry-bare 503 zet. Zonder die header staat de aanwijzing alleen in proza en moet een
  * client zelf een interval verzinnen.
  */
-private fun tijdelijkNietBeschikbaar(message: String?, oorzaak: SessiecacheException) =
-    WebApplicationException(
-        message,
-        oorzaak,
+private fun tijdelijkNietBeschikbaar(foutcode: Foutcode, message: String?, oorzaak: SessiecacheException) =
+    FbsFoutException(
+        foutcode,
         Response.status(Response.Status.SERVICE_UNAVAILABLE).header("Retry-After", RETRY_AFTER_SECONDEN).build(),
+        message.orEmpty(),
+        oorzaak,
     )
 
 /** Gelijk aan wat de profiel-mapper hanteert; één waarde zodat clients niet per endpoint hoeven te leren wachten. */

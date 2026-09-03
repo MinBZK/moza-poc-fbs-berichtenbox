@@ -6,6 +6,55 @@ info:
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
     berichtenmagazijn voor bijlagen en persistente status-mutaties.
+
+    ## Foutantwoorden herkennen
+
+    Elk foutantwoord is `application/problem+json` (RFC 9457) en draagt in `type` een
+    kenmerk van de vorm `urn:fbs:fout:<code>`. Daaraan zie je twee dingen: dat het antwoord
+    van deze keten komt, en om welke situatie het gaat. Ontbreekt `type`, of staat er
+    `about:blank`, dan komt het antwoord ergens anders vandaan — een proxy onderweg
+    bijvoorbeeld — en zegt het niets over het bericht.
+
+    De codes liggen vast: een bestaande code verandert niet van betekenis, er komen er
+    hooguit bij. Stuur je gedrag op `type`, niet op `title` of `detail` — die zijn proza en
+    mogen wijzigen.
+
+    | `type` | Status | Situatie | Wat je de gebruiker kunt vertellen |
+    |---|---|---|---|
+    | `urn:fbs:fout:bericht-onbekend` | 404 | Het bericht bestaat niet, hoort bij een andere ondernemer, of zat niet in de opgehaalde set | "Dit bericht is niet (meer) beschikbaar" |
+    | `urn:fbs:fout:bericht-verwijderd` | 410 | De ondernemer verwijderde dit bericht zelf | "Je hebt dit bericht verwijderd" |
+    | `urn:fbs:fout:nog-niet-opgehaald` | 409 | Er is nog geen ophaalronde geweest | Start `GET /berichten/_ophalen` en probeer daarna opnieuw |
+    | `urn:fbs:fout:ophalen-bezig` | 409 | Er loopt een ophaalronde | "Een moment" — wachten, dit is geen fout |
+    | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
+    | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
+    | `urn:fbs:fout:geen-actieve-sessie` | 404 | Geen actieve sessie om een bericht in bij te schrijven (aanmeld-pad) | — |
+    | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
+    | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
+    | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
+    | `urn:fbs:fout:conflict` | 409 | Botsing met de huidige toestand | — |
+    | `urn:fbs:fout:keten-fout` | 502 | Een schakel verderop hapert | "Probeer het straks nog eens" |
+    | `urn:fbs:fout:configuratie-mismatch` | 500 | De configuratie van de keten spreekt zichzelf tegen | Opnieuw proberen helpt niet; dit vraagt een beheerder |
+    | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout | "Er ging iets mis", met de referentie uit `instance` |
+
+    ### Wat `bericht-verwijderd` wel en niet zegt
+
+    De keten weet van een verwijdering zolang de sessie leeft, en alleen van verwijderingen
+    die via deze API liepen. Twee gevolgen:
+
+    - Na afloop van de sessie wordt het antwoord weer `bericht-onbekend`. Het uitblijven van
+      `bericht-verwijderd` is dus géén bewijs dat er niets verwijderd is.
+    - Haalt de organisatie het bericht in haar eigen magazijn weg, dan verdwijnt het bij de
+      volgende ophaalronde uit de lijst zonder dat deze code verschijnt.
+
+    Het downloaden van een bijlage kent het onderscheid helemaal niet: daar filtert het
+    magazijn een verwijderd bericht al weg vóór het de eigenaar controleert, dus een eigen
+    code zou daar het bestaan van andermans bericht verraden. Die blijft `bericht-onbekend`.
+
+    ### Wat het nooit zegt
+
+    "Dit bericht bestaat niet" en "dit bericht bestaat wel, maar is niet van jou" leveren
+    exact hetzelfde antwoord: `bericht-onbekend` met een 404. Dat is opzet — een verschil
+    daartussen zou het bestaan van andermans berichten aftastbaar maken.
   contact:
     name: MOZA Team
     email: moza@minbzk.nl
@@ -148,6 +197,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -178,6 +228,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
@@ -324,7 +375,18 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     NotFound:
-      description: Bericht niet gevonden
+      description: |
+        Bericht niet gevonden (`urn:fbs:fout:bericht-onbekend`). Dekt met opzet drie
+        situaties onder één antwoord: het bericht bestaat niet, het hoort bij een andere
+        ondernemer, of het zat niet in de opgehaalde set.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Gone:
+      description: |
+        De ondernemer verwijderde dit bericht zelf (`urn:fbs:fout:bericht-verwijderd`).
+        Alleen bekend zolang de sessie leeft en alleen voor verwijderingen die via deze API
+        liepen; daarbuiten is het antwoord een gewone 404.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

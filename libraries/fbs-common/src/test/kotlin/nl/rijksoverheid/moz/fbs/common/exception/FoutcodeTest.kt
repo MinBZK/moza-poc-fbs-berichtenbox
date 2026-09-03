@@ -36,6 +36,7 @@ class FoutcodeTest {
         "403, GEEN_TOEGANG",
         "404, NIET_GEVONDEN",
         "409, CONFLICT",
+        "410, BERICHT_VERWIJDERD",
         "415, ONGELDIG_VERZOEK",
         "422, ONGELDIG_VERZOEK",
         "500, INTERNE_FOUT",
@@ -48,12 +49,12 @@ class FoutcodeTest {
     }
 
     @Test
-    fun `voorStatus geeft nooit een bericht-specifieke code terug`() {
-        // Een 404 op een onbekend pad is geen onbekend bericht; die terugval zou de
-        // afnemer een uitspraak over een bericht laten doen die er niet is.
-        val berichtSpecifiek = setOf(Foutcode.BERICHT_ONBEKEND, Foutcode.BERICHT_VERWIJDERD)
+    fun `voorStatus claimt nooit uit zichzelf dat een bericht onbekend is`() {
+        // Een 404 op een onbekend pad is geen onbekend bericht; die terugval zou de afnemer een
+        // uitspraak over een bericht laten doen die er niet is. Voor 410 ligt dat anders: geen
+        // framework-pad produceert die status, dus komt hij altijd van de keten zelf.
         val terugvallen = (100..599).map { Foutcode.voorStatus(it) }.toSet()
 
-        assertTrue(terugvallen.none { it in berichtSpecifiek }, "terugval koos $terugvallen")
+        assertTrue(Foutcode.BERICHT_ONBEKEND !in terugvallen, "terugval koos $terugvallen")
     }
 }
