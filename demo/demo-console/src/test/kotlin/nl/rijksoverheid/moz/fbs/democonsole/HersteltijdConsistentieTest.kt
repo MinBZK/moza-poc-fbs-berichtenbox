@@ -24,7 +24,7 @@ import java.util.Properties
 class HersteltijdConsistentieTest {
 
     private val uitvraag = Properties().apply {
-        val bestand = File(WORTEL, "services/berichtenuitvraag/src/main/resources/application.properties")
+        val bestand = File(ROOT, "services/berichtenuitvraag/src/main/resources/application.properties")
 
         assertTrue(bestand.isFile, "uitvraag-configuratie niet gevonden op ${bestand.absolutePath}")
         bestand.inputStream().use { load(it) }
@@ -53,6 +53,6 @@ class HersteltijdConsistentieTest {
 
     private companion object {
         /** De module draait vanuit `demo/demo-console`; de repository-wortel ligt twee mappen hoger. */
-        val WORTEL: File = File("../..").canonicalFile
+        val ROOT: File = File("../..").canonicalFile
     }
 }
