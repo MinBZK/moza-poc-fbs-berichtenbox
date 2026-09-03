@@ -113,8 +113,12 @@ internal class MagazijnAggregatieBulkhead(
     /**
      * Probeert een permit te claimen tot [deadlineNanos]: `true` = geclaimd (de caller moet hem
      * vrijgeven), `false` = budget verstreken. De wachtstap loopt op de scheduler van de
-     * default-worker-pool en houdt géén thread bezet; de recursie bouwt geen stack op omdat elke
-     * stap achter een asynchrone vertraging zit.
+     * default-worker-pool en houdt géén thread bezet.
+     *
+     * Elke poll voegt één niveau aan de `Uni`-keten toe; het aantal is begrensd door
+     * wachtbudget ÷ [POLL_INTERVAL] (200 bij de defaults) en wordt bij terminatie in één keer
+     * vrijgegeven. Vergroot het wachtbudget dus niet met ordes van grootte zonder ook het
+     * poll-interval mee te laten lopen.
      */
     private fun verwerfPermit(deadlineNanos: Long): Uni<Boolean> =
         Uni.createFrom().deferred {

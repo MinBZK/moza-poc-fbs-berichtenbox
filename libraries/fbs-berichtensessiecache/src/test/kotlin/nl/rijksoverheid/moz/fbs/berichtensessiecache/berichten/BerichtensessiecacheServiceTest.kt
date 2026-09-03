@@ -828,6 +828,63 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
+    fun `een wachtende organisatie verbruikt geen wachtbudget - ze wordt pas op haar beurt bevraagd`() {
+        // Onderscheidt de twee lagen: de ronde biedt niet alle bevragingen tegelijk aan, maar pakt de
+        // volgende zodra er één afgerond is. Zou de merge wél in één keer op alle 50 substreams
+        // subscriben, dan stonden er 45 tegelijk op een permit te wachten en zou het krappe
+        // wachtbudget verstrijken vóórdat ze aan de beurt waren — met NIET_OPGEHAALD als gevolg.
+        // Met de per-ronde-grens is er bij elke subscription juist een permit vrijgekomen.
+        val grens = 5
+        val bulkheadKortBudget = MagazijnAggregatieBulkhead(
+            maxConcurrent = grens,
+            maxParallelPerRonde = grens,
+            maxWachttijdMs = 100L,
+        )
+        val serviceKortBudget = BerichtensessiecacheService(
+            berichtenCache, clientFactory, validator, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            maxBerichtenPerMagazijn = 1000,
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = bulkheadKortBudget,
+            circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+        ).also { it.valideerTimeouts() }
+
+        // 50 organisaties × 30 ms bij 5 tegelijk = tien golven van 30 ms; de hele ronde duurt dus
+        // ruim langer dan het wachtbudget van 100 ms.
+        val magazijnIds = (1..50).map { nummer -> "magazijn-%03d".format(nummer) }
+        val clients = magazijnIds.associateWith { magazijnId ->
+            mockk<MagazijnClient>().also { client ->
+                every { client.getBerichten(any(), any()) } answers {
+                    Thread.sleep(30)
+                    MagazijnBerichtenResponse(listOf(testMagazijnBericht().copy(berichtId = UUID.randomUUID())))
+                }
+            }
+        }
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(magazijnIds.toSet())
+        every { clientFactory.getAllClients() } returns clients
+        every { clientFactory.getNaam(any()) } returns "Organisatie"
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = serviceKortBudget.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(60))
+
+        val nietOpgehaald = events.filterIsInstance<MagazijnBevragingMislukt>()
+            .filter { it.status == MagazijnStatus.NIET_OPGEHAALD }
+
+        assertTrue(
+            nietOpgehaald.isEmpty(),
+            "geen organisatie hoort haar wachtbudget te verbranden terwijl ze nog in de wachtrij staat: $nietOpgehaald",
+        )
+        assertEquals(magazijnIds.size, events.filterIsInstance<MagazijnBevragingGeslaagd>().size)
+    }
+
+    @Test
     fun `boundary - response exact op max-berichten-cap is succesvol (cap is strikt groter dan)`() {
         // Pinned off-by-one: cap-check is `>` (strikt), niet `>=`.
         val serviceMetLageCap = BerichtensessiecacheService(

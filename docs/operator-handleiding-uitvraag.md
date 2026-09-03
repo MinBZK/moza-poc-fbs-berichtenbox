@@ -89,7 +89,7 @@ bevraagd, niet gedeeltelijk overgeslagen.
 
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.magazijn-bulkhead.max-concurrent` | `40` | Verhoog bij veel gelijktijdige ophaalrondes; houd het een fractie van `quarkus.thread-pool.max-threads`, anders verdwijnt de bescherming die deze grens is |
+| `berichtensessiecache.magazijn-bulkhead.max-concurrent` | `40` | Verhoog bij veel gelijktijdige ophaalrondes; houd het een fractie van de worker-pool (zonder expliciete `quarkus.thread-pool.max-threads` minimaal 200 threads), anders verdwijnt de bescherming die deze grens is |
 | `berichtensessiecache.magazijn-bulkhead.max-parallel-per-ronde` | `20` | Verlaag om één ondernemer minder van de gedeelde capaciteit te laten pakken. MOET ≤ `max-concurrent` blijven — de service start anders niet |
 | `berichtensessiecache.magazijn-bulkhead.max-wachttijd-ms` | `5000` | Verhoog als `NIET_OPGEHAALD` optreedt terwijl de magazijnen gezond zijn: het wachtbudget is dan te krap voor de piek |
 

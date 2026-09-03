@@ -107,9 +107,17 @@ Invarianten: alle drie > 0, en `max-parallel-per-ronde ≤ max-concurrent` (ande
 ronde structureel op permits die er nooit zijn en verbrandt hij zijn wachtbudget).
 
 `max-concurrent` gaat van 20 naar 40 zodat twee gelijktijdige rondes op volle snelheid draaien
-zonder aan de wachtrij te komen; dat is nog altijd een vijfde van de Quarkus-worker-pool. De grens
-hoeft **niet** meer mee te groeien met het aantal organisaties van een ondernemer — dat is precies
-wat laag 1 wegneemt — dus de handmatige 120 in de demo verdwijnt.
+zonder aan de wachtrij te komen; dat is hooguit een vijfde van de Quarkus-worker-pool, die zonder
+expliciete `quarkus.thread-pool.max-threads` minimaal 200 threads groot is. De grens hoeft **niet**
+meer mee te groeien met het aantal organisaties van een ondernemer — dat is precies wat laag 1
+wegneemt — dus de handmatige 120 in de demo verdwijnt.
+
+### Wat bewust niet gebeurt
+
+De volgorde van bevragen wordt **niet** per ronde gehusseld. Het issue noemt dat als mogelijke
+pleister tegen de vaste blinde vlek, maar met een wachtrij is er geen blinde vlek meer om te
+verhullen: iedereen komt aan de beurt. Husselen zou daar alleen een onvoorspelbare volgorde in het
+portaal aan toevoegen.
 
 ## Wijzigingen
 
@@ -137,9 +145,15 @@ wat laag 1 wegneemt — dus de handmatige 120 in de demo verdwijnt.
 - `MagazijnAggregatieBulkheadTest`: wachten-tot-permit-vrijkomt, verstreken budget → `verlopen`,
   geen permit-lek na een verstreken budget, config-validatie inclusief de nieuwe invariant, en
   "alle wachtenden komen aan de beurt" (geen structurele uitsluiting).
-- `BerichtensessiecacheServiceTest`: een ronde met 50 organisaties tegen een limiet van 5 levert
-  50 GESTART- én 50 VOLTOOID-events, allemaal geslaagd, en géén `NIET_OPGEHAALD`. Dat is de test
-  die het acceptatiecriterium "geen enkele organisatie valt structureel buiten beeld" pint.
+- `BerichtensessiecacheServiceTest`: een ronde met 5, 6 en 50 organisaties tegen een limiet van 5
+  levert per geval evenveel GESTART- als VOLTOOID-events, allemaal geslaagd, en géén
+  `NIET_OPGEHAALD`. Dat is de test die het acceptatiecriterium "geen enkele organisatie valt
+  structureel buiten beeld" pint.
+- Een tweede servicetest onderscheidt de twee lagen: 50 organisaties, limiet 5, calls van 30 ms en
+  een wachtbudget van 100 ms. Alleen als de merge de wachtenden pas op hun beurt subscribet, blijft
+  er niets liggen. Gecontroleerd dat die test zonder `withConcurrency(...)` daadwerkelijk faalt
+  (35 van de 50 verbrandden hun wachtbudget) — anders zou de wachtrij van laag 2 hem alsnog groen
+  houden en bewees hij niets.
 - `./mvnw clean verify -pl libraries/fbs-berichtensessiecache -am` (JaCoCo 90% + detekt).
 - `./mvnw clean test -pl services/berichtenuitvraag -am`.
 
