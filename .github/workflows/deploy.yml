@@ -135,9 +135,10 @@ env:
   PREVIEW_TASK_TIMEOUT: '900'
   # De comment wordt door .github/scripts/preview-comment.sh geplaatst en niet door de
   # deploy-action: die schrijft per aanroep de HELE body met alleen de URL's van háár project, en
-  # zoekt de bestaande comment op `startswith(<header>)`. Drie projecten die dat doen overschrijven
-  # elkaar, en met een eigen header per project krijgt de PR drie comments waarvan de kortste
-  # header ook die van de andere twee matcht. Eén comment, samengesteld ná de laatste deploy.
+  # zoekt de bestaande comment op `startswith(<header>)`. Twee projecten die dat doen overschrijven
+  # elkaar, en een eigen header per project helpt niet: de action bouwt die als `<header> —
+  # <component>`, dus de kortste matcht ook de comment van de ander. Eén comment, samengesteld ná
+  # de laatste deploy.
   #
   # cleanup-preview.yml zoekt de comment op dezelfde tekst, dus drift tussen plaatsen en opruimen
   # laat hem stil achter op een gesloten PR. test-preview-comment.sh bewaakt dat de drie plekken
@@ -719,7 +720,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # De URL's gaan naar de magazijnen-job, die ná deze draait en de PR-comment samenstelt: één
-    # comment met de URL's van álle projecten die samen de preview vormen.
+    # comment met de demo én deze uitvraag erin.
     outputs:
       urls: ${{ steps.deploy.outputs.urls }}
     # Eén ZAD-taak tegelijk op deze deployment; een nieuwe push wacht op de lopende i.p.v. die af
@@ -870,7 +871,7 @@ jobs:
     permissions:
       contents: read
       # Voor de preview-comment onderaan deze job. Die staat hier en niet bij de uitvraag-deploy,
-      # omdat dit de laatste van de drie deploys is: pas hier zijn álle URL's bekend.
+      # omdat dit de laatste van de drie deploys is: pas hier zijn de URL's van beide kanten bekend.
       pull-requests: write
     steps:
       # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
@@ -912,13 +913,22 @@ jobs:
 
       # De comment met de preview-URL's, hier en niet bij de uitvraag-deploy: dit project draagt de
       # demo — de bedieningsconsole, de berichtenbox en de magazijnen — en dat is voor een lezer van
-      # de PR juist de ingang. Deze job is de laatste van de drie, dus pas hier zijn de URL's van
-      # beide kanten bekend.
+      # de PR de ingang, dus staat die sectie ook vooraan. Deze job is de laatste van de drie, dus
+      # pas hier zijn de URL's van beide kanten bekend.
+      #
+      # De externe stubs (profiel, notificatie en hun twee Toxiproxy's) blijven eruit: die adressen
+      # zijn alleen bij het debuggen nodig en zouden de twee ingangen wegdrukken.
       #
       # Zonder `!cancelled()` blijft de comment weg zodra de netwerkregel-stap hierboven faalt,
       # terwijl de preview dan wél draait; de storingsknoppen in de console werken alleen niet.
       # De deploy zelf is wél een voorwaarde: mislukt die, dan zijn er geen URL's voor de demo en
       # zou de comment een halve preview aankondigen als een hele.
+      #
+      # Twee gevolgen van het samenstellen ná de laatste deploy, allebei aanvaard. Faalt een van de
+      # twee andere preview-jobs, dan wordt deze job overgeslagen en komt er géén comment, ook niet
+      # met de URL's die er wél zijn — maar dan is de preview zelf incompleet en is de run rood. En
+      # faalt deze stap, dan is de job rood en blokkeert `uitrol-poort` de merge terwijl de preview
+      # draait; dat is de bedoelde prijs voor "een uitgebleven comment mag niet stil zijn".
       - name: Plaats de preview-URL's op de PR
         if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
         env:
@@ -926,12 +936,12 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           COMMENT_HEADER: ${{ env.COMMENT_HEADER }}
           PR_NUMMER: ${{ github.event.pull_request.number }}
-          URLS_UITVRAAG: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
           URLS_DEMO: ${{ steps.deploy.outputs.urls }}
+          URLS_UITVRAAG: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
         run: >-
           .github/scripts/preview-comment.sh "$PR_NUMMER"
-          "Berichtenuitvraag=$URLS_UITVRAAG"
           "Demo=$URLS_DEMO"
+          "Berichtenuitvraag=$URLS_UITVRAAG"
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
