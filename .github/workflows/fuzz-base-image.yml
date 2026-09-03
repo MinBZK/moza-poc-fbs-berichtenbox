@@ -3,8 +3,10 @@
 # veranderen, dus het hoort hier en niet in elke fuzz-run.
 #
 # `.clusterfuzzlite/Dockerfile` pint dit image op digest. Na een bouw hier moet die pin dus
-# bijgewerkt worden; de bouw print de nieuwe digest en de job `fuzz-basis-pin` in
-# `pin-consistency.yml` meldt op de PR zolang de pin niet bij de huidige pom's hoort.
+# bijgewerkt worden; de job `pin` hieronder biedt die wijziging als PR aan.
+#
+# Vereist de repo-secret FUZZ_PIN_TOKEN — zie de job `pin` voor wat erin hoort en waarom
+# GITHUB_TOKEN hier niet volstaat.
 name: Fuzz-basis-image
 
 on:
@@ -18,6 +20,15 @@ on:
       - '.github/workflows/fuzz-base-image.yml'
   workflow_dispatch:
 
+# De job `pin` muteert gedeelde toestand: één branch en één pull request. Twee bouwen tegelijk zouden
+# allebei "geen open PR" zien, waarna de tweede stukloopt op een bestaande PR — of, erger, de PR op
+# de oudere digest laten staan terwijl beide runs groen zijn. Serialiseren dus, en niet annuleren:
+# het script pusht eerst de branch en opent daarna pas de PR, dus een afbreking daartussen laat een
+# pin-branch zonder PR achter en geen enkel pad ruimt die op.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -30,15 +41,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      poms: ${{ steps.hash.outputs.poms }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # De pom-hash is de identiteit van dit image: gelijke pom's = gelijke warme repository.
-      # Hij wordt de image-tag, zodat `fuzz-basis-pin` in pin-consistency.yml de tag voor de
-      # huidige pom's kan opzoeken en met de gepinde digest kan vergelijken.
+      # De pom-hash is de identiteit van dit image: gelijke pom's = gelijke warme repository. Hij
+      # wordt de image-tag (zie de bouwstap) en gaat als job-output mee naar `pin`, die hem in de
+      # PR-body zet — zo is aan die PR te zien bij wélke dependency-set de digest hoort.
       - name: Bepaal de pom-hash
         id: hash
         env:
@@ -73,13 +87,23 @@ jobs:
             --label "nl.rijksoverheid.moz.poms-hash=$POMS" \
             -t "$IMAGE:poms-$POMS" \
             .
-          # De warme repository is de enige bestaansreden van dit image. Loopt het vullen ervan
+          # De warme repository is het duurste deel van dit image (~100s per fuzz-run). Loopt het vullen ervan
           # stuk (ontbrekende module-pom, netwerkstoring), dan bouwt het image gewoon door en
           # zou het gepusht worden met een lege repo: alles blijft groen en alleen de fuzz-run
           # is weer traag. Daarom hier de postconditie, vóór de push.
           jars=$(docker run --rm "$IMAGE:poms-$POMS" sh -c 'find /root/.m2/repository -name "*.jar" | wc -l')
           echo "warme repository: $jars jars"
 
+          # Zonder deze controle valt de vergelijking hieronder bij een niet-numerieke telling om met
+          # 'integer expression expected', grijpt `set -e` niet in op een conditie, en wordt het image
+          # alsnog gepusht — met een lege repository en een groene run.
+          if ! [[ "$jars" =~ ^[0-9]+$ ]]; then
+            echo "::error::de telling van de warme repository leverde geen aantal op ('$jars')."
+            exit 1
+          fi
+
+          # 500 ligt ruim onder de ~890 jars van een volledige warmup en ruim boven wat een halve
+          # vulling achterlaat.
           if [ "$jars" -lt 500 ]; then
             echo "::error::maar $jars jars in de warme repository — dit image levert geen tijdwinst op, niet pushen."
             exit 1
@@ -87,21 +111,37 @@ jobs:
 
           docker push "$IMAGE:poms-$POMS"
           # Via imagetools, niet via `docker inspect .RepoDigests`: dat geeft de digest zoals de
-          # registry hem onder déze tag serveert, en dat is precies wat de guard tegen de pin
-          # houdt. De twee liepen in de praktijk uiteen — RepoDigests noemde een andere digest
-          # dan ghcr onder dezelfde tag teruggaf, waardoor de guard niets meer kon vergelijken.
+          # registry hem onder déze tag serveert. Die string gaat één op één de FROM-regel in, dus
+          # hij moet zijn wat een `docker pull` straks oplevert. De twee liepen in de praktijk
+          # uiteen — RepoDigests noemde een andere digest dan ghcr onder dezelfde tag teruggaf.
           digest=$(docker buildx imagetools inspect "$IMAGE:poms-$POMS" --format '{{.Manifest.Digest}}')
+
+          # Het template levert een lege string als het veld ooit anders heet, en imagetools eindigt
+          # dan alsnog met 0. Zonder deze controle reist `ghcr.io/…@` als digest mee naar de pin-job,
+          # die er dan een FROM-regel zonder digest van zou maken.
+          if ! printf '%s' "$digest" | grep -qE '^sha256:[a-f0-9]{64}$'; then
+            echo "::error::imagetools gaf geen bruikbare digest terug ('$digest')."
+            exit 1
+          fi
+
           echo "digest=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
 
-      - name: Toon de pin die in .clusterfuzzlite/Dockerfile hoort
+      - name: Leg de gebouwde pin vast in de samenvatting
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
           POMS: ${{ steps.hash.outputs.poms }}
         run: |
+          set -euo pipefail
+
           {
             echo "### Fuzz-basis-image gebouwd"
             echo
-            echo "Zet dit in \`.clusterfuzzlite/Dockerfile\`:"
+            if [ "$GITHUB_REF" = refs/heads/main ]; then
+              echo "De job \`pin\` biedt deze regel als PR aan; met de hand zetten hoeft alleen als die job faalde:"
+            else
+              echo "De job \`pin\` draait alleen op main; zet deze regel met de hand in \`.clusterfuzzlite/Dockerfile\`:"
+            fi
+
             echo
             echo '```dockerfile'
             echo "FROM $DIGEST"
@@ -109,3 +149,52 @@ jobs:
             echo
             echo "pom-hash: \`$POMS\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Na een bouw wijst de pin in `.clusterfuzzlite/Dockerfile` nog naar het vorige image. Deze job zet
+  # de nieuwe FROM-regel als PR klaar, zodat het bijwerken niet van iemands geheugen afhangt. Is de
+  # pin buiten die PR om al goed gekomen, dan ruimt hij de openstaande PR op.
+  #
+  # Deze PR is het enige signaal: er is bewust geen periodieke controle die een verouderde pin
+  # opnieuw meldt. Een pin die achterloopt kost ~100s per fuzz-run en verder niets, en de
+  # eerstvolgende dependency-wijziging biedt hem opnieuw aan.
+  #
+  # FUZZ_PIN_TOKEN is een fine-grained PAT op deze repo met alleen `Contents: write` en
+  # `Pull requests: write`. Bewust niet GITHUB_TOKEN: GitHub start geen workflows op events die dát
+  # token veroorzaakt, dus een PR van GITHUB_TOKEN krijgt nooit zijn verplichte checks en is met
+  # strict main niet te mergen. Het werk gaat daarmee volledig langs GITHUB_TOKEN heen, vandaar de
+  # lege `permissions:` hieronder.
+  pin:
+    needs: build
+    # Alleen op main. Bij een `workflow_dispatch` vanaf een feature branch zou de force-push de
+    # volledige inhoud van die branch op de gedeelde pin-branch zetten, en zou de PR die dat aanbiedt
+    # die hele branch naar main dragen in plaats van één FROM-regel.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      # Vóór de checkout, want die draait zélf op dit token: zonder deze stap faalt een ontbrekende
+      # secret als een kale git-authenticatiefout, en die noemt de oorzaak niet.
+      - name: Is FUZZ_PIN_TOKEN gezet
+        env:
+          GH_TOKEN: ${{ secrets.FUZZ_PIN_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::FUZZ_PIN_TOKEN ontbreekt — zonder die secret faalt de checkout hieronder als een kale git-authenticatiefout."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # Bewust ZONDER `persist-credentials: false`: de `git push` in het script leunt op de
+        # extraheader die checkout in .git/config achterlaat. GH_TOKEN dekt alleen de `gh`-aanroepen.
+        with:
+          token: ${{ secrets.FUZZ_PIN_TOKEN }}
+
+      - name: Bied de nieuwe pin als PR aan
+        env:
+          GH_TOKEN: ${{ secrets.FUZZ_PIN_TOKEN }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          POMS: ${{ needs.build.outputs.poms }}
+        run: .github/scripts/fuzz-basis-pin.sh

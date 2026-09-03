@@ -120,6 +120,7 @@ jobs:
             [.github/scripts/test-cross-domain-preview.sh]=29
             [.github/scripts/test-jdk-handtekening.sh]=22
             [.github/scripts/test-fuzz-basis-modules.sh]=16
+            [.github/scripts/test-fuzz-basis-pin.sh]=59
             [.github/scripts/test-proeftuin-image.sh]=15
           )
 
