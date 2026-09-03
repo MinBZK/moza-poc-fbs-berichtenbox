@@ -473,8 +473,9 @@ herhaalbaar is en niet met een stopwatch gebeurt.
 
 Verwacht dat de demo hier optimalisatiepunten oplevert; dat is een doel en geen bijwerking. Wat stap
 6 vindt hoort als issue op de backlog, niet stilzwijgend in dit document. Twee daarvan staan er al —
-#996 hierboven en MinBZK/MijnOverheidZakelijk#997 over de onvolledige lijst bij veel aangesloten
-organisaties.
+#996 hierboven en MinBZK/MijnOverheidZakelijk#1038 over de onvolledige lijst bij veel aangesloten
+organisaties — dat laatste is samengevoegd met MinBZK/MijnOverheidZakelijk#997, dat dezelfde
+bevinding beschreef vóórdat de meting hieronder liet zien hoe groot ze is.
 
 ## Meting (stap 6)
 
