@@ -53,7 +53,7 @@ class OndernemersConsistentieTest {
      */
     @Test
     fun `de rookproef bevraagt dezelfde ondernemers, met dezelfde aantallen`() {
-        val script = File(WORTEL, "demo/smoke.sh")
+        val script = File(ROOT, "demo/smoke.sh")
 
         assertTrue(script.isFile, "rookproef niet gevonden op ${script.absolutePath}")
 
@@ -67,7 +67,7 @@ class OndernemersConsistentieTest {
     }
 
     private fun lees(): List<Pair<String, Int>> {
-        val script = File(WORTEL, "demo/genereer-magazijnen.py")
+        val script = File(ROOT, "demo/genereer-magazijnen.py")
 
         assertTrue(script.isFile, "generatiescript niet gevonden op ${script.absolutePath}")
 
@@ -90,6 +90,6 @@ class OndernemersConsistentieTest {
 
     private companion object {
         /** De module draait vanuit `demo/demo-console`; de repository-wortel ligt twee mappen hoger. */
-        val WORTEL: File = File("../..").canonicalFile
+        val ROOT: File = File("../..").canonicalFile
     }
 }

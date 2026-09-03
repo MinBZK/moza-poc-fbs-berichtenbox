@@ -266,6 +266,9 @@ in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
 |---|---|---|
 | J. Pietersen | BSN `999993653` | 3 organisaties: A, B en 1 gesimuleerde |
 | Bakkerij De Vroege Vogel | BSN `999996666` | RVO |
+| Demo-onderneming 1 | KVK `90000011` | RVO |
+| Demo-onderneming 2 | KVK `90000012` | Belastingdienst |
+| Demo-onderneming 3 | KVK `90000013` | RVO en Belastingdienst |
 | Garage Van Dijk B.V. | KVK `90000014` | 15 organisaties: A, B en 13 gesimuleerde |
 | Grootbedrijf B.V. | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
 | Landelijk Concern N.V. | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
