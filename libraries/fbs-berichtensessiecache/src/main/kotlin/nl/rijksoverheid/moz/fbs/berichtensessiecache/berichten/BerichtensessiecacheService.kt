@@ -86,6 +86,10 @@ internal class BerichtensessiecacheService(
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
+    // Dezelfde deadline die `ifNoItem` om de bevraging legt, maar dan als budget vóór in de
+    // blokkerende pagineerlus: die timeout faalt de Uni wel, maar onderbreekt de lopende lus niet.
+    private val magazijnQueryBudget: Duration get() = Duration.ofSeconds(magazijnQueryTimeoutSeconds)
+
     /**
      * Dwingt bean-instantiatie — en daarmee [valideerTimeouts] — af bij het opstarten. Zonder deze
      * observer maakt ArC deze bean pas aan bij het eerste request (het enige pad ernaartoe loopt
@@ -539,7 +543,8 @@ internal class BerichtensessiecacheService(
                         // De blokkerende magazijn-call draait op de context-bewuste default-worker-
                         // pool (de downstream-Redis-writes vereisen de Vert.x-duplicated-context, die
                         // een eigen pool niet levert); het bulkhead begrenst enkel de gelijktijdigheid.
-                        Uni.createFrom().item { paginaLezer.leesAlleBerichten(client, ontvangerString) }
+                        Uni.createFrom()
+                            .item { paginaLezer.leesAlleBerichten(client, ontvangerString, magazijnQueryBudget) }
                             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
                             .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
                             .map<MagazijnResult> { oogst -> naarMagazijnResult(oogst, magazijnId, naam) }

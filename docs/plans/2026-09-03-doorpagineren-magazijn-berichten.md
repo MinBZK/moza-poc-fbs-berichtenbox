@@ -70,6 +70,27 @@ andermans tellers vertrouwt, hangt zodra die tellers onzin zijn. `totalElements`
 daarom nullable in `MagazijnBerichtenResponse` en dienen alleen als extra stopvoorwaarde en als
 getal achter het `afgekapt`-signaal.
 
+Het afkap-signaal leunt wél op `totalElements` zodra dat er is: `afgekapt` = wat wij leveren is
+minder dan wat het magazijn zegt te hebben. Een magazijn dat `pageSize=100` naar zijn eigen maximum
+van bijvoorbeeld twintig bijstelt in plaats van een 400 te geven, levert anders een niet-volle
+pagina — en dan zou de paginavulling als enige maatstaf de lijst opnieuw stil afkappen.
+
+### Duplicaten en een magazijn dat `page` negeert
+
+De oogst wordt op `berichtId` verzameld, niet simpelweg aaneengeregen. Twee gevallen maken dat
+nodig: een bericht dat tijdens het doorpagineren binnenkomt schuift het venster op, waardoor het
+bericht op de paginagrens tweemaal in de respons staat; en een magazijn dat `page` negeert geeft
+steeds dezelfde pagina terug. Het tweede geval krijgt bovendien een eigen uitgang — een volle pagina
+zonder één nieuw bericht stopt de lus — anders loopt ze door tot de cap en staat elk bericht
+meermaals in de berichtenbox.
+
+### De lus heeft een eigen deadline
+
+De query-timeout faalt de `Uni`, maar onderbreekt de blokkerende call niet: de verlaten thread zou
+ná de timeout nog vier pagina's blijven ophalen, terwijl zijn bulkhead-permit al is vrijgegeven. De
+lus krijgt daarom hetzelfde budget als parameter mee en stopt zelf zodra dat op is. Zo blijft de
+bezetting van een trage leverancier begrensd zoals het bulkhead veronderstelt.
+
 ### De timeout blijft om de héle lus staan
 
 `berichtensessiecache.magazijn-query-timeout-seconds` (10) dekt straks alle pagina's van één
@@ -112,4 +133,14 @@ deterministisch — de magazijn-simulator doet dit al zo.
 - `./mvnw detekt:check`
 
 Nieuwe tests, langs de cardinaliteiten die de fout uitlokken: nul berichten, precies één pagina,
-precies vol (grensgeval waarin een tweede call nog volgt), meerdere pagina's, en méér dan de cap.
+precies vol (grensgeval waarin een tweede call nog volgt), meerdere pagina's, méér dan de cap, een
+cap die geen veelvoud van de paginagrootte is, een magazijn zonder totalen, een magazijn dat
+kleinere pagina's teruggeeft, een magazijn dat `page` negeert, een bericht dat op twee pagina's
+staat, en een verbruikt budget.
+
+## Wat hierna nog open staat
+
+Het `afgekapt`-signaal reist mee met de SSE-ophaalronde, niet met de gecachede lijst. Vraagt de
+ontvanger de lijst daarna opnieuw op (refresh, volgende pagina), dan ziet hij een lijst die er
+compleet uitziet. Het signaal meenemen in de aggregatiestatus en in `GET /berichten` raakt het
+API-contract van de uitvraag en is een eigen keuze; hier is bewust alleen de ophaalronde gedekt.

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
@@ -23,6 +24,9 @@ class MagazijnPaginaLezerTest {
 
     private val ontvanger = "BSN:999993653"
 
+    /** Ruim genoeg dat de deadline in deze tests nooit de reden is dat de lus stopt. */
+    private val ruimBudget: Duration = Duration.ofMinutes(1)
+
     @Test
     fun `magazijn zonder berichten levert een lege lijst zonder tweede call`() {
         val client = mockk<MagazijnClient>()
@@ -30,7 +34,7 @@ class MagazijnPaginaLezerTest {
         every { client.getBerichten(any(), any(), any(), any()) } returns
             MagazijnBerichtenResponse(emptyList(), totalElements = 0L, totalPages = 0)
 
-        val oogst = lezer(paginaGrootte = 2, cap = 10).leesAlleBerichten(client, ontvanger)
+        val oogst = lezer(paginaGrootte = 2, cap = 10).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         assertTrue(oogst.berichten.isEmpty())
         assertFalse(oogst.afgekapt)
@@ -48,7 +52,7 @@ class MagazijnPaginaLezerTest {
 
         stubPaginas(client, alle, paginaGrootte = 2)
 
-        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger)
+        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         assertEquals(alle.map { it.berichtId }, oogst.berichten.map { it.berichtId })
         assertFalse(oogst.afgekapt, "binnen de cap valt er niets af te kappen")
@@ -62,7 +66,7 @@ class MagazijnPaginaLezerTest {
 
         stubPaginas(client, alle, paginaGrootte = 2)
 
-        val oogst = lezer(paginaGrootte = 2, cap = 4).leesAlleBerichten(client, ontvanger)
+        val oogst = lezer(paginaGrootte = 2, cap = 4).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         assertEquals(alle.take(4).map { it.berichtId }, oogst.berichten.map { it.berichtId })
         assertTrue(oogst.afgekapt)
@@ -76,7 +80,7 @@ class MagazijnPaginaLezerTest {
 
         stubPaginas(client, berichten(10), paginaGrootte = 4)
 
-        val oogst = lezer(paginaGrootte = 4, cap = 6).leesAlleBerichten(client, ontvanger)
+        val oogst = lezer(paginaGrootte = 4, cap = 6).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         assertEquals(6, oogst.berichten.size, "nooit meer dan de cap doorgeven")
         assertTrue(oogst.afgekapt)
@@ -88,7 +92,7 @@ class MagazijnPaginaLezerTest {
 
         stubPaginas(client, berichten(4), paginaGrootte = 2)
 
-        val oogst = lezer(paginaGrootte = 2, cap = 4).leesAlleBerichten(client, ontvanger)
+        val oogst = lezer(paginaGrootte = 2, cap = 4).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         assertEquals(4, oogst.berichten.size)
         assertFalse(oogst.afgekapt, "het magazijn meldt 4 van 4, dus er blijft niets liggen")
@@ -106,7 +110,7 @@ class MagazijnPaginaLezerTest {
         every { client.getBerichten(any(), any(), 1, any()) } returns
             MagazijnBerichtenResponse(alle.subList(2, 3))
 
-        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger)
+        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         assertEquals(3, oogst.berichten.size)
         assertFalse(oogst.afgekapt)
@@ -122,7 +126,7 @@ class MagazijnPaginaLezerTest {
         every { client.getBerichten(any(), any(), any(), any()) } returns
             MagazijnBerichtenResponse(berichten(2))
 
-        val oogst = lezer(paginaGrootte = 2, cap = 2).leesAlleBerichten(client, ontvanger)
+        val oogst = lezer(paginaGrootte = 2, cap = 2).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         assertEquals(2, oogst.berichten.size)
         assertTrue(oogst.afgekapt)
@@ -135,7 +139,7 @@ class MagazijnPaginaLezerTest {
         every { client.getBerichten(any(), any(), 0, any()) } returns
             MagazijnBerichtenResponse(berichten(2), totalElements = 2L, totalPages = 1)
 
-        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger)
+        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         assertEquals(2, oogst.berichten.size)
         verify(exactly = 1) { client.getBerichten(any(), any(), any(), any()) }
@@ -149,7 +153,7 @@ class MagazijnPaginaLezerTest {
             MagazijnBerichtenResponse(berichten(3))
 
         assertThrows<MagazijnResponseOverflow> {
-            lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger)
+            lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger, ruimBudget)
         }
     }
 
@@ -161,7 +165,7 @@ class MagazijnPaginaLezerTest {
 
         every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
 
-        lezer(paginaGrootte = 100, cap = 500).leesAlleBerichten(client, ontvanger)
+        lezer(paginaGrootte = 100, cap = 500).leesAlleBerichten(client, ontvanger, ruimBudget)
 
         verify { client.getBerichten(ontvanger, null, 0, 100) }
     }
@@ -175,6 +179,87 @@ class MagazijnPaginaLezerTest {
     @Test
     fun `cap van nul laat de bean niet starten`() {
         assertThrows<IllegalArgumentException> { lezer(paginaGrootte = 100, cap = 0) }
+    }
+
+    @Test
+    fun `een magazijn dat kleinere pagina's geeft dan gevraagd, kapt niet stil af`() {
+        // Een magazijn (implementatie van derden) mag `pageSize` naar zijn eigen maximum bijstellen.
+        // De pagina is dan niet vol terwijl er nog van alles ligt; zonder het totaal erbij te
+        // betrekken zou de lus stoppen en "alles opgehaald" melden — de fout uit issue 996 terug.
+        val client = mockk<MagazijnClient>()
+
+        every { client.getBerichten(any(), any(), any(), any()) } returns
+            MagazijnBerichtenResponse(berichten(20), totalElements = 340L, totalPages = 17)
+
+        val oogst = lezer(paginaGrootte = 100, cap = 500).leesAlleBerichten(client, ontvanger, ruimBudget)
+
+        assertEquals(20, oogst.berichten.size)
+        assertTrue(oogst.afgekapt, "340 beschikbaar, 20 opgehaald: dat moet gemeld worden")
+        assertEquals(340L, oogst.totaalBeschikbaar)
+    }
+
+    @Test
+    fun `een magazijn dat page negeert levert geen dubbele berichten en geen eindeloze lus`() {
+        // Steeds dezelfde pagina terug: zonder uitgang loopt de lus door tot de cap en staat elk
+        // bericht meerdere keren in de berichtenbox.
+        val client = mockk<MagazijnClient>()
+
+        every { client.getBerichten(any(), any(), any(), any()) } returns
+            MagazijnBerichtenResponse(berichten(2))
+
+        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger, ruimBudget)
+
+        assertEquals(2, oogst.berichten.size, "geen herhaalde berichten in de oogst")
+        assertEquals(2, oogst.berichten.map { it.berichtId }.toSet().size)
+        assertTrue(oogst.afgekapt, "we weten niet wat dit magazijn nog meer heeft")
+        verify(exactly = 2) { client.getBerichten(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `een bericht dat op twee pagina's staat, komt maar een keer in de oogst`() {
+        // Komt er tijdens het doorpagineren een bericht binnen, dan schuift het venster op en staat
+        // het bericht op de paginagrens tweemaal in de respons.
+        val client = mockk<MagazijnClient>()
+        val alle = berichten(4)
+
+        every { client.getBerichten(any(), any(), 0, any()) } returns
+            MagazijnBerichtenResponse(alle.subList(0, 2))
+        every { client.getBerichten(any(), any(), 1, any()) } returns
+            MagazijnBerichtenResponse(alle.subList(1, 3))
+        every { client.getBerichten(any(), any(), 2, any()) } returns
+            MagazijnBerichtenResponse(alle.subList(3, 4))
+
+        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger, ruimBudget)
+
+        assertEquals(alle.map { it.berichtId }, oogst.berichten.map { it.berichtId })
+    }
+
+    @Test
+    fun `een cap die geen veelvoud van de paginagrootte is, levert nooit meer dan de cap`() {
+        // Ook wanneer het magazijn zelf het einde van de lijst meldt: de laatste pagina kan de
+        // oogst over de cap tillen, en die cap is de heap-grens die de operator-handleiding belooft.
+        val client = mockk<MagazijnClient>()
+
+        stubPaginas(client, berichten(6), paginaGrootte = 4)
+
+        val oogst = lezer(paginaGrootte = 4, cap = 5).leesAlleBerichten(client, ontvanger, ruimBudget)
+
+        assertEquals(5, oogst.berichten.size, "de cap is een harde grens, ook op de laatste pagina")
+        assertTrue(oogst.afgekapt)
+    }
+
+    @Test
+    fun `een verbruikt budget stopt de lus na de lopende pagina`() {
+        // De query-timeout van de aanroeper onderbreekt deze blokkerende lus niet. Zonder eigen
+        // deadline haalt de verlaten thread ná de timeout nog pagina's op.
+        val client = mockk<MagazijnClient>()
+
+        stubPaginas(client, berichten(10), paginaGrootte = 2)
+
+        val oogst = lezer(paginaGrootte = 2, cap = 100).leesAlleBerichten(client, ontvanger, Duration.ZERO)
+
+        assertEquals(2, oogst.berichten.size, "één pagina, daarna is het budget op")
+        verify(exactly = 1) { client.getBerichten(any(), any(), any(), any()) }
     }
 
     private fun lezer(paginaGrootte: Int, cap: Int) =
