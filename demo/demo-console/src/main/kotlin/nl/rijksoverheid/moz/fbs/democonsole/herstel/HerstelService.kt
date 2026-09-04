@@ -18,8 +18,15 @@ data class HerstelResultaat(
     val gesimuleerd: GesimuleerdHerstel,
     /** Hoeveel berichten er weer in de gesimuleerde magazijnen zijn klaargezet. */
     val gesimuleerdGevuld: Int = 0,
-    val letOp: String = HERSTELTIJD_MELDING,
-)
+) {
+
+    /**
+     * Het paneel toont één let-op-regel per antwoord, en deze knop heeft er twee te melden: waarom
+     * de basisvulling niet aankwam, en waarom de Berichtenbox daarna nog even oud nieuws toont. De
+     * reden voorop — daar valt iets aan te doen, aan de hersteltijd niet.
+     */
+    val letOp: String = listOfNotNull(vulling.letOp, HERSTELTIJD_MELDING).joinToString(" ")
+}
 
 /**
  * De omgeving terug naar de toestand van vlak na de eerste basisvulling — de knop aan het eind van

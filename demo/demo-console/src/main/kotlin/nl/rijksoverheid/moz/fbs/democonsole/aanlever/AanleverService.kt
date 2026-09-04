@@ -1,75 +1,84 @@
 package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 
-import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
-import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.OntvangerDto
-import java.net.URI
 import java.util.logging.Logger
 
 /**
  * Uitkomst van een vulronde. `mislukt` telt niet-afgeleverde berichten; `markeringMislukt` telt
  * berichten die wél zijn afgeleverd maar niet op gelezen konden worden gezet — die tellen als
  * geslaagd, want het bericht staat in het magazijn, alleen de lees-mix klopt niet.
+ *
+ * `letOp` zegt waaróm er iets niet aankwam. Zonder die zin laat "1 mislukt" de bediener kiezen
+ * tussen een storing die nog aanstaat, een ondernemer die daar niet geregistreerd staat en een
+ * omgeving die niet af is. Blijft leeg zolang er niets misging; het paneel toont hem dan niet.
  */
 data class AanleverResultaat(
     val aangeboden: Int,
     val geslaagd: Int,
     val mislukt: Int,
     val markeringMislukt: Int,
+    val letOp: String? = null,
 )
 
-/**
- * Levert opdrachten aan bij het juiste magazijn. De magazijn-URL's komen uit config
- * (`demo.magazijnen."<OIN>".url`); per URL wordt één REST-client gebouwd en hergebruikt.
- */
+/** Uitkomst van één aanlevering: het toegekende berichtId, of de reden dat er geen kwam. */
+private sealed interface Aanlevering {
+
+    data class Gelukt(val berichtId: String) : Aanlevering
+
+    data class Mislukt(val reden: String) : Aanlevering
+}
+
+/** Levert opdrachten aan bij het juiste magazijn; de clients komen uit [MagazijnClients]. */
 @ApplicationScoped
-class AanleverService(config: DemoConfig) {
+class AanleverService(private val clients: MagazijnClients) {
 
     private val log = Logger.getLogger(AanleverService::class.java.name)
 
-    private val clients: Map<String, MagazijnAanleverClient> =
-        config.magazijnen().mapValues { (_, magazijn) ->
-            QuarkusRestClientBuilder.newBuilder()
-                .baseUri(URI.create(magazijn.url()))
-                .build(MagazijnAanleverClient::class.java)
-        }
-
     fun leverAan(opdrachten: List<AanleverOpdracht>): AanleverResultaat {
         var geslaagd = 0
-        var mislukt = 0
         var markeringMislukt = 0
+
+        // De redenen en niet alleen een teller: `mislukt` is hun aantal, en de samenvatting eronder
+        // maakt er de regel van die het paneel toont.
+        val redenen = mutableListOf<String>()
 
         opdrachten.forEach { opdracht ->
             val client = clients[opdracht.magazijnOin]
 
             if (client == null) {
                 log.warning("geen magazijn-URL voor OIN ${opdracht.magazijnOin} — opdracht overgeslagen")
-                mislukt++
+                redenen += Faalreden.geenMagazijn(opdracht.magazijnOin)
 
                 return@forEach
             }
 
-            val berichtId = lever(opdracht, client)
+            when (val uitkomst = lever(opdracht, client)) {
+                is Aanlevering.Mislukt -> redenen += uitkomst.reden
 
-            if (berichtId == null) {
-                mislukt++
+                is Aanlevering.Gelukt -> {
+                    geslaagd++
 
-                return@forEach
+                    if (opdracht.gelezen && !markeerGelezen(client, uitkomst.berichtId, opdracht.verzoek.ontvanger)) {
+                        markeringMislukt++
+                    }
+                }
             }
-
-            geslaagd++
-
-            if (opdracht.gelezen && !markeerGelezen(client, berichtId, opdracht.verzoek.ontvanger)) markeringMislukt++
         }
 
-        return AanleverResultaat(opdrachten.size, geslaagd, mislukt, markeringMislukt)
+        return AanleverResultaat(
+            opdrachten.size,
+            geslaagd,
+            redenen.size,
+            markeringMislukt,
+            Faalreden.samenvatting(redenen),
+        )
     }
 
-    /** Levert één bericht aan; geeft het door het magazijn toegekende berichtId terug, of null. */
-    private fun lever(opdracht: AanleverOpdracht, client: MagazijnAanleverClient): String? {
+    /** Levert één bericht aan; geeft het door het magazijn toegekende berichtId terug, of de reden. */
+    private fun lever(opdracht: AanleverOpdracht, client: MagazijnAanleverClient): Aanlevering {
         // Een onbereikbaar magazijn — precies wat de storingsknoppen doen — mag de vulling niet
         // halverwege afbreken: dan rapporteert de console niets over wat al wél is afgeleverd en
         // levert een tweede poging dubbele berichten op.
@@ -78,7 +87,7 @@ class AanleverService(config: DemoConfig) {
         } catch (fout: ProcessingException) {
             log.warning("magazijn ${opdracht.magazijnOin} niet bereikbaar voor aanleveren: $fout")
 
-            return null
+            return Aanlevering.Mislukt(Faalreden.onbereikbaar(opdracht.magazijnOin))
         }
 
         return response.use {
@@ -90,10 +99,10 @@ class AanleverService(config: DemoConfig) {
                         "voor ontvanger-type ${opdracht.verzoek.ontvanger.type}",
                 )
 
-                return@use null
+                return@use Aanlevering.Mislukt(Faalreden.vanStatus(opdracht.magazijnOin, it.status))
             }
 
-            it.readEntity(AanleverRespons::class.java).berichtId
+            Aanlevering.Gelukt(it.readEntity(AanleverRespons::class.java).berichtId)
         }
     }
 
