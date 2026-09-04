@@ -263,11 +263,13 @@ class DemoBerichtGeneratorTest {
         assertTrue(fout.message!!.contains("RVO"), "de melding hoort de organisatie te noemen: ${fout.message}")
     }
 
-    @Test
-    fun `een persona zonder magazijnen faalt fail-fast`() {
-        // Als tweede element in een verder geldige lijst: zo toont de test dat de lus élke persona
-        // nagaat en niet alleen de eerste.
-        val ongeldig = listOf(personas[0], persona("magazijnloos", "Magazijnloos", "BSN", "999998328", emptyList()))
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1])
+    fun `een persona zonder magazijnen faalt fail-fast`(positie: Int) {
+        // Beide posities in een verder geldige lijst: zo sneuvelt zowel een lus die alleen de
+        // eerste persona nagaat als een die alleen de laatste bekijkt.
+        val kapot = persona("magazijnloos", "Magazijnloos", "BSN", "999998328", emptyList())
+        val ongeldig = listOf(personas[0], personas[1]).toMutableList().also { it[positie] = kapot }
 
         val fout = assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
