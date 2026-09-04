@@ -720,6 +720,7 @@ class BerichtensessiecacheServiceTest {
         // kruisvalidatie toelaat, en houdt de test kort.
         val volBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 1000L)
         val vastgehouden = volBulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("x") },
             taak = { Uni.createFrom().nothing<String>() },
         ).subscribe().with({}, {})

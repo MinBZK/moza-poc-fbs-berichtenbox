@@ -4,6 +4,7 @@ import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 import org.eclipse.microprofile.config.inject.ConfigProperty
+import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.concurrent.Semaphore
 
@@ -114,6 +115,8 @@ internal class MagazijnAggregatieBulkhead(
         }
     }
 
+    private val log = Logger.getLogger(MagazijnAggregatieBulkhead::class.java)
+
     // Geen fairness: de acquires zijn `tryAcquire()` (barge), en fairness geldt in `Semaphore`
     // alleen voor de blokkerende varianten — `fair=true` zou hier een no-op zijn. De eerlijkheid
     // die telt komt van maxParallelPerRonde: binnen een ronde krijgt élke organisatie zijn beurt.
@@ -130,15 +133,20 @@ internal class MagazijnAggregatieBulkhead(
      * Voert [taak] uit onder één permit. Is het bulkhead vol, dan wacht de bevraging tot er een
      * permit vrijkomt en levert ze [verlopen] pas wanneer het wachtbudget verstreken is.
      *
+     * [label] benoemt de wachtende in de debug-log (in de aggregatie het magazijn-id, dat een
+     * publieke OIN is en geen PII); het heeft geen invloed op het gedrag.
+     *
      * De permit wordt geclaimd bij subscription (binnen `deferred`, zodat een nooit-gesubscribete/
      * geannuleerde stream niets claimt) en op élke terminatie van [taak] precies één keer
      * vrijgegeven — óók als het opbouwen van de taak-`Uni` synchroon gooit. Acquire en release zijn
      * zo een gesloten paar dat de caller niet kan onbalanceren.
      */
-    fun <T> begrensd(verlopen: () -> Uni<T>, taak: () -> Uni<T>): Uni<T> =
+    fun <T> begrensd(label: String, verlopen: () -> Uni<T>, taak: () -> Uni<T>): Uni<T> =
         // De deadline gaat pas bij subscription lopen, niet bij het opbouwen van de `Uni`: een
         // caller die de pijplijn vooruit bouwt zou anders stil wachtbudget verliezen.
-        Uni.createFrom().deferred { probeer(System.nanoTime() + maxWachttijdMs * NANOS_PER_MILLI, verlopen, taak) }
+        Uni.createFrom().deferred {
+            probeer(label, System.nanoTime(), System.nanoTime() + maxWachttijdMs * NANOS_PER_MILLI, verlopen, taak)
+        }
 
     /**
      * Voert de bevragingen van één ophaalronde uit met hooguit [maxParallelPerRonde] tegelijk; de
@@ -150,8 +158,17 @@ internal class MagazijnAggregatieBulkhead(
      * gevalideerd, en zou anders stilzwijgend breken zodra een tweede aggregatiepad de grens
      * vergeet toe te passen.
      */
-    fun <T> ronde(bevragingen: List<Multi<T>>): Multi<T> =
-        Multi.createBy().merging().withConcurrency(maxParallelPerRonde).streams(bevragingen)
+    fun <T> ronde(bevragingen: List<Multi<T>>): Multi<T> {
+        // Op INFO en niet op DEBUG: het is één regel per ophaalronde (een gebruikersactie), en het
+        // is precies het getal dat je wilt zien als iemand vraagt waarom een grote ondernemer
+        // langer wacht. Geen PII: enkel aantallen.
+        log.infof(
+            "Ophaalronde: %d bevragingen, %d tegelijk, %d in de wachtrij",
+            bevragingen.size, maxParallelPerRonde, maxOf(0, bevragingen.size - maxParallelPerRonde),
+        )
+
+        return Multi.createBy().merging().withConcurrency(maxParallelPerRonde).streams(bevragingen)
+    }
 
     /**
      * Eén poging tot [deadlineNanos]: permit vrij → [taak] onder die permit; budget verstreken →
@@ -168,17 +185,46 @@ internal class MagazijnAggregatieBulkhead(
      * wachtbudget zodat dat er nooit meer dan [MAX_POLLS] worden, ongeacht hoe groot het budget
      * staat.
      */
-    private fun <T> probeer(deadlineNanos: Long, verlopen: () -> Uni<T>, taak: () -> Uni<T>): Uni<T> =
+    private fun <T> probeer(
+        label: String,
+        startNanos: Long,
+        deadlineNanos: Long,
+        verlopen: () -> Uni<T>,
+        taak: () -> Uni<T>,
+    ): Uni<T> =
         Uni.createFrom().deferred {
             when {
-                semaphore.tryAcquire() -> metPermit(taak)
+                semaphore.tryAcquire() -> {
+                    logPermit(label, startNanos)
+
+                    metPermit(taak)
+                }
                 // Overflow-veilige vergelijking: verstreken zodra het verschil niet-negatief is.
                 System.nanoTime() - deadlineNanos >= 0 -> verlopen()
-                else -> Uni.createFrom().voidItem()
-                    .onItem().delayIt().by(pollInterval)
-                    .onItem().transformToUni { _ -> probeer(deadlineNanos, verlopen, taak) }
+                else -> {
+                    log.debugf(
+                        "%s wacht op een vrije permit (0 van %d vrij, al %d ms onderweg)",
+                        label, maxConcurrent, verstrekenMs(startNanos),
+                    )
+
+                    Uni.createFrom().voidItem()
+                        .onItem().delayIt().by(pollInterval)
+                        .onItem().transformToUni { _ -> probeer(label, startNanos, deadlineNanos, verlopen, taak) }
+                }
             }
         }
+
+    /**
+     * Meldt alleen een permit die niet meteen vrij was. Een bevraging die direct doorloopt is de
+     * normale gang van zaken en zou de log met één regel per magazijn per ronde vullen.
+     */
+    private fun logPermit(label: String, startNanos: Long) {
+        val gewachtMs = verstrekenMs(startNanos)
+
+        if (gewachtMs > 0) log.debugf("%s kreeg een permit na %d ms wachten", label, gewachtMs)
+    }
+
+    private fun verstrekenMs(startNanos: Long): Long = (System.nanoTime() - startNanos) / NANOS_PER_MILLI
 
     private fun <T> metPermit(taak: () -> Uni<T>): Uni<T> =
         try {
@@ -199,9 +245,9 @@ internal class MagazijnAggregatieBulkhead(
 
     internal companion object {
         const val MAX_CONCURRENT_PROPERTY = "berichtensessiecache.magazijn-bulkhead.max-concurrent"
-        const val MAX_CONCURRENT_DEFAULT = "40"
+        const val MAX_CONCURRENT_DEFAULT = "50"
         const val MAX_PARALLEL_PER_RONDE_PROPERTY = "berichtensessiecache.magazijn-bulkhead.max-parallel-per-ronde"
-        const val MAX_PARALLEL_PER_RONDE_DEFAULT = "20"
+        const val MAX_PARALLEL_PER_RONDE_DEFAULT = "50"
         const val MAX_WACHTTIJD_MS_PROPERTY = "berichtensessiecache.magazijn-bulkhead.max-wachttijd-ms"
         const val MAX_WACHTTIJD_MS_DEFAULT = "15000"
 

@@ -109,8 +109,8 @@ eerste drie invarianten in de bulkhead zelf, de vierde in de service (zie hieron
 
 | Property | Default | Wat |
 |---|---|---|
-| `max-concurrent` | 40 | Globaal: hoeveel worker-threads tegelijk een magazijn bevragen, over alle sessies |
-| `max-parallel-per-ronde` | 20 | Per ophaalronde: hoeveel bevragingen tegelijk onderweg zijn |
+| `max-concurrent` | 50 | Globaal: hoeveel worker-threads tegelijk een magazijn bevragen, over alle sessies |
+| `max-parallel-per-ronde` | 50 | Per ophaalronde: hoeveel bevragingen tegelijk onderweg zijn |
 | `max-wachttijd-ms` | 15000 | Bovengrens op het wachten op een permit |
 
 Invarianten:
@@ -134,19 +134,25 @@ Invarianten:
   overloopt naar negatief: de deadline is dan meteen verstreken en elke bevraging krijgt
   onmiddellijk de niet-gelukt-tak.
 
-`max-concurrent` gaat van 20 naar 40 zodat twee gelijktijdige rondes op volle snelheid draaien
-zonder aan de wachtrij te komen; dat is hooguit een vijfde van de Quarkus-worker-pool, die zonder
-expliciete `quarkus.thread-pool.max-threads` minimaal 200 threads groot is. De grens hoeft **niet**
-meer mee te groeien met het aantal organisaties van een ondernemer — dat is precies wat laag 1
-wegneemt — dus de handmatige 120 in de demo verdwijnt.
+`max-concurrent` gaat van 20 naar 50, en `max-parallel-per-ronde` staat daaraan gelijk: één
+ondernemer mag de volle capaciteit gebruiken zolang hij alleen is. Vijftig is hooguit een kwart van
+de Quarkus-worker-pool, die zonder expliciete `quarkus.thread-pool.max-threads` minimaal 200 threads
+groot is. De grens hoeft **niet** mee te groeien met het aantal organisaties van een ondernemer —
+dat is precies wat laag 1 wegneemt — dus de handmatige 120 in de demo verdwijnt.
+
+De keerzijde van gelijk zetten: een tweede gelijktijdige ophaalronde vindt het bulkhead vol en gaat
+meteen wachten in plaats van naast de eerste door te lopen. Dat is een bewuste keuze voor de
+demo-schaal (de grootste persona heeft honderd organisaties, dus de wachtrij is er zichtbaar bij
+vijftig) en eenvoudig terug te draaien: `max-concurrent` hoger zetten dan `max-parallel-per-ronde`
+geeft weer ruimte voor rondes naast elkaar.
 
 ### De duur van een ronde tegenover de ophaal-lock
 
 Waar de ronde vroeger ongeveer één query-timeout duurde ongeacht het aantal organisaties, duurt hij
 nu in het slechtste geval `⌈organisaties ÷ max-parallel-per-ronde⌉ × (wachtbudget + query-timeout)`.
 Het wachtbudget hoort erbij: een bevraging kan eerst haar budget volmaken en daarna alsnog op de
-query-timeout lopen. Bij honderd organisaties, twintig per ronde, 15 s budget en 10 s timeout is dat
-5 × 25 = 125 seconden — nét buiten de `PT2M` van `berichtensessiecache.aggregation-lock-ttl`.
+query-timeout lopen. Bij honderd organisaties, vijftig per ronde, 15 s budget en 10 s timeout is dat
+2 × 25 = 50 seconden — ruim binnen de `PT2M` van `berichtensessiecache.aggregation-lock-ttl`.
 
 Dat is een echte worst case en geen verwachting: het wachtbudget komt pas in beeld als meerdere
 ondernemers tegelijk ophalen, en alleen niet-antwoordende organisaties maken hun timeout vol. De
@@ -223,6 +229,26 @@ eigen `init` past. Dat zou een tweede lezer van `magazijn-query-timeout-seconds`
 timeout-ordening van deze service nu op één plek staat (`valideerTimeouts()`). De prijs is één
 getter (`wachtbudgetMs()`) naar buiten.
 
+### De wachtrij zichtbaar maken
+
+Een wachtrij is per constructie stil: wie nog in de rij staat doet niets, en juist dat is wat je
+wilt kunnen zien. Daarom logt de ronde zichzelf.
+
+Op `INFO`, twee regels per ophaalronde — genoeg om zonder configuratie te zien of iedereen aan bod
+kwam: `Ophaalronde: N bevragingen, K tegelijk, M in de wachtrij` bij de start, en
+`Ophaalronde afgerond in T ms: N van N organisaties bevraagd (…)` aan het eind. Dat tweede getallenpaar
+is het antwoord op het acceptatiecriterium van het issue; loopt het uiteen, dan is er een
+organisatie zonder uitkomst verdwenen en is dat een bevinding.
+
+Op `DEBUG`, per organisatie: wanneer de ronde-wachtrij haar oppakte
+(`aan de beurt (x van N, T ms na de start van de ronde)`, gehangen aan de `onSubscription` van haar
+substream, wat precies dat moment is) en of ze op een permit moest wachten. De eerste `K` staan op
+~0 ms en de rest schuift op — dat ís de wachtrij. De permit-regels komen er pas bij als meerdere
+ophaalrondes tegelijk lopen: binnen één ronde is er per definitie een permit vrij op het moment dat
+de wachtrij een organisatie oppakt, want de grens per ronde is niet groter dan het aantal permits.
+
+Geen PII: de regels dragen aantallen, duren en magazijn-id's (publieke OIN's), nooit de ontvanger.
+
 ## Verificatie
 
 - `MagazijnAggregatieBulkheadTest`: wachten-tot-permit-vrijkomt, verstreken budget → `verlopen`,
@@ -265,6 +291,24 @@ dezelfde 10,1 s uit. De wachtrij kost dus geen meetbare doorlooptijd.
 
 De volgorde klopt ook: in de ronde met honderd organisaties staan alle 100 GESTART-events vóór het
 eerste VOLTOOID-event, zodat het portaal meteen de volledige lijst met wachtindicaties heeft.
+
+Herhaald op 2026-09-04 met de grens op vijftig per ronde in plaats van twintig, drie ronden,
+mediaan — om te controleren of een grotere golf de gesimuleerde magazijnen niet overvraagt:
+
+| Ondernemer | Organisaties | 20 tegelijk | 50 tegelijk |
+|---|---|---|---|
+| kleine-eenmanszaak | 3 | 3 van 3, 0,08 s | 3 van 3, 0,08 s |
+| klein-bedrijf | 15 | 15 van 15, 2,8 s | 15 van 15, 1,3 s |
+| grootbedrijf | 45 | 41 van 45, 10,1 s | 41 van 45, 10,1 s |
+| landelijk-concern | 100 | 90 van 100, 10,2 s | 91 van 100, 10,1 s |
+
+Gelijk of beter; alleen de ondernemer met vijftien organisaties wordt merkbaar sneller, omdat die
+nu in één golf past. "Compleet" blijft op tien seconden staan — de organisatie die niet antwoordt,
+niet het aantal.
+
+Let op bij het zelf nameten: de eerste ronde ná een herstart is niet representatief. Een koude
+ronde bij honderd organisaties gaf 45 van 100; drie warme ronden erna 91 van 100. Dat is het
+opwarmeffect dat ook in de meetopstelling hierboven staat, geen eigenschap van de grens.
 
 Gemeten op één machine waarop de hele stack draaide (uitvraag, Redis, twee echte magazijnen met elk
 een PostgreSQL, de simulator met 98 magazijnen op nog een PostgreSQL, het bedieningspaneel en de

@@ -28,6 +28,7 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = bulkhead()
 
         val uitkomst = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().item("OK") },
         ).await().indefinitely()
@@ -41,6 +42,7 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = bulkhead()
 
         val uni = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().failure(RuntimeException("boem")) },
         )
@@ -56,6 +58,7 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = bulkhead()
 
         val uni = bulkhead.begrensd<String>(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { throw IllegalStateException("opbouw faalt") },
         )
@@ -71,6 +74,7 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = bulkhead(maxWachttijdMs = RUIM_BUDGET_MS)
 
         val vastgehouden = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().nothing<String>() },
         ).subscribe().with({}, {})
@@ -80,6 +84,7 @@ class MagazijnAggregatieBulkheadTest {
         val wachtende = UniAssertSubscriber.create<String>()
 
         bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().item("OK") },
         ).subscribe().withSubscriber(wachtende)
@@ -98,6 +103,7 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = bulkhead()
 
         val vastgehouden = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().nothing<String>() },
         ).subscribe().with({}, {})
@@ -105,6 +111,7 @@ class MagazijnAggregatieBulkheadTest {
         val gestart = AtomicInteger(0)
 
         val uitkomst = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = {
                 gestart.incrementAndGet()
@@ -130,11 +137,13 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = bulkhead()
 
         val vastgehouden = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().nothing<String>() },
         ).subscribe().with({}, {})
 
         bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().item("OK") },
         ).await().atMost(Duration.ofSeconds(5))
@@ -147,6 +156,7 @@ class MagazijnAggregatieBulkheadTest {
         assertEquals(
             "OK",
             bulkhead.begrensd(
+                label = "test",
                 verlopen = { Uni.createFrom().item("VERLOPEN") },
                 taak = { Uni.createFrom().item("OK") },
             ).await().atMost(Duration.ofSeconds(5)),
@@ -169,6 +179,7 @@ class MagazijnAggregatieBulkheadTest {
         val subscribers = (1..aantal).map { nummer ->
             UniAssertSubscriber.create<Int>().also { subscriber ->
                 bulkhead.begrensd(
+                    label = "test",
                     verlopen = { Uni.createFrom().item(-nummer) },
                     taak = {
                         gedraaid.add(nummer)
@@ -200,6 +211,7 @@ class MagazijnAggregatieBulkheadTest {
         val subscribers = (1..15).map {
             UniAssertSubscriber.create<Int>().also { subscriber ->
                 bulkhead.begrensd(
+                    label = "test",
                     verlopen = { Uni.createFrom().item(-1) },
                     taak = {
                         val nu = actief.incrementAndGet()
@@ -243,12 +255,14 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = bulkhead(maxWachttijdMs = RUIM_BUDGET_MS)
 
         val vastgehouden = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().nothing<String>() },
         ).subscribe().with({}, {})
 
         val gestart = AtomicInteger(0)
         val wachtende = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = {
                 gestart.incrementAndGet()
@@ -297,11 +311,13 @@ class MagazijnAggregatieBulkheadTest {
         val bulkhead = bulkhead(maxWachttijdMs = RUIM_BUDGET_MS)
 
         val vastgehouden = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().nothing<String>() },
         ).subscribe().with({}, {})
 
         val wachtende = bulkhead.begrensd(
+            label = "test",
             verlopen = { Uni.createFrom().item("VERLOPEN") },
             taak = { Uni.createFrom().item("OK") },
         ).subscribe().with({}, {})
@@ -311,6 +327,55 @@ class MagazijnAggregatieBulkheadTest {
         vastgehouden.cancel()
 
         assertEquals(1, bulkhead.vrijePermits(), "permit terug na annuleren diep in de poll-lus")
+    }
+
+    @Test
+    fun `de uitgeleverde defaults zetten de grens op vijftig`() {
+        // De demo leunt erop dat een ondernemer met honderd organisaties de wachtrij laat zien en
+        // eentje met vijfenveertig niet: dat is een afspraak over deze twee getallen, niet iets wat
+        // toevallig uit de code volgt. De invariant per-ronde ≤ globaal moet er ook bij horen,
+        // anders start de service met de eigen defaults niet eens.
+        assertEquals("50", MagazijnAggregatieBulkhead.MAX_CONCURRENT_DEFAULT)
+        assertEquals("50", MagazijnAggregatieBulkhead.MAX_PARALLEL_PER_RONDE_DEFAULT)
+
+        MagazijnAggregatieBulkhead(
+            maxConcurrent = MagazijnAggregatieBulkhead.MAX_CONCURRENT_DEFAULT.toInt(),
+            maxParallelPerRonde = MagazijnAggregatieBulkhead.MAX_PARALLEL_PER_RONDE_DEFAULT.toInt(),
+            maxWachttijdMs = MagazijnAggregatieBulkhead.MAX_WACHTTIJD_MS_DEFAULT.toLong(),
+        )
+    }
+
+    @Test
+    fun `de ronde-wachtrij houdt niet meer dan de grens tegelijk onderweg`() {
+        // De zichtbare belofte bij meer organisaties dan de grens: ze komen allemaal aan de beurt,
+        // en nooit meer dan `maxParallelPerRonde` tegelijk. Hier klein gehouden (3 van 12) zodat de
+        // test snel blijft; het gedrag is hetzelfde als bij 50 van 100.
+        val bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 3, maxParallelPerRonde = 3, maxWachttijdMs = RUIM_BUDGET_MS)
+
+        val actief = AtomicInteger(0)
+        val piek = AtomicInteger(0)
+        val opgepakt = ConcurrentLinkedQueue<Int>()
+
+        val bevragingen = (1..12).map { nummer ->
+            Uni.createFrom().item(nummer)
+                .onItem().delayIt().by(Duration.ofMillis(10))
+                .onSubscription().invoke(Runnable { opgepakt.add(nummer) })
+                .toMulti()
+                .onSubscription().invoke(
+                    Runnable {
+                        val nu = actief.incrementAndGet()
+
+                        piek.updateAndGet { hoogste -> maxOf(hoogste, nu) }
+                    },
+                )
+                .onCompletion().invoke(Runnable { actief.decrementAndGet() })
+        }
+
+        val uitkomsten = bulkhead.ronde(bevragingen).collect().asList().await().atMost(Duration.ofSeconds(30))
+
+        assertEquals((1..12).toSet(), uitkomsten.toSet(), "elke bevraging komt aan de beurt")
+        assertEquals((1..12).toSet(), opgepakt.toSet(), "elke bevraging is ook daadwerkelijk opgepakt")
+        assertEquals(3, piek.get(), "nooit meer dan de grens tegelijk onderweg, en de grens wordt benut")
     }
 
     private companion object {

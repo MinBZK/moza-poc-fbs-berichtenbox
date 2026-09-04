@@ -185,7 +185,7 @@ zadctl env set -c uitvraag \
   SMALLRYE_CONFIG_LOCATIONS=/config/magazijnen-register.properties
 ```
 
-De gelijktijdigheidsgrens hoort hier niet meer bij te staan: de uitvraag bevraagt per ronde twintig
+De gelijktijdigheidsgrens hoort hier niet meer bij te staan: de uitvraag bevraagt per ronde vijftig
 organisaties tegelijk en zet de rest in de wachtrij, dus ook de ondernemer met honderd organisaties
 krijgt ze allemaal. Draagt het component nog een
 `BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT` uit de tijd dat die knop nodig was, haal hem

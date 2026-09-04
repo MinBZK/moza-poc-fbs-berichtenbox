@@ -399,10 +399,12 @@ zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een s
 - **`export DEMO_MAGAZIJNEN=N`** voedt het script; de console vraagt het aantal aan de simulator zelf (anders klopt
   de k-schuif niet met het aantal magazijnen).
 - **De gelijktijdigheidsgrens hoeft niet meer opgerekt te worden.** De uitvraag bevraagt per ronde
-  twintig organisaties tegelijk en zet de rest in de wachtrij, dus ook de persona met honderd
-  organisaties krijgt ze allemaal. Zie je toch de status `NIET_OPGEHAALD` bij gezonde magazijnen,
-  dan is het wachtbudget te krap voor wat er tegelijk loopt
-  (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_WACHTTIJD_MS`).
+  vijftig organisaties tegelijk en zet de rest in de wachtrij, dus ook de persona met honderd
+  organisaties krijgt ze allemaal — in twee golven. In de log van de uitvraag staat dat per ronde:
+  `Ophaalronde: 100 bevragingen, 50 tegelijk, 50 in de wachtrij` en daarna
+  `Ophaalronde afgerond in … ms: 100 van 100 organisaties bevraagd`. Zie je toch de status
+  `NIET_OPGEHAALD` bij gezonde magazijnen, dan is het wachtbudget te krap voor wat er tegelijk loopt
+  (`MAGAZIJN_WACHTBUDGET_MS`).
 - **Demo-cache-TTL is 2 minuten.** Pauzeer je langer tussen Ophalen en een vervolgactie, dan is de
   sessie verlopen (409). Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.

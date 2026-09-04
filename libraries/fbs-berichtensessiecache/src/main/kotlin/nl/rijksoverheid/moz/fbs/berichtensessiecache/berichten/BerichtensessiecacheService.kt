@@ -279,17 +279,52 @@ internal class BerichtensessiecacheService(
             clients.keys.map { magazijnId -> MagazijnBevragingGestart(magazijnId, namen[magazijnId]) },
         )
 
+        // Diagnostiek van de wachtrij: wanneer een organisatie aan de beurt kwam, en of ze
+        // uiteindelijk allemaal bevraagd zijn. Zonder deze twee getallen is de wachtrij onzichtbaar
+        // — de organisaties die nog in de rij staan zijn per definitie stil.
+        val rondeStartNanos = System.nanoTime()
+        val aanDeBeurt = AtomicInteger(0)
+
         val voltooidStreams = clients.map { (magazijnId, client) ->
             bouwVoltooidStream(magazijnId, namen[magazijnId], client, ontvangerString, alleBerichten, geslaagd, mislukt)
+                // `onSubscription` vuurt precies wanneer de ronde-wachtrij deze organisatie oppakt.
+                // Bij een fan-out boven de per-ronde-grens zie je hier de golven: de eerste groep op
+                // ~0 ms, de rest zodra er een plek vrijkomt.
+                .onSubscription().invoke(
+                    Runnable {
+                        log.debugf(
+                            "Magazijn %s aan de beurt (%d van %d, %d ms na de start van de ronde)",
+                            magazijnId, aanDeBeurt.incrementAndGet(), clients.size, verstrekenMs(rondeStartNanos),
+                        )
+                    },
+                )
         }
 
         // Aggregatie-pipeline: draait onafhankelijk van de SSE-client door tot voltooiing.
         return Multi.createBy().concatenating().streams(
             gestartEvents,
-            bulkhead.ronde(voltooidStreams),
+            bulkhead.ronde(voltooidStreams).onCompletion().invoke(
+                Runnable { logRondeAfgerond(clients.size, rondeStartNanos, geslaagd, mislukt) },
+            ),
             aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, geslaagd, mislukt),
         )
     }
+
+    /**
+     * Sluit de ronde af in de log: hoeveel organisaties er bevraagd zijn van hoeveel er waren, en
+     * hoe lang dat duurde. Op INFO omdat dit het antwoord is op "zijn ze allemaal aan bod gekomen"
+     * — één regel per ophaalronde, en zonder PII (aantallen en een duur, geen ontvanger).
+     */
+    private fun logRondeAfgerond(totaal: Int, rondeStartNanos: Long, geslaagd: AtomicInteger, mislukt: AtomicInteger) {
+        val bevraagd = geslaagd.get() + mislukt.get()
+
+        log.infof(
+            "Ophaalronde afgerond in %d ms: %d van %d organisaties bevraagd (%d geslaagd, %d niet)",
+            verstrekenMs(rondeStartNanos), bevraagd, totaal, geslaagd.get(), mislukt.get(),
+        )
+    }
+
+    private fun verstrekenMs(startNanos: Long): Long = (System.nanoTime() - startNanos) / NANOS_PER_MILLI
 
     /**
      * Atomaire lock via trySetAggregationStatus (SET NX EX in één commando): voorkom
@@ -567,6 +602,7 @@ internal class BerichtensessiecacheService(
                 )
             } else {
                 bulkhead.begrensd(
+                    label = "Magazijn $magazijnId",
                     verlopen = {
                         // Wachtbudget verstreken zonder permit: call niet gestart, dus OVERBELAST.
                         // toegestaan() kan nét een half-open probe hebben geclaimd; die MOET via
@@ -998,6 +1034,7 @@ internal class BerichtensessiecacheService(
     private companion object {
         private const val MAX_CAUSE_DEPTH = 32
         const val MILLIS_PER_SECOND = 1000L
+        const val NANOS_PER_MILLI = 1_000_000L
     }
 
     internal enum class LockAcquireError { JSON_SERIALIZATION, TIMEOUT, IO_FAULT, INTERRUPTED, UNEXPECTED }
