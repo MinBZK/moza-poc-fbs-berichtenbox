@@ -39,12 +39,6 @@ class DemoBerichtGenerator(
             }
         }
 
-        // Zonder sjablonen valt er niets te kiezen en klapt `opdracht()` om op `nextInt(0)` — een
-        // HTTP 500 met "bound must be positive" midden in een demonstratie. Liever hier.
-        organisaties.forEach { (oin, organisatie) ->
-            require(organisatie.sjablonen.isNotEmpty()) { "organisatie ${organisatie.naam} ($oin) heeft geen sjablonen" }
-        }
-
         // De configuratie sleutelt op id en kan er dus geen twee leveren; deze constructor wel.
         // Twee gelijke id's maken de tweede onbereikbaar zonder dat iets dat meldt.
         require(personas.distinctBy { it.id }.size == personas.size) {

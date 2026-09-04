@@ -250,12 +250,11 @@ class DemoBerichtGeneratorTest {
 
     @Test
     fun `een organisatie zonder sjablonen faalt fail-fast`() {
-        // Anders staat de persona in de keuzelijst en klapt de knop pas bij het kiezen van een
-        // sjabloon om, met een HTTP 500 die de organisatie niet noemt.
-        val zonderSjablonen = organisaties + (rvo to Organisatie(rvo, "RVO", emptyList()))
-
+        // Bij het bouwen van de organisatie en niet pas bij de generator: anders staat de persona in
+        // de keuzelijst en klapt de knop pas bij het kiezen van een sjabloon om, met een HTTP 500
+        // die de organisatie niet noemt.
         val fout = assertThrows(IllegalArgumentException::class.java) {
-            DemoBerichtGenerator(personas, zonderSjablonen, klok)
+            Organisatie(rvo, "RVO", emptyList())
         }
 
         assertTrue(fout.message!!.contains("RVO"), "de melding hoort de organisatie te noemen: ${fout.message}")

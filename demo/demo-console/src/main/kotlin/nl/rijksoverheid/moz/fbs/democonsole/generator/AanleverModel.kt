@@ -33,7 +33,15 @@ data class Sjabloon(val onderwerp: String, val inhoud: String)
  * Verzendende organisatie: één per magazijn (1:1 OIN↔magazijn). `oin` is tegelijk de
  * afzender-OIN én het magazijnId; `sjablonen` levert realistische onderwerp+inhoud-paren.
  */
-data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sjabloon>)
+data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sjabloon>) {
+
+    init {
+        // Zonder sjablonen valt er niets te kiezen en klapt de generator om op `nextInt(0)` — een
+        // HTTP 500 met "bound must be positive" midden in een demonstratie. Liever hier: een
+        // organisatie zonder sjablonen is in elke context onbruikbaar, niet alleen in de generator.
+        require(sjablonen.isNotEmpty()) { "organisatie $naam ($oin) heeft geen sjablonen" }
+    }
+}
 
 /**
  * Vaste demo-ontvanger. `id` is de sleutel waarmee de bediener er één aanwijst; `type` is
