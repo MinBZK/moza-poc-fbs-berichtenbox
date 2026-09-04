@@ -29,12 +29,12 @@ class AfzendernamenTest {
     }
 
     /**
-     * De cardinaliteit varieert van leeg t/m meerdere: bij meerdere inschrijvingen borgt dit
-     * dat de lookup per organisatie discrimineert in plaats van de enige/eerste naam terug te
-     * geven; bij leeg dat een register zonder inschrijvingen geen naam verzint.
+     * Meerdere inschrijvingen borgen dat de lookup per organisatie discrimineert in plaats van
+     * de enige/eerste naam terug te geven. De lege cardinaliteit hoort hier niet: die zou nul
+     * assertions doen en dus altijd slagen; het lege register wordt hieronder bewezen.
      */
     @ParameterizedTest(name = "register={0}")
-    @MethodSource("registerCardinaliteiten")
+    @MethodSource("gevuldeRegisterCardinaliteiten")
     fun `geeft per organisatie haar eigen naam`(inschrijvingen: List<Pair<Oin, String?>>) {
         val afzendernamen = afzendernamenMet(inschrijvingen)
 
@@ -44,11 +44,18 @@ class AfzendernamenTest {
     }
 
     @ParameterizedTest(name = "register={0}")
-    @MethodSource("registerCardinaliteiten")
+    @MethodSource("gevuldeRegisterCardinaliteiten")
     fun `niet-ingeschreven organisatie geeft geen naam`(inschrijvingen: List<Pair<Oin, String?>>) {
         val afzendernamen = afzendernamenMet(inschrijvingen)
 
         assertNull(afzendernamen.naamVoor("99999999999999999999"))
+    }
+
+    @Test
+    fun `leeg register verzint geen naam`() {
+        val afzendernamen = afzendernamenMet(emptyList())
+
+        assertNull(afzendernamen.naamVoor(BELASTINGDIENST.waarde))
     }
 
     @Test
@@ -66,11 +73,7 @@ class AfzendernamenTest {
         assertEquals("Belastingdienst", afzendernamen.naamVoor(BELASTINGDIENST.waarde))
     }
 
-    /**
-     * Een magazijnId uit de sessiecache hoort een OIN te zijn, maar cache-entries overleven
-     * een registerwijziging. Zo'n waarde levert geen naam op in plaats van de lijst-request
-     * te laten falen.
-     */
+    /** Een niet-OIN-vormig magazijnId levert geen naam op in plaats van de lijst te laten falen. */
     @ParameterizedTest(name = "magazijnId=''{0}''")
     @ValueSource(
         strings = [
@@ -95,8 +98,7 @@ class AfzendernamenTest {
         private val RVO = Oin("00000000000000100000")
 
         @JvmStatic
-        fun registerCardinaliteiten(): Stream<Arguments> = Stream.of(
-            Arguments.of(emptyList<Pair<Oin, String?>>()),
+        fun gevuldeRegisterCardinaliteiten(): Stream<Arguments> = Stream.of(
             Arguments.of(listOf(BELASTINGDIENST to "Belastingdienst")),
             Arguments.of(listOf(BELASTINGDIENST to "Belastingdienst", RVO to "RVO")),
             Arguments.of(

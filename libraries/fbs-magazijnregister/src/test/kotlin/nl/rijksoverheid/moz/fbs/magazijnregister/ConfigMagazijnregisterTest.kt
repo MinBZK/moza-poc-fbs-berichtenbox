@@ -43,6 +43,24 @@ class ConfigMagazijnregisterTest {
     }
 
     @Test
+    fun `blanco naam wordt als afwezig gelezen en blokkeert de boot niet`() {
+        // Een lege of alleen-whitespace configwaarde betekent "geen naam", niet "de naam is een
+        // lege string": een ontbrekende naam is geldige configuratie en mag niet fail-fast zijn.
+        listOf("", "   ").forEach { blanco ->
+            val register = register("test", oinA to inschrijving("http://localhost:8081", blanco))
+
+            assertNull(register.voorOin(Oin(oinA))!!.naam)
+        }
+    }
+
+    @Test
+    fun `naam wordt getrimd`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", "  Belastingdienst  "))
+
+        assertEquals("Belastingdienst", register.voorOin(Oin(oinA))!!.naam)
+    }
+
+    @Test
     fun `onbekende OIN levert null via voorOin`() {
         val register = register("test", oinA to inschrijving("http://localhost:8081", null))
 

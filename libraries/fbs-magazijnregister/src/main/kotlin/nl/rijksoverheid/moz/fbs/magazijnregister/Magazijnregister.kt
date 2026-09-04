@@ -27,6 +27,9 @@ data class Magazijninschrijving(
         require(url.scheme == "http" || url.scheme == "https") { "magazijn-URL moet http(s) zijn, was: '$url'" }
         require(url.host != null) { "magazijn-URL moet een host bevatten, was: '$url'" }
         require(grantHash == null || grantHash.isNotBlank()) { "grantHash mag niet leeg of alleen whitespace zijn" }
+        // Afwezig is het signaal "deze organisatie heeft geen weergavenaam"; een blanco naam zou
+        // dat signaal vervangen door een lege naam die door elke consument heen glipt.
+        require(naam == null || naam.isNotBlank()) { "naam mag niet leeg of alleen whitespace zijn" }
     }
 }
 

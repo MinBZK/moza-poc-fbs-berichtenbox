@@ -48,7 +48,7 @@ internal class ConfigMagazijnregister(
             oin to Magazijninschrijving(
                 oin = oin,
                 url = parseUrl(oin, entry.url()),
-                naam = entry.naam().orElse(null),
+                naam = parseNaam(oin, entry.naam()),
                 grantHash = parseGrantHash(oin, entry.grantHash()),
             )
         }
@@ -93,6 +93,26 @@ internal class ConfigMagazijnregister(
         OutboundTlsValidator.requireHttps(profile = profile, endpoint = url, configKey = configKey)
 
         return uri
+    }
+
+    /**
+     * Getrimd doorgeven, en een blanco waarde als afwezig lezen: `magazijnen."<OIN>".naam=`
+     * betekent "geen naam geconfigureerd", niet "de naam is een lege string". Anders zou een
+     * lege naam als weergavenaam de keten in gaan, waar afwezigheid nu juist het signaal is
+     * dat er geen naam bekend is. Anders dan bij grantHash geen fail-fast: een ontbrekende
+     * naam is een geldige configuratie, dus mag hij de boot niet blokkeren.
+     */
+    private fun parseNaam(oin: Oin, naam: Optional<String>): String? {
+        val ruw = naam.orElse(null) ?: return null
+        val getrimd = ruw.trim()
+
+        if (getrimd.isBlank()) {
+            log.warnf("magazijnen.\"%s\".naam is leeg of alleen whitespace; behandeld als geen naam", oin.waarde)
+
+            return null
+        }
+
+        return getrimd
     }
 
     /**

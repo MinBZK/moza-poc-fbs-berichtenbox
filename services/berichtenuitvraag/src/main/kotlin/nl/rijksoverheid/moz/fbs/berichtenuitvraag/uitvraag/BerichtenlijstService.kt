@@ -57,11 +57,6 @@ class BerichtenlijstService(
             links = paginaLinks(pagina, maakHref)
         }
 
-    /**
-     * De afzendernaam komt per bericht uit het register, niet uit de cache: zo draagt ook een
-     * bericht dat via de aanmeld-webhook binnenkwam — van een organisatie die deze sessie nog
-     * niet bevraagd is — dezelfde naam als een bericht uit een ophaalronde.
-     */
     private fun toApiSamenvatting(samenvatting: DomeinSamenvatting) =
         UitvraagDtoMapper.toApiSamenvatting(samenvatting, afzendernamen.naamVoor(samenvatting.magazijnId))
 

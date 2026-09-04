@@ -80,6 +80,9 @@ class OpenApiContractTest {
 
     @Test
     fun `GET berichten levert valide BerichtenLijst`() {
+        // OIN_B draagt een `naam` in de magazijnen-config; zo valideert de contracttest ook een
+        // antwoord waarin `afzenderNaam` gevuld is, niet alleen een waarin het veld ontbreekt.
+        seedBericht(UUID.randomUUID(), magazijnId = WireMockBackendsResource.OIN_B)
         seedBericht(UUID.randomUUID())
 
         given()

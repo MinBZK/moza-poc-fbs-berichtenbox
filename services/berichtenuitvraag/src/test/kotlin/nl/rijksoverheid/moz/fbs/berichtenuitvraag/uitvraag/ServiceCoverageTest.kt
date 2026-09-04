@@ -97,9 +97,12 @@ class ServiceCoverageTest {
     }
 
     @Test
-    fun `lijst en detail dragen de afzendernaam die het register voor het magazijn kent`() {
-        val id = UUID.randomUUID()
-        seedBericht(id, magazijnId = WireMockBackendsResource.OIN_B)
+    fun `een lijst met en zonder bekende afzendernaam levert het veld per bericht`() {
+        // OIN_A staat bewust zonder `naam` in de magazijnen-config, OIN_B als "Belastingdienst".
+        // Twee berichten in een antwoord: dat bewijst dat het veld per bericht wordt gezet en
+        // dat non_null per item weglaat, niet voor de hele lijst.
+        seedBericht(UUID.randomUUID(), magazijnId = WireMockBackendsResource.OIN_B)
+        seedBericht(UUID.randomUUID(), magazijnId = WireMockBackendsResource.OIN_A)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -107,8 +110,16 @@ class ServiceCoverageTest {
             .get("/api/v1/berichten")
             .then()
             .statusCode(200)
-            .body("berichten[0].magazijnId", equalTo(WireMockBackendsResource.OIN_B))
-            .body("berichten[0].afzenderNaam", equalTo("Belastingdienst"))
+            .body("berichten.find { it.magazijnId == '${WireMockBackendsResource.OIN_B}' }.afzenderNaam", equalTo("Belastingdienst"))
+            .body("berichten.find { it.magazijnId == '${WireMockBackendsResource.OIN_A}' }", not(hasKey("afzenderNaam")))
+            // `afzender` is uit het contract verdwenen: geen nummer meer dat zich als naam voordoet.
+            .body("berichten[0]", not(hasKey("afzender")))
+    }
+
+    @Test
+    fun `bericht-detail draagt de afzendernaam die het register voor het magazijn kent`() {
+        val id = UUID.randomUUID()
+        seedBericht(id, magazijnId = WireMockBackendsResource.OIN_B)
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -117,10 +128,11 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
             .body("afzenderNaam", equalTo("Belastingdienst"))
+            .body("$", not(hasKey("afzender")))
     }
 
     @Test
-    fun `lijst en detail laten afzenderNaam weg voor een magazijn zonder naam in het register`() {
+    fun `bericht-detail laat afzenderNaam weg voor een magazijn zonder naam in het register`() {
         // Het veld ontbreekt, en er staat geen magazijnId in dat zich als naam voordoet:
         // daaraan herkent een afnemer dat er geen naam is.
         val id = UUID.randomUUID()
@@ -129,19 +141,26 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten")
-            .then()
-            .statusCode(200)
-            .body("berichten[0].magazijnId", equalTo(WireMockBackendsResource.OIN_A))
-            .body("berichten[0]", not(hasKey("afzenderNaam")))
-
-        given()
-            .header("X-Ontvanger", "BSN:999990019")
-            .`when`()
             .get("/api/v1/berichten/$id")
             .then()
             .statusCode(200)
             .body("$", not(hasKey("afzenderNaam")))
+    }
+
+    @Test
+    fun `een cache-entry met een niet-OIN magazijnId levert een lijst zonder naam, geen fout`() {
+        // Een magazijnId uit een oudere registerstaat mag de hele berichtenlijst niet omver
+        // halen; het bericht verliest alleen zijn naam.
+        seedBericht(UUID.randomUUID(), magazijnId = "magazijn-a")
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].magazijnId", equalTo("magazijn-a"))
+            .body("berichten[0]", not(hasKey("afzenderNaam")))
     }
 
     @Test

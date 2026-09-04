@@ -68,6 +68,19 @@ class BerichtBeheerServiceTest {
     }
 
     @Test
+    fun `patch-respons draagt de afzendernaam van het bijgewerkte bericht`() {
+        // De naam wordt opgezocht op het magazijnId van het bericht uit de cache, niet op de
+        // magazijnId-queryparameter of het berichtId.
+        every { afzendernamen.naamVoor("magazijn-a") } returns "Belastingdienst"
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
+        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+
+        val result = service.patch(ontvanger, id, magazijnId, patch)
+
+        assertEquals("Belastingdienst", result.afzenderNaam)
+    }
+
+    @Test
     fun `patch ONGELEZEN mapt naar gelezen-false richting magazijn`() {
         val ongelezenPatch = BerichtPatch().apply { status = BerichtStatus.ONGELEZEN }
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit

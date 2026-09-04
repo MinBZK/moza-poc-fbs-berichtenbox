@@ -15,12 +15,13 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatti
 
 /**
  * Mapt tussen de uitvraag-API-modellen, het sessiecache-domein en het
- * magazijn-patch-formaat. Drie vorm-verschillen: magazijn modelleert `gelezen`
- * als boolean waar uitvraag/sessiecache een enum gebruiken, het sessiecache-
- * domein draagt een `ontvanger`-veld dat de uitvraag-API bewust niet exposeert
- * (de client ís de ontvanger), en de afzender staat in het domein als OIN terwijl
- * de API de weergavenaam levert — die komt uit het register en dus als losse
- * parameter binnen, zodat deze mapper zonder afhankelijkheden blijft.
+ * magazijn-patch-formaat. De vorm-verschillen: magazijn modelleert `gelezen` als
+ * boolean waar uitvraag/sessiecache een enum gebruiken; het sessiecache-domein
+ * draagt een `ontvanger`- en een `afzender`-veld die de uitvraag-API geen van beide
+ * exposeert (de client ís de ontvanger, en de afzender-OIN staat al in `magazijnId`);
+ * en de API draagt een `afzenderNaam` die het domein niet kent. Die naam komt daarom
+ * als parameter binnen in plaats van uit een injectie, zodat deze mapper een pure
+ * functie zonder afhankelijkheden blijft.
  *
  * `BijlageMetadata.mimeType`/`grootteInBytes` blijven leeg: de sessiecache
  * bewaart per bijlage alleen `bijlageId` en `naam`; het werkelijke MIME-type

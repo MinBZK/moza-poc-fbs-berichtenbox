@@ -44,17 +44,38 @@ staat.
 **De bron is het register, niet de ophaalronde.** `Afzendernamen` zoekt de naam per bericht op in
 het `Magazijnregister` bij het `magazijnId`. Daarmee draagt een bericht uit een ophaalronde en een
 via de webhook aangemeld bericht dezelfde naam, zonder dat de sessiecache namen hoeft te bewaren.
-Een `magazijnId` dat geen geldige OIN (meer) is — een cache-entry die een registerwijziging
-overleefde — levert geen naam op in plaats van de hele lijst te laten falen.
+
+Dat de lookup op `magazijnId` gaat en niet op `afzender` is bovendien de veilige kant. `magazijnId`
+is toegekend door de aggregatie en tegen het register gehouden; `afzender` komt ongevalideerd uit
+de payload van het magazijn. De getoonde naam volgt dus de organisatie waar het bericht vandaan
+kwam, niet de organisatie die het bericht over zichzelf claimt.
+
+**Er zijn drie redenen voor "geen naam", en ze leveren alle drie een afwezig veld.** Het register
+kent de organisatie zonder naam (bedoelde configuratie), het kent haar niet (config-drift), of het
+`magazijnId` is geen geldige OIN (een cache-entry uit een oudere registerstaat). De laatste twee
+zijn operationele signalen; die worden op debug gelogd, niet op warn. De lookup gebeurt per bericht,
+dus één gedrift magazijn zou bij warn een hele pagina volschrijven en dat elke poll-ronde opnieuw.
+Waar drift de gebruiker écht blokkeert — routering van detail, PATCH, DELETE en bijlagen — escaleert
+`MagazijnRouter` hem al naar error + 502. Blijkt drift in de praktijk lastig te diagnosticeren, dan
+is één samengevatte waarschuwing per lijst-request (over de distinct magazijnId's) de volgende stap.
+
+**Een blanco naam bestaat niet meer.** `Magazijninschrijving` eist nu, net als bij `grantHash`, dat
+een aanwezige `naam` niet leeg of alleen whitespace is, en `ConfigMagazijnregister` trimt de
+configwaarde en leest een blanco waarde als afwezig. Zonder die twee kon `magazijnen."<OIN>".naam= `
+een lege string als weergavenaam de keten in sturen — precies de toestand die het contract als
+onmogelijk beschrijft, en die een afnemer niet als "geen naam" kan herkennen. Anders dan bij
+`grantHash` blokkeert het de boot niet: geen naam is geldige configuratie.
 
 ## Wijzigingen
 
 - `berichtenuitvraag-api.yaml`: `afzender` weg uit `BerichtSamenvatting` en `Bericht`,
   `afzenderNaam` erbij met de herkomst en het afwezig-geval in de description.
 - `uitvraag/Afzendernamen.kt`: nieuwe CDI-bean, `magazijnId` → naam via `Magazijnregister`.
+- `fbs-magazijnregister`: `naam` mag niet blanco zijn (`Magazijninschrijving`), en een blanco
+  configwaarde wordt als afwezig gelezen (`ConfigMagazijnregister`).
 - `UitvraagDtoMapper`: de naam komt als parameter binnen, zodat de mapper zonder afhankelijkheden
   blijft. `BerichtenlijstService`, `BerichtOphaalService` en `BerichtBeheerService` zoeken hem op.
-- `demo/demo-console/…/berichtenbox.js`: leest `afzenderNaam` uit de lijst; de per-zitting
+- `demo/demo-console/…/berichtenbox.js`: leest `afzenderNaam` uit de lijst; de per sessie
   bewaarde namen-map uit de ophaal-events is daarmee overbodig en verwijderd. Ontbreekt de naam,
   dan toont de box "Onbekende organisatie" in plaats van de OIN.
 - Bruno: `docs`-blokken op de berichtenlijst- en detail-request die de naam en het afwezig-geval
@@ -62,20 +83,45 @@ overleefde — levert geen naam op in plaats van de hele lijst te laten falen.
 
 ## Verificatie
 
-- `AfzendernamenTest`: per organisatie de eigen naam (parameterized over leeg/één/meerdere
-  inschrijvingen, zodat de lookup aantoonbaar discrimineert), ingeschreven zonder naam,
-  niet-ingeschreven, en een `magazijnId` dat geen geldige OIN is.
+- `AfzendernamenTest`: per organisatie de eigen naam (parameterized over één t/m meerdere
+  inschrijvingen, zodat de lookup aantoonbaar discrimineert), een leeg register, ingeschreven
+  zonder naam, niet-ingeschreven, en zes vormen van een `magazijnId` dat geen geldige OIN is.
 - `UitvraagDtoMapperTest` en `BerichtenlijstServiceTest`: mét en zónder bekende naam; twee
   berichten uit verschillende magazijnen in één lijst bewijzen dat de naam per bericht wordt
   opgezocht.
-- `ServiceCoverageTest`: lijst én detail over HTTP, met naam en met een ontbrekend veld.
+- `ServiceCoverageTest`: één lijstantwoord met een genoemd én een naamloos magazijn (bewijst dat
+  het veld per bericht wordt gezet), detail in beide varianten, een niet-OIN-`magazijnId` dat een
+  200 zonder naam oplevert in plaats van een fout, en een guard dat `afzender` weg is.
 - `AanmeldResourceTest`: een via de webhook aangemeld bericht draagt in de lijst de naam van zijn
   organisatie, zonder dat er een ophaalronde is gedraaid.
+- `UitvraagKetenE2eTest`: het andere been — berichten uit een échte ophaalronde langs twee
+  magazijnen, mét en zónder naam in één lijstantwoord.
+- `OpenApiContractTest`: de spec-validator ziet het veld ook gevuld, niet alleen afwezig.
+- `MagazijninschrijvingTest`/`ConfigMagazijnregisterTest`: blanco naam is niet construeerbaar, een
+  blanco configwaarde leest als afwezig, en een naam met omringende whitespace wordt getrimd.
 - `./mvnw clean verify -pl services/berichtenuitvraag -am`: groen, JaCoCo-gate gehaald, detekt
   zonder bevindingen, geen nieuwe build-warnings.
 
 ## Gevolg voor afnemers
 
 Een afnemer die vandaag `afzender` uitleest moet overstappen op `afzenderNaam` (en op `magazijnId`
-waar hij het nummer nodig heeft). Voor de berichtenbox uit de proeftuin betekent dat: het veld
-tonen zoals het binnenkomt, en bij afwezigheid zelf bepalen wat er in de kolom komt.
+waar hij het nummer nodig heeft).
+
+De berichtenbox uit de proeftuin (`MinBZK/moza-poc`, gepind in `compose.yaml`) is nagelopen: die
+breekt niet. `assets/javascript/berichtenbox-keten.js` zet de afzender met
+`organisaties[bericht.magazijnId] || bericht.afzender || bericht.magazijnId || "Onbekende afzender"`.
+`afzender` is daar de middelste terugval; zonder dat veld valt hij door naar `magazijnId` — precies
+wat er nu al staat zodra de ophaalronde de naam nog niet geleerd heeft. Zodra die box `afzenderNaam`
+als eerste keuze leest, vervalt daar de per-sessie bewaarde namen-map, net als in de demo-console.
+
+## Wat hier bewust niet in zit
+
+- **`afzender` en `magazijnId` kunnen in het domein uiteenlopen.** De sessiecache dwingt nergens af
+  dat het `afzender`-veld uit de magazijn-payload gelijk is aan het magazijn dat bevraagd werd. In
+  het 1:1-model kan dat niet misgaan, maar de invariant is nu wel gedragsbepalend geworden. Hoort in
+  de sessiecache-library thuis (valideren bij het bouwen van een `Bericht`), niet hier.
+- **`Bericht.magazijnId` is een `String` waar `Oin` hoort te staan.** Binnen dezelfde data class is
+  `ontvanger` wél getypeerd, inclusief de Jackson-roundtrip. Typeren van `magazijnId` zou de
+  `try { Oin(...) } catch`-constructie hier én in `MagazijnRouter` overbodig maken.
+- **`info.version` blijft `0.1.0`** bij een brekende responsvorm. De versie is sinds de introductie
+  van de service nooit gebumpt; dat is een projectbrede lacune, geen keuze van deze wijziging.

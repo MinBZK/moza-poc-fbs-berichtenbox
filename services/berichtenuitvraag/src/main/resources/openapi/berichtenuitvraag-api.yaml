@@ -393,12 +393,13 @@ components:
         onderwerp: { type: string }
         afzenderNaam:
           type: string
+          minLength: 1
           description: |
-            Weergavenaam van de afzendende organisatie, door de uitvraag opgezocht in
-            het magazijnregister bij `magazijnId`. Optioneel: het veld ontbreekt zodra
-            het register voor die organisatie geen naam kent. Aan het ontbreken van het
-            veld herkent een afnemer dat er geen naam is en bepaalt hij zelf wat hij
-            toont; `magazijnId` is een twintigcijferig nummer en nooit een alternatief.
+            Weergavenaam van de afzendende organisatie, door de uitvraag opgezocht in het
+            magazijnregister bij `magazijnId`. Optioneel: het veld ontbreekt wanneer de
+            uitvraag geen naam kan vaststellen — het register kent de organisatie zonder
+            naam, of kent haar niet. Aan het ontbreken herkent een afnemer dat er geen
+            naam is; presenteer `magazijnId` dan niet als naam.
         publicatietijdstip:
           type: string
           format: date-time
@@ -419,12 +420,13 @@ components:
         onderwerp: { type: string }
         afzenderNaam:
           type: string
+          minLength: 1
           description: |
-            Weergavenaam van de afzendende organisatie, door de uitvraag opgezocht in
-            het magazijnregister bij `magazijnId`. Optioneel: het veld ontbreekt zodra
-            het register voor die organisatie geen naam kent. Aan het ontbreken van het
-            veld herkent een afnemer dat er geen naam is en bepaalt hij zelf wat hij
-            toont; `magazijnId` is een twintigcijferig nummer en nooit een alternatief.
+            Weergavenaam van de afzendende organisatie, door de uitvraag opgezocht in het
+            magazijnregister bij `magazijnId`. Optioneel: het veld ontbreekt wanneer de
+            uitvraag geen naam kan vaststellen — het register kent de organisatie zonder
+            naam, of kent haar niet. Aan het ontbreken herkent een afnemer dat er geen
+            naam is; presenteer `magazijnId` dan niet als naam.
         inhoud: { type: string }
         publicatietijdstip:
           type: string

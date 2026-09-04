@@ -42,6 +42,19 @@ class MagazijninschrijvingTest {
     }
 
     @Test
+    fun `lege of whitespace-only naam is niet construeerbaar`() {
+        // Afwezig is het signaal "geen weergavenaam"; een blanco naam zou dat signaal
+        // vervangen door een naam die nergens als ontbrekend te herkennen is.
+        listOf("", "   ").forEach { blanco ->
+            val ex = assertThrows<IllegalArgumentException> {
+                Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = blanco)
+            }
+
+            assertTrue(ex.message!!.contains("naam"))
+        }
+    }
+
+    @Test
     fun `grantHash is optioneel en niet-blanco waarden zijn construeerbaar`() {
         assertDoesNotThrow {
             Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = null)

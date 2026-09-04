@@ -21,14 +21,12 @@ const omgevingGeladen = fetch('/api/demo/omgeving')
     return null;
   });
 
-// magazijnId per bericht onthouden: de lijst levert het mee, maar PATCH en DELETE vereisen het
-// als queryparameter en het detail-endpoint geeft het niet opnieuw terug.
+// magazijnId per bericht onthouden: PATCH en DELETE vereisen het als queryparameter, en een
+// schrijfactie vanuit de lijst heeft zo geen detail-aanroep nodig om eraan te komen.
 const magazijnPerBericht = new Map();
 
-// De lijst draagt de organisatienaam per bericht (`afzenderNaam`), ook voor een bericht dat
-// binnenkwam van een organisatie die deze zitting nog niet bevraagd is. Ontbreekt het veld, dan
-// kent het register geen naam; dat tonen we als zodanig i.p.v. de kale OIN, die een schermlezer
-// cijfer voor cijfer voorleest.
+// Zonder naam tonen we een expliciete tekst en niet de kale OIN — die leest een schermlezer
+// cijfer voor cijfer voor.
 function afzenderNaam(bericht) {
   return bericht.afzenderNaam || 'Onbekende organisatie';
 }
