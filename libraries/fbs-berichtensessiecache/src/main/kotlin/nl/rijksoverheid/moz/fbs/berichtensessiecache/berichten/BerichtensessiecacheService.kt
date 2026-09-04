@@ -574,16 +574,13 @@ internal class BerichtensessiecacheService(
         val berichten = oogst.berichten
             .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId) }
 
-        // Een gedropt bericht is ook post die de ontvanger niet krijgt. Zonder deze term zou het
-        // event "8 berichten, niets afgekapt, 10 beschikbaar" melden en zou de ontvanger juist bij
-        // een kapot bericht geen enkel signaal krijgen — dezelfde stille verdwijning waar de rest
-        // van dit pad tegen beschermt.
+        // Een gedropt bericht is ook post die de ontvanger niet krijgt; zonder deze term meldt het
+        // event "8 berichten, niets afgekapt, 10 beschikbaar".
         val afgekapt = oogst.afgekapt || berichten.size < oogst.berichten.size
 
         if (afgekapt) {
-            // Warn, geen error: de gebruikelijke oorzaak is een grens die werkt, geen storing. De
-            // oorzaak staat bewust niet in de tekst — afkappen gebeurt ook wanneer een magazijn
-            // meer meldt dan het uitpagineert, en dan wijst "verhoog de cap" de beheerder verkeerd.
+            // Warn, geen error: meestal een grens die werkt. De oorzaak blijft uit de tekst —
+            // afkappen gebeurt ook zonder dat de cap geraakt is, en "verhoog de cap" wijst dan mis.
             log.warnf(
                 "Magazijn %s (%s) leverde minder dan er beschikbaar is: %d opgehaald van %s",
                 magazijnId, naam, berichten.size, oogst.totaalBeschikbaar?.toString() ?: "onbekend",
@@ -906,11 +903,7 @@ internal class BerichtensessiecacheService(
 
     private fun List<Throwable>.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
 
-    /**
-     * Beide timeout-typen: de Mutiny-timeout van `ifNoItem`/`ifNoItem().after`, en de
-     * j.u.c.-timeout waarmee de pagineerlus zichzelf afbreekt als zijn budget op is. Ze staan voor
-     * dezelfde uitkomst — er kwam niets op tijd — en horen dus nergens los geteld te worden.
-     */
+    /** Beide timeout-typen: die van `ifNoItem`, en die waarmee de pagineerlus zichzelf afbreekt. */
     private fun List<Throwable>.bevatTimeout(): Boolean =
         hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
             hasCauseOf(java.util.concurrent.TimeoutException::class.java)
@@ -1005,8 +998,7 @@ internal class BerichtensessiecacheService(
             MagazijnFault.MALFORMED ->
                 log.errorf(error, "Magazijn %s (%s) leverde onleesbare JSON-respons (schema-drift?)", magazijnId, naam)
             MagazijnFault.OVERFLOW ->
-                // ErrorF voor alert-routing: een magazijn dat zijn eigen paginering negeert is een
-                // contractbreuk die een beheerder moet zien, niet een incident van de gebruiker.
+                // ErrorF voor alert-routing: een contractbreuk die een beheerder moet zien.
                 log.errorf(error, "Magazijn %s (%s) leverde een pagina groter dan gevraagd", magazijnId, naam)
             MagazijnFault.HTTP_5XX ->
                 log.warnf(error, "Magazijn %s (%s) 5xx", magazijnId, naam)

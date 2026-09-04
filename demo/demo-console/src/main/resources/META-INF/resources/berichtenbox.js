@@ -149,10 +149,8 @@ async function ophalen() {
   await laadLijst();
 }
 
-// Zegt erbij dat deze organisatie meer berichten heeft dan er opgehaald zijn. Zonder deze regel
-// lijkt een afgekapte lijst een volledige lijst, en dat is precies wat een berichtenbox niet mag
-// doen: de gebruiker kan dan niet weten wat hij mist. Het totaal komt alleen mee als het magazijn
-// het noemde.
+// Zonder deze toevoeging lijkt een afgekapte lijst een volledige lijst. Het totaal komt alleen mee
+// als het magazijn het noemde.
 function afkapMelding(gebeurtenis) {
   if (!gebeurtenis.afgekapt) return '';
 
@@ -161,8 +159,8 @@ function afkapMelding(gebeurtenis) {
     : ', er zijn er meer — niet alles opgehaald';
 }
 
-// De slotregel is de regel die blijft staan; zonder deze toevoeging meldt hij een afgekapte oogst
-// als een volledige ophaalronde.
+// De slotregel blijft staan als de regels erboven wegscrollen; hij mag een afgekapte oogst dus niet
+// als een volledige ophaalronde melden.
 function slotregelAfkap(afgekapteMagazijnen) {
   if (afgekapteMagazijnen.size === 0) return '';
 
@@ -170,9 +168,7 @@ function slotregelAfkap(afgekapteMagazijnen) {
 }
 
 // Werkt de voortgangsregels bij; geeft true terug bij een terminaal event. `afgekapteMagazijnen`
-// verzamelt over de stream heen welke organisaties niet alles leverden, zodat de slotregel dat kan
-// herhalen: die regel blijft staan en is wat de gebruiker leest, terwijl de per-magazijn-regels
-// erboven wegscrollen.
+// verzamelt over de stream heen welke organisaties niet alles leverden, voor de slotregel.
 function verwerkOphaalEvent(gebeurtenis, regels, afgekapteMagazijnen) {
   if (gebeurtenis.magazijnId && gebeurtenis.naam) {
     magazijnNamen.set(gebeurtenis.magazijnId, gebeurtenis.naam);

@@ -7,15 +7,13 @@ internal sealed class MagazijnResult {
     abstract val naam: String?
 
     /**
-     * Een bevraagd magazijn dat antwoord gaf. [afgekapt] zegt dat er méér bij deze organisatie
-     * staat dan wat [berichten] draagt — meestal omdat de cap bereikt was, maar ook wanneer het
-     * magazijn zelf een hoger totaal meldt of een bericht onbruikbaar bleek. Dat is geen fout — de
-     * post die er is, hoort de ontvanger te zien — maar het moet wél zichtbaar worden, anders
-     * verdwijnt er stil post. [totaalBeschikbaar] draagt het aantal dat het magazijn zei te
-     * hebben; null wanneer het die teller niet meestuurde of een onmogelijk getal noemde.
+     * Een bevraagd magazijn dat antwoord gaf. [afgekapt] zegt dat er méér bij deze organisatie staat
+     * dan [berichten] draagt — de cap, een hoger totaal van het magazijn zelf, of een bericht dat
+     * onbruikbaar bleek. Geen fout: de post die er is hoort de ontvanger te zien, maar dat er meer
+     * is moet zichtbaar worden.
      *
-     * Geen defaults op de twee: "de ontvanger heeft alles" is de sterkste bewering die dit type kan
-     * doen, en die hoort niet gratis te ontstaan doordat een aanroeper een argument vergeet.
+     * Geen defaults op die twee: "de ontvanger heeft alles" is de sterkste bewering van dit type en
+     * hoort niet te ontstaan doordat een aanroeper een argument vergeet.
      */
     data class Success(
         override val magazijnId: String,
@@ -129,13 +127,10 @@ internal fun circuitActieVoor(result: MagazijnResult): CircuitActie = when (resu
 }
 
 /**
- * Marker-exception voor een magazijn dat zijn eigen paginering negeert: het leverde in één
- * pagina méér berichten dan de gevraagde `pageSize`. Daarmee is de respons onbetrouwbaar — er
- * valt niet op te pagineren en de omvang is niet begrensd — dus de bevraging faalt. Dit is iets
- * anders dan een magazijn met véél berichten: dat wordt afgekapt (zie [MagazijnResult.Success]),
- * niet als fout gemeld. Geen subclass van `WebApplicationException`/`ProcessingException` — dit
- * is een interne signalering, geen upstream-fault, en wordt door de service in een aparte
- * foutmelding gemapt.
+ * Marker-exception voor een magazijn dat in één pagina méér levert dan de gevraagde `pageSize`:
+ * daarop valt niet te pagineren en de omvang is onbegrensd, dus de bevraging faalt. Iets anders dan
+ * véél berichten — dat wordt afgekapt (zie [MagazijnResult.Success]). Geen subclass van
+ * `WebApplicationException`/`ProcessingException`: interne signalering, geen upstream-fault.
  */
 internal class MagazijnResponseOverflow : RuntimeException("Magazijn leverde meer berichten dan de gevraagde paginagrootte")
 

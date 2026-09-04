@@ -68,16 +68,13 @@ sealed interface MagazijnBevragingVoltooid : MagazijnBevraging {
 }
 
 /**
- * Een magazijn dat antwoord gaf. `afgekapt` meldt dat er méér berichten bij deze organisatie
- * staan dan opgehaald zijn — door de bovengrens, doordat het magazijn een hoger totaal meldt, of
- * doordat een bericht onbruikbaar bleek. Het portaal hoort dat te tonen, óók in een samenvattende
- * regel: een berichtenbox die post weglaat zonder het te zeggen, laat de ontvanger in de
- * veronderstelling dat hij alles heeft. `totaalBeschikbaar` staat er alleen als het magazijn zelf
- * een bruikbaar totaal meestuurde; zonder dat getal blijft het signaal een kwalitatief "er is meer".
+ * Een magazijn dat antwoord gaf. `afgekapt`: er staat méér bij deze organisatie dan is opgehaald.
+ * Het portaal hoort dat te tonen, óók in een samenvattende regel — anders houdt de ontvanger een
+ * onvolledige lijst voor een volledige. `totaalBeschikbaar` staat er alleen bij een bruikbaar
+ * totaal van het magazijn zelf.
  *
- * Het signaal leeft alleen in deze stroom: de sessiecache bewaart het niet, dus wie de lijst later
- * opnieuw opvraagt krijgt hem zonder deze mededeling terug.
- * TODO(MinBZK/MijnOverheidZakelijk#1072)
+ * Het signaal leeft alleen in deze stroom; de sessiecache bewaart het niet, dus wie de lijst later
+ * opnieuw opvraagt krijgt hem zonder deze mededeling. TODO(MinBZK/MijnOverheidZakelijk#1072)
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam", "status", "aantalBerichten", "afgekapt", "totaalBeschikbaar")

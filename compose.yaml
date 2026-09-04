@@ -344,12 +344,10 @@ services:
       # (20). Wat er gebeurt als de bulkhead wél de bottleneck wordt, is een eigen scenario — dat
       # meet stap 6 van het simulator-ontwerp.
       BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT: "120"
-      # Vijf berichten per pagina, waar productie er honderd vraagt. De demo-dataset zet zes tot
-      # tien berichten per organisatie per ondernemer, dus bij honderd — en zelfs bij tien — komt
-      # alles in één call binnen en blijft het doorpagineren onzichtbaar. Met vijf haalt de uitvraag
-      # gegarandeerd een tweede pagina op, en laat de demo zien dat post voorbij de eerste pagina
-      # meekomt. Alleen demo; de bovengrens per magazijn blijft op de productiewaarde staan, want
-      # die verlagen zou berichten juist wegláten.
+      # Vijf per pagina, waar productie er honderd vraagt: de demo-dataset zet zes tot tien berichten
+      # per organisatie, dus bij honderd komt alles in één call binnen en blijft het doorpagineren
+      # onzichtbaar. De bovengrens per magazijn blijft wél op de productiewaarde — die verlagen zou
+      # berichten wegláten.
       BERICHTENSESSIECACHE_MAGAZIJN_PAGE_SIZE: "5"
     volumes:
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro

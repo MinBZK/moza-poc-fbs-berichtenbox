@@ -13,9 +13,8 @@ import jakarta.ws.rs.core.MediaType
 internal interface MagazijnClient {
 
     /**
-     * Eén pagina van de berichtenlijst. `page`/`pageSize` zijn verplicht en niet optioneel: de
-     * magazijn-spec laat ze weg met een default van twintig, en die default was de reden dat post
-     * voorbij het eerste twintigtal nooit werd opgevraagd.
+     * `page`/`pageSize` zijn niet optioneel: weglaten geeft de spec-default van twintig, en dáár
+     * bleef post voorbij het eerste twintigtal liggen.
      */
     @GET
     @Path("/berichten")

@@ -45,9 +45,8 @@ class MagazijnPaginaLezerTest {
     @ParameterizedTest(name = "{0} berichten in pagina's van 2")
     @ValueSource(ints = [1, 2, 3, 4, 5])
     fun `alle berichten komen precies eenmaal terug, ongeacht hoe ze over pagina's vallen`(aantal: Int) {
-        // Een lijst van één verbergt het verschil tussen "geeft de eerste pagina" en "loopt door";
-        // 2 en 4 zijn de grensgevallen waarin de laatste pagina precies vol is en er dus nog een
-        // (lege) call volgt.
+        // Eén bericht verbergt het verschil tussen "geeft de eerste pagina" en "loopt door"; bij 2
+        // en 4 is de laatste pagina precies vol.
         val client = mockk<MagazijnClient>()
         val alle = berichten(aantal)
 
@@ -101,9 +100,7 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `zonder totalen pagineert de lus door tot een lege pagina`() {
-        // Een magazijn dat `totalElements`/`totalPages` niet meestuurt: een korte pagina is dan geen
-        // bewijs van het einde — het magazijn kan ook `pageSize` naar beneden hebben bijgesteld.
-        // Alleen een lege pagina sluit de lijst af.
+        // Zonder tellers is een korte pagina geen bewijs van het einde; alleen een lege pagina wel.
         val client = mockk<MagazijnClient>()
         val alle = berichten(3)
 
@@ -123,9 +120,8 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `een magazijn dat kleinere pagina's geeft zonder tellers wordt uitgelezen, niet afgekapt`() {
-        // Het gevaarlijkste pad: het magazijn stelt pageSize bij naar zijn eigen maximum én meldt
-        // geen totaal. Zou de lus een korte pagina als einde lezen, dan haalt ze twintig van de
-        // vijftig berichten op en meldt "compleet" — de fout uit deze issue, via een tweede deur.
+        // Het gevaarlijkste pad: pageSize bijgesteld én geen totaal. Leest de lus een korte pagina
+        // dan als einde, dan meldt ze "compleet" over een halve lijst.
         val client = mockk<MagazijnClient>()
         val alle = berichten(5)
 
@@ -142,9 +138,8 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `een totaal dat lager is dan wat het magazijn zelf leverde, telt als onbekend`() {
-        // Een stale of anders tellende `totalElements` spreekt zichzelf tegen zodra we er méér uit
-        // hetzelfde magazijn hebben gehaald. Zo'n getal mag noch aan de gebruiker getoond worden,
-        // noch als "er is niet meer" meetellen.
+        // Een teller die lager is dan onze eigen oogst spreekt zichzelf tegen: niet tonen, niet
+        // laten meetellen als "er is niet meer".
         val client = mockk<MagazijnClient>()
         val alle = berichten(4)
 
@@ -190,8 +185,7 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `een fout op een vervolgpagina laat de hele bevraging falen`() {
-        // Alles-of-niets is de keuze: een half opgehaalde lijst als geslaagd tonen zou post
-        // weglaten zonder dat de ontvanger het kan zien. Deze test pint die keuze vast.
+        // Alles-of-niets: een half opgehaalde lijst als geslaagd tonen laat post verdwijnen.
         val client = mockk<MagazijnClient>()
 
         every { client.getBerichten(any(), any(), 0, any()) } returns MagazijnBerichtenResponse(berichten(2))
@@ -216,8 +210,7 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `zonder totalen is een volle laatste pagina op de cap een afkap-signaal`() {
-        // Het magazijn noemt geen totaal, dus "is er meer" is niet exact te beantwoorden. Liever
-        // één keer te veel "er is meer" dan post laten verdwijnen zonder het te melden.
+        // Zonder totaal is "is er meer" niet exact te beantwoorden; dan liever te veel melden.
         val client = mockk<MagazijnClient>()
 
         every { client.getBerichten(any(), any(), any(), any()) } returns
@@ -256,8 +249,7 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `de gevraagde paginagrootte gaat mee de lijn op`() {
-        // Zonder deze parameters valt het magazijn terug op zijn eigen default van twintig — de
-        // oorzaak van het probleem dat deze lezer oplost.
+        // Zonder deze parameters valt het magazijn terug op zijn eigen default van twintig.
         val client = mockk<MagazijnClient>()
 
         every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
@@ -280,9 +272,8 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `een magazijn dat kleinere pagina's geeft dan gevraagd, kapt niet stil af`() {
-        // Een magazijn (implementatie van derden) mag `pageSize` naar zijn eigen maximum bijstellen.
-        // De pagina is dan niet vol terwijl er nog van alles ligt; zonder het totaal erbij te
-        // betrekken zou de lus stoppen en "alles opgehaald" melden — de fout uit issue 996 terug.
+        // Een magazijn mag `pageSize` naar zijn eigen maximum bijstellen: de pagina is dan niet vol
+        // terwijl er nog van alles ligt. Zonder het totaal zou de lus "alles opgehaald" melden.
         val client = mockk<MagazijnClient>()
 
         every { client.getBerichten(any(), any(), any(), any()) } returns
@@ -297,8 +288,7 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `een magazijn dat page negeert levert geen dubbele berichten en geen eindeloze lus`() {
-        // Steeds dezelfde pagina terug: zonder uitgang loopt de lus door tot de cap en staat elk
-        // bericht meerdere keren in de berichtenbox.
+        // Steeds dezelfde pagina: zonder uitgang loopt de lus tot de cap door met herhalingen.
         val client = mockk<MagazijnClient>()
 
         every { client.getBerichten(any(), any(), any(), any()) } returns
@@ -314,8 +304,7 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `een bericht dat op twee pagina's staat, komt maar een keer in de oogst`() {
-        // Komt er tijdens het doorpagineren een bericht binnen, dan schuift het venster op en staat
-        // het bericht op de paginagrens tweemaal in de respons.
+        // Een bericht dat tijdens het pagineren binnenkomt schuift het venster op.
         val client = mockk<MagazijnClient>()
         val alle = berichten(4)
 
@@ -334,8 +323,7 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `een cap die geen veelvoud van de paginagrootte is, levert nooit meer dan de cap`() {
-        // Ook wanneer het magazijn zelf het einde van de lijst meldt: de laatste pagina kan de
-        // oogst over de cap tillen, en die cap is de heap-grens die de operator-handleiding belooft.
+        // Ook op het einde van de lijst: de laatste pagina kan de oogst over de cap tillen.
         val client = mockk<MagazijnClient>()
 
         stubPaginas(client, berichten(6), paginaGrootte = 4)
@@ -348,10 +336,8 @@ class MagazijnPaginaLezerTest {
 
     @Test
     fun `een verbruikt budget breekt af als timeout, niet als half resultaat`() {
-        // De query-timeout van de aanroeper onderbreekt deze blokkerende lus niet; zonder eigen
-        // deadline haalt de verlaten thread ná de timeout nog pagina's op. Het afbreken meldt een
-        // timeout: een halve lijst als geslaagd teruggeven zou opnieuw post weglaten, en de
-        // aanroeper heeft op dat moment zijn eigen timeout meestal al laten vuren.
+        // De query-timeout onderbreekt deze blokkerende lus niet, dus stopt ze zelf — met een
+        // timeout en niet met een halve oogst.
         val client = mockk<MagazijnClient>()
 
         stubPaginas(client, berichten(10), paginaGrootte = 2)

@@ -607,8 +607,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `magazijn met meer berichten dan de cap levert de nieuwste plus een afkap-signaal`() {
-        // De cap begrenst, hij faalt niet: de ontvanger krijgt zijn post én de mededeling dat er
-        // meer is. Stil afkappen zou precies de fout herhalen waarvoor deze grens er is.
+        // De cap begrenst, hij faalt niet: de post én de mededeling dat er meer is.
         val serviceMetLageCap = serviceMet(MagazijnPaginaLezer(paginaGrootte = 2, maxBerichtenPerMagazijn = 2))
         val client = mockk<MagazijnClient>()
 
@@ -629,7 +628,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `magazijn met meer pagina's levert alle berichten, niet alleen de eerste pagina`() {
-        // De fout uit issue 996: zonder doorpagineren bleef het bij de eerste pagina.
+        // Zonder doorpagineren bleef het bij de eerste pagina.
         val serviceMetKleinePaginas =
             serviceMet(MagazijnPaginaLezer(paginaGrootte = 2, maxBerichtenPerMagazijn = 100))
         val client = mockk<MagazijnClient>()
@@ -655,8 +654,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `magazijn dat een grotere pagina levert dan gevraagd wordt geweigerd`() {
-        // Een magazijn dat zijn eigen paginering negeert, levert een respons waarop niet te
-        // pagineren valt en waarvan de omvang niet begrensd is — dat is wél een fout.
+        // Een respons waarop niet te pagineren valt en die onbegrensd is: dat is wél een fout.
         val serviceMetKleinePaginas =
             serviceMet(MagazijnPaginaLezer(paginaGrootte = 2, maxBerichtenPerMagazijn = 100))
         val client = mockk<MagazijnClient>()
@@ -787,8 +785,7 @@ class BerichtensessiecacheServiceTest {
 
     @Test
     fun `boundary - magazijn precies op de cap wordt niet als afgekapt gemeld`() {
-        // Grensgeval: even veel berichten als de cap toelaat. De laatste pagina is dan vol en de
-        // lus stopt op de cap — zonder het totaal van het magazijn zou dat "er is meer" opleveren.
+        // Grensgeval: precies de cap. Zonder het totaal van het magazijn zou dat "er is meer" geven.
         val serviceMetLageCap = serviceMet(MagazijnPaginaLezer(paginaGrootte = 2, maxBerichtenPerMagazijn = 2))
         val client = mockk<MagazijnClient>()
 
