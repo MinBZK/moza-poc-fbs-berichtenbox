@@ -20,8 +20,9 @@ import jakarta.ws.rs.core.Context
 class BijlageMimeTestResource(@param:Context private val request: ContainerRequestContext) {
 
     @GET
-    fun get(@QueryParam("mime") mime: String): ByteArray {
+    fun get(@QueryParam("mime") mime: String, @QueryParam("naam") naam: String?): ByteArray {
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mime)
+        request.setProperty(BIJLAGE_NAAM_PROPERTY, naam)
 
         return byteArrayOf(1, 2, 3)
     }

@@ -4,7 +4,6 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.InternalServerErrorException
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
-import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.UriInfo
 import org.jboss.logging.Logger
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
@@ -15,8 +14,10 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.beheer.BerichtBeheerService
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BIJLAGE_MIME_TYPE_PROPERTY
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BIJLAGE_NAAM_PROPERTY
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtDtoMapper
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtOphaalService
+import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageMediaType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusPatch as BerichtStatusPatchDto
@@ -96,23 +97,21 @@ class BerichtenResource(
         // zodat het uitvalt en zichtbaar wordt. De waarde komt niet in de response
         // (alleen in de log) om geen interne details aan de client te lekken;
         // mimeType is geen PII en mag in de applicatielog staan voor diagnose.
-        val mediaType = runCatching { MediaType.valueOf(bijlage.mimeType) }
-            .onFailure { ex ->
-                log.warnf(
-                    ex,
-                    "Ongeldig MIME-type in bijlage; serveer geen content. berichtId=%s bijlageId=%s mimeType=%s",
-                    berichtId,
-                    bijlageId,
-                    bijlage.mimeType,
-                )
-            }
-            .getOrNull()
+        val mediaType = BijlageMediaType.parse(bijlage.mimeType)
 
         if (mediaType == null) {
+            log.warnf(
+                "Ongeldig MIME-type in bijlage; serveer geen content. berichtId=%s bijlageId=%s mimeType=%s",
+                berichtId,
+                bijlageId,
+                bijlage.mimeType,
+            )
+
             throw InternalServerErrorException("Ongeldig MIME-type in bijlage")
         }
 
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mediaType.toString())
+        request.setProperty(BIJLAGE_NAAM_PROPERTY, bijlage.naam)
 
         return bijlage.content
     }

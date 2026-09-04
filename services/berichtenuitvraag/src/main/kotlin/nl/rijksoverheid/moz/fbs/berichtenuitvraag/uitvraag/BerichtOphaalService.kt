@@ -14,9 +14,10 @@ import java.util.UUID
 
 /**
  * Bericht-detail uit de in-process [Sessiecache]-facade; bijlagen als
- * passthrough uit het magazijn. `haalBijlage` levert `(mimeType, bytes)`: de
- * resource zet het mimeType op een request-property zodat
- * [BijlageContentTypeFilter] de response-`Content-Type` overrult.
+ * passthrough uit het magazijn. `haalBijlage` levert [BijlageInhoud]: de resource
+ * zet mimeType en bestandsnaam op request-properties zodat
+ * [BijlageContentTypeFilter] de response-`Content-Type` overrult en de
+ * `Content-Disposition` bouwt.
  *
  * Bijlage-bytes worden volledig in een ByteArray geladen; de magazijn-limiet
  * (`Bijlage.MAX_CONTENT_BYTES`) begrenst het geheugen per request.
@@ -43,7 +44,7 @@ class BerichtOphaalService(
         return UitvraagDtoMapper.toApiBericht(domeinBericht)
     }
 
-    fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): Pair<String, ByteArray> {
+    fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): BijlageInhoud {
         // Lookup-then-route: cache is authoritative voor welk magazijn de
         // bron is. De extra cache-read is acceptabel: Redis is snel en
         // het bericht-detail is hoe dan ook nodig om de bijlage-toegang te
@@ -51,6 +52,12 @@ class BerichtOphaalService(
         val bericht = zoekBerichtInCache(xOntvanger, berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
         val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
+
+        // De naam komt uit hetzelfde bericht-detail, niet uit de `Content-Disposition`
+        // van het magazijn: die is daar al gesaneerd en gecodeerd, en terugparsen zou
+        // dat moeten omkeren. Kent de cache de bijlage niet, dan gaan de bytes zonder
+        // naam de deur uit — of ze bestaan, blijft het oordeel van het magazijn.
+        val bestandsnaam = bericht.bijlagen.firstOrNull { it.bijlageId == bijlageId }?.naam
 
         // `bijlage` heeft een `Response`-returntype: dán past de Quarkus REST-client
         // géén default exception-mapper toe en geeft elke upstream-status (ook >=400)
@@ -115,7 +122,7 @@ class BerichtOphaalService(
                 throw magazijnFout(502)
             }
 
-            return mimeType to bytes
+            return BijlageInhoud(mimeType, bestandsnaam, bytes)
         } finally {
             // Een falende close mag de echte fout niet maskeren (vandaar runCatching),
             // maar op warn: een aanhoudend faaltje hier betekent een lekkende connectie-
@@ -124,6 +131,17 @@ class BerichtOphaalService(
                 .onFailure { log.warnf(it, "kon upstream-response niet sluiten na magazijn-bijlage-read (mogelijk connectie-pool-lek)") }
         }
     }
+
+    /**
+     * Wat er nodig is om een bijlage uit te leveren. `inhoud` wordt niet defensief
+     * gekopieerd — aanroepers mogen de bytes niet muteren; een kopie per bijlage zou
+     * de heap-druk verdubbelen.
+     *
+     * Bewust geen `data class`: er wordt nergens vergeleken of gedestructureerd, en de
+     * gegenereerde `toString` zou de bestandsnaam — die persoonsgegevens kan bevatten —
+     * in elke logregel zetten waarin het object per ongeluk belandt.
+     */
+    class BijlageInhoud(val mimeType: String, val bestandsnaam: String?, val inhoud: ByteArray)
 
     private fun zoekBerichtInCache(xOntvanger: String, berichtId: UUID) =
         leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId)") {

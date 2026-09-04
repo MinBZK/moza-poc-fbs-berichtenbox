@@ -9,25 +9,24 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
- * Unit-tests voor [BijlageContentTypeFilter] zonder MockK: het mocken van
- * `getProperty(String)` op JAX-RS-contexten triggert in MockK een property-vs-
- * methode-conflict (zie eerdere iteratie). Een minimal handmatige stub omzeilt
- * dat. Verifieert fail-closed-gedrag (`application/octet-stream + attachment`)
- * bij een onparsebaar MIME-type — de KDoc benoemt dit als stored-XSS-bescherming.
+ * Unit-tests voor [BijlageContentTypeFilter] zonder MockK: die verwart
+ * `getProperty(String)` met een Kotlin-property, waardoor de stub nooit aanslaat.
+ * Een minimale handgeschreven stub omzeilt dat. Verifieert fail-closed-gedrag (`application/octet-stream` + download) bij een
+ * onparsebaar MIME-type, en welke typen wél inline mogen.
  */
 class BijlageContentTypeFilterTest {
 
     private val filter = BijlageContentTypeFilter()
 
     @Test
-    fun `parsebaar MIME-type wordt 1-op-1 doorgegeven met attachment-disposition`() {
+    fun `parsebaar MIME-type wordt 1-op-1 doorgegeven`() {
         val req = FakeRequestCtx("application/pdf")
         val resp = FakeResponseCtx()
 
         filter.filter(req, resp)
 
         assertEquals("application/pdf", resp.headers.getFirst("Content-Type"))
-        assertEquals("attachment", resp.headers.getFirst("Content-Disposition"))
+        assertEquals("inline", resp.headers.getFirst("Content-Disposition"))
     }
 
     @Test
@@ -53,6 +52,61 @@ class BijlageContentTypeFilterTest {
     }
 
     @Test
+    fun `een veilig te tonen type mag inline, met bestandsnaam`() {
+        val req = FakeRequestCtx("application/pdf", "aanslag 2026.pdf")
+        val resp = FakeResponseCtx()
+
+        filter.filter(req, resp)
+
+        assertEquals(
+            "inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf",
+            resp.headers.getFirst("Content-Disposition"),
+        )
+    }
+
+    @Test
+    fun `een in de browser uitvoerbaar type blijft een download`() {
+        val req = FakeRequestCtx("image/svg+xml", "tekening.svg")
+        val resp = FakeResponseCtx()
+
+        filter.filter(req, resp)
+
+        assertEquals("image/svg+xml", resp.headers.getFirst("Content-Type"))
+        assertEquals(
+            "attachment; filename=\"tekening.svg\"; filename*=UTF-8''tekening.svg",
+            resp.headers.getFirst("Content-Disposition"),
+        )
+    }
+
+    @Test
+    fun `een niet-Latijnse naam beschadigt de header niet`() {
+        val req = FakeRequestCtx("application/pdf", "Λογαριασμός.pdf")
+        val resp = FakeResponseCtx()
+
+        filter.filter(req, resp)
+
+        assertEquals(
+            "inline; filename=\"___________.pdf\"; " +
+                "filename*=UTF-8''%CE%9B%CE%BF%CE%B3%CE%B1%CF%81%CE%B9%CE%B1%CF%83%CE%BC%CF%8C%CF%82.pdf",
+            resp.headers.getFirst("Content-Disposition"),
+        )
+    }
+
+    @Test
+    fun `een onparsebaar MIME-type blijft een download, ook met naam`() {
+        val req = FakeRequestCtx("not-a-mime-type", "nota.pdf")
+        val resp = FakeResponseCtx()
+
+        filter.filter(req, resp)
+
+        assertEquals("application/octet-stream", resp.headers.getFirst("Content-Type"))
+        assertEquals(
+            "attachment; filename=\"nota.pdf\"; filename*=UTF-8''nota.pdf",
+            resp.headers.getFirst("Content-Disposition"),
+        )
+    }
+
+    @Test
     fun `zonder property doet filter niets`() {
         val req = FakeRequestCtx(null)
         val resp = FakeResponseCtx()
@@ -63,8 +117,12 @@ class BijlageContentTypeFilterTest {
         assertEquals(null, resp.headers.getFirst("Content-Disposition"))
     }
 
-    private class FakeRequestCtx(private val mime: String?) : StubRequestCtx() {
-        override fun getProperty(name: String?): Any? = mime.takeIf { name == BIJLAGE_MIME_TYPE_PROPERTY }
+    private class FakeRequestCtx(private val mime: String?, private val naam: String? = null) : StubRequestCtx() {
+        override fun getProperty(name: String?): Any? = when (name) {
+            BIJLAGE_MIME_TYPE_PROPERTY -> mime
+            BIJLAGE_NAAM_PROPERTY -> naam
+            else -> null
+        }
     }
 
     private class FakeResponseCtx : StubResponseCtx() {

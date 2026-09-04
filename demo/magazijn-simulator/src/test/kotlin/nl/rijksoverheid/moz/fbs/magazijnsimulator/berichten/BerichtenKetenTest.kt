@@ -256,12 +256,34 @@ class BerichtenKetenTest : MagazijnTestBasis() {
             .then()
             .statusCode(200)
             .contentType("application/pdf")
-            // Nooit inline renderen: een aangeleverde `text/html`-bijlage zou anders onder onze
-            // origin kunnen draaien.
-            .header("Content-Disposition", "attachment")
+            // Een PDF voert niets uit in de browser en mag dus getoond worden, met de naam erbij.
+            .header("Content-Disposition", "inline; filename=\"aanslag.pdf\"; filename*=UTF-8''aanslag.pdf")
             .extract().asByteArray()
 
         org.junit.jupiter.api.Assertions.assertArrayEquals(inhoud, bytes)
+    }
+
+    @Test
+    fun `een bijlage die de browser zou uitvoeren, blijft een download`() {
+        // Een aangeleverde HTML-bijlage zou bij het openen van dit adres onder onze origin draaien.
+        val berichtId = leverAan(
+            EEN,
+            bijlage = Bijlagegegevens("kwaad.html", "text/html", "<script>alert(1)</script>".toByteArray()),
+        )
+
+        val bijlageId = given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+            .extract().path<String>("bijlagen[0].bijlageId")
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("${basis(EEN)}/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+            .header("Content-Disposition", "attachment; filename=\"kwaad.html\"; filename*=UTF-8''kwaad.html")
     }
 
     @Test
