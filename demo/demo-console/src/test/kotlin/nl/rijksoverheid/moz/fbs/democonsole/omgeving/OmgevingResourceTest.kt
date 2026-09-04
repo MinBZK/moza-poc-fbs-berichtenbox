@@ -4,7 +4,6 @@ import io.mockk.every
 import io.mockk.mockk
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Organisatie
-import nl.rijksoverheid.moz.fbs.democonsole.generator.Persona
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Sjabloon
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
 import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
@@ -38,7 +37,14 @@ class OmgevingResourceTest {
 
         return DemoBerichtGenerator(
             personas = doelen.mapIndexed { volgnummer, (id, label) ->
-                Persona(id = id, naam = label, type = "KVK", waarde = KVK_NUMMERS[volgnummer], magazijnen = listOf(RVO))
+                DemoPersona(
+                    id = id,
+                    label = label,
+                    type = "KVK",
+                    waarde = KVK_NUMMERS[volgnummer],
+                    magazijnen = listOf(RVO),
+                    bron = PersonaBron.KETEN,
+                )
             },
             organisaties = mapOf(RVO to Organisatie(RVO, "RVO", listOf(Sjabloon("Onderwerp", "Inhoud.")))),
             klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),

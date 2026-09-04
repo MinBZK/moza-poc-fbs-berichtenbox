@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.democonsole.generator
 
+import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -30,10 +32,22 @@ class DemoBerichtGeneratorTest {
         ),
     )
 
+    // Dezelfde identiteit als de personadienst kent; `bron` speelt in de generator geen rol, maar
+    // het type draagt hem, dus elke fixture kiest hem expliciet.
+    private fun persona(id: String, label: String, type: String, waarde: String, magazijnen: List<String>) =
+        DemoPersona(
+            id = id,
+            label = label,
+            type = type,
+            waarde = waarde,
+            magazijnen = magazijnen,
+            bron = PersonaBron.KETEN,
+        )
+
     private val personas = listOf(
-        Persona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo, belastingdienst)),
-        Persona("bakkerij", "Bakkerij De Vroege Vogel", "BSN", "999996666", listOf(rvo)),
-        Persona("vandijk", "Garage Van Dijk B.V.", "KVK", "12345678", listOf(belastingdienst)),
+        persona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo, belastingdienst)),
+        persona("bakkerij", "Bakkerij De Vroege Vogel", "BSN", "999996666", listOf(rvo)),
+        persona("vandijk", "Garage Van Dijk B.V.", "KVK", "12345678", listOf(belastingdienst)),
     )
 
     private val klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC)
@@ -129,7 +143,7 @@ class DemoBerichtGeneratorTest {
     fun `een persona met een dubbele id faalt fail-fast`() {
         // De id is waarmee het paneel er één aanwijst; de tweede zou onbereikbaar zijn zonder dat
         // iets dat meldt.
-        val ongeldig = personas + Persona("bakkerij", "Andere Bakkerij", "BSN", "999993653", listOf(rvo))
+        val ongeldig = personas + persona("bakkerij", "Andere Bakkerij", "BSN", "999998328", listOf(rvo))
 
         val fout = assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
@@ -196,21 +210,16 @@ class DemoBerichtGeneratorTest {
     }
 
     @Test
-    fun `een persona met ongeldige elfproef faalt fail-fast bij constructie`() {
-        val ongeldig = listOf(Persona("fout", "Fout", "BSN", "999993654", listOf(rvo)))
-
-        assertThrows(IllegalArgumentException::class.java) {
-            DemoBerichtGenerator(ongeldig, organisaties, klok)
-        }
-    }
-
-    @Test
     fun `een persona met een onbekende organisatie-OIN faalt fail-fast`() {
-        val ongeldig = listOf(Persona("fout", "Fout", "BSN", "999993653", listOf("00000000000000000000")))
+        // Een OIN dat wél de vorm van een magazijn heeft: de generator toetst tegen zijn eigen
+        // organisaties, niet tegen de vorm.
+        val ongeldig = listOf(persona("onbekend", "Onbekend", "BSN", "999993653", listOf("00000000000000000000")))
 
-        assertThrows(IllegalArgumentException::class.java) {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
         }
+
+        assertTrue(fout.message!!.contains("onbekend"), "de melding hoort de persona te noemen: ${fout.message}")
     }
 
     @Test
@@ -220,32 +229,6 @@ class DemoBerichtGeneratorTest {
         assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(emptyList(), organisaties, klok)
         }
-    }
-
-    @Test
-    fun `een persona zonder id faalt fail-fast en wijst zijn positie aan`() {
-        // Als tweede element in een verder geldige lijst: met een lijst van één bewijst niets dat de
-        // controle per persona loopt in plaats van alleen op de eerste. En zonder id is de positie
-        // het enige aanknopingspunt dat de melding kan geven.
-        val ongeldig = listOf(personas[0], Persona(" ", "Naam", "BSN", "999996666", listOf(rvo)))
-
-        val fout = assertThrows(IllegalArgumentException::class.java) {
-            DemoBerichtGenerator(ongeldig, organisaties, klok)
-        }
-
-        assertTrue(fout.message!!.contains("positie 1"), "de melding hoort de positie te noemen: ${fout.message}")
-    }
-
-    @Test
-    fun `een persona zonder naam faalt fail-fast en noemt zijn id`() {
-        // De naam is de zichtbare optie in de keuzelijst; leeg levert een onzichtbare keuze op.
-        val ongeldig = listOf(personas[0], Persona("naamloos", " ", "BSN", "999996666", listOf(rvo)))
-
-        val fout = assertThrows(IllegalArgumentException::class.java) {
-            DemoBerichtGenerator(ongeldig, organisaties, klok)
-        }
-
-        assertTrue(fout.message!!.contains("naamloos"), "de melding hoort de persona te noemen: ${fout.message}")
     }
 
     @Test
@@ -262,10 +245,16 @@ class DemoBerichtGeneratorTest {
 
     @Test
     fun `een persona zonder magazijnen faalt fail-fast`() {
-        val ongeldig = listOf(Persona("fout", "Fout", "BSN", "999993653", emptyList()))
+        // De personadienst laat dit toe (Grootbedrijf haalt op bij de stub-magazijnen), dus deze
+        // eis blijft van de generator: hij is de enige die er berichten voor zou moeten opvoeren.
+        // Als tweede element in een verder geldige lijst, zodat de test ook aantoont dat de lus
+        // elke persona nagaat en niet alleen de eerste.
+        val ongeldig = listOf(personas[0], persona("magazijnloos", "Magazijnloos", "BSN", "999998328", emptyList()))
 
-        assertThrows(IllegalArgumentException::class.java) {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
         }
+
+        assertTrue(fout.message!!.contains("magazijnloos"), "de melding hoort de persona te noemen: ${fout.message}")
     }
 }
