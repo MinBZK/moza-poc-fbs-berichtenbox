@@ -15,13 +15,13 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
-import java.time.Instant
-import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Instant
+import java.util.UUID
 
 /**
  * Contract-tests: response-shapes per endpoint conform berichtenuitvraag-api.yaml.

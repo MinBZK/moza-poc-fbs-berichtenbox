@@ -48,11 +48,6 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
 
-        // Vóór het parsen, zodat geen enkele weg langs deze header heen loopt; gaat het parsen mis,
-        // dan haalt die tak hem hieronder weer weg omdat er dan een problem+json uitgaat en geen
-        // bijlage. Nog zonder naam: die hangt aan het geparste type, dat er hier nog niet is.
-        responseContext.headers.putSingle("Content-Disposition", "attachment")
-
         val geparsed = bijlageMediaType(mimeType)
 
         if (geparsed == null) {
@@ -66,7 +61,6 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
             responseContext.status = Response.Status.INTERNAL_SERVER_ERROR.statusCode
             responseContext.entity = onverwachteFoutProblem(foutId)
             responseContext.headers.putSingle("Content-Type", PROBLEM_JSON.toString())
-            responseContext.headers.remove("Content-Disposition")
 
             return
         }

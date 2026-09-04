@@ -39,11 +39,10 @@ internal const val BIJLAGE_NAAM_PROPERTY = "fbs.uitvraag.bijlage.naam"
  * fallback `application/octet-stream` staat niet op de inline-allowlist, dus een
  * onbegrepen type gaat altijd als download de deur uit.
  *
- * Zelfde concept als `…fbs.berichtenmagazijn.ophaal.BijlageContentTypeFilter`,
- * maar bewust strenger: die variant is fail-open (ongeldig MIME → Content-Type
- * ongewijzigd), deze is fail-closed (→ octet-stream). Bij een eventuele
- * consolidatie naar fbs-common moet de fail-closed-variant leidend blijven;
- * verzwak dit gedrag niet naar fail-open.
+ * Zelfde gedrag als `…fbs.berichtenmagazijn.ophaal.BijlageContentTypeFilter`. Bij een
+ * eventuele consolidatie naar fbs-common moet het fail-closed blijven; verzwak het
+ * niet naar "laat de onderhandelde Content-Type staan" — dan gaan de bytes de deur uit
+ * onder het type dat de aanroeper in zijn `Accept` zette.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {

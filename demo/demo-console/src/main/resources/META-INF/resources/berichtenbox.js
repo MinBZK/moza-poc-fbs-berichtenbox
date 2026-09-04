@@ -560,6 +560,12 @@ el('volgende-pagina').addEventListener('click', () => {
   herteken();
 });
 
+// De keten haalt control- en format-tekens uit de bestandsnaam voordat die in
+// `Content-Disposition` gaat. Deze download zet de naam zelf (zie hieronder), dus doen we
+// hetzelfde met de naam uit de berichtdetails: zonder dit toont `salaris<U+202E>fdp.exe` in
+// de downloadlijst als `salarisexe.pdf`.
+const zonderOnzichtbareTekens = (naam) => naam.replace(/[\p{Cc}\p{Cf}]/gu, '');
+
 // Download via fetch (geen <a href>: dat stuurt de X-Ontvanger-header niet mee). De
 // respons is binair; we maken er een blob-URL van en triggeren de download programmatisch.
 async function downloadBijlage(berichtId, bijlageId, naam) {
@@ -576,7 +582,7 @@ async function downloadBijlage(berichtId, bijlageId, naam) {
   const anker = document.createElement('a');
 
   anker.href = url;
-  anker.download = naam;
+  anker.download = zonderOnzichtbareTekens(naam);
   document.body.appendChild(anker);
   anker.click();
   anker.remove();

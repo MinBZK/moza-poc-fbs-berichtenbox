@@ -4,7 +4,8 @@ import jakarta.ws.rs.core.MediaType
 
 /**
  * Bouwt de `Content-Disposition` van een bijlage-download: `inline` voor typen die een browser toont
- * zonder aangeleverde code uit te voeren, `attachment` voor al het overige, met de bestandsnaam erin.
+ * zonder er code uit te voeren die bij onze origin kan, `attachment` voor al het overige, met de
+ * bestandsnaam erin.
  *
  * `attachment` is de fallback en niet andersom: een aangeleverde `text/html` of `image/svg+xml` zou
  * bij het openen van het download-adres onder onze origin draaien. Voor de typen hieronder bestaat
@@ -21,6 +22,9 @@ internal object BijlageContentDisposition {
 
     private const val MAX_BESTANDSNAAM_LENGTE = 255
 
+    /** Ook de Windows-vormen: `\` als scheider, `:` als drive- en stream-scheider. */
+    private const val PAD_SCHEIDERS = "/\\:"
+
     /** De niet-alfanumerieke helft van de RFC 5987 `attr-char`-set. */
     private const val ATTR_CHAR_OVERIG = "!#${'$'}&+-.^_`|~"
 
@@ -28,7 +32,7 @@ internal object BijlageContentDisposition {
 
     fun waarde(mediaType: MediaType, bestandsnaam: String?): String {
         val dispositie = if (magInline(mediaType)) "inline" else "attachment"
-        val naam = kapAf(zonderOnzichtbareTekens(bestandsnaam.orEmpty()).trim()).trimEnd()
+        val naam = kapAf(gesaneerd(bestandsnaam.orEmpty()).trim()).trimEnd()
 
         if (naam.isEmpty()) return dispositie
 
@@ -41,18 +45,29 @@ internal object BijlageContentDisposition {
         "${mediaType.type}/${mediaType.subtype}".lowercase() in INLINE_VEILIGE_TYPEN
 
     /**
-     * Weert de tekens die een naam onzichtbaar iets anders laten zeggen dan hij is: control-tekens
-     * dragen `\r\n`, format-tekens de bidi-overrides waarmee `salaris<U+202E>fdp.exe` als
-     * `salarisexe.pdf` in beeld komt. Percent-codering redt daar niets — de browser decodeert
-     * `filename*` weer terug, en die parameter wint van de gesaneerde ASCII-vorm.
+     * Haalt uit de naam wat hem iets anders laat zeggen dan hij is, vóór beide coderingen: de
+     * browser decodeert `filename*` weer terug en geeft die parameter voorrang boven de ASCII-vorm.
+     * Control-tekens dragen `\r\n`; format-tekens de bidi-overrides waarmee `salaris<U+202E>fdp.exe`
+     * als `salarisexe.pdf` in beeld komt (de tag-tekens daarvan staan buiten de BMP, vandaar per
+     * code point en niet per `Char`); pad-scheidingstekens maken van een naam een pad, wat RFC 6266
+     * §4.3 verbiedt.
      */
-    private fun zonderOnzichtbareTekens(naam: String): String =
-        naam.filter { teken -> teken.category != CharCategory.CONTROL && teken.category != CharCategory.FORMAT }
+    private fun gesaneerd(naam: String): String = buildString {
+        naam.codePoints().forEach { codePoint ->
+            val soort = Character.getType(codePoint)
+
+            when {
+                soort == Character.CONTROL.toInt() || soort == Character.FORMAT.toInt() -> Unit
+                codePoint < 0x80 && codePoint.toChar() in PAD_SCHEIDERS -> append('_')
+                else -> appendCodePoint(codePoint)
+            }
+        }
+    }
 
     /**
-     * Alles buiten de veilige ASCII-set wordt `_`. Dat vangt in één regel de aanhalingstekens en
-     * backslashes die de quoted-string zouden sluiten, en de pad-scheidingstekens waarmee een naam
-     * buiten de downloadmap zou wijzen.
+     * Alles buiten de veilige ASCII-set wordt `_`. Dat vangt de aanhalingstekens die de
+     * quoted-string zouden sluiten, en houdt de parameter leesbaar voor een client die
+     * `filename*` niet kent.
      */
     private fun asciiVorm(naam: String): String = naam
         .map { teken -> if (teken in 'A'..'Z' || teken in 'a'..'z' || teken in '0'..'9' || teken in ".-_") teken else '_' }

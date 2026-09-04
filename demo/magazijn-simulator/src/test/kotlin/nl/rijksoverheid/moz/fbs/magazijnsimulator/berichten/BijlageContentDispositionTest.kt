@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
 
 import jakarta.ws.rs.core.MediaType
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -9,14 +10,15 @@ import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 
 /**
- * Houdt de kopie in de simulator gelijk aan die van het echte magazijn: wijkt het gedrag af, dan is
- * de simulator van buitenaf te herkennen. De gevallen hieronder spiegelen die van
- * `BijlageContentDispositionTest` in `fbs-common` — verandert er één kopie, dan valt het hier om.
+ * Legt voor de simulator-kopie exact hetzelfde gedrag vast als
+ * `BijlageContentDispositionTest` in `fbs-common` — de gevallen zijn daaruit overgenomen. Een
+ * wijziging aan één van beide kopieën moet je hier met de hand meenemen: de test roept alleen de
+ * simulator aan en merkt niets van een fbs-common-wijziging.
  */
 class BijlageContentDispositionTest {
 
     @ParameterizedTest
-    @ValueSource(strings = ["application/pdf", "image/png", "image/jpeg", "Application/PDF"])
+    @ValueSource(strings = ["application/pdf", "image/png", "image/jpeg"])
     fun `een type dat een browser veilig toont, mag inline`(mimeType: String) {
         assertEquals("inline", BijlageContentDisposition.waarde(MediaType.valueOf(mimeType), null))
     }
@@ -31,7 +33,7 @@ class BijlageContentDispositionTest {
             "image/pngx",
             "text/plain",
             "application/octet-stream",
-            "*/*",
+            "application/x-onbekend",
         ],
     )
     fun `elk ander type blijft een download`(mimeType: String) {
@@ -45,17 +47,54 @@ class BijlageContentDispositionTest {
     }
 
     @Test
+    fun `hoofdletters in het mediatype veranderen de beslissing niet`() {
+        assertEquals("inline", BijlageContentDisposition.waarde(MediaType.valueOf("Application/PDF"), null))
+        assertEquals("attachment", BijlageContentDisposition.waarde(MediaType.valueOf("TEXT/HTML"), null))
+    }
+
+    @Test
+    fun `een wildcard-type is geen inline-type`() {
+        assertEquals("attachment", BijlageContentDisposition.waarde(MediaType.WILDCARD_TYPE, null))
+    }
+
+    @Test
     fun `een gewone naam komt in beide filename-parameters`() {
         assertEquals(
-            "inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf",
-            BijlageContentDisposition.waarde(PDF, "aanslag 2026.pdf"),
+            "inline; filename=\"aanslag-2026.pdf\"; filename*=UTF-8''aanslag-2026.pdf",
+            BijlageContentDisposition.waarde(PDF, "aanslag-2026.pdf"),
         )
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["", "   ", "\t\n"])
     fun `een lege of blanco naam levert alleen de dispositie op`(naam: String) {
-        assertEquals("attachment", BijlageContentDisposition.waarde(MediaType.TEXT_HTML_TYPE, naam))
+        assertEquals("inline", BijlageContentDisposition.waarde(PDF, naam))
+    }
+
+    @Test
+    fun `zonder naam levert alleen de dispositie op`() {
+        assertEquals("attachment", BijlageContentDisposition.waarde(MediaType.TEXT_HTML_TYPE, null))
+    }
+
+    @Test
+    fun `een niet-Latijnse naam overleeft in de filename-ster-parameter`() {
+        // Grieks + Japans: de ASCII-vorm houdt er niets van over, `filename*` alles.
+        val waarde = BijlageContentDisposition.waarde(PDF, "Λογαριασμός-請求書.pdf")
+
+        assertEquals(
+            "inline; filename=\"___________-___.pdf\"; " +
+                "filename*=UTF-8''%CE%9B%CE%BF%CE%B3%CE%B1%CF%81%CE%B9%CE%B1%CF%83%CE%BC%CF%8C%CF%82-" +
+                "%E8%AB%8B%E6%B1%82%E6%9B%B8.pdf",
+            waarde,
+        )
+    }
+
+    @Test
+    fun `een naam met een spatie blijft leesbaar in beide parameters`() {
+        assertEquals(
+            "inline; filename=\"voorlopige_aanslag.pdf\"; filename*=UTF-8''voorlopige%20aanslag.pdf",
+            BijlageContentDisposition.waarde(PDF, "voorlopige aanslag.pdf"),
+        )
     }
 
     @ParameterizedTest
@@ -63,11 +102,13 @@ class BijlageContentDispositionTest {
         value = [
             // Een aanhalingsteken of backslash zou de quoted-string sluiten of ontsnappen.
             "aan\"hef.pdf | aan_hef.pdf | aan%22hef.pdf",
-            "aan\\hef.pdf | aan_hef.pdf | aan%5Chef.pdf",
+            "aan\\hef.pdf | aan_hef.pdf | aan_hef.pdf",
             // Puntkomma zou een tweede parameter beginnen.
             "aan;filename=evil.html | aan_filename_evil.html | aan%3Bfilename%3Devil.html",
-            // Pad-scheidingstekens mogen niet buiten de downloadmap wijzen.
-            "../../etc/passwd | .._.._etc_passwd | ..%2F..%2Fetc%2Fpasswd",
+            // Pad-scheidingstekens mogen niet buiten de downloadmap wijzen — ook niet in
+            // `filename*`, dat een client terugdecodeert.
+            "../../etc/passwd | .._.._etc_passwd | .._.._etc_passwd",
+            "C:\\Windows\\evil.exe | C__Windows_evil.exe | C__Windows_evil.exe",
             // Een percent-teken in de naam mag niet als codering gelezen worden.
             "100%korting.pdf | 100_korting.pdf | 100%25korting.pdf",
         ],
@@ -80,6 +121,18 @@ class BijlageContentDispositionTest {
         )
     }
 
+    @Test
+    fun `een naam met CRLF begint geen tweede header`() {
+        val waarde = BijlageContentDisposition.waarde(PDF, "nota\r\nX-Injected: ja.pdf")
+
+        assertFalse(waarde.contains('\r'))
+        assertFalse(waarde.contains('\n'))
+        assertEquals(
+            "inline; filename=\"notaX-Injected__ja.pdf\"; filename*=UTF-8''notaX-Injected_%20ja.pdf",
+            waarde,
+        )
+    }
+
     @ParameterizedTest
     @ValueSource(
         strings = [
@@ -88,6 +141,8 @@ class BijlageContentDispositionTest {
             "\u2066", // LEFT-TO-RIGHT ISOLATE
             "\u200B", // ZERO WIDTH SPACE
             "\u0000", // NUL
+            "\uDB40\uDC41", // TAG LATIN CAPITAL A (U+E0041) — buiten de BMP
+            "\uDB40\uDC01", // LANGUAGE TAG (U+E0001) — buiten de BMP
         ],
     )
     fun `een onzichtbaar teken kan de getoonde naam niet omkeren of verbergen`(teken: String) {
@@ -119,20 +174,59 @@ class BijlageContentDispositionTest {
     fun `een naam van precies de maximale lengte blijft heel`() {
         val naam = "a".repeat(255)
 
-        assertEquals("inline; filename=\"$naam\"; filename*=UTF-8''$naam", BijlageContentDisposition.waarde(PDF, naam))
+        assertEquals(
+            "inline; filename=\"$naam\"; filename*=UTF-8''$naam",
+            BijlageContentDisposition.waarde(PDF, naam),
+        )
     }
 
     @Test
-    fun `een te lange naam wordt afgekapt zonder half teken`() {
-        val waarde = BijlageContentDisposition.waarde(PDF, "a".repeat(254) + "\uD83D\uDCC4.pdf")
+    fun `een naam van één teken te lang verliest precies dat teken`() {
+        val waarde = BijlageContentDisposition.waarde(PDF, "b".repeat(256))
 
-        assertEquals("inline; filename=\"${"a".repeat(254)}\"; filename*=UTF-8''${"a".repeat(254)}", waarde)
+        assertEquals(
+            "inline; filename=\"${"b".repeat(255)}\"; filename*=UTF-8''${"b".repeat(255)}",
+            waarde,
+        )
+    }
+
+    @Test
+    fun `een te lange naam wordt afgekapt`() {
+        val naam = "a".repeat(300) + ".pdf"
+
+        val waarde = BijlageContentDisposition.waarde(PDF, naam)
+
+        assertEquals(
+            "inline; filename=\"${"a".repeat(255)}\"; filename*=UTF-8''${"a".repeat(255)}",
+            waarde,
+        )
+    }
+
+    @Test
+    fun `afkappen laat geen half teken achter`() {
+        // Het 255e teken is de eerste helft van een surrogate-paar (emoji); die helft
+        // alleen zou geen geldige UTF-8 opleveren, dus valt hij mee weg.
+        val naam = "a".repeat(254) + "📄.pdf"
+
+        val waarde = BijlageContentDisposition.waarde(PDF, naam)
+
+        assertEquals(
+            "inline; filename=\"${"a".repeat(254)}\"; filename*=UTF-8''${"a".repeat(254)}",
+            waarde,
+        )
     }
 
     @Test
     fun `een control-teken in een mediatype-parameter maakt de waarde onbruikbaar`() {
         // Zo'n waarde parseert wel, maar de HTTP-laag weigert de header pas bij het schrijven.
         assertNull(bijlageMediaType("application/pdf;name=\"a\r\nX-Injected: 1\""))
+    }
+
+    @Test
+    fun `een onparsebare waarde levert geen mediatype op`() {
+        assertNull(bijlageMediaType(""))
+        assertNull(bijlageMediaType("application"))
+        assertNull(bijlageMediaType("//"))
         assertEquals("application/pdf", bijlageMediaType("application/pdf")?.toString())
     }
 

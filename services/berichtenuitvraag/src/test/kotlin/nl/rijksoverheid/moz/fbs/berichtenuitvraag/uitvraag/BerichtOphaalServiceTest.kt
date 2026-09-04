@@ -8,7 +8,6 @@ import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
-import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
@@ -17,6 +16,7 @@ import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import java.util.UUID
 
 class BerichtOphaalServiceTest {
 
@@ -112,7 +112,7 @@ class BerichtOphaalServiceTest {
         val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
 
         assertEquals("application/pdf", bijlage.mimeType)
-        assertArrayEquals(bytes, bijlage.content)
+        assertArrayEquals(bytes, bijlage.inhoud)
     }
 
     @Test
@@ -144,7 +144,7 @@ class BerichtOphaalServiceTest {
         val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
 
         assertEquals(null, bijlage.bestandsnaam)
-        assertArrayEquals(byteArrayOf(1), bijlage.content)
+        assertArrayEquals(byteArrayOf(1), bijlage.inhoud)
     }
 
     @Test
@@ -396,7 +396,7 @@ class BerichtOphaalServiceTest {
 
         // Falende close mag de geslaagde read niet kapotmaken: bytes komen normaal terug.
         assertEquals("application/pdf", bijlage.mimeType)
-        assertArrayEquals(bytes, bijlage.content)
+        assertArrayEquals(bytes, bijlage.inhoud)
         verify { mockResp.close() }
     }
 

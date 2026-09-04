@@ -227,8 +227,8 @@ paths:
 
         `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
         mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
-        `image/jpeg`: typen die een browser rendert zonder code uit het bestand uit te
-        voeren. Elk ander type krijgt `attachment` — met name `text/html` en
+        `image/jpeg`: typen waarvan de weergave geen code uitvoert die bij de DOM of de
+        cookies van de afnemer kan. Elk ander type krijgt `attachment` — met name `text/html` en
         `image/svg+xml`, die bij het openen van dit adres onder de origin van de afnemer
         zouden draaien (stored XSS); CSP `frame-ancestors` dekt die top-level navigatie
         niet. Een MIME-type dat onbruikbaar is als headerwaarde (niet te parsen, of met

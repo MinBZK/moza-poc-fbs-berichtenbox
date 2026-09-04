@@ -133,7 +133,7 @@ class BerichtOphaalService(
     }
 
     /**
-     * Wat er nodig is om een bijlage uit te leveren. `content` wordt niet defensief
+     * Wat er nodig is om een bijlage uit te leveren. `inhoud` wordt niet defensief
      * gekopieerd — aanroepers mogen de bytes niet muteren; een kopie per bijlage zou
      * de heap-druk verdubbelen.
      *
@@ -141,7 +141,7 @@ class BerichtOphaalService(
      * gegenereerde `toString` zou de bestandsnaam — die persoonsgegevens kan bevatten —
      * in elke logregel zetten waarin het object per ongeluk belandt.
      */
-    class BijlageInhoud(val mimeType: String, val bestandsnaam: String?, val content: ByteArray)
+    class BijlageInhoud(val mimeType: String, val bestandsnaam: String?, val inhoud: ByteArray)
 
     private fun zoekBerichtInCache(xOntvanger: String, berichtId: UUID) =
         leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId)") {

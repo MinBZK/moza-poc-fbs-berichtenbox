@@ -35,9 +35,10 @@ rechtstreekse magazijn-afname en de route via de uitvraag hetzelfde antwoord gev
 Pure object (geen CDI-bean), met:
 
 - `INLINE_VEILIGE_TYPEN = setOf("application/pdf", "image/png", "image/jpeg")` —
-  typen die een browser rendert zonder script uit te voeren. Alles daarbuiten
-  (`text/html`, `image/svg+xml`, `application/xhtml+xml`, onbekend, `octet-stream`)
-  blijft `attachment`.
+  typen waarvan de weergave geen code uitvoert die bij de DOM of de cookies van onze
+  origin kan. (Een PDF-viewer draait het JavaScript in een PDF wél, maar afgeschermd.)
+  Alles daarbuiten (`text/html`, `image/svg+xml`, `application/xhtml+xml`, onbekend,
+  `octet-stream`) blijft `attachment`.
 - `fun waarde(mediaType: MediaType, bestandsnaam: String?): String` — bouwt de
   volledige headerwaarde: `inline`/`attachment`, plus als er een naam is
   `; filename="<ascii>"; filename*=UTF-8''<pct-encoded>` (RFC 6266 + RFC 5987).
@@ -45,8 +46,11 @@ Pure object (geen CDI-bean), met:
 Sanitatie van de naam gebeurt hier, niet bij de aanroeper, zodat geen enkele route
 een onbewerkte naam in de header kan krijgen:
 
-- `filename=`: alles buiten `[A-Za-z0-9._-]` wordt `_`. Dat vangt aanhalingstekens,
-  backslashes, `\r\n` (header-splitting) en pad-scheidingstekens in één regel.
+- Vóór beide coderingen gaan control- en format-tekens eruit en worden `/`, `\` en `:`
+  een `_`. Saneren in de ASCII-vorm alleen zou niets afdwingen: een client decodeert
+  `filename*` terug en geeft die parameter voorrang.
+- `filename=`: alles buiten `[A-Za-z0-9._-]` wordt `_`, zodat een aanhalingsteken de
+  quoted-string niet kan sluiten.
 - `filename*=`: percent-encoding van de UTF-8-bytes, alles buiten de RFC 5987
   `attr-char`-set gecodeerd. Draagt de niet-Latijnse naam correct over.
 - Lege of blanco naam → geen filename-parameters, alleen `inline`/`attachment`.
@@ -57,11 +61,10 @@ Beide parameters worden altijd samen gezet: `filename=` voor clients die
 `filename*` niet kennen, `filename*` als de exacte naam. Een tak "alleen `filename`
 als de naam al ASCII is" zou gedrag toevoegen zonder iets op te lossen.
 
-Control- en format-tekens gaan er vooraf uit. Control-tekens dragen `\r\n`; format-tekens
-dragen de bidi-overrides waarmee `salaris<U+202E>fdp.exe` in een downloadlijst als
-`salarisexe.pdf` verschijnt. Percent-codering helpt daar niet: de browser decodeert
-`filename*` terug en geeft die parameter voorrang boven de ASCII-vorm, dus weghalen is
-de enige plek waar dit te stoppen valt.
+Waarom control- en format-tekens: de eerste dragen `\r\n`, de tweede de bidi-overrides
+waarmee `salaris<U+202E>fdp.exe` in een downloadlijst als `salarisexe.pdf` verschijnt. Het
+lopen gebeurt per code point, want de tag-tekens (U+E0000-blok) staan buiten de BMP en zijn
+per `Char` alleen maar surrogates.
 
 Naast de dispositie krijgt het parsen van het MIME-type een guard: `MediaType.valueOf`
 accepteert `application/pdf;name="a<CR><LF>b"` en houdt de regeleindes in de parameter,
@@ -74,8 +77,10 @@ meteen, zodat beide diensten hun eigen fout-tak volgen.
 - `BerichtenResource.getBijlage` zet naast het bestaande MIME-type-property een
   tweede property met `bijlage.naam`.
 - `BijlageContentTypeFilter` leest beide en zet de header via de gedeelde functie.
-  De fail-open-tak (onparsebaar MIME-type → `Content-Type` ongewijzigd) blijft, maar
-  zet dan `attachment` zonder naam: geen inline op een type dat we niet begrijpen.
+  Een onbruikbaar MIME-type valt fail-closed terug op `application/octet-stream` en dus
+  op een download — gelijk aan de uitvraag. De onderhandelde `Content-Type` laten staan
+  zou de bytes de deur uit laten gaan onder het type uit het `Accept` van de aanroeper.
+  De bestandsnaam gaat wél mee: die staat los van het type en is even goed gesaneerd.
 
 ### 3. `services/berichtenuitvraag`
 
@@ -137,12 +142,39 @@ hoort bij de afweging genoemd. Het carrier-object in de uitvraag is daarom bewus
 `data class`: de gegenereerde `toString` zou de naam in elke logregel zetten waarin het
 object per ongeluk belandt.
 
+**`inline` reikt niet verder dan het vertrouwen in het magazijnregister.** De uitvraag
+beslist op het `Content-Type` dat het bronmagazijn meestuurt. Een deelnemend magazijn kan
+dus bytes van eigen keuze laten tonen onder de origin van de berichtenbox. Met `nosniff`
+blijft dat beperkt tot de PDF- en afbeeldingsviewer — geen HTML-uitvoering — maar het is
+nieuw gedrag: eerder was alles een download. Wie een magazijn in het register zet, zet
+daarmee ook dit vertrouwen.
+
+**De demo blijft downloaden.** De berichtenbox in `demo/demo-console` haalt de bytes met
+`fetch` op (nodig voor de `X-Ontvanger`-header) en zet de downloadnaam zelf; hij leest de
+`Content-Disposition` niet. Hij saneert de naam daarom net als de keten. Het effect van
+deze wijziging is in de demo dus niet te zien — dat vraagt een afnemer die de dispositie
+wél volgt.
+
 **De extensie in de naam blijft die van de aanleveraar.** `mimeType=application/pdf` met
 `naam=jaaropgave.pdf.hta` levert een download die `.hta` heet. De naam wordt echter al
 ongewijzigd teruggegeven in `BijlageMetadata` en door afnemers als downloadnaam gebruikt,
 dus dat oppervlak bestaat los van deze wijziging. De extensie afdwingen uit het MIME-type
 verandert aangeleverde gegevens en is een productbeslissing, geen header-detail; wie dat
 wil, hoort de naam bij aanlevering te begrenzen.
+
+## Open punt voor de refinement
+
+Het magazijn controleert de vórm van een aangeleverd `mimeType` niet: `Bijlage` eist
+alleen niet-leeg en ≤ 127 tekens, en de spec zet er geen `pattern` op. Een aanleveraar kan
+daarmee `pdf` of `application/pdf;name="a<CR><LF>b"` wegschrijven, waarna élke download van
+die bijlage een 500 is — de bytes gaan immers niet onder een type dat niet klopt de deur
+uit. De simulator wéigert zo'n aanlevering al (`MEDIATYPE_VORM`), dus die accepteert nu
+strikt minder dan het echte magazijn.
+
+Dat gat bestond vóór deze wijziging en dichten betekent het aanlever-contract aanscherpen
+(een 400 waar nu een 201 volgt). Dat is een productbeslissing, geen header-detail: voorleggen
+aan de opdrachtgever als eigen issue, zodat de 500-tak wordt wat hij hoort te zijn — een
+vangnet dat je met een geldige aanlevering niet kunt raken.
 
 ## Buiten scope
 

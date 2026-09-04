@@ -37,12 +37,13 @@ internal const val BIJLAGE_NAAM_PROPERTY = "fbs.bijlage.naam"
  * te draaien; alleen `BerichtenResource.getBijlage` zet de property.
  *
  * Defense-in-depth: parse het MIME-type opnieuw via [BijlageMediaType]. Een
- * toekomstige caller (test, ander endpoint) zou de property zonder
- * pre-validatie kunnen zetten; een ongeparste waarde zou `\r\n`-header-splitting
- * toelaten. Bij een onbruikbare waarde laten we de default `Content-Type` staan en
- * bieden we de bytes als download aan: een type dat we niet begrijpen, tonen we niet.
- * De bestandsnaam gaat daar wél mee — die staat los van het mediatype en is even
- * gesaneerd.
+ * toekomstige caller (test, ander endpoint) zou de property zonder pre-validatie
+ * kunnen zetten; een ongeparste waarde zou `\r\n`-header-splitting toelaten. Bij een
+ * onbruikbare waarde vallen we fail-closed terug op `application/octet-stream` en dus
+ * op een download: een type dat we niet begrijpen, tonen we niet, en de door JAX-RS
+ * onderhandelde `Content-Type` laten staan zou de bytes onder een willekeurig
+ * `Accept`-type de deur uit laten gaan. De bestandsnaam gaat wél mee — die staat los
+ * van het mediatype en is even goed gesaneerd.
  *
  * NameBinding is overwogen voor expliciete scoping, maar Quarkus REST neemt de
  * annotatie op de override-methode niet over uit de gegenereerde interface;
@@ -55,22 +56,16 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
         val naam = requestContext.getProperty(BIJLAGE_NAAM_PROPERTY) as? String
         val parsed = BijlageMediaType.parse(mimeType)
 
-        if (parsed == null) {
+        val effectief = parsed ?: MediaType.APPLICATION_OCTET_STREAM_TYPE.also {
             log.warnf(
-                "BIJLAGE_MIME_TYPE_PROPERTY bevat een ongeldige MediaType (%s); Content-Type ongewijzigd gelaten. " +
-                    "De resource zou dit horen te valideren — check de caller.",
+                "BIJLAGE_MIME_TYPE_PROPERTY bevat een onbruikbare MediaType (%s); fallback naar octet-stream " +
+                    "+ download. De resource zou dit horen te valideren — check de caller.",
                 mimeType,
             )
-            responseContext.headers.putSingle(
-                "Content-Disposition",
-                BijlageContentDisposition.waarde(MediaType.APPLICATION_OCTET_STREAM_TYPE, naam),
-            )
-
-            return
         }
 
-        responseContext.headers.putSingle("Content-Type", parsed.toString())
-        responseContext.headers.putSingle("Content-Disposition", BijlageContentDisposition.waarde(parsed, naam))
+        responseContext.headers.putSingle("Content-Type", effectief.toString())
+        responseContext.headers.putSingle("Content-Disposition", BijlageContentDisposition.waarde(effectief, naam))
     }
 
     private companion object {

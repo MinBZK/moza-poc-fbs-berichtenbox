@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.equalTo as wmEqualTo
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath
@@ -9,24 +8,25 @@ import com.github.tomakehurst.wiremock.client.WireMock.notMatching
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.patchRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo as wmEqualTo
 import com.github.tomakehurst.wiremock.http.Fault
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
-import java.time.Instant
-import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Instant
+import java.util.UUID
 
 /**
  * Vult coverage-gaten in de services aan: pure unit-tests (MockK) tellen niet

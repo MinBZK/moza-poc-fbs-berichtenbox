@@ -14,7 +14,6 @@ class BijlageContentDispositionTest {
     @ParameterizedTest
     @ValueSource(strings = ["application/pdf", "image/png", "image/jpeg"])
     fun `een type dat een browser veilig toont, mag inline`(mimeType: String) {
-        assertTrue(BijlageContentDisposition.magInline(MediaType.valueOf(mimeType)))
         assertEquals("inline", BijlageContentDisposition.waarde(MediaType.valueOf(mimeType), null))
     }
 
@@ -32,25 +31,24 @@ class BijlageContentDispositionTest {
         ],
     )
     fun `elk ander type blijft een download`(mimeType: String) {
-        assertFalse(BijlageContentDisposition.magInline(MediaType.valueOf(mimeType)))
         assertEquals("attachment", BijlageContentDisposition.waarde(MediaType.valueOf(mimeType), null))
     }
 
     @Test
     fun `parameters op het mediatype doen niet mee aan de beslissing`() {
-        assertTrue(BijlageContentDisposition.magInline(MediaType.valueOf("application/pdf; charset=utf-8")))
-        assertFalse(BijlageContentDisposition.magInline(MediaType.valueOf("text/html; charset=utf-8")))
+        assertEquals("inline", BijlageContentDisposition.waarde(MediaType.valueOf("application/pdf; charset=utf-8"), null))
+        assertEquals("attachment", BijlageContentDisposition.waarde(MediaType.valueOf("text/html; charset=utf-8"), null))
     }
 
     @Test
     fun `hoofdletters in het mediatype veranderen de beslissing niet`() {
-        assertTrue(BijlageContentDisposition.magInline(MediaType.valueOf("Application/PDF")))
-        assertFalse(BijlageContentDisposition.magInline(MediaType.valueOf("TEXT/HTML")))
+        assertEquals("inline", BijlageContentDisposition.waarde(MediaType.valueOf("Application/PDF"), null))
+        assertEquals("attachment", BijlageContentDisposition.waarde(MediaType.valueOf("TEXT/HTML"), null))
     }
 
     @Test
     fun `een wildcard-type is geen inline-type`() {
-        assertFalse(BijlageContentDisposition.magInline(MediaType.WILDCARD_TYPE))
+        assertEquals("attachment", BijlageContentDisposition.waarde(MediaType.WILDCARD_TYPE, null))
     }
 
     @Test
@@ -98,11 +96,13 @@ class BijlageContentDispositionTest {
         value = [
             // Een aanhalingsteken of backslash zou de quoted-string sluiten of ontsnappen.
             "aan\"hef.pdf | aan_hef.pdf | aan%22hef.pdf",
-            "aan\\hef.pdf | aan_hef.pdf | aan%5Chef.pdf",
+            "aan\\hef.pdf | aan_hef.pdf | aan_hef.pdf",
             // Puntkomma zou een tweede parameter beginnen.
             "aan;filename=evil.html | aan_filename_evil.html | aan%3Bfilename%3Devil.html",
-            // Pad-scheidingstekens mogen niet buiten de downloadmap wijzen.
-            "../../etc/passwd | .._.._etc_passwd | ..%2F..%2Fetc%2Fpasswd",
+            // Pad-scheidingstekens mogen niet buiten de downloadmap wijzen — ook niet in
+            // `filename*`, dat een client terugdecodeert.
+            "../../etc/passwd | .._.._etc_passwd | .._.._etc_passwd",
+            "C:\\Windows\\evil.exe | C__Windows_evil.exe | C__Windows_evil.exe",
             // Een percent-teken in de naam mag niet als codering gelezen worden.
             "100%korting.pdf | 100_korting.pdf | 100%25korting.pdf",
         ],
@@ -122,7 +122,7 @@ class BijlageContentDispositionTest {
         assertFalse(waarde.contains('\r'))
         assertFalse(waarde.contains('\n'))
         assertEquals(
-            "inline; filename=\"notaX-Injected__ja.pdf\"; filename*=UTF-8''notaX-Injected%3A%20ja.pdf",
+            "inline; filename=\"notaX-Injected__ja.pdf\"; filename*=UTF-8''notaX-Injected_%20ja.pdf",
             waarde,
         )
     }
@@ -135,6 +135,8 @@ class BijlageContentDispositionTest {
             "\u2066", // LEFT-TO-RIGHT ISOLATE
             "\u200B", // ZERO WIDTH SPACE
             "\u0000", // NUL
+            "\uDB40\uDC41", // TAG LATIN CAPITAL A (U+E0041) — buiten de BMP
+            "\uDB40\uDC01", // LANGUAGE TAG (U+E0001) — buiten de BMP
         ],
     )
     fun `een onzichtbaar teken kan de getoonde naam niet omkeren of verbergen`(teken: String) {

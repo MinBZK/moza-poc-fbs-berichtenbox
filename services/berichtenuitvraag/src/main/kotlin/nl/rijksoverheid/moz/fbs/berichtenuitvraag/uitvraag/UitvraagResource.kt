@@ -64,7 +64,7 @@ class UitvraagResource(
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, bijlage.mimeType)
         request.setProperty(BIJLAGE_NAAM_PROPERTY, bijlage.bestandsnaam)
 
-        return bijlage.content
+        return bijlage.inhoud
     }
 
     @Logboek(name = "uitvraag-patch", processingActivityId = ProcessingActivities.UITVRAAG_BEHEER)

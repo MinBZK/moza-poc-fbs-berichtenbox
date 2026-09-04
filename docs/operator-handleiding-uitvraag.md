@@ -114,6 +114,10 @@ opnieuw post weglaten zonder dat de ontvanger het kan zien.
   [`operations/profiel-404-alert.md`](operations/profiel-404-alert.md).
 - **Een RediSearch-schemawijziging** vraagt een gecontroleerde index-herbouw:
   [`operations/redisearch-schema-bump.md`](operations/redisearch-schema-bump.md).
+- **`Content-Disposition` op een bijlage-download kan persoonsgegevens dragen.** De header draagt
+  sinds de inline-weergave de bestandsnaam, en die is door de aanleveraar gekozen
+  (`aanslag-de-vries.pdf`). De keten logt hem nergens, maar response-header-logging op een ingress
+  of outway zou hem alsnog in een log zetten: laat die uit staan voor dit endpoint.
 - **Gedeeltelijke storing is normaal gedrag.** Valt één magazijn uit, dan levert de uitvraag de
   overige berichten mét een degradatie-melding; dat is geen fout die je moet wegconfigureren.
 - **`quarkus.http.limits.max-body-size` staat op `2M`** als vangnet tegen geheugen-DoS op de
