@@ -401,6 +401,13 @@ zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een s
 - **Bulkhead** staat in de demo op 120 (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`). Bij
   n > 60 wijst de uitvraag de overtollige magazijn-calls direct af als "systeem druk" (OVERBELAST) —
   dat is bewust fail-fast-gedrag, geen bug.
+- **Paginagrootte staat in de demo op 5** (`BERICHTENSESSIECACHE_MAGAZIJN_PAGE_SIZE`), waar productie
+  er honderd vraagt. De demo-dataset zet zes tot tien berichten per organisatie per ondernemer; met
+  de productiewaarde komt dat in één call binnen en is er niets van het doorpagineren te zien. Wil je
+  laten zien dat de uitvraag ook afkápt als een organisatie meer heeft dan wij ophalen, zet dan
+  daarnaast `BERICHTENSESSIECACHE_MAX_BERICHTEN_PER_MAGAZIJN` laag (bijvoorbeeld 5): de Berichtenbox
+  meldt dan per organisatie "niet alles opgehaald". Standaard staat die grens op de productiewaarde,
+  want verlagen betekent berichten weglaten.
 - **Demo-cache-TTL is 2 minuten.** Pauzeer je langer tussen Ophalen en een vervolgactie, dan is de
   sessie verlopen (409). Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.
