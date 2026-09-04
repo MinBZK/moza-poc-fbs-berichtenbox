@@ -23,9 +23,14 @@ Vier oorzaken vallen daar samen en vragen om verschillende reacties:
 Achter die 403 zitten er nog drie: de profielservice kent de ontvanger niet (fail-closed), de
 ontvanger heeft geen actieve voorkeur voor déze afzender, of de profielservice gaf zelf een
 auth-fout door. Alleen het magazijn weet welke — vandaar dat de console de `detail` uit het
-problem+json overneemt en alleen terugvalt op een eigen zin als die er niet is. Die tekst is bij
-elke mapper handgeschreven en draagt per contract geen invoer van de aanleveraar, dus er kan geen
-identificatienummer in staan.
+problem+json overneemt en alleen terugvalt op een eigen zin als die er niet is.
+
+Dat geldt alleen bij een 4xx. Een 5xx zegt niets over dít bericht, en het `detail` erbij ("probeer
+over 30 seconden opnieuw") leest dan als een afwijzing terwijl er juist een storing aanstaat.
+
+Die tekst is bij elke mapper handgeschreven of enum-gestuurd en draagt geen identificatienummer;
+wél kan er andere invoer van de aanleveraar in staan — een afgekeurd mimeType bijvoorbeeld. Ze gaat
+daarom afgekapt en op één regel het scherm op: de lay-out van de melding ligt niet bij de keten.
 
 Het kanaal om dit te tonen ligt klaar en is ongebruikt: `bediening.js` heeft `letOp(body)` en toont
 dat op een eigen regel (`melding__letop` in `index.html`).

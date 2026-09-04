@@ -42,6 +42,9 @@ internal object Faalreden {
      * identificatienummers eruit; wél kan er invoer van de aanleveraar in staan (een afgekeurd
      * mimeType bijvoorbeeld), dus de tekst gaat afgekapt en op één regel het scherm op.
      */
+    /** Of het zin heeft de reden van het magazijn zelf op te halen; zie [vanStatus]. */
+    fun heeftEigenReden(status: Int): Boolean = status in AFWIJZINGEN
+
     fun vanStatus(magazijnOin: String, status: Int, detail: String? = null): String {
         val eigenReden = when {
             status == Response.Status.FORBIDDEN.statusCode ->
@@ -58,7 +61,7 @@ internal object Faalreden {
             else -> "magazijn $magazijnOin antwoordde met HTTP $status"
         }
 
-        if (detail.isNullOrBlank() || status >= SERVERFOUT) return eigenReden
+        if (detail.isNullOrBlank() || status !in AFWIJZINGEN) return eigenReden
 
         return "magazijn $magazijnOin wees het bericht af (HTTP $status): ${opEenRegel(detail)}"
     }
@@ -94,11 +97,15 @@ internal object Faalreden {
         return if (plat.length <= MAX_DETAIL) plat else plat.take(MAX_DETAIL).trimEnd() + "…"
     }
 
-    private val LEESTEKENS = setOf('.', '?', '!')
+    /** Het beletselteken hoort erbij: een afgekapte reden eindigt erop en is daarmee al afgesloten. */
+    private val LEESTEKENS = setOf('.', '?', '!', '…')
     private val REGELEINDEN = Regex("\\s*[\\r\\n]+\\s*")
 
     /** Ruim genoeg voor elke zin die de keten zelf schrijft, kort genoeg voor één regel op een scherm. */
     private const val MAX_DETAIL = 200
 
     private const val SERVERFOUT = 500
+
+    /** Alleen een 4xx is een uitspraak over dít bericht; daarbuiten zegt een `detail` iets anders. */
+    private val AFWIJZINGEN = 400..499
 }

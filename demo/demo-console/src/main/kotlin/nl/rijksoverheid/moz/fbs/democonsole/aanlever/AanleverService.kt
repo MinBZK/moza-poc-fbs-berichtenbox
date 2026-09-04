@@ -87,6 +87,11 @@ class AanleverService(private val clients: MagazijnClients) {
      * die alleen dekt dat het magazijn niet te bereiken was — het lézen van het antwoord kan net zo
      * goed struikelen, op een 201 zonder berichtId bijvoorbeeld, of op een verbinding die na de
      * statusregel wegvalt omdat de bediener midden in de ronde een storing aanzette.
+     *
+     * Struikelt het lezen ná een 201, dan telt de opdracht hier als mislukt terwijl het bericht in
+     * het magazijn ligt. Dat is de veiligere kant van de twee: de melding overdrijft wat er misging
+     * in plaats van een bericht stil te verzwijgen, en een derde teller voor "waarschijnlijk toch
+     * aangekomen" zou de samenvatting onleesbaarder maken dan het geval waard is.
      */
     private fun leverBehoedzaam(opdracht: AanleverOpdracht, client: MagazijnAanleverClient): Aanlevering = try {
         lever(opdracht, client)
@@ -108,7 +113,9 @@ class AanleverService(private val clients: MagazijnClients) {
         val response = try {
             client.leverAan(opdracht.verzoek)
         } catch (fout: ProcessingException) {
-            log.warning("magazijn ${opdracht.magazijnOin} niet bereikbaar voor aanleveren: $fout")
+            // Ook hier het type en niet de melding: dit type dekt naast een dode verbinding ook het
+            // serialiseren van het verzoek, en dat draagt het identificatienummer van de ontvanger.
+            log.warning("magazijn ${opdracht.magazijnOin} niet bereikbaar voor aanleveren, ${herkomst(fout)}")
 
             return Aanlevering.Mislukt(Faalreden.onbereikbaar(opdracht.magazijnOin))
         }
@@ -133,9 +140,17 @@ class AanleverService(private val clients: MagazijnClients) {
      * De reden die het magazijn zelf gaf. Mislukt het lezen — een lege body, een foutpagina in
      * plaats van problem+json — dan valt [Faalreden.vanStatus] terug op zijn eigen zin; dat een
      * afwijzing niet uit te lezen was, mag die afwijzing niet verbergen.
+     *
+     * Alleen waar die reden ook gebruikt wordt. Bij een 5xx negeert [Faalreden.vanStatus] hem, en
+     * dan zou een storing tijdens een ronde van honderd berichten honderd waarschuwingen opleveren
+     * over een body die niemand had willen lezen.
      */
     private fun detailVan(response: Response): String? = try {
-        if (response.hasEntity()) response.readEntity(Problem::class.java)?.detail else null
+        if (Faalreden.heeftEigenReden(response.status) && response.hasEntity()) {
+            response.readEntity(Problem::class.java)?.detail
+        } else {
+            null
+        }
     } catch (fout: Exception) {
         // Op waarschuwingsniveau, want dit faalt systemisch of niet: gaat één afwijzing hierop
         // stuk, dan gaan ze allemaal stuk en toont het paneel de rest van de demo een algemene zin

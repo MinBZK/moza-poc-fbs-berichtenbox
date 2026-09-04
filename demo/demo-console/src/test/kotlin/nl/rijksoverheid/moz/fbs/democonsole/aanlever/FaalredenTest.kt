@@ -108,6 +108,10 @@ class FaalredenTest {
         assertTrue(!reden.contains("\n"), "de reden hoort op één regel te passen: $reden")
         assertTrue(reden.length < 300, "de reden is ${reden.length} tekens lang")
         assertTrue(reden.contains("eerste regel tweede regel"), reden)
+
+        // En door de samenvatting heen, want daar zit de naad: een afgekapte reden eindigt op een
+        // beletselteken en kreeg daar eerder alsnog een punt achter geplakt.
+        assertTrue(Faalreden.samenvatting(listOf(reden))!!.endsWith("…"), Faalreden.samenvatting(listOf(reden))!!)
     }
 
     @ParameterizedTest

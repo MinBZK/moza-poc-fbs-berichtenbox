@@ -33,11 +33,37 @@ data class Sjabloon(val onderwerp: String, val inhoud: String)
  * Verzendende organisatie: één per magazijn (1:1 OIN↔magazijn). `oin` is tegelijk de
  * afzender-OIN én het magazijnId; `sjablonen` levert realistische onderwerp+inhoud-paren.
  */
-data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sjabloon>)
+data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sjabloon>) {
+
+    init {
+        // Zonder sjablonen valt er niets te kiezen en klapt de generator om op `nextInt(0)` — een
+        // HTTP 500 met "bound must be positive" midden in een demonstratie. Liever hier: een
+        // organisatie zonder sjablonen is in elke context onbruikbaar, niet alleen in de generator.
+        require(sjablonen.isNotEmpty()) { "organisatie $naam ($oin) heeft geen sjablonen" }
+    }
+}
 
 /**
- * Vaste demo-ontvanger. `type` is BSN/KVK/RSIN; `waarde` het (geldige) nummer. `magazijnen`
- * zijn de organisatie-OIN's waar deze persona berichten van ontvangt — dit moet één-op-één
- * sporen met de profielservice-voorkeuren, anders weigert het magazijn de aanlevering (403).
+ * Vaste demo-ontvanger. `id` is de sleutel waarmee de bediener er één aanwijst; `type` is
+ * BSN/KVK/RSIN en `waarde` het (geldige) nummer. `magazijnen` zijn de organisatie-OIN's waar deze
+ * persona berichten van ontvangt — dit moet één-op-één sporen met de profielservice-voorkeuren,
+ * anders weigert het magazijn de aanlevering (403).
  */
-data class Persona(val naam: String, val type: String, val waarde: String, val magazijnen: List<String>)
+data class Persona(
+    val id: String,
+    val naam: String,
+    val type: String,
+    val waarde: String,
+    val magazijnen: List<String>,
+)
+
+/**
+ * Een persona zoals het bedieningspaneel hem aanwijst. Bewust niet de `PersonaDto` van de
+ * personadienst: dat is het contract met een berichtenbox en draagt onder meer het
+ * identificatienummer, dat het paneel niet nodig heeft — zo kan het ook niet in de query belanden.
+ *
+ * Wie dit type uit [DemoBerichtGenerator.doelgroep] krijgt, krijgt niet-lege velden: die controle
+ * staat in het init-blok van de generator, want alleen daar valt hij bij het opstarten. Het type
+ * zelf dwingt het niet af.
+ */
+data class Doelpersona(val id: String, val label: String)
