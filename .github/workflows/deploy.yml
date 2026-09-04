@@ -133,9 +133,10 @@ env:
   # application to be created" komt daarentegen van OM zelf (Argo-Application-wait) en wordt
   # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
   PREVIEW_TASK_TIMEOUT: '900'
-  # Beide workflows geven deze header expliciet mee in plaats van op de action-default te leunen:
-  # cleanup-preview.yml zoekt de comment op deze tekst, dus drift tussen plaatsen en opruimen laat
-  # hem stil achter op een gesloten PR.
+  # De comment wordt door .github/scripts/preview-comment.sh geplaatst en niet door de
+  # deploy-action; het waarom staat in de kop van dat script. cleanup-preview.yml zoekt de comment
+  # op dezelfde tekst, dus drift tussen plaatsen en opruimen laat hem stil achter op een gesloten
+  # PR. test-preview-comment.sh bewaakt dat de drie plekken gelijk blijven.
   COMMENT_HEADER: '## 🚀 Preview Deployment'
   # De cross-domain-regels die de demo-console bij de sessiecache en bij de vier Toxiproxy-admin-API's
   # laten. Elke regel staat op projectniveau zónder peer-deployment; die vult elke deployment zelf
@@ -712,6 +713,10 @@ jobs:
     needs: [meta, build, build-externe-stubs, gate, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # De URL's gaan naar de magazijnen-job, die ná deze draait en de PR-comment samenstelt: één
+    # comment met de demo én deze uitvraag erin.
+    outputs:
+      urls: ${{ steps.deploy.outputs.urls }}
     # Eén ZAD-taak tegelijk op deze deployment; een nieuwe push wacht op de lopende i.p.v. die af
     # te breken — een halverwege afgebroken ZAD-deploy laat de deployment in een inconsistente
     # staat achter. De cleanup-job in cleanup-preview.yml draagt voor hetzelfde project + dezelfde
@@ -722,7 +727,6 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-      pull-requests: write
     # De GitHub-environment (één per PR) hangt aan déze job; de preview-URL komt uit de
     # uitvraag-deploy (de frontend). De andere projecten dragen geen environment.
     environment:
@@ -743,8 +747,6 @@ jobs:
           project-id: ${{ env.PROJECT_UITVRAAG }}
           deployment-name: pr-${{ github.event.pull_request.number }}
           clone-from: test
-          comment-on-pr: 'true'
-          comment-header: ${{ env.COMMENT_HEADER }}
           wait-for-ready: 'false'
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: |
@@ -862,6 +864,8 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+      # Voor de preview-comment onderaan deze job.
+      pull-requests: write
     steps:
       # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
       # draait een script uit .github/scripts/.
@@ -870,6 +874,7 @@ jobs:
           persist-credentials: false
 
       - name: Deploy magazijnen-project
+        id: deploy
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
@@ -898,6 +903,39 @@ jobs:
           .github/scripts/cross-domain-preview.sh zet
           "${{ env.PROJECT_MAGAZIJNEN }}" "pr-${{ github.event.pull_request.number }}"
           outbound ${{ env.CROSS_DOMAIN_REGELS_MAGAZIJNEN }}
+
+      # De comment met de preview-URL's, hier en niet bij de uitvraag-deploy: dit project draagt de
+      # demo — de bedieningsconsole, de berichtenbox en de magazijnen — en dat is voor een lezer van
+      # de PR de ingang, dus staat die sectie ook vooraan. Deze job is de laatste van de drie, dus
+      # pas hier zijn de URL's van beide kanten bekend.
+      #
+      # Het derde project (profiel, notificatie en hun twee Toxiproxy's) blijft eruit: daar zit geen
+      # scherm dat je opent, alleen stubs waar de demo doorheen praat. De grens loopt per project en
+      # niet per component — binnen een project gaat de hele `urls`-map mee.
+      #
+      # Zonder `!cancelled()` blijft de comment weg zodra de netwerkregel-stap hierboven faalt,
+      # terwijl de preview dan wél draait; de storingsknoppen in de console werken alleen niet.
+      # De deploy zelf is wél een voorwaarde: mislukt die, dan zijn er geen URL's voor de demo en
+      # zou de comment een halve preview aankondigen als een hele.
+      #
+      # Twee gevolgen van het samenstellen ná de laatste deploy, allebei aanvaard. Faalt een van de
+      # twee andere preview-jobs, dan wordt deze job overgeslagen en komt er géén comment, ook niet
+      # met de URL's die er wél zijn — maar dan is de preview zelf incompleet en is de run rood. En
+      # faalt deze stap, dan is de job rood en blokkeert `uitrol-poort` de merge terwijl de preview
+      # draait; dat is de bedoelde prijs voor "een uitgebleven comment mag niet stil zijn".
+      - name: Plaats de preview-URL's op de PR
+        if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMENT_HEADER: ${{ env.COMMENT_HEADER }}
+          PR_NUMMER: ${{ github.event.pull_request.number }}
+          URLS_DEMO: ${{ steps.deploy.outputs.urls }}
+          URLS_UITVRAAG: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
+        run: >-
+          .github/scripts/preview-comment.sh "$PR_NUMMER"
+          "Demo=$URLS_DEMO"
+          "Berichtenuitvraag=$URLS_UITVRAAG"
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.

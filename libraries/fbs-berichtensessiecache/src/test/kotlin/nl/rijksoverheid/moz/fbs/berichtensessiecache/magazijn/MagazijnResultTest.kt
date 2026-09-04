@@ -31,7 +31,7 @@ class MagazijnResultTest {
 
     @Test
     fun `Success bevat magazijn-id naam en berichten`() {
-        val success = MagazijnResult.Success("magazijn-a", "Magazijn A", listOf(bericht))
+        val success = MagazijnResult.Success("magazijn-a", "Magazijn A", listOf(bericht), afgekapt = false, totaalBeschikbaar = null)
 
         assertEquals("magazijn-a", success.magazijnId)
         assertEquals("Magazijn A", success.naam)
@@ -51,9 +51,9 @@ class MagazijnResultTest {
 
     @Test
     fun `Success vergelijkt op waarde`() {
-        val a1 = MagazijnResult.Success("id", "n", listOf(bericht))
-        val a2 = MagazijnResult.Success("id", "n", listOf(bericht))
-        val b = MagazijnResult.Success("id", "andere", listOf(bericht))
+        val a1 = MagazijnResult.Success("id", "n", listOf(bericht), afgekapt = false, totaalBeschikbaar = null)
+        val a2 = MagazijnResult.Success("id", "n", listOf(bericht), afgekapt = false, totaalBeschikbaar = null)
+        val b = MagazijnResult.Success("id", "andere", listOf(bericht), afgekapt = false, totaalBeschikbaar = null)
 
         assertEquals(a1, a2)
         assertEquals(a1.hashCode(), a2.hashCode())
@@ -63,7 +63,7 @@ class MagazijnResultTest {
 
     @Test
     fun `Success en Failure zijn niet gelijk`() {
-        val success: MagazijnResult = MagazijnResult.Success("id", "n", emptyList())
+        val success: MagazijnResult = MagazijnResult.Success("id", "n", emptyList(), afgekapt = false, totaalBeschikbaar = null)
         val failure: MagazijnResult = MagazijnResult.Failure("id", "n", RuntimeException(), MagazijnFault.INTERNAL_BUG)
 
         assertNotEquals(success, failure)
@@ -72,10 +72,10 @@ class MagazijnResultTest {
     @Test
     fun `Success met lege magazijn-id gooit IllegalArgumentException`() {
         assertThrows(IllegalArgumentException::class.java) {
-            MagazijnResult.Success("", "Magazijn", listOf(bericht))
+            MagazijnResult.Success("", "Magazijn", listOf(bericht), afgekapt = false, totaalBeschikbaar = null)
         }
         assertThrows(IllegalArgumentException::class.java) {
-            MagazijnResult.Success("   ", "Magazijn", listOf(bericht))
+            MagazijnResult.Success("   ", "Magazijn", listOf(bericht), afgekapt = false, totaalBeschikbaar = null)
         }
     }
 

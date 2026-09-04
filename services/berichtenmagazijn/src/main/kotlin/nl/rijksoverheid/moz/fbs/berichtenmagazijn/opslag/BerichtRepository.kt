@@ -81,7 +81,12 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
         page: Int,
         pageSize: Int,
     ): PagedBerichten {
+        // De database-id als tweede sleutel, en niet alleen het tijdstip. Twee aanleveringen binnen
+        // dezelfde klok-tik krijgen hetzelfde tijdstip, en dan is de volgorde zonder tiebreaker aan
+        // de database: bij paginering kan een bericht daardoor op twee pagina's staan of op geen.
+        // De id loopt op met de aanlevering, dus aflopend is dezelfde bedoeling als "nieuwste eerst".
         val sort = Sort.by("tijdstipOntvangst", Sort.Direction.Descending)
+            .and("id", Sort.Direction.Descending)
         val query = if (afzender == null) {
             find(
                 "ontvangerType = ?1 and ontvangerWaarde = ?2 and verwijderdOp is null",

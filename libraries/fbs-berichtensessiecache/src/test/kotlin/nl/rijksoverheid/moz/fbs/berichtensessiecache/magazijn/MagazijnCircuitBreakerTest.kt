@@ -132,7 +132,12 @@ class MagazijnCircuitBreakerTest {
 
     @Test
     fun `circuitActieVoor mapt elke uitkomst op de juiste circuit-actie`() {
-        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(MagazijnResult.Success("m", "Magazijn A", emptyList())))
+        assertEquals(
+            CircuitActie.MELD_SUCCES,
+            circuitActieVoor(
+                MagazijnResult.Success("m", "Magazijn A", emptyList(), afgekapt = false, totaalBeschikbaar = null),
+            ),
+        )
 
         assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.TIMEOUT)))
         assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.HTTP_5XX)))
