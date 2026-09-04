@@ -25,12 +25,12 @@ const omgevingGeladen = fetch('/api/demo/omgeving')
 // als queryparameter en het detail-endpoint geeft het niet opnieuw terug.
 const magazijnPerBericht = new Map();
 
-// magazijnId (== afzender-OIN) → organisatienaam, gevuld uit de ophaal-events, zodat de UI
-// "RVO"/"Belastingdienst" toont i.p.v. de kale OIN.
-const magazijnNamen = new Map();
-
+// De lijst draagt de organisatienaam per bericht (`afzenderNaam`), ook voor een bericht dat
+// binnenkwam van een organisatie die deze zitting nog niet bevraagd is. Ontbreekt het veld, dan
+// kent het register geen naam; dat tonen we als zodanig i.p.v. de kale OIN, die een schermlezer
+// cijfer voor cijfer voorleest.
 function afzenderNaam(bericht) {
-  return magazijnNamen.get(bericht.magazijnId) || bericht.afzender || bericht.magazijnId;
+  return bericht.afzenderNaam || 'Onbekende organisatie';
 }
 
 // Laatst geladen lijst — bron voor client-side sorteren/filteren zonder nieuwe server-call.
@@ -150,10 +150,6 @@ async function ophalen() {
 
 // Werkt de voortgangsregels bij; geeft true terug bij een terminaal event.
 function verwerkOphaalEvent(gebeurtenis, regels) {
-  if (gebeurtenis.magazijnId && gebeurtenis.naam) {
-    magazijnNamen.set(gebeurtenis.magazijnId, gebeurtenis.naam);
-  }
-
   switch (gebeurtenis.event) {
     case 'magazijn-bevraging-gestart':
       regels.push(`${gebeurtenis.naam || gebeurtenis.magazijnId}: bevragen…`);

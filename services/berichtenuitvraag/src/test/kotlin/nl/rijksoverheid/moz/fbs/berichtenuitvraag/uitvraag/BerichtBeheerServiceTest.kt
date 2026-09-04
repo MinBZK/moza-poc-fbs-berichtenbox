@@ -29,7 +29,10 @@ class BerichtBeheerServiceTest {
     private val router: MagazijnRouter = mockk {
         every { forMagazijn(any()) } returns magazijn
     }
-    private val service = BerichtBeheerService(sessiecache, router)
+    private val afzendernamen: Afzendernamen = mockk {
+        every { naamVoor(any()) } returns null
+    }
+    private val service = BerichtBeheerService(sessiecache, router, afzendernamen)
 
     private val id: UUID = UUID.randomUUID()
     private val ontvanger = "BSN:999990019"

@@ -391,7 +391,14 @@ components:
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
-        afzender: { type: string }
+        afzenderNaam:
+          type: string
+          description: |
+            Weergavenaam van de afzendende organisatie, door de uitvraag opgezocht in
+            het magazijnregister bij `magazijnId`. Optioneel: het veld ontbreekt zodra
+            het register voor die organisatie geen naam kent. Aan het ontbreken van het
+            veld herkent een afnemer dat er geen naam is en bepaalt hij zelf wat hij
+            toont; `magazijnId` is een twintigcijferig nummer en nooit een alternatief.
         publicatietijdstip:
           type: string
           format: date-time
@@ -410,7 +417,14 @@ components:
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
-        afzender: { type: string }
+        afzenderNaam:
+          type: string
+          description: |
+            Weergavenaam van de afzendende organisatie, door de uitvraag opgezocht in
+            het magazijnregister bij `magazijnId`. Optioneel: het veld ontbreekt zodra
+            het register voor die organisatie geen naam kent. Aan het ontbreken van het
+            veld herkent een afnemer dat er geen naam is en bepaalt hij zelf wat hij
+            toont; `magazijnId` is een twintigcijferig nummer en nooit een alternatief.
         inhoud: { type: string }
         publicatietijdstip:
           type: string

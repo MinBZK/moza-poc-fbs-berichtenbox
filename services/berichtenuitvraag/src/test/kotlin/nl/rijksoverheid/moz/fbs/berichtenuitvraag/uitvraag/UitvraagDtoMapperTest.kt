@@ -95,10 +95,11 @@ class UitvraagDtoMapperTest {
             status = Leesstatus.GELEZEN,
         )
 
-        val api = UitvraagDtoMapper.toApiBericht(domein)
+        val api = UitvraagDtoMapper.toApiBericht(domein, afzenderNaam = "Belastingdienst")
 
         assertEquals(id, api.berichtId)
         assertEquals("Onderwerp", api.onderwerp)
+        assertEquals("Belastingdienst", api.afzenderNaam)
         assertEquals("Inhoud", api.inhoud)
         assertEquals("magazijn-a", api.magazijnId)
         assertEquals("werk", api.map)
@@ -106,6 +107,27 @@ class UitvraagDtoMapperTest {
         assertEquals(bijlageId, api.bijlagen.single().bijlageId)
         assertEquals("factuur.pdf", api.bijlagen.single().naam)
         assertEquals("/api/v1/berichten/$id", api.links.self.href)
+    }
+
+    @Test
+    fun `toApiBericht zonder bekende afzendernaam laat het veld leeg`() {
+        // Geen terugval op afzender/magazijnId: een twintigcijferig nummer als naam zou het
+        // ontbreken juist verbergen voor de afnemer.
+        val domein = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = "00000001003214345000",
+            ontvanger = Bsn("999990019"),
+            onderwerp = "Onderwerp",
+            inhoud = "Inhoud",
+            publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
+            magazijnId = "00000001003214345000",
+            aantalBijlagen = 0,
+        )
+
+        val api = UitvraagDtoMapper.toApiBericht(domein, afzenderNaam = null)
+
+        assertNull(api.afzenderNaam)
+        assertEquals("00000001003214345000", api.magazijnId)
     }
 
     @Test
@@ -123,12 +145,33 @@ class UitvraagDtoMapperTest {
             status = null,
         )
 
-        val api = UitvraagDtoMapper.toApiSamenvatting(domein)
+        val api = UitvraagDtoMapper.toApiSamenvatting(domein, afzenderNaam = "Belastingdienst")
 
         assertEquals(id, api.berichtId)
+        assertEquals("Belastingdienst", api.afzenderNaam)
         assertEquals("magazijn-b", api.magazijnId)
         assertEquals(3, api.aantalBijlagen)
         assertNull(api.status)
         assertEquals("/api/v1/berichten/$id", api.links.self.href)
+    }
+
+    @Test
+    fun `toApiSamenvatting zonder bekende afzendernaam laat het veld leeg`() {
+        val domein = BerichtSamenvatting(
+            berichtId = UUID.randomUUID(),
+            afzender = "00000001003214345000",
+            ontvanger = Bsn("999990019"),
+            onderwerp = "Onderwerp",
+            publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
+            magazijnId = "00000001003214345000",
+            aantalBijlagen = 0,
+            map = null,
+            status = null,
+        )
+
+        val api = UitvraagDtoMapper.toApiSamenvatting(domein, afzenderNaam = null)
+
+        assertNull(api.afzenderNaam)
+        assertEquals("00000001003214345000", api.magazijnId)
     }
 }

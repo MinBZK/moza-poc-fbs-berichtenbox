@@ -21,6 +21,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -92,6 +94,54 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
             .body("berichtId", equalTo(id.toString()))
+    }
+
+    @Test
+    fun `lijst en detail dragen de afzendernaam die het register voor het magazijn kent`() {
+        val id = UUID.randomUUID()
+        seedBericht(id, magazijnId = WireMockBackendsResource.OIN_B)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].magazijnId", equalTo(WireMockBackendsResource.OIN_B))
+            .body("berichten[0].afzenderNaam", equalTo("Belastingdienst"))
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(200)
+            .body("afzenderNaam", equalTo("Belastingdienst"))
+    }
+
+    @Test
+    fun `lijst en detail laten afzenderNaam weg voor een magazijn zonder naam in het register`() {
+        // Het veld ontbreekt, en er staat geen magazijnId in dat zich als naam voordoet:
+        // daaraan herkent een afnemer dat er geen naam is.
+        val id = UUID.randomUUID()
+        seedBericht(id, magazijnId = WireMockBackendsResource.OIN_A)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].magazijnId", equalTo(WireMockBackendsResource.OIN_A))
+            .body("berichten[0]", not(hasKey("afzenderNaam")))
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(200)
+            .body("$", not(hasKey("afzenderNaam")))
     }
 
     @Test

@@ -13,3 +13,15 @@ headers {
   X-Ontvanger: {{ontvangerHeaderPersoon}}
   traceparent: 00-{{traceId}}-{{parentSpanId}}-01
 }
+
+docs {
+  Berichtenlijst uit de sessiecache. Elk bericht draagt naast `magazijnId` (de afzender-OIN,
+  twintig cijfers) ook `afzenderNaam`: de weergavenaam die het magazijnregister bij die OIN
+  kent, bijvoorbeeld "RVO" of "Belastingdienst". Daarmee is een leesbare afzenderkolom te
+  tonen zonder eerst de ophaalronde (request 1) te draaien, en draagt ook een via de
+  aanmeld-webhook (request 8) binnengekomen bericht meteen een naam.
+
+  Kent het register geen naam voor die organisatie, dan ontbreekt `afzenderNaam` in het
+  antwoord. Aan dat ontbreken herkent een afnemer dat er geen naam is; `magazijnId` is
+  daarvoor geen alternatief.
+}

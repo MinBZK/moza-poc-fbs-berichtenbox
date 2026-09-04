@@ -25,7 +25,10 @@ class BerichtOphaalServiceTest {
     private val router: MagazijnRouter = mockk {
         every { forMagazijn(any()) } returns magazijn
     }
-    private val service = BerichtOphaalService(sessiecache, router)
+    private val afzendernamen: Afzendernamen = mockk {
+        every { naamVoor(any()) } returns null
+    }
+    private val service = BerichtOphaalService(sessiecache, router, afzendernamen)
 
     private fun domeinBericht(berichtId: UUID, magazijnId: String = "magazijn-a") = Bericht(
         berichtId = berichtId,

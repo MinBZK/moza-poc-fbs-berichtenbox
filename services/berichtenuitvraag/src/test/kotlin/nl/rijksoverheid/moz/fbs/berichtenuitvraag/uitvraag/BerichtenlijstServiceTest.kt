@@ -20,7 +20,11 @@ import java.util.UUID
 class BerichtenlijstServiceTest {
 
     private val sessiecache: Sessiecache = mockk()
-    private val service = BerichtenlijstService(sessiecache)
+    private val afzendernamen: Afzendernamen = mockk {
+        every { naamVoor(any()) } returns null
+        every { naamVoor("00000001823288444000") } returns "Belastingdienst"
+    }
+    private val service = BerichtenlijstService(sessiecache, afzendernamen)
     private val ontvanger = Bsn("999990019")
 
     private fun pagina(
@@ -30,13 +34,16 @@ class BerichtenlijstServiceTest {
         totalPages: Int = if (berichten.isEmpty()) 0 else 1,
     ) = BerichtenPagina(berichten, page, pageSize, berichten.size.toLong(), totalPages)
 
-    private fun samenvatting(id: UUID = UUID.randomUUID()) = BerichtSamenvatting(
+    private fun samenvatting(
+        id: UUID = UUID.randomUUID(),
+        magazijnId: String = "magazijn-a",
+    ) = BerichtSamenvatting(
         berichtId = id,
         afzender = "00000001003214345000",
         ontvanger = Bsn("999990019"),
         onderwerp = "Onderwerp",
         publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
-        magazijnId = "magazijn-a",
+        magazijnId = magazijnId,
         aantalBijlagen = 2,
         map = "werk",
         status = Leesstatus.ONGELEZEN,
@@ -73,11 +80,38 @@ class BerichtenlijstServiceTest {
 
         assertEquals(id, item.berichtId)
         assertEquals("Onderwerp", item.onderwerp)
-        assertEquals("00000001003214345000", item.afzender)
         assertEquals(2, item.aantalBijlagen)
         assertEquals("werk", item.map)
         assertEquals("magazijn-a", item.magazijnId)
         assertEquals("/api/v1/berichten/$id", item.links.self.href)
+    }
+
+    @Test
+    fun `lijst zet de afzendernaam uit het register op elk bericht`() {
+        every { sessiecache.lijst(ontvanger, null, null) } returns pagina(
+            berichten = listOf(
+                samenvatting(magazijnId = "00000001823288444000"),
+                samenvatting(magazijnId = "magazijn-a"),
+            ),
+        )
+
+        val berichten = service.lijst("BSN:999990019", null, null).berichten
+
+        // Twee berichten uit verschillende magazijnen: dit bewijst dat de naam per bericht
+        // wordt opgezocht en niet één keer voor de hele lijst wordt overgenomen.
+        assertEquals("Belastingdienst", berichten[0].afzenderNaam)
+        assertNull(berichten[1].afzenderNaam)
+    }
+
+    @Test
+    fun `zoek zet de afzendernaam uit het register op elk bericht`() {
+        every { sessiecache.zoek(ontvanger, "rente") } returns pagina(
+            berichten = listOf(samenvatting(magazijnId = "00000001823288444000")),
+        )
+
+        val berichten = service.zoek("BSN:999990019", "rente").berichten
+
+        assertEquals("Belastingdienst", berichten.single().afzenderNaam)
     }
 
     @Test

@@ -104,6 +104,27 @@ class AanmeldResourceTest {
     }
 
     @Test
+    fun `een aangemeld bericht draagt in de lijst de naam van zijn organisatie`() {
+        // Het aanmeld-pad slaat de ophaalronde over: de organisatie is deze sessie nooit
+        // bevraagd. De naam komt uit het register, dus staat hij er evengoed.
+        given()
+            .contentType(cloudEventsJson)
+            .body(event())
+            .`when`().post("/api/v1/aanmeldingen")
+            .then()
+            .statusCode(202)
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].magazijnId", equalTo(afzender))
+            .body("berichten[0].afzenderNaam", equalTo("RVO"))
+    }
+
+    @Test
     fun `geen actieve sessie geeft 202 maar schrijft niets`() {
         sessiecache.schrijfFouten.add(SessiecacheException.GeenActieveSessie("geen sessie"))
 
