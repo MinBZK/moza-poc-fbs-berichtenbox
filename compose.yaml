@@ -339,6 +339,11 @@ services:
       # Extra register-entries voor de gesimuleerde magazijnen, gegenereerd in demo/generated/.
       # SmallRye leest dit absolute pad als additionele config-bron en merge't het bij de baked A/B.
       SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties
+      # Vijf per pagina, waar productie er honderd vraagt: de demo-dataset zet zes tot tien berichten
+      # per organisatie, dus bij honderd komt alles in één call binnen en blijft het doorpagineren
+      # onzichtbaar. De bovengrens per magazijn blijft wél op de productiewaarde — die verlagen zou
+      # berichten wegláten.
+      BERICHTENSESSIECACHE_MAGAZIJN_PAGE_SIZE: "5"
     volumes:
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
 

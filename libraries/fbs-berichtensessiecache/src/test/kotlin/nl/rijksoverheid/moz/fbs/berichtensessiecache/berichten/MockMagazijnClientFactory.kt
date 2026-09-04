@@ -114,7 +114,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
     ): MagazijnClient = mockk<MagazijnClient>().also { client ->
         val magazijnBerichten = berichten.map { it.toMagazijnBericht() }
 
-        every { client.getBerichten(any(), any()) } answers {
+        every { client.getBerichten(any(), any(), any(), any()) } answers {
             if (shouldTimeout()) Thread.sleep(15_000)
             if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
             httpFailStatus()?.let { status -> throw WebApplicationException(status) }
