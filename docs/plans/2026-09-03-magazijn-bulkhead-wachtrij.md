@@ -379,4 +379,5 @@ Twee richtingen, geen van beide in deze PR:
 * `store` in delen aanbieden in plaats van in één keer — houdt de grens onafhankelijk van de
   fan-out, en raakt de transactie-semantiek (nu is de hele lijst één transactie).
 
-Losgetrokken als vervolgwerk; deze PR gaat over de wachtrij en niet over het cache-schrijfpad.
+Losgetrokken als [#1077](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1077); deze PR gaat
+over de wachtrij en niet over het cache-schrijfpad.
