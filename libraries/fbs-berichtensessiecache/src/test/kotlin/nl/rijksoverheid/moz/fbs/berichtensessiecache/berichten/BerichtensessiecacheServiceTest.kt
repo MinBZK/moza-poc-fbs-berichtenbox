@@ -1100,7 +1100,6 @@ class BerichtensessiecacheServiceTest {
     private fun testMagazijnBericht() = MagazijnBericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",
-        afzenderNaam = "Magazijn A",
         ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", ontvanger.waarde),
         onderwerp = "Test bericht",
         inhoud = "Inhoud van het bericht",
