@@ -11,6 +11,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting as DomeinSamenvatting
 
 /**
  * Lijst- en zoekoperaties via de in-process [Sessiecache]-facade. De facade
@@ -26,6 +27,7 @@ import java.nio.charset.StandardCharsets
 @ApplicationScoped
 class BerichtenlijstService(
     private val sessiecache: Sessiecache,
+    private val afzendernamen: Afzendernamen,
 ) {
     fun lijst(xOntvanger: String, pagina: Int?, paginaGrootte: Int?): BerichtenLijst {
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
@@ -42,7 +44,7 @@ class BerichtenlijstService(
         // `_zoeken` kent geen paginering-parameters in de uitvraag-spec; alleen een
         // self-link. De facade levert de eerste pagina (default-grootte).
         return BerichtenLijst().apply {
-            berichten = resultaat.berichten.map { UitvraagDtoMapper.toApiSamenvatting(it) }
+            berichten = resultaat.berichten.map { toApiSamenvatting(it) }
             links = PaginaLinks().apply {
                 self = Link().apply { href = "${ApiInfo.BASE_PATH}/berichten/_zoeken?q=$encodedQ" }
             }
@@ -51,9 +53,12 @@ class BerichtenlijstService(
 
     private fun toBerichtenLijst(pagina: BerichtenPagina, maakHref: (Int) -> String): BerichtenLijst =
         BerichtenLijst().apply {
-            berichten = pagina.berichten.map { UitvraagDtoMapper.toApiSamenvatting(it) }
+            berichten = pagina.berichten.map { toApiSamenvatting(it) }
             links = paginaLinks(pagina, maakHref)
         }
+
+    private fun toApiSamenvatting(samenvatting: DomeinSamenvatting) =
+        UitvraagDtoMapper.toApiSamenvatting(samenvatting, afzendernamen.naamVoor(samenvatting))
 
     private fun paginaLinks(pagina: BerichtenPagina, maakHref: (Int) -> String): PaginaLinks {
         val links = PaginaLinks()

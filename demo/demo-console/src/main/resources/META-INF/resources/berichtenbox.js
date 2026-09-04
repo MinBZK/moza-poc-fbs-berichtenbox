@@ -21,16 +21,15 @@ const omgevingGeladen = fetch('/api/demo/omgeving')
     return null;
   });
 
-// magazijnId per bericht onthouden: de lijst levert het mee, maar PATCH en DELETE vereisen het
-// als queryparameter en het detail-endpoint geeft het niet opnieuw terug.
+// magazijnId per bericht onthouden: PATCH en DELETE vereisen het als queryparameter, en een
+// schrijfactie vanuit de lijst heeft zo geen detail-aanroep nodig om eraan te komen.
 const magazijnPerBericht = new Map();
 
-// magazijnId (== afzender-OIN) → organisatienaam, gevuld uit de ophaal-events, zodat de UI
-// "RVO"/"Belastingdienst" toont i.p.v. de kale OIN.
-const magazijnNamen = new Map();
-
+// `afzenderNaam` is verplicht in de uitvraag-API; de terugval dekt een uitvraag die het contract
+// niet nakomt. Dan liever deze tekst dan de kale OIN, die een schermlezer cijfer voor cijfer
+// voorleest — en dan struikelt het sorteren niet over undefined.
 function afzenderNaam(bericht) {
-  return magazijnNamen.get(bericht.magazijnId) || bericht.afzender || bericht.magazijnId;
+  return bericht.afzenderNaam || 'Onbekende organisatie';
 }
 
 // Laatst geladen lijst — bron voor client-side sorteren/filteren zonder nieuwe server-call.
@@ -170,10 +169,6 @@ function slotregelAfkap(afgekapteMagazijnen) {
 // Werkt de voortgangsregels bij; geeft true terug bij een terminaal event. `afgekapteMagazijnen`
 // verzamelt over de stream heen welke organisaties niet alles leverden, voor de slotregel.
 function verwerkOphaalEvent(gebeurtenis, regels, afgekapteMagazijnen) {
-  if (gebeurtenis.magazijnId && gebeurtenis.naam) {
-    magazijnNamen.set(gebeurtenis.magazijnId, gebeurtenis.naam);
-  }
-
   switch (gebeurtenis.event) {
     case 'magazijn-bevraging-gestart':
       regels.push(`${gebeurtenis.naam || gebeurtenis.magazijnId}: bevragen…`);

@@ -66,6 +66,7 @@ class OpenApiContractTest {
         val bericht = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "Test",
             inhoud = "Inhoud",
@@ -80,6 +81,9 @@ class OpenApiContractTest {
 
     @Test
     fun `GET berichten levert valide BerichtenLijst`() {
+        // Twee bronnen in één antwoord, zodat de validator een lijst met meerdere
+        // `afzenderNaam`-waarden ziet en niet alleen de default-seed.
+        seedBericht(UUID.randomUUID(), magazijnId = WireMockBackendsResource.OIN_B)
         seedBericht(UUID.randomUUID())
 
         given()

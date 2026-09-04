@@ -11,6 +11,10 @@ import java.net.URI
  * magazijn; het `magazijnId` dat door DTO's en SSE-output stroomt is daarom
  * de OIN-waarde zelf ([Oin.waarde] — publiek, geen PII).
  *
+ * Een inschrijving draagt altijd een weergavenaam. Een deelnemende organisatie zonder
+ * leesbare naam is geen geldige inschrijving: de berichtenlijst toont die naam aan de
+ * ondernemer, en een organisatie zonder naam zou daar als twintigcijferig nummer landen.
+ *
  * Het type draagt de profiel-onafhankelijke URL-invariant zelf (http(s) + host),
  * zodat geen enkele producent — config-backed nu, database-backed later — een
  * onbruikbaar endpoint kan inschrijven. De profiel-afhankelijke TLS-eis
@@ -20,13 +24,14 @@ import java.net.URI
 data class Magazijninschrijving(
     val oin: Oin,
     val url: URI,
-    val naam: String?,
+    val naam: String,
     val grantHash: String? = null,
 ) {
     init {
         require(url.scheme == "http" || url.scheme == "https") { "magazijn-URL moet http(s) zijn, was: '$url'" }
         require(url.host != null) { "magazijn-URL moet een host bevatten, was: '$url'" }
         require(grantHash == null || grantHash.isNotBlank()) { "grantHash mag niet leeg of alleen whitespace zijn" }
+        require(naam.isNotBlank()) { "naam mag niet leeg of alleen whitespace zijn" }
     }
 }
 

@@ -17,13 +17,13 @@ class BerichtenCacheKeyTest {
     @Test
     fun `cacheKey heeft correct prefix`() {
         val key = BerichtenCache.cacheKey(Bsn("999993653"))
-        assertTrue(key.startsWith("berichtensessiecache:v1:"))
+        assertTrue(key.startsWith("berichtensessiecache:v2:"))
     }
 
     @Test
     fun `cacheKey bevat 64 hex characters na prefix`() {
         val key = BerichtenCache.cacheKey(Bsn("999993653"))
-        val hash = key.removePrefix("berichtensessiecache:v1:")
+        val hash = key.removePrefix("berichtensessiecache:v2:")
         assertEquals(64, hash.length)
         assertTrue(hash.matches(Regex("[0-9a-f]{64}")))
     }
@@ -54,7 +54,7 @@ class BerichtenCacheKeyTest {
     fun `berichtKey bevat UUID`() {
         val id = UUID.fromString("11111111-1111-1111-1111-111111111111")
         val key = BerichtenCache.berichtKey(id)
-        assertEquals("bericht:v1:11111111-1111-1111-1111-111111111111", key)
+        assertEquals("bericht:v2:11111111-1111-1111-1111-111111111111", key)
     }
 
     @Test

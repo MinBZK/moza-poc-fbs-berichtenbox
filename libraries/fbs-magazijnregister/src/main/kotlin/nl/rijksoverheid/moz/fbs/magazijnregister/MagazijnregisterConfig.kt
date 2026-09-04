@@ -21,7 +21,13 @@ internal interface MagazijnregisterConfig {
 
     interface Inschrijving {
         fun url(): String
-        fun naam(): Optional<String>
+
+        /**
+         * Niet-`Optional`, zodat een ontbrekende sleutel al op bind-niveau faalt (`SRCFG00014`)
+         * in plaats van pas bij de eerste lijst-respons. Zie [Magazijninschrijving.naam] voor
+         * waarom een organisatie zonder weergavenaam geen geldige inschrijving is.
+         */
+        fun naam(): String
 
         /**
          * FSC-grant-hash voor magazijnen achter een FSC-outway. Aanwezig ⇒

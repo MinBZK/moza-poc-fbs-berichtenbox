@@ -8,6 +8,7 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.IngeschrevenMagazijn
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockMagazijnResource
@@ -34,6 +35,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 afzender = "00000001234567890000",
+                afzenderNaam = "Magazijn A",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 1",
                 inhoud = "Inhoud van test bericht 1",
@@ -45,6 +47,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("22222222-2222-2222-2222-222222222222"),
                 afzender = "00000001234567890000",
+                afzenderNaam = "Magazijn A",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 2",
                 inhoud = "Inhoud van test bericht 2",
@@ -56,6 +59,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("33333333-3333-3333-3333-333333333333"),
                 afzender = "00000009876543210000",
+                afzenderNaam = "Magazijn A",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 3",
                 inhoud = "Inhoud van test bericht 3",
@@ -70,6 +74,9 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("44444444-4444-4444-4444-444444444444"),
                 afzender = "00000005555555550000",
+                // Bewust een andere naam dan de A-fixtures: met vier identieke namen zou geen
+                // enkele assertie kunnen zien of de naam bij het juiste magazijn wordt opgehaald.
+                afzenderNaam = "Magazijn B",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 4",
                 inhoud = "Inhoud van test bericht 4",
@@ -88,18 +95,19 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
         var shouldHttpFailB: Int? = null
     }
 
-    override fun getAllClients(): Map<String, MagazijnClient> {
-        return mapOf(
-            WireMockMagazijnResource.OIN_A to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }, { shouldHttpFailA }),
-            WireMockMagazijnResource.OIN_B to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }, { shouldHttpFailB }),
-        )
-    }
+    override fun getAllMagazijnen(): Map<String, IngeschrevenMagazijn> = mapOf(
+        WireMockMagazijnResource.OIN_A to IngeschrevenMagazijn(
+            magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }, { shouldHttpFailA }),
+            "Magazijn A",
+        ),
+        WireMockMagazijnResource.OIN_B to IngeschrevenMagazijn(
+            magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }, { shouldHttpFailB }),
+            "Magazijn B",
+        ),
+    )
 
-    override fun getNaam(magazijnId: String): String? = when (magazijnId) {
-        WireMockMagazijnResource.OIN_A -> "Magazijn A"
-        WireMockMagazijnResource.OIN_B -> "Magazijn B"
-        else -> null
-    }
+    override fun getAllClients(): Map<String, MagazijnClient> =
+        getAllMagazijnen().mapValues { (_, magazijn) -> magazijn.client }
 
     // De @PostConstruct-init van de superclass bouwt clients voor de register-entries;
     // mockk() voorkomt dat de Quarkus-REST-client-builder echte clients opzet (de

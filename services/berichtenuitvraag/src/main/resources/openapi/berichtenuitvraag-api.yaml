@@ -394,11 +394,19 @@ components:
 
     BerichtSamenvatting:
       type: object
-      required: [berichtId, onderwerp, publicatietijdstip, aantalBijlagen, magazijnId]
+      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, aantalBijlagen, magazijnId]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
-        afzender: { type: string }
+        afzenderNaam:
+          type: string
+          minLength: 1
+          description: |
+            Weergavenaam van de afzendende organisatie, bijvoorbeeld "RVO" of
+            "Belastingdienst". Altijd aanwezig en nooit leeg: elke deelnemende organisatie
+            draagt een verplichte naam in het magazijnregister, en elk bericht krijgt die naam
+            mee op het moment dat het in de sessie wordt opgeslagen. Een afnemer hoeft dus geen
+            terugval te bouwen — `magazijnId` is een twintigcijferig nummer en geen naam.
         publicatietijdstip:
           type: string
           format: date-time
@@ -413,11 +421,19 @@ components:
 
     Bericht:
       type: object
-      required: [berichtId, onderwerp, publicatietijdstip, magazijnId]
+      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, magazijnId]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
-        afzender: { type: string }
+        afzenderNaam:
+          type: string
+          minLength: 1
+          description: |
+            Weergavenaam van de afzendende organisatie, bijvoorbeeld "RVO" of
+            "Belastingdienst". Altijd aanwezig en nooit leeg: elke deelnemende organisatie
+            draagt een verplichte naam in het magazijnregister, en elk bericht krijgt die naam
+            mee op het moment dat het in de sessie wordt opgeslagen. Een afnemer hoeft dus geen
+            terugval te bouwen — `magazijnId` is een twintigcijferig nummer en geen naam.
         inhoud: { type: string }
         publicatietijdstip:
           type: string

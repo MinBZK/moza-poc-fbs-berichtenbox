@@ -48,6 +48,7 @@ class BlockingSessiecacheTest {
     private fun testBericht(ontvanger: Identificatienummer = this.ontvanger) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001003214345000",
+        afzenderNaam = "Magazijn A",
         ontvanger = ontvanger,
         onderwerp = "Testonderwerp",
         inhoud = "Testinhoud",

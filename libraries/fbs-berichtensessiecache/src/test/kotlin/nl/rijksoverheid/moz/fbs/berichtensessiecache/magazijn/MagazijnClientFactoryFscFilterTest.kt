@@ -16,7 +16,7 @@ class MagazijnClientFactoryFscFilterTest {
     private fun inschrijving(grantHash: String?): Magazijninschrijving = Magazijninschrijving(
         oin = Oin("00000001003214345000"),
         url = URI.create("http://localhost:8081"),
-        naam = null,
+        naam = "Magazijn A",
         grantHash = grantHash,
     )
 

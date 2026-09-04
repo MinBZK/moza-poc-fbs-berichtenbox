@@ -17,7 +17,7 @@ class AfzenderMagazijnIndexTest {
 
     private fun indexMet(ingeschreven: List<Oin>): AfzenderMagazijnIndex {
         val entries = ingeschreven.map { oin ->
-            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null)
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = "Magazijn ${oin.waarde.takeLast(4)}")
         }
 
         val register = object : Magazijnregister {
@@ -29,18 +29,22 @@ class AfzenderMagazijnIndexTest {
     }
 
     /**
-     * Elke ingeschreven afzender mapt naar zijn eigen magazijn (= de OIN zelf). De
-     * cardinaliteit varieert van leeg t/m meerdere: bij meerdere inschrijvingen borgt
-     * dit dat de lookup per afzender discrimineert i.p.v. de enige/eerste terug te geven;
-     * bij leeg dat een register zonder inschrijvingen geen magazijn verzint.
+     * Elke ingeschreven afzender mapt naar zijn eigen magazijn (= de OIN zelf) en draagt de
+     * weergavenaam van die inschrijving mee — een aanmeld-geschreven cache-entry heeft die net zo
+     * hard nodig als het magazijnId. De cardinaliteit varieert van leeg t/m meerdere: bij meerdere
+     * inschrijvingen borgt dit dat de lookup per afzender discrimineert i.p.v. de enige/eerste
+     * terug te geven; bij leeg dat een register zonder inschrijvingen geen magazijn verzint.
      */
     @ParameterizedTest(name = "register={0}")
     @MethodSource("ingeschrevenCardinaliteiten")
-    fun `mapt elke ingeschreven afzender-OIN naar zichzelf`(ingeschreven: List<Oin>) {
+    fun `mapt elke ingeschreven afzender-OIN naar zichzelf, met naam`(ingeschreven: List<Oin>) {
         val index = indexMet(ingeschreven)
 
         ingeschreven.forEach { oin ->
-            assertEquals(oin.waarde, index.magazijnVoor(oin))
+            val bron = index.magazijnVoor(oin)
+
+            assertEquals(oin, bron?.oin)
+            assertEquals("Magazijn ${oin.waarde.takeLast(4)}", bron?.naam)
         }
     }
 

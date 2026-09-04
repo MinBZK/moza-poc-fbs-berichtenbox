@@ -84,6 +84,7 @@ class UitvraagDtoMapperTest {
         val domein = Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "Onderwerp",
             inhoud = "Inhoud",
@@ -95,10 +96,11 @@ class UitvraagDtoMapperTest {
             status = Leesstatus.GELEZEN,
         )
 
-        val api = UitvraagDtoMapper.toApiBericht(domein)
+        val api = UitvraagDtoMapper.toApiBericht(domein, afzenderNaam = "Belastingdienst")
 
         assertEquals(id, api.berichtId)
         assertEquals("Onderwerp", api.onderwerp)
+        assertEquals("Belastingdienst", api.afzenderNaam)
         assertEquals("Inhoud", api.inhoud)
         assertEquals("magazijn-a", api.magazijnId)
         assertEquals("werk", api.map)
@@ -114,6 +116,7 @@ class UitvraagDtoMapperTest {
         val domein = BerichtSamenvatting(
             berichtId = id,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "Onderwerp",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
@@ -123,12 +126,14 @@ class UitvraagDtoMapperTest {
             status = null,
         )
 
-        val api = UitvraagDtoMapper.toApiSamenvatting(domein)
+        val api = UitvraagDtoMapper.toApiSamenvatting(domein, afzenderNaam = "Belastingdienst")
 
         assertEquals(id, api.berichtId)
+        assertEquals("Belastingdienst", api.afzenderNaam)
         assertEquals("magazijn-b", api.magazijnId)
         assertEquals(3, api.aantalBijlagen)
         assertNull(api.status)
         assertEquals("/api/v1/berichten/$id", api.links.self.href)
     }
+
 }

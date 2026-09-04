@@ -32,7 +32,7 @@ class MagazijnRouterTest {
         MagazijnRouter(
             register = object : Magazijnregister {
                 private val entries = inschrijvingen.map { (oin, url) ->
-                    Magazijninschrijving(Oin(oin), URI.create(url), naam = null)
+                    Magazijninschrijving(Oin(oin), URI.create(url), naam = "Magazijn A")
                 }
 
                 override fun alle(): Collection<Magazijninschrijving> = entries

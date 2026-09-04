@@ -21,6 +21,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -92,6 +94,78 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
             .body("berichtId", equalTo(id.toString()))
+    }
+
+    @Test
+    fun `elk bericht in de lijst draagt de naam van zijn eigen organisatie`() {
+        // Twee magazijnen met verschillende namen in één antwoord: dat bewijst dat het veld per
+        // bericht wordt opgezocht en niet één keer voor de hele lijst.
+        seedBericht(UUID.randomUUID(), magazijnId = WireMockBackendsResource.OIN_B)
+        seedBericht(UUID.randomUUID(), magazijnId = WireMockBackendsResource.OIN_A)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body(
+                "berichten.find { it.magazijnId == '${WireMockBackendsResource.OIN_B}' }.afzenderNaam",
+                equalTo(WireMockBackendsResource.NAAM_B),
+            )
+            .body(
+                "berichten.find { it.magazijnId == '${WireMockBackendsResource.OIN_A}' }.afzenderNaam",
+                equalTo(WireMockBackendsResource.NAAM_A),
+            )
+            // `afzender` is uit het contract verdwenen: geen nummer meer dat zich als naam voordoet.
+            .body("berichten[0]", not(hasKey("afzender")))
+    }
+
+    @Test
+    fun `bericht-detail draagt de afzendernaam die het register voor het magazijn kent`() {
+        val id = UUID.randomUUID()
+        seedBericht(id, magazijnId = WireMockBackendsResource.OIN_B)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(200)
+            .body("afzenderNaam", equalTo(WireMockBackendsResource.NAAM_B))
+            .body("$", not(hasKey("afzender")))
+    }
+
+    @Test
+    fun `een magazijn dat uit het register verdween houdt de naam die met het bericht meeging`() {
+        // Config-drift tijdens een lopende sessie: een geldige OIN die het register niet (meer)
+        // kent. Het bericht draagt de naam van toen het werd opgeslagen; het veld is verplicht in
+        // het contract, dus het mag ook dan niet wegvallen.
+        seedBericht(UUID.randomUUID(), magazijnId = ONBEKENDE_OIN, afzenderNaam = "Gemeente Delft")
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].magazijnId", equalTo(ONBEKENDE_OIN))
+            .body("berichten[0].afzenderNaam", equalTo("Gemeente Delft"))
+    }
+
+    @Test
+    fun `een cache-entry met een niet-OIN magazijnId houdt eveneens zijn meegeschreven naam`() {
+        // Andere tak dan hierboven: deze waarde haalt de OIN-validatie niet eens. Ook dan mag de
+        // lijst niet omvallen en mag het verplichte veld niet wegvallen.
+        seedBericht(UUID.randomUUID(), magazijnId = "magazijn-uit-een-oudere-staat", afzenderNaam = "Gemeente Delft")
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].afzenderNaam", equalTo("Gemeente Delft"))
     }
 
     @Test
@@ -457,10 +531,15 @@ class ServiceCoverageTest {
             .statusCode(502)
     }
 
-    private fun seedBericht(berichtId: UUID, magazijnId: String = WireMockBackendsResource.OIN_A) {
+    private fun seedBericht(
+        berichtId: UUID,
+        magazijnId: String = WireMockBackendsResource.OIN_A,
+        afzenderNaam: String = WireMockBackendsResource.NAAM_A,
+    ) {
         sessiecache.berichten[berichtId] = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
+            afzenderNaam = afzenderNaam,
             ontvanger = Bsn("999990019"),
             onderwerp = "X",
             inhoud = "Inhoud",
@@ -475,5 +554,11 @@ class ServiceCoverageTest {
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
         )
+    }
+
+    private companion object {
+
+        // Geldige OIN die in geen enkele testconfiguratie is ingeschreven.
+        private const val ONBEKENDE_OIN = "00000009999999990000"
     }
 }

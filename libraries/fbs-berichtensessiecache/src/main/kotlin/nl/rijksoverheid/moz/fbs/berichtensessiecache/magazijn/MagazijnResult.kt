@@ -4,7 +4,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 
 internal sealed class MagazijnResult {
     abstract val magazijnId: String
-    abstract val naam: String?
+    abstract val naam: String
 
     /**
      * Een bevraagd magazijn dat antwoord gaf. [afgekapt] zegt dat er méér bij deze organisatie staat
@@ -17,7 +17,7 @@ internal sealed class MagazijnResult {
      */
     data class Success(
         override val magazijnId: String,
-        override val naam: String?,
+        override val naam: String,
         val berichten: List<Bericht>,
         val afgekapt: Boolean,
         val totaalBeschikbaar: Long?,
@@ -37,7 +37,7 @@ internal sealed class MagazijnResult {
      */
     class Failure(
         override val magazijnId: String,
-        override val naam: String?,
+        override val naam: String,
         val error: Throwable,
         val fault: MagazijnFault,
     ) : MagazijnResult() {

@@ -35,12 +35,13 @@ import java.util.UUID
 class BerichtOphaalService(
     private val sessiecache: Sessiecache,
     private val magazijnRouter: MagazijnRouter,
+    private val afzendernamen: Afzendernamen,
 ) {
     fun haalBericht(xOntvanger: String, berichtId: UUID): Bericht {
         val domeinBericht = zoekBerichtInCache(xOntvanger, berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
 
-        return UitvraagDtoMapper.toApiBericht(domeinBericht)
+        return UitvraagDtoMapper.toApiBericht(domeinBericht, afzendernamen.naamVoor(domeinBericht))
     }
 
     fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): Pair<String, ByteArray> {

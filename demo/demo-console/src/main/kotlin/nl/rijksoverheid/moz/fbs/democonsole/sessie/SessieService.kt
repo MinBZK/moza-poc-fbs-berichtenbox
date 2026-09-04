@@ -20,6 +20,10 @@ class SessieService(private val redis: RedisDataSource) {
 
     private companion object {
 
-        const val SESSIE_PATROON = "berichtensessiecache:v1:*"
+        // Versieloos patroon: de sessiecache versienummert zijn sleutels (`:v1:`, `:v2:`, …) en
+        // die versie bumpt bij elke wijziging van het opslagformaat. Een patroon met een vast
+        // versienummer zou na zo'n bump niets meer vinden en tóch "0 sessie-keys gewist" melden —
+        // een knop die succes rapporteert zonder iets te doen. De prefix zelf is specifiek genoeg.
+        const val SESSIE_PATROON = "berichtensessiecache:*"
     }
 }

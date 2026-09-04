@@ -122,7 +122,7 @@ object AanmeldCloudEventFuzzer {
         }
 
         val index = object : AfzenderMagazijnIndex(leegRegister) {
-            override fun magazijnVoor(afzender: Oin): String = "magazijn-a"
+            override fun magazijnVoor(afzender: Oin) = AfzenderMagazijnIndex.BronMagazijn(afzender, "Magazijn A")
         }
 
         return AanmeldService(sessiecache, dedup, index, LogboekContext())

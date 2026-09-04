@@ -107,27 +107,15 @@ class MagazijnEventTest {
         assertEquals(verwacht, objectMapper.writeValueAsString(event))
     }
 
-    @Test
-    fun `ontbrekende naam wordt weggelaten in plaats van als null geschreven`() {
-        assertEquals(
-            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN"}""",
-            objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = null)),
-        )
-        assertEquals(
-            """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","status":"OK","aantalBerichten":0,"afgekapt":false}""",
-            objectMapper.writeValueAsString(MagazijnBevragingGeslaagd(magazijnId = OIN, naam = null, aantalBerichten = 0)),
-        )
-    }
-
     /**
-     * Een lege naam is niet hetzelfde als een ontbrekende naam: hij wordt wél uitgeschreven,
-     * waarna het portaal via zijn eigen `naam || magazijnId`-terugval de OIN toont.
+     * De naam is verplicht in het register en gaat daarom altijd mee op de lijn. Dit pint dat er
+     * geen weglaat-gedrag meer op zit: een portaal hoeft geen terugval op `magazijnId` te bouwen.
      */
     @Test
-    fun `lege naam wordt uitgeschreven, niet weggelaten`() {
+    fun `naam gaat altijd mee op de lijn`() {
         assertEquals(
-            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN","naam":""}""",
-            objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = "")),
+            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN","naam":"Belastingdienst"}""",
+            objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = "Belastingdienst")),
         )
     }
 

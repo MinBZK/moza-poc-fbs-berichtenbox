@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.net.URI
 
 /**
@@ -46,7 +47,7 @@ class MagazijnClientFactoryInitTest {
             override fun voorOin(oin: Oin): Magazijninschrijving? = inschrijvingen.firstOrNull { it.oin == oin }
         }
 
-    private fun inschrijving(oin: String, naam: String? = null): Magazijninschrijving =
+    private fun inschrijving(oin: String, naam: String = "Magazijn"): Magazijninschrijving =
         Magazijninschrijving(oin = Oin(oin), url = URI.create("http://localhost:8081"), naam = naam)
 
     @Test
@@ -57,11 +58,16 @@ class MagazijnClientFactoryInitTest {
     }
 
     @Test
-    fun `getNaam levert de register-naam per magazijnId`() {
-        val factory = factory(inschrijving(oinA, naam = "Belastingdienst"), inschrijving(oinB))
+    fun `elk magazijn draagt zijn eigen registernaam naast zijn client`() {
+        // Twee inschrijvingen met verschillende namen: dit vangt een client-map en een namen-map
+        // die per sleutel uit de pas lopen, de reden dat ze één map zijn geworden.
+        val factory = factory(inschrijving(oinA, naam = "Belastingdienst"), inschrijving(oinB, naam = "RVO"))
 
-        assertEquals("Belastingdienst", factory.getNaam(oinA))
-        assertNull(factory.getNaam(oinB))
+        val magazijnen = factory.getAllMagazijnen()
+
+        assertEquals("Belastingdienst", magazijnen[oinA]?.naam)
+        assertEquals("RVO", magazijnen[oinB]?.naam)
+        assertEquals(magazijnen.keys, factory.getAllClients().keys)
     }
 
     @Test
