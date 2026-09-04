@@ -7,6 +7,10 @@
 #   PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 \
 #     docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo up -d proeftuin
 #
+# `demo/podman-up.sh` neemt deze overlay vanzelf mee zodra PROEFTUIN_IMAGE gezet is. Dezelfde naam
+# bestaat op ZAD als repo-variabele, die `.github/scripts/proeftuin-image.sh` boven de pin laat
+# gaan — zie docs/demo-runbook.md §5b.
+#
 # De hele referentie en niet alleen de tag: hun nog niet gemergde werk staat in een ánder
 # ghcr-repository (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`), en met alleen een tag is dat
 # niet te bereiken.

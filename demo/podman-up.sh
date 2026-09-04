@@ -207,6 +207,14 @@ if [ "$MODUS" = "hostnet" ]; then
     C+=(-f compose.podman-hostnet.yaml)
 fi
 
+# Dezelfde variabele als de deploy leest, zodat lokaal en ZAD op één naam te sturen zijn. De
+# overlay alleen meegeven wanneer hij gezet is: hij draagt `:?` en zou een gewone start anders
+# afbreken met de vraag om een waarde.
+if [ -n "${PROEFTUIN_IMAGE:-}" ]; then
+    C+=(-f compose.proeftuin-versie.yaml)
+    echo "[1/4] berichtenbox: $PROEFTUIN_IMAGE (PROEFTUIN_IMAGE overschrijft de pin)"
+fi
+
 C+=(--profile demo)
 
 # Toets de uitkomst, niet het versienummer en niet of het parset: `version --short` geeft bij een
