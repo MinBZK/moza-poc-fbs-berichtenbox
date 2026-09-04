@@ -16,9 +16,16 @@ Vier oorzaken vallen daar samen en vragen om verschillende reacties:
 |---|---|
 | Geen magazijn-URL voor de afzender-OIN | de omgeving is niet compleet ingericht |
 | `ProcessingException` (magazijn onbereikbaar) | zet de storing weer uit |
-| HTTP 403 uit de deelnemerscontrole | die ondernemer staat daar niet geregistreerd |
+| HTTP 403 uit de toestemmingscontrole | loop de voorkeuren van die ondernemer na |
 | HTTP 400 op de validatie | het bericht zelf deugt niet |
 | Elke andere status | doorgeven, met de status erbij |
+
+Achter die 403 zitten er nog drie: de profielservice kent de ontvanger niet (fail-closed), de
+ontvanger heeft geen actieve voorkeur voor déze afzender, of de profielservice gaf zelf een
+auth-fout door. Alleen het magazijn weet welke — vandaar dat de console de `detail` uit het
+problem+json overneemt en alleen terugvalt op een eigen zin als die er niet is. Die tekst is bij
+elke mapper handgeschreven en draagt per contract geen invoer van de aanleveraar, dus er kan geen
+identificatienummer in staan.
 
 Het kanaal om dit te tonen ligt klaar en is ongebruikt: `bediening.js` heeft `letOp(body)` en toont
 dat op een eigen regel (`melding__letop` in `index.html`).
@@ -40,13 +47,17 @@ zodra die PR merget. Stapelen zou alleen de preview-opruiming compliceren.
    Zo blijft de melding bij honderd berichten één regel. De winnaar is de eerst-aangetroffen van de
    meest voorkomende, dus deterministisch bij gelijke stand.
 
-2. **`AanleverResultaat` krijgt `letOp: String?`** (default `null`), gevuld door `AanleverService`.
-   Naam gelijk aan het bestaande veld op `HerstelResultaat`/`LegenAntwoord`, want `bediening.js`
-   leest precies die sleutel.
+2. **`AanleverResultaat` krijgt `letOp: String?`**, alleen te maken via `van(...)` zodat `mislukt`
+   en `letOp` uit dezelfde lijst komen en elkaar niet kunnen tegenspreken. Naam gelijk aan het
+   bestaande veld op `HerstelResultaat`/`LegenAntwoord`, want `bediening.js` leest die sleutel.
 
 3. **`AanleverService`** verzamelt per opdracht een reden in plaats van alleen `mislukt++`. `lever`
    geeft geen `String?` meer terug maar een `Aanlevering` (gelukt met berichtId, of mislukt met
    reden). De bestaande logregels blijven staan: het paneel toont de korte zin, het log de details.
+   Elke opdracht loopt bovendien in zijn eigen vangnet: brak er één af op iets anders dan een
+   onbereikbaar magazijn — een 201 zonder berichtId, een verbinding die na de statusregel wegvalt —
+   dan rapporteerde de ronde niets over wat al wél was afgeleverd en leverde een tweede poging
+   dubbele berichten op.
 
 4. **`MagazijnClients` (nieuw)** neemt het bouwen van de REST-clients uit `AanleverService` over.
    Dat was de enige stap daar die een draaiende omgeving nodig had; met die bedrading apart zijn de
@@ -66,9 +77,13 @@ zodra die PR merget. Stapelen zou alleen de preview-opruiming compliceren.
 
 ## Verificatie
 
-- `./mvnw clean test -pl demo/demo-console -am`
+- `./mvnw clean verify -pl demo/demo-console -am`
 - Nieuwe tests: `FaalredenTest` (pure, alle faalmodi en de samenvattings-cardinaliteiten leeg/één/
-  meerdere/gelijkspel) en `AanleverServiceTest` (de faalmodi door de echte service heen, plus de
-  grens met `markeringMislukt`). `HerstelServiceTest` krijgt de twee regels van de herstelknop.
+  meerdere/gelijkspel/veel-verschillend, met de volledige regel letterlijk vastgelegd) en
+  `AanleverServiceTest` (de faalmodi door de echte service heen, twee magazijnen naast elkaar, een
+  ronde die deels slaagt, en de grens met `markeringMislukt`). `HerstelServiceTest` krijgt de twee
+  regels van de herstelknop.
+- `PaneelContractTest` pint de sleutel `letOp` op de lijn: hernoemen of laten wegvallen zou anders
+  elke Kotlin-test groen laten terwijl het paneel weer alleen "1 mislukt" toont.
 - Geen identificatienummer in de melding: de reden krijgt alleen de organisatie-OIN mee, nooit de
-  ontvanger. Een test pint dat.
+  ontvanger. Een `@ParameterizedTest` pint dat over alle faalmodi en beide ontvangertypes.

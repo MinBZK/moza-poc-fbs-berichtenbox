@@ -9,6 +9,7 @@ import io.mockk.verifyOrder
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.Faalreden
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
@@ -19,7 +20,6 @@ import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoStatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class HerstelServiceTest {
@@ -45,7 +45,7 @@ class HerstelServiceTest {
         every { storingService.reset() } just Runs
         every { magazijnDatabase.leegAlles() } returns mapOf("magazijn-a" to 20, "magazijn-b" to 20)
         every { basisdataset.laad() } returns emptyList()
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat(40, 40, 0, 0)
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(40, 40, 0, emptyList())
         every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(berichten = 2000, magazijnen = 98)
         every { simulatorService.vulStandaard() } returns
             nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 10584, 2646, 0, 500)
@@ -155,16 +155,14 @@ class HerstelServiceTest {
 
     @Test
     fun `een vulling die niet aankwam draagt haar reden mee naar het paneel`() {
-        // Het paneel toont één let-op-regel; zonder deze samenvoeging verdwijnt de reden achter de
-        // hersteltijd-melding die deze knop altijd draagt, en zegt het paneel weer alleen "mislukt".
         alleStappenSlagen()
-        every { aanleverService.leverAan(any()) } returns
-            AanleverResultaat(40, 0, 40, 0, "Reden: magazijn 00000000000000100000 was niet bereikbaar.")
 
-        val letOp = service.herstel().letOp
+        val mislukt = AanleverResultaat.van(40, 0, 0, List(40) { Faalreden.onbereikbaar("00000000000000100000") })
 
-        assertTrue(letOp.startsWith("Reden: magazijn 00000000000000100000 was niet bereikbaar."), letOp)
-        assertTrue(letOp.endsWith(HERSTELTIJD_MELDING), letOp)
+        every { aanleverService.leverAan(any()) } returns mislukt
+
+        // De volledige regel, want juist de naad tussen de twee zinnen is wat hier kan misgaan.
+        assertEquals("${mislukt.letOp} $HERSTELTIJD_MELDING", service.herstel().letOp)
     }
 
     @Test

@@ -5,6 +5,8 @@ import io.quarkus.test.Mock
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Singleton
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.MagazijnAanleverClient
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.MagazijnClients
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
@@ -49,6 +51,12 @@ class PaneelContractTest {
     @TestHTTPResource("/api/demo/personas")
     lateinit var personasUrl: URL
 
+    @TestHTTPResource("/api/demo/basisvulling")
+    lateinit var basisvullingUrl: URL
+
+    @TestHTTPResource("/api/demo/random?aantal=0")
+    lateinit var legeVullingUrl: URL
+
     @TestHTTPResource("/")
     lateinit var basis: URL
 
@@ -68,6 +76,40 @@ class PaneelContractTest {
         )
 
         return respons.body()
+    }
+
+    private fun stuurJson(url: URL): String {
+        val respons = HttpClient.newHttpClient().send(
+            HttpRequest.newBuilder(url.toURI()).POST(HttpRequest.BodyPublishers.noBody()).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+
+        assertEquals(200, respons.statusCode(), "onverwachte status voor $url")
+
+        return respons.body()
+    }
+
+    /**
+     * De reden van een mislukte aanlevering komt onder de sleutel `letOp` over de lijn; `letOp` in
+     * `bediening.js` leest precies die naam en accepteert alleen een string. Hernoem het veld en
+     * elke Kotlin-test blijft groen terwijl het paneel weer alleen "1 mislukt" toont.
+     */
+    @Test
+    fun `een mislukte vulling draagt haar reden onder de sleutel letOp`() {
+        val letOp = ObjectMapper().readTree(stuurJson(basisvullingUrl)).path("letOp")
+
+        assertTrue(letOp.isTextual, "veld letOp ontbreekt of is geen tekst in de vulling-respons")
+        assertTrue(letOp.asText().isNotBlank(), "veld letOp is leeg")
+    }
+
+    @Test
+    fun `een vulling zonder mislukkingen laat het veld weg in plaats van null te sturen`() {
+        // `bediening.js` filtert op het type; een expliciete null zou de regel leeg tonen in plaats
+        // van te verbergen. Dat hangt aan quarkus.jackson.serialization-inclusion.
+        assertTrue(
+            !stuurJson(legeVullingUrl).contains("letOp"),
+            "veld letOp hoort te ontbreken als er niets mislukte",
+        )
     }
 
     @Test
@@ -195,6 +237,17 @@ class VasteStoringService(register: ToxiproxyRegister) : StoringService(register
         "redis" to Storingstoestand.UIT,
         "profiel" to Storingstoestand.ONBEKEND,
     )
+}
+
+/**
+ * Geen enkel magazijn ingericht, zodat elke aanlevering hier faalt zonder dat er een magazijn hoeft
+ * te draaien. Dat is precies het geval waarin het paneel een reden moet tonen.
+ */
+@Mock
+@Singleton
+class LegeMagazijnClients(config: DemoConfig) : MagazijnClients(config) {
+
+    override fun get(magazijnOin: String): MagazijnAanleverClient? = null
 }
 
 /** Vaste telling in plaats van de simulator; alleen de vorm van het antwoord doet er hier toe. */

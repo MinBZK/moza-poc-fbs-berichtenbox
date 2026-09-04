@@ -6,8 +6,8 @@ import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import java.net.URI
 
 /**
- * Eén REST-client per magazijn-URL uit `demo.magazijnen."<OIN>".url`, gebouwd bij het opstarten en
- * daarna hergebruikt.
+ * Eén REST-client per magazijn-URL uit `demo.magazijnen."<OIN>".url`, bij de eerste aanlevering
+ * opgebouwd en daarna hergebruikt.
  *
  * Apart van [AanleverService] omdat dit de enige stap is die een draaiende omgeving nodig heeft:
  * met de bedrading hier kan het aanleveren zelf — inclusief hoe het elke faalmodus benoemt — met

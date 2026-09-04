@@ -21,9 +21,9 @@ data class HerstelResultaat(
 ) {
 
     /**
-     * Het paneel toont één let-op-regel per antwoord, en deze knop heeft er twee te melden: waarom
-     * de basisvulling niet aankwam, en waarom de Berichtenbox daarna nog even oud nieuws toont. De
-     * reden voorop — daar valt iets aan te doen, aan de hersteltijd niet.
+     * Het paneel toont één let-op-regel per antwoord; deze knop heeft er soms twee te melden. De
+     * reden van een mislukte basisvulling voorop — daar valt iets aan te doen, aan het
+     * overslaan-venster van de uitvraag niet.
      */
     val letOp: String = listOfNotNull(vulling.letOp, HERSTELTIJD_MELDING).joinToString(" ")
 }
