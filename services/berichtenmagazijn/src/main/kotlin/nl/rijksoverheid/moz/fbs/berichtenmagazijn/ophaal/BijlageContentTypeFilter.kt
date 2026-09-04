@@ -6,6 +6,7 @@ import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageContentDisposition
+import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageMediaType
 import org.jboss.logging.Logger
 
 /**
@@ -35,11 +36,13 @@ internal const val BIJLAGE_NAAM_PROPERTY = "fbs.bijlage.naam"
  * Het filter doet niets als de property afwezig is, dus het is veilig om globaal
  * te draaien; alleen `BerichtenResource.getBijlage` zet de property.
  *
- * Defense-in-depth: parse het MIME-type opnieuw via [MediaType.valueOf]. Een
+ * Defense-in-depth: parse het MIME-type opnieuw via [BijlageMediaType]. Een
  * toekomstige caller (test, ander endpoint) zou de property zonder
- * pre-validatie kunnen zetten; ongeparste waarde zou `\r\n`-header-splitting
- * toelaten. Bij een ongeldige waarde laten we de default `Content-Type` staan en
+ * pre-validatie kunnen zetten; een ongeparste waarde zou `\r\n`-header-splitting
+ * toelaten. Bij een onbruikbare waarde laten we de default `Content-Type` staan en
  * bieden we de bytes als download aan: een type dat we niet begrijpen, tonen we niet.
+ * De bestandsnaam gaat daar wél mee — die staat los van het mediatype en is even
+ * gesaneerd.
  *
  * NameBinding is overwogen voor expliciete scoping, maar Quarkus REST neemt de
  * annotatie op de override-methode niet over uit de gegenereerde interface;
@@ -50,7 +53,7 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
         val naam = requestContext.getProperty(BIJLAGE_NAAM_PROPERTY) as? String
-        val parsed = runCatching { MediaType.valueOf(mimeType) }.getOrNull()
+        val parsed = BijlageMediaType.parse(mimeType)
 
         if (parsed == null) {
             log.warnf(
@@ -58,7 +61,10 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
                     "De resource zou dit horen te valideren — check de caller.",
                 mimeType,
             )
-            responseContext.headers.putSingle("Content-Disposition", "attachment")
+            responseContext.headers.putSingle(
+                "Content-Disposition",
+                BijlageContentDisposition.waarde(MediaType.APPLICATION_OCTET_STREAM_TYPE, naam),
+            )
 
             return
         }

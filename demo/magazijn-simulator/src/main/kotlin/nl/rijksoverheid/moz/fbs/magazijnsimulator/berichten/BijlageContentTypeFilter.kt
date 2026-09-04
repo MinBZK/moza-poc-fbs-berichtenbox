@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.container.ContainerResponseFilter
-import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.PROBLEM_JSON
@@ -38,9 +37,10 @@ internal const val BIJLAGE_NAAM_PROPERTY = "fbs.simulator.bijlage.naam"
  * draaien veilig.
  *
  * Het MIME-type wordt hier opnieuw geparsed, ook al deed de resource dat al: een waarde die
- * ongeparseerd in een header belandt, laat header-splitting via `\r\n` toe. Bij een onbruikbare
- * waarde gaan de bytes niet de deur uit maar volgt een 500 met correlatie-id — een bijlage met een
- * `Content-Type` dat niet klopt is erger dan geen bijlage.
+ * ongeparseerd in een header belandt, laat header-splitting via `\r\n` toe. Dat parsen weigert ook
+ * een waarde mét control-tekens: die parseert wél, maar laat de HTTP-laag pas bij het schrijven van
+ * de response klappen. Bij een onbruikbare waarde gaan de bytes niet de deur uit maar volgt een 500
+ * met correlatie-id — een bijlage met een `Content-Type` dat niet klopt is erger dan geen bijlage.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {
@@ -53,12 +53,12 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
         // bijlage. Nog zonder naam: die hangt aan het geparste type, dat er hier nog niet is.
         responseContext.headers.putSingle("Content-Disposition", "attachment")
 
-        val geparsed = try {
-            MediaType.valueOf(mimeType)
-        } catch (ex: IllegalArgumentException) {
+        val geparsed = bijlageMediaType(mimeType)
+
+        if (geparsed == null) {
             val foutId = UUID.randomUUID()
 
-            log.errorf(ex, "Ongeldig MIME-type op de request-property (foutId=%s)", foutId)
+            log.errorf("Ongeldig MIME-type op de request-property (foutId=%s)", foutId)
 
             // Niet doorlaten met de standaard-`Content-Type`: dan gaan de bytes alsnog de deur uit,
             // met een type dat niet klopt. De resource heeft de waarde al geparsed, dus hier komen

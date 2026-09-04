@@ -9,10 +9,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
- * Unit-tests voor [BijlageContentTypeFilter] zonder MockK: het mocken van
- * `getProperty(String)` op JAX-RS-contexten triggert in MockK een property-vs-
- * methode-conflict (zie eerdere iteratie). Een minimal handmatige stub omzeilt
- * dat. Verifieert fail-closed-gedrag (`application/octet-stream` + download) bij een
+ * Unit-tests voor [BijlageContentTypeFilter] zonder MockK: die verwart
+ * `getProperty(String)` met een Kotlin-property, waardoor de stub nooit aanslaat.
+ * Een minimale handgeschreven stub omzeilt dat. Verifieert fail-closed-gedrag (`application/octet-stream` + download) bij een
  * onparsebaar MIME-type, en welke typen wél inline mogen.
  */
 class BijlageContentTypeFilterTest {

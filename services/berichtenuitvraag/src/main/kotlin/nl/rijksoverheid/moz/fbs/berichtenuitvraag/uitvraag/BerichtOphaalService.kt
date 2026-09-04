@@ -136,23 +136,12 @@ class BerichtOphaalService(
      * Wat er nodig is om een bijlage uit te leveren. `content` wordt niet defensief
      * gekopieerd — aanroepers mogen de bytes niet muteren; een kopie per bijlage zou
      * de heap-druk verdubbelen.
+     *
+     * Bewust geen `data class`: er wordt nergens vergeleken of gedestructureerd, en de
+     * gegenereerde `toString` zou de bestandsnaam — die persoonsgegevens kan bevatten —
+     * in elke logregel zetten waarin het object per ongeluk belandt.
      */
-    data class BijlageInhoud(val mimeType: String, val bestandsnaam: String?, val content: ByteArray) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other !is BijlageInhoud) return false
-
-            return mimeType == other.mimeType && bestandsnaam == other.bestandsnaam && content.contentEquals(other.content)
-        }
-
-        override fun hashCode(): Int {
-            var resultaat = mimeType.hashCode()
-            resultaat = 31 * resultaat + bestandsnaam.hashCode()
-            resultaat = 31 * resultaat + content.contentHashCode()
-
-            return resultaat
-        }
-    }
+    class BijlageInhoud(val mimeType: String, val bestandsnaam: String?, val content: ByteArray)
 
     private fun zoekBerichtInCache(xOntvanger: String, berichtId: UUID) =
         leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId)") {

@@ -4,7 +4,6 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
-import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriBuilder
 import jakarta.ws.rs.core.UriInfo
@@ -63,8 +62,8 @@ class SimulatorBerichtenResource(
     override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
         val bijlage = service.haalBijlageOp(berichtId, bijlageId, Identificatie.uitHeader(xOntvanger))
 
-        // Een opgeslagen MIME-type dat niet te parsen is, kan sinds de vormcontrole op `Bijlage` niet
-        // meer via een aanlevering binnenkomen; het zou met de hand aangepaste data zijn. Dan liever
+        // Een opgeslagen MIME-type dat onbruikbaar is als headerwaarde kan sinds de vormcontrole op
+        // `Bijlage` niet meer via een aanlevering binnenkomen; het zou met de hand aangepaste data zijn. Dan liever
         // geen bytes onder een verkeerd Content-Type serveren: 500, zodat het opvalt. De waarde blijft
         // uit het antwoord en staat alleen in de log — een MIME-type is geen persoonsgegeven.
         //
@@ -72,13 +71,12 @@ class SimulatorBerichtenResource(
         // logregel zowel de bijlage als het id draagt dat de aanroeper te zien krijgt. Zou de mapper
         // zijn eigen id maken, dan staat de bijlageId in een regel zonder id en het id in een regel
         // zonder bijlageId, en is de melding van een aanroeper niet terug te zoeken.
-        val mediaType = try {
-            MediaType.valueOf(bijlage.mimeType)
-        } catch (ex: IllegalArgumentException) {
+        val mediaType = bijlageMediaType(bijlage.mimeType)
+
+        if (mediaType == null) {
             val foutId = UUID.randomUUID()
 
             log.errorf(
-                ex,
                 "Ongeldig MIME-type in opslag; geen inhoud geserveerd (bijlageId=%s, foutId=%s)",
                 bijlageId,
                 foutId,

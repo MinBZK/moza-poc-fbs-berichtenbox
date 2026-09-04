@@ -260,7 +260,11 @@ paths:
         voeren. Elk ander type krijgt `attachment` — met name `text/html` en
         `image/svg+xml`, die bij het openen van dit adres onder de origin van de afnemer
         zouden draaien (stored XSS); CSP `frame-ancestors` dekt die top-level navigatie
-        niet. Ook een MIME-type dat niet te parsen valt, wordt een download.
+        niet.
+
+        Een geregistreerd MIME-type dat onbruikbaar is als headerwaarde (niet te parsen,
+        of met control-tekens) levert 500 in plaats van bytes onder een type dat niet
+        klopt.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
       responses:

@@ -148,6 +148,24 @@ class BerichtOphaalServiceTest {
     }
 
     @Test
+    fun `haalBijlage pakt bij een dubbele bijlageId de eerste naam`() {
+        // Twee entries met hetzelfde id hoort niet te kunnen, maar de cache dwingt het niet af.
+        // Dan is één vaste keuze beter dan een willekeurige: de eerste, zoals hij binnenkwam.
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(
+            berichtId,
+            bijlagen = listOf(
+                BijlageSamenvatting(bijlageId, "eerste.pdf"),
+                BijlageSamenvatting(bijlageId, "tweede.pdf"),
+            ),
+        )
+        stubBijlageResponse(berichtId, bijlageId, byteArrayOf(1))
+
+        assertEquals("eerste.pdf", service.haalBijlage("BSN:999990019", berichtId, bijlageId).bestandsnaam)
+    }
+
+    @Test
     fun `haalBijlage levert geen naam als het bericht geen bijlagen in de cache heeft`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()

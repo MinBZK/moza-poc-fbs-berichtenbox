@@ -7,13 +7,20 @@ import jakarta.ws.rs.core.MediaType
  * typen die een browser toont zonder er code uit te voeren, `attachment` voor al
  * het overige, met de bestandsnaam erin.
  *
- * `attachment` is de val-terug en niet andersom, omdat een aangeleverde
+ * `attachment` is de fallback en niet andersom, omdat een aangeleverde
  * `text/html` of `image/svg+xml` bij top-level navigatie naar het download-adres
  * onder onze origin zou draaien (stored XSS). CSP `frame-ancestors 'none'` dekt
  * die navigatie niet — die geldt alleen voor iframes. Voor de typen op
  * [INLINE_VEILIGE_TYPEN] bestaat dat pad niet: een browser rendert ze zonder
  * scripts uit het bestand uit te voeren, en `X-Content-Type-Options: nosniff`
  * (globaal gezet op beide diensten) verhindert dat hij er alsnog HTML in ziet.
+ *
+ * De dispositie telt voor de aanroeper die de bytes aan een mens toont. Een
+ * browser bereikt deze endpoints niet rechtstreeks — ze eisen de header
+ * `X-Ontvanger`, die bij top-level navigatie niet te zetten is — dus het is een
+ * berichtenbox die de keten server-side aanroept die deze keuze doorgeeft aan
+ * zijn eigen gebruiker. Wordt `X-Ontvanger` ooit optioneel, dan raakt dat deze
+ * afweging: dan is het download-adres wél rechtstreeks te openen.
  *
  * Beide diensten gebruiken deze functie, zodat een afnemer die rechtstreeks bij
  * een magazijn ophaalt hetzelfde antwoord krijgt als via de uitvraag.
@@ -26,7 +33,7 @@ object BijlageContentDisposition {
      * `image/svg+xml` en `application/xhtml+xml` horen er per definitie niet bij,
      * en een type waarvan je het niet zeker weet evenmin.
      */
-    val INLINE_VEILIGE_TYPEN: Set<String> = setOf("application/pdf", "image/png", "image/jpeg")
+    private val INLINE_VEILIGE_TYPEN = setOf("application/pdf", "image/png", "image/jpeg")
 
     /**
      * Headerwaarde voor [mediaType], met [bestandsnaam] als die er is. De naam
@@ -35,7 +42,7 @@ object BijlageContentDisposition {
      */
     fun waarde(mediaType: MediaType, bestandsnaam: String?): String {
         val dispositie = if (magInline(mediaType)) "inline" else "attachment"
-        val naam = kapAf(bestandsnaam.orEmpty().trim()).trimEnd()
+        val naam = kapAf(zonderOnzichtbareTekens(bestandsnaam.orEmpty()).trim()).trimEnd()
 
         if (naam.isEmpty()) return dispositie
 
@@ -49,10 +56,21 @@ object BijlageContentDisposition {
         "${mediaType.type}/${mediaType.subtype}".lowercase() in INLINE_VEILIGE_TYPEN
 
     /**
+     * Weert de tekens die een naam onzichtbaar iets anders laten zeggen dan hij is.
+     * Control-tekens dragen `\r\n`, waarmee een naam een tweede header zou beginnen.
+     * Format-tekens dragen de bidi-overrides: `salaris<U+202E>fdp.exe` toont in een
+     * downloadlijst als `salarisexe.pdf`. Percent-codering redt daar niets, want de
+     * browser decodeert `filename*` weer terug — en die parameter wint van de
+     * gesaneerde ASCII-vorm. Weghalen is de enige plek waar dit te stoppen is.
+     */
+    private fun zonderOnzichtbareTekens(naam: String): String =
+        naam.filter { teken -> teken.category != CharCategory.CONTROL && teken.category != CharCategory.FORMAT }
+
+    /**
      * De naam voor de `filename`-parameter: alles buiten de veilige ASCII-set
      * wordt `_`. Dat vangt in één regel de aanhalingstekens en backslashes die de
-     * quoted-string zouden sluiten, de `\r\n` die een tweede header zou beginnen,
-     * en de pad-scheidingstekens waarmee een naam buiten de downloadmap zou wijzen.
+     * quoted-string zouden sluiten, en de pad-scheidingstekens waarmee een naam
+     * buiten de downloadmap zou wijzen.
      */
     private fun asciiVorm(naam: String): String = naam
         .map { teken -> if (teken in 'A'..'Z' || teken in 'a'..'z' || teken in '0'..'9' || teken in ".-_") teken else '_' }

@@ -48,10 +48,26 @@ class BijlageContentTypeFilterTest {
         // De resource zou dit normaal moeten vangen, maar als een toekomstige caller de
         // property zou zetten zonder validatie, mag het filter geen header-splitting
         // toestaan via bv. \r\n in de waarde. De default Content-Type blijft staan, en
-        // een type dat we niet begrijpen tonen we niet.
+        // een type dat we niet begrijpen tonen we niet — de naam mag wel mee, die is
+        // gesaneerd los van het type.
         val headers = run("not a valid media type\r\nX-Injected: yes", "nota.pdf")
         assertEquals("application/octet-stream", headers.getFirst("Content-Type"))
-        assertEquals("attachment", headers.getFirst("Content-Disposition"))
+        assertEquals(
+            "attachment; filename=\"nota.pdf\"; filename*=UTF-8''nota.pdf",
+            headers.getFirst("Content-Disposition"),
+        )
+    }
+
+    @Test
+    fun `een MIME-type met control-tekens in een parameter wordt niet doorgelaten`() {
+        // Zo'n waarde parseert wel, maar de HTTP-laag weigert de header pas bij het
+        // schrijven van de response — dan is de bijlage onophaalbaar zonder uitleg.
+        val headers = run("application/pdf;name=\"a\r\nX-Injected: 1\"", "nota.pdf")
+        assertEquals("application/octet-stream", headers.getFirst("Content-Type"))
+        assertEquals(
+            "attachment; filename=\"nota.pdf\"; filename*=UTF-8''nota.pdf",
+            headers.getFirst("Content-Disposition"),
+        )
     }
 
     @Test

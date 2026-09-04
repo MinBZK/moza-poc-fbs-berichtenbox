@@ -24,6 +24,8 @@ class BijlageContentDispositionTest {
             "text/html",
             "image/svg+xml",
             "application/xhtml+xml",
+            "application/pdf+xml",
+            "image/pngx",
             "text/plain",
             "application/octet-stream",
             "application/x-onbekend",
@@ -120,9 +122,36 @@ class BijlageContentDispositionTest {
         assertFalse(waarde.contains('\r'))
         assertFalse(waarde.contains('\n'))
         assertEquals(
-            "inline; filename=\"nota__X-Injected__ja.pdf\"; filename*=UTF-8''nota%0D%0AX-Injected%3A%20ja.pdf",
+            "inline; filename=\"notaX-Injected__ja.pdf\"; filename*=UTF-8''notaX-Injected%3A%20ja.pdf",
             waarde,
         )
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "\u202E", // RTL OVERRIDE — draait de rest van de naam om in beeld
+            "\u200F", // RTL MARK
+            "\u2066", // LEFT-TO-RIGHT ISOLATE
+            "\u200B", // ZERO WIDTH SPACE
+            "\u0000", // NUL
+        ],
+    )
+    fun `een onzichtbaar teken kan de getoonde naam niet omkeren of verbergen`(teken: String) {
+        // Zonder deze sanitatie zou `salaris<U+202E>fdp.exe` in een downloadlijst als
+        // `salarisexe.pdf` verschijnen: de browser decodeert `filename*` terug en geeft die
+        // parameter voorrang boven de gesaneerde ASCII-vorm.
+        val waarde = BijlageContentDisposition.waarde(PDF, "salaris${teken}fdp.exe")
+
+        assertEquals(
+            "inline; filename=\"salarisfdp.exe\"; filename*=UTF-8''salarisfdp.exe",
+            waarde,
+        )
+    }
+
+    @Test
+    fun `een naam van alleen onzichtbare tekens levert alleen de dispositie op`() {
+        assertEquals("inline", BijlageContentDisposition.waarde(PDF, "\u202E\u200B\u0007"))
     }
 
     @Test
@@ -130,6 +159,26 @@ class BijlageContentDispositionTest {
         assertEquals(
             "inline; filename=\"nota.pdf\"; filename*=UTF-8''nota.pdf",
             BijlageContentDisposition.waarde(PDF, "  nota.pdf  "),
+        )
+    }
+
+    @Test
+    fun `een naam van precies de maximale lengte blijft heel`() {
+        val naam = "a".repeat(255)
+
+        assertEquals(
+            "inline; filename=\"$naam\"; filename*=UTF-8''$naam",
+            BijlageContentDisposition.waarde(PDF, naam),
+        )
+    }
+
+    @Test
+    fun `een naam van één teken te lang verliest precies dat teken`() {
+        val waarde = BijlageContentDisposition.waarde(PDF, "b".repeat(256))
+
+        assertEquals(
+            "inline; filename=\"${"b".repeat(255)}\"; filename*=UTF-8''${"b".repeat(255)}",
+            waarde,
         )
     }
 

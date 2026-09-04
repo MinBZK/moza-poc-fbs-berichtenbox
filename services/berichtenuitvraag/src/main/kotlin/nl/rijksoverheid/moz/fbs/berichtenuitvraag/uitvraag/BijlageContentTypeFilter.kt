@@ -6,6 +6,7 @@ import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageContentDisposition
+import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageMediaType
 import org.jboss.logging.Logger
 
 /**
@@ -33,9 +34,9 @@ internal const val BIJLAGE_NAAM_PROPERTY = "fbs.uitvraag.bijlage.naam"
  * rechtstreekse magazijn-afname hetzelfde antwoord geeft als deze route.
  *
  * Defense-in-depth: het MIME-type wordt fail-closed gevalideerd/genormaliseerd
- * via `MediaType.valueOf`, zodat een onparsebare of door een toekomstige caller
+ * via [BijlageMediaType], zodat een onbruikbare of door een toekomstige caller
  * ongevalideerde waarde nooit als Content-Type naar de browser passeert. De
- * val-terug `application/octet-stream` staat niet op de inline-allowlist, dus een
+ * fallback `application/octet-stream` staat niet op de inline-allowlist, dus een
  * onbegrepen type gaat altijd als download de deur uit.
  *
  * Zelfde concept als `…fbs.berichtenmagazijn.ophaal.BijlageContentTypeFilter`,
@@ -50,7 +51,7 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
         val mimeType = req.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
         val naam = req.getProperty(BIJLAGE_NAAM_PROPERTY) as? String
 
-        val parsed = runCatching { MediaType.valueOf(mimeType) }.getOrNull()
+        val parsed = BijlageMediaType.parse(mimeType)
 
         val effectief = parsed ?: MediaType.APPLICATION_OCTET_STREAM_TYPE.also {
             log.warnf("BIJLAGE_MIME_TYPE_PROPERTY ongeldig (%s); fallback naar octet-stream + attachment (fail-closed).", mimeType)
