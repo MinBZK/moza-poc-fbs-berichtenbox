@@ -72,8 +72,9 @@ env:
   # de job-timeout staat er ruim boven, zodat de CLI zijn eigen diagnose kan afmaken vóórdat GitHub
   # de job afkapt.
   CLEANUP_TASK_TIMEOUT: "900"
-  # Deze workflow zoekt de comment op deze tekst; deploy.yml geeft dezelfde tekst mee aan de
-  # deploy-action. Houd de twee gelijk — drift laat de comment stil achter op een gesloten PR.
+  # Deze workflow zoekt de comment op deze tekst; deploy.yml geeft dezelfde tekst mee aan
+  # preview-comment.sh, dat hem plaatst en zelf dezelfde default draagt. Houd die drie gelijk —
+  # drift laat de comment stil achter op een gesloten PR. test-preview-comment.sh bewaakt dat.
   COMMENT_HEADER: "## 🚀 Preview Deployment"
   # Dezelfde namen als de CROSS_DOMAIN_REGELS_*-lijsten in deploy.yml, die ze bij het aanmaken van
   # een preview zet. Drift laat een regel achter op een deployment die niet meer bestaat: de
@@ -349,17 +350,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Bretels naast de `needs.doel`-eis: met een leeg nummer wordt de URL
-          # `/issues//comments`, en dát pad levert bij GitHub de comments van de HÉLE repo — één
-          # routing-wijziging en de lus eronder zou elke deploy-comment in de repo verwijderen.
+          # Bretels naast de `needs.doel`-eis: met een leeg nummer wordt de URL `/issues//comments`,
+          # die als 404 uit `gh` komt nadat de stap al is begonnen. Hier breekt hij af met een
+          # leesbare reden, vóór de lus die comments verwijdert.
           if [ -z "$PR_NUMMER" ]; then
             echo "::error::Leeg PR-nummer — opruimen afgebroken."
             exit 1
           fi
 
-          # Zelf doen i.p.v. via de action: die comment-stap draait alleen op `pull_request` en dus
-          # nooit onder deze triggers, en pagineert niet — op een PR met veel comments valt de
-          # deploy-comment buiten de eerste pagina.
+          # Pagineren, want op een PR met veel comments valt de deploy-comment buiten de eerste
+          # pagina en zou hij op de gesloten PR blijven staan.
           #
           # De header via `jq --arg` i.p.v. in het programma interpoleren: `gh api --jq` kent geen
           # `--arg`, en tekst in een jq-programma plakken breekt zodra er een quote of backslash in
