@@ -60,10 +60,11 @@ class UitvraagResource(
     override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
         registreerLdvSubject(xOntvanger)
 
-        val (mimeType, bytes) = ophaalService.haalBijlage(xOntvanger, berichtId, bijlageId)
-        request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mimeType)
+        val bijlage = ophaalService.haalBijlage(xOntvanger, berichtId, bijlageId)
+        request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, bijlage.mimeType)
+        request.setProperty(BIJLAGE_NAAM_PROPERTY, bijlage.bestandsnaam)
 
-        return bytes
+        return bijlage.content
     }
 
     @Logboek(name = "uitvraag-patch", processingActivityId = ProcessingActivities.UITVRAAG_BEHEER)

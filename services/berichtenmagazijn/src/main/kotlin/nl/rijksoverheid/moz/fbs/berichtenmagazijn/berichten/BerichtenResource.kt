@@ -15,6 +15,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.beheer.BerichtBeheerService
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BIJLAGE_MIME_TYPE_PROPERTY
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BIJLAGE_NAAM_PROPERTY
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtDtoMapper
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtOphaalService
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
@@ -113,6 +114,7 @@ class BerichtenResource(
         }
 
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mediaType.toString())
+        request.setProperty(BIJLAGE_NAAM_PROPERTY, bijlage.naam)
 
         return bijlage.content
     }

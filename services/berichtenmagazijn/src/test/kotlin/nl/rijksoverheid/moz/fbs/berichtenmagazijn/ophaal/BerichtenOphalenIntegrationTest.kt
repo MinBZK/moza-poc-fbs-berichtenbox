@@ -60,14 +60,19 @@ class BerichtenOphalenIntegrationTest {
     }
 
     @Transactional
-    fun insertBijlage(berichtId: UUID, content: ByteArray): UUID {
+    fun insertBijlage(
+        berichtId: UUID,
+        content: ByteArray,
+        naam: String = "test.pdf",
+        mimeType: String = "application/pdf",
+    ): UUID {
         val bijlageId = UUID.randomUUID()
         bijlageRepository.save(
             Bijlage(
                 bijlageId = bijlageId,
                 berichtId = berichtId,
-                naam = "test.pdf",
-                mimeType = "application/pdf",
+                naam = naam,
+                mimeType = mimeType,
                 content = content,
             ),
         )
@@ -238,6 +243,60 @@ class BerichtenOphalenIntegrationTest {
             .extract().asByteArray()
 
         assert(bytes.contentEquals(payload)) { "Bytes match niet: kreeg ${bytes.size} bytes" }
+    }
+
+    @Test
+    fun `GET bijlage van een veilig te tonen type mag inline, met bestandsnaam`() {
+        val b = insertBericht()
+        val bijlageId = insertBijlage(b.berichtId, "%PDF-1.4".toByteArray(), naam = "aanslag 2026.pdf")
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten/${b.berichtId}/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+            .contentType("application/pdf")
+            .header("Content-Disposition", equalTo("inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf"))
+    }
+
+    @Test
+    fun `GET bijlage van een in de browser uitvoerbaar type blijft een download`() {
+        // Een aangeleverde HTML-bijlage zou bij top-level navigatie naar dit adres onder
+        // onze origin draaien; `attachment` is wat dat pad afsluit.
+        val b = insertBericht()
+        val bijlageId = insertBijlage(
+            b.berichtId,
+            "<script>alert(1)</script>".toByteArray(),
+            naam = "kwaad.html",
+            mimeType = "text/html",
+        )
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten/${b.berichtId}/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+            .contentType("text/html")
+            .header("Content-Disposition", equalTo("attachment; filename=\"kwaad.html\"; filename*=UTF-8''kwaad.html"))
+    }
+
+    @Test
+    fun `GET bijlage met bijzondere tekens in de naam levert een onbeschadigde header`() {
+        val b = insertBericht()
+        val bijlageId = insertBijlage(b.berichtId, "%PDF-1.4".toByteArray(), naam = "Λογαριασμός\"; drop.pdf")
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten/${b.berichtId}/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+            .header(
+                "Content-Disposition",
+                equalTo(
+                    "inline; filename=\"______________drop.pdf\"; " +
+                        "filename*=UTF-8''%CE%9B%CE%BF%CE%B3%CE%B1%CF%81%CE%B9%CE%B1%CF%83%CE%BC%CF%8C%CF%82%22%3B%20drop.pdf",
+                ),
+            )
     }
 
     @Test

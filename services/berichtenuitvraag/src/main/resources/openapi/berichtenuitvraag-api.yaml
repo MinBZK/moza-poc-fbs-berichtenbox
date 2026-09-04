@@ -221,7 +221,19 @@ paths:
     get:
       tags: [Uitvraag]
       summary: Bijlage ophalen (octet-stream, dynamic Content-Type)
-      description: Streamt bijlage-bytes rechtstreeks uit het magazijn met Content-Type uit de metadata; Content-Disposition altijd `attachment` (stored-XSS-bescherming).
+      description: |
+        Streamt bijlage-bytes rechtstreeks uit het magazijn, met `Content-Type` uit de
+        metadata van de bijlage.
+
+        `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
+        mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
+        `image/jpeg`: typen die een browser rendert zonder code uit het bestand uit te
+        voeren. Elk ander type krijgt `attachment` — met name `text/html` en
+        `image/svg+xml`, die bij het openen van dit adres onder de origin van de afnemer
+        zouden draaien (stored XSS); CSP `frame-ancestors` dekt die top-level navigatie
+        niet. Een MIME-type dat niet te parsen valt, wordt `application/octet-stream` en
+        dus een download. Dezelfde afweging als het magazijn maakt, zodat een
+        rechtstreekse magazijn-afname hetzelfde antwoord geeft.
       operationId: getBijlage
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -235,8 +247,13 @@ paths:
               description: Werkelijk MIME-type van de bijlage
             Content-Disposition:
               schema: { type: string }
-              description: Altijd `attachment` om browser-inline-rendering uit te sluiten.
-              example: attachment
+              description: |
+                `inline` voor `application/pdf`, `image/png` en `image/jpeg`, `attachment`
+                voor elk ander type. Draagt de bestandsnaam als `filename` (ASCII-vorm voor
+                clients die `filename*` niet kennen) en `filename*` (RFC 5987, UTF-8, voor
+                de naam zoals hij werkelijk is). Kent de sessiecache de bijlage niet, dan
+                blijft de naam weg en draagt de header alleen de dispositie.
+              example: "inline; filename=\"voorlopige-aanslag-2026.pdf\"; filename*=UTF-8''voorlopige-aanslag-2026.pdf"
           content:
             '*/*':
               schema: { type: string, format: binary }

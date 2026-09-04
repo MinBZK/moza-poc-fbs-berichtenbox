@@ -5,6 +5,7 @@ import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageContentDisposition
 import org.jboss.logging.Logger
 
 /**
@@ -15,13 +16,21 @@ import org.jboss.logging.Logger
 internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.bijlage.mimeType"
 
 /**
+ * Request-property met de naam van de bijlage, voor de `filename`-parameters in
+ * `Content-Disposition`. Optioneel: zonder naam gaat de response uit met alleen
+ * de dispositie. De waarde gaat onbewerkt mee — saneren en coderen gebeurt in
+ * [BijlageContentDisposition], zodat geen enkele aanroeper dat kan overslaan.
+ */
+internal const val BIJLAGE_NAAM_PROPERTY = "fbs.bijlage.naam"
+
+/**
  * Overschrijft de `Content-Type` van een response wanneer de resource expliciet
  * een MIME-type op de request-context heeft gezet via [BIJLAGE_MIME_TYPE_PROPERTY],
- * en forceert `Content-Disposition: attachment` om inline-rendering door de
- * browser uit te sluiten. Dat dicht een stored-XSS-vector: een aangeleverde
- * bijlage met `text/html` (of `image/svg+xml`) zou anders bij download in een
- * browser kunnen draaien onder onze origin. CSP `frame-ancestors 'none'` dekt
- * alleen iframes — top-level navigatie naar het download-endpoint niet.
+ * en zet de bijbehorende `Content-Disposition`: `inline` voor de typen die een
+ * browser toont zonder aangeleverde code uit te voeren, `attachment` voor al het
+ * overige. Die afweging staat in [BijlageContentDisposition] en is gedeeld met de
+ * uitvraag, zodat een rechtstreekse afname bij dit magazijn hetzelfde antwoord
+ * geeft als de route via de berichtenbox.
  *
  * Het filter doet niets als de property afwezig is, dus het is veilig om globaal
  * te draaien; alleen `BerichtenResource.getBijlage` zet de property.
@@ -29,30 +38,33 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.bijlage.mimeType"
  * Defense-in-depth: parse het MIME-type opnieuw via [MediaType.valueOf]. Een
  * toekomstige caller (test, ander endpoint) zou de property zonder
  * pre-validatie kunnen zetten; ongeparste waarde zou `\r\n`-header-splitting
- * toelaten. Bij een ongeldige waarde laten we de default `Content-Type` staan.
+ * toelaten. Bij een ongeldige waarde laten we de default `Content-Type` staan en
+ * bieden we de bytes als download aan: een type dat we niet begrijpen, tonen we niet.
  *
  * NameBinding is overwogen voor expliciete scoping, maar Quarkus REST neemt de
  * annotatie op de override-methode niet over uit de gegenereerde interface;
- * property-driven gating is daardoor robuuster (zie CLAUDE.md "Quarkus configuratie").
+ * property-driven gating is daardoor robuuster.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
+        val naam = requestContext.getProperty(BIJLAGE_NAAM_PROPERTY) as? String
         val parsed = runCatching { MediaType.valueOf(mimeType) }.getOrNull()
+
         if (parsed == null) {
             log.warnf(
                 "BIJLAGE_MIME_TYPE_PROPERTY bevat een ongeldige MediaType (%s); Content-Type ongewijzigd gelaten. " +
                     "De resource zou dit horen te valideren — check de caller.",
                 mimeType,
             )
+            responseContext.headers.putSingle("Content-Disposition", "attachment")
+
             return
         }
+
         responseContext.headers.putSingle("Content-Type", parsed.toString())
-        // Geen filename: de naam van de bijlage staat al in BijlageMetadata van
-        // de detail-call. Filename in Content-Disposition vereist sanitatie/
-        // RFC 5987-encoding; weglaten is veiliger en functioneel afdoende.
-        responseContext.headers.putSingle("Content-Disposition", "attachment")
+        responseContext.headers.putSingle("Content-Disposition", BijlageContentDisposition.waarde(parsed, naam))
     }
 
     private companion object {

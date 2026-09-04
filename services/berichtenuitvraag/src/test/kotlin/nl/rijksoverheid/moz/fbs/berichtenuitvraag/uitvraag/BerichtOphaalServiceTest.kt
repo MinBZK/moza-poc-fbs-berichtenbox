@@ -8,14 +8,15 @@ import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import java.util.UUID
 
 class BerichtOphaalServiceTest {
 
@@ -27,7 +28,11 @@ class BerichtOphaalServiceTest {
     }
     private val service = BerichtOphaalService(sessiecache, router)
 
-    private fun domeinBericht(berichtId: UUID, magazijnId: String = "magazijn-a") = Bericht(
+    private fun domeinBericht(
+        berichtId: UUID,
+        magazijnId: String = "magazijn-a",
+        bijlagen: List<BijlageSamenvatting> = emptyList(),
+    ) = Bericht(
         berichtId = berichtId,
         afzender = "00000001003214345000",
         ontvanger = Bsn("999990019"),
@@ -35,11 +40,27 @@ class BerichtOphaalServiceTest {
         inhoud = "Inhoud",
         publicatietijdstip = java.time.Instant.parse("2026-05-26T10:00:00Z"),
         magazijnId = magazijnId,
-        aantalBijlagen = 0,
+        aantalBijlagen = bijlagen.size,
+        bijlagen = bijlagen,
     )
 
-    private fun stubBerichtLookup(berichtId: UUID, magazijnId: String = "magazijn-a") {
-        every { sessiecache.bericht(ontvangerId, berichtId) } returns domeinBericht(berichtId, magazijnId)
+    private fun stubBerichtLookup(
+        berichtId: UUID,
+        magazijnId: String = "magazijn-a",
+        bijlagen: List<BijlageSamenvatting> = emptyList(),
+    ) {
+        every { sessiecache.bericht(ontvangerId, berichtId) } returns domeinBericht(berichtId, magazijnId, bijlagen)
+    }
+
+    private fun stubBijlageResponse(berichtId: UUID, bijlageId: UUID, bytes: ByteArray, mimeType: String = "application/pdf") {
+        val mockResp = mockk<Response> {
+            every { status } returns 200
+            every { readEntity(ByteArray::class.java) } returns bytes
+            every { getHeaderString("Content-Type") } returns mimeType
+            every { close() } returns Unit
+        }
+
+        every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
     }
 
     @Test
@@ -88,10 +109,52 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
-        val (mimeType, content) = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+        val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
 
-        assertEquals("application/pdf", mimeType)
-        assertArrayEquals(bytes, content)
+        assertEquals("application/pdf", bijlage.mimeType)
+        assertArrayEquals(bytes, bijlage.content)
+    }
+
+    @Test
+    fun `haalBijlage pakt de bestandsnaam bij de juiste bijlage uit het bericht`() {
+        val berichtId = UUID.randomUUID()
+        val eerste = UUID.randomUUID()
+        val gevraagde = UUID.randomUUID()
+        stubBerichtLookup(
+            berichtId,
+            bijlagen = listOf(
+                BijlageSamenvatting(eerste, "eerste.pdf"),
+                BijlageSamenvatting(gevraagde, "aanslag 2026.pdf"),
+            ),
+        )
+        stubBijlageResponse(berichtId, gevraagde, byteArrayOf(1))
+
+        val bijlage = service.haalBijlage("BSN:999990019", berichtId, gevraagde)
+
+        assertEquals("aanslag 2026.pdf", bijlage.bestandsnaam)
+    }
+
+    @Test
+    fun `haalBijlage levert de bytes zonder naam als de cache de bijlage niet kent`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId, bijlagen = listOf(BijlageSamenvatting(UUID.randomUUID(), "andere.pdf")))
+        stubBijlageResponse(berichtId, bijlageId, byteArrayOf(1))
+
+        val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+
+        assertEquals(null, bijlage.bestandsnaam)
+        assertArrayEquals(byteArrayOf(1), bijlage.content)
+    }
+
+    @Test
+    fun `haalBijlage levert geen naam als het bericht geen bijlagen in de cache heeft`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
+        stubBijlageResponse(berichtId, bijlageId, byteArrayOf(1))
+
+        assertEquals(null, service.haalBijlage("BSN:999990019", berichtId, bijlageId).bestandsnaam)
     }
 
     @Test
@@ -108,10 +171,10 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
-        val (mimeType, _) = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+        val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
 
         // Service zélf valideert niet; raw value doorgeven aan filter.
-        assertEquals("not-a-mime-type", mimeType)
+        assertEquals("not-a-mime-type", bijlage.mimeType)
     }
 
     @Test
@@ -311,11 +374,11 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
-        val (mimeType, content) = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+        val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
 
         // Falende close mag de geslaagde read niet kapotmaken: bytes komen normaal terug.
-        assertEquals("application/pdf", mimeType)
-        assertArrayEquals(bytes, content)
+        assertEquals("application/pdf", bijlage.mimeType)
+        assertArrayEquals(bytes, bijlage.content)
         verify { mockResp.close() }
     }
 

@@ -95,6 +95,7 @@ class SimulatorBerichtenResource(
         }
 
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mediaType.toString())
+        request.setProperty(BIJLAGE_NAAM_PROPERTY, bijlage.naam)
 
         return bijlage.inhoud
     }

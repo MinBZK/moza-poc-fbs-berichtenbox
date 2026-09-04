@@ -18,10 +18,18 @@ import java.util.UUID
 internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.simulator.bijlage.mimeType"
 
 /**
- * Zet de `Content-Type` van een bijlage-download op het opgeslagen MIME-type, en forceert
- * `Content-Disposition: attachment` zodat een browser de inhoud nooit inline rendert. Dat laatste
- * dicht een stored-XSS-pad: een aangeleverde `text/html`- of `image/svg+xml`-bijlage zou anders bij
- * het openen onder onze origin kunnen draaien.
+ * Request-property met de naam van de bijlage, voor de `filename`-parameters in de
+ * `Content-Disposition`. Optioneel: zonder naam gaat de response uit met alleen de dispositie. De
+ * waarde gaat onbewerkt mee — saneren en coderen gebeurt in [BijlageContentDisposition].
+ */
+internal const val BIJLAGE_NAAM_PROPERTY = "fbs.simulator.bijlage.naam"
+
+/**
+ * Zet de `Content-Type` van een bijlage-download op het opgeslagen MIME-type, en de bijbehorende
+ * `Content-Disposition`: `attachment` zodat een browser een aangeleverde `text/html`- of
+ * `image/svg+xml`-bijlage nooit inline rendert en onder onze origin laat draaien, `inline` voor de
+ * typen waarvoor dat pad niet bestaat. Die afweging staat in [BijlageContentDisposition] en volgt
+ * het echte magazijn.
  *
  * De spec laat dit endpoint elk mediatype produceren, dus het type is niet vooraf bekend en moet
  * uit de response komen. Een `@NameBinding` om dit filter tot dat ene endpoint te beperken werkt niet:
@@ -42,8 +50,7 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
 
         // Vóór het parsen, zodat geen enkele weg langs deze header heen loopt; gaat het parsen mis,
         // dan haalt die tak hem hieronder weer weg omdat er dan een problem+json uitgaat en geen
-        // bijlage. Geen filename: de naam staat al in de detail-response, en een filename in deze
-        // header vraagt om RFC 5987-encoding en sanering die hier niets toevoegt.
+        // bijlage. Nog zonder naam: die hangt aan het geparste type, dat er hier nog niet is.
         responseContext.headers.putSingle("Content-Disposition", "attachment")
 
         val geparsed = try {
@@ -64,7 +71,10 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
             return
         }
 
+        val naam = requestContext.getProperty(BIJLAGE_NAAM_PROPERTY) as? String
+
         responseContext.headers.putSingle("Content-Type", geparsed.toString())
+        responseContext.headers.putSingle("Content-Disposition", BijlageContentDisposition.waarde(geparsed, naam))
     }
 
     private companion object {
