@@ -303,6 +303,10 @@ vragen om bevestiging in het paneel; de vraag noemt wat er precies gebeurt.
 - *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases. Twee keer vullen zonder legen
   geeft dubbele berichten.
 - *Random berichten opvoeren* — N random berichten; tegelijk scenario 5.
+- *Bericht plaatsen* — N berichten voor de persona die je in de keuzelijst aanwijst, zodat je
+  niet hoeft af te wachten of de willekeur ze bij de ondernemer op het scherm legt. Welk van
+  de magazijnen waar die persona berichten van ontvangt het wordt, blijft toeval. De lijst
+  toont alleen persona's mét magazijn: voor de andere weigert het magazijn de aanlevering.
 - *Stroom* — levert elke *n* seconden (1–3600) automatisch één gegenereerd bericht aan, tot een
   handmatige stop of tot de ingebouwde grens (500 berichten of 60 minuten, wat het eerst komt). Een
   tweede start vervangt de lopende stroom in plaats van te stapelen.
