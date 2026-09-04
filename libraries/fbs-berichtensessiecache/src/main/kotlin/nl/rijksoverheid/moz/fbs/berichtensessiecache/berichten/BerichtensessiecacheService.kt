@@ -573,7 +573,7 @@ internal class BerichtensessiecacheService(
         )
     }
 
-    private fun naarMagazijnResult(response: MagazijnBerichtenResponse, magazijnId: String, naam: String?): MagazijnResult {
+    private fun naarMagazijnResult(response: MagazijnBerichtenResponse, magazijnId: String, naam: String): MagazijnResult {
         if (response.berichten.size > maxBerichtenPerMagazijn) {
             // ErrorF nodig voor Loki-alert-routing; SSE-event alleen gaat niet naar logs.
             log.errorf(
@@ -595,7 +595,7 @@ internal class BerichtensessiecacheService(
         // ontvanger-identificatie: toBericht bouwt het gevalideerde domeintype en kan
         // gooien (onbekend type, elfproef/lengte), dus vangen we dat hier per bericht.
         val berichten = response.berichten
-            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId) }
+            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId, naam) }
 
         return MagazijnResult.Success(magazijnId, naam, berichten)
     }
@@ -607,9 +607,9 @@ internal class BerichtensessiecacheService(
      * (toBericht gooit) of een limietsoverschrijding ([BerichtValidator]). berichtId/magazijnId
      * zijn geen PII; de ontvanger-waarde wordt bewust niet gelogd.
      */
-    private fun naarValidCacheBericht(magazijnBericht: MagazijnBericht, magazijnId: String): Bericht? {
+    private fun naarValidCacheBericht(magazijnBericht: MagazijnBericht, magazijnId: String, afzenderNaam: String): Bericht? {
         val bericht = try {
-            magazijnBericht.toBericht(magazijnId)
+            magazijnBericht.toBericht(magazijnId, afzenderNaam)
         } catch (e: IllegalArgumentException) {
             log.warnf(
                 "Bericht overgeslagen tijdens magazijn-aggregatie (ongeldige ontvanger): berichtId=%s magazijnId=%s reden=%s",

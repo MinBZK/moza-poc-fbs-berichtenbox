@@ -103,8 +103,10 @@ class HttpsMagazijnResource : QuarkusTestResourceLifecycleManager {
 
         return mapOf(
             "magazijnen.\"$OIN\".url" to endpoint,
+            "magazijnen.\"$OIN\".naam" to "Magazijn achter outway",
             "magazijnen.\"$OIN\".grantHash" to GRANT_HASH,
             "magazijnen.\"$OIN_ZONDER_GRANT_HASH\".url" to endpoint,
+            "magazijnen.\"$OIN_ZONDER_GRANT_HASH\".naam" to "Magazijn zonder outway",
             "quarkus.tls.${OutwayTls.CONFIG_NAAM}.trust-store.pem.certs" to certPem.toString(),
         )
     }

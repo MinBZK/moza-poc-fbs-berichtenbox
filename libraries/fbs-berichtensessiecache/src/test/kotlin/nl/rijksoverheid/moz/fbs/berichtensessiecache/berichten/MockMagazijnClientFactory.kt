@@ -34,6 +34,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 afzender = "00000001234567890000",
+                afzenderNaam = "Magazijn A",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 1",
                 inhoud = "Inhoud van test bericht 1",
@@ -45,6 +46,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("22222222-2222-2222-2222-222222222222"),
                 afzender = "00000001234567890000",
+                afzenderNaam = "Magazijn A",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 2",
                 inhoud = "Inhoud van test bericht 2",
@@ -56,6 +58,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("33333333-3333-3333-3333-333333333333"),
                 afzender = "00000009876543210000",
+                afzenderNaam = "Magazijn A",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 3",
                 inhoud = "Inhoud van test bericht 3",
@@ -70,6 +73,7 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("44444444-4444-4444-4444-444444444444"),
                 afzender = "00000005555555550000",
+                afzenderNaam = "Magazijn A",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 4",
                 inhoud = "Inhoud van test bericht 4",
@@ -95,10 +99,10 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
         )
     }
 
-    override fun getNaam(magazijnId: String): String? = when (magazijnId) {
+    override fun getNaam(magazijnId: String): String = when (magazijnId) {
         WireMockMagazijnResource.OIN_A -> "Magazijn A"
         WireMockMagazijnResource.OIN_B -> "Magazijn B"
-        else -> null
+        else -> throw IllegalStateException("Geen magazijninschrijving voor magazijnId '$magazijnId'")
     }
 
     // De @PostConstruct-init van de superclass bouwt clients voor de register-entries;

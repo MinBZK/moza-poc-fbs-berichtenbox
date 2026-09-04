@@ -13,13 +13,3 @@ headers {
   X-Ontvanger: {{ontvangerHeaderPersoon}}
   traceparent: 00-{{traceId}}-{{parentSpanId}}-01
 }
-
-docs {
-  Elk bericht draagt naast `magazijnId` (de afzender-OIN, een nummer) ook `afzenderNaam`:
-  de weergavenaam uit het magazijnregister, bijvoorbeeld "RVO" of "Belastingdienst". Die
-  is er zonder dat "Berichtenlijst ophalen (SSE)" gedraaid heeft, en ook voor een bericht
-  dat via "Bericht aanmelden" binnenkwam.
-
-  Kent het register geen naam voor die organisatie, dan ontbreekt het veld; `magazijnId` is
-  daarvoor geen alternatief.
-}

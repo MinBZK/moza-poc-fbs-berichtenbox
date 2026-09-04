@@ -79,6 +79,7 @@ class AanmeldService(
         val bericht = Bericht(
             berichtId = event.berichtId,
             afzender = event.afzender.waarde,
+            afzenderNaam = event.afzenderNaam,
             ontvanger = event.ontvanger,
             onderwerp = event.onderwerp,
             inhoud = event.inhoud,
@@ -127,7 +128,7 @@ class AanmeldService(
         val publicatietijdstip = data.publicatietijdstip ?: throw badRequest("data.publicatietijdstip ontbreekt.")
 
         val afzender = parseAfzender(data.afzender!!)
-        val magazijnId = afzenderIndex.magazijnVoor(afzender)
+        val bron = afzenderIndex.magazijnVoor(afzender)
             ?: throw badRequest("Afzender hoort bij geen geconfigureerd magazijn.")
 
         return GepubliceerdBerichtEvent(
@@ -135,7 +136,8 @@ class AanmeldService(
             berichtId = berichtId,
             afzender = afzender,
             ontvanger = parseOntvanger(ontvangerDto),
-            magazijnId = magazijnId,
+            magazijnId = bron.magazijnId,
+            afzenderNaam = bron.naam,
             onderwerp = data.onderwerp!!,
             inhoud = data.inhoud!!,
             publicatietijdstip = publicatietijdstip,

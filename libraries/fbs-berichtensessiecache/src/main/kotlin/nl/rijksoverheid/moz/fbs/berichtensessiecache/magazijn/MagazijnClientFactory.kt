@@ -33,7 +33,7 @@ internal class MagazijnClientFactory(
 ) {
     private val log = Logger.getLogger(MagazijnClientFactory::class.java)
     private lateinit var cachedClients: Map<String, MagazijnClient>
-    private lateinit var cachedNamen: Map<String, String?>
+    private lateinit var cachedNamen: Map<String, String>
 
     /**
      * Dwingt bean-instantiatie — en daarmee [init] met zijn validatie — af bij het opstarten.
@@ -80,7 +80,13 @@ internal class MagazijnClientFactory(
 
     fun getAllClients(): Map<String, MagazijnClient> = cachedClients
 
-    fun getNaam(magazijnId: String): String? = cachedNamen[magazijnId]
+    /**
+     * Weergavenaam van een ingeschreven magazijn. Elke inschrijving draagt er verplicht één en
+     * aanroepers itereren over [getAllClients], dus een onbekend magazijnId is een programmeerfout
+     * en geen configuratiegeval.
+     */
+    fun getNaam(magazijnId: String): String = cachedNamen[magazijnId]
+        ?: throw IllegalStateException("Geen magazijninschrijving voor magazijnId '$magazijnId'")
 
     /**
      * Magazijn-set voor een opted-in afzender-OIN. Door de 1:1-koppeling OIN↔magazijn

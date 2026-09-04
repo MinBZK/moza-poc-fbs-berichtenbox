@@ -96,20 +96,15 @@ internal class ConfigMagazijnregister(
     }
 
     /**
-     * Getrimd doorgeven, en een blanco waarde als afwezig lezen: `magazijnen."<OIN>".naam=`
-     * betekent "geen naam geconfigureerd", niet "de naam is een lege string". Anders zou een
-     * lege naam als weergavenaam de keten in gaan, waar afwezigheid nu juist het signaal is
-     * dat er geen naam bekend is. Anders dan bij grantHash geen fail-fast: een ontbrekende
-     * naam is een geldige configuratie, dus mag hij de boot niet blokkeren.
+     * Getrimd doorgeven en fail-fast op blanco, net als bij [parseUrl]: de weergavenaam is
+     * gebruikersgezichtbaar, dus een ontbrekende of blanco naam hoort de boot te blokkeren
+     * in plaats van als lege afzender in de berichtenlijst van een ondernemer te landen.
      */
-    private fun parseNaam(oin: Oin, naam: Optional<String>): String? {
-        val ruw = naam.orElse(null) ?: return null
-        val getrimd = ruw.trim()
+    private fun parseNaam(oin: Oin, naam: String): String {
+        val getrimd = naam.trim()
 
-        if (getrimd.isBlank()) {
-            log.warnf("magazijnen.\"%s\".naam is leeg of alleen whitespace; behandeld als geen naam", oin.waarde)
-
-            return null
+        check(getrimd.isNotBlank()) {
+            "magazijnen.\"${oin.waarde}\".naam mag niet leeg of alleen whitespace zijn"
         }
 
         return getrimd

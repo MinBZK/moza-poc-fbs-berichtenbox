@@ -31,6 +31,13 @@ enum class Leesstatus(@get:JsonValue val wire: String) {
 data class Bericht(
     val berichtId: UUID,
     val afzender: String,
+    /**
+     * Weergavenaam van de afzendende organisatie, bij het schrijven overgenomen uit het
+     * magazijnregister op [magazijnId]. Meegeschreven en niet bij het lezen opgezocht, zodat een
+     * bericht zijn naam houdt ook als de organisatie intussen uit het register verdwijnt — de
+     * berichtenlijst mag nooit een nummer tonen waar een naam hoort.
+     */
+    val afzenderNaam: String,
     @param:JsonDeserialize(using = IdentificatienummerCanonicalDeserializer::class)
     @get:JsonSerialize(using = IdentificatienummerCanonicalSerializer::class)
     val ontvanger: Identificatienummer,
@@ -45,6 +52,7 @@ data class Bericht(
 ) {
     init {
         require(afzender.isNotBlank()) { "afzender mag niet leeg zijn" }
+        require(afzenderNaam.isNotBlank()) { "afzenderNaam mag niet leeg zijn" }
         require(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }
         // `inhoud` mag leeg zijn: niet elk magazijn levert een inhoudssamenvatting op de lijst-respons
         // (zie MagazijnBericht). Voor consumers blijft `inhoud` in de OpenAPI-spec required zodat de
@@ -68,6 +76,7 @@ data class Bericht(
 fun Bericht.toSamenvatting(): BerichtSamenvatting = BerichtSamenvatting(
     berichtId = berichtId,
     afzender = afzender,
+    afzenderNaam = afzenderNaam,
     ontvanger = ontvanger,
     onderwerp = onderwerp,
     publicatietijdstip = publicatietijdstip,
@@ -88,6 +97,8 @@ fun Bericht.toSamenvatting(): BerichtSamenvatting = BerichtSamenvatting(
 data class BerichtSamenvatting(
     val berichtId: UUID,
     val afzender: String,
+    /** Zie [Bericht.afzenderNaam]. */
+    val afzenderNaam: String,
     val ontvanger: Identificatienummer,
     val onderwerp: String,
     val publicatietijdstip: Instant,

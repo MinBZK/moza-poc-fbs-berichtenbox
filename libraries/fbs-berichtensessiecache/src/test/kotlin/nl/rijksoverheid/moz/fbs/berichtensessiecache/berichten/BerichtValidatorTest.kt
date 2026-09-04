@@ -21,6 +21,7 @@ class BerichtValidatorTest {
     private val basisBericht = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001234567890000",
+        afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999993653"),
         onderwerp = "Test",
         inhoud = "Inhoud",

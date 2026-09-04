@@ -53,7 +53,7 @@ object UitvraagDtoMapper {
         null -> null
     }
 
-    fun toApiBericht(bericht: DomeinBericht, afzenderNaam: String?): Bericht = Bericht().apply {
+    fun toApiBericht(bericht: DomeinBericht, afzenderNaam: String): Bericht = Bericht().apply {
         berichtId = bericht.berichtId
         onderwerp = bericht.onderwerp
         this.afzenderNaam = afzenderNaam
@@ -66,7 +66,7 @@ object UitvraagDtoMapper {
         links = berichtLinks(bericht.berichtId)
     }
 
-    fun toApiSamenvatting(samenvatting: DomeinSamenvatting, afzenderNaam: String?): BerichtSamenvatting =
+    fun toApiSamenvatting(samenvatting: DomeinSamenvatting, afzenderNaam: String): BerichtSamenvatting =
         BerichtSamenvatting().apply {
             berichtId = samenvatting.berichtId
             onderwerp = samenvatting.onderwerp

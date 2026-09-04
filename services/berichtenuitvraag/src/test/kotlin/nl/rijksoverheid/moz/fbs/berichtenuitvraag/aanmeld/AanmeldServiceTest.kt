@@ -38,7 +38,7 @@ class AanmeldServiceTest {
     fun setup() {
         every { dedup.eerstgezien(any()) } returns true
         every { dedup.verwijder(any()) } just Runs
-        every { index.magazijnVoor(Oin(afzender)) } returns "magazijn-a"
+        every { index.magazijnVoor(Oin(afzender)) } returns AfzenderMagazijnIndex.BronMagazijn("magazijn-a", "Magazijn A")
     }
 
     private fun event(

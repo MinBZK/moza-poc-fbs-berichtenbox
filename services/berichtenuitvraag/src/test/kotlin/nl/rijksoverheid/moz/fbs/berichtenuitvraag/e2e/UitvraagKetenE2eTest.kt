@@ -14,8 +14,6 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.WireMockBackendsResource
 import org.hamcrest.CoreMatchers.equalTo
-import org.hamcrest.Matchers.hasKey
-import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -185,8 +183,7 @@ class UitvraagKetenE2eTest {
     @Test
     fun `ophaalronde levert per bericht de naam die het register voor zijn magazijn kent`() {
         // Het andere been van de aanmeld-test: hier komen de berichten uit een échte ophaalronde
-        // langs twee magazijnen. OIN_B draagt "Belastingdienst" in de magazijnen-config, OIN_A
-        // staat er bewust zonder naam in — beide gevallen in één lijstantwoord.
+        // langs twee magazijnen, elk met een eigen naam in het register.
         val bsn = "999990111"
         val berichtVanA = "44444444-4444-4444-4444-444444444444"
         val berichtVanB = "55555555-5555-5555-5555-555555555555"
@@ -205,8 +202,14 @@ class UitvraagKetenE2eTest {
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
-            .body("berichten.find { it.magazijnId == '$OIN_B' }.afzenderNaam", equalTo("Belastingdienst"))
-            .body("berichten.find { it.magazijnId == '$OIN_A' }", not(hasKey("afzenderNaam")))
+            .body(
+                "berichten.find { it.magazijnId == '$OIN_B' }.afzenderNaam",
+                equalTo(WireMockBackendsResource.NAAM_B),
+            )
+            .body(
+                "berichten.find { it.magazijnId == '$OIN_A' }.afzenderNaam",
+                equalTo(WireMockBackendsResource.NAAM_A),
+            )
     }
 
     @Test

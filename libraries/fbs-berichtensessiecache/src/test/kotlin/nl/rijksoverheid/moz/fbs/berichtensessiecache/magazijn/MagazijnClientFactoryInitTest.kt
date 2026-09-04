@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.net.URI
 
 /**
@@ -46,7 +47,7 @@ class MagazijnClientFactoryInitTest {
             override fun voorOin(oin: Oin): Magazijninschrijving? = inschrijvingen.firstOrNull { it.oin == oin }
         }
 
-    private fun inschrijving(oin: String, naam: String? = null): Magazijninschrijving =
+    private fun inschrijving(oin: String, naam: String = "Magazijn"): Magazijninschrijving =
         Magazijninschrijving(oin = Oin(oin), url = URI.create("http://localhost:8081"), naam = naam)
 
     @Test
@@ -58,10 +59,18 @@ class MagazijnClientFactoryInitTest {
 
     @Test
     fun `getNaam levert de register-naam per magazijnId`() {
-        val factory = factory(inschrijving(oinA, naam = "Belastingdienst"), inschrijving(oinB))
+        val factory = factory(inschrijving(oinA, naam = "Belastingdienst"), inschrijving(oinB, naam = "RVO"))
 
         assertEquals("Belastingdienst", factory.getNaam(oinA))
-        assertNull(factory.getNaam(oinB))
+        assertEquals("RVO", factory.getNaam(oinB))
+    }
+
+    @Test
+    fun `getNaam op een niet-ingeschreven magazijnId is een programmeerfout`() {
+        // Aanroepers itereren over getAllClients(); een ander magazijnId hoort hier niet te komen.
+        val factory = factory(inschrijving(oinA))
+
+        assertThrows<IllegalStateException> { factory.getNaam(oinB) }
     }
 
     @Test

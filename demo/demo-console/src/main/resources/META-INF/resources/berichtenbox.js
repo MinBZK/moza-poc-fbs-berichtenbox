@@ -25,8 +25,9 @@ const omgevingGeladen = fetch('/api/demo/omgeving')
 // schrijfactie vanuit de lijst heeft zo geen detail-aanroep nodig om eraan te komen.
 const magazijnPerBericht = new Map();
 
-// Zonder naam tonen we een expliciete tekst en niet de kale OIN — die leest een schermlezer
-// cijfer voor cijfer voor.
+// `afzenderNaam` is verplicht in de uitvraag-API. De terugval dekt alleen een uitvraag van vóór
+// die wijziging: dan liever deze tekst dan de kale OIN, die een schermlezer cijfer voor cijfer
+// voorleest — en dan struikelt het sorteren ook niet over undefined.
 function afzenderNaam(bericht) {
   return bericht.afzenderNaam || 'Onbekende organisatie';
 }

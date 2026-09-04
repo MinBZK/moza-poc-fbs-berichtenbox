@@ -10,7 +10,7 @@
 ```kotlin
 CreateArgs()
     .onHash()
-    .prefixes("bericht:v1:")
+    .prefixes("bericht:v2:")
     .indexedField("onderwerp", FieldType.TEXT)
     .indexedField("afzender", FieldType.TAG)
     .indexedField("ontvanger", FieldType.TAG)
@@ -67,7 +67,7 @@ redis-cli -h <REDIS_HOST> -p 6379 FT.DROPINDEX berichten-idx
 ```
 
 **Niet `FT.DROPINDEX berichten-idx DD`** — de `DD`-flag verwijdert ook de
-onderliggende `bericht:v1:*`-hashes. Dat is onnodig: alleen het index-schema
+onderliggende `bericht:v2:*`-hashes. Dat is onnodig: alleen het index-schema
 wordt opnieuw gebouwd, de berichten zelf blijven via TTL geldig en worden door
 de stap-4-create automatisch opnieuw geïndexeerd.
 
@@ -130,6 +130,7 @@ Search-endpoint is weer beschikbaar. Sluit het maintenance-window.
 | Wijziging | Aanleiding | Actie nodig |
 |---|---|---|
 | `ontvangerType` (TAG) toegevoegd; zoek/filter worden type-aware (`@ontvanger:{..} @ontvangerType:{..}`) | Getypeerde ontvanger + cross-type-isolatie (#625, #648) | Eenmalig deze procedure (drop + restart). **Pre-productie:** cache mag leeglopen; geen maintenance-window nodig. |
+| Sleutel-prefix `bericht:v1:` → `bericht:v2:`; hash-veld `afzenderNaam` toegevoegd aan de opslag en aan de samenvatting-projectie | Elk bericht draagt een verplichte weergavenaam van zijn organisatie (#1065) | Eenmalig deze procedure (drop + restart). De prefix verandert mee, dus de index móet opnieuw. `v1`-entries missen het nieuwe veld en worden door de nieuwe prefix niet meer gelezen; ze verlopen via hun eigen TTL. **Pre-productie:** cache mag leeglopen; geen maintenance-window nodig. |
 
 **Veiligheid tijdens de transitie (`ontvangerType`):** draait de type-aware filter op een
 nog-niet-gebumpte index (zonder `ontvangerType`-veld), dan levert RediSearch **lege resultaten

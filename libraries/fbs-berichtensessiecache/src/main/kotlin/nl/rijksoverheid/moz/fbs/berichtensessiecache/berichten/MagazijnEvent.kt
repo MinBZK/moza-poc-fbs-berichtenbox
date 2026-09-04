@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import com.fasterxml.jackson.annotation.JsonIgnore
-import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonPropertyOrder
 import com.fasterxml.jackson.annotation.JsonValue
 
@@ -37,10 +36,8 @@ enum class MagazijnFoutStatus(val wire: MagazijnStatus) {
  * soort draagt, zodat een onvolledige of tegenstrijdige combinatie niet te construeren is.
  *
  * Het wire-formaat is een vlak JSON-object met `event` als discriminator; [JsonPropertyOrder]
- * pint per type de veldvolgorde. Alleen de per-magazijn-typen hebben een optioneel veld
- * (`naam`) en dragen daarom `NON_NULL` — de library legt dat zelf vast in plaats van te
- * leunen op de Jackson-instelling van de service die haar gebruikt. De stroom wordt alleen
- * geproduceerd, nooit door ons ingelezen — er is dus geen polymorfe deserialisatie.
+ * pint per type de veldvolgorde. De stroom wordt alleen geproduceerd, nooit door ons
+ * ingelezen — er is dus geen polymorfe deserialisatie.
  */
 sealed interface MagazijnEvent {
     val event: EventType
@@ -49,14 +46,13 @@ sealed interface MagazijnEvent {
 /** Bevraging van één magazijn: het `magazijnId` is de afzender-OIN, `naam` de weergavenaam. */
 sealed interface MagazijnBevraging : MagazijnEvent {
     val magazijnId: String
-    val naam: String?
+    val naam: String
 }
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam")
 data class MagazijnBevragingGestart(
     override val magazijnId: String,
-    override val naam: String?,
+    override val naam: String,
 ) : MagazijnBevraging {
     override val event: EventType get() = EventType.MAGAZIJN_BEVRAGING_GESTART
 }
@@ -67,21 +63,19 @@ sealed interface MagazijnBevragingVoltooid : MagazijnBevraging {
     val status: MagazijnStatus
 }
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam", "status", "aantalBerichten")
 data class MagazijnBevragingGeslaagd(
     override val magazijnId: String,
-    override val naam: String?,
+    override val naam: String,
     val aantalBerichten: Int,
 ) : MagazijnBevragingVoltooid {
     override val status: MagazijnStatus get() = MagazijnStatus.OK
 }
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam", "status", "foutmelding")
 data class MagazijnBevragingMislukt(
     override val magazijnId: String,
-    override val naam: String?,
+    override val naam: String,
     @get:JsonIgnore val fout: MagazijnFoutStatus,
     val foutmelding: String,
 ) : MagazijnBevragingVoltooid {

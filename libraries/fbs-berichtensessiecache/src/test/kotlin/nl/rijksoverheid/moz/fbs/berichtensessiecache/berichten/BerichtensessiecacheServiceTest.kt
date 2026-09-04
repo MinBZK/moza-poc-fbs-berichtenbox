@@ -1047,6 +1047,7 @@ class BerichtensessiecacheServiceTest {
     private fun testBericht() = Bericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",
+        afzenderNaam = "Magazijn A",
         ontvanger = ontvanger,
         onderwerp = "Test bericht",
         inhoud = "Inhoud van het bericht",

@@ -13,6 +13,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MockSessiecache
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -122,6 +124,7 @@ class AanmeldResourceTest {
             .statusCode(200)
             .body("berichten[0].magazijnId", equalTo(afzender))
             .body("berichten[0].afzenderNaam", equalTo("RVO"))
+            .body("berichten[0]", not(hasKey("afzender")))
     }
 
     @Test

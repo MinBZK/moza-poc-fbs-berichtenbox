@@ -84,6 +84,7 @@ class UitvraagDtoMapperTest {
         val domein = Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "Onderwerp",
             inhoud = "Inhoud",
@@ -110,32 +111,12 @@ class UitvraagDtoMapperTest {
     }
 
     @Test
-    fun `toApiBericht zonder bekende afzendernaam laat het veld leeg`() {
-        // Geen terugval op afzender/magazijnId: een twintigcijferig nummer als naam zou het
-        // ontbreken juist verbergen voor de afnemer.
-        val domein = Bericht(
-            berichtId = UUID.randomUUID(),
-            afzender = "00000001003214345000",
-            ontvanger = Bsn("999990019"),
-            onderwerp = "Onderwerp",
-            inhoud = "Inhoud",
-            publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
-            magazijnId = "00000001003214345000",
-            aantalBijlagen = 0,
-        )
-
-        val api = UitvraagDtoMapper.toApiBericht(domein, afzenderNaam = null)
-
-        assertNull(api.afzenderNaam)
-        assertEquals("00000001003214345000", api.magazijnId)
-    }
-
-    @Test
     fun `toApiSamenvatting laat de ontvanger weg en mapt de rest`() {
         val id = UUID.randomUUID()
         val domein = BerichtSamenvatting(
             berichtId = id,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "Onderwerp",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
@@ -155,23 +136,4 @@ class UitvraagDtoMapperTest {
         assertEquals("/api/v1/berichten/$id", api.links.self.href)
     }
 
-    @Test
-    fun `toApiSamenvatting zonder bekende afzendernaam laat het veld leeg`() {
-        val domein = BerichtSamenvatting(
-            berichtId = UUID.randomUUID(),
-            afzender = "00000001003214345000",
-            ontvanger = Bsn("999990019"),
-            onderwerp = "Onderwerp",
-            publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
-            magazijnId = "00000001003214345000",
-            aantalBijlagen = 0,
-            map = null,
-            status = null,
-        )
-
-        val api = UitvraagDtoMapper.toApiSamenvatting(domein, afzenderNaam = null)
-
-        assertNull(api.afzenderNaam)
-        assertEquals("00000001003214345000", api.magazijnId)
-    }
 }

@@ -4,11 +4,11 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 
 internal sealed class MagazijnResult {
     abstract val magazijnId: String
-    abstract val naam: String?
+    abstract val naam: String
 
     data class Success(
         override val magazijnId: String,
-        override val naam: String?,
+        override val naam: String,
         val berichten: List<Bericht>,
     ) : MagazijnResult() {
         init {
@@ -26,7 +26,7 @@ internal sealed class MagazijnResult {
      */
     class Failure(
         override val magazijnId: String,
-        override val naam: String?,
+        override val naam: String,
         val error: Throwable,
         val fault: MagazijnFault,
     ) : MagazijnResult() {

@@ -18,8 +18,13 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 class AfzenderMagazijnIndex(private val register: Magazijnregister) {
 
     /**
-     * Magazijn-id voor [afzender], of `null` als die OIN geen ingeschreven
-     * magazijn heeft (onbekende bron / config-drift).
+     * Bron-magazijn voor [afzender], of `null` als die OIN geen ingeschreven magazijn heeft
+     * (onbekende bron / config-drift). De weergavenaam komt mee omdat een aanmeld-geschreven
+     * cache-entry hem net zo hard nodig heeft als het `magazijnId`: de berichtenlijst toont hem.
      */
-    fun magazijnVoor(afzender: Oin): String? = register.voorOin(afzender)?.oin?.waarde
+    fun magazijnVoor(afzender: Oin): BronMagazijn? = register.voorOin(afzender)
+        ?.let { BronMagazijn(magazijnId = it.oin.waarde, naam = it.naam) }
+
+    /** Het magazijn waaruit een aangemeld bericht komt: het id om op te routeren, de naam om te tonen. */
+    data class BronMagazijn(val magazijnId: String, val naam: String)
 }

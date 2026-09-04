@@ -21,8 +21,8 @@ class BerichtenlijstServiceTest {
 
     private val sessiecache: Sessiecache = mockk()
     private val afzendernamen: Afzendernamen = mockk {
-        every { naamVoor(any()) } returns null
-        every { naamVoor("00000001823288444000") } returns "Belastingdienst"
+        every { naamVoor(any(), any()) } returns "Kamer van Koophandel"
+        every { naamVoor("00000001823288444000", any()) } returns "Belastingdienst"
     }
     private val service = BerichtenlijstService(sessiecache, afzendernamen)
     private val ontvanger = Bsn("999990019")
@@ -40,6 +40,7 @@ class BerichtenlijstServiceTest {
     ) = BerichtSamenvatting(
         berichtId = id,
         afzender = "00000001003214345000",
+        afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999990019"),
         onderwerp = "Onderwerp",
         publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
@@ -87,11 +88,11 @@ class BerichtenlijstServiceTest {
     }
 
     @Test
-    fun `lijst zet de afzendernaam uit het register op elk bericht`() {
+    fun `lijst zet de afzendernaam per bericht`() {
         every { sessiecache.lijst(ontvanger, null, null) } returns pagina(
             berichten = listOf(
                 samenvatting(magazijnId = "00000001823288444000"),
-                samenvatting(magazijnId = "magazijn-a"),
+                samenvatting(magazijnId = "00000001003214345000"),
             ),
         )
 
@@ -100,7 +101,7 @@ class BerichtenlijstServiceTest {
         // Twee berichten uit verschillende magazijnen: dit bewijst dat de naam per bericht
         // wordt opgezocht en niet één keer voor de hele lijst wordt overgenomen.
         assertEquals("Belastingdienst", berichten[0].afzenderNaam)
-        assertNull(berichten[1].afzenderNaam)
+        assertEquals("Kamer van Koophandel", berichten[1].afzenderNaam)
     }
 
     @Test

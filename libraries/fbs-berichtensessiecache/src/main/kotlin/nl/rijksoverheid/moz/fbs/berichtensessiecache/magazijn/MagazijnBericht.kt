@@ -34,9 +34,12 @@ internal data class MagazijnBericht(
     @param:JsonProperty("bijlagen") val bijlagen: List<MagazijnBijlage> = emptyList(),
     @param:JsonProperty("status") val status: MagazijnBerichtStatus? = null,
 ) {
-    fun toBericht(magazijnId: String): Bericht = Bericht(
+    fun toBericht(magazijnId: String, afzenderNaam: String): Bericht = Bericht(
         berichtId = berichtId,
         afzender = afzender,
+        // Uit het register, niet uit de payload: het magazijn mag zijn eigen weergavenaam niet
+        // bepalen, anders kan een bericht zich als een andere organisatie presenteren.
+        afzenderNaam = afzenderNaam,
         // Het magazijn levert ontvanger als {type, waarde}; aan de cache-grens bouwen we het
         // gevalideerde domeintype (elfproef/lengte afgedwongen). Ongeldige magazijn-data faalt
         // hier hard i.p.v. ongemerkt het cache-domein in te stromen.

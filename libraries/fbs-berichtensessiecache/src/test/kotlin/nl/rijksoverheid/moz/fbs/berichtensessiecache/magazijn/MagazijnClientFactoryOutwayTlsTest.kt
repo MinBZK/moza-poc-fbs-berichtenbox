@@ -36,7 +36,7 @@ class MagazijnClientFactoryOutwayTlsTest {
     private fun inschrijving(grantHash: String?) = Magazijninschrijving(
         oin = Oin("00000001003214345000"),
         url = URI.create("https://magazijn.test"),
-        naam = null,
+        naam = "Magazijn A",
         grantHash = grantHash,
     )
 

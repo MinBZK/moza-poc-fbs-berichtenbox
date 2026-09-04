@@ -30,7 +30,7 @@ class BerichtBeheerServiceTest {
         every { forMagazijn(any()) } returns magazijn
     }
     private val afzendernamen: Afzendernamen = mockk {
-        every { naamVoor(any()) } returns null
+        every { naamVoor(any(), any()) } returns "Magazijn A"
     }
     private val service = BerichtBeheerService(sessiecache, router, afzendernamen)
 
@@ -42,6 +42,7 @@ class BerichtBeheerServiceTest {
     private val bijgewerkt = Bericht(
         berichtId = id,
         afzender = "00000001003214345000",
+        afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999990019"),
         onderwerp = "X",
         inhoud = "Inhoud",
@@ -71,7 +72,7 @@ class BerichtBeheerServiceTest {
     fun `patch-respons draagt de afzendernaam van het bijgewerkte bericht`() {
         // De naam wordt opgezocht op het magazijnId van het bericht uit de cache, niet op de
         // magazijnId-queryparameter of het berichtId.
-        every { afzendernamen.naamVoor("magazijn-a") } returns "Belastingdienst"
+        every { afzendernamen.naamVoor("magazijn-a", any()) } returns "Belastingdienst"
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
 

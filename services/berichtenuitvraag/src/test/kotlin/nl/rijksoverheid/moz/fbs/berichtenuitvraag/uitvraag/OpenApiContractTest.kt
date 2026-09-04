@@ -66,6 +66,7 @@ class OpenApiContractTest {
         val bericht = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "Test",
             inhoud = "Inhoud",

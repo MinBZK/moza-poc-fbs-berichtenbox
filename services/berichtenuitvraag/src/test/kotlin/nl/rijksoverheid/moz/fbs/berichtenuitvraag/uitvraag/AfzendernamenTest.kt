@@ -4,7 +4,6 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -15,7 +14,7 @@ import java.util.stream.Stream
 
 class AfzendernamenTest {
 
-    private fun afzendernamenMet(inschrijvingen: List<Pair<Oin, String?>>): Afzendernamen {
+    private fun afzendernamenMet(inschrijvingen: List<Pair<Oin, String>>): Afzendernamen {
         val entries = inschrijvingen.map { (oin, naam) ->
             Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = naam)
         }
@@ -29,52 +28,53 @@ class AfzendernamenTest {
     }
 
     /**
-     * Meerdere inschrijvingen borgen dat de lookup per organisatie discrimineert in plaats van
-     * de enige/eerste naam terug te geven. De lege cardinaliteit hoort hier niet: die zou nul
-     * assertions doen en dus altijd slagen; het lege register wordt hieronder bewezen.
+     * Meerdere inschrijvingen borgen dat de lookup per organisatie discrimineert in plaats van de
+     * enige/eerste naam terug te geven.
      */
     @ParameterizedTest(name = "register={0}")
     @MethodSource("gevuldeRegisterCardinaliteiten")
-    fun `geeft per organisatie haar eigen naam`(inschrijvingen: List<Pair<Oin, String?>>) {
+    fun `geeft per organisatie haar eigen naam uit het register`(inschrijvingen: List<Pair<Oin, String>>) {
         val afzendernamen = afzendernamenMet(inschrijvingen)
 
         inschrijvingen.forEach { (oin, naam) ->
-            assertEquals(naam, afzendernamen.naamVoor(oin.waarde))
+            assertEquals(naam, afzendernamen.naamVoor(oin.waarde, meegeschrevenNaam = "Oude naam"))
         }
     }
 
-    @ParameterizedTest(name = "register={0}")
-    @MethodSource("gevuldeRegisterCardinaliteiten")
-    fun `niet-ingeschreven organisatie geeft geen naam`(inschrijvingen: List<Pair<Oin, String?>>) {
-        val afzendernamen = afzendernamenMet(inschrijvingen)
+    @Test
+    fun `het register wint van de meegeschreven naam, zodat een hernoeming meteen doorwerkt`() {
+        val afzendernamen = afzendernamenMet(listOf(BELASTINGDIENST to "Belastingdienst"))
 
-        assertNull(afzendernamen.naamVoor("99999999999999999999"))
+        assertEquals(
+            "Belastingdienst",
+            afzendernamen.naamVoor(BELASTINGDIENST.waarde, meegeschrevenNaam = "Naam van vóór de hernoeming"),
+        )
     }
 
     @Test
-    fun `leeg register verzint geen naam`() {
+    fun `een organisatie die uit het register verdween houdt haar meegeschreven naam`() {
+        // Config-drift tijdens een lopende sessie: het bericht staat nog in de cache, de
+        // inschrijving niet meer. De naam die bij het schrijven meeging is dan het vangnet.
+        val afzendernamen = afzendernamenMet(listOf(BELASTINGDIENST to "Belastingdienst"))
+
+        assertEquals("RVO", afzendernamen.naamVoor(RVO.waarde, meegeschrevenNaam = "RVO"))
+    }
+
+    @Test
+    fun `een leeg register laat elk bericht op zijn meegeschreven naam terugvallen`() {
         val afzendernamen = afzendernamenMet(emptyList())
 
-        assertNull(afzendernamen.naamVoor(BELASTINGDIENST.waarde))
-    }
-
-    @Test
-    fun `ingeschreven organisatie zonder naam in het register geeft geen naam`() {
-        // Naamloos naast een genoemde buur: dit moet null geven en niet stilzwijgend de
-        // naam van de buur of het nummer zelf opleveren.
-        val afzendernamen = afzendernamenMet(
-            listOf(
-                NAAMLOOS to null,
-                BELASTINGDIENST to "Belastingdienst",
-            ),
+        assertEquals(
+            "Belastingdienst",
+            afzendernamen.naamVoor(BELASTINGDIENST.waarde, meegeschrevenNaam = "Belastingdienst"),
         )
-
-        assertNull(afzendernamen.naamVoor(NAAMLOOS.waarde))
-        assertEquals("Belastingdienst", afzendernamen.naamVoor(BELASTINGDIENST.waarde))
     }
 
-    /** Een niet-OIN-vormig magazijnId levert geen naam op in plaats van de lijst te laten falen. */
-    @ParameterizedTest(name = "magazijnId=''{0}''")
+    /**
+     * Een magazijnId uit de sessiecache hoort een OIN te zijn; een waarde uit een oudere
+     * registerstaat mag de lijst niet laten falen en verliest hooguit de verse register-naam.
+     */
+    @ParameterizedTest(name = "magazijnId=\'\'{0}\'\'")
     @ValueSource(
         strings = [
             "",
@@ -85,15 +85,15 @@ class AfzendernamenTest {
             "00000000000000000000",
         ],
     )
-    fun `magazijnId dat geen geldige OIN is geeft geen naam`(magazijnId: String) {
+    fun `magazijnId dat geen geldige OIN is valt terug op de meegeschreven naam`(magazijnId: String) {
         val afzendernamen = afzendernamenMet(listOf(BELASTINGDIENST to "Belastingdienst"))
 
-        assertNull(afzendernamen.naamVoor(magazijnId))
+        assertEquals("Magazijn A", afzendernamen.naamVoor(magazijnId, meegeschrevenNaam = "Magazijn A"))
     }
 
     companion object {
 
-        private val NAAMLOOS = Oin("00000001003214345000")
+        private val KVK = Oin("00000001003214345000")
         private val BELASTINGDIENST = Oin("00000001823288444000")
         private val RVO = Oin("00000000000000100000")
 
@@ -105,7 +105,7 @@ class AfzendernamenTest {
                 listOf(
                     BELASTINGDIENST to "Belastingdienst",
                     RVO to "RVO",
-                    NAAMLOOS to null,
+                    KVK to "Kamer van Koophandel",
                 ),
             ),
         )

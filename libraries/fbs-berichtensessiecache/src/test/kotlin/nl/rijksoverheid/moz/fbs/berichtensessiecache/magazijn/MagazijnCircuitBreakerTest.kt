@@ -19,7 +19,7 @@ class MagazijnCircuitBreakerTest {
 
     private fun breaker(drempel: Int = 3, openNanos: Long = 1_000L) = Breaker(drempel, openNanos, klok)
 
-    private fun failure(fault: MagazijnFault) = MagazijnResult.Failure("m", null, RuntimeException("x"), fault)
+    private fun failure(fault: MagazijnFault) = MagazijnResult.Failure("m", "Magazijn A", RuntimeException("x"), fault)
 
     @Test
     fun `gesloten circuit laat alles door`() {
@@ -132,7 +132,7 @@ class MagazijnCircuitBreakerTest {
 
     @Test
     fun `circuitActieVoor mapt elke uitkomst op de juiste circuit-actie`() {
-        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(MagazijnResult.Success("m", null, emptyList())))
+        assertEquals(CircuitActie.MELD_SUCCES, circuitActieVoor(MagazijnResult.Success("m", "Magazijn A", emptyList())))
 
         assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.TIMEOUT)))
         assertEquals(CircuitActie.MELD_FOUT, circuitActieVoor(failure(MagazijnFault.HTTP_5XX)))

@@ -5,6 +5,7 @@ import io.smallrye.config.SmallRyeConfigBuilder
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 /**
  * Roundtrip-test van de `@ConfigMapping`-binding zelf: borgt dat de
@@ -23,24 +24,30 @@ class MagazijnregisterConfigMappingTest {
             "magazijnen.\"$oinA\".url" to "http://localhost:8081",
             "magazijnen.\"$oinA\".naam" to "Belastingdienst",
             "magazijnen.\"$oinB\".url" to "http://localhost:8082",
+            "magazijnen.\"$oinB\".naam" to "RVO",
         )
 
         assertEquals(setOf(oinA, oinB), mapping.inschrijvingen().keys)
         assertEquals("http://localhost:8081", mapping.inschrijvingen()[oinA]!!.url())
-        assertEquals("Belastingdienst", mapping.inschrijvingen()[oinA]!!.naam().get())
+        assertEquals("Belastingdienst", mapping.inschrijvingen()[oinA]!!.naam())
     }
 
     @Test
-    fun `naam is optioneel in de properties-notatie`() {
-        val mapping = mapping("magazijnen.\"$oinA\".url" to "http://localhost:8081")
-
-        assertTrue(mapping.inschrijvingen()[oinA]!!.naam().isEmpty)
+    fun `een inschrijving zonder naam bindt niet`() {
+        // De naam is verplicht in de mapping: een organisatie zonder weergavenaam hoort de boot
+        // te blokkeren, niet als naamloze afzender in een berichtenlijst te landen.
+        assertThrows<RuntimeException> {
+            mapping("magazijnen.\"$oinA\".url" to "http://localhost:8081")
+                .inschrijvingen()[oinA]!!
+                .naam()
+        }
     }
 
     @Test
     fun `grantHash bindt op de map onder de magazijnen-prefix`() {
         val mapping = mapping(
             "magazijnen.\"$oinA\".url" to "http://localhost:8081",
+            "magazijnen.\"$oinA\".naam" to "Belastingdienst",
             "magazijnen.\"$oinA\".grantHash" to "abc123",
         )
 
@@ -49,7 +56,10 @@ class MagazijnregisterConfigMappingTest {
 
     @Test
     fun `grantHash is optioneel in de properties-notatie`() {
-        val mapping = mapping("magazijnen.\"$oinA\".url" to "http://localhost:8081")
+        val mapping = mapping(
+            "magazijnen.\"$oinA\".url" to "http://localhost:8081",
+            "magazijnen.\"$oinA\".naam" to "Belastingdienst",
+        )
 
         assertTrue(mapping.inschrijvingen()[oinA]!!.grantHash().isEmpty)
     }
@@ -68,6 +78,7 @@ class MagazijnregisterConfigMappingTest {
     fun `onbeantwoorde expressie met lege default levert Optional-empty op, geen aanwezige lege waarde`() {
         val mapping = mappingMetExpressieExpansie(
             "magazijnen.\"$oinA\".url" to "http://localhost:8081",
+            "magazijnen.\"$oinA\".naam" to "Belastingdienst",
             "magazijnen.\"$oinA\".grantHash" to "\${MAGAZIJN_A_GRANT_HASH:}",
         )
 

@@ -43,6 +43,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Eerste bericht over belastingaangifte",
             inhoud = "Inhoud eerste bericht",
@@ -54,6 +55,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000009876543210000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Tweede bericht over subsidie",
             inhoud = "Inhoud tweede bericht",
@@ -65,6 +67,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Derde bericht over vergunning",
             inhoud = "Inhoud derde bericht",
@@ -320,6 +323,7 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuw = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000005555555550000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Concurrent toegevoegd",
             inhoud = "Tijdens delete",
@@ -361,6 +365,7 @@ class RedisBerichtenCacheIntegrationTest {
         val bericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Bericht met bijlage",
             inhoud = "Met bijlage",
@@ -409,6 +414,7 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuwBericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000005555555550000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Nieuw bericht",
             inhoud = "Inhoud nieuw bericht",
@@ -561,6 +567,7 @@ class RedisBerichtenCacheIntegrationTest {
     private fun berichtVoor(ontvanger: nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer, onderwerp: String, magazijnId: String) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001234567890000",
+        afzenderNaam = "Magazijn A",
         ontvanger = ontvanger,
         onderwerp = onderwerp,
         inhoud = "inhoud",
@@ -698,6 +705,7 @@ class RedisBerichtenCacheIntegrationTest {
         val partialHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
@@ -728,6 +736,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corrupteHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "corrupt zoekdocument",
@@ -767,6 +776,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corruptHash = mapOf(
             "berichtId" to "geen-uuid-meer",
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
@@ -793,6 +803,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
@@ -821,6 +832,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to "123456789",
             "ontvangerType" to "BSN",
             "onderwerp" to "test",
@@ -846,6 +858,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to "ONBEKEND",
             "onderwerp" to "test",

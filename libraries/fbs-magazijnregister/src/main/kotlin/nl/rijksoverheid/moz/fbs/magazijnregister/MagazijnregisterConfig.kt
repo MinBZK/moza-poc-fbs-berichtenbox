@@ -21,7 +21,9 @@ internal interface MagazijnregisterConfig {
 
     interface Inschrijving {
         fun url(): String
-        fun naam(): Optional<String>
+
+        /** Verplicht: zonder weergavenaam is een organisatie niet in te schrijven. */
+        fun naam(): String
 
         /**
          * FSC-grant-hash voor magazijnen achter een FSC-outway. Aanwezig ⇒
