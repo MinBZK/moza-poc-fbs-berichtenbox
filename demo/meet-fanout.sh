@@ -20,10 +20,15 @@
 #
 # Vereist een draaiende demo-stack:  docker compose --profile demo up -d
 # Gebruik:  demo/meet-fanout.sh [aantal-rondes]
+#
+# Tegen een omgeving waar het bedieningspaneel achter een authorization-wall staat (ZAD) geeft een
+# aanroep zonder sessie 403. Geef dan het sessiecookie van een ingelogde browser mee in
+# CONSOLE_COOKIE; zonder dat cookie stopt de meting bij de eerste ronde.
 set -euo pipefail
 
 UITVRAAG="${UITVRAAG:-http://localhost:8086}"
 CONSOLE="${CONSOLE:-http://localhost:8095}"
+CONSOLE_COOKIE="${CONSOLE_COOKIE:-}"
 RONDES="${1:-3}"
 UITVOER="${UITVOER:-/tmp/fanout-meting.tsv}"
 
@@ -46,8 +51,18 @@ curl -sf "$UITVRAAG/q/health/ready" > /dev/null \
 # de keten, en dan lijkt de fan-out ineens gratis. Deze aanroep mag dus niet stil mislukken: een
 # verkeerd adres of een niet-draaiend bedieningspaneel zou elke ronde ná de eerste onbruikbaar maken
 # zonder dat er iets van te zien is.
+# Het cookie als array en niet als losse string: `-H "Cookie: $x"` zonder quotes zou op de spatie
+# splitsen en curl een half argument geven. De `[@]+`-vorm houdt het geheel ook onder `set -u` goed
+# wanneer er geen cookie is.
+COOKIE_ARG=()
+
+if [ -n "$CONSOLE_COOKIE" ]; then
+    COOKIE_ARG=(-H "Cookie: $CONSOLE_COOKIE")
+fi
+
 vervalcache() {
-    curl -sS -f -X POST "$CONSOLE/api/demo/sessie/verlopen" > /dev/null \
+    curl -sS -f -X POST "$CONSOLE/api/demo/sessie/verlopen" \
+        ${COOKIE_ARG[@]+"${COOKIE_ARG[@]}"} > /dev/null \
         || { echo "FOUT: de sessiecache legen mislukte via $CONSOLE; de meting zou het cache-pad meten." >&2; exit 1; }
 }
 
