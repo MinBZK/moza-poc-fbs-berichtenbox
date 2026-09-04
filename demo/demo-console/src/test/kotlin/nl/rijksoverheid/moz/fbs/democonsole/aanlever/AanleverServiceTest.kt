@@ -100,6 +100,21 @@ class AanleverServiceTest {
     }
 
     @Test
+    fun `bij een serverfout wordt de reden van het magazijn niet eens gelezen`() {
+        // `vanStatus` negeert hem daar toch, en elke leespoging die misgaat kost een waarschuwing:
+        // een storing tijdens een ronde van honderd berichten gaf er zo honderd over een body die
+        // niemand had willen lezen.
+        val respons = respons(503, detail = "De toestemmingscontrole kon niet uitgevoerd worden.")
+
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns respons
+
+        service.leverAan(listOf(opdracht()))
+
+        verify(exactly = 0) { respons.readEntity(Problem::class.java) }
+    }
+
+    @Test
     fun `een onleesbaar foutantwoord verbergt de afwijzing niet`() {
         // Een foutpagina in plaats van problem+json: de status blijft, de eigen zin blijft.
         every { clients[RVO] } returns client
@@ -241,7 +256,7 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(listOf(opdracht(gelezen = true)))
 
-        assertEquals(AanleverResultaat.van(1, 1, 1, emptyList()), resultaat)
+        assertEquals(AanleverResultaat.van(1, 1, markeringMislukt = 1, redenen = emptyList()), resultaat)
         assertNull(resultaat.letOp)
     }
 
@@ -254,7 +269,7 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(List(2) { opdracht(gelezen = true) })
 
-        assertEquals(AanleverResultaat.van(2, 2, 2, emptyList()), resultaat)
+        assertEquals(AanleverResultaat.van(2, 2, markeringMislukt = 2, redenen = emptyList()), resultaat)
     }
 
     @Test
@@ -267,7 +282,7 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(List(2) { opdracht() } + opdracht(gelezen = true))
 
-        assertEquals(AanleverResultaat.van(3, 3, 1, emptyList()), resultaat)
+        assertEquals(AanleverResultaat.van(3, 3, markeringMislukt = 1, redenen = emptyList()), resultaat)
     }
 
     @Test

@@ -46,11 +46,15 @@ zodra die PR merget. Stapelen zou alleen de preview-opruiming compliceren.
 
 1. **`aanlever/Faalreden.kt` (nieuw)** — pure vertaling van een faalmodus naar één leesbare zin, en
    de samenvatting van een lijst redenen tot één regel:
-   - één onderscheiden reden → `Reden: <zin>.`
-   - meerdere → `Meest voorkomende reden (<n> van de <m>): <zin>.`
+   - één onderscheiden reden → `Reden: <zin>`
+   - meerdere → `Meest voorkomende van <k> redenen (<n> van de <m>): <zin>`
+   - meerdere, zonder winnaar → `Eerste van <k> redenen (<n> van de <m>): <zin>`
 
-   Zo blijft de melding bij honderd berichten één regel. De winnaar is de eerst-aangetroffen van de
-   meest voorkomende, dus deterministisch bij gelijke stand.
+   Zo blijft de melding bij honderd berichten één regel. Het aantal onderscheiden redenen staat erbij,
+   anders leest "97 van de 100" als de hele verklaring en blijven de drie berichten met een andere
+   oorzaak na de herstelpoging opnieuw liggen. De winnaar is de eerst-aangetroffen van de meest
+   voorkomende, dus deterministisch bij gelijke stand — en dan heet het ook geen "meest voorkomende".
+   Het afsluitende leesteken komt er alleen bij als de zin er zelf nog geen heeft.
 
 2. **`AanleverResultaat` krijgt `letOp: String?`**, alleen te maken via `van(...)` zodat `mislukt`
    en `letOp` uit dezelfde lijst komen en elkaar niet kunnen tegenspreken. Naam gelijk aan het

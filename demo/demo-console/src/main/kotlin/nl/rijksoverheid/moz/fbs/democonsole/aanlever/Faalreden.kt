@@ -28,6 +28,9 @@ internal object Faalreden {
     fun onverwacht(magazijnOin: String, fout: Throwable): String =
         "aanleveren bij magazijn $magazijnOin brak onverwacht af (${fout.javaClass.simpleName})"
 
+    /** Of het zin heeft de reden van het magazijn zelf op te halen; zie [vanStatus]. */
+    fun heeftEigenReden(status: Int): Boolean = status in AFWIJZINGEN
+
     /**
      * Het magazijn formuleert zijn eigen afwijzing nauwkeuriger dan een statuscode hier kan raden:
      * achter één 403 zitten een ontvanger die de profielservice niet kent, een ontvanger zonder
@@ -42,9 +45,6 @@ internal object Faalreden {
      * identificatienummers eruit; wél kan er invoer van de aanleveraar in staan (een afgekeurd
      * mimeType bijvoorbeeld), dus de tekst gaat afgekapt en op één regel het scherm op.
      */
-    /** Of het zin heeft de reden van het magazijn zelf op te halen; zie [vanStatus]. */
-    fun heeftEigenReden(status: Int): Boolean = status in AFWIJZINGEN
-
     fun vanStatus(magazijnOin: String, status: Int, detail: String? = null): String {
         val eigenReden = when {
             status == Response.Status.FORBIDDEN.statusCode ->

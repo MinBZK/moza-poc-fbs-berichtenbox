@@ -49,7 +49,10 @@ class ProblemLezenTest {
     }
 
     @AfterEach
-    fun stop() = server.stop(0)
+    fun stop() {
+        (client as? AutoCloseable)?.close()
+        server.stop(0)
+    }
 
     @Test
     fun `de reden uit een problem+json-antwoord komt er als tekst uit`() {
