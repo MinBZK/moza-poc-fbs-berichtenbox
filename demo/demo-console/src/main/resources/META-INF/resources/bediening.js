@@ -312,7 +312,12 @@ function vullingSoort(body) {
 
     if (!vulling || typeof vulling.aangeboden !== 'number') return 'goed';
 
-    if (vulling.aangeboden > 0 && vulling.geslaagd === 0) return 'fout';
+    // Nul aangeboden is geen fout — er ging niets mis — maar groen zou hier "gelukt" betekenen voor
+    // een actie die niets deed. De adressen achter de knoppen weigeren een aantal van nul inmiddels;
+    // dit vangt de vulacties die hun eigen bron leeg kunnen aantreffen.
+    if (vulling.aangeboden === 0) return 'let-op';
+
+    if (vulling.geslaagd === 0) return 'fout';
 
     return vulling.mislukt || vulling.markeringMislukt ? 'let-op' : 'goed';
 }

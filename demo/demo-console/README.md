@@ -77,9 +77,9 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
 | Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo* |
 | Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek. De gesimuleerde magazijnen gaan als deelstap mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen |
-| Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten |
-| Demo | Bericht plaatsen | *n* berichten voor de persona uit de keuzelijst; het magazijn is een willekeurige van de magazijnen waar die persona berichten van ontvangt. De keuzelijst komt uit `berichtPersonas` van `GET /api/demo/omgeving` en bevat alleen persona's mét magazijn |
-| Demo | Stroom starten / stoppen | Eén willekeurig bericht per interval; stopt vanzelf na 500 berichten of 60 minuten |
+| Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten, 1 tot 500 |
+| Demo | Bericht plaatsen | *n* berichten (1 tot 100) voor de persona uit de keuzelijst; het magazijn is een willekeurige van de magazijnen waar die persona berichten van ontvangt. De keuzelijst komt uit `berichtPersonas` van `GET /api/demo/omgeving` en bevat alleen persona's mét magazijn |
+| Demo | Stroom starten / stoppen | Eén willekeurig bericht per interval van 1 tot 3600 seconden; stopt vanzelf na 500 berichten of 60 minuten |
 | Storingen | Traag (alleen magazijn A/B) / Uit per proxy | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie en meldt pas succes nadat het teruggelezen heeft dat alles normaal staat |
 | Scenario's | Cache verlopen | Wist de sessiecache in Redis |
 | Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |

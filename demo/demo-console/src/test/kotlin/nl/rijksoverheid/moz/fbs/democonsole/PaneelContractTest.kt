@@ -60,6 +60,9 @@ class PaneelContractTest {
     @TestHTTPResource("/api/demo/personas")
     lateinit var personasUrl: URL
 
+    @TestHTTPResource("/api/demo/tempo")
+    lateinit var tempoUrl: URL
+
     @TestHTTPResource("/")
     lateinit var basis: URL
 
@@ -197,8 +200,8 @@ class PaneelContractTest {
     }
 
     /**
-     * De grenzen zelf, en niet alleen wat erbuiten valt: `aantal !in 1 until MAX_BERICHTEN` zou
-     * álle gevallen hierboven even goed doorstaan, en dan geeft de knop een fout op precies de
+     * De grenzen zelf, en niet alleen wat erbuiten valt: `aantal !in 1 until MAX_GERICHTE_BERICHTEN`
+     * zou álle gevallen hierboven even goed doorstaan, en dan geeft de knop een fout op precies de
      * bovengrens die het invoerveld aanbiedt.
      */
     @ParameterizedTest
@@ -226,9 +229,9 @@ class PaneelContractTest {
 
     @Test
     fun `een aantal-parameter zonder waarde valt terug op de default`() {
-        // `?aantal=` lost JAX-RS met @DefaultValue op, dus de resource ziet "1" en niet een lege
-        // waarde. Vastgelegd omdat het afwijkt van `?persona=`, dat wél als bedieningsfout telt:
-        // voor een aantal is er een zinnige default, voor een persona niet.
+        // Een lege waarde telt als niet opgegeven en levert dus de default op. Vastgelegd omdat het
+        // afwijkt van `?persona=`, dat wél als bedieningsfout telt: voor een aantal is er een
+        // zinnige default, voor een persona niet.
         assertEquals(200, plaatsBericht("?persona=pietersen&aantal=").statusCode())
         assertEquals(1, VasteAanleverService.opdrachten.size)
     }
@@ -277,12 +280,80 @@ class PaneelContractTest {
         assertEquals(3, body.path("aangeboden").asInt())
     }
 
-    private fun plaatsBericht(query: String): HttpResponse<String> = HttpClient.newHttpClient().send(
-        HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + "/api/demo/bericht" + query))
+    private fun post(pad: String, query: String = ""): HttpResponse<String> = HttpClient.newHttpClient().send(
+        HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + pad + query))
             .POST(HttpRequest.BodyPublishers.noBody())
             .build(),
         HttpResponse.BodyHandlers.ofString(),
     )
+
+    private fun plaatsBericht(query: String): HttpResponse<String> = post("/api/demo/bericht", query)
+
+    private fun voerRandomOp(query: String): HttpResponse<String> = post("/api/demo/random", query)
+
+    /**
+     * Dezelfde grenzen als bij een gericht bericht, en om dezelfde reden: nul berichten meldt zich
+     * anders groen als "0 van 0 aangeleverd" voor een actie die niets deed, en een onredelijk hoog
+     * aantal houdt de omgeving minutenlang bezig met een antwoord dat pas daarna komt.
+     */
+    @ParameterizedTest
+    @MethodSource("randomBuitenDeGrenzen")
+    fun `een burst met een aantal buiten de grenzen geeft 400`(aantal: Int) {
+        val respons = voerRandomOp("?aantal=$aantal")
+
+        assertEquals(400, respons.statusCode(), "aantal $aantal")
+        assertTrue(respons.body().contains("aantal"), "de melding hoort het aantal-veld aan te wijzen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een geweigerd aantal hoort niets aan te leveren")
+    }
+
+    /**
+     * De grenzen zelf, en niet alleen wat erbuiten valt: `aantal !in 1 until MAX_RANDOM_BERICHTEN`
+     * zou álle gevallen hierboven even goed doorstaan, en dan geeft de knop een fout op precies de
+     * bovengrens die het invoerveld aanbiedt.
+     */
+    @ParameterizedTest
+    @MethodSource("randomOpDeGrenzen")
+    fun `een burst op de grens van het toegestane aantal slaagt`(aantal: Int) {
+        assertEquals(200, voerRandomOp("?aantal=$aantal").statusCode())
+        assertEquals(aantal, VasteAanleverService.opdrachten.size)
+    }
+
+    /**
+     * Zou de resource het aantal als `Int` laten injecteren, dan handelt JAX-RS een mislukte
+     * omzetting af vóór de eerste regel van de methode — met een 404, die leest als een knop die
+     * naar een adres wijst dat niet bestaat in plaats van als een cijfer dat verkeerd staat.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["abc", "1.5", "3000000000"])
+    fun `een burst met een onleesbaar aantal geeft 400 en geen 404`(aantal: String) {
+        val respons = voerRandomOp("?aantal=$aantal")
+
+        assertEquals(400, respons.statusCode(), "aantal '$aantal'")
+        assertTrue(respons.body().contains("aantal"), "de melding hoort het aantal-veld aan te wijzen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een onleesbaar aantal hoort niets aan te leveren")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["", "?aantal="])
+    fun `een burst zonder aantal valt terug op de default`(query: String) {
+        assertEquals(200, voerRandomOp(query).statusCode(), "query '$query'")
+        assertEquals(10, VasteAanleverService.opdrachten.size, "de default hoort het getal van het invoerveld te zijn")
+    }
+
+    /**
+     * De stroom draagt zijn grens in [TempoService], maar een onleesbaar interval kwam daar nooit
+     * aan: JAX-RS beantwoordde de mislukte omzetting zelf, met 404. Alleen de weigeringen, want een
+     * geslaagde start laat een echte klok achter voor de tests die hierna draaien.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["abc", "0", "-1", "3601"])
+    fun `de stroom starten met een onbruikbaar interval geeft 400 en laat de stroom uit`(interval: String) {
+        val respons = post("/api/demo/tempo/start", "?interval=$interval")
+
+        assertEquals(400, respons.statusCode(), "interval '$interval'")
+        assertTrue(respons.body().contains("interval"), "de melding hoort het interval-veld aan te wijzen")
+        assertFalse(ObjectMapper().readTree(haalJson(tempoUrl)).path("loopt").asBoolean(), "de stroom hoort uit te staan")
+    }
 
     @Test
     fun `deze module beantwoordt het personas-adres niet`() {
@@ -353,10 +424,16 @@ class PaneelContractTest {
         // Afgeleid van de constante en niet overgeschreven: wie de grens verzet, verzet anders wel
         // het buiten-bereik-geval en laat de bovengrens zelf als binnenwaarde achter.
         @JvmStatic
-        fun buitenDeGrenzen() = listOf(0, -1, DemoResource.MAX_BERICHTEN + 1)
+        fun buitenDeGrenzen() = listOf(0, -1, DemoResource.MAX_GERICHTE_BERICHTEN + 1)
 
         @JvmStatic
-        fun opDeGrenzen() = listOf(1, DemoResource.MAX_BERICHTEN)
+        fun opDeGrenzen() = listOf(1, DemoResource.MAX_GERICHTE_BERICHTEN)
+
+        @JvmStatic
+        fun randomBuitenDeGrenzen() = listOf(0, -1, DemoResource.MAX_RANDOM_BERICHTEN + 1)
+
+        @JvmStatic
+        fun randomOpDeGrenzen() = listOf(1, DemoResource.MAX_RANDOM_BERICHTEN)
     }
 
     @Test

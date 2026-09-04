@@ -1,8 +1,12 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
+import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 import java.io.File
 import java.util.Properties
 
@@ -136,16 +140,18 @@ class PaneelPadenTest {
     }
 
     /**
-     * De bovengrens staat zowel in het invoerveld als in de resource. Lopen ze uiteen, dan weigert
-     * de server een waarde die de browser aanbiedt — of andersom, en dan is de grens er niet.
+     * Elke grens staat twee keer: in het invoerveld en in de Kotlin-code die het adres achter de
+     * knop bewaakt. Lopen ze uiteen, dan weigert de server een waarde die de browser aanbiedt — of
+     * andersom, en dan is de grens er alleen op het scherm.
      */
-    @Test
-    fun `het aantal-veld voor een gericht bericht deelt zijn grenzen met de resource`() {
-        val veld = Regex("""<input id="berichtAantal"[^>]*>""").find(paneel)?.value
+    @ParameterizedTest
+    @MethodSource("veldgrenzen")
+    fun `een getalveld deelt zijn grenzen met de code achter de knop`(veldnaam: String, grenzen: IntRange) {
+        val veld = Regex("""<input id="$veldnaam"[^>]*>""").find(paneel)?.value
 
-        assertTrue(veld != null, "het veld berichtAantal niet gevonden in $PANEEL")
-        assertEquals("""min="1"""", Regex("""min="\d+"""").find(veld!!)?.value)
-        assertEquals("""max="${DemoResource.MAX_BERICHTEN}"""", Regex("""max="\d+"""").find(veld)?.value)
+        assertTrue(veld != null, "het veld $veldnaam niet gevonden in $PANEEL")
+        assertEquals("""min="${grenzen.first}"""", Regex("""min="\d+"""").find(veld!!)?.value, "min van $veldnaam")
+        assertEquals("""max="${grenzen.last}"""", Regex("""max="\d+"""").find(veld)?.value, "max van $veldnaam")
     }
 
     private fun uitPaneel(patroon: String): List<String> =
@@ -158,5 +164,16 @@ class PaneelPadenTest {
         const val SCRIPT = "src/main/resources/META-INF/resources/bediening.js"
 
         const val PROPERTIES = "src/main/resources/application.properties"
+
+        /**
+         * Afgeleid van de constanten en niet overgeschreven: een test die de grenzen zelf herhaalt
+         * bewaakt alleen zichzelf, en verschuift mee zodra iemand hem "even bijwerkt".
+         */
+        @JvmStatic
+        fun veldgrenzen() = listOf(
+            Arguments.of("aantal", 1..DemoResource.MAX_RANDOM_BERICHTEN),
+            Arguments.of("berichtAantal", 1..DemoResource.MAX_GERICHTE_BERICHTEN),
+            Arguments.of("tempoInterval", TempoService.MIN_INTERVAL..TempoService.MAX_INTERVAL),
+        )
     }
 }
