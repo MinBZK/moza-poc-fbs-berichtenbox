@@ -27,7 +27,7 @@ import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
  * `PersonaDto`, dat een berichtenbox leest en het aantal magazijnen bewust weglaat. De lijst komt
  * van de generator en niet van de personadienst, omdat die van de generator precies de persona's
  * bevat waarvoor hij een bericht kán maken: met een ingericht magazijn én een organisatie waarvoor
- * hij sjablonen heeft.
+ * hij sjablonen heeft — het init-blok van de generator eist beide.
  *
  * `simulator` zegt of deze omgeving gesimuleerde magazijnen kent, niet hoeveel: het aantal vraagt
  * het paneel aan de simulator zelf, zodat er geen tweede getal is dat daarvan kan afwijken. Het

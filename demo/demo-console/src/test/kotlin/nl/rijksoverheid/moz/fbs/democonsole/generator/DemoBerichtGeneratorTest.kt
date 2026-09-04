@@ -216,23 +216,49 @@ class DemoBerichtGeneratorTest {
     @Test
     fun `zonder persona's faalt de generator fail-fast`() {
         // Deze eis draagt meer dan hij lijkt: hij is de reden dat `doelgroep()` nooit leeg kan zijn,
-        // en dus dat het paneel geen keuzelijst zonder opties hoeft te kunnen tonen.
+        // en dus dat de lege-lijst-tak van `vulKeuze` voor dit veld onbereikbaar blijft.
         assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(emptyList(), organisaties, klok)
         }
     }
 
     @Test
-    fun `een persona zonder id of zonder naam faalt fail-fast`() {
-        // Beide komen in het paneel terecht: de id als queryparameter van de knop, de naam als
-        // zichtbare optie in de keuzelijst.
-        assertThrows(IllegalArgumentException::class.java) {
-            DemoBerichtGenerator(listOf(Persona(" ", "Naam", "BSN", "999993653", listOf(rvo))), organisaties, klok)
+    fun `een persona zonder id faalt fail-fast en wijst zijn positie aan`() {
+        // Als tweede element in een verder geldige lijst: met een lijst van één bewijst niets dat de
+        // controle per persona loopt in plaats van alleen op de eerste. En zonder id is de positie
+        // het enige aanknopingspunt dat de melding kan geven.
+        val ongeldig = listOf(personas[0], Persona(" ", "Naam", "BSN", "999996666", listOf(rvo)))
+
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            DemoBerichtGenerator(ongeldig, organisaties, klok)
         }
 
-        assertThrows(IllegalArgumentException::class.java) {
-            DemoBerichtGenerator(listOf(Persona("id", " ", "BSN", "999993653", listOf(rvo))), organisaties, klok)
+        assertTrue(fout.message!!.contains("positie 1"), "de melding hoort de positie te noemen: ${fout.message}")
+    }
+
+    @Test
+    fun `een persona zonder naam faalt fail-fast en noemt zijn id`() {
+        // De naam is de zichtbare optie in de keuzelijst; leeg levert een onzichtbare keuze op.
+        val ongeldig = listOf(personas[0], Persona("naamloos", " ", "BSN", "999996666", listOf(rvo)))
+
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            DemoBerichtGenerator(ongeldig, organisaties, klok)
         }
+
+        assertTrue(fout.message!!.contains("naamloos"), "de melding hoort de persona te noemen: ${fout.message}")
+    }
+
+    @Test
+    fun `een organisatie zonder sjablonen faalt fail-fast`() {
+        // Anders staat de persona in de keuzelijst en klapt de knop pas bij het kiezen van een
+        // sjabloon om, met een HTTP 500 die de organisatie niet noemt.
+        val zonderSjablonen = organisaties + (rvo to Organisatie(rvo, "RVO", emptyList()))
+
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            DemoBerichtGenerator(personas, zonderSjablonen, klok)
+        }
+
+        assertTrue(fout.message!!.contains("RVO"), "de melding hoort de organisatie te noemen: ${fout.message}")
     }
 
     @Test

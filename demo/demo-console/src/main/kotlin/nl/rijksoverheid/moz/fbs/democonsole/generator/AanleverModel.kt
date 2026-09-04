@@ -54,7 +54,8 @@ data class Persona(
  * personadienst: dat is het contract met een berichtenbox en draagt onder meer het
  * identificatienummer, dat het paneel niet nodig heeft — zo kan het ook niet in de query belanden.
  *
- * Niet-leeg zijn de velden omdat [DemoBerichtGenerator] dat van zijn persona's eist; die controle
- * staat daar en niet hier, want alleen daar valt hij bij het opstarten.
+ * Wie dit type uit [DemoBerichtGenerator.doelgroep] krijgt, krijgt niet-lege velden: die controle
+ * staat in het init-blok van de generator, want alleen daar valt hij bij het opstarten. Het type
+ * zelf dwingt het niet af.
  */
 data class Doelpersona(val id: String, val label: String)

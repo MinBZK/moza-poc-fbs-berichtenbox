@@ -19,9 +19,11 @@ import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.io.File
 import java.net.URI
@@ -65,6 +67,7 @@ class PaneelContractTest {
     // @QuarkusTest van deze module, dus de eerste test die een ander vulpad aanroept zou anders
     // stil in deze lijst bijschrijven en een ándere test rood maken.
     @BeforeEach
+    @AfterEach
     fun leegDeOpdrachten() {
         VasteAanleverService.opdrachten.clear()
     }
@@ -187,7 +190,7 @@ class PaneelContractTest {
      * actie die niets deed.
      */
     @ParameterizedTest
-    @ValueSource(ints = [0, -1, 101])
+    @MethodSource("buitenDeGrenzen")
     fun `een bericht met een aantal buiten de grenzen geeft 400`(aantal: Int) {
         assertEquals(400, plaatsBericht("?persona=pietersen&aantal=$aantal").statusCode())
         assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een geweigerd aantal hoort niets aan te leveren")
@@ -199,7 +202,7 @@ class PaneelContractTest {
      * bovengrens die het invoerveld aanbiedt.
      */
     @ParameterizedTest
-    @ValueSource(ints = [1, 100])
+    @MethodSource("opDeGrenzen")
     fun `een bericht op de grens van het toegestane aantal slaagt`(aantal: Int) {
         assertEquals(200, plaatsBericht("?persona=pietersen&aantal=$aantal").statusCode())
         assertEquals(aantal, VasteAanleverService.opdrachten.size)
@@ -218,6 +221,7 @@ class PaneelContractTest {
 
         assertEquals(400, respons.statusCode(), "aantal '$aantal'")
         assertTrue(respons.body().contains("aantal"), "de melding hoort het aantal-veld aan te wijzen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een onleesbaar aantal hoort niets aan te leveren")
     }
 
     @Test
@@ -245,9 +249,25 @@ class PaneelContractTest {
     }
 
     @Test
+    fun `een geweigerd verzoek antwoordt in de vorm die het paneel leest`() {
+        // `bediening.js` leest `body.fout` uit het geparste antwoord; is die sleutel er niet, dan
+        // valt de melding terug op de ruwe tekst en leest de bediener JSON in plaats van een zin.
+        val respons = plaatsBericht("?persona=bestaat-niet")
+        val body = ObjectMapper().readTree(respons.body())
+
+        assertTrue(
+            respons.headers().firstValue("content-type").orElse("").startsWith("application/json"),
+            "een fout hoort als JSON terug te komen",
+        )
+        assertEquals(setOf("fout", "soort"), body.fieldNames().asSequence().toSet())
+        assertTrue(body.path("fout").asText().contains("bestaat-niet"))
+    }
+
+    @Test
     fun `het antwoord draagt de vier tellers die het paneel samenvat`() {
-        // `bediening.js` leest ze bij naam in zijn `vulling`-samenvatter; een hernoemd veld laat de
-        // knop "onverwachte vorm" melden terwijl de aanlevering gewoon lukte.
+        // `bediening.js` leest ze bij naam in zijn `vulling`-samenvatter, zonder te toetsen of ze er
+        // zijn: een hernoemd veld levert een groene melding "undefined van 3 berichten aangeleverd",
+        // want `vullingTekst` gooit niet en `vullingSoort` valt dan terug op "goed".
         val body = ObjectMapper().readTree(plaatsBericht("?persona=pietersen&aantal=3").body())
 
         assertEquals(
@@ -329,6 +349,14 @@ class PaneelContractTest {
 
         /** Uit de ingerichte personaset van demo-personas; `pietersen` is de persona die de test aanwijst. */
         const val PIETERSEN_BSN = "999993653"
+
+        // Afgeleid van de constante en niet overgeschreven: wie de grens verzet, verzet anders wel
+        // het buiten-bereik-geval en laat de bovengrens zelf als binnenwaarde achter.
+        @JvmStatic
+        fun buitenDeGrenzen() = listOf(0, -1, DemoResource.MAX_BERICHTEN + 1)
+
+        @JvmStatic
+        fun opDeGrenzen() = listOf(1, DemoResource.MAX_BERICHTEN)
     }
 
     @Test

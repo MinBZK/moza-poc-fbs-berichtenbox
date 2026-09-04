@@ -91,7 +91,10 @@ class DemoResource(
     ): AanleverResultaat {
         if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
 
-        val gevraagd = aantal.toIntOrNull()
+        // Leeg telt als "niet opgegeven", net als een afwezige parameter. Die keuze staat hier en
+        // niet bij `@DefaultValue`: die vervangt alleen een afwezige waarde, en dat `?aantal=` er
+        // vandaag toch doorheen komt is gedrag van JAX-RS dat een upgrade kan veranderen.
+        val gevraagd = if (aantal.isBlank()) 1 else aantal.toIntOrNull()
             ?: throw BadRequestException("aantal moet een geheel getal zijn tussen 1 en $MAX_BERICHTEN, was: '$aantal'")
 
         // Nul zou anders een groene melding "0 van 0 aangeleverd" opleveren voor een actie die niets
@@ -109,8 +112,12 @@ class DemoResource(
 
     internal companion object {
 
-        /** Spiegelt de `max` van het veld `berichtAantal` in `index.html`; PaneelPadenTest bewaakt dat. */
-        internal const val MAX_BERICHTEN = 100
+        /**
+         * Hoger is voor een demo geen realistische vraag, en elke aanlevering is een synchrone
+         * ronde. Spiegelt de `max` van het veld `berichtAantal` in `index.html`; `PaneelPadenTest`
+         * bewaakt dat die twee gelijk blijven.
+         */
+        const val MAX_BERICHTEN = 100
 
         private const val KIES_EEN_PERSONA = "kies een persona uit berichtPersonas van /api/demo/omgeving"
     }

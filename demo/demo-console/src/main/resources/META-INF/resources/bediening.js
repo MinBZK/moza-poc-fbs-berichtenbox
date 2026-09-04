@@ -802,12 +802,14 @@ function vulBerichtPersonas(personas) {
     );
 }
 
-/* Niet op `=== null`: een antwoord dat wel binnenkwam maar niet de vorm van een lijst heeft (een
- * foutpagina van een proxy, een afgekapt antwoord) mag niet als "niets ingericht" lezen. Dat is een
- * andere oorzaak dan een onbereikbare console, en alleen de console-regel houdt dat verschil vast:
- * de keuzelijst zegt in beide gevallen hetzelfde. */
+/* Niet op `=== null`: `lees()` geeft `null` voor élke onbereikbare of onleesbare console, dus wat
+ * hier overblijft is een antwoord dát binnenkwam waarin het veld ontbreekt of van vorm veranderd is
+ * — een console die dit veld nog niet kent, of een proxy die het herschrijft. Dat is een andere
+ * oorzaak dan "de console was even weg", en de keuzelijst kan dat verschil niet tonen. Altijd
+ * loggen, ook bij `null`: anders is het geval "de console antwoordde met null" van de twee andere
+ * niet te onderscheiden. */
 function meldOnbruikbareLijst(veld, waarde, keuze, knop) {
-    if (waarde !== null) console.error('[bediening] ' + veld + ' heeft niet de verwachte vorm', waarde);
+    console.error('[bediening] ' + veld + ' is niet als lijst binnengekomen', waarde);
 
     meldLijstOnbekend(keuze, knop);
 }
@@ -815,16 +817,20 @@ function meldOnbruikbareLijst(veld, waarde, keuze, knop) {
 /* De lijst niet kunnen lezen is iets anders dan niets ingericht hebben: met de verkeerde reden
  * afhaken stuurt de bediener de configuratie in terwijl de console even weg was.
  *
- * De knop blijft aan — expliciet, en niet "hij stond toch al aan", zodat zijn toestand niet afhangt
- * van wat een eerdere ronde deed. De optie krijgt een lege `value`, want zonder dat attribuut is
- * zijn waarde zijn tekst: de knop stuurde dan `?persona=persona-lijst niet op te halen` en kreeg een
- * 404 terug die naar de persona-inrichting wijst in plaats van naar de mislukte uitlezing.
+ * De knop gaat uit, net als bij een lege lijst. Zonder persona kan hij niets versturen — de optie
+ * draagt een lege `value` en `vulPadIn` houdt de klik dan tegen — en een knop die er levend uitziet
+ * en zwijgend niets doet is tijdens een demo erger dan een knop die zichtbaar niet kan. Die lege
+ * `value` is er omdat een optie zonder dat attribuut haar tékst als waarde draagt: de knop stuurde
+ * dan `?persona=persona-lijst niet op te halen` en kreeg een 404 die naar de persona-inrichting
+ * wijst in plaats van naar de mislukte uitlezing.
  *
- * Ontbreekt het element zelf, dan is de opmaak veranderd zonder dit script; dat hoort in de console
- * te staan en niet het vangnet van de aanroeper om te trekken. */
+ * Ontbreekt een element, dan is de opmaak veranderd zonder dit script. Dat gaat naar de
+ * meldingsbalk en niet alleen naar de console: wie een demo geeft heeft geen devtools open. */
 function meldLijstOnbekend(keuze, knop) {
+    if (knop) knop.disabled = true;
+
     if (!keuze) {
-        console.error('[bediening] keuzelijst ontbreekt in de opmaak');
+        meldOpmaakfout('een keuzelijst');
 
         return;
     }
@@ -837,11 +843,24 @@ function meldLijstOnbekend(keuze, knop) {
     keuze.replaceChildren(onbekend);
     keuze.disabled = true;
 
-    if (knop) knop.disabled = false;
-    else console.error('[bediening] knop bij keuzelijst ' + keuze.id + ' ontbreekt in de opmaak');
+    if (!knop) meldOpmaakfout('de knop bij keuzelijst ' + keuze.id);
+}
+
+function meldOpmaakfout(wat) {
+    console.error('[bediening] ' + wat + ' ontbreekt in de opmaak');
+    toonMelding('Het paneel mist ' + wat + ' in zijn opmaak; die bediening werkt niet', 'fout', null);
 }
 
 function vulKeuze(keuze, knop, opties, leegTekst) {
+    // Dezelfde toets als in meldLijstOnbekend: zonder deze zou een ontbrekend element hier een
+    // TypeError geven, die de aanroeper opvangt en als "lijst niet op te halen" toont — terwijl de
+    // lijst gewoon binnenkwam. Precies de verkeerde diagnose, in de andere richting.
+    if (!keuze || !knop) {
+        meldOpmaakfout(keuze ? 'de knop bij keuzelijst ' + keuze.id : 'een keuzelijst');
+
+        return;
+    }
+
     keuze.replaceChildren();
     keuze.disabled = false;
     knop.disabled = false;
@@ -930,12 +949,15 @@ document.querySelectorAll('button[data-pad]').forEach((knop) => {
 
 herstelStand();
 
-// Met een .catch(): deze aanroep is fire-and-forget, dus zonder dat zou een fout uit de bedrading
-// van het paneel als unhandled rejection in de console verdwijnen — zichtbaar voor niemand die
-// tijdens een demo niet toevallig de devtools openheeft.
+// Met een .catch(): deze aanroep is fire-and-forget, dus een fout kwam alleen in de browserconsole
+// terecht. De melding zet hem in het paneel, waar een bediener zonder devtools hem ziet.
+//
+// Niet "de omgeving kon niet gelezen worden": `lees()` vangt dat zelf af en geeft null, wat hier
+// gewoon wordt afgehandeld. Wat overblijft is een fout in de bedrading zelf — een element dat de
+// opmaak niet meer draagt — en dan is een deel van het paneel half ingericht.
 pasOmgevingToe().catch((fout) => {
     console.error('[bediening] omgeving niet toe te passen', fout);
-    toonMelding('De omgeving kon niet gelezen worden; de keuzelijsten zijn niet gevuld', 'let-op', null);
+    toonMelding('Het paneel kon zichzelf niet inrichten: ' + fout, 'fout', null);
 });
 
 verversToestand();

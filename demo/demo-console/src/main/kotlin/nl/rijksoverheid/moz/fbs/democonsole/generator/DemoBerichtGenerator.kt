@@ -22,19 +22,27 @@ class DemoBerichtGenerator(
     init {
         require(personas.isNotEmpty()) { "minstens één persona vereist" }
 
-        personas.forEach { persona ->
-            // Een lege id levert een knop die om een persona vraagt die niet bestaat; een leeg label
+        // Met de positie erbij: bij een lege id is er geen id om de kapotte persona mee aan te
+        // wijzen, en dan staat de operator met N ingerichte persona's zonder aanknopingspunt.
+        personas.forEachIndexed { positie, persona ->
+            // Een lege id levert een knop die om een persona vraagt die niet bestaat; een lege naam
             // een onzichtbare optie in de keuzelijst. Hier, want dit blok draait bij het opstarten.
-            require(persona.id.isNotBlank()) { "persona-id mag niet leeg zijn" }
+            require(persona.id.isNotBlank()) { "persona op positie $positie heeft geen id (naam: '${persona.naam}')" }
             require(persona.naam.isNotBlank()) { "persona ${persona.id} heeft geen naam" }
 
             Identificatiecheck.valideer(persona.type, persona.waarde)
 
-            require(persona.magazijnen.isNotEmpty()) { "persona ${persona.naam} heeft geen magazijnen" }
+            require(persona.magazijnen.isNotEmpty()) { "persona ${persona.id} heeft geen magazijnen" }
 
             persona.magazijnen.forEach { oin ->
-                require(oin in organisaties) { "onbekende organisatie-OIN '$oin' voor ${persona.naam}" }
+                require(oin in organisaties) { "onbekende organisatie-OIN '$oin' voor ${persona.id}" }
             }
+        }
+
+        // Zonder sjablonen valt er niets te kiezen en klapt `opdracht()` om op `nextInt(0)` — een
+        // HTTP 500 met "bound must be positive" midden in een demonstratie. Liever hier.
+        organisaties.forEach { (oin, organisatie) ->
+            require(organisatie.sjablonen.isNotEmpty()) { "organisatie ${organisatie.naam} ($oin) heeft geen sjablonen" }
         }
 
         // De configuratie sleutelt op id en kan er dus geen twee leveren; deze constructor wel.

@@ -37,11 +37,11 @@ class OmgevingResourceTest {
         require(doelen.size <= KVK_NUMMERS.size) { "de fixture kent ${KVK_NUMMERS.size} nummers toe" }
 
         return DemoBerichtGenerator(
-        personas = doelen.mapIndexed { volgnummer, (id, label) ->
-            Persona(id = id, naam = label, type = "KVK", waarde = KVK_NUMMERS[volgnummer], magazijnen = listOf(RVO))
-        },
-        organisaties = mapOf(RVO to Organisatie(RVO, "RVO", listOf(Sjabloon("Onderwerp", "Inhoud.")))),
-        klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
+            personas = doelen.mapIndexed { volgnummer, (id, label) ->
+                Persona(id = id, naam = label, type = "KVK", waarde = KVK_NUMMERS[volgnummer], magazijnen = listOf(RVO))
+            },
+            organisaties = mapOf(RVO to Organisatie(RVO, "RVO", listOf(Sjabloon("Onderwerp", "Inhoud.")))),
+            klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
         )
     }
 
