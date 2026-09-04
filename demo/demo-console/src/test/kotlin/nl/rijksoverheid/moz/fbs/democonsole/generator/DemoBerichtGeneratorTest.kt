@@ -19,6 +19,9 @@ class DemoBerichtGeneratorTest {
     private val rvo = "00000000000000100000"
     private val belastingdienst = "00000001823288444000"
 
+    /** Vorm van een OIN, maar geen organisatie waarvoor deze generator sjablonen heeft. */
+    private val onbekendOin = "00000000000000000000"
+
     private val organisaties = mapOf(
         rvo to Organisatie(
             rvo,
@@ -32,8 +35,8 @@ class DemoBerichtGeneratorTest {
         ),
     )
 
-    // Dezelfde identiteit als de personadienst kent; `bron` speelt in de generator geen rol, maar
-    // het type draagt hem, dus elke fixture kiest hem expliciet.
+    // Dezelfde identiteit als de personadienst kent. Altijd `keten`: dat is de enige bron die met
+    // magazijnen samengaat, en zonder magazijnen komt een persona hier sowieso niet doorheen.
     private fun persona(id: String, label: String, type: String, waarde: String, magazijnen: List<String>) =
         DemoPersona(
             id = id,
@@ -211,15 +214,29 @@ class DemoBerichtGeneratorTest {
 
     @Test
     fun `een persona met een onbekende organisatie-OIN faalt fail-fast`() {
-        // Een OIN dat wél de vorm van een magazijn heeft: de generator toetst tegen zijn eigen
-        // organisaties, niet tegen de vorm.
-        val ongeldig = listOf(persona("onbekend", "Onbekend", "BSN", "999993653", listOf("00000000000000000000")))
+        // Een syntactisch geldig OIN hoort alsnog af te vallen: de generator kent er geen sjablonen
+        // voor. De id komt niet in de vaste meldingstekst voor, zodat de assertie echt op
+        // `${persona.id}` slaat en niet op het voorvoegsel.
+        val ongeldig = listOf(persona("zwerver", "Zwerver", "BSN", "999993653", listOf(onbekendOin)))
 
         val fout = assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
         }
 
-        assertTrue(fout.message!!.contains("onbekend"), "de melding hoort de persona te noemen: ${fout.message}")
+        assertTrue(fout.message!!.contains("zwerver"), "de melding hoort de persona te noemen: ${fout.message}")
+    }
+
+    @Test
+    fun `een persona wordt op elk van zijn magazijnen getoetst, niet alleen op het eerste`() {
+        // Met een bekend OIN vóór het onbekende: een implementatie die alleen `magazijnen.first()`
+        // toetst komt hier stil doorheen en klapt pas in de demo om op `organisaties.getValue(...)`.
+        val ongeldig = listOf(persona("halfbekend", "Halfbekend", "BSN", "999993653", listOf(rvo, onbekendOin)))
+
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            DemoBerichtGenerator(ongeldig, organisaties, klok)
+        }
+
+        assertTrue(fout.message!!.contains(onbekendOin), "de melding hoort het tweede OIN te noemen: ${fout.message}")
     }
 
     @Test
@@ -245,10 +262,8 @@ class DemoBerichtGeneratorTest {
 
     @Test
     fun `een persona zonder magazijnen faalt fail-fast`() {
-        // De personadienst laat dit toe (Grootbedrijf haalt op bij de stub-magazijnen), dus deze
-        // eis blijft van de generator: hij is de enige die er berichten voor zou moeten opvoeren.
-        // Als tweede element in een verder geldige lijst, zodat de test ook aantoont dat de lus
-        // elke persona nagaat en niet alleen de eerste.
+        // Als tweede element in een verder geldige lijst: zo toont de test dat de lus élke persona
+        // nagaat en niet alleen de eerste.
         val ongeldig = listOf(personas[0], persona("magazijnloos", "Magazijnloos", "BSN", "999998328", emptyList()))
 
         val fout = assertThrows(IllegalArgumentException::class.java) {

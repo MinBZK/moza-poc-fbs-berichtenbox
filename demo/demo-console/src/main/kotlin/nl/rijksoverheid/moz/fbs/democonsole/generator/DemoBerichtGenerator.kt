@@ -13,8 +13,9 @@ import kotlin.random.Random
  * de OIN van zijn magazijn, en gaat naar een persona die bij die organisatie opt-in staat —
  * anders weigert het magazijn de aanlevering (403).
  *
- * De persona's zijn die van de personadienst: één beschrijving van een demo-identiteit, met de
- * controles op id, label en identificatienummer die daar al in het init-blok staan.
+ * De grens met de personadienst: wat een demo-identiteit geldig maakt bewaakt `DemoPersona` zelf,
+ * wat hieronder in `init` staat is de kennis die alleen deze generator heeft — zijn afzenders en
+ * hun sjablonen.
  */
 class DemoBerichtGenerator(
     private val personas: List<DemoPersona>,
@@ -25,8 +26,8 @@ class DemoBerichtGenerator(
     init {
         require(personas.isNotEmpty()) { "minstens één persona vereist" }
 
-        // Nul magazijnen is een geldige demo-identiteit — die haalt op bij een stub-magazijn — maar
-        // niet voor wie er berichten voor opvoert: er valt dan geen afzender te kiezen.
+        // Nul magazijnen is een geldige demo-identiteit; `metMagazijnen()` filtert die er normaal al
+        // uit, maar deze constructor neemt ze aan, en dan valt er geen afzender te kiezen.
         personas.forEach { persona ->
             require(persona.magazijnen.isNotEmpty()) { "persona ${persona.id} heeft geen magazijnen" }
 

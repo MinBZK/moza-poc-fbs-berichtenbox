@@ -65,7 +65,14 @@ class TempoServiceTest {
     )
 
     private val personas = listOf(
-        DemoPersona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo), PersonaBron.KETEN),
+        DemoPersona(
+            id = "pietersen",
+            label = "J. Pietersen",
+            type = "BSN",
+            waarde = "999993653",
+            magazijnen = listOf(rvo),
+            bron = PersonaBron.KETEN,
+        ),
     )
 
     // Een echte generator en geen mock: hij is met drie regels testdata op te tuigen en levert

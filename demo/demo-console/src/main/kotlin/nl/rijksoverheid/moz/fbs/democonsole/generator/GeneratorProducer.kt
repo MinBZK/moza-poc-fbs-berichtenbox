@@ -8,8 +8,10 @@ import java.time.Clock
 
 /**
  * Levert de gedeelde generator-configuratie als CDI-bean. De organisaties (één per magazijn)
- * staan hier centraal; de persona's komen uit de configuratie, zodat de keuzelijst van een
- * berichtenbox en de gegenereerde berichten dezelfde set gebruiken.
+ * staan hier centraal; de persona's komen uit de personadienst, zodat de keuzelijst van een
+ * berichtenbox en de gegenereerde berichten niet uiteen kunnen lopen. Niet dezelfde set: de
+ * generator krijgt alleen de persona's mét magazijnen, want voor de rest valt geen afzender te
+ * kiezen.
  *
  * `@Startup`: de invarianten van de generator (minstens één persona, elke opt-in-OIN bekend)
  * zitten in zijn init-blok. Zonder dit wordt de bean lazy gebouwd en klapt een fout in de

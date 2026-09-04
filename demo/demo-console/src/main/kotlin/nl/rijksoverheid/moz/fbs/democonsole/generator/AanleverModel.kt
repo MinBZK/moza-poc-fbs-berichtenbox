@@ -44,11 +44,11 @@ data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sj
 }
 
 /**
- * Een persona zoals het bedieningspaneel hem aanwijst. Bewust niet de `PersonaDto` van de
- * personadienst: dat is het contract met een berichtenbox en draagt onder meer het
- * identificatienummer, dat het paneel niet nodig heeft — zo kan het ook niet in de query belanden.
+ * Een persona zoals het bedieningspaneel hem aanwijst: alleen waarmee je hem kiest en wat je van
+ * hem ziet. Geen demo-identiteit, maar een projectie daarvan — het identificatienummer dat de
+ * identiteit draagt blijft zo uit de generator-API en kan niet in een query belanden.
  *
- * Wie dit type uit [DemoBerichtGenerator.doelgroep] krijgt, krijgt niet-lege velden: het init-blok
- * van `DemoPersona` weigert een lege id en een leeg label. Het type hier dwingt het niet af.
+ * Dit type dwingt niets af; de velden zijn niet leeg omdat [DemoBerichtGenerator.doelgroep] de
+ * enige plek is waar het ontstaat.
  */
 data class Doelpersona(val id: String, val label: String)

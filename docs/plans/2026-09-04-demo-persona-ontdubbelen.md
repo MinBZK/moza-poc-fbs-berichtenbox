@@ -6,10 +6,10 @@ Issue: [MinBZK/MijnOverheidZakelijk#1071](https://github.com/MinBZK/MijnOverheid
 
 ## Context
 
-De demo-identiteit stond twee keer beschreven: `DemoPersona` in `demo-personas` (zes velden, zeven
-`require`-eisen) en `Persona` in `demo-console/generator/AanleverModel.kt` (vijf velden, geen
-eisen). `GeneratorProducer` schreef de ene op de andere over, met `label` → `naam` als enige
-verschil naast het weggelaten `bron`.
+De demo-identiteit stond twee keer beschreven: `DemoPersona` in `demo-personas` (zes velden, zes
+`require`-eisen plus de `Identificatiecheck`) en `Persona` in
+`demo-console/generator/AanleverModel.kt` (vijf velden, geen eisen). `GeneratorProducer` schreef de
+ene op de andere over, met `label` → `naam` als enige verschil naast het weggelaten `bron`.
 
 Die kopie kostte drie invarianten: `DemoPersona` weigert een lege id, een lege label en een
 ongeldig identificatienummer, `Persona` accepteerde alle drie. De generator had er daarom eigen
@@ -31,9 +31,9 @@ Behouden — dit is kennis die alleen de generator heeft:
 |-----|--------------------|
 | minstens één persona | `doelgroep()` mag niet leeg zijn; de personadienst staat een lege set niet toe, maar deze constructor wel |
 | id's uniek | de configuratie sleutelt op id en kan geen twee leveren, deze constructor wel |
-| persona heeft magazijnen | `DemoPersona` staat nul magazijnen expliciet toe (Grootbedrijf); `opdracht()` klapt er op om |
+| persona heeft magazijnen | `DemoPersona` staat nul magazijnen expliciet toe (Grootbedrijf). `metMagazijnen()` filtert ze normaal weg, maar de constructor neemt ze aan |
 | magazijn-OIN in `organisaties` | `MagazijnKennisUitInrichting` toetst tegen `demo.magazijnen` (aanlever-URL's), de generator tegen zijn sjablonen-map — twee verschillende verzamelingen |
-| organisatie heeft sjablonen | alleen de generator kent sjablonen |
+| organisatie heeft sjablonen | pre-existent, en strikt genomen een invariant van `Organisatie` zelf; blijft staan waar hij stond, want die opruiming staat los van deze wijziging |
 
 Vervallen — staat in het init-blok van `DemoPersona` en is daar getoetst:
 

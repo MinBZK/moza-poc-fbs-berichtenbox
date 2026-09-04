@@ -18,11 +18,13 @@ import java.util.Optional
 
 class OmgevingResourceTest {
 
-    private fun persona(id: String) = DemoPersona(
+    // Het nummer is een parameter en geen vaste waarde: twee persona's met hetzelfde
+    // identificatienummer weigert de personadienst fail-fast, en zo'n fixture kan dus niet bestaan.
+    private fun persona(id: String, waarde: String) = DemoPersona(
         id = id,
         label = id.replaceFirstChar { it.uppercase() },
         type = "BSN",
-        waarde = "999993653",
+        waarde = waarde,
         magazijnen = emptyList(),
         bron = PersonaBron.KETEN,
     )
@@ -140,7 +142,10 @@ class OmgevingResourceTest {
 
         assertEquals(
             listOf("pietersen", "vandijk"),
-            resource(null, personas = listOf(persona("pietersen"), persona("vandijk"))).omgeving().personas.map { it.id },
+            resource(
+                null,
+                personas = listOf(persona("pietersen", "999993653"), persona("vandijk", "999996666")),
+            ).omgeving().personas.map { it.id },
         )
     }
 
