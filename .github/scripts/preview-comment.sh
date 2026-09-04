@@ -2,15 +2,13 @@
 # Plaatst — of werkt bij — de comment met de preview-URL's op een PR: één comment met een sectie
 # per opgegeven groep URL's.
 #
-# Waarom niet de comment van zad-actions/deploy zelf: die schrijft per aanroep de HELE body en
-# zoekt de bestaande comment op `startswith(<header>)`. De preview beslaat meer dan één project,
-# dus zou de tweede aanroep de URL's van de eerste overschrijven; en een eigen header per project
-# helpt niet, want de action bouwt die als `<header> — <component>` — met hetzelfde prefix, dus de
-# kortste header matcht ook de comment van de ander. Eén comment, ná de laatste deploy, is de enige
-# vorm die de URL's bij elkaar houdt.
+# Waarom niet de comment van zad-actions/deploy zelf: die schrijft per aanroep de HELE body met
+# alleen de URL's van háár project. Twee deploys met dezelfde header overschrijven elkaar dus, en
+# met een eigen header per project staan er twee comments op de PR die het opruimen allebei moet
+# kennen. Eén comment, samengesteld ná de laatste deploy, houdt de URL's bij elkaar.
 #
-# Wat de aanroeper meegeeft bepaalt wat erin staat; deploy.yml geeft de uitvraag en de demo mee en
-# laat de externe stubs weg, omdat die geen ingang zijn voor wie de PR opent.
+# Wat de aanroeper meegeeft bepaalt wat erin staat; deploy.yml geeft de demo en de uitvraag mee en
+# laat het project met de externe stubs weg, omdat dat geen ingang is voor wie de PR opent.
 #
 # De header moet gelijk blijven aan die in cleanup-preview.yml: die zoekt de comment bij het
 # sluiten van de PR op `startswith` van dezelfde tekst. Drift laat de comment achter op een
@@ -23,24 +21,23 @@
 
 set -euo pipefail
 
-# De body wordt in een command substitution opgebouwd, en dáár erft een subshell `errexit` niet
-# zonder deze optie: een falende jq zou dan een sectie zonder URL's opleveren terwijl het script
-# "geplaatst" meldt en met 0 eindigt.
+# De body wordt in een command substitution opgebouwd, en een subshell erft `errexit` niet zonder
+# deze optie. Elke faalroute in `comment_body` handelt zijn exitcode nu zelf af; dit is het vangnet
+# voor een later commando dat dat niet doet.
 shopt -s inherit_errexit
 
-# De constante is de bron van waarheid waar de unittests de workflows tegenaan houden; de
-# env-override bestaat zodat de aanroeper de tekst expliciet meegeeft in plaats van op deze default
-# te leunen.
+# De unittests houden deze tekst tegen die van beide workflows aan.
 readonly STANDAARD_HEADER='## 🚀 Preview Deployment'
 
 # Valideren en renderen in één programma, zodat er geen kopje geschreven kan worden waarvan de
-# regels eronder ontbreken. `error` in plaats van een lege uitvoer, want een lege map betekent dat
-# de deploy-action geen URL's opleverde en dat hoort niet als lege sectie te eindigen: die leest als
-# "dit deel hoort niet bij de preview".
+# regels eronder ontbreken. Een waarde moet een niet-lege string zijn: de deploy-action geeft een
+# component zonder publiek adres terug als `null` of leeg, en `- **console:** null` leest als een
+# adres dat er niet is.
 readonly JQ_SECTIE='
   if type == "object" and length > 0
+     and (to_entries | all(.value | type == "string" and length > 0))
   then to_entries[] | "- **\(.key):** \(.value)"
-  else error("geen gevulde map")
+  else error("geen map van componenten naar URLs")
   end'
 
 fout() {
@@ -53,24 +50,25 @@ sectie() {
   local kopje=$1 urls=$2
   local regels rc=0
 
-  # Vóór jq, want lege invoer draagt geen JSON-waarde: het programma hieronder draait dan nooit, jq
-  # eindigt met 0 en er zou een kopje zonder URL's overblijven. Dit is precies wat er binnenkomt als
-  # de job-output van een andere deploy leeg is.
-  [ -n "$urls" ] || fout "De URL's voor '$kopje' ontbreken; de deploy leverde geen enkele URL op."
-
   # jq doet het opmaken, en niet een shell-lus met `read`: dan hoeft het script de JSON niet zelf
   # te splitsen en kan een component-naam of URL de regel niet vervormen.
   regels=$(printf '%s' "$urls" | jq -r "$JQ_SECTIE") || rc=$?
 
-  # jq 1.7 geeft 5 voor élk probleem met de invoer — de `error` hierboven én een parse-fout. Een
-  # hogere code komt van jq zelf (127 als hij niet op het pad staat, een crash daarboven). Die twee
-  # door elkaar halen stuurt de lezer naar de deploy-uitvoer terwijl er met de URL's niets mis is.
-  # jq's eigen melding staat in de log: zijn stderr wordt niet gedempt.
+  # jq 1.7 geeft 5 voor élk probleem met de invoer — de `error` hierboven én een parse-fout. Elke
+  # andere code komt van jq zelf (2 bij een systeemfout, 3 als het programma hierboven niet
+  # compileert). Die twee door elkaar halen stuurt de lezer naar de deploy-uitvoer terwijl er met de
+  # URL's niets mis is. jq's eigen melding staat in de log: zijn stderr wordt niet gedempt.
   case $rc in
     0) ;;
-    5) fout "De URL's voor '$kopje' zijn geen gevulde JSON-map: $urls" ;;
+    5) fout "De URL's voor '$kopje' zijn geen gevulde JSON-map van componenten naar URL's: $urls" ;;
     *) fout "jq kon de URL's voor '$kopje' niet verwerken (exit $rc)." ;;
   esac
+
+  # De uitkomst en niet de invoer, want jq eindigt met 0 zodra de invoer géén JSON-waarde draagt —
+  # bij een lege string, maar net zo goed bij een spatie of een newline. Dat is precies wat er
+  # binnenkomt als de job-output van een andere deploy wegviel, en het zou een kop zonder URL's
+  # opleveren.
+  [ -n "$regels" ] || fout "De URL's voor '$kopje' leverden geen enkele regel op: '$urls'"
 
   printf '### %s\n\n%s\n\n' "$kopje" "$regels"
 }
@@ -82,7 +80,7 @@ comment_body() {
   printf '%s\n\n' "$header"
   printf 'De preview-omgeving van deze PR:\n\n'
 
-  local paar kopje urls
+  local paar kopje urls gezien=""
   for paar in "$@"; do
     case "$paar" in
       *=*) ;;
@@ -93,6 +91,14 @@ comment_body() {
     urls=${paar#*=}
 
     [ -n "$kopje" ] || fout "Een lege sectienaam is geen sectienaam."
+
+    # Twee secties met dezelfde naam komen van een verwisseld argument in de aanroep. De lezer ziet
+    # dan twee kopjes en gelooft dat beide previews er staan, terwijl er één twee keer staat.
+    case "$gezien" in
+      *"|$kopje|"*) fout "De sectie '$kopje' staat er twee keer in." ;;
+    esac
+
+    gezien="$gezien|$kopje|"
 
     sectie "$kopje" "$urls"
   done
@@ -122,14 +128,16 @@ main() {
 
   [ "$#" -gt 0 ] || fout "Geen enkele sectie opgegeven; een comment zonder URL's zegt niets."
 
+  # Vooraf, want zonder deze twee komt het gemis eruit als een fout over de URL's of over de API —
+  # en dan zoekt de lezer op de verkeerde plek.
   command -v jq >/dev/null || fout "jq ontbreekt; zonder jq is de body niet op te bouwen."
+  command -v gh >/dev/null || fout "gh ontbreekt; zonder gh is er geen comment te plaatsen."
 
   local repo=${GITHUB_REPOSITORY:-}
   [ -n "$repo" ] || fout "GITHUB_REPOSITORY ontbreekt; zonder repo valt er niets te plaatsen."
 
-  # `-` en niet `:-`: een expliciet leeg gezette header valt zo niet stil terug op de default. Deed
-  # hij dat wel, dan zou het opruimen — dat op de header van cleanup-preview.yml zoekt — de comment
-  # niet meer vinden.
+  # `-` en niet `:-`: een leeg gezette header valt zo niet stil terug op de default, maar faalt —
+  # de aanroeper bedoelde een andere tekst dan die default.
   local header=${COMMENT_HEADER-$STANDAARD_HEADER}
   [ -n "$header" ] || fout "Een lege header is bij het opruimen niet te herkennen."
 
@@ -149,14 +157,11 @@ main() {
     return 0
   fi
 
-  # De eerste die de API teruggeeft. Dat is de oudste — *List issue comments* levert oplopend op
-  # aanmaaktijd en kent geen parameter om dat vast te leggen — en dus de comment die opeenvolgende
-  # pushes steeds bijwerken. Meer dan één treffer hoort niet voor te komen (deze stap plaatst er
-  # hooguit één), maar een achtergebleven comment uit een eerdere vorm zou anders stil naast de
-  # bijgewerkte blijven staan.
-  #
-  # Zonder pipe naar `head`: die sluit zijn invoer na één regel, en bij duizenden treffers eindigt
-  # het script dan op een SIGPIPE zonder één regel uitleg.
+  # De eerste die de API teruggeeft — *List issue comments* levert oplopend op id — en dus de
+  # comment die opeenvolgende pushes steeds bijwerken. Meer dan één treffer hoort niet voor te
+  # komen (deze stap plaatst er hooguit één), maar een achtergebleven comment uit een eerdere vorm
+  # zou anders stil naast de bijgewerkte blijven staan. Parameter-expansie en geen `head`: die
+  # sluit zijn invoer na één regel, wat bij veel treffers op een SIGPIPE zonder uitleg eindigt.
   local id=${ids%%$'\n'*}
 
   if [ "$id" != "$ids" ]; then

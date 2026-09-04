@@ -358,9 +358,8 @@ jobs:
             exit 1
           fi
 
-          # Zelf doen, net als het plaatsen: de comment-stap van de deploy-action draait alleen op
-          # `pull_request` en dus nooit onder deze triggers, en pagineert niet — op een PR met veel
-          # comments valt de deploy-comment buiten de eerste pagina.
+          # Pagineren, want op een PR met veel comments valt de deploy-comment buiten de eerste
+          # pagina en zou hij op de gesloten PR blijven staan.
           #
           # De header via `jq --arg` i.p.v. in het programma interpoleren: `gh api --jq` kent geen
           # `--arg`, en tekst in een jq-programma plakken breekt zodra er een quote of backslash in

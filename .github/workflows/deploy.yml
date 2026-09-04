@@ -134,15 +134,9 @@ env:
   # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
   PREVIEW_TASK_TIMEOUT: '900'
   # De comment wordt door .github/scripts/preview-comment.sh geplaatst en niet door de
-  # deploy-action: die schrijft per aanroep de HELE body met alleen de URL's van háár project, en
-  # zoekt de bestaande comment op `startswith(<header>)`. Twee projecten die dat doen overschrijven
-  # elkaar, en een eigen header per project helpt niet: de action bouwt die als `<header> —
-  # <component>`, dus de kortste matcht ook de comment van de ander. Eén comment, samengesteld ná
-  # de laatste deploy.
-  #
-  # cleanup-preview.yml zoekt de comment op dezelfde tekst, dus drift tussen plaatsen en opruimen
-  # laat hem stil achter op een gesloten PR. test-preview-comment.sh bewaakt dat de drie plekken
-  # gelijk blijven.
+  # deploy-action; het waarom staat in de kop van dat script. cleanup-preview.yml zoekt de comment
+  # op dezelfde tekst, dus drift tussen plaatsen en opruimen laat hem stil achter op een gesloten
+  # PR. test-preview-comment.sh bewaakt dat de drie plekken gelijk blijven.
   COMMENT_HEADER: '## 🚀 Preview Deployment'
   # De cross-domain-regels die de demo-console bij de sessiecache en bij de vier Toxiproxy-admin-API's
   # laten. Elke regel staat op projectniveau zónder peer-deployment; die vult elke deployment zelf
@@ -870,8 +864,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-      # Voor de preview-comment onderaan deze job. Die staat hier en niet bij de uitvraag-deploy,
-      # omdat dit de laatste van de drie deploys is: pas hier zijn de URL's van beide kanten bekend.
+      # Voor de preview-comment onderaan deze job.
       pull-requests: write
     steps:
       # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
@@ -916,8 +909,9 @@ jobs:
       # de PR de ingang, dus staat die sectie ook vooraan. Deze job is de laatste van de drie, dus
       # pas hier zijn de URL's van beide kanten bekend.
       #
-      # De externe stubs (profiel, notificatie en hun twee Toxiproxy's) blijven eruit: die adressen
-      # zijn alleen bij het debuggen nodig en zouden de twee ingangen wegdrukken.
+      # Het derde project (profiel, notificatie en hun twee Toxiproxy's) blijft eruit: daar zit geen
+      # scherm dat je opent, alleen stubs waar de demo doorheen praat. De grens loopt per project en
+      # niet per component — binnen een project gaat de hele `urls`-map mee.
       #
       # Zonder `!cancelled()` blijft de comment weg zodra de netwerkregel-stap hierboven faalt,
       # terwijl de preview dan wél draait; de storingsknoppen in de console werken alleen niet.

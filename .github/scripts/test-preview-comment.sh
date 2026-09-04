@@ -3,9 +3,9 @@
 # aanroepen en de body wegschrijft en een geregisseerd antwoord teruggeeft.
 #
 # Wat hier bewaakt wordt is vooral stil misplaatsen. De comment is voor veel lezers het enige spoor
-# naar een preview: staat er een project niet in, dan bestaat dat deel van de omgeving voor hen
-# niet. En een verkeerd PR-nummer of een gemiste bestaande comment valt niemand op — er staat dan
-# gewoon een comment, alleen op de verkeerde plek of twee keer.
+# naar een preview: staat er een project niet in, of wijst een regel nergens heen, dan bestaat dat
+# deel van de omgeving voor hen niet. En een verkeerd PR-nummer of een gemiste bestaande comment
+# valt niemand op — er staat dan gewoon een comment, alleen op de verkeerde plek of twee keer.
 
 set -euo pipefail
 
@@ -64,6 +64,31 @@ bevat_niet() {
   esac
 }
 
+# Voor de kruiscontroles op de workflows: de faalmelding zegt wat er aan de hand is, niet wat er
+# had moeten zijn — anders leest een rode CI-log als een geslaagde controle.
+bestand_bevat() {
+  local wat=$1 patroon=$2 bestand=$3
+
+  if grep -Eq "$patroon" "$bestand"; then
+    ok "$wat"
+  else
+    fout "$wat — geen regel die op /$patroon/ matcht in $bestand"
+  fi
+}
+
+bestand_bevat_niet() {
+  local wat=$1 patroon=$2 bestand=$3
+  local treffer
+
+  treffer=$(grep -En "$patroon" "$bestand" | head -1 || true)
+
+  if [ -n "$treffer" ]; then
+    fout "$wat — gevonden op regel $treffer"
+  else
+    ok "$wat"
+  fi
+}
+
 WERKMAP=$(mktemp -d)
 trap 'rm -rf "$WERKMAP"' EXIT
 
@@ -120,12 +145,14 @@ draai() {
 }
 
 readonly GEEN='[]'
+# De fixtures staan bewust NIET op alfabetische volgorde: anders kan geen enkele assertie
+# "de volgorde van de aanroep" onderscheiden van "gesorteerd".
 readonly UITVRAAG_URLS='{"uitvraag":"https://uitvraag-pr-9.example","redis":"https://redis-pr-9.example"}'
-readonly DEMO_URLS='{"democonsole":"https://democonsole-pr-9.example","proeftuin":"https://proeftuin-pr-9.example"}'
+readonly DEMO_URLS='{"proeftuin":"https://proeftuin-pr-9.example","democonsole":"https://democonsole-pr-9.example"}'
 
 # --- de body ------------------------------------------------------------------------------------
 
-draai "$GEEN" 0 0 9 "Berichtenuitvraag=$UITVRAAG_URLS" "Demo=$DEMO_URLS"
+draai "$GEEN" 0 0 9 "Demo=$DEMO_URLS" "Berichtenuitvraag=$UITVRAAG_URLS"
 
 gelijk "een geslaagde plaatsing eindigt met exit 0" 0 "$RC"
 
@@ -152,16 +179,12 @@ bevat "een component van de uitvraag staat er met URL in" \
 bevat "de body noemt het opruimen bij het sluiten van de PR" \
   'opgeruimd zodra de PR sluit' "$BODY"
 
-# De volgorde van de secties is die van de argumenten; anders zou de comment per run kunnen
-# wisselen van indeling.
-if [ "$(printf '%s' "$BODY" | grep -n '^### ' | head -1 | cut -d: -f2-)" = '### Berichtenuitvraag' ]; then
-  ok "de eerste sectie is die van het eerste argument"
-else
-  fout "de eerste sectie is die van het eerste argument — body: $BODY"
-fi
+# De volgorde van de secties is die van de argumenten, en niet alfabetisch: anders zou de comment
+# per run kunnen wisselen van indeling.
+gelijk "de eerste sectie is die van het eerste argument" \
+  '### Demo' \
+  "$(printf '%s' "$BODY" | grep '^### ' | head -1)"
 
-# De volgorde bínnen een sectie is die van de JSON-map: de componenten staan in de deploy-invoer in
-# een gekozen volgorde, en die hoort de comment niet te husselen.
 regels_van_sectie() {
   printf '%s\n' "$2" | awk -v kop="### $1" '
     $0 == kop { in_sectie = 1; next }
@@ -170,22 +193,51 @@ regels_van_sectie() {
   '
 }
 
+# Ook binnen een sectie is de volgorde die van de map, niet gesorteerd.
 gelijk "de componenten staan in de volgorde van de map" \
-  '- **democonsole:** https://democonsole-pr-9.example
-- **proeftuin:** https://proeftuin-pr-9.example' \
+  '- **proeftuin:** https://proeftuin-pr-9.example
+- **democonsole:** https://democonsole-pr-9.example' \
   "$(regels_van_sectie Demo "$BODY")"
 
-# De structuur-assertie die de hele klasse "kop zonder inhoud" dekt: hoe de render later ook wordt
-# herschreven, een sectie zonder URL-regel eronder is altijd fout.
-kop_zonder_regels() {
+# De structuurcontrole die de hele klasse "kop zonder inhoud" dekt: hoe de render later ook wordt
+# herschreven, een sectie zonder URL-regel eronder is altijd fout. De kop-na-kop-vorm telt mee,
+# want een lege eerste sectie wordt door de volgende kop gevolgd en niet door de slotregel.
+loze_secties() {
   printf '%s\n' "$1" | awk '
-    /^### / { kop = 1; next }
-    kop && /^- \*\*/ { kop = 0; next }
-    kop && NF { print "kop zonder URL-regel: " $0; kop = 1 }
+    /^### / { if (open) print "lege sectie: " open; open = $0; next }
+    open && /^- \*\*[^*]+:\*\* [^ ]/ { open = "" }
+    END { if (open) print "lege sectie: " open }
   '
 }
 
-gelijk "elke sectiekop wordt gevolgd door minstens één URL-regel" "" "$(kop_zonder_regels "$BODY")"
+# Eerst de controle zelf op de proef stellen — een vangnet dat niets vangt is erger dan geen.
+gelijk "de structuurcontrole ziet een lege sectie vóór een volgende kop" \
+  'lege sectie: ### Leeg' \
+  "$(loze_secties '### Leeg
+
+### Demo
+
+- **a:** https://a.example
+
+Deze preview wordt opgeruimd zodra de PR sluit.')"
+
+gelijk "de structuurcontrole ziet een lege sectie aan het eind" \
+  'lege sectie: ### Leeg' \
+  "$(loze_secties '### Demo
+
+- **a:** https://a.example
+
+### Leeg
+')"
+
+gelijk "de structuurcontrole ziet een regel zonder adres" \
+  'lege sectie: ### Demo' \
+  "$(loze_secties '### Demo
+
+- **a:**
+')"
+
+gelijk "elke sectiekop wordt gevolgd door minstens één URL-regel" "" "$(loze_secties "$BODY")"
 
 # --- de cardinaliteiten van een sectie ------------------------------------------------------------
 
@@ -223,6 +275,31 @@ gelijk "een lege sectiewaarde faalt" 1 "$RC"
 bevat "en wijst de lege sectie aan" "voor 'Berichtenuitvraag'" "$UITVOER"
 gelijk "en er gaat geen aanroep uit" "" "$AANROEPEN"
 
+# Witruimte draagt net zo min een JSON-waarde als de lege string: jq eindigt dan met 0 en zonder
+# uitvoer. Een job-output met een achtergebleven newline zou anders een kop zonder URL's opleveren.
+for leeg in ' ' $'\t' $'\n'; do
+  draai "$GEEN" 0 0 9 "Berichtenuitvraag=$leeg" "Demo=$DEMO_URLS"
+
+  gelijk "een sectiewaarde van alleen witruimte faalt" 1 "$RC"
+  gelijk "en ook dan wordt er niets geplaatst" "" "$AANROEPEN"
+done
+
+# Een component zonder publiek adres komt als null of leeg terug. Een regel die naar niets wijst
+# oogt compleet en is dat niet.
+for waardeloos in '{"proeftuin":null}' '{"proeftuin":""}' '{"proeftuin":{"host":"x"}}' '{"proeftuin":false}'; do
+  draai "$GEEN" 0 0 9 "Demo=$waardeloos"
+
+  gelijk "een component zonder URL-string faalt" 1 "$RC"
+  gelijk "en levert geen comment op" "" "$AANROEPEN"
+done
+
+# Twee keer dezelfde sectienaam komt van een verwisseld argument in de aanroep; de lezer ziet dan
+# twee kopjes en gelooft dat beide previews er staan.
+draai "$GEEN" 0 0 9 "Demo=$DEMO_URLS" "Demo=$UITVRAAG_URLS"
+
+gelijk "twee secties met dezelfde naam falen" 1 "$RC"
+bevat "en zeggen welke naam" "'Demo'" "$UITVOER"
+
 # --- tekens met eigen betekenis --------------------------------------------------------------------
 
 draai "$GEEN" 0 0 9 'Demo={"a%sb":"https://x.example/p%d?q=1&r=2`x`"}'
@@ -230,6 +307,11 @@ draai "$GEEN" 0 0 9 'Demo={"a%sb":"https://x.example/p%d?q=1&r=2`x`"}'
 gelijk "een component-naam of URL met printf- of shell-tekens faalt niet" 0 "$RC"
 bevat "en komt ongeschonden in de body" \
   '- **a%sb:** https://x.example/p%d?q=1&r=2`x`' "$BODY"
+
+draai "$GEEN" 0 0 9 'Demo%s={"a":"https://b.example"}'
+
+gelijk "een kopje met printf-tekens faalt niet" 0 "$RC"
+bevat "en komt ongeschonden in de body" '### Demo%s' "$BODY"
 
 # --- de argumenten -------------------------------------------------------------------------------
 
@@ -308,14 +390,17 @@ bevat "een comment op de tweede pagina wordt gevonden" 'comments/12 -X PATCH' "$
 
 draai '[{"id":11,"body":"## 🚀 Preview Deployment\n\noud"},{"id":14,"body":"## 🚀 Preview Deployment — demo"}]' 0 0 9 "Demo=$DEMO_URLS"
 
+gelijk "meerdere treffers maken de stap niet rood" 0 "$RC"
 bevat "bij meerdere treffers wordt de eerste bijgewerkt" 'comments/11 -X PATCH' "$AANROEPEN"
+bevat_niet "en de tweede treffer blijft staan" 'comments/14 -X PATCH' "$AANROEPEN"
 bevat "en de rest wordt gemeld" '::warning::' "$UITVOER"
 
-# Omgekeerde fixture, zodat vastligt dát het de eerste uit het antwoord is en niet het laagste id:
-# de API levert oplopend op aanmaaktijd, en dáárom is de eerste de oudste.
+# Omgekeerde volgorde in het antwoord — een vorm die de API zelf niet levert (hij sorteert oplopend
+# op id), maar die vastlegt dát het script de eerste uit het antwoord neemt en niet het laagste id.
 draai '[{"id":14,"body":"## 🚀 Preview Deployment\n\noud"},{"id":11,"body":"## 🚀 Preview Deployment — demo"}]' 0 0 9 "Demo=$DEMO_URLS"
 
-bevat "de keuze volgt de volgorde van de API, niet de hoogte van het id" 'comments/14 -X PATCH' "$AANROEPEN"
+bevat "de keuze volgt de volgorde van het antwoord, niet de hoogte van het id" 'comments/14 -X PATCH' "$AANROEPEN"
+bevat_niet "en het laagste id blijft staan" 'comments/11 -X PATCH' "$AANROEPEN"
 
 # --- gh en jq die weigeren ---------------------------------------------------------------------------
 
@@ -337,8 +422,7 @@ gelijk "een mislukte lijst-aanroep faalt de stap" 1 "$RC"
 bevat_niet "en er wordt niets geplaatst" '-X POST' "$AANROEPEN"
 
 # jq die omvalt is iets anders dan URL's die niet deugen. Zonder dat onderscheid gaat de lezer de
-# deploy-uitvoer napluizen terwijl daar niets mis is — en zonder de exitcode-controle zou een halve
-# sectie (kop zonder regels) geplaatst worden met exit 0.
+# deploy-uitvoer napluizen terwijl daar niets mis is.
 MAP=$(mktemp -d "$WERKMAP/geval.XXXXXX")
 maak_stub "$MAP" "$GEEN" 0 0
 maak_jq_stub "$MAP" 99
@@ -351,19 +435,35 @@ gelijk "een jq die omvalt faalt de stap" 1 "$RC"
 bevat "en wijst jq aan in plaats van de URL's" 'jq kon de' "$UITVOER"
 gelijk "en er wordt niets geplaatst" "" "$AANROEPEN"
 
-# Zonder jq op het pad hoort de melding dat te zeggen, en niet de URL's te verdenken. Het pad draagt
-# alleen de stub-map, dus bash wordt hier op zijn volle pad aangeroepen — anders vindt de shell
-# zichzelf niet en meet deze test iets anders dan een ontbrekende jq.
-MAP=$(mktemp -d "$WERKMAP/geval.XXXXXX")
-maak_stub "$MAP" "$GEEN" 0 0
-RC=0
-UITVOER=$(PATH="$MAP" GITHUB_REPOSITORY=MinBZK/moza-poc-fbs-berichtenbox \
-  "$(command -v bash)" "$SCRIPT" 9 "Demo=$DEMO_URLS" 2>&1) || RC=$?
-AANROEPEN=$(cat "$MAP/aanroepen" 2>/dev/null || true)
+# Zonder jq of gh op het pad hoort de melding dát te zeggen, en niet de URL's of de API te
+# verdenken. Het pad draagt alleen de stub-map, dus bash wordt op zijn volle pad aangeroepen —
+# anders vindt de shell zichzelf niet en meet de test iets anders.
+zonder_gereedschap() {
+  local ontbreekt=$1
+
+  MAP=$(mktemp -d "$WERKMAP/geval.XXXXXX")
+  maak_stub "$MAP" "$GEEN" 0 0
+  maak_jq_stub "$MAP" 0
+
+  rm "$MAP/$ontbreekt"
+
+  RC=0
+  UITVOER=$(PATH="$MAP" GITHUB_REPOSITORY=MinBZK/moza-poc-fbs-berichtenbox \
+    "$(command -v bash)" "$SCRIPT" 9 "Demo=$DEMO_URLS" 2>&1) || RC=$?
+
+  AANROEPEN=$(cat "$MAP/aanroepen" 2>/dev/null || true)
+}
+
+zonder_gereedschap jq
 
 gelijk "een ontbrekende jq faalt de stap" 1 "$RC"
 bevat "en meldt dat jq ontbreekt" 'jq ontbreekt' "$UITVOER"
 gelijk "en er wordt niets geplaatst" "" "$AANROEPEN"
+
+zonder_gereedschap gh
+
+gelijk "een ontbrekende gh faalt de stap" 1 "$RC"
+bevat "en meldt dat gh ontbreekt" 'gh ontbreekt' "$UITVOER"
 
 # --- de header ---------------------------------------------------------------------------------
 
@@ -398,8 +498,8 @@ met_header '## kop") | .id) | halt_error(1) # ' '[{"id":23,"body":"## kop\") | .
 gelijk "een header die het jq-filter probeert af te sluiten faalt niet" 0 "$RC"
 bevat "en wordt als gewone tekst behandeld" 'comments/23 -X PATCH' "$AANROEPEN"
 
-# Een leeg gezette header mag niet stil terugvallen op de default: dan zoekt het opruimen straks op
-# een andere tekst dan waaronder geplaatst is.
+# Een leeg gezette header mag niet stil terugvallen op de default: de aanroeper bedoelde dan een
+# andere tekst dan die default.
 met_header '' "$GEEN"
 
 gelijk "een lege header faalt" 1 "$RC"
@@ -419,6 +519,11 @@ AANROEPEN=$(cat "$MAP/aanroepen" 2>/dev/null || true)
 gelijk "sourcen voert main niet uit" 0 "$RC"
 gelijk "en plaatst niets" "" "$AANROEPEN"
 
+# `inherit_errexit` is het vangnet voor een toekomstig commando in de command substitution dat zijn
+# eigen exitcode niet afhandelt. Geen enkel gedrag van vandaag hangt eraan, dus alleen deze
+# assertie houdt hem tegen een opruimactie.
+bestand_bevat "het script zet inherit_errexit" '^shopt -s inherit_errexit$' "$SCRIPT"
+
 # --- de aansluiting op de workflows ---------------------------------------------------------------
 
 DEPLOY_YML="$REPO_ROOT/.github/workflows/deploy.yml"
@@ -427,30 +532,33 @@ CLEANUP_YML="$REPO_ROOT/.github/workflows/cleanup-preview.yml"
 # De drie plekken die dezelfde tekst moeten dragen: het script plaatst de comment onder deze
 # default, cleanup zoekt hem op `startswith` van deze tekst en deploy.yml geeft hem mee. Drift laat
 # de comment achter op een gesloten PR.
-header_uit() { sed -n "s/^ *COMMENT_HEADER: *['\"]\(.*\)['\"] *$/\1/p" "$1" | head -1; }
+header_uit() { sed -n "s/^ *COMMENT_HEADER: *['\"]\(.*\)['\"] *$/\1/p" "$1"; }
 
 SCRIPT_HEADER=$(sed -n "s/^readonly STANDAARD_HEADER='\(.*\)'$/\1/p" "$SCRIPT")
 DEPLOY_HEADER=$(header_uit "$DEPLOY_YML")
 CLEANUP_HEADER=$(header_uit "$CLEANUP_YML")
 
 # Zonder deze drie zou een gewijzigde schrijfwijze alle extracties leeg maken en zouden de
-# vergelijkingen hieronder op niets slagen.
+# vergelijkingen hieronder op niets slagen. Eén regel per workflow, want een tweede, afwijkende
+# COMMENT_HEADER verderop zou onder een `head -1` onzichtbaar blijven.
 niet_leeg "de header is uit het script te lezen" "$SCRIPT_HEADER"
-niet_leeg "de header is uit deploy.yml te lezen" "$DEPLOY_HEADER"
-niet_leeg "de header is uit cleanup-preview.yml te lezen" "$CLEANUP_HEADER"
+gelijk "deploy.yml draagt precies één header" 1 "$(printf '%s\n' "$DEPLOY_HEADER" | grep -c .)"
+gelijk "cleanup-preview.yml draagt precies één header" 1 "$(printf '%s\n' "$CLEANUP_HEADER" | grep -c .)"
 
 gelijk "deploy.yml draagt dezelfde header als het script" "$SCRIPT_HEADER" "$DEPLOY_HEADER"
 gelijk "cleanup-preview.yml draagt dezelfde header als deploy.yml" "$DEPLOY_HEADER" "$CLEANUP_HEADER"
 
 # De aanroep zelf, en niet een comment-regel die het script noemt: zonder het wegfilteren van
-# commentaar zou het verwijderen van de `run:`-regel deze controle groen laten.
-AANROEP_REGELS=$(grep -v '^[[:space:]]*#' "$DEPLOY_YML" | grep -A3 'preview-comment\.sh')
+# commentaar zou het verwijderen van de `run:`-regel deze controle groen laten. `|| true`, want een
+# grep zonder treffer zou de suite hier onder `pipefail` laten sterven — vóór de assertie die daar
+# juist iets over te zeggen heeft.
+AANROEP_REGELS=$(grep -v '^[[:space:]]*#' "$DEPLOY_YML" | grep -A3 'preview-comment\.sh' || true)
 
 niet_leeg "deploy.yml roept preview-comment.sh aan" "$AANROEP_REGELS"
 
-# De unittests bewijzen dat het script twee secties rendert als het er twee krijgt; deze twee
-# bewijzen dat de workflow ze ook meegeeft. Valt één argument weg, dan staat er nog steeds een
-# comment — met een halve preview erin, en groene CI.
+# De unittests bewijzen dat het script twee secties rendert als het er twee krijgt; deze bewijzen
+# dat de workflow ze ook meegeeft. Valt één argument weg, dan staat er nog steeds een comment — met
+# een halve preview erin, en groene CI.
 bevat "de aanroep geeft de demo mee" 'Demo=$URLS_DEMO' "$AANROEP_REGELS"
 bevat "de aanroep geeft de uitvraag mee" 'Berichtenuitvraag=$URLS_UITVRAAG' "$AANROEP_REGELS"
 
@@ -460,23 +568,34 @@ gelijk "de demo staat vooraan in de aanroep" \
   'Demo=$URLS_DEMO' \
   "$(printf '%s\n' "$AANROEP_REGELS" | sed -n 's/.*"\([A-Za-z]*=\$URLS_[A-Z]*\)".*/\1/p' | head -1)"
 
-# De env-namen in de aanroep moeten in het `env:`-blok van de stap staan; anders komen ze leeg
-# binnen en faalt de stap pas op de sectie-controle.
-for env_naam in URLS_DEMO URLS_UITVRAAG PR_NUMMER; do
-  if grep -q "^ *$env_naam: " "$DEPLOY_YML"; then
-    ok "$env_naam is in deploy.yml gedefinieerd"
-  else
-    fout "$env_naam is in deploy.yml gedefinieerd"
-  fi
-done
+# Niet alleen de namen maar de bedrading: waar de twee URL-mappen vandaan komen. Valt het
+# `outputs`-blok of de step-id weg, dan komt de env leeg binnen — dat faalt luid, maar pas tijdens
+# de deploy van de volgende PR.
+bestand_bevat "de uitvraag-job publiceert zijn URL's als job-output" \
+  '^      urls: \$\{\{ steps\.deploy\.outputs\.urls \}\}$' "$DEPLOY_YML"
+bestand_bevat "de comment-stap leest die job-output" \
+  '^          URLS_UITVRAAG: \$\{\{ needs\.deploy-preview-uitvraag\.outputs\.urls \}\}$' "$DEPLOY_YML"
+bestand_bevat "de comment-stap leest de URL's van de magazijnen-deploy" \
+  '^          URLS_DEMO: \$\{\{ steps\.deploy\.outputs\.urls \}\}$' "$DEPLOY_YML"
+
+# Het blok van de job die de comment plaatst, zodat de drie eisen eronder niet ergens anders in het
+# bestand hun bevestiging vinden.
+MAGAZIJNEN_JOB=$(awk '/^  deploy-preview-magazijnen:$/ { in_job = 1; next } in_job && /^  [a-z]/ { exit } in_job { print }' "$DEPLOY_YML")
+
+niet_leeg "de magazijnen-job is in deploy.yml te vinden" "$MAGAZIJNEN_JOB"
+bevat "die job wacht op de uitvraag-deploy" '- deploy-preview-uitvraag' "$MAGAZIJNEN_JOB"
+bevat "die job mag op de PR schrijven" 'pull-requests: write' "$MAGAZIJNEN_JOB"
+bevat "en zijn deploy-stap draagt de id waar de comment-stap naar kijkt" 'id: deploy' "$MAGAZIJNEN_JOB"
+
+# Het opruimen moet de comment vinden zoals hij geplaatst is: dezelfde `startswith`, en pagineren
+# omdat hij op een drukke PR buiten de eerste pagina valt.
+bestand_bevat "cleanup-preview.yml zoekt op startswith" 'startswith\(\$h\)' "$CLEANUP_YML"
+bestand_bevat "cleanup-preview.yml pagineert" '[-][-]paginate' "$CLEANUP_YML"
 
 # Zet iemand de comment van de action weer aan, dan schrijft die de body opnieuw met alleen de
 # URL's van haar eigen project. Het patroon dekt de drie schrijfwijzen van `true` in YAML.
-if grep -Eq "comment-on-pr:[[:space:]]*['\"]?true" "$DEPLOY_YML"; then
-  fout "geen enkele deploy-stap laat de action zelf een comment plaatsen"
-else
-  ok "geen enkele deploy-stap laat de action zelf een comment plaatsen"
-fi
+bestand_bevat_niet "geen enkele deploy-stap zet comment-on-pr aan" \
+  "comment-on-pr:[[:space:]]*['\"]?true" "$DEPLOY_YML"
 
 echo "ASSERTIES=$asserties"
 
