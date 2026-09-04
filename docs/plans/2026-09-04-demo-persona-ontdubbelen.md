@@ -34,13 +34,15 @@ Behouden — dit is kennis die alleen de generator heeft:
 | id's uniek | de configuratie sleutelt op id en kan geen twee leveren, deze constructor wel |
 | persona heeft magazijnen | `DemoPersona` staat nul magazijnen expliciet toe (Grootbedrijf). `metMagazijnen()` filtert ze normaal weg, maar de constructor neemt ze aan |
 | magazijn-OIN in `organisaties` | `MagazijnKennisUitInrichting` toetst tegen `demo.magazijnen` (aanlever-URL's), de generator tegen zijn sjablonen-map — twee verschillende verzamelingen |
-| organisatie heeft sjablonen | pre-existent, en strikt genomen een invariant van `Organisatie` zelf; blijft staan waar hij stond, want die opruiming staat los van deze wijziging |
 
 Vervallen — staat in het init-blok van `DemoPersona` en is daar getoetst:
 
 - id niet leeg
 - label niet leeg
 - `Identificatiecheck.valideer(type, waarde)`
+
+De eis dat een organisatie sjablonen heeft stond hier ook, maar is naar `Organisatie` zelf gegaan
+— dat type draagt het veld, en een organisatie zonder sjablonen is in elke context onbruikbaar.
 
 Met de lege id weg vervalt ook de `forEachIndexed`: de melding kan de persona weer bij zijn id
 noemen in plaats van bij zijn positie.
