@@ -155,6 +155,9 @@ class DualWriteFaultTest {
             .then()
             .statusCode(410)
             .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-verwijderd"))
+            // De REST-client-message noemt de aangeroepen client-methode voluit; die hoort niet in
+            // een antwoord dat naar buiten gaat.
+            .body("detail", org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("MagazijnClient")))
 
         assertEquals(0, sessiecache.werkBijAanroepen)
     }

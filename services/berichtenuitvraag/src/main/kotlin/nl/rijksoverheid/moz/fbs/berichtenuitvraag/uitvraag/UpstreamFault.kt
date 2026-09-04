@@ -71,10 +71,15 @@ internal fun hertaalMagazijnFout(e: WebApplicationException): WebApplicationExce
         else -> return e
     }
 
+    // De vaste uitleg van de code en niet de message van de REST-client: die luidt "Received:
+    // 'Gone, status code 410' when invoking REST Client method: 'nl…MagazijnClient#patchBericht'"
+    // en zet daarmee onze pakket- en klassenamen in een antwoord dat naar buiten gaat. De
+    // sanering in de mapper haalt stacktraces en bestandspaden weg, geen volledig gekwalificeerde
+    // klassenamen.
     return FbsFoutException(
         foutcode,
         Response.Status.fromStatusCode(e.response.status),
-        e.message.orEmpty(),
+        foutcode.uitleg,
         e,
     )
 }
