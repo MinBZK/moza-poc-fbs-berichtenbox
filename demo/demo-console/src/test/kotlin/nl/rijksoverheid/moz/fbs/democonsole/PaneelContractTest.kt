@@ -7,6 +7,7 @@ import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Singleton
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.MagazijnClients
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
@@ -60,6 +61,9 @@ class PaneelContractTest {
     @TestHTTPResource("/api/demo/personas")
     lateinit var personasUrl: URL
 
+    @TestHTTPResource("/api/demo/basisvulling")
+    lateinit var basisvullingUrl: URL
+
     @TestHTTPResource("/")
     lateinit var basis: URL
 
@@ -70,6 +74,7 @@ class PaneelContractTest {
     @AfterEach
     fun leegDeOpdrachten() {
         VasteAanleverService.opdrachten.clear()
+        VasteAanleverService.faalreden = null
     }
 
     private fun haal(url: URL): HttpResponse<String> =
@@ -88,6 +93,46 @@ class PaneelContractTest {
         )
 
         return respons.body()
+    }
+
+    private fun stuurJson(url: URL): String {
+        val respons = HttpClient.newHttpClient().send(
+            HttpRequest.newBuilder(url.toURI()).POST(HttpRequest.BodyPublishers.noBody()).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+
+        assertEquals(200, respons.statusCode(), "onverwachte status voor $url")
+        assertTrue(
+            respons.headers().firstValue("content-type").orElse("").startsWith("application/json"),
+            "onverwacht content-type voor $url",
+        )
+
+        return respons.body()
+    }
+
+    /**
+     * De reden van een mislukte aanlevering komt onder de sleutel `letOp` over de lijn; `letOp` in
+     * `bediening.js` leest precies die naam en accepteert alleen een string. Hernoem het veld en
+     * elke Kotlin-test blijft groen terwijl het paneel weer alleen "1 mislukt" toont.
+     */
+    @Test
+    fun `een mislukte vulling draagt haar reden onder de sleutel letOp`() {
+        VasteAanleverService.faalreden = "magazijn 00000000000000100000 was niet bereikbaar"
+
+        val letOp = ObjectMapper().readTree(stuurJson(basisvullingUrl)).path("letOp")
+
+        assertTrue(letOp.isTextual, "veld letOp ontbreekt of is geen tekst in de vulling-respons")
+        assertTrue(letOp.asText().contains("niet bereikbaar"), letOp.asText())
+    }
+
+    @Test
+    fun `een vulling zonder mislukkingen laat het veld weg in plaats van null te sturen`() {
+        // `bediening.js` filtert op het type; een expliciete null zou de regel leeg tonen in plaats
+        // van te verbergen. Dat hangt aan quarkus.jackson.serialization-inclusion.
+        assertTrue(
+            !ObjectMapper().readTree(stuurJson(basisvullingUrl)).has("letOp"),
+            "veld letOp hoort te ontbreken als er niets mislukte",
+        )
     }
 
     @Test
@@ -411,21 +456,27 @@ class VasteSimulatorService(
  */
 @Mock
 @Singleton
-class VasteAanleverService(config: DemoConfig) : AanleverService(config) {
+class VasteAanleverService(clients: MagazijnClients) : AanleverService(clients) {
 
     override fun leverAan(opdrachten: List<AanleverOpdracht>): AanleverResultaat {
         Companion.opdrachten += opdrachten
 
-        return AanleverResultaat(
+        val reden = faalreden
+
+        return AanleverResultaat.van(
             aangeboden = opdrachten.size,
-            geslaagd = opdrachten.size,
-            mislukt = 0,
+            geslaagd = if (reden == null) opdrachten.size else 0,
             markeringMislukt = 0,
+            redenen = if (reden == null) emptyList() else List(opdrachten.size) { reden },
         )
     }
 
     companion object {
 
         val opdrachten: MutableList<AanleverOpdracht> = CopyOnWriteArrayList()
+
+        /** Laat een ronde mislukken met deze reden; null houdt de vulling geslaagd. */
+        @Volatile
+        var faalreden: String? = null
     }
 }
