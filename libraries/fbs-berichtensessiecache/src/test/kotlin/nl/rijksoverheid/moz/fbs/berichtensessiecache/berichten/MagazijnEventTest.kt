@@ -5,6 +5,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -72,6 +73,15 @@ class MagazijnEventTest {
                     foutmelding = "Magazijn reageerde niet binnen de timeout",
                 ),
                 """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"TIMEOUT","foutmelding":"Magazijn reageerde niet binnen de timeout"}""",
+            ),
+            Arguments.of(
+                MagazijnBevragingMislukt(
+                    magazijnId = OIN,
+                    naam = "Magazijn A",
+                    fout = MagazijnFoutStatus.NIET_OPGEHAALD,
+                    foutmelding = "Nog niet opgehaald: te veel organisaties tegelijk in behandeling (probeer het opnieuw)",
+                ),
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"NIET_OPGEHAALD","foutmelding":"Nog niet opgehaald: te veel organisaties tegelijk in behandeling (probeer het opnieuw)"}""",
             ),
             Arguments.of(
                 OphalenGereed(totaalBerichten = 5, geslaagd = 2, mislukt = 0, totaalMagazijnen = 2),
@@ -174,6 +184,25 @@ class MagazijnEventTest {
         assertEquals(
             MagazijnStatus.entries.toSet() - MagazijnStatus.OK,
             MagazijnFoutStatus.entries.map { it.wire }.toSet(),
+        )
+    }
+
+    /**
+     * De twee enums dragen dezelfde namen; alleen de set-gelijkheid hierboven laat een verkeerde
+     * koppeling passeren (`TIMEOUT(FOUT)` blijft groen zodra iets anders `TIMEOUT` levert). En de
+     * `value` op de lijn hoort woordelijk de naam te zijn: een typefout daarin verandert stil het
+     * statuswoord dat het portaal en `demo/smoke.sh` verwachten.
+     */
+    @Test
+    fun `foutstatus, wire-status en het woord op de lijn dragen dezelfde naam`() {
+        assertTrue(
+            MagazijnFoutStatus.entries.all { it.name == it.wire.name },
+            "Foutstatus en wire-status uit elkaar gelopen: ${MagazijnFoutStatus.entries.map { it.name to it.wire.name }}",
+        )
+
+        assertTrue(
+            MagazijnStatus.entries.all { it.value == it.name },
+            "Wire-woord wijkt af van de naam: ${MagazijnStatus.entries.map { it.name to it.value }}",
         )
     }
 }

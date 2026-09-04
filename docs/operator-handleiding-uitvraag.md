@@ -70,6 +70,90 @@ aanroeper de timeout-classificatie.
 | `berichtensessiecache.cache-await-timeout-seconds` | `CACHE_AWAIT_TIMEOUT_SECONDS` | `5` | Max wachttijd op één Redis-commando tijdens de ophaal-orkestratie |
 | `berichtensessiecache.facade-await-timeout-seconds` | `FACADE_AWAIT_TIMEOUT_SECONDS` | `5` | Idem voor élk lees-/schrijfpad door de `Sessiecache`-facade; overschrijding geeft 503 |
 
+## Gelijktijdige magazijn-bevragingen
+
+De uitvraag bevraagt de magazijnen met blokkerende calls op de gedeelde worker-pool. Twee grenzen
+houden dat in de hand, en ze doen iets verschillends:
+
+`max-concurrent` is het plafond op het aantal worker-threads dat tegelijk een magazijn bevraagt,
+over alle sessies heen. `max-parallel-per-ronde` bepaalt hoeveel bevragingen één ophaalronde
+tegelijk onderweg heeft; de rest van de organisaties wacht op zijn beurt zonder een thread of een
+permit te bezetten.
+
+**De grens is een wachtrij, geen zeef.** Is er geen vrije permit, dan wacht de bevraging
+asynchroon tot `max-wachttijd-ms` en levert ze pas daarna de status `NIET_OPGEHAALD` — een eigen
+uitkomst op de SSE-stroom die zegt "dit deel ontbreekt nog" en niet "die organisatie deed het
+niet". Daarom hoeft `max-concurrent` **niet** mee te groeien met het aantal organisaties waar een
+ondernemer bij aangesloten is: honderd organisaties worden bij vijftig per ronde
+(`max-parallel-per-ronde`) in twee golven bevraagd, niet gedeeltelijk overgeslagen.
+
+| Property | Env var | Default | Wanneer aanpassen |
+|---|---|---|---|
+| `berichtensessiecache.magazijn-bulkhead.max-concurrent` | `BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT` | `50` | Verhoog bij veel gelijktijdige ophaalrondes; houd het een fractie van de worker-pool (zonder expliciete `quarkus.thread-pool.max-threads` minimaal 200 threads), anders verdwijnt de bescherming die deze grens is |
+| `berichtensessiecache.magazijn-bulkhead.max-parallel-per-ronde` | `BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_PARALLEL_PER_RONDE` | `50` | Verlaag om één ondernemer minder van de gedeelde capaciteit te laten pakken. MOET ≤ `max-concurrent` blijven — de service start anders niet, dus verlaag je `max-concurrent`, verlaag dan ook deze. Staat standaard gelijk aan `max-concurrent`: één ondernemer mag de volle capaciteit gebruiken, maar een tweede gelijktijdige ronde wacht dan wel meteen |
+| `berichtensessiecache.magazijn-bulkhead.max-wachttijd-ms` | `MAGAZIJN_WACHTBUDGET_MS` | `15000` | MOET ≥ `magazijn-query-timeout-seconds` zijn en ≤ 120000 — buiten die band start de service niet. Draai je aan `MAGAZIJN_QUERY_TIMEOUT_SECONDS`, beweeg dit budget dan mee |
+
+`NIET_OPGEHAALD` in de logs staat als `Aggregatie-bulkhead bleef vol; magazijn … niet bevraagd
+(OVERBELAST)` op `WARN` — een capaciteitssignaal, geen storing van het magazijn. Welke knop erbij
+hoort hangt af van het patroon: komt het in vlagen tijdens pieken, dan is het wachtbudget te krap
+voor die piek; blijft het aanhouden terwijl de magazijnen gezond zijn, dan is `max-concurrent` te
+laag voor de gelijktijdige belasting en helpt een groter budget alleen om het uit te stellen.
+
+**Let op bij een grote fan-out.** Een ophaalronde duurt in het slechtste geval
+`⌈organisaties ÷ max-parallel-per-ronde⌉ × (max-wachttijd-ms ÷ 1000 + magazijn-query-timeout-seconds)`.
+De wachttijd hoort erbij omdat een bevraging eerst haar budget kan volmaken en daarna alsnog op de
+query-timeout kan lopen; alleen zonder gelijktijdige ophaalrondes valt die term weg en blijft
+`⌈organisaties ÷ max-parallel-per-ronde⌉ × query-timeout` over. Bij honderd organisaties, vijftig
+per ronde, een budget van 15 s en een timeout van 10 s is dat 2 × 25 = 50 seconden — ruim binnen de
+vangnet-TTL van de ophaal-lock (`berichtensessiecache.aggregation-lock-ttl`, `PT2M`). In de praktijk
+haalt een ronde dat niet: alleen organisaties die niet antwoorden maken hun timeout vol, en het
+wachtbudget komt pas in beeld als meerdere ondernemers tegelijk ophalen (gemeten: 10 seconden bij
+honderd organisaties). Maar reken de som na vóór je de fan-out of de timeouts vergroot: verstrijkt
+de lock middenin een ronde, dan vervalt de bescherming tegen een tweede gelijktijdige ronde voor
+dezelfde ontvanger. Verhoog dan `aggregation-lock-ttl` mee, of `max-parallel-per-ronde` (binnen
+`max-concurrent`). Er is geen startup-controle op deze verhouding — het aantal organisaties van een
+ondernemer is bij het opstarten niet bekend.
+
+### De wachtrij volgen in de log
+
+Per ophaalronde staan er twee regels op `INFO`, en die beantwoorden samen de vraag of iedereen aan
+bod kwam:
+
+```
+Ophaalronde: 100 bevragingen, 50 tegelijk, 50 in de wachtrij
+Ophaalronde afgerond in 2431 ms: 100 van 100 organisaties bevraagd (91 geslaagd, 9 niet)
+```
+
+Staat er in de tweede regel een lager eerste getal dan het tweede, dan is een organisatie
+verdwenen zonder uitkomst — dat hoort niet te kunnen en is een bevinding, geen capaciteitssignaal.
+
+Zet de categorie op `DEBUG` en je ziet er per organisatie bij wanneer ze aan de beurt kwam en of
+ze op een permit heeft gewacht:
+
+```
+QUARKUS_LOG_CATEGORY__nl_rijksoverheid_moz_fbs_berichtensessiecache__LEVEL=DEBUG
+```
+
+```
+Magazijn 00000009000000000001 aan de beurt (1 van 100, 0 ms na de start van de ronde)
+...
+Magazijn 00000009000000000051 aan de beurt (51 van 100, 118 ms na de start van de ronde)
+Magazijn 00000009000000000051 wacht op een vrije permit (0 van 50 vrij, al 0 ms onderweg)
+Magazijn 00000009000000000051 kreeg een permit na 84 ms wachten
+```
+
+De eerste vijftig staan op ~0 ms, de rest schuift op zodra er een plek vrijkomt: dat is de
+ronde-wachtrij. De `wacht op een vrije permit`-regels komen daar pas bij als er meerdere
+ophaalrondes tegelijk lopen — binnen één ronde is er per definitie een permit vrij op het moment
+dat de wachtrij een organisatie oppakt. In dev staat deze categorie al op `DEBUG`.
+
+**De half-open probe van de circuit breaker kan nu zo lang als het wachtbudget bezet zijn.** Staat
+een magazijn op half-open (één proef-call na een open circuit) en moet die proef-call op een permit
+wachten, dan krijgen andere ophaalrondes voor dat magazijn in dat venster `CIRCUIT_OPEN`. Het
+herstel van een magazijn dat allang weer gezond is, wordt daarmee hooguit één wachtbudget
+vertraagd. Bewuste afweging: de probe vóór de permit claimen houdt de bestaande eigenschap in stand
+dat een dood magazijn geen permits bezet.
+
 ## Hoeveel berichten per organisatie
 
 De uitvraag pagineert per magazijn door tot alles binnen is of de bovengrens bereikt is. Zit een

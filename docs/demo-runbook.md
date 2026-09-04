@@ -398,9 +398,13 @@ zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een s
 - **Genereer vóór `up`** voor de gesimuleerde magazijnen; anders is het register leeg.
 - **`export DEMO_MAGAZIJNEN=N`** voedt het script; de console vraagt het aantal aan de simulator zelf (anders klopt
   de k-schuif niet met het aantal magazijnen).
-- **Bulkhead** staat in de demo op 120 (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`). Bij
-  n > 60 wijst de uitvraag de overtollige magazijn-calls direct af als "systeem druk" (OVERBELAST) —
-  dat is bewust fail-fast-gedrag, geen bug.
+- **De gelijktijdigheidsgrens hoeft niet meer opgerekt te worden.** De uitvraag bevraagt per ronde
+  vijftig organisaties tegelijk en zet de rest in de wachtrij, dus ook de persona met honderd
+  organisaties krijgt ze allemaal — in twee golven. In de log van de uitvraag staat dat per ronde:
+  `Ophaalronde: 100 bevragingen, 50 tegelijk, 50 in de wachtrij` en daarna
+  `Ophaalronde afgerond in … ms: 100 van 100 organisaties bevraagd`. Zie je toch de status
+  `NIET_OPGEHAALD` bij gezonde magazijnen, dan is het wachtbudget te krap voor wat er tegelijk loopt
+  (`MAGAZIJN_WACHTBUDGET_MS`).
 - **Paginagrootte staat in de demo op 5** (`BERICHTENSESSIECACHE_MAGAZIJN_PAGE_SIZE`), waar productie
   er honderd vraagt. De demo-dataset zet zes tot tien berichten per organisatie per ondernemer; met
   de productiewaarde komt dat in één call binnen en is er niets van het doorpagineren te zien. Wil je

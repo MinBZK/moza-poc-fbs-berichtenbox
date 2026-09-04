@@ -13,11 +13,19 @@ enum class EventType(@get:JsonValue val value: String) {
     OPHALEN_FOUT("ophalen-fout"),
 }
 
-/** Uitkomst van een afgeronde magazijn-bevraging, zoals die op de lijn verschijnt. */
+/**
+ * Uitkomst van een afgeronde magazijn-bevraging, zoals die op de lijn verschijnt.
+ *
+ * [NIET_OPGEHAALD] is geen storing van dát magazijn: de bevraging is niet eens gestart omdat de
+ * gelijktijdigheidsgrens van de uitvraag zelf vol bleef binnen het wachtbudget. Een portaal hoort
+ * dat als "dit deel ontbreekt nog" te tonen en niet als een organisatie die eruit ligt — het
+ * verschil is voor de ondernemer betekenisvol, want opnieuw proberen helpt hier wél.
+ */
 enum class MagazijnStatus(@get:JsonValue val value: String) {
     OK("OK"),
     FOUT("FOUT"),
     TIMEOUT("TIMEOUT"),
+    NIET_OPGEHAALD("NIET_OPGEHAALD"),
 }
 
 /**
@@ -29,6 +37,7 @@ enum class MagazijnStatus(@get:JsonValue val value: String) {
 enum class MagazijnFoutStatus(val wire: MagazijnStatus) {
     FOUT(MagazijnStatus.FOUT),
     TIMEOUT(MagazijnStatus.TIMEOUT),
+    NIET_OPGEHAALD(MagazijnStatus.NIET_OPGEHAALD),
 }
 
 /**

@@ -106,4 +106,17 @@ class MagazijnResultTest {
         assertEquals(1, response.berichten.size)
         assertNotNull(response.toString())
     }
+
+    /**
+     * De twee assen zijn afzonderlijk exhaustief, maar hun samenhang bewaakt niemand: een call die
+     * het magazijn niet bereikte kan onmogelijk een storing van dát magazijn zijn. Een nieuwe fault
+     * die beide op de verkeerde manier krijgt, zou circuits openen op grond van onze eigen
+     * saturatie — en dat compileert gewoon.
+     */
+    @Test
+    fun `een fault die het magazijn niet bereikte telt nooit als storing`() {
+        val tegenstrijdig = MagazijnFault.entries.filter { !it.magazijnBereikt && it.teltAlsStoring }
+
+        assertEquals(emptyList<MagazijnFault>(), tegenstrijdig)
+    }
 }
