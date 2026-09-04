@@ -314,3 +314,69 @@ Gemeten op één machine waarop de hele stack draaide (uitvraag, Redis, twee ech
 een PostgreSQL, de simulator met 98 magazijnen op nog een PostgreSQL, het bedieningspaneel en de
 stubs), dus de getallen zijn pessimistisch — zie de meetopstelling in
 `docs/plans/2026-08-21-magazijn-simulator-design.md`.
+
+### Opnieuw gemeten na het samenvoegen met het doorpagineren
+
+De metingen hierboven komen van vóór
+[#282](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/pull/282). De uitvraag haalde toen per
+organisatie één pagina op, en de lokale demo stond leeg — elke organisatie antwoordde met nul
+berichten. Sinds het doorpagineren staat de demo op pagina's van vijf, en met de standaardvulling
+van 27 berichten per organisatie zijn dat zes opeenvolgende calls per organisatie in plaats van één.
+Beide toestanden opnieuw gemeten, drie ronden, mediaan:
+
+**Lege magazijnen** — één call per organisatie, dus vergelijkbaar met de tabel hierboven:
+
+| Ondernemer | Organisaties | Eerste bericht | Compleet | Geslaagd |
+|---|---|---|---|---|
+| kleine-eenmanszaak | 3 | 18 ms | 0,07 s | 3 van 3 |
+| klein-bedrijf | 15 | 21 ms | 2,1 s | 15 van 15 |
+| grootbedrijf | 45 | 24 ms | 6,2 s | 41 van 45 |
+| landelijk-concern | 100 | 21 ms | 7,0 s | 90 van 100 |
+
+Dezelfde aantallen als eerder (3/15/41/91), dus de wachtrij doet nog wat ze deed. "Compleet"
+varieert per ronde tussen 2 en 10 seconden, want welke organisatie de query-timeout volmaakt
+verschilt; de mediaan van drie ronden is daar te grof voor.
+
+**Gevulde magazijnen** — de normale demo-toestand na *Basisvulling laden* + de simulator vullen:
+
+| Ondernemer | Organisaties | Eerste bericht | Compleet | Geslaagd |
+|---|---|---|---|---|
+| kleine-eenmanszaak | 3 | 40 ms | 0,35 s | 3 van 3 |
+| klein-bedrijf | 15 | 27 ms | 10,0 s | 13 van 15 |
+| grootbedrijf | 45 | 19 ms | 10,0 s | 37 van 45 |
+| landelijk-concern | 100 | 20 ms | **geen slotevent** | 81 van 100 |
+
+Geen enkele `NIET_OPGEHAALD` in beide toestanden — de wachtrij is nog steeds niet de bottleneck.
+Twee dingen zijn wél anders, en allebei komen ze van het doorpagineren:
+
+1. **Zes calls per organisatie kosten organisaties die alleen traag zijn hun ronde.** Bij vijftien
+   organisaties gaat het van 15 van 15 in 2,8 s naar 13 van 15 op de query-timeout van 10 s: de
+   twee die afvallen zijn TIMEOUT, niet FOUT. Op deze meetopstelling draait één simulator alle 98
+   magazijnen op één PostgreSQL, dus dit is een eigenschap van de demo-instelling (`pageSize` 5) en
+   van de opstelling, niet van de keten.
+2. **Bij honderd organisaties breekt de ophaalronde af op het wegschrijven naar Redis.** Alle
+   honderd organisaties worden bevraagd en alle VOLTOOID-events komen door; daarna faalt
+   `RedisBerichtenCache.store` met `Redis waiting queue is full` en eindigt de SSE-stroom zonder
+   `ophalen-gereed`. Twee van de drie ronden liepen zo. Zie hieronder.
+
+### Openstaand: de cache-schrijf schaalt niet mee met de fan-out
+
+`store` zet per bericht twee commando's (`HSET` + `EXPIRE`) in één transactie en biedt ze in één
+keer aan (`Uni.join().all`). Bij honderd organisaties × 27 berichten zijn dat ruim 4300 commando's
+tegelijk, tegen de 2048 die de Vert.x-Redis-client in zijn wachtrij toelaat
+(`quarkus.redis.max-waiting-handlers`). Gemeten grens op deze opstelling: 945 berichten (45
+organisaties) gaat altijd goed, 2100–2300 berichten (100 organisaties) tweemaal van de drie mis. Het
+is een race — de client verwerkt tijdens het aanbieden ook al — geen harde drempel.
+
+Dit is geen demo-eigenschap: `max-waiting-handlers` is een client-instelling en geldt in productie
+net zo goed. De wachtrij van deze PR is wél wat het zichtbaar maakt: vóór deze wijziging kwamen er
+maar twintig organisaties door, en die twintig pasten er ruim binnen.
+
+Twee richtingen, geen van beide in deze PR:
+
+* `quarkus.redis.max-waiting-handlers` verhogen — één regel, maar het verplaatst de grens alleen
+  naar een groter aantal organisaties.
+* `store` in delen aanbieden in plaats van in één keer — houdt de grens onafhankelijk van de
+  fan-out, en raakt de transactie-semantiek (nu is de hele lijst één transactie).
+
+Losgetrokken als vervolgwerk; deze PR gaat over de wachtrij en niet over het cache-schrijfpad.
