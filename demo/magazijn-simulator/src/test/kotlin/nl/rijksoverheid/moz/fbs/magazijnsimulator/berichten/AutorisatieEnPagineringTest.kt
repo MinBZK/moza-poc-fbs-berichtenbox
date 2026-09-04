@@ -22,7 +22,8 @@ import java.util.Base64
  *
  * **De volgorde van 403 en 404.** Andermans bericht levert 403 op, óók als het al verwijderd is:
  * uit een verschil tussen 403 en 404 zou anders af te leiden zijn welke bericht-id's bestaan. Je
- * eigen verwijderde bericht levert wél 404 op, want dat bestaat voor jou niet meer.
+ * eigen verwijderde bericht levert een 410 op, want die controle valt ná de eigenaar-check en mag
+ * dus onthullen dat het bericht bestond.
  *
  * **De paginering.** `self`, `first` en `last` staan er altijd, `prev` en `next` alleen als die
  * pagina bestaat, en een pagina voorbij het einde is een lege lijst met 200 — geen 404.
@@ -83,7 +84,7 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
     }
 
     @Test
-    fun `je eigen verwijderde bericht bijwerken levert 404`() {
+    fun `je eigen verwijderde bericht bijwerken levert 410 met het kenmerk bericht-verwijderd`() {
         val berichtId = leverAan()
 
         given()
@@ -92,13 +93,17 @@ class AutorisatieEnPagineringTest : MagazijnTestBasis() {
             .then()
             .statusCode(204)
 
+        // Ná de eigenaar-check, dus het antwoord mag zeggen dát het bericht bestond — precies wat
+        // het echte magazijn hier doet. Een simulator die 404 blijft geven, laat de demo een
+        // onderscheid missen dat de keten wél maakt.
         given()
             .header(ONTVANGER_HEADER, ONTVANGER)
             .contentType(MERGE_PATCH_JSON)
             .body("""{"gelezen": true}""")
             .`when`().patch("$BASIS/berichten/$berichtId")
             .then()
-            .statusCode(404)
+            .statusCode(410)
+            .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
     }
 
     /**

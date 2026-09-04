@@ -152,10 +152,15 @@ eerlijk maken over waar de grens loopt.
 | `services/berichtenuitvraag/.../uitvraag/BerichtOphaalService.kt` | Expliciete `bericht-onbekend` i.p.v. kale `NotFoundException` |
 | `services/berichtenmagazijn/.../beheer/BerichtBeheerService.kt` | 410 op PATCH van een eigen verwijderd bericht |
 | `services/*/src/main/resources/openapi/*.yaml` | 410-response + foutentabel in `info.description` |
+| `demo/magazijn-simulator/.../fout/Foutcode.kt`, `SimulatorFout.kt` (nieuw) | Eigen kopie van de codes die een magazijn kan produceren, plus de drager naar de mapper |
+| `demo/magazijn-simulator/.../berichten/BerichtService.kt` | 410 op PATCH van een eigen verwijderd bericht, net als het echte magazijn |
 
-Buiten scope: `demo/magazijn-simulator` houdt zijn eigen foutafhandeling. Het door de gebruiker
-verwijderde bericht wordt op het uitvraag-pad afgevangen door de tombstone, dus de demo profiteert
-zonder dat de simulator meeverandert.
+`demo/magazijn-simulator` gaat mee. Hij hangt bewust niet aan `fbs-common` — die library brengt
+haar eigen JAX-RS-providers mee, die zich naast de mappers van de simulator zouden registreren —
+dus krijgt hij een eigen kopie van de codes die een magazijn kan produceren, met de reden erbij in
+de KDoc. Zonder die stap zou juist de omgeving waarin dit kenmerk aan de opdrachtgever getoond
+wordt, als enige `about:blank` teruggeven en op `PATCH` van een eigen verwijderd bericht een 404 in
+plaats van de 410 die het echte magazijn geeft.
 
 ## Stappen
 
